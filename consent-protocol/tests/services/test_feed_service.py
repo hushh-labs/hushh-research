@@ -1535,3 +1535,48 @@ def test_card_share_notice_requires_authoritative_recipient_grant():
         == "Shared payment card"
     )
     assert feed_service_module._direct_message_preview("Ordinary message") == "Ordinary message"
+
+
+@pytest.mark.parametrize(
+    "matched,blocked,state,incomplete,reason",
+    [
+        (12, 12, "completed", False, "matching_files_unshareable"),
+        (0, 0, "completed", False, "no_matching_files"),
+        (12, 12, "running", False, None),
+        (12, 12, "completed", True, None),
+        (12, 11, "completed", False, None),
+        (None, None, None, None, None),
+    ],
+)
+def test_terminal_drive_outcome_uses_live_counts_not_forged_snapshot(
+    matched, blocked, state, incomplete, reason
+):
+    request_id = "11111111-2222-4333-8444-555555555555"
+    service = FeedService()
+    service._db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "current_request_status": "no_match",
+                    "outcome_search_status": state,
+                    "outcome_search_incomplete": incomplete,
+                    "outcome_search_matched": matched,
+                    "outcome_search_unshareable": blocked,
+                }
+            ]
+        ]
+    )
+    row = {
+        "id": 1,
+        "event_type": "document_share_outcome",
+        "metadata": {
+            "request_id": request_id,
+            "current_outcome_reason": "matching_files_unshareable",
+        },
+    }
+    hydrated = service._with_drive_payment_status("requester", [row])[0]
+    item = service._to_item(hydrated, "requester")
+    assert item["metadata"].get("current_outcome_reason") == reason
+    assert "outcome_search_matched" not in str(item)
+    assert "current_outcome_reason" not in service._to_item(row)["metadata"]

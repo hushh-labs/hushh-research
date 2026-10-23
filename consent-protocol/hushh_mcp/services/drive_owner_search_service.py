@@ -643,15 +643,41 @@ def _shareability(source: dict) -> dict:
     """
     capabilities = source.get("capabilities")
     encryption = source.get("clientEncryptionDetails")
-    if encryption is not None and (
-        not isinstance(encryption, dict) or encryption.get("encryptionState") != "unencrypted"
-    ):
-        return {"shareable": False, "unavailableReason": "source_not_shareable"}
-    if isinstance(capabilities, dict) and capabilities.get("canShare") is True:
-        return {"shareable": True}
-    if isinstance(capabilities, dict) and capabilities.get("canShare") is False:
-        return {"shareable": False, "unavailableReason": "source_not_shareable"}
-    return {"shareable": False, "unavailableReason": "shareability_unverified"}
+    can_share = capabilities.get("canShare") if isinstance(capabilities, dict) else None
+    encryption_state = (
+        "absent"
+        if encryption is None
+        else "unencrypted"
+        if isinstance(encryption, dict) and encryption.get("encryptionState") == "unencrypted"
+        else "not_unencrypted"
+    )
+    reason = (
+        "encryption_restricted"
+        if encryption_state == "not_unencrypted"
+        else "allowed"
+        if can_share is True
+        else "capability_denied"
+        if can_share is False
+        else "capability_unverified"
+    )
+    return {
+        "shareable": reason == "allowed",
+        **(
+            {
+                "unavailableReason": "shareability_unverified"
+                if reason == "capability_unverified"
+                else "source_not_shareable"
+            }
+            if reason != "allowed"
+            else {}
+        ),
+        "shareabilityEvidence": {
+            "version": 1,
+            "canShare": can_share if type(can_share) is bool else None,
+            "encryptionState": encryption_state,
+            "reason": reason,
+        },
+    }
 
 
 def _counter(checkpoint: dict, key: str, amount: int = 1) -> None:

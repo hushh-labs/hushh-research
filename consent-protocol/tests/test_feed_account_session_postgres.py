@@ -72,6 +72,9 @@ def feed_db():
                   access_stop_requested_at TIMESTAMPTZ, payment_required BOOLEAN,
                   settlement_method TEXT, preparation_error_code TEXT,
                   quoted_amount_cents BIGINT, existing_access_waived_at TIMESTAMPTZ);
+                CREATE TABLE drive_owner_search_jobs(user_id TEXT, client_request_id UUID,
+                  status TEXT, incomplete_search BOOLEAN, matched INT, unshareable_count INT,
+                  UNIQUE(user_id,client_request_id));
                 CREATE TABLE drive_request_payment_orders(request_id UUID PRIMARY KEY,
                   stripe_mode TEXT, status TEXT, stripe_checkout_session_id TEXT,
                   stripe_checkout_expires_at TIMESTAMPTZ, amount_cents BIGINT,

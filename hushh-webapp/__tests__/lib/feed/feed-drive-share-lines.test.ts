@@ -104,9 +104,18 @@ describe("Drive rows in the Feed", () => {
     ).toBe("No files were shared");
     expect(
       presentFeedItem(item("document_share_outcome", {
-        user_facing_status: "no_match",
+        user_facing_status: "no_match", current_outcome_reason: "no_matching_files",
       })).description,
-    ).toBe("No file candidates in this search; nothing was shared");
+    ).toBe("No matching files");
+  });
+
+  it.each([{}, recipient])("distinguishes blocked matches without leaking files or claiming a payment failure", audience => {
+    expect(presentFeedItem(item("document_share_outcome", { ...audience,
+      user_facing_status: "no_match", current_outcome_reason: "matching_files_unshareable",
+    })).description).toBe("Matching files could not be shared");
+    expect(presentFeedItem(item("document_share_outcome", { ...audience,
+      user_facing_status: "no_match", current_outcome_reason: "unknown",
+    })).description).toBe("No files were shared");
   });
 
   it("announces consent without claiming pre-payment sharing, and a decline", () => {

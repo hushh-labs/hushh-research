@@ -785,24 +785,41 @@ describe("exact-file document review", () => {
   });
 
   it("does not claim a completed empty search proves no relevant files exist", async () => {
-    state.status.mockResolvedValue({ ...initial(), status: "no_match" });
+    state.status.mockResolvedValue({ ...initial(), status: "no_match", outcomeReason: "no_matching_files" });
     state.delivery.mockResolvedValue({ status: "no_match", files: [], sharedCount: 0 });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-    expect(await screen.findByRole("status")).toHaveTextContent("No file candidates in this search");
+    expect(await screen.findByRole("status")).toHaveTextContent("No matching files");
     expect(screen.queryByText("Sharing incomplete")).toBeNull();
     expect(state.review).not.toHaveBeenCalled();
   });
 
   it("shows the no-match outcome after a manual progressive search", async () => {
-    state.status.mockResolvedValue({ ...pending(), status: "no_match" });
+    state.status.mockResolvedValue({ ...pending(), status: "no_match", outcomeReason: "no_matching_files" });
     state.review.mockResolvedValue(partial({
       status: "no_match", durableAvailable: true, progressiveAllowed: true,
       search: durableSearch({ status: "completed", matched: 0 }),
     }));
     state.delivery.mockResolvedValue({ status: "no_match", files: [], sharedCount: 0 });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-    expect(await screen.findByRole("status")).toHaveTextContent("No file candidates in this search");
+    expect(await screen.findByRole("status")).toHaveTextContent("No matching files");
     expect(screen.getByRole("status")).not.toHaveTextContent("0 file candidates");
+  });
+
+  it.each(["incoming", "outgoing"] as const)("keeps found-but-blocked results distinct for %s without restarting work", async direction => {
+    state.status.mockResolvedValue({ ...initial(), direction,
+      status: direction === "incoming" ? "no_match" : "no_files_shared",
+      outcomeReason: "matching_files_unshareable",
+      ...(direction === "incoming" ? { matchedFileCount: 12, unshareableFileCount: 12 } : {}),
+    });
+    state.delivery.mockResolvedValue({ status: "no_files_shared", files: [], sharedCount: 0 });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("Matching files could not be shared");
+    expect(screen.queryByText("No matching files")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Pay/ })).toBeNull();
+    expect(state.review).not.toHaveBeenCalled();
+    expect(state.startRequestSearch).not.toHaveBeenCalled();
+    if (direction === "incoming") expect(screen.getByText(/12 files found/)).toBeVisible();
+    else expect(screen.queryByText(/12 files found/)).toBeNull();
   });
 
   it("tells the requester who must allow, then what to pay, never a delay", async () => {
@@ -834,7 +851,7 @@ describe("exact-file document review", () => {
   });
 
   it("tells the requester only that no files matched", async () => {
-    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "no_files_shared" });
+    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "no_files_shared", outcomeReason: "no_matching_files" });
     state.delivery.mockResolvedValue({ status: "no_files_shared", files: [], sharedCount: 0 });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
     expect(await screen.findByRole("status")).toHaveTextContent("No matching files");

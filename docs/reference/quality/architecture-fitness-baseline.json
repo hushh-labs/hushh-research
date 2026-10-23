@@ -5050,7 +5050,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "DriveSharingStore",
-      "value": 3364
+      "value": 3372
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5131,7 +5131,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": "FeedService",
-      "value": 1255
+      "value": 1270
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -10459,7 +10459,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "operation",
-      "value": 113
+      "value": 121
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10495,7 +10495,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
       "symbol": "request_status",
-      "value": 118
+      "value": 126
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10639,7 +10639,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": "_with_drive_payment_status",
-      "value": 205
+      "value": 218
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -19054,7 +19054,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_owner_search_service.py",
       "symbol": null,
-      "value": 3433
+      "value": 3459
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19189,7 +19189,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": null,
-      "value": 1672
+      "value": 1688
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20701,7 +20701,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
       "symbol": null,
-      "value": 4969
+      "value": 5013
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20719,7 +20719,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_request_search_unit.py",
       "symbol": null,
-      "value": 3842
+      "value": 3853
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20800,7 +20800,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_feed_service.py",
       "symbol": null,
-      "value": 1537
+      "value": 1582
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22582,7 +22582,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-share-review.test.tsx",
       "symbol": null,
-      "value": 2619
+      "value": 2636
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23131,7 +23131,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/drive-sharing-service.test.ts",
       "symbol": null,
-      "value": 1675
+      "value": 1692
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23743,7 +23743,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/document-share-review.tsx",
       "symbol": null,
-      "value": 2633
+      "value": 2644
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25561,7 +25561,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/drive-sharing-service.ts",
       "symbol": null,
-      "value": 2379
+      "value": 2390
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -85006,5 +85006,126 @@
     ],
     "reviewer": "architecture_fitness_evidence",
     "validation": "Independent read-only source review; 60 focused Python Calendar tests and targeted Ruff checks pass. Shared ended-time helper and timeline tests passed before this source-only extraction; legacy detail-dialog branch has no direct assertion."
+  },
+  "drive_found_unshareable_review_20261023": {
+    "base_revision": "989afe4336820c3b4b381aef5a827f69bdece21d",
+    "reviewers": [
+      "drive_backend",
+      "drive_frontend"
+    ],
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 3364,
+        "after": 3372,
+        "source_sha256": "fc87ecb5bb8289ae9d95dcdf3a43f52901dfd3b46bbfea392990ed676444caad",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/feed_service.py|FeedService|class exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 1255,
+        "after": 1270,
+        "source_sha256": "7a8ca4a0524b941395f7dc522e115132c566e780fba2cb5ca34735edba1804a9",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
+        "sorted_occurrence": 5,
+        "before": 113,
+        "after": 121,
+        "source_sha256": "fc87ecb5bb8289ae9d95dcdf3a43f52901dfd3b46bbfea392990ed676444caad",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/feed_service.py|_with_drive_payment_status|function exceeds the advisory gene budget",
+        "sorted_occurrence": 0,
+        "before": 205,
+        "after": 218,
+        "source_sha256": "7a8ca4a0524b941395f7dc522e115132c566e780fba2cb5ca34735edba1804a9",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|request_status|function exceeds the advisory gene budget",
+        "sorted_occurrence": 0,
+        "before": 118,
+        "after": 126,
+        "source_sha256": "fc87ecb5bb8289ae9d95dcdf3a43f52901dfd3b46bbfea392990ed676444caad",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 4969,
+        "after": 5013,
+        "source_sha256": "3caae54e3fe152e2b0667806862c2b3a4fb4215560d375500ca7f4ba4a7d0aad",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_request_search_unit.py||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 3842,
+        "after": 3853,
+        "source_sha256": "8bf2e1beaf4eac7ba5a491e590990294a735a2c6d8394de79ce959bbf165bfa0",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_service.py||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 3433,
+        "after": 3459,
+        "source_sha256": "aba89005179a85d9e47f3acfecef180e552cc5a63f4effd5fd08cdc4446e0874",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|hushh-webapp/components/consent/document-share-review.tsx||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 2633,
+        "after": 2644,
+        "source_sha256": "c21354f07ed5d0b5dee57ab7af4a767a740f20210a993b45e0230d2c3052a12c",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/document-share-review.test.tsx||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 2619,
+        "after": 2636,
+        "source_sha256": "77ab6c1f9ea9b6dc424bbe05fdbb260c6f32cee632eb45669509c4f66895452a",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/drive-sharing-service.ts||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 2379,
+        "after": 2390,
+        "source_sha256": "dffccf14d04faab36d955c6883ebed7fc685d33e7fa2ef7af20423845cb7b425",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 1675,
+        "after": 1692,
+        "source_sha256": "df3f716d94770a798b35fc58202c379ed60be0f969b7c6e541e10a6b40ba6b51",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/feed_service.py||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 1672,
+        "after": 1688,
+        "source_sha256": "7a8ca4a0524b941395f7dc522e115132c566e780fba2cb5ca34735edba1804a9",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_feed_service.py||module exceeds the advisory operon budget",
+        "sorted_occurrence": 0,
+        "before": 1537,
+        "after": 1582,
+        "source_sha256": "6f5ac592861a3ec0a8a4a14230b797ec2d5ecd4db40ce2c52ec5c65ac07d6ab6",
+        "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      }
+    ]
   }
 }
