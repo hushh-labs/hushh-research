@@ -203,12 +203,14 @@ describe("three-account Calendar board", () => {
   });
 
   it("shows a direct Join link and provider on an event without nesting the link in the details button", async () => {
-    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], events: [{ ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }] }] });
+    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], checked_at: board.checked_at, events: [{ ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }] }] });
     render(page());
     const join = await screen.findByRole("link", { name: "Join meeting: Planning review" });
     expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
     expect(join.closest("button")).toBeNull();
     expect(screen.getByText("Google Meet")).toBeInTheDocument();
+    expect(screen.getByText("Connected", { exact: true })).toBeInTheDocument();
+    expect(screen.queryByText(/Awaiting your response/i)).toBeNull();
   });
 
   it("summarizes occasions after meetings and opens a responsive detail dialog", async () => {
@@ -226,7 +228,9 @@ describe("three-account Calendar board", () => {
     expect(within(card).queryByText("Birthday")).toBeNull();
     expect(within(card).queryByText("Festival")).toBeNull();
     const meetingList = within(card).getByRole("region", { name: "Events for default@example.com" });
-    expect(meetingList).toHaveAttribute("data-scrollable", "true");
+    expect(meetingList).not.toHaveAttribute("data-scrollable");
+    expect(meetingList).not.toHaveAttribute("tabindex");
+    expect(within(card).getByRole("region", { name: "Calendar events for default@example.com" })).toHaveAttribute("data-scrollable", "true");
     expect(within(meetingList).getAllByRole("listitem")).toHaveLength(4);
     expect(card.querySelector("[data-photo-url]")).toHaveAttribute("data-photo-url", photo);
     expect(within(card).getByRole("link", { name: "Join meeting: Planning review" })).toBeInTheDocument();
