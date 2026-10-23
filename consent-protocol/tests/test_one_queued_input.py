@@ -115,6 +115,20 @@ def _queue(client_id: str = "client-msg-0001", text: str = QUEUED) -> Callable[[
     return lambda: queued_input.registry.enqueue(OWNER, THREAD, client_id, text)
 
 
+def test_search_finish_cutover_never_loses_accepted_or_late_input():
+    registry = queued_input.QueuedInputRegistry()
+    registry.open_run(OWNER, THREAD, "run", accepting=True)
+    assert not registry.try_finish_run("another-owner", THREAD, "run")
+    assert registry.enqueue(OWNER, THREAD, "client-msg-0001", QUEUED).status == "queued"
+    assert not registry.try_finish_run(OWNER, THREAD, "run")
+    items = registry.drain(OWNER, THREAD, "run")
+    assert not registry.try_finish_run(OWNER, THREAD, "run")  # persistence in flight
+    registry.persisted(OWNER, THREAD, "run", items[0])
+    assert registry.try_finish_run(OWNER, THREAD, "run")
+    assert registry.enqueue(OWNER, THREAD, "client-msg-0002", "Next turn").status == "returned"
+    assert registry.close_run(OWNER, THREAD, "run").delivered == ("client-msg-0001",)
+
+
 @pytest.mark.asyncio
 async def test_queued_message_joins_the_next_step_after_a_tool():
     """Two tool steps: a message queued during step 1 is in the model input of step 2."""

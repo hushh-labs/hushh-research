@@ -185,6 +185,28 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: One public-search final answer
+
+- Owner: One; `hushh_mcp/agents/one/agent.yaml` authors when the existing isolated
+  `google_search` child may complete the entire public request unchanged.
+- Output: the tool declaration exposes `request: string` and optional
+  `finish_turn: boolean`. Only explicit `true` requests delegation; omission,
+  false and unsupported search transports retain ordinary root synthesis.
+- Validators in `one_adk/search_answer.py` admit only fresh grounded completed
+  output, the invocation's sole tool call, no earlier visible answer or pending
+  review, current managed owner authority and an atomic empty-input finish.
+  They never classify the request, rewrite the child's answer or authorize an
+  action. Stop, revocation, failures and competing input prevent publication.
+- The exact answer and grounding become one ordinary One assistant event;
+  `one_delegated_search_answer_v1` and content-free saved-call telemetry expose
+  the removed synthesis stage. No transcript is placed in handoff state.
+- Live eval: before promotion, measure public-only synthetic Azure calls against
+  the serving model; after UAT promotion, require authenticated HTTP search,
+  citations and same-chat continuation, joined to the serving revision's logs.
+  Offline AG-UI regression and negative controls protect history, authority,
+  queued-input and completion accounting. No browser or vault fixture mutation
+  is required. Rollback selects the prior application revision.
+
 ### Declared: One task suggestions
 
 - Owner: One's internal `one_todo_suggestions` child in

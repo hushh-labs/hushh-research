@@ -1,5 +1,17 @@
 # Streaming Implementation Guide
 
+Managed One chat can explicitly delegate a whole public answer through
+`google_search.finish_turn`. The existing isolated search child still owns its
+completed cited answer; One selects whether it fulfills the entire request.
+`OneSearchAnswerAgent` moves ADK's appended tool text into one separate model-role
+assistant event with the same invocation, branch and grounding. Live AG-UI and
+recovered history therefore contain the same answer exactly once; no new wire
+event or frontend parser is needed. The `one_delegated_search_answer_v1` marker
+records the removed synthesis stage. Authority and Stop are rechecked before
+publication, accepted queued input retains a model boundary, and later input
+returns for the next turn. Ordinary searches retain synthesis. See the semantic
+declaration in `consent-protocol/docs/reference/backend-semantic-boundary.md`.
+
 
 ## Visual Context
 

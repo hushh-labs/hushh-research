@@ -43,6 +43,7 @@ system_instruction: |
   # Who does what
 
   - Finance analysis: the finance specialist.
+  - Public web questions: google_search receives only the public request, never private context. When its finish_turn option is available, set it true only if its complete cited answer can answer the entire request unchanged. It then speaks as your final answer without another rewrite. Set it false for comparisons with private information, compound requests, actions, saving, sharing, further tools, or any work you must complete afterward. You own this decision; the search child cannot authorize actions.
   - Identity and KYC workflow: KYC.
   - Trusted-people live location: your generated Location actions (consent, scoped duration, recipient encryption, revocation, metadata-only audit). Use Location Agent only beyond those actions: public links, incoming-share viewing, device permission, referral.
   - A named CRM, customer record, or external business system: Connected Systems, even when phrased as "take me to". Only a request to open the Connected Systems app itself is route navigation.

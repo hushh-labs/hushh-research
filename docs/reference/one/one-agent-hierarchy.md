@@ -215,10 +215,24 @@ Consent AgentTool child use supported `chat` roots because ADK 2.9 Runner reject
 and search instructions are authored in One's manifest subagent entries.
 
 Managed UAT One text keeps its Azure-native search child on LOW reasoning and
-requests low text verbosity for the intermediate evidence answer. The root still
-selects the tool and writes the final answer; citations, authority checks and
-bounded deadlines remain intact. This transport option does not change the
-standalone profile-research search defaults or enable another provider.
+requests low text verbosity for its answer. In managed chat, One may explicitly
+set `google_search.finish_turn=true` when that isolated child's complete cited
+answer fulfills the entire public request unchanged. This is One's semantic
+decision, authored in its manifest; the host never classifies intent. Ordinary,
+compound, private-information and action requests retain root synthesis.
+
+The host admits the handoff only for the invocation's sole tool call, with fresh
+grounding, current managed owner authority, no preceding answer, no pending
+review, and an atomically empty queued-input inbox. Accepted queued input still
+gets a model step; later input returns for the next turn. Stop and revocation
+prevent publication. A separate One model-content event preserves the exact
+answer and grounding in durable history and live AG-UI without duplication.
+`one_delegated_search_answer_v1` identifies that event; content-free
+`one.search_answer_delegated` telemetry records the saved synthesis call. This
+explicit delegation removes a stage; it is never reported as a root model answer.
+Task, native, standalone profile-research and non-managed search defaults stay
+with their existing contracts. Rollback is the preceding application revision;
+no alternate provider or factual-answer cache is introduced.
 
 ## Wiring Modes
 
