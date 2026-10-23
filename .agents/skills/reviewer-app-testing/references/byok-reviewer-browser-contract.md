@@ -56,6 +56,9 @@ installed before the first navigation.
 
 Domain rehearsals import the harness and add only their domain assertions. They must not duplicate secret-resolution or navigation logic.
 
+PWM restricted rehearsals read existing checkpoints with `observe({ readOnly: true })` on cold entry or reload.
+Only explicit Check for updates may start research, through the unchanged mutation-admission guard.
+
 Private Memory preparation may opt into `admitOwnerPodMemoryPreparation` together
 with `allowMemoryPreparation`. This filters only non-navigation HTTPS
 `POST /api/one/pod/memory/proposals`, without URL credentials, query or fragment.
