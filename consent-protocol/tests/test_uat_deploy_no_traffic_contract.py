@@ -2715,6 +2715,9 @@ def test_provider_receipt_workflow_pins_collector_and_exact_build_identity():
         assert command.index("capture_managed_provider_receipt.py") < command.index(
             'if [[ "${{ inputs.skip_managed_vertex_probe_once }}"'
         )
+        assert command.index("run_uat_text_recovery_job.py") < command.index(
+            'if [[ "${{ inputs.skip_managed_vertex_probe_once }}"'
+        )
 
 
 def test_text_recovery_generation_matches_the_selected_runtime_processor(monkeypatch):
