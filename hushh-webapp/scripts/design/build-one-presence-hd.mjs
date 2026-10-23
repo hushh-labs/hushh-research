@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { buildWorkingPresence } from "./build-one-working-presence.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../public/one-presence");
 const check = process.argv.includes("--check");
@@ -32,6 +33,10 @@ const poses = {
 };
 const manifest = {};
 for (const [state, pose] of Object.entries(poses)) {
+  if (state === "working") {
+    manifest["working.riv"] = await buildWorkingPresence({ check });
+    continue;
+  }
   const png = fs.readFileSync(path.join(root, pose.image));
   if (png.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw Error(`Expected PNG: ${pose.image}`);
   const width = png.readUInt32BE(16), height = png.readUInt32BE(20);
@@ -74,4 +79,4 @@ const manifestPath = path.join(root, "hd/manifest.json");
 if (check) {
   if (fs.readFileSync(manifestPath, "utf8") !== text) throw Error("Stale HD Rive manifest");
 } else fs.writeFileSync(manifestPath, text);
-console.log(`HD Rive exports ${check ? "verified" : "built"}: four 1254px portraits, one texture per activity.`);
+console.log(`Rive exports ${check ? "verified" : "built"}: three HD portrait loops and an articulated typing loop.`);

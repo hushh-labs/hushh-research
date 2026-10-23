@@ -24,11 +24,12 @@ specialist task executes. Server tool activity is bounded by the current turn,
 so a failed or finished stream cannot leave a stale working pose. Confirmation
 cards and waiting for Google authorization do not themselves count as execution.
 
-The active `hd/*.riv` exports animate the four 1254px portraits with newly
-authored, restrained Rive-native lift and tilt loops, quantized to 24 FPS over 72 frames.
-The original articulated 128px frame exports remain available separately for
-rollback; the new portrait motion does not reproduce their blinking or hand
-articulation. The header and open Feed/Profile panel share one activity state. The
+The active `hd/*.riv` exports run at 24 FPS over 72 frames. Working uses 16
+authored typing poses with visible hand lifts, keyboard taps, a small head nod,
+and one blink per three-second loop. Two-frame exposures give the hand gestures
+a 12 FPS cadence. The other three activities retain their restrained portrait
+lift/tilt loops. The 128px compatibility Working export uses the same sequence.
+The header and open Feed/Profile panel share one activity state. The
 outgoing artwork remains mounted until the requested activity has either a
 decoded portrait or a painted native frame, then both crossfade using the
 shared opacity motion token. A ready portrait presents a short-lived activity
@@ -42,8 +43,9 @@ Superseded loads and transitions cannot change the current request.
 
 Rive loads only for visible, active surfaces without reduced motion. Animation
 pauses offscreen, when the document is hidden or the native app is inactive.
-These image-backed loops use Rive's default changed-frame drawing. Each HD
-scene embeds one texture rather than a bank of HD frames. The runtime owns the timeline and
+These image-backed loops use Rive's default changed-frame drawing. Working
+embeds sixteen registered 314px textures; the other scenes embed one 1254px
+portrait each. The runtime owns the timeline and
 render loop; visibility and lifecycle pauses still stop it entirely.
 Playback and resizing wait for Rive's post-load paused-state initialization.
 The public `play` method owns rendering startup; a separate early render can
@@ -54,13 +56,15 @@ worker so unrelated fixture builds cannot starve native playback. All cases rema
 the native CI shard partition with unchanged motion and first-paint deadlines.
 Backing buffers follow device pixel ratio, capped at 768px per axis. This
 covers the 224px panel at DPR3 (672px), and optional 256px presentations at
-DPR3. The source textures remain 1254px; the 128-unit logical artboard does
-not downsample them. Header geometry is 52–64px on phones and 104px on larger
+DPR3. Working's authored source cells provide about 314px of detail; increasing
+the canvas does not add source detail. Other source textures remain 1254px.
+The 128-unit logical artboard does not downsample them. Header geometry is 52–64px on phones and 104px on larger
 screens. The narrow-phone minimum preserves the adjacent 44px controls.
 The panel grows from 208px on the narrowest phones to 224px, bounded by its
 available width. Actual buffer dimensions are rechecked on resize and resume,
 including Rive's internal hidden-to-visible resize. Each native loop and its
-loading/reduced-motion portrait use the same HD source.
+loading/reduced-motion portrait retain the same identity. Working retains its
+1254px still for reduced motion and loading.
 All four activities therefore remain visually distinct during loading,
 errors and reduced motion.
 WASM is self-hosted as `rive.wasm`, matching `@rive-app/canvas` 2.44.2 (MIT).
@@ -72,10 +76,34 @@ or unmount. No React state updates occur per animation frame.
 texture counts and motion parameters. Rebuild with
 `node scripts/design/build-one-presence-hd.mjs`; `--check` verifies exact
 reproducibility and runs through `npm run verify:brand-assets`.
-The legacy `rive-manifest.json` and `rive-validation.json` retain original
-128px frame sizes, hashes and exact-frame comparison evidence.
+The legacy `rive-manifest.json` and `rive-validation.json` describe the 128px
+compatibility exports; the Working entry records the updated typing frames.
+`hd/working-validation.json` verifies all 72 active rendered frames and 146
+state-machine frames across two loop boundaries. Its premultiplied RGBA
+comparison allows one 8-bit level for float32 scaling from 314px to 128 units;
+the legacy 128px comparison remains exact.
 Browser playback and lifecycle regressions are verified separately; physical
 native frame pacing remains unverified.
+
+## Rebuilding the typing frames
+
+The transparent 4x4 source sheet and full generation prompt live at
+`assets/one-presence/working-keyframes.png` and `working-keyframes.md`.
+The exporter applies one union crop and one scale to all poses, preserving
+registration, and records the exact sequence in `working-animation.json`.
+The existing HD builder owns its manifest and composes the typing exporter:
+
+```sh
+node scripts/design/build-one-presence-hd.mjs
+node scripts/design/build-one-presence-hd.mjs --check
+node scripts/design/verify-one-working-presence.mjs --write
+node scripts/design/verify-one-working-presence.mjs --hd --write
+```
+
+The verifiers use the real self-hosted WASM renderer in installed Playwright
+Chromium. Omit `--write` for read-only verification. A failed assertion never
+updates evidence. Runtime state mapping, dwell, geometry, lifecycle and
+reduced-motion behavior remain owned by the existing avatar component.
 
 The artwork, canvas and owning avatar surfaces have no opaque background disk.
 The compact header artwork fills its responsive trigger. The name occupies
