@@ -2,7 +2,7 @@
 
 ## Decision — 2026-10-23 UTC
 
-**The onboarding/security correction is accepted on dev and UAT. The workflow-trigger follow-up is in verification.**
+**The onboarding/security correction is accepted on dev and UAT. The CI trigger repair has landed on main.**
 [PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) landed as `51a5a86675`
 after all 26 exact-head checks and landed smoke passed. Dev run `39890010863`
 passed provenance, environment, schema and semantic checks. UAT run `39892483774`
@@ -13,8 +13,8 @@ with an enabled composer. Fresh Shared/GCP enrollment and deleted-user
 re-registration are not established by that owner rehearsal.
 [PR8337](https://github.com/hushh-labs/hushh-research/pull/8337) landed as
 `0ea0f8fce3` after all 26 exact-head checks and landed smoke passed. The preserved
-infrastructure branch inherits main through `d552397410`, including Drive, Finance,
-Mail, Azure chat/search, Calendar and Copilot styling without whole-file replacement. Earlier
+infrastructure branch inherits main through `04081d3c46`, including Drive, Finance,
+Mail, Azure chat/search and filtering, Calendar and Copilot styling without whole-file replacement. Earlier
 MVP receipts remain history; they do not verify the current correction candidate.
 Production, stable-channel publication and automatic owner upgrades remain held.
 
@@ -158,9 +158,14 @@ Main cutover run `39889655505` verified exact-source receipt reuse and skipped
 repeat inventory reads/artifact upload. The old repository secret is deleted,
 absence is verified, and no same-name organization secret is accessible to this
 repository. The main-only protected replacement remains present. The trigger
-follow-up uses one initial `requested` event, a governed rerun command and exact
-receipt verification in the final rerun gate; 21 security and eight existing gate
-cases pass. Its post-main qualification must use the new workflow revision. Original PAT
+repair landed in [PR #8371](https://github.com/hushh-labs/hushh-research/pull/8371)
+as `04081d3c46`, after all 26 exact-head checks passed in run `39903975455`.
+It uses one initial `requested` event and governed retries with fresh exact-attempt
+clearance in the final gate. All 21 security, 74 real gate-harness and eight UI-gate
+cases pass. The harness correction retains unknown-condition refusal and proves
+receipt failure propagation. Live initial/retry receipts are maintained on
+[the canonical task](https://github.com/hushh-labs/hushh-research/issues/5507);
+qualification must use the new workflow revision. Original PAT
 revocation is separately unverified; deleting a stored secret is not revocation.
 Duplicate release monitor #8353 is archived with its journal preserved and active
 marker removed; canonical #8304 reconciliation passed in run `39871154431`.
@@ -191,6 +196,7 @@ not re-enable catch-up. Manual release authority remains unchanged.
 | Measurement | Result | Decision |
 | --- | --- | --- |
 | Current delivery cycle | Exact-head CI: 29m18s including one failed-jobs-only retry; dev: 19m50s; UAT: 76m15s | UAT includes 33m48s initial queue; deployment job 39m51s. CI initial queue 1m44s; dev 5s. Measure from dispatch to last job completion; never sum parallel jobs or call queue time test execution |
+| CI trigger repair | Exact-head run `39903975455`: 26 checks passed; backend 27m40s; iOS 23m56s | Parallel backend tests 12m10s; isolated serial database tests 11m57s. The earlier failing run stopped before serial checks, so it is not a full-run timing baseline. No limits or isolation weakened |
 | Matched cloud chat | 20 cold / 20 warm per cloud: GCP p95 71.721 / 7.700 s; Azure 71.304 / 13.389 s | Retain this historical baseline. Thirty seconds is an optimization goal; fix measured startup work and recovery, without a permanent warm floor |
 | Personal chat | Latest zero-instance sample: first content 44.837 s, complete 46.040 s; capabilities 40.304 s | Wake/readiness dominates this sample; not a percentile or physical paint measurement |
 | Puppy Dev 25 | First text 35.257 s, complete 35.509 s; device first content 25.308 s | Nonempty Gemma 12B response received in an occluded browser; not cold-model or foreground-paint acceptance |
@@ -208,9 +214,9 @@ paid work; spending thresholds warn without stopping service.
 
 ## Next gate and owners
 
-1. **CI/security owner:** finish exact-head verification and main-owned qualification
-   of the requested-only trigger and governed rerun. The final gate checks a fresh
-   exact-attempt receipt; partial retries retain successful application suites.
+1. **CI/security owner:** preserve one initial worker and fresh exact-attempt retry
+   clearance through the governed command. Keep current receipts on the canonical
+   task; successful application suites remain retained during a gate-only retry.
    The application correction, dev owner acceptance and UAT promotion are complete.
 2. **Security owner:** retain the two ADK-constrained OTEL records and verify
    GitHub's closure of the seven patched records. Original-token revocation

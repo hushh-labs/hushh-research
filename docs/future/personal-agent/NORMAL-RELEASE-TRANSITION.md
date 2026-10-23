@@ -2,7 +2,7 @@
 
 **Status:** [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365)
 landed as `51a5a86675`; dev and exact-revision UAT accepted, 23 October 2026.
-Continue on the preserved infrastructure branch; main through `d552397410` is inherited, including Calendar and Copilot styling. That later source integration does not change the accepted application revision above.
+Continue on the preserved infrastructure branch; main through `04081d3c46` is inherited, including Calendar, Copilot styling and the Azure filtering repair. That later source integration does not change the accepted application revision above.
 PR8337 landed as `0ea0f8fce3` with exact-head CI and landed smoke successful.
 Preserve nine peer edits and the independently active ADK tree. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
@@ -29,9 +29,12 @@ checks and landed smoke passed. Dev run `39890010863` serves both corrected
 services at 100%; normal-owner refresh, passphrase unlock and Back/Finish reached
 home without a loop. UAT run `39892483774` completed healthy; ADC readback at
 04:27 UTC confirms both services at the same exact SHA and 100% traffic.
-A CI-only follow-up removes repeated worker starts using the initial `requested`
-event plus governed exact-attempt retries. Main-owned qualification must prove
-one initial worker and a gate-only retry without repeating application suites.
+The CI-only repair [PR #8371](https://github.com/hushh-labs/hushh-research/pull/8371)
+landed as `04081d3c46` after all 26 exact-head checks passed. Initial `requested`
+events replace repeated starts; governed retries require fresh exact-attempt
+clearance in the final gate. The existing
+[canonical task](https://github.com/hushh-labs/hushh-research/issues/5507) owns live
+initial/gate-only retry receipts; application suites need not repeat for that proof.
 The protected consumer is qualified on main and the repository-wide credential
 is retired; original-token revocation remains unverified. Nodemailer's source patch does
 not authorize deploying its standalone production mail service. Publishing an application
@@ -101,7 +104,7 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `d552397410` is inherited without whole-file replacement.
+- Main through `04081d3c46` is inherited without whole-file replacement.
   Committed ADK lineage `914e7c044c` remains preserved. The active ADK tree has
   later unique commits, last inspected at `b5342e908a` on 23 October: native
   Profile/editor/icon and qualification work, with no overlap in the corrected
