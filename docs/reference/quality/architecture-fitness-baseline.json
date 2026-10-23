@@ -5194,7 +5194,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "GmailReceiptsService",
-      "value": 4665
+      "value": 4685
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -19261,7 +19261,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": null,
-      "value": 5025
+      "value": 5049
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20809,7 +20809,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_gmail_cache_retention.py",
       "symbol": null,
-      "value": 555
+      "value": 600
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22429,7 +22429,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
       "symbol": null,
-      "value": 2629
+      "value": 2649
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23824,7 +23824,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/gmail/gmail-recent-receipts.tsx",
       "symbol": null,
-      "value": 955
+      "value": 959
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25588,7 +25588,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/gmail-receipts-service.ts",
       "symbol": null,
-      "value": 1356
+      "value": 1373
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -84918,5 +84918,52 @@
     "reviewer": "store_boundary_review",
     "review": "The same privacy case validates closed response shapes independently across revocation, allowing the legitimate provider stale-state transition. Counts, known opaque IDs and short secret checks remain. Only one source line is added; global budgets, limits, scanner and exclusions are unchanged.",
     "validation": "The actual service in documented no-log mode changes stale from false to true after revocation. Its outputs pass the exact assertion block while the old equality fails. A legitimate colliding hash passes and ten leakage or malformed-shape controls fail. Hosted Linux remains responsible for durable replay and complete route execution."
+  },
+  "mail_receipt_availability_review_20261023": {
+    "entries": [
+      {
+        "after": 4685,
+        "before": 4665,
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|GmailReceiptsService|class exceeds the advisory operon budget",
+        "review": "Independent read-only Mail availability review: capability projection and exact read-only archive paging stay in existing API owners; shared list gains reuse knobs instead of a duplicate table; existing fixtures gain production regression and deterministic owner paging assertions. Separate bounded archive resource preserves unknown account provenance. Exact integrated source ceiling only; global 500/250/80 budgets unchanged.",
+        "source_sha256": "21122b76a97d73489e4078d1384ce413b443a5a61ce47227c8d5be734df9c3a4"
+      },
+      {
+        "after": 5049,
+        "before": 5025,
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py||module exceeds the advisory operon budget",
+        "review": "Independent read-only Mail availability review: capability projection and exact read-only archive paging stay in existing API owners; shared list gains reuse knobs instead of a duplicate table; existing fixtures gain production regression and deterministic owner paging assertions. Separate bounded archive resource preserves unknown account provenance. Exact integrated source ceiling only; global 500/250/80 budgets unchanged.",
+        "source_sha256": "21122b76a97d73489e4078d1384ce413b443a5a61ce47227c8d5be734df9c3a4"
+      },
+      {
+        "after": 2649,
+        "before": 2629,
+        "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
+        "review": "Independent read-only Mail availability review: capability projection and exact read-only archive paging stay in existing API owners; shared list gains reuse knobs instead of a duplicate table; existing fixtures gain production regression and deterministic owner paging assertions. Separate bounded archive resource preserves unknown account provenance. Exact integrated source ceiling only; global 500/250/80 budgets unchanged.",
+        "source_sha256": "5ff1fe6598cb0f78a5215400eadec625feba81eedc5c0aed52fd8e1bba1cec83"
+      },
+      {
+        "after": 1373,
+        "before": 1356,
+        "key": "module_size|hushh-webapp/lib/services/gmail-receipts-service.ts||module exceeds the advisory operon budget",
+        "review": "Independent read-only Mail availability review: capability projection and exact read-only archive paging stay in existing API owners; shared list gains reuse knobs instead of a duplicate table; existing fixtures gain production regression and deterministic owner paging assertions. Separate bounded archive resource preserves unknown account provenance. Exact integrated source ceiling only; global 500/250/80 budgets unchanged.",
+        "source_sha256": "da01c3d46cbab5116fcb428db86e8b06dbb67776b8f43b28b4c4cf6e05230eda"
+      },
+      {
+        "after": 959,
+        "before": 955,
+        "key": "module_size|hushh-webapp/components/gmail/gmail-recent-receipts.tsx||module exceeds the advisory operon budget",
+        "review": "Independent read-only Mail availability review: capability projection and exact read-only archive paging stay in existing API owners; shared list gains reuse knobs instead of a duplicate table; existing fixtures gain production regression and deterministic owner paging assertions. Separate bounded archive resource preserves unknown account provenance. Exact integrated source ceiling only; global 500/250/80 budgets unchanged.",
+        "source_sha256": "386e8c9eec6506e7fb96997dc8c42001b1478de0c87df319014b0e3c2a867f84"
+      },
+      {
+        "after": 600,
+        "before": 555,
+        "key": "module_size|consent-protocol/tests/services/test_gmail_cache_retention.py||module exceeds the advisory operon budget",
+        "review": "Independent read-only Mail availability review: capability projection and exact read-only archive paging stay in existing API owners; shared list gains reuse knobs instead of a duplicate table; existing fixtures gain production regression and deterministic owner paging assertions. Separate bounded archive resource preserves unknown account provenance. Exact integrated source ceiling only; global 500/250/80 budgets unchanged.",
+        "source_sha256": "1349b71ae24a87a6ac4d2227a16925ce325b1325f7ad1efdbcf49fc98d6ba473"
+      }
+    ],
+    "reviewer": "mail_plan_review"
   }
 }

@@ -1,7 +1,7 @@
 # Private agent: normal release transition
 
 **Status:** main integration landed; [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) in exact-head qualification,
-23 October 2026. Continue on the preserved infrastructure branch; main through `bd0c44c79a` is integrated.
+23 October 2026. Continue on the preserved infrastructure branch; main through `0828b5bd62` is integrated, including Mail receipt availability.
 PR8337 landed as `0ea0f8fce3` with exact-head CI and landed smoke successful.
 Preserve nine peer edits and the independently active ADK tree. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)

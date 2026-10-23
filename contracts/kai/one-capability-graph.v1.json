@@ -3694,7 +3694,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens Mail from any investor surface and restores its workspace. Receipt scans start only after an explicit Start sync, Load older receipts or Try again action.",
+      "description": "Opens Mail and restores saved receipts. Eligible connected and unlocked accounts check newer receipts automatically; unavailable processing has an explanation and settings action.",
       "execution": {
         "binding_ref": "route:/one/gmail",
         "executor": {
@@ -4367,6 +4367,292 @@
       "search_keywords": [
         "disconnect gmail"
       ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Receipt update details"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.gmail.receipt_sync_details",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explains actual receipt processing availability. Got it dismisses the explanation without changing connection, hosting or consent.",
+      "execution": {
+        "binding_ref": "render:profile.gmail.receipt_sync_details",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.gmail.receipt_sync_details",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Receipt update details",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open saved receipts again"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.gmail.restore_saved_receipts",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Retries bounded encrypted device restoration with current owner and vault authority. It does not enable an unavailable provider scan.",
+      "execution": {
+        "binding_ref": "render:profile.gmail.restore_saved_receipts",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.gmail.restore_saved_receipts",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open saved receipts again",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
         "classification": "render_or_guidance"
@@ -45126,7 +45412,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "0ae821e1b4cf10a88f2e5c87f3c96a9311231928445f3337c85ae00d95af3028",
+      "projection_digest": "bd06296ceadd8885f5d97c3c17253496458691b2cab42f647a9eec6e7661251c",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -45136,7 +45422,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "f654172f585f82b1dd7a0a119c510037d2a042d830fbc6084d9184e983b07bf4",
+        "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -45145,7 +45431,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "f2366731e915e5b5",
+      "source_revision": "dc84beb721eb8553",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -46663,7 +46949,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "f2366731e915e5b5",
+    "source_revision": "dc84beb721eb8553",
     "web": {
       "actions": [
         {
@@ -46706,7 +46992,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "db975330ca0b50d49f512f78bab158f20237d7e78eedfde7fc956f3b584b1d7f",
+      "projection_digest": "ba1370e53b14ae5bb24c589fb4a387a9ebc93a2244f42528a22c9d7cb9772823",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -46716,7 +47002,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "f654172f585f82b1dd7a0a119c510037d2a042d830fbc6084d9184e983b07bf4",
+        "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -46725,7 +47011,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "f2366731e915e5b5",
+      "source_revision": "dc84beb721eb8553",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -48282,7 +48568,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "f2366731e915e5b5",
+  "revision": "dc84beb721eb8553",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -50246,12 +50532,19 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.gmail.receipt_sync_details",
+      "actions:profile.gmail.restore_saved_receipts"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:route.profile_receipts"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": "ca4e044ae69e49f0",
+    "deprecated": [
+      "actions:route.profile_receipts"
+    ],
+    "from_revision": "f2366731e915e5b5",
     "migrated": [],
     "removed": []
   },
@@ -52557,10 +52850,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "f654172f585f82b1dd7a0a119c510037d2a042d830fbc6084d9184e983b07bf4",
+    "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "1bbd4f07600b8e1f688975a033718eee5239f831863f1eebf682bd893413fdf2",
+    "kai_action_gateway": "02448310d7910681448b55864231b81a20f60908470fc49539ee6f482450dc8d",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -52569,9 +52862,9 @@
     "route_orchestration_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "f2366731e915e5b5",
+  "source_revision": "dc84beb721eb8553",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "f2366731e915e5b5",
+    "current_graph_revision": "dc84beb721eb8553",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -52874,6 +53167,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -52953,6 +53247,7 @@
           "e746225912756998",
           "ebddcf5afa07b6bb",
           "f0c409450ab444ad",
+          "f2366731e915e5b5",
           "fb9a089556077ad3"
         ],
         "migration_required_graph_revisions": [],
@@ -53000,6 +53295,7 @@
           "e72a95655f220acd",
           "e746225912756998",
           "f0c409450ab444ad",
+          "f2366731e915e5b5",
           "fb9a089556077ad3"
         ],
         "migration_required_graph_revisions": [],
@@ -53472,6 +53768,7 @@
           "ef88720ce177a379",
           "f0c409450ab444ad",
           "f0dd083b1d2493ac",
+          "f2366731e915e5b5",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
@@ -53858,6 +54155,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -54178,6 +54476,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -54496,6 +54795,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -54816,6 +55116,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",

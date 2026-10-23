@@ -3671,7 +3671,30 @@ class GmailReceiptsService:
 
     async def get_status(self, *, user_id: str) -> dict[str, Any]:
         row, latest_run = await self._read_status_snapshot(user_id=user_id)
-        return self._serialize_status_payload(user_id=user_id, row=row, latest_run=latest_run)
+        payload = self._serialize_status_payload(user_id=user_id, row=row, latest_run=latest_run)
+        # Retiring legacy DB writes does not retire the consented, stateless
+        # live reader. Placement is checked independently, without credentials
+        # or provider work, and remains fail-closed for private/unknown owners.
+        try:
+            async with asyncio.timeout(_STATUS_SNAPSHOT_TIMEOUT_SECONDS):
+                await self._require_hub_content(user_id, "gmail_receipt_capability")
+        except (GmailApiError, TimeoutError):
+            payload["receipt_history_available"] = False
+        else:
+            payload["receipt_history_available"] = True
+            payload["receipt_sync_available"] = bool(
+                payload["connected"]
+                and row
+                and _GMAIL_READONLY_SCOPE in self._granted_scopes(row)
+                and _clean_text(row.get("google_sub"))
+                and row.get("connected_at")
+            )
+            payload["receipt_storage_message"] = (
+                "Private receipt processing is being prepared. Your current receipt sync continues."
+                if payload["receipt_sync_available"]
+                else "Open Mail settings to check receipt access."
+            )
+        return payload
 
     def _should_renew_watch(self, row: dict[str, Any] | None) -> bool:
         if not self._watch_enabled():
@@ -4873,6 +4896,7 @@ class GmailReceiptsService:
                     order_id,
                     currency,
                     amount,
+                    amount::text AS amount_decimal,
                     receipt_date,
                     classification_confidence,
                     classification_source,
@@ -4880,7 +4904,7 @@ class GmailReceiptsService:
                     updated_at
                 FROM kai_gmail_receipts
                 WHERE user_id = :user_id
-                ORDER BY COALESCE(receipt_date, gmail_internal_date, created_at) DESC, created_at DESC
+                ORDER BY COALESCE(receipt_date, gmail_internal_date, created_at) DESC, created_at DESC, id DESC
                 LIMIT :limit OFFSET :offset
                 """,
                 {
@@ -4904,6 +4928,10 @@ class GmailReceiptsService:
             "per_page": per_page,
             "total": total,
             "has_more": (offset + len(rows)) < total,
+            "provenance": {
+                "source": "legacy_server_read_only",
+                "account_binding": "unknown",
+            },
         }
 
     async def _run_scheduled_sync_once(self) -> None:

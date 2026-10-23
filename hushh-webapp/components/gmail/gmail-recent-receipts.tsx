@@ -439,9 +439,13 @@ export function GmailRecentReceipts({
   sourceKeyAliases,
   loadReceiptDetail,
   onReceiptDetailLoaded,
+  title = "Recent receipts",
+  showOverview = true,
 }: {
   accountKey: string | null | undefined;
   headingId?: string;
+  title?: string;
+  showOverview?: boolean;
   receipts: readonly ReceiptListItem[];
   savedRows?: readonly RecentReceiptRow[];
   sourceKeyAliases?: Readonly<Record<string, string>>;
@@ -635,8 +639,8 @@ export function GmailRecentReceipts({
 
   return (
     <ReceiptScrollContinuity scope={scope}>
-      <ReceiptCollectionOverview rows={rows} />
-      <SectionHeader id={headingId} title="Recent receipts" />
+      {showOverview ? <ReceiptCollectionOverview rows={rows} /> : null}
+      <SectionHeader id={headingId} title={title} />
       <Input
         type="search"
         aria-label="Search table"

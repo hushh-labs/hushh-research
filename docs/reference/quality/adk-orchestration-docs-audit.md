@@ -5,7 +5,7 @@
 **Main integration is complete; [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) awaits corrected exact-head CI and dev acceptance before UAT.**
 [PR8337](https://github.com/hushh-labs/hushh-research/pull/8337) landed as
 `0ea0f8fce3` after all 26 exact-head checks and landed smoke passed. The preserved
-infrastructure branch reconciles subsequent main through `bd0c44c79a`, preserving its Drive and Finance changes. Earlier
+infrastructure branch reconciles subsequent main through `0828b5bd62`, preserving its Drive, Finance and Mail receipt changes. Earlier
 MVP receipts remain history; they do not verify the current correction candidate.
 Production, stable-channel publication and automatic owner upgrades remain held.
 
