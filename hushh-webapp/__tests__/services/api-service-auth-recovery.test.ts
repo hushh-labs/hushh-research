@@ -23,6 +23,18 @@ function makeUnsignedToken(payload: Record<string, unknown>): string {
 beforeEach(() => { vi.clearAllMocks(); mockFetch.mockReset(); });
 afterEach(() => vi.restoreAllMocks());
 describe("ApiService authentication recovery", () => {
+  it("does not wake a pod when owner authority retires during token retrieval", async () => {
+    let finish!: (token: string) => void;
+    const token = new Promise<string>(resolve => { finish = resolve; });
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(token);
+    let current = true;
+    const pending = ApiService.wakePod({ isEffectCurrent: () => current });
+    current = false;
+    finish("retired-id-token");
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("preserves dated prices and cached-history metadata through the authenticated transport", async () => {
     vi.mocked(AuthService.getIdToken).mockResolvedValueOnce("firebase-id-token");
     mockFetch.mockResolvedValueOnce(jsonResponse({ points: [{ t: 1792000000, p: 230 }], stale: true, retrieved_at: "2026-10-20T20:00:00Z" }));
