@@ -1,6 +1,6 @@
 "use client";
 
-import { installOneLocationNotificationSound, stopOneLocationNotificationSound } from "@/lib/one-location/notification-sound";
+import { stopOneLocationNotificationSound } from "@/lib/one-location/notification-sound";
 import { activeNotificationKeyId } from "@/lib/notifications/preview-keys";
 import { chatAlertIsVisible } from "@/lib/notifications/chat-alert-visibility";
 import { ChatSystemNotifications } from "@/lib/notifications/chat-system-notifications";
@@ -37,7 +37,6 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
-import { HushhNotifications } from "@/lib/capacitor";
 import { useVault } from "@/lib/vault/vault-context";
 import { type PendingConsent } from "@/lib/consent";
 import { ApiService } from "@/lib/services/api-service";
@@ -87,10 +86,7 @@ import {
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
   markOneLocationNotificationSeen,
-  ONE_LOCATION_GRANT_OPENED_EVENT,
-  ONE_LOCATION_GRANT_UNWATCHED_EVENT,
   oneLocationSectionForWorkflowNotificationType,
-  playOneLocationNotificationSound,
   privacySafeOneLocationNotificationBody,
   privacySafeOneLocationNotificationLabel,
   recordOneLocationShareNotification,
@@ -101,6 +97,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notification-reconciliation";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { useEmergencySmsAlarm } from "@/components/consent/use-emergency-sms-alarm";
 import { EmergencySmsNotificationToast } from "@/components/one-location/emergency-sms-notification-toast";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import {
@@ -709,7 +706,6 @@ export function ConsentNotificationProvider({
   const ingestedMessageIdsRef = useRef(new Set<string>());
   // Preserve the live presentation outcome if browser storage is unavailable.
   const smsPresentationRef = useRef(new Map<string, SmsPresentation>());
-  const activeEmergencyToastsRef = useRef(new Set<string>());
   const knownPendingConsentIdsRef = useRef(new Set<string>());
   const acknowledgedNotificationOpenIdsRef = useRef(new Set<string>());
   const notificationOpenAcksInFlightRef = useRef(new Set<string>());
@@ -789,44 +785,7 @@ export function ConsentNotificationProvider({
     [getVaultOwnerToken, isNativePlatform, user?.uid],
   );
 
-  const stopEmergencySms = useCallback((grantId: string) => {
-    stopOneLocationNotificationSound(grantId);
-    if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({ grantId }).catch(() => undefined);
-    activeEmergencyToastsRef.current.delete(grantId);
-  }, [isNativePlatform]);
-
-  const dismissEmergencySms = useCallback((grantId: string) => {
-    stopEmergencySms(grantId);
-    toast.dismiss(`one-location-share:${grantId}`);
-  }, [stopEmergencySms]);
-
-  useEffect(() => {
-    if (!user?.uid) return;
-    const release = installOneLocationNotificationSound();
-    const activeToasts = activeEmergencyToastsRef.current;
-    const onAcknowledged = (event: Event) => {
-      const detail = (event as CustomEvent<{ userId?: string; grantId?: string }>).detail;
-      if (detail?.userId === user.uid && detail.grantId) dismissEmergencySms(detail.grantId);
-    };
-    const onStorage = () => {
-      for (const grantId of activeToasts) {
-        if (isOneLocationGrantOpened(user.uid, grantId) || isOneLocationGrantUnwatched(user.uid, grantId)) {
-          dismissEmergencySms(grantId);
-        }
-      }
-    };
-    window.addEventListener(ONE_LOCATION_GRANT_OPENED_EVENT, onAcknowledged);
-    window.addEventListener(ONE_LOCATION_GRANT_UNWATCHED_EVENT, onAcknowledged);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener(ONE_LOCATION_GRANT_OPENED_EVENT, onAcknowledged);
-      window.removeEventListener(ONE_LOCATION_GRANT_UNWATCHED_EVENT, onAcknowledged);
-      window.removeEventListener("storage", onStorage);
-      release();
-      if (isNativePlatform) void HushhNotifications.stopEmergencySmsCue({}).catch(() => undefined);
-      for (const grantId of [...activeToasts]) dismissEmergencySms(grantId);
-    };
-  }, [dismissEmergencySms, isNativePlatform, user?.uid]);
+  const { startEmergencySms, stopEmergencySms, dismissEmergencySms } = useEmergencySmsAlarm(user?.uid, isNativePlatform);
 
   const showOneLocationShareNotification = useCallback(
     (
@@ -915,23 +874,11 @@ export function ConsentNotificationProvider({
         data.share_point_lng,
       );
       const alarmExpiresAt = expiry ? Date.parse(expiry) : undefined;
-      // One renderer owns sound and vibration together on native platforms.
-      const sounded = !isNativePlatform && playOneLocationNotificationSound("sos", grantId, alarmExpiresAt);
-      if (isNativePlatform) {
-        // Invoke the existing bridge directly: no delayed import can outlive Stop.
-        // Native also checks owner, active host and a short execution deadline.
-        void HushhNotifications.playEmergencySmsCue({
-          userId: user.uid,
-          grantId,
-          expiresAt: Math.min(expiry ? Date.parse(expiry) : Infinity, Date.now() + 2000),
-          alarmExpiresAt,
-        }).catch(() => undefined); // Older installed wrappers do not expose this method.
-      }
+      const sounded = startEmergencySms(grantId, alarmExpiresAt);
       rememberSmsPresentation(smsPresentationRef.current, grantId, sounded);
       if (!sounded) markOneLocationNotificationSeen(user.uid, fallbackId);
       markOneLocationNotificationSeen(user.uid, presentationId);
 
-      activeEmergencyToastsRef.current.add(grantId);
       toast(
         <EmergencySmsNotificationToast
           title={title}
@@ -956,7 +903,7 @@ export function ConsentNotificationProvider({
       );
       return sounded;
     },
-    [dismissEmergencySms, isNativePlatform, router, stopEmergencySms, user?.uid],
+    [dismissEmergencySms, router, startEmergencySms, stopEmergencySms, user?.uid],
   );
 
   const showOneLocationWorkflowNotification = useCallback(

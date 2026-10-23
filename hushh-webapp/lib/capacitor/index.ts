@@ -877,8 +877,7 @@ export const HushhSync = registerPlugin<HushhSyncPlugin>("HushhSync", {
 export interface HushhNotificationsPlugin {
   /** OS presentation settings only; registered tokens do not prove audible alerts. */
   getNotificationSettings(): Promise<{ alertsEnabled: boolean; soundsEnabled: boolean; emergencySoundEnabled: boolean; chatAlertsEnabled?: boolean; chatSoundsEnabled?: boolean }>;
-  /** Owner-checked repeating foreground cue; never schedules background work. */
-  /** expiresAt admits a fresh start; alarmExpiresAt bounds foreground repetition to the share lifetime. */
+  /** Foreground cue: expiresAt admits a fresh start; alarmExpiresAt bounds repetition to the share lifetime. */
   playEmergencySmsCue(options: { userId: string; grantId: string; expiresAt: number; alarmExpiresAt?: number }): Promise<{ played: boolean }>;
   stopEmergencySmsCue(options: { grantId?: string }): Promise<void>;
   setActiveChat(options: { tag: string; keyId: string }): Promise<void>;
