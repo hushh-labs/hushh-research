@@ -89,6 +89,16 @@ export function getCachedGmailReceipts() {
 export function cachedGmailReceiptDisplayItems() {
   return [];
 }
+// Only the synthetic Feed task participates in this lifecycle fixture.
+export async function readTodoCapabilities() {
+  return [];
+}
+export async function todoSuggestionsAvailable() {
+  return false;
+}
+export async function suggestTodoTasks() {
+  throw new Error("This lifecycle fixture must never request model suggestions");
+}
 export function useCalendarUpcomingEvents() {
   return { events: [], loaded: false, loading: false, error: null, refresh: () => {} };
 }
