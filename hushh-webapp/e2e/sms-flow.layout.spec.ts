@@ -191,7 +191,12 @@ test("pending recipient metadata keeps the mobile SMS composer usable without di
   await page.screenshot({ path: testInfo.outputPath("sms-mixed-readiness.png"), fullPage: true });
 });
 
-test("preset, edit, cancel, hold, live receipt and Stop work through real browser events", async ({ page, isMobile, browserName }) => {
+test("preset, edit, cancel, hold, live receipt and Stop work through real browser events", async ({ page, isMobile, browserName }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   await page.setViewportSize({ width: 393, height: 852 });
   await page.setContent(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
@@ -204,6 +209,9 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await message.fill("Please come to the entrance");
   await send.click();
   await expect(send).toHaveText("Cancel");
+  await expect(send.getByTestId("sos-send-progress")).toBeVisible();
+  await expect(page.getByTestId("sos-sms-progress")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("sms-send-tap-countdown.png"), fullPage: true });
   await send.click();
   await expect(send).toHaveText("Send");
   await page.waitForTimeout(2100);
@@ -235,7 +243,12 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   };
   await press();
   await page.waitForTimeout(1000);
+  await expect(send.getByTestId("sos-send-progress")).toBeVisible();
+  await expect(page.getByTestId("sos-sms-progress")).toHaveCount(0);
+  await expect(page.getByTestId("sos-status-label")).toHaveText("Hold 2 seconds");
+  await page.screenshot({ path: testInfo.outputPath("sms-send-hold.png"), fullPage: true });
   await release();
+  await expect(send.getByTestId("sos-send-progress")).toHaveCount(0);
   await page.waitForTimeout(2100);
   await expect(page.locator("body")).not.toHaveAttribute("data-sent-count");
   await press();
@@ -248,6 +261,15 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await page.getByRole("button", { name: "Stop Save My Soul alert" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Stop alert", exact: true }).click();
   await expect(message).toBeVisible();
+  const sms = page.getByRole("button", { name: /press and hold for two seconds/i });
+  await sms.focus();
+  await page.keyboard.down("Space");
+  await expect(page.getByTestId("sos-sms-progress")).toBeVisible();
+  await expect(send.getByTestId("sos-send-progress")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("sms-circle-hold.png"), fullPage: true });
+  await page.keyboard.up("Space");
+  await expect(page.getByTestId("sos-sms-progress")).toHaveCount(0);
   await expect(page.getByText("Pick a quick message.")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  expect(errors).toEqual([]);
 });
