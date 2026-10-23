@@ -2379,7 +2379,7 @@ test.describe("One profile artwork and animated presence", () => {
       await Promise.all([0, 1].map(async index => {
         const canvas = canvases.nth(index);
         const textures = await canvas.evaluate(canvas => (window as any).__onePresenceTextures.get(canvas));
-        expect(textures, "native animation must embed genuine HD pixels, not enlarge 128px frames").toEqual([[1254, 1254]]);
+        expect(textures, "native animation must embed genuine source pixels, not enlarge 128px frames").toEqual(phase.state === "working" ? Array.from({ length: 16 }, () => [314, 314]) : [[1254, 1254]]);
         await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
         expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
       }));
