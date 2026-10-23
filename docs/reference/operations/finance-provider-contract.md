@@ -244,3 +244,9 @@ use only observed history. No public-link publication is introduced. Company new
 in stock details uses exact-symbol matches from the existing Market news resource
 and adds no provider requests. Provider selection and closed-session refresh rules
 remain under the existing Market resource owner.
+
+Market index mini charts and detail charts render the supplied intraday series as
+linear areas with a fading fill. Color follows the daily change, including small
+or cached moves; freshness remains in the quote status. The dotted guide is the
+explicitly labeled first observed level, not previous close. Index axes and
+tooltips use points. No timestamps, history points or provider calls are added.

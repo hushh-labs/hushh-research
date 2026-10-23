@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { registerFinanceScreenChecks } from "./fixtures/finance-screen-checks";
+import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks } from "./fixtures/finance-screen-checks";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
@@ -155,6 +155,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       await page.addScriptTag({ content: marketScript });
       await awaitProductFont(page);
       await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
+      await expectMarketMiniCharts(page);
       const action = page.getByRole("button", { name: "All news", exact: true });
       await expect(action).toBeVisible();
       const target = await action.boundingBox();
@@ -346,19 +347,7 @@ for (const width of [375, 393, 430]) {
       expect(headingStyle.clamp).toBe("none");
       expect(headingStyle.overflow).not.toBe("hidden");
       expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-      const line = detail.locator("path.recharts-line-curve");
-      await expect(line).toHaveAttribute("d", /^M/);
-      const chart = await line.evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,
-        stroke: getComputedStyle(element).stroke, color: getComputedStyle(element).color }));
-      expect(chart.width).toBeGreaterThan(100);
-      expect(chart.height).toBeGreaterThan(10);
-      expect(chart.stroke).not.toBe("none");
-      expect(chart.color).not.toBe("rgba(0, 0, 0, 0)");
-      // Measure both positions in one frame while the sheet is entering.
-      expect(await detail.evaluate(element => {
-        const value = [...element.querySelectorAll("p")].find(row => row.textContent === "7,712.57")!;
-        return value.getBoundingClientRect().top < element.querySelector("path.recharts-line-curve")!.getBoundingClientRect().top;
-      })).toBe(true);
+      await expectMarketIndexChart(detail);
       await expect(detail.getByText("Yahoo Chart (Batch)", { exact: true })).toBeVisible();
       await expect(detail.getByText("Oct 21, 2:15 AM", { exact: true })).toBeVisible();
       await detail.getByRole("button", { name: "Close", exact: true }).click();
