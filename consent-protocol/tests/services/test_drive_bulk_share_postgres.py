@@ -22,6 +22,7 @@ from hushh_mcp.services.drive_request_bulk_removal_store import managed_bulk_pla
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, DRIVE_POLICY, LIVE_POLICY_HASH
 from hushh_mcp.services.google_drive_permission_adapter import GoogleDrivePermissionAdapter
+from tests.drive_postgres_test_support import apply_bulk_search_fixture_migrations
 from tests.services.test_external_connector_lifecycle_postgres import (  # noqa: F401
     connector_postgres_url,
     lifecycle,
@@ -38,13 +39,7 @@ def bulk(lifecycle, monkeypatch):
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,recipient-1,recipient-2")
     monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"b" * 32).decode())
     with lifecycle.db.engine.begin() as connection:
-        connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
-        connection.execute(
-            text(
-                "ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID"
-            )
-        )
-        connection.execute(text((MIGRATIONS / "254_drive_bulk_shares.sql").read_text()))
+        apply_bulk_search_fixture_migrations(connection)
         # This fixture has no payment ledgers. Mirror only migration 352's
         # search marker needed by the V1 share queue.
         connection.execute(

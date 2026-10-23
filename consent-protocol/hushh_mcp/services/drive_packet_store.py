@@ -847,64 +847,6 @@ class DrivePacketStore(DriveDocumentFactsStore):
     async def list_packets(
         self, *, user_id, owner_user_id=None, cursor=None, limit=25, owner_contents=False
     ):
-        from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
-
-        if not connector_feature_enabled("drive_period_packets", owner_user_id or user_id):
-            return await self._list_content_packets(
-                user_id=user_id,
-                owner_user_id=owner_user_id,
-                cursor=cursor,
-                limit=limit,
-                owner_contents=owner_contents,
-            )
-        from hushh_mcp.services.drive_period_packet_reader import list_packets
-        from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
-
-        period_store = DrivePeriodPacketStore(db=self.db)
-        if owner_user_id is None or owner_user_id == user_id:
-            try:
-                await period_store.ensure_owner(user_id=user_id)
-            except DriveReadError as error:
-                if str(error) != "background_preparation_required":
-                    raise
-        try:
-            periods = await list_packets(
-                period_store,
-                user_id=user_id,
-                owner_user_id=owner_user_id,
-                cursor=cursor,
-                limit=limit,
-                owner_contents=owner_contents,
-            )
-        except DriveReadError as error:
-            if str(error) != "background_preparation_required":
-                raise
-            periods = []
-        try:
-            legacy = await self._list_content_packets(
-                user_id=user_id,
-                owner_user_id=owner_user_id,
-                cursor=cursor,
-                limit=limit,
-                owner_contents=owner_contents,
-            )
-        except DriveReadError as error:
-            if str(error) != "collection_processing_required":
-                raise
-            legacy = {"packets": [], "nextCursor": None}
-        count = max(1, min(100, limit))
-        combined = sorted([*periods, *legacy["packets"]], key=lambda item: item["packetId"])
-        result = combined[:count]
-        return {
-            "packets": result,
-            "nextCursor": result[-1]["packetId"]
-            if len(combined) > count or legacy["nextCursor"]
-            else None,
-        }
-
-    async def _list_content_packets(
-        self, *, user_id, owner_user_id=None, cursor=None, limit=25, owner_contents=False
-    ):
         """One page of packets. `owner_contents` adds each packet's files for
         its owner's own list; any other viewer never gets them."""
         from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
@@ -1057,7 +999,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
             raise DriveReadError("invalid_argument")
         if decision == "allow" and disclosure != LISTING_DISCLOSURE:
             raise DriveReadError("listing_disclosure_required")
-        from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
+        from hushh_mcp.services.drive_packet_listing_authority import require_listing
 
         def operation(connection):
             lock_connection_graph_users(connection, user_ids=[user_id])
@@ -1067,30 +1009,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
               ON v.packet_id=h.packet_id AND v.version=:version WHERE h.packet_id=:id AND h.user_id=:user FOR UPDATE OF h""",
                 {"id": str(UUID(packet_id)), "user": user_id, "version": version},
             )
-            provider_packet = bool(row and row.get("packet_kind") == "provider_discovery")
-            if decision == "allow" and provider_packet:
-                from hushh_mcp.services.drive_period_packet_reader import require_period_purchase
-                from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
-
-                require_period_purchase()
-                if price_cents != 500:
-                    raise DriveReadError("invalid_argument")
-                DrivePeriodPacketStore(db=self.db).period_manifest_locked(
-                    connection, owner_user_id=user_id, packet_id=packet_id, version=version
-                )
-            elif decision == "allow":
-                self._access(connection, viewer=user_id, owner=user_id)
-            if (
-                not row
-                or decision == "allow"
-                and (
-                    row["current_version"] != version
-                    or not 0 < row["document_count"] <= 120
-                    or not provider_packet
-                    and not self._available(connection, row, facts_policy_version())
-                )
-            ):
-                raise DriveReadError("packet_unavailable")
+            require_listing(self, connection, row, user_id, decision, price_cents)
             listing = self._row(
                 connection,
                 "SELECT * FROM drive_packet_listings WHERE packet_id=:id AND version=:version FOR UPDATE",
@@ -1127,22 +1046,13 @@ class DrivePacketStore(DriveDocumentFactsStore):
         self, connection, *, owner_user_id, packet_id, version, viewer_user_id=None
     ):
         from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
+        from hushh_mcp.services.drive_period_packet_reader import resolve_period_manifest
 
-        kind = self._row(
-            connection,
-            "SELECT packet_kind FROM drive_packet_heads WHERE packet_id=:id AND user_id=:user",
-            {"id": str(UUID(packet_id)), "user": owner_user_id},
+        period = resolve_period_manifest(
+            self, connection, owner_user_id, packet_id, version, viewer_user_id
         )
-        if kind and kind["packet_kind"] == "provider_discovery":
-            from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
-
-            return DrivePeriodPacketStore(db=self.db).period_manifest_locked(
-                connection,
-                owner_user_id=owner_user_id,
-                packet_id=packet_id,
-                version=version,
-                viewer_user_id=viewer_user_id,
-            )
+        if period is not None:
+            return period
         viewer = viewer_user_id or owner_user_id
         self._access(connection, viewer=viewer, owner=owner_user_id)
         row = self._row(

@@ -25,8 +25,14 @@ class DrivePacketCatalogService:
             await admit_hub_content(user_id, "drive_packet_catalog")
         # The owner's own list says what is inside each packet; the store
         # withholds it from every other viewer.
-        result = await self.packets.list_packets(
-            user_id=user_id, owner_user_id=owner_user_id, cursor=cursor, owner_contents=True
+        from hushh_mcp.services.drive_period_packet_catalog import catalog_packets
+
+        result = await catalog_packets(
+            self.packets,
+            user_id=user_id,
+            owner_user_id=owner_user_id,
+            cursor=cursor,
+            owner_contents=True,
         )
         await self._current()
         if own_information:

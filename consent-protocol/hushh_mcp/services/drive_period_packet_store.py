@@ -26,6 +26,11 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
 class DrivePeriodPacketStore(DrivePacketStore):
+    async def list_packets(self, **kwargs):
+        from hushh_mcp.services.drive_period_packet_catalog import catalog_packets
+
+        return await catalog_packets(self, **kwargs)
+
     def _period_access(self, connection, *, owner, viewer=None, generation=None):
         if not connector_feature_enabled("drive_period_packets", owner):
             raise DriveReadError("connector_unavailable")

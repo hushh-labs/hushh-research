@@ -303,30 +303,12 @@ class DriveBulkShareWorker:
         try:
             recipient = job["recipient"]
             file = job["file"]
-            if "discoveryEvidence" in file:
-                from hushh_mcp.services.drive_request_discovery import discovery_evidence_matches
+            from hushh_mcp.services.drive_delivery_evidence import (
+                metadata_only_delivery,
+                require_delivery_evidence,
+            )
 
-                if not discovery_evidence_matches(
-                    file, user_id=job["user_id"], generation=job["generation"]
-                ):
-                    raise DriveReadError("source_changed")
-            if file.get("contentVerified") is True:
-                from hushh_mcp.services.drive_request_candidate_assessment import (
-                    verified_evidence_matches,
-                )
-
-                evidence = file.get("requestEvidence", {})
-                if not verified_evidence_matches(
-                    evidence,
-                    user_id=job["user_id"],
-                    request_id=evidence.get("request_id"),
-                    request_revision=evidence.get("request_revision"),
-                    connection_generation=job["generation"],
-                    plan_digest=evidence.get("plan_digest"),
-                    metadata=file,
-                    policy_version=evidence.get("assessment_policy_version"),
-                ):
-                    raise DriveReadError("source_changed")
+            require_delivery_evidence(file, user_id=job["user_id"], generation=job["generation"])
             await self.verify_recipient(recipient)
             stage = "credential"
             credentials = await self._credential(job)
@@ -345,12 +327,7 @@ class DriveBulkShareWorker:
                 expected_version=file.get("sourceVersion", "1"),
                 require_app_authorized=False,
                 require_genai_eligibility=False,
-                metadata_only=(
-                    file.get("metadataOnly") is True
-                    and file.get("fingerprintBasis") == "provider_metadata"
-                    and evidence is not None
-                )
-                or not bool(file.get("packageDigest") or file.get("contentVerified")),
+                metadata_only=metadata_only_delivery(file),
                 expected_name=file["name"],
                 time_field="modifiedTime",
                 start_time="1970-01-01T00:00:00Z",

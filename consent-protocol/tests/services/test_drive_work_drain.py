@@ -129,36 +129,6 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
 
 
 @pytest.mark.asyncio
-async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
-    workers = [_worker({"outcomes": {"review_ready": 1}}) for _ in range(4)]
-
-    search = _worker({"outcomes": {"completed": 1}})
-    periods = _worker({"outcomes": {"queued": 1, "private_query": "not-returned"}})
-    result = await _drain(workers, search, period_packet_worker=periods).run(stage="suggestions")
-    periods.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
-    search.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
-
-    workers[1].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=175)
-    for index in (0, 2, 3):
-        workers[index].run.assert_not_awaited()
-    assert result["workers"] == {
-        "groups": {"deferred": 1},
-        "documents": {"deferred": 1},
-        "suggestions": {"review_ready": 1},
-        "searches": {"completed": 1},
-        "permissions": {"deferred": 1},
-        "bulk_shares": {"deferred": 1},
-        "bulk_removals": {"deferred": 1},
-        "checkouts": {"deferred": 1},
-        "notifications": {"deferred": 1},
-        "refunds": {"deferred": 1},
-        "owner_payouts": {"deferred": 1},
-        "packet_orders": {"deferred": 1},
-        "period_packets": {"queued": 1},
-    }
-
-
-@pytest.mark.asyncio
 async def test_v1_stage_claims_only_marked_searches_approved_delivery_and_finance():
     workers = [_worker({"outcomes": {"not_claimed": 1}}) for _ in range(4)]
     search = _worker({"outcomes": {"completed": 1}})

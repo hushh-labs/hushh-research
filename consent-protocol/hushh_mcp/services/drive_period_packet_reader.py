@@ -171,3 +171,22 @@ async def list_packets(
         ]
 
     return await store._transaction(operation)
+
+
+def resolve_period_manifest(store, connection, owner_user_id, packet_id, version, viewer_user_id):
+    kind = store._row(
+        connection,
+        "SELECT packet_kind FROM drive_packet_heads WHERE packet_id=:id AND user_id=:user",
+        {"id": str(UUID(packet_id)), "user": owner_user_id},
+    )
+    if kind and kind["packet_kind"] == "provider_discovery":
+        from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
+
+        return DrivePeriodPacketStore(db=store.db).period_manifest_locked(
+            connection,
+            owner_user_id=owner_user_id,
+            packet_id=packet_id,
+            version=version,
+            viewer_user_id=viewer_user_id,
+        )
+    return None

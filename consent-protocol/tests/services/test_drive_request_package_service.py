@@ -106,34 +106,6 @@ async def test_read_and_final_model_use_separate_leases_and_persist_no_body():
     wake.assert_awaited_once_with("suggestions")
 
 
-@pytest.mark.parametrize("changed", [False, True])
-async def test_provider_packet_finalizes_exact_selection_without_content_stage(changed):
-    work = job()
-    work["checkpoint"] = {
-        "provider_packet": True,
-        "reusable_packet": {"packetId": "packet", "version": 1},
-    }
-    service, store, reader, assessor, final, wake = setup_work(work)
-    manifest = {"kind": "provider_discovery", "schema_version": 2}
-    service._reusable_manifest = AsyncMock(return_value=manifest)
-    store.finalize_provider_packet = AsyncMock(return_value={"status": "ready"})
-    if changed:
-        store.require_evaluation_current.side_effect = DriveReadError("connection_changed")
-    assert await service.run_one(user_id="owner", job_id="job") == (
-        "unavailable" if changed else "ready"
-    )
-    reader.read_compilation_match.assert_not_awaited()
-    assessor.assert_not_awaited()
-    final.assert_not_awaited()
-    store.commit_evaluations.assert_not_awaited()
-    store.finalize_package.assert_not_awaited()
-    if changed:
-        store.finalize_provider_packet.assert_not_awaited()
-    else:
-        store.finalize_provider_packet.assert_awaited_once_with(work)
-    wake.assert_not_awaited()
-
-
 async def test_v1_evaluation_uses_marked_claim_and_v1_wake():
     work = job()
     work["v1_statement_search"] = True

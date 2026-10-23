@@ -12,7 +12,6 @@ import hmac
 import json
 import re
 from datetime import date
-from uuid import uuid4
 
 from sqlalchemy import text
 
@@ -25,17 +24,28 @@ from hushh_mcp.services.drive_owner_search_store import (
     DriveOwnerSearchStore,
     _identity,
 )
+from hushh_mcp.services.drive_provider_request_package import (
+    _provider_package,
+    finalize_provider_packet,
+    provider_manifest,
+    provider_package_digest,
+    provider_public_package,
+    validate_provider_package,
+)
 from hushh_mcp.services.drive_request_package_assessment import (
     BoundDocumentAssessment,
     PackageAssessment,
+)
+from hushh_mcp.services.drive_request_package_queue import (
+    MAX_BATCH,
+    claim_evaluation,
+    document_ref,
+    due_evaluations,
 )
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 
 PACKAGE_KEY = "agent_package"
 PACKAGE_VERSION = 1
-PROVIDER_PACKAGE_VERSION = 2
-PROVIDER_PACKAGE_POLICY = "request-provider-packet-v1"
-MAX_BATCH = 6
 V1_FIRST_COHORT = 25
 V1_PRIORITY_FIELD = "v1_evaluation_priority"
 MAX_OBSERVATION_BYTES = 16 * 1024
@@ -60,44 +70,6 @@ _SAFE_ERRORS = frozenset(
         "package_budget_exceeded",
     }
 )
-
-
-def document_ref(position: int) -> str:
-    return f"p{position}"
-
-
-def _json_digest(value):
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-    ).hexdigest()
-
-
-def _provider_package(package):
-    return (
-        package.get("schema_version") == PROVIDER_PACKAGE_VERSION
-        and package.get("basis") == "provider_discovery"
-        and package.get("policy_version") == PROVIDER_PACKAGE_POLICY
-    )
-
-
-def _provider_disclosure(package):
-    from hushh_mcp.services.drive_request_package_disclosure import PackageDisclosure
-
-    return PackageDisclosure.model_validate(
-        {
-            "schemaVersion": 1,
-            "packageDigest": package["digest"],
-            "packageRevision": package["revision"],
-            "selectedCount": len(package["selected_positions"]),
-            "coverageStatus": "unknown",
-            "periods": [],
-            "confidenceBasis": "provider_search",
-            "limitations": [
-                "Google Drive matched the query and selected file metadata dates. "
-                "File contents and financial coverage were not assessed."
-            ],
-        }
-    ).model_dump(mode="json", exclude_none=True)
 
 
 def _metadata_priority(metadata, *, plan, purpose):
@@ -172,21 +144,7 @@ def _public_package(package=None, *, status="preparing", counts=None):
         )
         and bool(package.get("selected_positions")),
     }
-    if _provider_package(package):
-        result.update(
-            confidenceScore=None,
-            confidenceBasis="provider_search",
-            importanceScore=None,
-            evaluatedCount=0,
-            suggestedPriceCents=package["price_cents"],
-            priceReason="One-time price for this exact packet.",
-            summary=package["summary"],
-            coverageStatus="unknown",
-            gaps=["File contents and financial coverage were not assessed."],
-            selectedFiles=package.get("preview", []),
-            selectedFileCount=len(package["selected_positions"]),
-        )
-    return result
+    return provider_public_package(package, result)
 
 
 def _review_status(row):
@@ -304,74 +262,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
         return row, request, checkpoint
 
     async def due_evaluations(self, limit=2, *, v1_only=False, provider_only=False):
-        if (
-            type(limit) is not int
-            or not 1 <= limit <= 20
-            or type(v1_only) is not bool
-            or type(provider_only) is not bool
-            or v1_only
-            and provider_only
-        ):
-            raise ValueError("invalid evaluation limit")
-        provider_filter = (
-            """
-            AND EXISTS(SELECT 1 FROM drive_packet_heads h
-              WHERE h.packet_id=r.reusable_packet_id AND h.user_id=r.user_id
-                AND h.packet_kind='provider_discovery')
-        """
-            if provider_only
-            else ""
-        )
-
-        def operation(connection):
-            rows = [
-                dict(row)
-                for row in connection.execute(
-                    text(
-                        """WITH due AS (
-                      SELECT j.job_id FROM drive_owner_search_jobs j
-                      JOIN drive_share_requests r ON r.request_id=j.client_request_id
-                        AND r.user_id=j.user_id
-                      WHERE j.status='completed' AND j.incomplete_search=FALSE
-                        AND r.agent_package_required=TRUE
-                        AND (:v1_only=FALSE OR j.v1_statement_search=TRUE)
-                        AND j.evaluation_status IN ('pending','running')
-                        AND j.expires_at>clock_timestamp() AND r.expires_at>clock_timestamp()
-                        AND r.status='pending' AND r.access_stop_requested_at IS NULL
-                        AND j.evaluation_next_at<=clock_timestamp()
-                        AND (j.lease_id IS NULL OR j.lease_expires_at<=clock_timestamp())
-                        AND NOT EXISTS(SELECT 1 FROM drive_bulk_shares b
-                          WHERE b.user_id=j.user_id AND b.origin_request_id=r.request_id)
-                        AND NOT EXISTS(SELECT 1 FROM drive_request_payment_orders o
-                          WHERE o.request_id=r.request_id)
-                      """
-                        + provider_filter
-                        + """
-                      ORDER BY j.inspected_at,j.created_at,j.job_id
-                      LIMIT :limit FOR UPDATE OF j SKIP LOCKED)
-                    UPDATE drive_owner_search_jobs j SET inspected_at=clock_timestamp()
-                    FROM due WHERE j.job_id=due.job_id RETURNING j.user_id,j.job_id"""
-                    ),
-                    {"limit": limit, "v1_only": v1_only},
-                ).mappings()
-            ]
-            result = []
-            for item in rows:
-                request = self._row(
-                    connection,
-                    """SELECT r.* FROM drive_share_requests r JOIN drive_owner_search_jobs j
-                      ON j.client_request_id=r.request_id AND j.user_id=r.user_id
-                      WHERE j.job_id=:job AND j.user_id=:user""",
-                    {"job": item["job_id"], "user": item["user_id"]},
-                )
-                if (
-                    request
-                    and self.sharing._open_request(request).get("agent_package_required") is True
-                ):
-                    result.append(item)
-            return result
-
-        return await self._transaction(operation)
+        return await due_evaluations(self, limit, v1_only=v1_only, provider_only=provider_only)
 
     def _v1_priority(self, connection, row, checkpoint, purpose):
         if (
@@ -438,113 +329,14 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
     async def claim_evaluation(
         self, *, user_id, job_id, batch_size=MAX_BATCH, v1_only=False, provider_only=False
     ):
-        if (
-            type(batch_size) is not int
-            or not 1 <= batch_size <= MAX_BATCH
-            or type(v1_only) is not bool
-            or type(provider_only) is not bool
-            or v1_only
-            and provider_only
-        ):
-            raise ValueError("invalid evaluation batch size")
-        identity = _identity(job_id)
-
-        def operation(connection):
-            initial = self._owned(connection, user_id, identity)
-            if provider_only and self._checkpoint(initial).get("provider_packet") is not True:
-                return None
-            if v1_only and initial["v1_statement_search"] is not True:
-                return None
-            request_id = str(initial["client_request_id"])
-            self._gate(
-                connection,
-                user_id=user_id,
-                request_id=request_id,
-                generation=initial["connection_generation"],
-            )
-            row = self._owned(connection, user_id, identity, locked=True)
-            if provider_only and self._checkpoint(row).get("provider_packet") is not True:
-                return None
-            if v1_only and row["v1_statement_search"] is not True:
-                return None
-            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
-            if (
-                row["evaluation_status"] not in {"pending", "running"}
-                or row["evaluation_next_at"] > now
-                or row["lease_expires_at"] is not None
-                and row["lease_expires_at"] > now
-            ):
-                return None
-            request, checkpoint = self._request_current(connection, row)
-            purpose = self.sharing._open_request(request)["purpose"]
-            priority = self._v1_priority(connection, row, checkpoint, purpose)
-            counts = (
-                connection.execute(
-                    text("""SELECT count(*) AS remaining,
-                    count(*) FILTER (WHERE position=ANY(CAST(:priority AS integer[]))) AS prioritized
-                    FROM drive_owner_search_results
-                    WHERE user_id=:user AND job_id=:job AND evaluated_at IS NULL"""),
-                    {"user": user_id, "job": identity, "priority": priority},
-                )
-                .mappings()
-                .one()
-            )
-            limit = min(batch_size, counts["prioritized"]) if counts["prioritized"] else batch_size
-            candidates = []
-            for candidate in connection.execute(
-                text("""SELECT position,file_digest,metadata_envelope
-                    FROM drive_owner_search_results WHERE user_id=:user AND job_id=:job
-                    AND evaluated_at IS NULL
-                    ORDER BY array_position(CAST(:priority AS integer[]),position) NULLS LAST,
-                      position LIMIT :limit"""),
-                {"user": user_id, "job": identity, "limit": limit, "priority": priority},
-            ).mappings():
-                position = candidate["position"]
-                candidates.append(
-                    {
-                        "position": position,
-                        "document_ref": document_ref(position),
-                        "file_digest": candidate["file_digest"],
-                        "metadata": self.search_cipher.open(
-                            candidate["metadata_envelope"],
-                            user_id=user_id,
-                            resource_id=f"{identity}:{position}",
-                            purpose="owner-search-result",
-                        ),
-                    }
-                )
-            if checkpoint.get("evidence_route") in {"index", "hybrid"}:
-                retained, budget = [], 0
-                for candidate in candidates:
-                    size = candidate["metadata"].get("indexedEvidenceBytes", 128 * 1024)
-                    if retained and budget + size > 128 * 1024:
-                        break
-                    retained.append(candidate)
-                    budget += size
-                candidates = retained
-            lease = str(uuid4())
-            connection.execute(
-                text("""UPDATE drive_owner_search_jobs SET evaluation_status='running',
-                    lease_id=:lease,lease_expires_at=clock_timestamp()+INTERVAL '120 seconds',
-                    evaluation_error_code=NULL,updated_at=clock_timestamp() WHERE job_id=:job"""),
-                {"job": identity, "lease": lease},
-            )
-            return {
-                "user_id": user_id,
-                "job_id": identity,
-                "request_id": request_id,
-                "request_revision": request["revision"],
-                "generation": row["connection_generation"],
-                "lease_id": lease,
-                "purpose": purpose,
-                "checkpoint": checkpoint,
-                "candidates": candidates,
-                "remaining": counts["remaining"] - len(candidates),
-                "candidate_count": row["matched"],
-                "v1_statement_search": row["v1_statement_search"] is True,
-            }
-
-        return await self._transaction(operation)
+        return await claim_evaluation(
+            self,
+            user_id=user_id,
+            job_id=job_id,
+            batch_size=batch_size,
+            v1_only=v1_only,
+            provider_only=provider_only,
+        )
 
     async def require_evaluation_current(self, job):
         await self._transaction(lambda connection: self._evaluation_current(connection, job))
@@ -797,218 +589,10 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
         return await self._transaction(operation)
 
     def _provider_manifest(self, connection, row, checkpoint, *, approved_terms=False):
-        from hushh_mcp.services.drive_owner_search_store import validate_reusable_packet
-        from hushh_mcp.services.drive_packet_store import DrivePacketStore
-        from hushh_mcp.services.drive_period_packet_contract import PacketPeriod
-
-        binding = checkpoint.get("reusable_packet")
-        if checkpoint.get("provider_packet") is not True or not isinstance(binding, dict):
-            raise DriveSharingError("package_changed")
-        manifest = DrivePacketStore(db=self.db, cipher=self.cipher)._current_packet_manifest(
-            connection,
-            owner_user_id=row["user_id"],
-            packet_id=binding["packetId"],
-            version=binding["version"],
-        )
-        validate_reusable_packet(manifest, binding, row["user_id"], approved_terms=approved_terms)
-        if manifest.get("kind") != "provider_discovery" or manifest.get("schema_version") != 2:
-            raise DriveSharingError("package_changed")
-        if manifest.get("connection_generation") != row["connection_generation"]:
-            raise DriveSharingError("connection_changed")
-        period = PacketPeriod.model_validate(
-            {
-                "start": manifest["periodStart"],
-                "end": manifest["periodEnd"],
-                "timezone": manifest["timezone"],
-            }
-        )
-        if not period.closed(connection.execute(text("SELECT clock_timestamp()")).scalar_one()):
-            raise DriveSharingError("package_not_ready")
-        return manifest
-
-    def _provider_result(self, row, checkpoint, manifest, item, *, materialize):
-        from hushh_mcp.services.drive_request_discovery import discovery_evidence_matches
-        from hushh_mcp.services.drive_request_semantic_plan import semantic_plan_digest
-
-        position = item["position"]
-        metadata = self.search_cipher.open(
-            item["metadata_envelope"],
-            user_id=row["user_id"],
-            resource_id=f"{row['job_id']}:{position}",
-            purpose="owner-search-result",
-        )
-        document_id = metadata.get("providerPacketDocumentId")
-        versions = {
-            source["document_id"]: source["source_version"] for source in manifest["sources"]
-        }
-        original = manifest["source_metadata"].get(document_id, {})
-        expected = {
-            "queries": manifest["search"]["queries"],
-            "semantic_plan": manifest["search"]["plan"],
-            "semantic_plan_digest": semantic_plan_digest(manifest["search"]["plan"]),
-            "request_origin_id": checkpoint["request_origin_id"],
-            "request_revision": checkpoint["request_revision"],
-            "requested_period": {
-                "start": manifest["periodStart"],
-                "end": manifest["periodEnd"],
-                "timezone": manifest["timezone"],
-            },
-        }
-        if (
-            document_id not in versions
-            or metadata.get("providerPacketId") != manifest["packet_id"]
-            or metadata.get("providerPacketVersion") != manifest["version"]
-            or metadata.get("sourceVersion") != versions[document_id]
-            or original.get("sourceVersion") != versions[document_id]
-            or any(metadata.get(key) != original.get(key) for key in ("id", "name", "mimeType"))
-            or metadata.get("shareable") is not True
-            or metadata.get("indexedEvidence") is not None
-            or not discovery_evidence_matches(
-                metadata,
-                user_id=row["user_id"],
-                generation=row["connection_generation"],
-                checkpoint=expected,
-            )
-        ):
-            raise DriveSharingError("package_changed")
-        fingerprint = _json_digest(
-            {
-                "basis": "provider_metadata",
-                **{key: metadata[key] for key in ("id", "name", "mimeType", "sourceVersion")},
-            }
-        )
-        expected_fields = {
-            "contentFingerprint": fingerprint,
-            "fingerprintBasis": "provider_metadata",
-            "metadataOnly": True,
-        }
-        if any(
-            metadata.get(key) != value and (not materialize or key in metadata)
-            for key, value in expected_fields.items()
-        ):
-            raise DriveSharingError("package_changed")
-        metadata.update(
-            contentFingerprint=fingerprint, fingerprintBasis="provider_metadata", metadataOnly=True
-        )
-        source = {
-            "position": position,
-            "file_digest": item["file_digest"],
-            "source_version": versions[document_id],
-            "content_fingerprint": fingerprint,
-            "fingerprint_basis": "provider_metadata",
-            "provider_document_id": document_id,
-            "evidence_digest": _json_digest(
-                {"manifest_digest": manifest["digest"], "metadata": metadata}
-            ),
-        }
-        return source, metadata
-
-    def _provider_sources(self, connection, row, checkpoint, manifest, *, materialize=False):
-        rows = list(
-            connection.execute(
-                text("""SELECT position,file_digest,metadata_envelope,evaluated_at
-                FROM drive_owner_search_results WHERE user_id=:user AND job_id=:job
-                ORDER BY position LIMIT 121"""),
-                {"user": row["user_id"], "job": row["job_id"]},
-            ).mappings()
-        )
-        ids = [source["document_id"] for source in manifest["sources"]]
-        if (
-            not 1 <= len(rows) <= 120
-            or len(rows) != row["matched"]
-            or len(rows) != len(ids)
-            or len(set(ids)) != len(ids)
-            or set(ids) != set(manifest["selected_document_ids"])
-            or any(item["evaluated_at"] is not None for item in rows)
-        ):
-            raise DriveSharingError("package_changed")
-        sources, preview, seen, file_ids = [], [], set(), set()
-        for item in rows:
-            source, metadata = self._provider_result(
-                row, checkpoint, manifest, item, materialize=materialize
-            )
-            if (
-                source["provider_document_id"] in seen
-                or metadata["id"] in file_ids
-                or not isinstance(item["file_digest"], str)
-                or not _HASH.fullmatch(item["file_digest"])
-            ):
-                raise DriveSharingError("package_changed")
-            seen.add(source["provider_document_id"])
-            file_ids.add(metadata["id"])
-            sources.append(source)
-            if len(preview) < 25:
-                preview.append(
-                    {
-                        "position": item["position"],
-                        "name": metadata["name"][:500],
-                        "weightageOutOf10": None,
-                        "confidenceScore": None,
-                    }
-                )
-            if materialize:
-                connection.execute(
-                    text("""UPDATE drive_owner_search_results SET metadata_envelope=CAST(:envelope AS jsonb)
-                        WHERE user_id=:user AND job_id=:job AND position=:position"""),
-                    {
-                        "user": row["user_id"],
-                        "job": row["job_id"],
-                        "position": item["position"],
-                        "envelope": self._seal(
-                            metadata,
-                            row["user_id"],
-                            f"{row['job_id']}:{item['position']}",
-                            "owner-search-result",
-                        ),
-                    },
-                )
-        return sources, preview
+        return provider_manifest(self, connection, row, checkpoint, approved_terms=approved_terms)
 
     async def finalize_provider_packet(self, job):
-        """Freeze provider-query membership; no content assessment or owner approval."""
-
-        def operation(connection):
-            row, request, checkpoint = self._evaluation_current(connection, job)
-            manifest = self._provider_manifest(connection, row, checkpoint)
-            sources, preview = self._provider_sources(
-                connection, row, checkpoint, manifest, materialize=True
-            )
-            package = {
-                "schema_version": PROVIDER_PACKAGE_VERSION,
-                "basis": "provider_discovery",
-                "content_assessment": "not_applicable_by_delivery_policy",
-                "policy_version": PROVIDER_PACKAGE_POLICY,
-                "revision": checkpoint.get(PACKAGE_KEY, {}).get("revision", 0) + 1,
-                "request_revision": request["revision"],
-                "connection_generation": row["connection_generation"],
-                "reusable_packet": checkpoint["reusable_packet"],
-                "provider_manifest_digest": manifest["digest"],
-                "selected_positions": [source["position"] for source in sources],
-                "counts": {"candidates": len(sources), "evaluated": 0, "unreadable": 0},
-                "summary": "Google Drive query matches for this closed two-month metadata window.",
-                "price_cents": manifest["price_cents"],
-                "preview": preview,
-            }
-            package["digest"] = self._digest(row, request, package, sources)
-            if len(json.dumps(package, ensure_ascii=False).encode()) > MAX_PACKAGE_BYTES:
-                raise DriveSharingError("package_budget_exceeded")
-            checkpoint[PACKAGE_KEY] = package
-            connection.execute(
-                text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb),
-                    evaluation_status='ready',evaluation_error_code=NULL,lease_id=NULL,
-                    lease_expires_at=NULL,revision=revision+1,updated_at=clock_timestamp()
-                    WHERE user_id=:user AND job_id=:job"""),
-                {
-                    "user": row["user_id"],
-                    "job": row["job_id"],
-                    "envelope": self._seal(
-                        checkpoint, row["user_id"], str(row["job_id"]), "owner-search-checkpoint"
-                    ),
-                },
-            )
-            return _public_package(package, status="ready")
-
-        return await self._transaction(operation)
+        return await finalize_provider_packet(self, job)
 
     def _manifest(self, connection, row, selected_positions):
         selected = set(selected_positions)
@@ -1073,18 +657,7 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
 
     def _digest(self, row, request, package, sources):
         if _provider_package(package):
-            return self.search_cipher.digest(
-                "request-provider-packet-v1",
-                [
-                    row["user_id"],
-                    request["recipient_user_id"],
-                    str(request["request_id"]),
-                    request["revision"],
-                    row["connection_generation"],
-                    {key: value for key, value in package.items() if key != "digest"},
-                    sources,
-                ],
-            )
+            return provider_package_digest(self, row, request, package, sources)
         return self.search_cipher.digest(
             "request-agent-package-v1",
             [
@@ -1223,38 +796,6 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
 
         return await self._transaction(operation)
 
-    def _validate_provider_package(
-        self, connection, search, request, checkpoint, package, package_revision, package_digest
-    ):
-        manifest = self._provider_manifest(connection, search, checkpoint)
-        sources, _ = self._provider_sources(connection, search, checkpoint, manifest)
-        if (
-            search["evaluation_status"] != "ready"
-            or package.get("revision") != package_revision
-            or package.get("request_revision") != request["revision"]
-            or package.get("connection_generation") != search["connection_generation"]
-            or package.get("reusable_packet") != checkpoint["reusable_packet"]
-            or package.get("provider_manifest_digest") != manifest["digest"]
-            or package.get("price_cents") != manifest["price_cents"]
-            or package.get("content_assessment") != "not_applicable_by_delivery_policy"
-            or "assessment" in package
-            or package.get("selected_positions") != [source["position"] for source in sources]
-            or not hmac.compare_digest(str(package.get("digest", "")), package_digest)
-            or not hmac.compare_digest(
-                self._digest(search, request, package, sources), package_digest
-            )
-        ):
-            raise DriveSharingError("package_changed")
-        return {
-            "basis": "provider_discovery",
-            "price_cents": package["price_cents"],
-            "buyer_disclosure": _provider_disclosure(package),
-            "summary": _public_package(package, status="ready"),
-            "selected_positions": package["selected_positions"],
-            "selected_sources": sources,
-            "search_job_id": str(search["job_id"]),
-        }
-
     def validate_ready_package(self, connection, row, private, package_revision, package_digest):
         """Called under the owner's request transaction; does not approve anything."""
         if (
@@ -1276,8 +817,15 @@ class DriveRequestPackageStore(DriveOwnerSearchStore):
         current, checkpoint = self._request_current(connection, search)
         package = checkpoint.get(PACKAGE_KEY, {})
         if _provider_package(package):
-            return self._validate_provider_package(
-                connection, search, current, checkpoint, package, package_revision, package_digest
+            return validate_provider_package(
+                self,
+                connection,
+                search,
+                current,
+                checkpoint,
+                package,
+                package_revision,
+                package_digest,
             )
         if (
             search["evaluation_status"] != "ready"

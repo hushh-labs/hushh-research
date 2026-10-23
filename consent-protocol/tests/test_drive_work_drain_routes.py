@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import drive_work_drain as routes
+from tests.services.test_drive_work_drain import _drain, _worker
 
 PROJECT = "hushh-pda-uat"
 SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
@@ -45,6 +46,36 @@ def _claims(**changes):
 
 def _authorized_headers():
     return {"Authorization": "Bearer scheduler-oidc-token"}
+
+
+@pytest.mark.asyncio
+async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
+    workers = [_worker({"outcomes": {"review_ready": 1}}) for _ in range(4)]
+
+    search = _worker({"outcomes": {"completed": 1}})
+    periods = _worker({"outcomes": {"queued": 1, "private_query": "not-returned"}})
+    result = await _drain(workers, search, period_packet_worker=periods).run(stage="suggestions")
+    periods.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
+    search.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
+
+    workers[1].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=175)
+    for index in (0, 2, 3):
+        workers[index].run.assert_not_awaited()
+    assert result["workers"] == {
+        "groups": {"deferred": 1},
+        "documents": {"deferred": 1},
+        "suggestions": {"review_ready": 1},
+        "searches": {"completed": 1},
+        "permissions": {"deferred": 1},
+        "bulk_shares": {"deferred": 1},
+        "bulk_removals": {"deferred": 1},
+        "checkouts": {"deferred": 1},
+        "notifications": {"deferred": 1},
+        "refunds": {"deferred": 1},
+        "owner_payouts": {"deferred": 1},
+        "packet_orders": {"deferred": 1},
+        "period_packets": {"queued": 1},
+    }
 
 
 def test_route_is_default_off_and_never_attempts_oidc_when_disabled(client, monkeypatch):
@@ -210,6 +241,26 @@ def test_route_refuses_scheduler_configuration_substitution(client, monkeypatch,
     verifier.assert_not_called()
 
 
+def _aggregate_worker_result():
+    return {
+        "schema_version": "drive.work_drain.v1",
+        "workers": {
+            "groups": {"indexed": 1},
+            "documents": {"ready": 1},
+            "suggestions": {"review_ready": 1, "private_request_id": "not-allowed"},
+            "searches": {"superseded": 1, "private_search_id": "not-allowed"},
+            "permissions": {"succeeded": 1},
+            "bulk_shares": {"succeeded": 2, "private_file_id": "not-allowed"},
+            "bulk_removals": {"removed": 1, "private_permission_id": "not-allowed"},
+            "checkouts": {"ready": 1, "private_checkout_id": "not-allowed"},
+            "notifications": {"settled": 1},
+            "refunds": {"succeeded": 1, "private_payment_id": "not-allowed"},
+            "owner_payouts": {"transferred": 1, "private_transfer_id": "not-allowed"},
+            "packet_orders": {"refunded": 1, "private_order_id": "not-allowed"},
+        },
+    }
+
+
 def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
     client, monkeypatch
 ):
@@ -231,25 +282,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             return purge()
 
     monkeypatch.setattr(routes, "ConnectorAttemptRetention", Retention)
-    run = AsyncMock(
-        return_value={
-            "schema_version": "drive.work_drain.v1",
-            "workers": {
-                "groups": {"indexed": 1},
-                "documents": {"ready": 1},
-                "suggestions": {"review_ready": 1, "private_request_id": "not-allowed"},
-                "searches": {"superseded": 1, "private_search_id": "not-allowed"},
-                "permissions": {"succeeded": 1},
-                "bulk_shares": {"succeeded": 2, "private_file_id": "not-allowed"},
-                "bulk_removals": {"removed": 1, "private_permission_id": "not-allowed"},
-                "checkouts": {"ready": 1, "private_checkout_id": "not-allowed"},
-                "notifications": {"settled": 1},
-                "refunds": {"succeeded": 1, "private_payment_id": "not-allowed"},
-                "owner_payouts": {"transferred": 1, "private_transfer_id": "not-allowed"},
-                "packet_orders": {"refunded": 1, "private_order_id": "not-allowed"},
-            },
-        }
-    )
+    run = AsyncMock(return_value=_aggregate_worker_result())
 
     class Drain:
         def run(self, **kwargs):

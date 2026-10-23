@@ -1871,18 +1871,11 @@ class DriveOwnerSearchService:
             raise DriveReadError("invalid_argument")
         route = evidence_route or {"kind": "provider"}
         indexed = route["kind"] in {"index", "packet"}
-        provider_packet = route.get("provider_packet") is True and route["kind"] == "packet"
-        if plan_source == "frozen_provider_packet" and not provider_packet:
-            raise DriveReadError("invalid_argument")
-        if provider_packet:
-            if (
-                plan != route["plan"]
-                or semantic_model_binding != route["model_binding"]
-                or purpose.get("periodStart") != route["period"]["start"]
-                or purpose.get("periodEnd") != route["period"]["end"]
-            ):
-                raise DriveReadError("packet_integrity_invalid")
-            timezone = route["period"]["timezone"]
+        from hushh_mcp.services.drive_request_search_contract import provider_packet_scope
+
+        provider_packet, timezone = provider_packet_scope(
+            route, plan, purpose, semantic_model_binding, timezone, plan_source
+        )
         if (
             not (purpose.get("periodStart") and purpose.get("periodEnd"))
             and route["kind"] != "packet"
@@ -1891,35 +1884,19 @@ class DriveOwnerSearchService:
         await require_current()
         query = purpose["purpose"]
         plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
-        semantic_plan = plan.get("semantic_query")
-        if (
-            type(discovery_delivery_enabled) is not bool
-            or discovery_delivery_enabled
-            and semantic_plan is None
-        ):
-            raise DriveReadError("invalid_argument")
-        if semantic_model_binding is not None and semantic_plan is None:
-            raise DriveReadError("invalid_argument")
-        if bool(semantic_plan is not None) != semantic_search:
-            raise DriveReadError("invalid_argument")
-        if semantic_plan is not None:
-            from hushh_mcp.services.drive_request_semantic_plan import (
-                SemanticDrivePlan,
-                semantic_plan_digest,
-            )
+        from hushh_mcp.services.drive_request_search_contract import validated_request_semantics
+        from hushh_mcp.services.drive_request_semantic_plan import semantic_plan_digest
 
-            semantic_plan = SemanticDrivePlan.model_validate(semantic_plan).model_dump(mode="json")
-            if v1_live_request or indexed and not provider_packet or parsed_brain is not None:
-                raise DriveReadError("invalid_argument")
-            from hushh_mcp.services.drive_request_package_service import assessment_policy_version
-
-            if semantic_model_binding is not None:
-                from hushh_mcp.services.drive_request_package_assessment import (
-                    validate_semantic_model_binding,
-                )
-
-                semantic_model_binding = validate_semantic_model_binding(semantic_model_binding)
-            semantic_policy = assessment_policy_version(semantic_model_binding)
+        semantic_plan, semantic_model_binding, semantic_policy = validated_request_semantics(
+            plan,
+            discovery_delivery_enabled=discovery_delivery_enabled,
+            semantic_model_binding=semantic_model_binding,
+            semantic_search=semantic_search,
+            v1_live_request=v1_live_request,
+            indexed=indexed,
+            provider_packet=provider_packet,
+            parsed_brain=parsed_brain,
+        )
         request = self._request(query, timezone)
         existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None and existing["status"] in {"queued", "running"}:
@@ -2625,111 +2602,9 @@ class DriveOwnerSearchService:
         return checkpoint, files, False, False
 
     async def _indexed_page(self, job):
-        checkpoint = copy.deepcopy(job["checkpoint"])
-        if checkpoint["evidence_route"] == "packet":
-            binding = checkpoint.get("reusable_packet") or checkpoint["matched_packet"]
-            manifest = await self._packet_store().current_packet_manifest(
-                owner_user_id=job["user_id"],
-                packet_id=binding["packetId"],
-                version=binding["version"],
-            )
-            validate_reusable_packet(manifest, binding, job["user_id"])
-            if manifest.get("kind") == "provider_discovery":
-                if checkpoint.get("provider_packet") is not True or not discovery_delivery(
-                    checkpoint
-                ):
-                    raise DriveReadError("packet_integrity_invalid")
-                from hushh_mcp.services.drive_period_packet_page import frozen_provider_page
+        from hushh_mcp.services.drive_request_index_page import indexed_page
 
-                return await frozen_provider_page(self, job, manifest, checkpoint)
-            offset = checkpoint["packet_offset"]
-            sources = manifest["sources"][offset : offset + PAGE_SIZE]
-            documents = [
-                {**source, "metadata": manifest["source_metadata"][source["document_id"]]}
-                for source in sources
-            ]
-            checkpoint["packet_offset"] += len(documents)
-            done = checkpoint["packet_offset"] == len(manifest["sources"])
-        else:
-            current = await self._facts_store().current_index_status(owner_user_id=job["user_id"])
-            if (
-                checkpoint["evidence_route"] == "index"
-                and not current["complete"]
-                or current["signature"] != checkpoint["index_snapshot"]["signature"]
-            ):
-                raise DriveReadError("source_changed")
-            page = await self._facts_store().current_documents_page(
-                owner_user_id=job["user_id"], cursor=checkpoint["index_cursor"], limit=PAGE_SIZE
-            )
-            documents = page["documents"]
-            checkpoint["index_cursor"] = page["next_cursor"]
-            done = page["next_cursor"] is None
-        semaphore = asyncio.Semaphore(6)
-
-        async def candidate(document):
-            metadata = document["metadata"]
-            async with semaphore:
-                # The whole page is fenced before provider I/O and atomically
-                # at commit; avoid rescanning the collection per file.
-                result = await self.transport.read_tool(
-                    user_id=job["user_id"],
-                    tool_name="get_file_metadata",
-                    arguments={"fileId": metadata["file_id"]},
-                )
-                if result.is_error or result.truncated or not isinstance(result.payload, dict):
-                    raise DriveReadError("provider_response_invalid")
-                source = result.payload.get("file")
-                match = DriveLiveReader._match(source)
-                if (
-                    match is None
-                    or match["file_id"] != metadata["file_id"]
-                    or source.get("version") != document["source_version"]
-                    or match["name"] != metadata["name"]
-                    or source.get("trashed") is True
-                ):
-                    raise DriveReadError("source_changed")
-                capabilities = source.get("capabilities", {})
-                if (
-                    capabilities.get("canDownload") is not True
-                    or capabilities.get("canAccessViaGenAi") is False
-                ):
-                    raise DriveReadError("source_unavailable")
-                return {
-                    "id": match["file_id"],
-                    "name": match["name"],
-                    "mimeType": match["mime_type"],
-                    "modifiedTime": match["modified_time"],
-                    "createdTime": match.get("created_time"),
-                    "openUrl": match["open_url"],
-                    **_shareability(source),
-                    "indexedEvidence": {
-                        key: document[key]
-                        for key in ("document_id", "source_version", "facts_version")
-                    },
-                    "indexedEvidenceBytes": len(
-                        json.dumps(document.get("facts", {}), ensure_ascii=False).encode()
-                    )
-                    * 2,
-                    "requestEvidence": {
-                        "version": 1,
-                        "assessment": "unverified",
-                        "basis": "document_index",
-                    },
-                }
-
-        tasks = [asyncio.create_task(candidate(document)) for document in documents]
-        try:
-            files = await asyncio.gather(*tasks)
-        except BaseException:
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise
-        _counter(checkpoint, "indexedDocumentsReused", len(files))
-        if done and checkpoint["evidence_route"] == "hybrid":
-            checkpoint["phase"] = "user"
-            done = False
-        return checkpoint, files, False, done
+        return await indexed_page(self, job)
 
     async def _semantic_assessment_page(self, job, checkpoint):
         """Drain one durable candidate under the current search lease.

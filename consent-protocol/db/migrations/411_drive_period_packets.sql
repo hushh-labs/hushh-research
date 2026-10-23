@@ -18,6 +18,13 @@ END IF;
 END $$;
 ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID
   REFERENCES drive_packet_heads(packet_id) ON DELETE CASCADE;
+DO $$ BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='drive_owner_search_jobs'::regclass
+  AND conname='drive_owner_search_jobs_period_packet_id_fkey') THEN
+  ALTER TABLE drive_owner_search_jobs ADD CONSTRAINT drive_owner_search_jobs_period_packet_id_fkey
+    FOREIGN KEY (period_packet_id) REFERENCES drive_packet_heads(packet_id) ON DELETE CASCADE;
+END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS drive_period_packet_search ON drive_owner_search_jobs(period_packet_id)
   WHERE period_packet_id IS NOT NULL;
 COMMENT ON COLUMN drive_packet_heads.packet_kind IS

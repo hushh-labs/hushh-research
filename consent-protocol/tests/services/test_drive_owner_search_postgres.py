@@ -29,6 +29,7 @@ from hushh_mcp.services.google_drive_adapter import (
     LIVE_POLICY_HASH,
     DriveReadError,
 )
+from tests.drive_postgres_test_support import apply_drive_fixture_migration
 from tests.services.test_external_connector_lifecycle_postgres import (  # noqa: F401
     connector_postgres_url,
     lifecycle,
@@ -44,15 +45,9 @@ def store(lifecycle, monkeypatch):
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,other")
     monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
     with lifecycle.db.engine.begin() as connection:
-        connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
-        connection.execute(
-            text(
-                "ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID"
-            )
-        )
-        connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
-        # This isolated fixture has no share-request tables, so it cannot run
-        # migration 256. Keep its search table at the current runtime shape.
+        apply_drive_fixture_migration(connection, "251_drive_owner_search_jobs.sql")
+        apply_drive_fixture_migration(connection, "251_drive_owner_search_jobs.sql")
+        # Search-only projection: no share-request tables for migration 256.
         connection.execute(
             text("""ALTER TABLE drive_owner_search_jobs
             ADD COLUMN unshareable_count INTEGER NOT NULL DEFAULT 0
@@ -681,7 +676,7 @@ def test_migration_has_working_down_path(store):
             connection.execute(text("SELECT to_regclass('drive_owner_search_jobs')")).scalar_one()
             is None
         )
-        connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
+        apply_drive_fixture_migration(connection, "251_drive_owner_search_jobs.sql")
         assert (
             connection.execute(
                 text("SELECT to_regclass('drive_owner_search_results')")

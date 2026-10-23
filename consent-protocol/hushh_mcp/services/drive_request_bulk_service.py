@@ -568,6 +568,8 @@ class DriveRequestBulkService:
             plan = planned.model_dump(mode="json")
         context = await self._context(user_id, request_id, start=True)
         await self._owner()
+        from hushh_mcp.services.drive_request_search_binding import semantic_search_options
+
         return await self.search.create_for_request(
             user_id=user_id,
             request_id=request_id,
@@ -584,24 +586,7 @@ class DriveRequestBulkService:
             **({"planner_fallback": planner_fallback} if planner_fallback is not None else {}),
             **({"brain": brain.as_checkpoint()} if brain is not None else {}),
             **({"plan_source": plan_source} if plan_source is not None else {}),
-            **(
-                {"semantic_search": True}
-                if provider_packet or context.get("semanticSearch") is True
-                else {}
-            ),
-            **(
-                {"discovery_delivery_enabled": True}
-                if provider_packet or context.get("discoveryDelivery") is True
-                else {}
-            ),
-            **(
-                {"semantic_model_binding": route["model_binding"]}
-                if provider_packet and route.get("model_binding") is not None
-                else {"semantic_model_binding": context["semanticModelBinding"]}
-                if context.get("semanticSearch") is True
-                and context.get("semanticModelBinding") is not None
-                else {}
-            ),
+            **semantic_search_options(context, route),
             # A new automatic request shares every in-period match. An owner
             # takeover keeps the owner's exact review.
             **(

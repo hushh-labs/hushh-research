@@ -17,6 +17,7 @@ from pathlib import Path
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.drive_document_pages import OCR_IMAGE_MIMES
 from hushh_mcp.services.drive_live_reader import UNREADABLE, DriveLiveReader
+from hushh_mcp.services.drive_provider_request_package import run_packages, run_provider_package
 from hushh_mcp.services.drive_request_package_assessment import (
     MAX_PACKAGE_DOCUMENTS,
     MAX_PROMPT_BYTES,
@@ -644,19 +645,7 @@ class DriveRequestPackageService:
         try:
             async with asyncio.timeout(BATCH_SECONDS):
                 if job.get("checkpoint", {}).get("provider_packet") is True:
-                    manifest = await self._reusable_manifest(job)
-                    if not isinstance(manifest, dict) or (
-                        manifest.get("kind") != "provider_discovery"
-                        or manifest.get("schema_version") != 2
-                    ):
-                        raise DriveReadError("source_changed")
-                    await self.store.require_evaluation_current(job)
-                    result = await self.store.finalize_provider_packet(job)
-                    logger.info(
-                        "drive_request_provider_packet status=%s content_assessment=not_applicable",
-                        result["status"],
-                    )
-                    return result["status"]
+                    return await run_provider_package(self, job)
                 if job["candidates"]:
                     await self._read_batch(job)
                     await self.store.release_evaluation(job)
@@ -683,21 +672,10 @@ class DriveRequestPackageService:
             return "unavailable"
 
     async def run(self, *, max_jobs=1, deadline_seconds=120, v1_only=False, provider_only=False):
-        counts = Counter()
-        try:
-            async with asyncio.timeout(deadline_seconds):
-                for job in await self.store.due_evaluations(
-                    limit=max_jobs,
-                    **({"v1_only": True} if v1_only else {}),
-                    **({"provider_only": True} if provider_only else {}),
-                ):
-                    result = await self.run_one(
-                        user_id=job["user_id"],
-                        job_id=str(job["job_id"]),
-                        v1_only=v1_only,
-                        **({"provider_only": True} if provider_only else {}),
-                    )
-                    counts[result] += 1
-        except TimeoutError:
-            counts["deadline"] += 1
-        return dict(counts)
+        return await run_packages(
+            self,
+            max_jobs=max_jobs,
+            deadline_seconds=deadline_seconds,
+            v1_only=v1_only,
+            provider_only=provider_only,
+        )

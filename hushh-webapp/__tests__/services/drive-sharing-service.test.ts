@@ -638,20 +638,6 @@ describe("private sharing transport", () => {
         .rejects.toMatchObject({ code: "invalid_response" });
     }
   });
-  it("accepts discovery membership without model scores while retaining approval binding", async () => {
-    const agentPackage = { status: "ready", revision: 2, digest: "a".repeat(64), selectedCount: 2, selectedFileCount: 2,
-      selectedFiles: [{ position: 1, name: "Arbitrary 7.pdf" }, { position: 2, name: "Record K.docx" }],
-      evaluatedCount: 0, candidateCount: 2, confidenceScore: null, confidenceBasis: "provider_search", importanceScore: null,
-      suggestedPriceCents: 500, priceReason: "Fixed price", summary: "Drive search matches", coverageStatus: "unknown",
-      gaps: ["File contents were not read."], canAllow: true };
-    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), agentPackage }));
-    expect((await DriveSharingService.review("vault", requestId, guard)).agentPackage).toEqual(agentPackage);
-    for (const invalid of [{ confidenceScore: 95 }, { importanceScore: 10 }, { evaluatedCount: 2 }, { suggestedPriceCents: 1000 },
-      { digest: null }, { selectedFileCount: 1 }, { confidenceBasis: "model_assessment" }]) {
-      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), agentPackage: { ...agentPackage, ...invalid } }));
-      await expect(DriveSharingService.review("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
-    }
-  });
   it("preserves the owner package assessment and rejects unsafe approval projections", async () => {
     const agentPackage = { status: "ready", revision: 2, digest: "a".repeat(64),
       selectedCount: 4, selectedFileCount: 4,

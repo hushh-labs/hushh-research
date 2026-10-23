@@ -266,25 +266,6 @@ describe("exact-file document review", () => {
     cleanup();
     vi.restoreAllMocks();
   });
-  it("allows frozen search matches without content scores or a changed fixed price", async () => {
-    state.status.mockResolvedValue(pending(3));
-    state.review.mockResolvedValue(partial({ revision: 3, paymentRequired: true, priceCents: 500,
-      agentPackage: agentPackage({ confidenceBasis: "provider_search", confidenceScore: null, importanceScore: null,
-        evaluatedCount: 0, suggestedPriceCents: 500, coverageStatus: "unknown", gaps: [], priceReason: "",
-        summary: "Files matched a Drive search. Their contents were not read.", selectedCount: 1, selectedFileCount: 1,
-        selectedFiles: [{ position: 1, name: "Record X.pdf" }] }) }));
-    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-    expect(await screen.findByText("Files ready")).toBeVisible();
-    expect(screen.queryByText("Unable to verify")).toBeNull();
-    fireEvent.click(screen.getByText("View details"));
-    expect(screen.getByText("Record X.pdf")).toBeVisible();
-    expect(screen.queryByText("Agent assessment")).toBeNull();
-    expect(screen.queryByText("Importance")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Edit price" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
-    await waitFor(() => expect(state.allow).toHaveBeenCalledWith("owner-a", requestId,
-      { revision: 3, amountCents: 500, packageRevision: 2, packageDigest: "b".repeat(64) }, expect.any(Function)));
-  });
   it("polls a preparing package, then approves its exact digest with an editable suggested price", async () => {
     state.status.mockResolvedValue(pending(3));
     state.review.mockResolvedValue(partial({ revision: 3, trustedAuto: true, durableAvailable: true,

@@ -6,9 +6,9 @@ import {
   useId,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import Link from "next/link";
+import { DocumentPackageDetails, DocumentPackageActions, PackageFact as Fact } from "@/components/consent/document-package-review";
 import {
   documentRequestSetupState,
   documentRequestSetupHref,
@@ -414,19 +414,6 @@ function isFinding(snapshot: Snapshot | null): boolean {
     snapshot?.status.direction === "incoming" &&
     (review.status === "pending" || review.status === "preparing") &&
     !review.preparationError
-  );
-}
-
-function Fact({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex min-h-11 items-start justify-between gap-4 py-2.5">
-      <HelperText as="dt" className="shrink-0">
-        {label}
-      </HelperText>
-      <BodyText as="dd" className="min-w-0 text-right [overflow-wrap:anywhere]">
-        {value}
-      </BodyText>
-    </div>
   );
 }
 
@@ -1601,41 +1588,7 @@ function UnlockedDocumentReview({
       </> : null}
 
       {review && agentPackage && !v1Package && !removal ? <>
-        <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
-        <dl className={HAIRLINES}>
-          <Fact label="Share with" value={review.recipientEmail} />
-          {review.purpose.periodStart ? <Fact label={agentPackage.confidenceBasis === "provider_search" ? "Search period" : "Period"} value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
-          <Fact label="Access" value="Viewer, until removed" />
-          <Fact label="Package" value={`${agentPackage.selectedCount.toLocaleString()} ${agentPackage.selectedCount === 1 ? "file" : "files"}`} />
-          {agentPackage.confidenceBasis !== "provider_search" ? <Fact label="Coverage" value={{ complete: "Complete", partial: "Partial", unknown: "Not established" }[agentPackage.coverageStatus]} /> : null}
-          {agentPackage.suggestedPriceCents !== null ? <Fact label="Suggested price" value={formatDocumentRequestPrice(agentPackage.suggestedPriceCents)} /> : null}
-          {agentPackage.status === "allowed" && review.priceCents != null ? <Fact label="Agreed price" value={formatDocumentRequestPrice(review.priceCents)} /> : null}
-        </dl>
-        <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
-          <dl className={HAIRLINES}>
-          {agentPackage.confidenceBasis !== "provider_search" ? <Fact label="Evaluated" value={`${agentPackage.evaluatedCount.toLocaleString()} of ${agentPackage.candidateCount.toLocaleString()} candidates`} /> : null}
-          {agentPackage.confidenceScore !== null ? <Fact label="Agent assessment" value={`${agentPackage.confidenceScore}/100`} /> : null}
-          {agentPackage.importanceScore !== null ? <Fact label="Importance" value={`${agentPackage.importanceScore}/500`} /> : null}
-          </dl>
-        {agentPackage.confidenceScore !== null ? <HelperText>Agent One&apos;s assessment is not a measured probability of correctness.</HelperText> : null}
-        {agentPackage.priceReason ? <HelperText className="[overflow-wrap:anywhere]">{agentPackage.priceReason}</HelperText> : null}
-        {agentPackage.selectedFiles?.length ? <div className="mt-3">
-          <MediumRowLabel as="span">Included files</MediumRowLabel>
-          <ul className="divide-y divide-border/60" aria-label="Included files">
-            {agentPackage.selectedFiles.map(file => <li key={file.position} className="py-2">
-              <HelperText className="[overflow-wrap:anywhere]">{file.name}</HelperText>
-              {agentPackage.confidenceBasis !== "provider_search" ? <HelperText>Weightage {file.weightageOutOf10}/10 · Model assessment {file.confidenceScore}/100</HelperText> : null}
-            </li>)}
-          </ul>
-          {agentPackage.selectedCount > agentPackage.selectedFiles.length ? <HelperText>
-            Showing {agentPackage.selectedFiles.length} of {agentPackage.selectedCount} files.
-          </HelperText> : null}
-        </div> : null}
-        </details>
-        {agentPackage.summary ? <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">{agentPackage.summary}</BodyText> : null}
-        {agentPackage.gaps.length ? <ul aria-label="Package coverage gaps" className="divide-y divide-border/60">
-          {agentPackage.gaps.map((gap, index) => <li key={index} className="py-2"><HelperText className="[overflow-wrap:anywhere]">{gap}</HelperText></li>)}
-        </ul> : null}
+        <DocumentPackageDetails review={review} agentPackage={agentPackage} hairlines={HAIRLINES} />
         {review.preparationError === "package_existing_access_requires_review" ?
           <BodyText>The requester already has access to part of this packet. Checkout is paused.</BodyText>
         : review.preparationError === "payment_not_ready" ?
@@ -1659,14 +1612,10 @@ function UnlockedDocumentReview({
           : agentPackage.status === "stale"
             ? "This packet needs a fresh assessment."
             : "Agent One couldn’t finish checking this request."}</HelperText>}
-        {snapshot && UNDECIDED.has(snapshot.status.status) && agentPackage.status !== "allowed" ? <FlowActionGroup
-          primary={<Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked || !ownerDecision} onClick={() => allow(review.paymentRequired ? agentPackage.suggestedPriceCents ?? review.priceCents ?? null : null)}>Allow</Button>}
-          secondary={<Button size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
-            className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
-            disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
-            onClick={() => denyConfirm.activate(() => decide("decline"))}>{denyConfirm.label("Deny")}</Button>}
-        /> : null}
-        {ownerDecision && review.paymentRequired && agentPackage.confidenceBasis !== "provider_search" ? <Button size="standard" variant="none" disabled={locked} onClick={openPriceSheet}>Edit price</Button> : null}
+        <DocumentPackageActions review={review} agentPackage={agentPackage}
+          undecided={!!snapshot && UNDECIDED.has(snapshot.status.status)} locked={locked}
+          ownerDecision={ownerDecision} denyConfirm={denyConfirm} allowClass={ALLOW_CLASS}
+          onAllow={allow} onDecline={() => decide("decline")} onEditPrice={openPriceSheet} />
         {allowError && !priceOpen ? <HelperText role="alert">{allowError}</HelperText> : null}
         <DocumentRequestPriceSheet
           moneyPolicy="drive_cents"
