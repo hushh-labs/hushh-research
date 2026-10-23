@@ -106,6 +106,7 @@ flowchart LR
 5. Daily posture workflow:
 - `.github/workflows/prod-cloudsql-backup-posture.yml`
 - validates backup/PITR posture and uploads a JSON report artifact
+- files each failed run on one open issue, `Prod Cloud SQL backup posture failed on main`
 
 ---
 
