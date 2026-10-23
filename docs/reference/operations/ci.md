@@ -94,12 +94,12 @@ Never rename required job/check contexts for cosmetic consistency.
 | Dependency cache | `ios-swift-package-cache.yml` | Daily main-owned cache preparation and bounded cold-fetch verification |
 | Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
 
-The local candidate removes the separate weekly offline pod drill and weekday
-completion-judge workflows. Both core test suites remain in Protocol CI's manifest;
+The separate weekly offline pod drill and weekday completion-judge workflow
+files are removed from main. Both core test suites remain in Protocol CI's manifest;
 the judge CLI and live completion receipts remain in the existing
 [readiness workflow](./pod-completion-judge.md). No scheduled failure is needed to
-announce an unchanged external prerequisite. These removals take effect on GitHub
-only after the source lands on the default branch.
+announce an unchanged external prerequisite. Historical workflow entries do not
+represent active source on the default branch.
 
 Capacity tick run titles are protocol inputs for checkpoint reconciliation. They
 retain their exact names independently of the workflow's display name. Dispatchers
@@ -843,6 +843,18 @@ Verify live environment governance with:
 python3 scripts/ci/verify-deployment-environment-governance.py
 ```
 
+### Qualified frontend lint toolchain
+
+The onboarding/security correction keeps patched Next.js 16.4.2 independently
+of the reviewed lint toolchain: `eslint-config-next` 16.2.4 and its supported
+`eslint-plugin-react-hooks` 7.0.1. ESLint remains 9.39.4. The newer analyzer
+reported 742 compiler findings across existing source (600 refs, 101 immutability,
+41 manual-memoization findings). Both analyzer versions enable these rules as
+errors; no rule or severity is disabled here. Qualify that analyzer migration
+separately instead of changing owner/session-ref behavior during a security fix.
+The lint package declares no Next runtime peer constraint. Existing dependency
+alerts remain independently reported.
+
 ### GitHub Alert Parity
 
 The secret gate is intentionally stricter than raw regex scanning:
@@ -855,16 +867,39 @@ The secret gate is intentionally stricter than raw regex scanning:
 - open Dependabot alerts are currently advisory in CI; they are still reported in logs and should be managed as backlog, but they do not block unrelated merges
 - explicitly strict checks refuse missing CLI/authentication, unavailable required reads and malformed responses; unavailable authority is never a successful clearance
 
-Credential isolation is a two-step cutover. First land
-[the main-owned alert worker](../../../.github/workflows/ci-security.yml), then
-qualify its protected credential and switch the existing Secret Scan job to an
-exact-source receipt consumer. Until that switch is verified and the old
-repository-level token is removed, credential isolation remains incomplete.
-Removing a YAML reference alone cannot protect a repository-level secret from
-other PR-controlled workflows. Existing alert checks remain required.
+[The main-owned alert worker](../../../.github/workflows/ci-security.yml) reads
+alerts with the protected environment credential. PR-controlled Secret Scan
+receives only the read-only Actions token and verifies a bounded, immutable
+receipt for its exact source run, attempt and SHA. The worker serializes
+repeated start notifications and reuses a verified receipt for the same tuple;
+another attempt requires a fresh inventory. Its bounded pending queue uses
+`queue: max` with cancellation disabled: GitHub's default single pending slot
+would cancel an earlier duplicate during a burst, correctly causing our
+fail-closed consumer to refuse clearance. See the [GitHub concurrency contract](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency).
+The 23 October sample contained 80 successful worker records across 25 source
+attempts. Receipt reuse alone did not eliminate those repeated workflow starts.
+The automatic trigger now uses `requested` once for each new validation run,
+instead of repeated `in_progress` transitions. This landed through
+[PR #8371](https://github.com/hushh-labs/hushh-research/pull/8371), after all 26
+exact-head checks passed; the canonical task carries live initial/retry receipts. Missing, expired, mismatched or
+incomplete receipts fail closed. Local checks use the same bounded cursor
+reader without writing raw alerts to disk.
 
-The worker starts when PR Validation enters `in_progress`, including reruns; it
-does not wait for the validation it must unblock. Only immutable main code reads
+The replacement credential was qualified on 22 October 2026 using worker
+39861716513. On 23 October, PR8365 passed all 26 checks and landed as `51a5a86675`.
+Main worker `39889655505` then verified receipt reuse without another inventory
+read or artifact. The repository-level secret was deleted and its absence read
+back; no same-name organization secret is accessible to this repository. The
+main-only protected replacement remains present. Original PAT revocation is
+separately unverified: removing a stored secret does not revoke its token.
+Older PR branches must inherit the current read-only consumer and rerun gate through normal
+main synchronization; never restore the exposed repository credential to repair
+an obsolete consumer. Missing authority still refuses clearance.
+
+The worker starts when a new PR Validation run is requested; it does not wait
+for the validation it must unblock. [GitHub does not emit `requested` for reruns](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+Use the governed operator command below to request one retry and its exact
+security worker together. Only immutable main code reads
 the protected token. It validates the repository, canonical workflow, source run,
 current attempt and exact SHA before and after bounded, complete API pagination.
 Its two-day artifact contains counts and provenance only. Repository-wide secret
@@ -873,6 +908,34 @@ backlog remains advisory. No PR code, dependencies, caches or artifacts execute
 with alert credentials. Manual main-only recovery requires the existing protected
 pipeline operator cohort and exact `source_run_id`, `source_attempt`, `source_sha`.
 A missing credential, denied read or incomplete inventory refuses clearance.
+
+```bash
+./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <current-attempt> --sha <exact-head-sha>
+```
+
+The default retries failed jobs only; `--all` explicitly retries the full run.
+`--job-id <id>` retries only the completed final gate after proving its run, SHA
+and membership in the complete attempt-scoped job inventory; use it for gate-only
+qualification instead of repeating successful suites. Other jobs use the failed
+or full-run modes.
+The command verifies main's operator policy and the completed source, requests
+one retry, observes its incremented attempt, then dispatches the protected worker
+on main. An uncertain response is reconciled without another rerun request.
+The final gate verifies that new attempt's receipt even if GitHub retained the
+previous successful Secret Scan job. PR permissions remain read-only.
+
+When changing final-gate outcomes or conditions, run the nearest actual gate
+harness alongside the existing security authority/receipt suites before pushing:
+`cd consent-protocol && uv run pytest tests/test_ci_status_gate_fails_closed.py -q`.
+Its scenarios execute the outcome bash; retry cases isolate only checkout and
+receipt I/O. Unknown conditions still refuse verification.
+
+A raw GitHub UI rerun does not automatically launch the worker. Its consumer
+prints the exact main-only recovery command immediately and retains the bounded
+eight-minute wait. Dispatch recovery while that attempt is running. If it has
+already failed, use `ci-rerun` for the next attempt; a late receipt cannot turn a
+completed failed check green. Inspect an uncertain worker dispatch before retrying
+it. Never repeat the source request merely because the worker response was lost.
 
 ## Advisory Checks (Non-Blocking By Default)
 

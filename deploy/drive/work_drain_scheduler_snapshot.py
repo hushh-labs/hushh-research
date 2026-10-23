@@ -14,6 +14,7 @@ import base64
 import binascii
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -58,7 +59,7 @@ class SchedulerStateError(RuntimeError):
 
 def _gcloud(*arguments: str) -> str:
     result = subprocess.run(
-        ["gcloud", *arguments], capture_output=True, text=True, check=False
+        [shutil.which("gcloud") or "gcloud", *arguments], capture_output=True, text=True, check=False
     )
     if result.returncode:
         raise SchedulerStateError("Drive scheduler state command failed")

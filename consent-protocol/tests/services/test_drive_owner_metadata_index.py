@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 import subprocess
 import sys
 import time
@@ -716,6 +717,22 @@ async def test_logs_carry_no_names_ids_or_request_words(monkeypatch, caplog):
     assert "drive_metadata_index.refresh" in logged and "drive_metadata_index.match" in logged
     for private in ("kavya", "kavia", "diagnosis", "ravi", "salary", file_id("p", 0), OWNER):
         assert private not in logged.lower()
+    # The same redacted lines carry the measurement: the REST channel, the
+    # fixed tool name and the row count of each listing page (-1 where a tool
+    # lists nothing), then the refresh totals.
+    calls = re.findall(
+        r"drive_rest\.call channel=google_drive_rest_v3 profile=live tool=(\w+) rows=(-?\d+) "
+        r"more=-?\d+ credential_ms=\d+\.\d\d provider_ms=\d+\.\d\d recheck_ms=\d+\.\d\d "
+        r"total_ms=\d+\.\d\d",
+        logged,
+    )
+    assert calls == [
+        ("changes_start_token", "-1"),
+        ("search_files", "2"),
+        ("list_shared_drives", "0"),
+        ("list_changes", "0"),
+    ]
+    assert re.search(r"drive_metadata_index\.refresh outcome=ok pages=3 rows=2 entries=2 ", logged)
 
 
 def undated(identity, name, mime, *, created, basis="created"):

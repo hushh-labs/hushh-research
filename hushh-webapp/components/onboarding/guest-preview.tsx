@@ -48,11 +48,14 @@ export function GuestPreview({
   onStart,
   invitation,
   publicLinks = false,
+  locationTypography = false,
   onReadyChange,
 }: {
   onStart: () => void;
   invitation?: GuestPreviewInvitation;
   publicLinks?: boolean;
+  /** Location's invitation host opts into its presentation scale only. */
+  locationTypography?: boolean;
   onReadyChange?: (ready: boolean) => void;
 }) {
   // Step zero is the existing public welcome screen. Steps one to four are V2.
@@ -91,11 +94,11 @@ export function GuestPreview({
 
   const invitationContent = invitation ? (
     <>
-      <strong role="heading" aria-level={2}>
+      <strong data-location-type-role="section-heading" role="heading" aria-level={2}>
         {invitation.name ||
           (invitation.kind === "circle" ? "Your Circle invitation" : "Connect on One")}
       </strong>
-      <span role="status">
+      <span data-location-type-role="status" role="status">
         {invitation.loading
           ? "Checking your invitation…"
           : invitation.error
@@ -105,7 +108,7 @@ export function GuestPreview({
               : "Sign in to continue with this invitation."}
       </span>
       {invitation.error && invitation.onRetry && (
-        <button
+        <button data-location-type-role="primary-action"
           type="button"
           className={introStyles["invite-retry"]}
           onClick={invitation.onRetry}
@@ -128,6 +131,8 @@ export function GuestPreview({
       className={step === 0 ? welcomeStyles.shell : introStyles["intro-shell"]}
       style={{ maxWidth: "none" }}
       data-testid="guest-preview"
+      data-location-type-scale={locationTypography ? "connect" : undefined}
+      data-location-type-context={locationTypography ? "flow" : undefined}
       data-preview-step={step + 1}
       data-has-invitation={Boolean(invitation)}
     >
@@ -143,7 +148,7 @@ export function GuestPreview({
                 className={welcomeStyles.welcomeCta}
                 onClick={() => moveTo(1)}
               >
-                <span className={welcomeStyles.ctaLabel}>Create your One</span>
+                <span data-location-type-role="primary-action" className={welcomeStyles.ctaLabel}>Create your One</span>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
                   <path d="M4 12h15M13 5l7 7-7 7" />
                 </svg>

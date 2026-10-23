@@ -26,7 +26,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { AdaptiveSheetContent, TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
+import { AdaptiveSheetContent as UnscopedAdaptiveSheetContent, TaskSurfaceToolbar, TaskSurfaceBody, TaskSurfaceFooter, taskSurfaceStyles } from "@/lib/morphy-ux/ui/task-surfaces";
 import { SheetCount, SheetSearch } from "@/components/app-ui/sheet-parts";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { EmptyState } from "@/components/one-location/redesign/primitives";
@@ -48,6 +48,9 @@ import {
   CIRCLE_INVITE_BATCH_LIMIT,
   circleInviteSelectionLimit,
 } from "@/lib/one-location/circle-invite-contract";
+import { withLocationTypography } from "../location-typography";
+
+const AdaptiveSheetContent = withLocationTypography(UnscopedAdaptiveSheetContent);
 
 function growErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()

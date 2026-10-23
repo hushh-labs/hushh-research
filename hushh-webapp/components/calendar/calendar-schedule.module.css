@@ -24,6 +24,8 @@
   font-family: var(--font-app-body);
 }
 
+.row[data-ended="true"] { background: color-mix(in srgb, var(--app-secondary-label) 5%, transparent); }
+
 .row + .row::before {
   position: absolute;
   top: 0;
@@ -135,6 +137,8 @@
   line-height: 20px;
   letter-spacing: -0.02em;
 }
+
+.endedLabel { display: inline-flex; width: fit-content; margin-top: 3px; padding: 2px 7px; border-radius: 6px; background: color-mix(in srgb, var(--app-secondary-label) 10%, transparent); color: var(--app-secondary-label); font-size: 11px; font-weight: 600; line-height: 17px; }
 
 .sourceLabel {
   min-width: 0;

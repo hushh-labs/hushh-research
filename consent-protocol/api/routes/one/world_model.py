@@ -133,7 +133,7 @@ class ResearchPreferencesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
     email_enabled: bool
-    consent_version: Literal["pwm-native-v1", "pwm-azure-bing-v1"]
+    consent_version: Literal["pwm-native-v1", "pwm-azure-bing-v1", "pwm-azure-tavily-v1"]
 
 
 @router.get("/preferences")
@@ -220,7 +220,10 @@ async def complete(
     user_id, consent_token = owner(token)
     try:
         draft = await world_model_jobs.status(user_id, consent_token)
-        if draft.get("research", {}).get("source_use") != "owner_supplied":
+        if draft.get("research", {}).get("source_use") not in {
+            "owner_supplied",
+            "tavily_review_retained",
+        }:
             raise HTTPException(
                 409,
                 "This search response is for viewing. Add your own details or a permitted source to save knowledge.",
@@ -307,7 +310,10 @@ async def revoke_invitation(
 async def claim_invitation(
     request: Request, body: ClaimInput, token: dict = Depends(require_vault_owner_chat_key)
 ):
-    if body.research_consent and load_pwm_policy()["provider"] == "azure_openai_web_search":
+    if body.research_consent and load_pwm_policy()["provider"] in {
+        "azure_openai_web_search",
+        "azure_openai_tavily",
+    }:
         raise HTTPException(422, "Turn on Azure public research in Personal World Model settings.")
     try:
         result = await invitations.claim(*owner(token), body.token)

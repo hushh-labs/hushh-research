@@ -56,7 +56,7 @@ def policy_fingerprint() -> str:
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
     task = manifest()
-    if POLICY["provider"] == "azure_openai_web_search":
+    if POLICY["provider"] in {"azure_openai_web_search", "azure_openai_tavily"}:
         from hushh_mcp.one_adk.world_model_azure import azure_execution_contract
 
         # A provider switch changes the owner-bound research generation. Keep
@@ -69,7 +69,7 @@ def policy_fingerprint() -> str:
             "searches": MAX_SEARCHES,
             "calls": MAX_MODEL_CALLS,
             "policy": POLICY,
-            "provider": "azure-openai-web-search-v1",
+            "provider": POLICY["provider"],
             "gate": "evidence-chain-v2",
             "azure_execution": azure_execution_contract(),
         }

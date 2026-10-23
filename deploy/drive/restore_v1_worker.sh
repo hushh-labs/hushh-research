@@ -9,6 +9,7 @@ readonly SERVICE="consent-protocol-drive-v1-worker"
 readonly SCHEDULER_ID="drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 snapshot="${1:?V1 scheduler snapshot required}"
 previous_revision="${2:-}"
+groups_snapshot="${snapshot%.json}-groups.json"
 if [[ ! -s "${snapshot}" ]] || [[ -n "${previous_revision}" && ! "${previous_revision}" =~ ^consent-protocol-drive-v1-worker-[a-z0-9-]+$ ]]; then
   echo "V1 rollback inputs are invalid" >&2
   exit 1
@@ -16,7 +17,15 @@ fi
 
 # Stop new dispatch before changing serving traffic. The snapshot restorer
 # resumes the job only if it was enabled before this release.
-python3 deploy/drive/v1_scheduler_state.py quarantine
+quarantine_ok=true
+python3 deploy/drive/v1_scheduler_state.py quarantine || quarantine_ok=false
+if [[ -s "${groups_snapshot}" ]]; then
+  python3 deploy/drive/v1_scheduler_state.py quarantine --stage groups || quarantine_ok=false
+fi
+if [[ "${quarantine_ok}" != true ]]; then
+  echo "Private worker schedulers could not both be quarantined" >&2
+  exit 1
+fi
 if [[ -n "${previous_revision}" ]]; then
   gcloud run services update-traffic "${SERVICE}" \
     --project="${PROJECT_ID}" --region="${REGION}" \
@@ -40,4 +49,7 @@ else
     | python3 -c 'import json,sys; p=json.load(sys.stdin); m="serviceAccount:drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"; assert not any(b.get("role")=="roles/run.invoker" and m in b.get("members",[]) for b in p.get("bindings",[])), "V1 scheduler invoker grant remains"'
 fi
 python3 deploy/drive/v1_scheduler_state.py restore --snapshot "${snapshot}"
+if [[ -s "${groups_snapshot}" ]]; then
+  python3 deploy/drive/v1_scheduler_state.py restore --stage groups --snapshot "${groups_snapshot}"
+fi
 echo "V1 worker and scheduler returned to their pre-release state"

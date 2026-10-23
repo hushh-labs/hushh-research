@@ -1,0 +1,11 @@
+{
+  "fiscal_year_start_month": 4,
+  "kept": "Not sorted yet",
+  "kind": "folders_v1",
+  "names": {
+    "financial_statements": "Financial Assets",
+    "insurance_statements": "Insurance",
+    "non_financial_statements": "Non-Financial Records",
+    "personal_documents": "Personal Documents"
+  }
+}

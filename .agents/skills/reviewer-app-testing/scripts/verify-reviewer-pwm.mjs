@@ -79,7 +79,7 @@ export async function installPwmOwnerLogin(page, ownerLogin, origin) {
 }
 
 /** Exact research mutations admitted during the explicit research action/wait. */
-export function admitPwmResearch(request, { phase, appOrigin: origin, researchPosts: count, emailPreference, publicProfile = null }) {
+export function admitPwmResearch(request, { phase, appOrigin: origin, researchPosts: count, emailPreference, publicProfile = null, researchProvider = "azure_openai_web_search" }) {
   try {
     const url = new URL(request.url()), method = request.method();
     if (!["research", "research_action", "research_wait"].includes(phase) || url.origin !== origin) return false;
@@ -95,7 +95,7 @@ export function admitPwmResearch(request, { phase, appOrigin: origin, researchPo
         (url.pathname.endsWith("/jobs") ? body.refresh === true : !("refresh" in body));
     }
     return method === "PUT" && url.pathname === "/api/one/world-model/preferences" &&
-      body.enabled === true && body.email_enabled === emailPreference && body.consent_version === "pwm-azure-bing-v1" &&
+      body.enabled === true && body.email_enabled === emailPreference && typeof body.consent_version === "string" && body.consent_version === ({ azure_openai_web_search: "pwm-azure-bing-v1", azure_openai_tavily: "pwm-azure-tavily-v1" })[researchProvider] &&
       Object.keys(body).every(key => ["enabled", "email_enabled", "consent_version"].includes(key));
   } catch { return false; }
 }
@@ -138,7 +138,7 @@ try {
             Object.keys(body).every(key => ["user_id", "platform", "device_id"].includes(key));
         }
       }
-      if (admitPwmResearch(request, { phase, appOrigin, researchPosts, emailPreference: evidence.email_preference, publicProfile: researchConfirmedProfile ? confirmedProfile : null })) {
+      if (admitPwmResearch(request, { phase, appOrigin, researchPosts, emailPreference: evidence.email_preference, researchProvider: evidence.research_provider, publicProfile: researchConfirmedProfile ? confirmedProfile : null })) {
         if (method === "POST") researchPosts++;
         return true;
       }
@@ -177,6 +177,9 @@ try {
   await researchSwitch.waitFor();
   evidence.email_preference = (await session.page.getByRole("switch", { name: "Email me when it’s ready", exact: true }).getAttribute("aria-checked")) === "true";
   evidence.research_ui = { enabled_before: (await researchSwitch.getAttribute("aria-checked")) === "true" };
+  await session.page.waitForFunction(() => window.__PWM_ACCEPTANCE__.preferences()?.research_provider, null, { timeout: 20_000 });
+  evidence.research_provider = await session.page.evaluate(() => window.__PWM_ACCEPTANCE__.preferences().research_provider);
+  check(["azure_openai_web_search", "azure_openai_tavily"].includes(evidence.research_provider), "research_provider_unsupported");
   stage("research_action");
   check(!researchConfirmedProfile || evidence.research_ui.enabled_before, "profile_research_needs_existing_consent");
   if ((await researchSwitch.getAttribute("aria-checked")) !== "true") {
@@ -226,7 +229,10 @@ try {
       evidence.research_ui.action === "retry_existing_state") {
     // Ensure may resolve an aged-out checkpoint as recently prepared. Only
     // the app's newly available explicit refresh may start another paid run.
-    stage("research_action");
+    await session.page.waitForFunction(() => window.__PWM_ACCEPTANCE__.preferences()?.research_provider, null, { timeout: 20_000 });
+  evidence.research_provider = await session.page.evaluate(() => window.__PWM_ACCEPTANCE__.preferences().research_provider);
+  check(["azure_openai_web_search", "azure_openai_tavily"].includes(evidence.research_provider), "research_provider_unsupported");
+  stage("research_action");
     await session.page.locator('[data-voice-control-id="pwm_settings_open"]').click();
     const refresh = session.page.locator('[data-voice-control-id="pwm_refresh"]');
     await refresh.waitFor({ state: "visible", timeout: 20_000 });

@@ -30,6 +30,7 @@ from .losers import router as losers_router
 from .market_insights import router as market_insights_router
 from .plaid_vault import router as plaid_vault_router
 from .portfolio import router as portfolio_router
+from .price_history import router as price_history_router
 from .stream import router as stream_router
 from .support import router as support_router
 
@@ -84,6 +85,7 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/insights/{user_id}",
     "/market/news/baseline/{user_id}",
     "/market/news/{user_id}",
+    "/market/history/{user_id}",
     "/stock-preview/{user_id}",
 ]
 
@@ -100,6 +102,7 @@ kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
 kai_router.include_router(local_runtime_router)
 kai_router.include_router(market_insights_router)
+kai_router.include_router(price_history_router)
 kai_router.include_router(support_router)
 
 # Export for server.py

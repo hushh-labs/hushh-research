@@ -1,13 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory, IDBObjectStore as FakeObjectStore } from "fake-indexeddb";
 import { webcrypto } from "node:crypto";
 import { SecureDurableResourceService as Durable } from "@/lib/services/secure-durable-resource-service";
 import { openSecureResourceDb, DURABLE_RESOURCE_STORE } from "@/lib/services/secure-resource-cache-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { loadReceiptSnapshot, receiptStoreVersion, runReceiptFunction, writeReceiptSnapshot } from "@/lib/mail/receipt-store";
-import { captureReceiptSnapshot, receiptSnapshotRows, validateReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
+import { captureReceiptSnapshot, receiptSnapshotRows, validateReceiptSnapshot, RECEIPT_SNAPSHOT_PREFIX, LEGACY_RECEIPT_SNAPSHOT_PREFIX } from "@/lib/mail/receipt-snapshot";
 import { analyzeReceipts } from "@/lib/mail/receipt-analysis";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
+import { MailReceiptResourceService as Resource } from "@/lib/services/mail-receipt-resource-service";
+import { GmailReceiptsService, type GmailLiveReceiptScanResponse } from "@/lib/services/gmail-receipts-service";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { mergeReceiptSnapshot } from "@/lib/mail/receipt-continuity";
+import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 
 const key = "12".repeat(32);
@@ -20,7 +25,8 @@ const receipt = (id: number, extra: Partial<ReceiptListItem> = {}): ReceiptListI
   category: "Shopping", category_confidence: 0.99, status: "paid", event_type: "purchase", document_kind: "receipt",
   amount: 0.1, amount_decimal: "0.10", currency: "USD", transaction_date: "2026-10-01T12:00:00Z", identifiers: [{ kind: "order", value: `ORDER-${id}` }], ...extra,
 });
-beforeEach(() => { vi.restoreAllMocks(); publishValidatedAuthSessionOwner("owner"); Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true }); Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true }); });
+afterEach(() => { Resource.clear("owner"); vi.useRealTimers(); });
+beforeEach(() => { Resource.clear("owner"); vi.restoreAllMocks(); publishValidatedAuthSessionOwner("owner"); Object.defineProperty(window, "indexedDB", { value: new IDBFactory(), configurable: true }); Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true }); });
 
 describe("canonical receipt storage boundary", () => {
   it("saves the live extraction's verbatim printed dates and restores the same canonical rows", async () => {
@@ -58,7 +64,7 @@ describe("canonical receipt storage boundary", () => {
       fault.mockRestore();
       const loaded = await loadReceiptSnapshot(session, "account");
       expect(loaded).toMatchObject({ revision: 1, value: previous });
-      expect(await Durable.list("owner", "mail_receipts.v1:")).toHaveLength(1);
+      expect(await Durable.list("owner", RECEIPT_SNAPSHOT_PREFIX)).toHaveLength(1);
     }
   });
   it("failed encrypted read-back never replaces the previous valid snapshot", async () => {
@@ -85,7 +91,7 @@ describe("canonical receipt storage boundary", () => {
     });
     await expect(writeReceiptSnapshot(session, snapshot, { generation: 0, revision: 1 })).rejects.toMatchObject({ code: "stale_version" });
     expect(await loadReceiptSnapshot(session, "account")).toBeNull();
-    expect(await Durable.list("owner", "mail_receipts.v1:")).toEqual([]);
+    expect(await Durable.list("owner", RECEIPT_SNAPSHOT_PREFIX)).toEqual([]);
   });
   it("retains the shortest sealed locator and rejects truncated locator payloads", async () => {
     const locator = "grs1_" + "a".repeat(39);
@@ -218,5 +224,239 @@ describe("canonical receipt storage boundary", () => {
     expect(analyzeReceipts("list_recent_receipts", { from_date: "2026-10-01", to_date: "2026-10-02", timezone: "America/Los_Angeles" }, snapshot, 1).matched_count).toBe(1);
     expect(() => validateReceiptSnapshot({ ...snapshot, rows: [{ ...snapshot.rows[0], amount: 1 }] })).toThrow();
     expect(() => validateReceiptSnapshot({ ...snapshot, rows: [{ ...snapshot.rows[0], confidence: Number.NaN }] })).toThrow();
+  });
+});
+
+const session = { userId: "owner", vaultKey: key, vaultOwnerToken: "owner-token" };
+const checkpoint = (letter: string) => "grc1_" + letter.repeat(64);
+const stableReceipt = (id: number, extra: Partial<ReceiptListItem> = {}) => receipt(id, { event_id: id.toString(16).repeat(64), ...extra });
+function scanPage(items: ReceiptListItem[], extra: Partial<GmailLiveReceiptScanResponse> = {}): GmailLiveReceiptScanResponse {
+  return { items: items as GmailLiveReceiptScanResponse["items"], page: 1, per_page: 6, returned_count: items.length,
+    sync_mode: "bootstrap", checkpoint: checkpoint("a"), has_more: false,
+    coverage: { source: "gmail_live", listed_count: items.length, candidate_count: items.length, matched_count: items.length,
+      pages_scanned: 1, max_messages: 6, max_pages: 50, reached_limit: false, query_scope: "receipt_signals_all_mail_except_spam_trash",
+      rejection_counts: { missing_receipt_signal: 0, extractor_not_receipt: 0 },
+      evidence_counts: { gmail_category: 0, subject_signal: 0, body_signal: 0, verified_merchant: 0, order_candidate: 0, total_candidate: 0 } }, ...extra };
+}
+describe("Mail saved-first return and incremental continuity", () => {
+  it("restores the 22nd without a provider read, catches up on the 24th and preserves archived source deletion", async () => {
+    const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(scanPage([stableReceipt(1), stableReceipt(2)]));
+    await Resource.refresh(session, "account", async () => "synthetic");
+    Resource.clear("owner");
+    await Resource.hydrate(session, "account");
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(Resource.peek("owner", "account").snapshot?.rows).toHaveLength(2);
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-10-24T12:00:00Z").getTime());
+    expect(Resource.isStale("owner", "account")).toBe(true);
+    scan.mockResolvedValueOnce(scanPage([stableReceipt(2, { status: "delivered" }), stableReceipt(3)],
+      { sync_mode: "delta", checkpoint: checkpoint("b"), unavailable_events: ["1".repeat(64)] }));
+    const result = await Resource.refresh(session, "account", async () => "synthetic");
+    expect(scan.mock.calls[1]?.[0].checkpoint).toBe(checkpoint("a"));
+    expect(result.snapshot.rows).toHaveLength(3);
+    expect(result.snapshot.sync?.checkpoint).toBe(checkpoint("b"));
+    expect(receiptSnapshotRows(result.snapshot).find(row => row.sourceReceiptKeys.includes("1".repeat(64)))?.sourceUnavailable).toBe(true);
+    scan.mockResolvedValueOnce(scanPage([stableReceipt(2), stableReceipt(3)], { sync_mode: "delta", checkpoint: checkpoint("c") }));
+    await Resource.refresh(session, "account", async () => "synthetic");
+    expect(Resource.peek("owner", "account").snapshot?.rows).toHaveLength(3);
+    Resource.clear("owner");
+    expect((await Resource.hydrate(session, "account"))?.rows).toHaveLength(3);
+  });
+  it("shares consumers and coalesces a force burst into one trailing request", async () => {
+    let finish!: (value: GmailLiveReceiptScanResponse) => void;
+    const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+      .mockResolvedValue(scanPage([], { sync_mode: "delta", checkpoint: checkpoint("b") }));
+    const first = Resource.refresh(session, "account", async () => "synthetic");
+    const joined = Array.from({ length: 10 }, () => Resource.refresh(session, "account", async () => "synthetic", { force: true }));
+    expect(joined.every(promise => promise === first)).toBe(true);
+    await vi.waitFor(() => expect(scan).toHaveBeenCalledTimes(1));
+    finish(scanPage([stableReceipt(1)]));
+    await Promise.all([first, ...joined]);
+    expect(scan).toHaveBeenCalledTimes(2);
+    expect(Resource.peek("owner", "account").refreshing).toBe(false);
+  });
+  it("preserves rows and checkpoint on truncated passes and rejected device commits", async () => {
+    const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(scanPage([stableReceipt(1), stableReceipt(2)]));
+    await Resource.refresh(session, "account", async () => "synthetic");
+    const limited = scanPage([stableReceipt(3)], { checkpoint: null }); limited.coverage.reached_limit = true;
+    scan.mockResolvedValueOnce(limited);
+    const partial = await Resource.refresh(session, "account", async () => "synthetic");
+    expect(partial.snapshot.rows).toHaveLength(3);
+    expect(partial.snapshot.sync?.checkpoint).toBe(checkpoint("a"));
+    scan.mockResolvedValueOnce(scanPage([stableReceipt(4)], { sync_mode: "delta", checkpoint: checkpoint("d") }));
+    vi.spyOn(crypto.subtle, "encrypt").mockRejectedValueOnce(new Error("synthetic quota"));
+    await expect(Resource.refresh(session, "account", async () => "synthetic")).rejects.toThrow();
+    expect((await loadReceiptSnapshot(session, "account"))?.value).toEqual(partial.snapshot);
+  });
+  it("times out a hung token or scan and fences its late completion", async () => {
+    vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(scanPage([stableReceipt(1)]));
+    const initial = await Resource.refresh(session, "account", async () => "synthetic");
+    let release!: (token: string) => void;
+    const token = new Promise<string>(resolve => { release = resolve; });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const pending = Resource.refresh(session, "account", () => token);
+    const assertion = expect(pending).rejects.toThrow("paused");
+    await vi.advanceTimersByTimeAsync(120_001);
+    await assertion;
+    expect(Resource.peek("owner", "account").refreshing).toBe(false);
+    release("late-synthetic"); await Promise.resolve(); vi.useRealTimers();
+    expect((await loadReceiptSnapshot(session, "account"))?.value).toEqual(initial.snapshot);
+    clearCachedGmailReceipts("owner");
+    expect(Resource.peek("owner", "account").snapshot).toBeNull();
+    expect((await loadReceiptSnapshot(session, "account"))?.value).toEqual(initial.snapshot);
+  });
+  it("retains a verified empty snapshot and rejects private fields in continuity", async () => {
+    vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(scanPage([]));
+    const result = await Resource.refresh(session, "account", async () => "synthetic");
+    Resource.clear("owner");
+    expect((await Resource.hydrate(session, "account"))?.rows).toEqual([]);
+    expect(Resource.peek("owner", "account").hydrated).toBe(true);
+    expect(() => validateReceiptSnapshot({ ...result.snapshot, sync: { ...result.snapshot.sync, raw_email: "private" } })).toThrow();
+  });
+});
+
+
+describe("incremental event grouping and durable continuation", () => {
+  it("groups a new delivery with its saved purchase and retains combined facts on a primary-only update", async () => {
+    const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(scanPage([stableReceipt(1)]));
+    const initial = await Resource.refresh(session, "account", async () => "synthetic");
+    scan.mockResolvedValueOnce(scanPage([stableReceipt(2, { identifiers: [{ kind: "order", value: "ORDER-1" }], document_kind: "fulfillment",
+      event_type: "fulfillment", status: "delivered", transaction_date: "2026-10-02T12:00:00Z" })], { sync_mode: "delta", checkpoint: checkpoint("b") }));
+    const updated = await Resource.refresh(session, "account", async () => "synthetic");
+    expect(updated.snapshot.rows).toHaveLength(1);
+    expect(updated.snapshot.rows[0]).toMatchObject({ display_id: initial.snapshot.rows[0]!.display_id, status: "delivered" });
+    expect(updated.snapshot.rows[0]?.events).toHaveLength(2);
+    scan.mockResolvedValueOnce(scanPage([stableReceipt(1)], { sync_mode: "delta", checkpoint: checkpoint("c") }));
+    expect((await Resource.refresh(session, "account", async () => "synthetic")).snapshot.rows[0]?.status).toBe("delivered");
+  });
+  it("restores a verified partial page and resumes its cursor after a failed second page", async () => {
+    const first = scanPage([stableReceipt(1)], { has_more: true, next_cursor: "synthetic-signed-cursor", checkpoint: null });
+    const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(first).mockRejectedValueOnce(new Error("synthetic dependency"));
+    await expect(Resource.refresh(session, "account", async () => "synthetic")).rejects.toThrow();
+    const partial = await loadReceiptSnapshot(session, "account");
+    expect(partial?.value.rows).toHaveLength(1);
+    expect(partial?.value.sync).toMatchObject({ checkpoint: null, pending: { page: 1, cursor: "synthetic-signed-cursor" } });
+    Resource.clear("owner");
+    const second = scanPage([stableReceipt(2)], { page: 2, checkpoint: checkpoint("b") });
+    scan.mockResolvedValueOnce(second);
+    const result = await Resource.refresh(session, "account", async () => "synthetic");
+    expect(scan.mock.calls.at(-1)?.[0]).toMatchObject({ page: 2, cursor: "synthetic-signed-cursor", accountKey: "account" });
+    expect(result.snapshot.rows).toHaveLength(2);
+    expect(result.snapshot.sync).toMatchObject({ checkpoint: checkpoint("b"), pending: null });
+    expect(result.snapshot.coverage.partial).toBe(false);
+  });
+});
+
+
+describe("receipt continuity failure boundaries", () => {
+  it("isolates an upgraded ledger from a successful legacy-tab write and fences both formats on Reset", async () => {
+    const legacy = await captureReceiptSnapshot([stableReceipt(1)], "account", coverage);
+    const legacyKey = LEGACY_RECEIPT_SNAPSHOT_PREFIX + legacy.account_binding;
+    const oldWrite = (value: typeof legacy, expected: { generation: number; revision: number }) => Durable.write({ ...session,
+      resourceKey: legacyKey, value, expected, isCurrent: () => true });
+    await oldWrite(legacy, { generation: 0, revision: 0 });
+    await oldWrite(legacy, { generation: 0, revision: 1 });
+    expect((await runReceiptFunction(session, "receipt_spending", request, "account")).snapshot_revision).toBe(2);
+    expect(await loadReceiptSnapshot(session, "account")).toMatchObject({ value: legacy, revision: 0 });
+    const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(scanPage([stableReceipt(1), stableReceipt(2)]));
+    const upgraded = await Resource.refresh(session, "account", async () => "synthetic");
+    expect(upgraded.snapshot.rows).toHaveLength(2);
+    expect((await Durable.read<typeof legacy>("owner", legacyKey, key))?.value).toEqual(legacy);
+    // The old bundle accepts V1 only, and its bootstrap can successfully save
+    // after a newer bundle has accumulated additional receipts.
+    const oldRevision = await Durable.version("owner", legacyKey);
+    await oldWrite({ ...legacy, freshness: "2026-10-25T12:00:00Z" }, oldRevision);
+    Resource.clear("owner");
+    expect(await Resource.hydrate(session, "account")).toEqual(upgraded.snapshot);
+    expect((await loadReceiptSnapshot(session, null))?.value).toEqual(upgraded.snapshot);
+    expect(scan).toHaveBeenCalledOnce();
+    const nextLegacy = await Durable.version("owner", legacyKey);
+    await Durable.purgeUser("owner");
+    expect(await Durable.list("owner", "mail_receipts.")).toEqual([]);
+    await expect(oldWrite(legacy, nextLegacy)).rejects.toMatchObject({ code: "stale_version" });
+    await expect(writeReceiptSnapshot(session, upgraded.snapshot, upgraded)).rejects.toMatchObject({ code: "stale_version" });
+    expect(await loadReceiptSnapshot(session, "account")).toBeNull();
+  });
+  it("rejects a legacy migration raced by a newer ledger commit", async () => {
+    const legacy = await captureReceiptSnapshot([stableReceipt(1)], "account", coverage);
+    const legacyKey = LEGACY_RECEIPT_SNAPSHOT_PREFIX + legacy.account_binding;
+    await Durable.write({ ...session, resourceKey: legacyKey, value: legacy, expected: { generation: 0, revision: 0 }, isCurrent: () => true });
+    const upgraded = await mergeReceiptSnapshot(legacy, [stableReceipt(2)], "account", scanPage([]), [], true);
+    const read = Durable.read.bind(Durable);
+    vi.spyOn(Durable, "read").mockImplementationOnce(read).mockImplementationOnce(async (...args) => {
+      await writeReceiptSnapshot(session, upgraded, { generation: 0, revision: 0 });
+      return read(...args);
+    });
+    const stale = await loadReceiptSnapshot(session, "account");
+    expect(stale).toMatchObject({ value: legacy, revision: 0 });
+    await expect(writeReceiptSnapshot(session, legacy, stale!)).rejects.toMatchObject({ code: "stale_version" });
+    expect((await loadReceiptSnapshot(session, "account"))?.value).toEqual(upgraded);
+  });
+
+  it("cannot overwrite a ledger committed while both fallback reads were absent", async () => {
+    await Resource.hydrate(session, "account");
+    const upgraded = await mergeReceiptSnapshot(null, [stableReceipt(2)], "account", scanPage([]), [], true);
+    const read = Durable.read.bind(Durable); let raced = false;
+    vi.spyOn(Durable, "read").mockImplementation(async (...args) => {
+      if (args[1].startsWith(LEGACY_RECEIPT_SNAPSHOT_PREFIX) && !raced) {
+        raced = true; await writeReceiptSnapshot(session, upgraded, { generation: 0, revision: 0 });
+      }
+      return read(...args);
+    });
+    vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(scanPage([stableReceipt(1)]));
+    await expect(Resource.refresh(session, "account", async () => "synthetic")).rejects.toMatchObject({ code: "stale_version" });
+    expect((await loadReceiptSnapshot(session, "account"))?.value).toEqual(upgraded);
+  });
+  it("aborts a promotion transaction when its operation is cancelled", async () => {
+    const initial = await captureReceiptSnapshot([receipt(1)], "account", coverage);
+    await writeReceiptSnapshot(session, initial, { generation: 0, revision: 0 });
+    const next = await captureReceiptSnapshot([receipt(2)], "account", coverage);
+    const controller = new AbortController();
+    const originalPut = FakeObjectStore.prototype.put;
+    const fault = vi.spyOn(FakeObjectStore.prototype, "put").mockImplementation(function (this: IDBObjectStore, ...args) {
+      const request = originalPut.apply(this, args);
+      if (this.name === DURABLE_RESOURCE_STORE && !String((args[0] as { key: string }).key).includes('"pending"')) controller.abort();
+      return request;
+    });
+    await expect(writeReceiptSnapshot({ ...session, signal: controller.signal }, next, { generation: 0, revision: 1 })).rejects.toThrow();
+    fault.mockRestore();
+    expect(await loadReceiptSnapshot(session, "account")).toMatchObject({ revision: 1, value: initial });
+  });
+  it("starts renewed authority without joining an obsolete pending scan", async () => {
+    let finish!: (value: GmailLiveReceiptScanResponse) => void;
+    const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+      .mockResolvedValueOnce(scanPage([stableReceipt(2)]));
+    const old = Resource.refresh(session, "account", async () => "old-token");
+    const rejected = expect(old).rejects.toThrow();
+    await vi.waitFor(() => expect(scan).toHaveBeenCalledOnce());
+    advanceVaultSessionEpoch();
+    const next = await Resource.refresh(session, "account", async () => "new-token");
+    finish(scanPage([stableReceipt(1)])); await rejected;
+    expect(scan.mock.calls[1]?.[0].idToken).toBe("new-token");
+    expect(Resource.peek("owner", "account").snapshot).toEqual(next.snapshot);
+    expect(next.snapshot.rows).toHaveLength(1);
+  });
+  it("resumes after a bounded fifty-page batch without advancing the completed checkpoint", async () => {
+    const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockImplementation(async ({ page = 1 }) => {
+      const result = scanPage([], { page, has_more: true, next_cursor: `synthetic-page-${page % 50 + 1}`, checkpoint: null });
+      result.coverage.reached_limit = page === 50; return result;
+    });
+    const partial = await Resource.refresh(session, "account", async () => "synthetic");
+    expect(scan).toHaveBeenCalledTimes(50);
+    expect(partial.complete).toBe(false);
+    expect(partial.snapshot.sync).toMatchObject({ checkpoint: null, pending: { page: 50, cursor: "synthetic-page-1" } });
+    Resource.clear("owner"); scan.mockResolvedValueOnce(scanPage([stableReceipt(2)], { checkpoint: checkpoint("b") }));
+    const complete = await Resource.refresh(session, "account", async () => "synthetic");
+    expect(scan.mock.calls.at(-1)?.[0]).toMatchObject({ page: 1, cursor: "synthetic-page-1" });
+    expect(complete.complete).toBe(true); expect(complete.snapshot.sync?.pending).toBeNull();
+  });
+  it("counts partially converted legacy groups once and rejects conflicting ledger identities", async () => {
+    const a = receipt(1), b = receipt(2, { identifiers: a.identifiers, event_type: "fulfillment", status: "delivered", document_kind: "fulfillment" });
+    const legacy = await captureReceiptSnapshot([a, b], "account", { ...coverage, source_count: 2 });
+    const updated = await mergeReceiptSnapshot(legacy, [{ ...a, event_id: "a".repeat(64) }], "account", scanPage([]), [], true);
+    expect(updated.coverage.source_count).toBe(2);
+    expect(updated.sync?.archive_refs).toHaveLength(1);
+    expect(() => validateReceiptSnapshot({ ...updated, sync: { ...updated.sync, records: [...updated.sync!.records, updated.sync!.records[0]] } })).toThrow();
+    expect(() => validateReceiptSnapshot({ ...updated, sync: { ...updated.sync, archive_refs: ["f".repeat(64)] } })).toThrow();
+    expect(() => validateReceiptSnapshot({ ...updated, sync: { ...updated.sync, records: [] } })).toThrow();
   });
 });

@@ -12,6 +12,9 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { ReceiptScrollContinuity } from "./receipt-scroll-continuity";
+import { ReceiptCollectionOverview } from "./receipt-collection-overview";
+import { SectionHeader } from "@/components/app-ui/page-sections";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { MailActionButton as Button } from "./mail-action-button";
 import { Badge } from "@/components/ui/badge";
@@ -374,7 +377,7 @@ function ReceiptListRow({
   onSelect: (row: RecentReceiptRow, trigger: HTMLButtonElement) => void;
 }) {
   const amount = formatReceiptAmount(row.currency, row.amount);
-  const secondary = receiptSecondaryLabel(row);
+  const secondary = row.archived ? "Previously saved · reconciliation needed" : row.sourceUnavailable ? "Source unavailable · " + receiptSecondaryLabel(row) : receiptSecondaryLabel(row);
 
   return (
     <li className="border-b border-border/60 last:border-b-0">
@@ -393,20 +396,20 @@ function ReceiptListRow({
           />
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="min-w-0 truncate text-sm font-[550] text-foreground">
+              <span className="min-w-0 truncate ui-text-row-label text-foreground">
                 {row.merchantName}
               </span>
               <ReceiptStatusBadge row={row} />
             </span>
             {secondary ? (
-              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+              <span className="ui-text-row-description mt-0.5 block truncate text-muted-foreground">
                 {secondary}
               </span>
             ) : null}
           </span>
         </span>
         <span
-          className="block shrink-0 whitespace-nowrap text-right text-sm font-semibold tabular-nums text-foreground"
+          className="block shrink-0 whitespace-nowrap ui-text-trailing-value text-right tabular-nums text-foreground"
           title={amount === "—" ? "Amount not found" : undefined}
         >
           {amount}
@@ -430,13 +433,19 @@ function receiptTimelineLabel(event: ReceiptTimelineEvent): string {
 
 export function GmailRecentReceipts({
   accountKey,
+  headingId,
   receipts,
   savedRows,
   sourceKeyAliases,
   loadReceiptDetail,
   onReceiptDetailLoaded,
+  title = "Recent receipts",
+  showOverview = true,
 }: {
   accountKey: string | null | undefined;
+  headingId?: string;
+  title?: string;
+  showOverview?: boolean;
   receipts: readonly ReceiptListItem[];
   savedRows?: readonly RecentReceiptRow[];
   sourceKeyAliases?: Readonly<Record<string, string>>;
@@ -477,7 +486,9 @@ export function GmailRecentReceipts({
   const [detailAttempt, setDetailAttempt] = useState(0);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<ReceiptFilter>("all");
-  const [displayPage, setDisplayPage] = useState(1);
+  const [pageNavigation, setPageNavigation] = useState({ page: 1, revision: 0 });
+  const displayPage = pageNavigation.page;
+  const setDisplayPage = (page: number) => setPageNavigation(previous => ({ page, revision: previous.revision + 1 }));
   const rows = useMemo(
     () => savedRows ?? buildRecentReceiptRows(receipts, accountKey),
     [accountKey, receipts, savedRows],
@@ -497,11 +508,19 @@ export function GmailRecentReceipts({
       .sort((left, right) => receiptTimestamp(right) - receiptTimestamp(left));
   }, [activeFilter, rows, search]);
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / 10));
-  const currentPage = Math.min(displayPage, pageCount);
-  const visibleRows = filteredRows.slice(
-    (currentPage - 1) * 10,
-    currentPage * 10,
-  );
+  const requestedPage = Math.min(displayPage, pageCount);
+  const scope = `${search}\u0000${activeFilter}\u0000${requestedPage}\u0000${pageNavigation.revision}`;
+  const [windowState, setWindowState] = useState({ rows: filteredRows, scope, first: filteredRows[0]?.id, start: 0 });
+  let start = windowState.start;
+  if (windowState.rows !== filteredRows || windowState.scope !== scope) {
+    const root = typeof document === "undefined" ? null : document.querySelector('[data-app-scroll-root="true"]') ?? document.scrollingElement;
+    const priorPosition = windowState.first ? filteredRows.findIndex(row => row.id === windowState.first) : -1;
+    start = windowState.scope === scope && root && root.scrollTop > 0 && priorPosition >= 0 ? priorPosition : (requestedPage - 1) * 10;
+    setWindowState({ rows: filteredRows, scope, first: filteredRows[start]?.id, start });
+  }
+  const currentPage = Math.floor(start / 10) + 1;
+  const visibleRows = filteredRows.slice(start, start + 10);
+
   const visibleGroups = useMemo(
     () => groupReceiptRowsByMonth(visibleRows),
     [visibleRows],
@@ -619,7 +638,9 @@ export function GmailRecentReceipts({
     : "";
 
   return (
-    <>
+    <ReceiptScrollContinuity scope={scope}>
+      {showOverview ? <ReceiptCollectionOverview rows={rows} /> : null}
+      <SectionHeader id={headingId} title={title} />
       <Input
         type="search"
         aria-label="Search table"
@@ -691,7 +712,7 @@ export function GmailRecentReceipts({
             )}
             role="status"
           >
-            No receipts match this view.
+            {rows.length ? "No receipts match this view." : "No saved receipts yet. New receipts will appear after the next update."}
           </div>
         )}
       </div>
@@ -846,7 +867,7 @@ export function GmailRecentReceipts({
                     >
                       <div className="flex items-baseline justify-between gap-3 text-sm">
                         <span className="font-normal text-foreground">
-                          {receiptTimelineLabel(event)}
+                          {receiptTimelineLabel(event)}{event.sourceUnavailable ? " · Source unavailable" : ""}
                         </span>
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {formatReceiptDate(event.date)}
@@ -901,7 +922,7 @@ export function GmailRecentReceipts({
           </div>
         ) : null}
       </AdaptiveDetailSurface>
-    </>
+    </ReceiptScrollContinuity>
   );
 }
 

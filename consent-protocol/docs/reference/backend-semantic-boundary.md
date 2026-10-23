@@ -261,6 +261,50 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   manifest-backed planner (default off); its model-failure fallback stays
   recorded in `planner_fallback`.
 
+### Declared: Drive four-group organizing aid (owner decision)
+
+- Decision: on 2026-10-21 the owner chose to sort a person's Drive files onto four
+  virtual shelves with no model that writes text, for the same quota reason as the
+  2026-10-17 decision above. This is a recorded **skip** of the Documents gene's
+  judgement for this one surface, not a silent substitution, and it is a bounded
+  aid in the manner of the scope-catalog ranker (C4), not a classifier of record.
+- Owner: the Documents gene (`agent_documents_suggestions`,
+  `hushh_mcp/agents/documents/agent.yaml`) stays the semantic owner of what a
+  document means; this manifest is unchanged. The aid in
+  `hushh_mcp/services/drive_groups/` only places a file's index entry on a shelf:
+  `financial_statements`, `non_financial_statements`, `insurance_statements`,
+  `personal_documents`, or `kept`. It reads the first few hundred characters of the
+  owner's own file under the owner's live grant, in memory, through the existing
+  fenced `read_file_content` read and isolated parser. Its definitions of the four
+  groups are data in `drive_groups/data/groups.json`, not code.
+- Output: `Placement` in `drive_groups/contract.py`: `group` (None when kept),
+  `candidate`, `best_class`, `confidence` (a Platt-calibrated score fitted on labelled
+  fixtures, not a measured accuracy), `margin`, a closed `reason`, the three signal
+  readings, the data `version` and `group_source = organizer_v1`.
+- Authority: none. A placement grants no sharing, consent, search or reading
+  authority and never writes to the person's Google Drive. A file below the
+  confidence, margin or agreement thresholds is kept, with its text start and
+  embedding retained for future indexing; it is never dropped and never guessed.
+  A label from the Documents gene or the owner's own move wins over `organizer_v1`,
+  and the rate at which they disagree is the measure of the aid; when an agent
+  label replaces it, the aid is deleted.
+- Validators: every number in the data files is checked on load (finite, bounded,
+  closed class list, unit-length vectors, non-negative weights). The weights,
+  calibration and thresholds are fitted offline by
+  `consent-protocol/scripts/train_drive_groups.py` and never edited by hand; a
+  signal the fit found no use for gets weight 0 and casts no vote. Logs carry
+  counts and closed labels only: no name, text start or file ID.
+- Rollback: `DRIVE_FOUR_GROUP_INDEX_ENABLED` (default off). With it off the aid
+  refuses to run (`GroupIndexDisabled`) and nothing is placed.
+- Live eval before promotion: `consent-protocol/scripts/eval_drive_groups.py`.
+  On the 146 held-out synthetic files (template families the fit never saw) the
+  aid placed 57, 55 of them correctly (precision 0.965), placed 2 of 50 unrelated
+  files and kept 41 of 96 group files. Those are invented documents: a regression
+  gate, not accuracy on a real Drive. Promotion needs the same script run by the
+  owner on authorized real labels (`--fixtures` with a private file, counts only),
+  meeting the precision target, reported with per-class counts. Until then the aid
+  stays dark.
+
 ### Declared: request-local semantic Drive search
 
 - Owner: Documents `agent_documents_request_search` plans a

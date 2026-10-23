@@ -261,15 +261,23 @@ class ClamAvScanner:
 
 
 class IsolatedDocumentParser:
-    async def parse(self, *, content: bytes, mime_type: str, live: bool = False) -> ParsedText:
+    def __init__(self, *, process=None):
+        self._process = process or _private_process
+        # Downloads may overlap more widely than memory-heavy parser children.
+        self._parse_slots = asyncio.Semaphore(2)
+
+    async def parse(
+        self, *, content: bytes, mime_type: str, live: bool = False, raw_prefix: bool = False
+    ) -> ParsedText:
         try:
-            result = await _private_process(
-                "parser",
-                ("live:" if live else "") + mime_type,
-                content,
-                timeout=25,
-                limit=MAX_TEXT_BYTES * 6 + 4096,
-            )
+            async with self._parse_slots:
+                result = await self._process(
+                    "parser",
+                    ("prefix:" if raw_prefix else "live:" if live else "") + mime_type,
+                    content,
+                    timeout=25,
+                    limit=MAX_TEXT_BYTES * 6 + 4096,
+                )
             if "error" in result:
                 code = result["error"]
                 if code == "processor_unavailable":
@@ -284,7 +292,13 @@ class IsolatedDocumentParser:
                 or type(result["truncated"]) is not bool
             ):
                 raise DriveReadError("invalid_document")
-            return ParsedText(tuple(pages), result["truncated"])
+            method = result.get("method")
+            if raw_prefix:
+                from hushh_mcp.services.drive_document_prefix import PREFIX_METHODS
+
+                if method not in PREFIX_METHODS:
+                    raise DriveReadError("invalid_document")
+            return ParsedText(tuple(pages), result["truncated"], method if raw_prefix else None)
         except (ValueError, KeyError, TypeError):
             raise DriveReadError("invalid_document") from None
 

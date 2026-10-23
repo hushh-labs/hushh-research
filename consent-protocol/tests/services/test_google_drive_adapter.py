@@ -13,21 +13,7 @@ import pytest
 
 from hushh_mcp.services import google_drive_adapter as drive
 from mcp_modules.log_redaction import redact_log_value
-
-
-def metadata(**changes):
-    return {
-        "id": "selected-file",
-        "name": "Synthetic report",
-        "mimeType": "text/plain",
-        "version": "1",
-        "modifiedTime": "2026-09-22T00:00:00Z",
-        "size": "14",
-        "trashed": False,
-        "isAppAuthorized": True,
-        "capabilities": {"canDownload": True, "canAccessViaGenAi": True},
-        **changes,
-    }
+from tests.helpers.drive_metadata import metadata
 
 
 @pytest.fixture
@@ -319,7 +305,11 @@ async def test_long_provider_name_survives_discovery_read_and_share_rechecks(ada
     assert listed.version == read.version == share.version == "1"
 
 
-@pytest.mark.parametrize("name", [None, "", "\ud800", "अ" * (drive.METADATA_LIMIT // 3 + 1)])
+@pytest.mark.parametrize(
+    "name",
+    [None, "", "\ud800", "अ" * (drive.METADATA_LIMIT // 3 + 1)],
+    ids=["missing", "empty", "invalid-unicode", "over-byte-limit"],
+)
 def test_provider_name_retains_type_unicode_and_metadata_byte_bounds(name):
     from hushh_mcp.services.drive_collection_sync import _metadata
 
@@ -544,6 +534,89 @@ async def test_transport_stops_before_oversized_body_is_parsed(adapter, monkeypa
     )
     with pytest.raises(drive.DriveReadError, match="file_too_large"):
         await adapter.get_metadata(file_id="selected-file", access_token="synthetic-token")
+
+
+@pytest.mark.parametrize("partial", [False, True])
+async def test_raw_prefix_requests_exact_range_and_closes_without_consuming_tail(
+    adapter, monkeypatch, partial
+):
+    original = httpx.AsyncClient
+    closed = []
+
+    class Prefix(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"x" * drive.RAW_PREFIX_LIMIT
+            raise AssertionError("must never read the tail")
+
+        async def aclose(self):
+            closed.append(True)
+
+    def response(request):
+        assert request.headers["Range"] == "bytes=0-204799"
+        assert request.headers["Accept-Encoding"] == "identity"
+        assert dict(request.url.params) == {"alt": "media", "supportsAllDrives": "true"}
+        return httpx.Response(
+            206 if partial else 200,
+            headers={"Content-Range": "bytes 0-204799/999999"} if partial else {},
+            stream=Prefix(),
+        )
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(response))
+    )
+    mime, body = await adapter.read_live_prefix(
+        file_id="selected-file", mime_type="application/pdf", access_token="synthetic-token"
+    )
+    assert mime == "application/pdf" and body == b"x" * 204800
+    assert closed == [True]
+
+
+@pytest.mark.parametrize(
+    "headers,body",
+    [
+        ({}, b"x"),
+        ({"Content-Range": "bytes 1-1/2"}, b"x"),
+        ({"Content-Range": "bytes 0-204800/999999"}, b"x"),
+        ({"Content-Range": "bytes 0-9/9"}, b"x" * 10),
+        ({"Content-Range": "bytes 0-9/10"}, b"x" * 9),
+        ({"Content-Range": "bytes 0-9/10"}, b"x" * 11),
+        ({"Content-Range": "bytes 0-0/1", "Content-Encoding": "gzip"}, b"x"),
+    ],
+)
+async def test_raw_prefix_rejects_invalid_partial_responses(adapter, monkeypatch, headers, body):
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: original(
+            **kw,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(206, headers=headers, stream=httpx.ByteStream(body))
+            ),
+        ),
+    )
+    with pytest.raises(drive.DriveReadError, match="provider_response_invalid"):
+        await adapter.read_live_prefix(
+            file_id="selected-file", mime_type="application/pdf", access_token="synthetic-token"
+        )
+
+
+async def test_raw_prefix_cannot_expand_to_exports_or_larger_limits(adapter):
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter.read_live_prefix(
+            file_id="selected-file",
+            mime_type="application/vnd.google-apps.document",
+            access_token="synthetic-token",
+        )
+    for path, params, limit in (
+        ("/files/selected-file/export", {"mimeType": "text/plain"}, drive.RAW_PREFIX_LIMIT),
+        ("/files/selected-file", {"alt": "media"}, drive.CONTENT_LIMIT),
+        ("/files/selected-file", {"fields": "id"}, drive.RAW_PREFIX_LIMIT),
+    ):
+        with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+            await adapter._get(
+                path, params=params, access_token="synthetic-token", limit=limit, raw_prefix=True
+            )
 
 
 @pytest.mark.asyncio

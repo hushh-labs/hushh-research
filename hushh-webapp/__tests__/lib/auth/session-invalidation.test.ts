@@ -5,6 +5,7 @@ import {
   AUTH_SESSION_SIBLING_TAB_STORAGE_KEY,
   authSessionInvalidationFromSiblingTabStorageEvent,
   authSessionInvalidationCodeFromBackendPayload,
+  authSessionLandingCodeFromBackendPayload,
   authSessionInvalidationCodeFromFirebaseError,
   buildLoginRouteWithAuthSessionNotice,
   dispatchAuthSessionInvalidated,
@@ -56,7 +57,7 @@ describe("auth session invalidation contract", () => {
     expect(route).toBe("/login?auth_notice=account_deleted");
     expect(readAuthSessionLandingNotice(params)).toEqual({
       code: "account_deleted",
-      message: "Account deleted. You have been securely signed out.",
+      message: "This account’s information was deleted. Contact support if you cannot start again.",
       toastId: "auth-session-account-deleted",
     });
   });
@@ -75,7 +76,7 @@ describe("auth session invalidation contract", () => {
     const params = new URL(route, "https://one.hushh.ai").searchParams;
     expect(readAuthSessionLandingNotice(params)).toMatchObject({
       code: "account_deletion_finishing",
-      message: expect.stringContaining("finishing account removal"),
+      message: expect.stringContaining("Account removal still needs attention"),
     });
   });
 
@@ -101,6 +102,15 @@ describe("auth session invalidation contract", () => {
         new URLSearchParams("auth_notice=raw+backend+failure+text"),
       ),
     ).toBeNull();
+  });
+
+  it("distinguishes a deleted account from a missing Firebase identity", () => {
+    const deleted = { detail: { code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted" } };
+    expect(authSessionInvalidationCodeFromBackendPayload(deleted)).toBe("account_not_found");
+    expect(authSessionLandingCodeFromBackendPayload(deleted)).toBe("account_deleted");
+    expect(authSessionInvalidationCodeFromBackendPayload({
+      detail: { code: "AUTH_ACCOUNT_NOT_FOUND" },
+    })).toBe("account_not_found");
   });
 
   it("finds the account-not-found code in direct, native, and proxied payloads", () => {

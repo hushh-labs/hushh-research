@@ -107,7 +107,7 @@ export function AskForMoreTime({
 
   return (
     <div className={cn("space-y-3", className)}>
-      <p className="text-[15px] font-semibold leading-5 text-foreground">
+      <p data-location-type-role="section-heading" className="text-[15px] font-semibold leading-5 text-foreground">
         Ask for more time
       </p>
       {pendingExtension ? (
@@ -115,15 +115,15 @@ export function AskForMoreTime({
            waiting is how somebody sends the same person four requests for the
            same share -- and the owner has to answer every one. */
         <div className="rounded-2xl bg-[color:var(--app-neutral-fill)] px-4 py-3">
-          <p className="text-[15px] font-semibold leading-5 text-foreground">
+          <p data-location-type-role="status" className="text-[15px] font-semibold leading-5 text-foreground">
             {requestMoreTimeLabel(pendingExtension.requestedDurationHours)}{" "}
             requested
           </p>
           <div className="mt-1 flex items-center justify-between gap-3">
-            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+            <p data-location-type-role="row-description" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
               Waiting for approval
             </p>
-            <Button
+            <Button data-location-type-role="compact-action"
               variant="ghost"
               size="sm"
               className="h-9 px-2 text-[15px] font-medium text-[#FF3B30] hover:bg-transparent hover:text-[#D70015]"
@@ -146,7 +146,7 @@ export function AskForMoreTime({
               const key = requestMoreTimeKey(grantId, hours);
               const label = requestMoreTimeLabel(hours);
               return (
-                <Button
+                <Button data-location-type-role="compact-action"
                   key={key}
                   variant="outline"
                   size="sm"
@@ -174,7 +174,7 @@ export function AskForMoreTime({
           </div>
           {/* The whole point of the lane: none of these buttons takes time,
               they ask for it. */}
-          <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+          <p data-location-type-role="helper" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
             They&rsquo;ll need to approve.
           </p>
         </>

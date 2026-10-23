@@ -262,12 +262,12 @@ test("shared dock retains mode materials and input identity with aligned edges a
       return Math.max(...(["x", "y", "width", "height"] as const)
         .map(key => Math.abs(emptyTextFrame![key] - frame![key])));
     }, { message: "Route handoff must settle to the identical Agent Bar frame" }).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-    // Text has its own translucent material; the voice launcher uses the
-    // shared navigation material. Geometry and the outer host are retained.
+    // Voice and writing share the same translucent material. Geometry and
+    // the outer host are retained when handing off between input modes.
     const voiceMaterial = await material();
     expect(voiceMaterial.radius).toBe(textMaterial.radius);
     expect(voiceMaterial.border).toBe(textMaterial.border);
-    expect(voiceMaterial.background).toBe(await page.locator(".kai-bottom-nav-pill").evaluate(node => getComputedStyle(node).backgroundColor));
+    expect(voiceMaterial.background).toBe(textMaterial.background);
     expect(await dock.evaluate((node, original) => node === original, retainedBar)).toBe(true);
     await page.getByTestId("fixture-route").click();
     await expect(input).toBeVisible();

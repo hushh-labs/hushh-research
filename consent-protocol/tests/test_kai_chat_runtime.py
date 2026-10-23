@@ -116,6 +116,30 @@ async def test_analyst_runtime_uses_shared_single_turn(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("confidence", [0.0, -0.1, 1.1, float("nan")])
+async def test_analyst_confidence_preserves_zero_and_rejects_invalid_values(
+    monkeypatch, confidence
+):
+    monkeypatch.setattr(runtime, "build_single_turn_agent", lambda *_args, **_kwargs: "agent")
+
+    async def run(*_args, **_kwargs):
+        return {"confidence": confidence}
+
+    monkeypatch.setattr(runtime, "run_single_turn", run)
+    kwargs = dict(
+        gene_id="agent_kai_sentiment",
+        prompt="supplied facts",
+        user_id="owner",
+        consent_token="test-token",  # noqa: S106 - inert test fixture
+    )
+    if confidence == 0.0:
+        assert (await runtime.run_kai_analyst_turn(**kwargs))["confidence"] == 0.0
+    else:
+        with pytest.raises(ValueError, match="confidence"):
+            await runtime.run_kai_analyst_turn(**kwargs)
+
+
+@pytest.mark.asyncio
 async def test_synthesis_runtime_routes_to_its_manifest_gene(monkeypatch) -> None:
     calls: dict[str, object] = {}
 

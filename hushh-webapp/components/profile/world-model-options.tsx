@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { WorldModelInvitations } from "@/components/profile/world-model-invitations";
 import { WorldModelSources } from "@/components/profile/world-model-sources";
+import { pwmProviderDisclosure, usesAzurePwm } from "@/components/onboarding/setup/pwm-research-disclosure";
 import type { PwmPreferences } from "@/lib/services/world-model-research-service";
 
 type Sheet = "invite" | "sources" | "research";
@@ -65,7 +66,7 @@ export function WorldModelOptions({
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [busy, setBusy] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
-  const azureResearch = preferences?.research_provider === "azure_openai_web_search";
+  const azureResearch = usesAzurePwm(preferences?.research_provider);
   const open = sheet !== null && (sheet !== "invite" || usable);
   const close = useCallback(() => {
     setSheet(null);
@@ -166,7 +167,7 @@ export function WorldModelOptions({
             <SettingsRow
               title="Research public pages"
               description={azureResearch
-                ? "Turning this on lets GPT-5 mini on Microsoft Azure AI plan searches and prepare your draft from public pages. Bing may receive your name and verified email or phone in search terms outside Azure's compliance and data residency boundary. You review findings before saving."
+                ? pwmProviderDisclosure(preferences.research_provider)
                 : "Uses your name and verified email or phone to find pages about you with Google Search through Vertex AI."}
               trailing={
                 <span className="inline-flex h-11 items-center">

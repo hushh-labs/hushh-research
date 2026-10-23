@@ -58,9 +58,11 @@ def _drain(
     refund_worker=None,
     owner_payout_worker=None,
     packet_order_worker=None,
+    group_worker=None,
 ):
     return DriveWorkDrain(
         document_worker=workers[0],
+        group_worker=group_worker or _worker({"outcomes": {"indexed": 1}}),
         suggestion_worker=workers[1],
         search_worker=search_worker or _worker({"outcomes": {"completed": 1}}),
         permission_worker=workers[2],
@@ -72,6 +74,21 @@ def _drain(
         owner_payout_worker=owner_payout_worker or _worker({"outcomes": {"disabled": 1}}),
         packet_order_worker=packet_order_worker or _worker({"outcomes": {"disabled": 1}}),
     )
+
+
+@pytest.mark.asyncio
+async def test_group_stage_runs_only_its_bounded_worker_without_private_outcomes():
+    workers = [_worker({"outcomes": {}}) for _ in range(4)]
+    groups = _worker({"outcomes": {"indexed": 1, "private_filename": "never-return"}})
+    result = await _drain(workers, group_worker=groups).run(stage="groups")
+    assert result["workers"]["groups"] == {"indexed": 1}
+    assert all(
+        value == {"deferred": 1} for key, value in result["workers"].items() if key != "groups"
+    )
+    groups.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=180)
+    for worker in workers:
+        worker.run.assert_not_awaited()
+    assert "never-return" not in str(result)
 
 
 @pytest.mark.asyncio
@@ -88,6 +105,7 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
     assert result == {
         "schema_version": "drive.work_drain.v1",
         "workers": {
+            "groups": {"deferred": 1},
             "documents": {"ready": 1},
             "suggestions": {"deferred": 1},
             "searches": {"deferred": 1},
@@ -119,6 +137,7 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
     for index in (0, 2, 3):
         workers[index].run.assert_not_awaited()
     assert result["workers"] == {
+        "groups": {"deferred": 1},
         "documents": {"deferred": 1},
         "suggestions": {"review_ready": 1},
         "searches": {"completed": 1},
@@ -163,6 +182,7 @@ async def test_v1_stage_claims_only_marked_searches_approved_delivery_and_financ
     for index in (0, 2, 3):
         workers[index].run.assert_not_awaited()
     assert result["workers"] == {
+        "groups": {"deferred": 1},
         "documents": {"deferred": 1},
         "suggestions": {"not_claimed": 1},
         "searches": {"completed": 1},
@@ -192,6 +212,7 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
     bulk.run.assert_awaited_once_with(max_jobs=400, deadline_seconds=80)
     workers[3].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=35)
     assert result["workers"] == {
+        "groups": {"deferred": 1},
         "documents": {"deferred": 1},
         "suggestions": {"deferred": 1},
         "searches": {"deferred": 1},

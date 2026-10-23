@@ -3694,7 +3694,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens Mail from any investor surface and restores its workspace. Receipt scans start only after an explicit Start sync, Load older receipts or Try again action.",
+      "description": "Opens Mail and restores saved receipts. Eligible connected and unlocked accounts check newer receipts automatically; unavailable processing has an explanation and settings action.",
       "execution": {
         "binding_ref": "route:/one/gmail",
         "executor": {
@@ -4367,6 +4367,292 @@
       "search_keywords": [
         "disconnect gmail"
       ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Receipt update details"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.gmail.receipt_sync_details",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Explains actual receipt processing availability. Got it dismisses the explanation without changing connection, hosting or consent.",
+      "execution": {
+        "binding_ref": "render:profile.gmail.receipt_sync_details",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.gmail.receipt_sync_details",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Receipt update details",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open saved receipts again"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.gmail.restore_saved_receipts",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Retries bounded encrypted device restoration with current owner and vault authority. It does not enable an unavailable provider scan.",
+      "execution": {
+        "binding_ref": "render:profile.gmail.restore_saved_receipts",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.gmail.restore_saved_receipts",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open saved receipts again",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
       "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
         "classification": "render_or_guidance"
@@ -45126,7 +45412,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "24a81622fb2fa52a0397d39bd0305510e7fbc4375b3033ea0204e9a78f21e8c0",
+      "projection_digest": "fcdf6f28bdb69fced518c98345dc6a0bf1918d4c4130cb1be2bc7314b8fe568d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -45136,7 +45422,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "e135f4becffa926478c893a9834b043c1351a3ba8443ac54ce12953c0e1231fa",
+        "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -45145,7 +45431,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "7418c12411dea739",
+      "source_revision": "2873f483995a8fbe",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -46663,7 +46949,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "7418c12411dea739",
+    "source_revision": "2873f483995a8fbe",
     "web": {
       "actions": [
         {
@@ -46706,7 +46992,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "552c987a8a27baf96f1c975a75a9557bfd007ea35e64cd02137abe02c5309746",
+      "projection_digest": "bd285bf6077aa9ad5bfc73c2a1e34f516ed9edb6b8ca88d7ccd79b53e2ce56de",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -46716,7 +47002,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "e135f4becffa926478c893a9834b043c1351a3ba8443ac54ce12953c0e1231fa",
+        "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -46725,7 +47011,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "7418c12411dea739",
+      "source_revision": "2873f483995a8fbe",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -48282,7 +48568,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "7418c12411dea739",
+  "revision": "2873f483995a8fbe",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -50251,7 +50537,7 @@
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "63a45baaa90e4e2f",
+    "from_revision": "dc84beb721eb8553",
     "migrated": [],
     "removed": []
   },
@@ -52557,21 +52843,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "e135f4becffa926478c893a9834b043c1351a3ba8443ac54ce12953c0e1231fa",
+    "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "1bbd4f07600b8e1f688975a033718eee5239f831863f1eebf682bd893413fdf2",
+    "kai_action_gateway": "02448310d7910681448b55864231b81a20f60908470fc49539ee6f482450dc8d",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "054f7f11c6b01ebfcc84f85e2c7995c7a84dc411ae00f6a073e37d845c14e3be",
-    "route_orchestration_index": "096e13cb27356fd092a6cfaac1075fbdcc4e44ba9aca829ba4a3803bf3ee48ba",
+    "product_agent_registry": "a2eacdefb2221a47ec806f749510e5bed26c458a5ca0e16627583aafcd745c35",
+    "route_orchestration_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "7418c12411dea739",
+  "source_revision": "2873f483995a8fbe",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "7418c12411dea739",
+    "current_graph_revision": "2873f483995a8fbe",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -52586,6 +52872,7 @@
           "087fe0af56da1339",
           "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
+          "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
@@ -52607,6 +52894,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "22194555a3198d88",
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
@@ -52643,6 +52931,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "45be718cd9891cd4",
           "463b7d0356056f19",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
@@ -52660,6 +52949,7 @@
           "55a233b9b6e923ea",
           "5909c4277d032171",
           "594add96607b6147",
+          "5996287e8a4d4b35",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
@@ -52696,8 +52986,10 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7418c12411dea739",
           "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
+          "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
@@ -52753,6 +53045,7 @@
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
@@ -52808,6 +53101,7 @@
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
@@ -52836,6 +53130,7 @@
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
+          "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
           "de6d576a06f1dde6",
@@ -52867,6 +53162,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -52893,22 +53189,28 @@
           "06db6538bfac1f45",
           "07974bdfcc821de5",
           "089dd4c9f391ecfd",
+          "0d1f4106e4b3ae29",
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
+          "22194555a3198d88",
           "27a5c64caf11b36c",
           "3b4a692078832301",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "45be718cd9891cd4",
           "49f1882f17ca746a",
           "4d911004af4b252b",
           "53c411e01494034b",
+          "5996287e8a4d4b35",
           "6372c447ad7f5790",
           "63a45baaa90e4e2f",
           "6889f5062bd36428",
           "6a5e47527ae2308f",
           "6e5f5a12b0a2f4ec",
+          "7418c12411dea739",
           "764b9cd170a9b7b3",
+          "77a51f213fb0e5e7",
           "7e725415993cda04",
           "7fe68d8f752aa842",
           "8052e8fc866f98cd",
@@ -52920,6 +53222,7 @@
           "9683f26dff3798f0",
           "9b520324ac39c69f",
           "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "9e76e7495565063d",
           "a638cd4ec38b0442",
           "a70ab77c9974866f",
@@ -52927,10 +53230,12 @@
           "ad3f61d47487e20e",
           "bf818f0b3141079a",
           "c39f0674bed1fca1",
+          "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "ce5392b8bb1c6e80",
           "d3007ff6184e4f81",
           "db2187647b28df19",
+          "dc84beb721eb8553",
           "dd0bf20a1ad852d3",
           "de6d576a06f1dde6",
           "e06d27b000c77fa3",
@@ -52939,6 +53244,7 @@
           "e746225912756998",
           "ebddcf5afa07b6bb",
           "f0c409450ab444ad",
+          "f2366731e915e5b5",
           "fb9a089556077ad3"
         ],
         "migration_required_graph_revisions": [],
@@ -52952,33 +53258,43 @@
           "06db6538bfac1f45",
           "07974bdfcc821de5",
           "089dd4c9f391ecfd",
+          "0d1f4106e4b3ae29",
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
+          "22194555a3198d88",
           "27a5c64caf11b36c",
           "3b4a692078832301",
           "43c428db7505bdee",
+          "45be718cd9891cd4",
           "4d911004af4b252b",
           "53c411e01494034b",
+          "5996287e8a4d4b35",
           "63a45baaa90e4e2f",
           "6889f5062bd36428",
           "6a5e47527ae2308f",
           "6e5f5a12b0a2f4ec",
+          "7418c12411dea739",
+          "77a51f213fb0e5e7",
           "8052e8fc866f98cd",
           "8afa7c0f35f622a7",
           "8ed4b64eb88ea5b3",
           "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "a638cd4ec38b0442",
           "a70ab77c9974866f",
           "aaec4987307cbdee",
           "ad3f61d47487e20e",
           "c39f0674bed1fca1",
+          "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "d3007ff6184e4f81",
+          "dc84beb721eb8553",
           "de6d576a06f1dde6",
           "e72a95655f220acd",
           "e746225912756998",
           "f0c409450ab444ad",
+          "f2366731e915e5b5",
           "fb9a089556077ad3"
         ],
         "migration_required_graph_revisions": [],
@@ -53234,6 +53550,7 @@
           "087fe0af56da1339",
           "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
+          "0d1f4106e4b3ae29",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "101c32b70ab14a4d",
@@ -53247,6 +53564,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "22194555a3198d88",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
           "2978b8513e4b94e7",
@@ -53278,6 +53596,7 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "454780a997b07892",
+          "45be718cd9891cd4",
           "463b7d0356056f19",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
@@ -53290,6 +53609,7 @@
           "53c411e01494034b",
           "5909c4277d032171",
           "594add96607b6147",
+          "5996287e8a4d4b35",
           "5dd05b725c815199",
           "60f052ad508244d1",
           "62fecdf7944d63a5",
@@ -53318,7 +53638,9 @@
           "710bd535b7febc69",
           "71ed8af339174fae",
           "71f054528fd84ee6",
+          "7418c12411dea739",
           "764b9cd170a9b7b3",
+          "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
@@ -53361,6 +53683,7 @@
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "a0cd8997edf6708d",
@@ -53399,6 +53722,7 @@
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "ce5392b8bb1c6e80",
           "d01f9a7a5198c5c9",
@@ -53419,6 +53743,7 @@
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
+          "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
           "de6d576a06f1dde6",
@@ -53444,6 +53769,7 @@
           "ef88720ce177a379",
           "f0c409450ab444ad",
           "f0dd083b1d2493ac",
+          "f2366731e915e5b5",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
@@ -53542,6 +53868,7 @@
           "087fe0af56da1339",
           "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
+          "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
@@ -53563,6 +53890,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "22194555a3198d88",
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
@@ -53599,6 +53927,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "45be718cd9891cd4",
           "463b7d0356056f19",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
@@ -53616,6 +53945,7 @@
           "55a233b9b6e923ea",
           "5909c4277d032171",
           "594add96607b6147",
+          "5996287e8a4d4b35",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
@@ -53652,8 +53982,10 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7418c12411dea739",
           "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
+          "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
@@ -53709,6 +54041,7 @@
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
@@ -53764,6 +54097,7 @@
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
@@ -53792,6 +54126,7 @@
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
+          "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
           "de6d576a06f1dde6",
@@ -53823,6 +54158,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -53855,6 +54191,7 @@
           "087fe0af56da1339",
           "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
+          "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
@@ -53876,6 +54213,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "22194555a3198d88",
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
@@ -53912,6 +54250,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "45be718cd9891cd4",
           "463b7d0356056f19",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
@@ -53929,6 +54268,7 @@
           "55a233b9b6e923ea",
           "5909c4277d032171",
           "594add96607b6147",
+          "5996287e8a4d4b35",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
@@ -53965,8 +54305,10 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7418c12411dea739",
           "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
+          "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
@@ -54022,6 +54364,7 @@
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
@@ -54077,6 +54420,7 @@
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
@@ -54105,6 +54449,7 @@
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
+          "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
           "de6d576a06f1dde6",
@@ -54136,6 +54481,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -54168,6 +54514,7 @@
           "087fe0af56da1339",
           "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
+          "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
@@ -54189,6 +54536,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "22194555a3198d88",
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
@@ -54225,6 +54573,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "45be718cd9891cd4",
           "463b7d0356056f19",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
@@ -54242,6 +54591,7 @@
           "55a233b9b6e923ea",
           "5909c4277d032171",
           "594add96607b6147",
+          "5996287e8a4d4b35",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
@@ -54278,8 +54628,10 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7418c12411dea739",
           "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
+          "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
@@ -54335,6 +54687,7 @@
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
@@ -54389,6 +54742,7 @@
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
@@ -54416,6 +54770,7 @@
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
+          "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
           "de6d576a06f1dde6",
@@ -54447,6 +54802,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -54479,6 +54835,7 @@
           "087fe0af56da1339",
           "089dd4c9f391ecfd",
           "0b5a745ab3af9c5e",
+          "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
@@ -54500,6 +54857,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "22194555a3198d88",
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
@@ -54536,6 +54894,7 @@
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "454780a997b07892",
+          "45be718cd9891cd4",
           "463b7d0356056f19",
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
@@ -54553,6 +54912,7 @@
           "55a233b9b6e923ea",
           "5909c4277d032171",
           "594add96607b6147",
+          "5996287e8a4d4b35",
           "5dd05b725c815199",
           "5dd50f009b116724",
           "5fe7cf2eaf8964c8",
@@ -54589,8 +54949,10 @@
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7418c12411dea739",
           "764b9cd170a9b7b3",
           "771cbd282b3b3c1a",
+          "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
@@ -54646,6 +55008,7 @@
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
           "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
@@ -54701,6 +55064,7 @@
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
           "ca45fcf41af6e723",
+          "ca4e044ae69e49f0",
           "ca681a264a9ac17a",
           "cb10ee16c62231b2",
           "cb4b4f653c99fc16",
@@ -54729,6 +55093,7 @@
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
+          "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
           "dd0bf20a1ad852d3",
           "de6d576a06f1dde6",
@@ -54760,6 +55125,7 @@
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",

@@ -42,6 +42,7 @@ from api.middleware import (
 )
 from api.middlewares.chat_key import require_vault_owner_chat_key
 from hushh_mcp.services import owner_placement_guard as guard
+from hushh_mcp.services.drive_groups.contract import FLAG as DRIVE_GROUP_INDEX_FLAG
 from tests.test_external_connector_oauth_routes import (
     route_client,  # noqa: F401 - owning route fixture
 )
@@ -205,6 +206,7 @@ def _assert_refused(response) -> None:
 def test_every_dependency_guarded_content_route_refuses_a_private_owner(
     hub_routes, byoc_owner, signed_in, monkeypatch
 ):
+    monkeypatch.setenv(DRIVE_GROUP_INDEX_FLAG, "true")
     checked = 0
     refused_by_pod_process: set[tuple[str, str]] = set()
     for method, path, route in _content_routes(hub_routes):

@@ -26,7 +26,6 @@ import {
   Palette,
   Phone,
   Question,
-  ShareNetwork,
   ShieldWarning,
   SlidersHorizontal,
   SpinnerGap,
@@ -38,6 +37,7 @@ import {
   Warning,
   type IconProps,
 } from "@phosphor-icons/react";
+import { AccentedShareNetworkIcon } from "./accented-share-network-icon";
 
 // Registry-owned defaults keep nested settings consistent with /one.
 export function CheckCircleIcon({ weight = "regular", size = "1em", ...props }: IconProps) {
@@ -141,7 +141,7 @@ export function QuestionIcon({ weight = "regular", size = "1em", ...props }: Ico
 }
 
 export function ShareNetworkIcon({ weight = "regular", size = "1em", ...props }: IconProps) {
-  return <ShareNetwork weight={weight} size={size} {...props} />;
+  return <AccentedShareNetworkIcon weight={weight} size={size} {...props} />;
 }
 
 export function ShieldWarningIcon({ weight = "regular", size = "1em", ...props }: IconProps) {

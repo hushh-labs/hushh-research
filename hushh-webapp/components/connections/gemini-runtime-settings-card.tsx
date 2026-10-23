@@ -127,7 +127,7 @@ export function useGeminiRuntimeSettingsModel({
   const router = useRouter();
   const pathname = usePathname();
   const [cloudAiVerified, setCloudAiVerified] = useOwnerPresentationState(visit, false);
-  const { placement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
+  const { placement, refreshPlacement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
   const privateCloud = placement === "gcp" || placement === "azure";
   const defaultLabel = privateCloud ? "Use existing cloud" : "Use Hussh AI";
   const [showAiAlternatives, setShowAiAlternatives] = useOwnerPresentationState(visit, false);
@@ -757,14 +757,14 @@ export function useGeminiRuntimeSettingsModel({
     if (cloudAiVerified) {
       setMode("hushh_managed_vertex");
       setSelectedOption("hushh_managed_vertex");
-      setHasExplicitSelection(true);
       setDraftKey("");
       invalidateCredentialValidation();
+      setHasExplicitSelection(true);
     }
     return true;
   });
   const editable = () => visit.credentialCurrent() && !selectionPendingRef.current;
-  return { userId, vaultKey, vaultOwnerToken, placement, privateCloud, defaultLabel, cloudAiVerified, cloudAiFailure,
+  return { userId, vaultKey, vaultOwnerToken, placement, refreshPlacement, privateCloud, defaultLabel, cloudAiVerified, cloudAiFailure,
     showAiAlternatives, setShowAiAlternatives, setCloudAiVerified, setCloudAiFailure, onProviderPendingChange,
     otherProvider, agentOutcome, compactDefault, managedChoiceDisabled: isSaving || isRemoving || externalAiPending || (!privateCloud && placement !== "shared"),
     onRequestVaultUnlock, onRequestVaultCreation,
@@ -848,6 +848,12 @@ export function GeminiRuntimeSettingsView({ model }: { model: GeminiRuntimeSetti
         >
           {agentOutcome}
         </p>
+      ) : null}
+      {placement === "pending" || placement === "unknown" ? (
+        <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span>{placement === "pending" ? "Your agent is still getting ready." : "We couldn't verify your hosting connection."}</span>
+          <Button type="button" variant="link" onClick={model.refreshPlacement}>Check connection</Button>
+        </div>
       ) : null}
       <RadioPrimitive.Root
         asChild

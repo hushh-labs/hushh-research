@@ -134,6 +134,13 @@ envelope. Keep the glyphs in `components/icons/agents/app-icons.tsx` and colours
 in `AGENT_APP_ICON_PALETTE` in `lib/design/home-icon-palette.ts`; embedded raster
 images, emoji, and provider logos are not home-agent artwork.
 
+Share actions use the official Phosphor ShareNetwork shape through
+`AccentedShareNetworkIcon`: the source node follows the active app accent and
+the two destination nodes and links use theme-aware label ink. Profile, row,
+and legacy `Share2` aliases resolve to that same treatment.
+On solid accent buttons, the full glyph uses the button's contrasting ink so
+the source node remains visible.
+
 1. Keep color, typography, radius, and motion centralized through existing tokens and CSS variables.
 2. Avoid legacy references and hardcoded old theme narratives in feature code.
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.

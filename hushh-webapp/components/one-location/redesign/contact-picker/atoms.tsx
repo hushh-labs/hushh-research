@@ -81,7 +81,7 @@ export function ContactGroup({
 export function EmptyStateCard({ message }: { message: string }) {
   return (
     <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-[color:var(--app-secondary-label)] shadow-none transition-[background-color,color,opacity] duration-150 ease-out">
-      <p className="max-w-[280px]">{message}</p>
+      <p data-location-type-role="body" className="max-w-[280px]">{message}</p>
     </div>
   );
 }
@@ -113,7 +113,7 @@ export function ContactRowAction({
 }) {
   if (selected) {
     return (
-      <button
+      <button data-location-type-role="compact-action"
         type="button"
         onClick={onRemove}
         disabled={busy}
@@ -125,7 +125,7 @@ export function ContactRowAction({
     );
   }
   return (
-    <button
+    <button data-location-type-role="compact-action"
       type="button"
       onClick={onAdd}
       disabled={busy || !ready || addDisabled}
@@ -170,12 +170,12 @@ export function ContactRow({
       <ContactAvatar label={label} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
-          <span className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
+          <span data-location-type-role="row-title" className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">
             {label}
           </span>
         </span>
         {subtitle ? (
-          <span className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+          <span data-location-type-role="row-description" className="mt-0.5 block truncate text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
             {subtitle}
           </span>
         ) : null}

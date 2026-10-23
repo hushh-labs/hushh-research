@@ -57,9 +57,12 @@ from hushh_mcp.one_adk.output_privacy import (
     safe_exception_event,
 )
 from hushh_mcp.one_adk.run_errors import (
-    MODEL_CAPACITY_CODE,
-    MODEL_UNAVAILABLE_CODE,
-    SERVER_RESTARTING_CODE,
+    error_class as _error_class,
+)
+from hushh_mcp.one_adk.run_errors import (
+    error_code as _error_code,
+)
+from hushh_mcp.one_adk.run_errors import (
     server_is_draining,
 )
 from hushh_mcp.one_adk.text_attachments import render_text_attachments_for_model
@@ -223,56 +226,6 @@ def _ms_since(started_at: float, at: float | None) -> int | None:
     if at is None:
         return None
     return round((at - started_at) * 1000)
-
-
-def _error_class(code: Any) -> str:
-    """Classify a protocol error without retaining its untrusted message/code."""
-    if not isinstance(code, str):
-        return "untyped"
-    if code.startswith("MCP_"):
-        return "connector"
-    if code.startswith("DATABASE_"):
-        return "database"
-    if code.startswith("AGENT_RUNTIME_"):
-        return "runtime"
-    if code in {"MODEL_ERROR", MODEL_CAPACITY_CODE, MODEL_UNAVAILABLE_CODE}:
-        return "model"
-    if code == SERVER_RESTARTING_CODE:
-        return "shutdown"
-    return "other"
-
-
-# The codes the AG-UI bridge and this module author. Anything else is "unlisted":
-# a code is logged only from this fixed set, never from a provider-controlled value.
-_KNOWN_ERROR_CODES = frozenset(
-    {
-        "AGENT_ERROR",
-        "BACKGROUND_EXECUTION_ERROR",
-        "ENCODING_ERROR",
-        "EXECUTION_ERROR",
-        "EXECUTION_TIMEOUT",
-        "NO_TOOL_RESULTS",
-        "PENDING_TOOL_CALLS",
-        "TOOL_RESULT_BUFFER_ERROR",
-        "TOOL_RESULT_PROCESSING_ERROR",
-        MODEL_CAPACITY_CODE,
-        MODEL_UNAVAILABLE_CODE,
-        SERVER_RESTARTING_CODE,
-    }
-)
-
-
-def _error_code(code: Any) -> str:
-    """A run error's code when it is one we know, else a fixed placeholder.
-
-    Dotted and lower-case on purpose: the log redactor masks any 24-128 character
-    token made of letters, digits, `_` and `-` as a possible identifier, which
-    would turn `BACKGROUND_EXECUTION_ERROR` into `[REDACTED]` in the very line it
-    is meant to explain.
-    """
-    if not isinstance(code, str):
-        return "untyped"
-    return code.lower().replace("_", ".") if code in _KNOWN_ERROR_CODES else "unlisted"
 
 
 @dataclass
@@ -691,13 +644,13 @@ class TimedADKAgent(ADKAgent):
                 detach_watch.resolved.set()
             raise
         except Exception as exc:
-            timing.outcome = OUTCOME_ERROR
             # Otherwise the installed endpoint catches this exception and
             # serializes str(exception) into a second, unprojected RUN_ERROR.
             # Keep the failure terminal and content-free at this boundary.
             safe_error = safe_exception_event(exc)
             timing.observe(safe_error)
-            timing.error_class = "escaped_exception"
+            if timing.error_class != "refusal":
+                timing.error_class = "escaped_exception"
             if notice := _queued_notice(queued_key, settled=True):
                 yield notice
             yield safe_error

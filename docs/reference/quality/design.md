@@ -73,8 +73,8 @@ must not recreate shell chrome, safe-area math, an icon well, or a list row.
 ## Unified Mobile Header Guidelines
 
 The shared top shell owns navigation and the route declares its breadcrumb. Do
-not add a second Back control. An agent root with a back-only shell (Location,
-Finance, Memory, or Consent Center) draws its one visible title as a body
+not add a second Back control. An agent root with a back-only shell (Finance,
+Memory, or Consent Center) draws its one visible title as a body
 `PageHeader titleRole="agent"`, directly above its registered tab rail when it
 has one. Nested routes retain their compact trail title instead. Align an
 agent root to the agent grid; center a focused flow only when that flow's
@@ -204,11 +204,11 @@ safe area
 
 1. Every standard signed-in route uses the lean shared header; no route-local
    logo, hero, or duplicate title bar.
-2. Location is the geometry reference for an agent-root workspace header: one
-   `AppPageShell` at the agent measure, one `AppPageHeaderRegion`, and one
-   primary agent `PageHeader`. Finance, Memory, and Consent Center use the
-   same title hierarchy; tab content may render supporting section headings,
-   but it must not create a competing primary header.
+2. Location retains the agent reading measure and uses Connect's shared top-bar
+   title composition, with an accessible hidden body heading and compact local
+   status/switch row. Finance, Memory, and Consent Center retain their authored
+   body `PageHeader` hierarchy. Tab content may render supporting section
+   headings, but it must not create a competing primary title.
 3. `SettingsGroup` and `SettingsRow` own responsive inset lists: icon well,
    separator, truncation, 44px+ tap target, trailing alignment, and mobile
    stacking. Connected Systems, Profile, and agent lists use the same model.

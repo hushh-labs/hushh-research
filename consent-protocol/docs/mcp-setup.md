@@ -240,15 +240,25 @@ The transport is already compatible:
 - no SSE downgrade
 - no query-string credential
 
-Authentication is the remaining host-compatibility boundary. Hussh supports
-the existing developer token in `Authorization: Bearer <token>` and OAuth
-authorization code with S256 PKCE. Claude custom connectors should use
-the OAuth discovery document at `/.well-known/oauth-authorization-server`;
-create the confidential client and register its exact callback URI in
-`/developers` first. MuleSoft and generic remote hosts may continue injecting
-the bearer header. Do not work around either path with stdio, `?token=`, or an
-unauthenticated endpoint. OAuth authenticates the connector only; each read
-still follows the scoped consent lifecycle and encryption rules above.
+Claude and ChatGPT use OAuth discovery at
+`/.well-known/oauth-protected-resource` and
+`/.well-known/oauth-authorization-server`. After migration 409 and deployment,
+choose the host's published identity (CIMD, preferred) or automatic registration
+(DCR). Hussh supports public-client PKCE without a client secret for CIMD, and
+public or confidential clients for DCR. A manually configured confidential client
+remains supported; the preceding Hussh Technologies configuration is that explicit
+manual mode, not a shared identity for automatically registered clients.
+
+Send the canonical MCP resource (`https://api.uat.hushh.ai/mcp/` for UAT) during
+authorization and code exchange. Use each host's exact callback from its current
+metadata or configuration; do not hard-code one platform's callback for another.
+OAuth success only signs in the connector. Scoped consent, encrypted exports and
+connector-controlled decryption still apply. Never put a private encryption key
+into a chat, OAuth registration, or client metadata document.
+
+See [OAuth / PKCE for remote connector hosts](./reference/developer-api.md#oauth--pkce-for-remote-connector-hosts)
+for supported authentication methods, rate/size limits, migration and rollback.
+Deployed Claude and ChatGPT acceptance is a separate release check.
 
 ### MuleSoft trusted connector for Salesforce and Agentforce
 

@@ -1,3 +1,4 @@
+import { pause, whenVisible } from "./world-model-observation-wait";
 import { z } from "zod";
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
@@ -15,7 +16,7 @@ export const pwmPreferencesSchema = z
     enabled: z.boolean(),
     email_enabled: z.boolean(),
     consent_version: z.literal("pwm-native-v1"),
-    research_provider: z.enum(["vertex_google_search", "azure_openai_web_search"]),
+    research_provider: z.enum(["vertex_google_search", "azure_openai_web_search", "azure_openai_tavily"]),
   })
   .strict();
 export type PwmPreferences = z.infer<typeof pwmPreferencesSchema>;
@@ -75,7 +76,7 @@ export const pwmProgressSchema = z
   })
   .strict();
 export type PwmProgress = z.infer<typeof pwmProgressSchema>;
-/** Cited findings from a research checkpoint, shown read-only until a full draft is offered. */
+/** Cited, provisional findings from the owner-bound research checkpoint, available for owner review. */
 export const pwmValidatedFactSchema = z.object({
   id: z.string().min(1).max(160),
   topic: profileSectionKindSchema,
@@ -196,8 +197,9 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
           source_use: z.enum([
             "google_grounded_display_only",
             "azure_web_grounded_display_only",
+            "tavily_review_retained",
           ]),
-          provider: z.enum(["vertex_google_search", "azure_openai_web_search"]),
+          provider: z.enum(["vertex_google_search", "azure_openai_web_search", "azure_openai_tavily"]),
         })
         .strict()
         .refine(
@@ -205,7 +207,8 @@ export const pwmResultSchema = z.discriminatedUnion("status", [
             (source_use === "google_grounded_display_only" &&
               provider === "vertex_google_search") ||
             (source_use === "azure_web_grounded_display_only" &&
-              provider === "azure_openai_web_search"),
+              provider === "azure_openai_web_search") ||
+            (source_use === "tavily_review_retained" && provider === "azure_openai_tavily"),
         ),
     })
     .strict()
@@ -363,43 +366,6 @@ async function stream(input: StreamInput) {
     input.signal.removeEventListener("abort", cancel);
     cancel();
   }
-}
-function pause(signal: AbortSignal, milliseconds: number) {
-  return new Promise<void>((resolve, reject) => {
-    const abort = () => {
-      clearTimeout(timer);
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", abort);
-      resolve();
-    }, milliseconds);
-    signal.addEventListener("abort", abort, { once: true });
-    if (signal.aborted) abort();
-  });
-}
-/** A hidden tab does not poll; research resumes when the owner returns. */
-function whenVisible(signal: AbortSignal) {
-  if (typeof document === "undefined" || !document.hidden)
-    return Promise.resolve();
-  return new Promise<void>((resolve, reject) => {
-    const cleanup = () => {
-      document.removeEventListener("visibilitychange", show);
-      signal.removeEventListener("abort", abort);
-    };
-    const show = () => {
-      if (document.hidden) return;
-      cleanup();
-      resolve();
-    };
-    const abort = () => {
-      cleanup();
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    document.addEventListener("visibilitychange", show);
-    signal.addEventListener("abort", abort, { once: true });
-    if (signal.aborted) abort();
-  });
 }
 /** A POST may start paid research; automatic retries never come faster. */
 const MIN_POST_INTERVAL_MS = 60_000;
@@ -671,7 +637,9 @@ export const WorldModelResearchService = {
         ...preferences,
         consent_version: research_provider === "azure_openai_web_search"
           ? "pwm-azure-bing-v1"
-          : "pwm-native-v1",
+          : research_provider === "azure_openai_tavily"
+            ? "pwm-azure-tavily-v1"
+            : "pwm-native-v1",
       }),
     );
   },

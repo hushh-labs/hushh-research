@@ -90,6 +90,13 @@ async def test_authority_timeout_closes_without_retry():
         json.dumps({"type": RESULT_TYPE, "requestId": "unissued", "ok": True, "result": {}}),
         json.dumps({"type": "pod_voice_authority_request"}),
     ],
+    ids=[
+        "non-object",
+        "invalid-json",
+        "oversized-frame",
+        "unmatched-result",
+        "unsupported-request",
+    ],
 )
 async def test_malformed_or_unmatched_frames_close_the_connection(bad_frame):
     socket = Socket()

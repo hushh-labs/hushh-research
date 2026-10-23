@@ -15,6 +15,7 @@ python3 scripts/ci/verify-protected-behavior-tests.py --self-test
 python3 scripts/ci/live-memory-source-gate.py
 python3 scripts/ci/live-memory-source-gate.py --self-test
 python3 scripts/ci/test_github_security_authority.py
+python3 scripts/ci/test_github_security_receipt.py
 python3 scripts/ci/verify-pr-base-policy.py --self-test
 python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
@@ -23,6 +24,7 @@ python3 scripts/ci/test_verify_deployment_environment_governance.py
 python3 scripts/ci/test_release_cadence.py
 python3 scripts/ci/test_release_cadence_monitor.py
 bash scripts/ci/verify-protocol-ci-parity.sh --self-test
+python3 scripts/ci/test_protocol_manifest_transport.py
 python3 scripts/ci/test_apply_governance_teams.py
 python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_cloudrun_retention.py
@@ -79,7 +81,7 @@ python3 .agents/adapters/claude/codex-bridge/scripts/test_route_hook.py
 # Fails when a required NEXT_PUBLIC_* credential is missing from a build lane.
 # Offline and fast. The origin-restriction half of this skill needs gcloud and
 # stays out of CI on purpose — run it from the skill before a release.
-bash .claude/skills/client-env-parity/check.sh
+bash .agents/skills/client-env-parity/check.sh
 ./bin/hushh db verify-release-contract
 ./bin/hushh db report-prod-posture
 

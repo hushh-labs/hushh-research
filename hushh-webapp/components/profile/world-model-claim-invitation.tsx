@@ -1,5 +1,7 @@
 "use client";
 
+import { usesAzurePwm } from "@/components/onboarding/setup/pwm-research-disclosure";
+
 import { useEffect } from "react";
 import { useWorldModelOwnerState } from "./world-model-owner-state";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -43,7 +45,7 @@ export function useWorldModelClaimInvitation({
   const offerResearch = preferences?.enabled === false &&
     preferences.research_provider === "vertex_google_search";
   const azureResearchOff = preferences?.enabled === false &&
-    preferences.research_provider === "azure_openai_web_search";
+    usesAzurePwm(preferences.research_provider);
   const session = { vaultKey, vaultOwnerToken };
   useEffect(() => {
     if (!enabled) return;
@@ -92,7 +94,7 @@ export function useWorldModelClaimInvitation({
     setMessage(claimed.research_started || claimed.draft_id
       ? "Claimed. Your model is preparing or ready to review. Nothing was shared back."
       : azureResearchOff
-        ? "Claimed. Azure public research remains off. Open Research and email in your model to review Bing search use and turn it on. Nothing was shared back."
+        ? "Claimed. Azure public research remains off. Open Research and email in your model to review search-provider use and turn it on. Nothing was shared back."
         : offerResearch && !researchConsent
           ? "Claimed. Public research remains off. You can turn it on in your model. Nothing was shared back."
           : "Claimed. Open your model to check its research status. Nothing was shared back.");
@@ -179,7 +181,7 @@ export function WorldModelClaimInvitation(props: ClaimProps) {
             ) : null}
             {azureResearchOff ? (
               <RowDescription>
-                Azure public research stays off after claiming. Open Research and email in your Personal World Model to review Bing search use before turning it on.
+                Azure public research stays off after claiming. Open Research and email in your Personal World Model to review search-provider use before turning it on.
               </RowDescription>
             ) : null}
             <div className="flex flex-wrap gap-2">

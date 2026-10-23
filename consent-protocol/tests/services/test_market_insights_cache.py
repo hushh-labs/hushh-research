@@ -212,6 +212,61 @@ def test_second_caller_under_lock_skips_fetcher():
     _run(_inner())
 
 
+@pytest.mark.parametrize(
+    ("policy", "fetched"), [("opening", "open"), ("quality", "open"), ("quality", "partial")]
+)
+def test_freshness_invalidation_preserves_concurrent_deduplication(policy, fetched):
+    async def _inner():
+        cache = _cache()
+        opening = time.time()
+        cache.seed_entry("quotes", "preopen", opening - 1)
+        calls = []
+        freshness = (
+            {"fresh_after_ts": opening}
+            if policy == "opening"
+            else {"should_refresh": lambda value: value != "open"}
+        )
+
+        async def fetch():
+            calls.append(True)
+            await asyncio.sleep(0.01)
+            return fetched
+
+        results = await asyncio.gather(
+            *[
+                cache.get_or_refresh(
+                    "quotes",
+                    fresh_ttl_seconds=120,
+                    stale_ttl_seconds=1800,
+                    **freshness,
+                    fetcher=fetch,
+                )
+                for _ in range(3)
+            ]
+        )
+        assert calls == [True]
+        assert all(result.value == fetched and not result.stale for result in results)
+
+    _run(_inner())
+
+
+def test_opening_refresh_failure_keeps_preopen_stale_fallback():
+    cache = _cache()
+    opening = time.time()
+    cache.seed_entry("quotes", "preopen", opening - 1)
+    result = _run(
+        cache.get_or_refresh(
+            "quotes",
+            fresh_ttl_seconds=120,
+            stale_ttl_seconds=1800,
+            fresh_after_ts=opening,
+            fetcher=_fail_fetcher,
+        )
+    )
+    assert result.value == "preopen"
+    assert result.stale and result.stale_reason == "refresh_failure"
+
+
 # ---------------------------------------------------------------------------
 # Series points
 # ---------------------------------------------------------------------------

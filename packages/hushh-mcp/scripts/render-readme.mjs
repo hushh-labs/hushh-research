@@ -123,6 +123,12 @@ npx -y ${contract.packageName} --help
 
 The same \`/mcp/\` endpoint publishes one generated v0.4 five-tool catalog to Codex, Claude, Agentforce, and the npm bridge. Bearer authentication remains first-class. OAuth PKCE and client credentials authenticate the same developer-app identity; they do not select a different consent product, endpoint, or lifecycle.
 
+Claude and ChatGPT can use CIMD (preferred) or RFC 7591 dynamic client registration
+through the same OAuth service after migration 409 and deployment. Both retain
+S256 PKCE and the existing consent/encrypted-export boundary. Registration supplies
+no decryption key. See [OAuth host setup](../../consent-protocol/docs/reference/developer-api.md#oauth--pkce-for-remote-connector-hosts)
+for public-client authentication, resource binding, limits and rollout checks.
+
 Self-serve applications may use a developer token or OAuth authorization code with S256 PKCE and rotating refresh tokens. Discover OAuth metadata at \`${contract.authentication.discoveryUrl}\`, request \`${contract.authentication.scope}\`, and send the resulting credential only as \`${contract.authentication.bearerHeader}\`. Query-string tokens are rejected. OAuth client credentials are reserved for operations-provisioned partner integrations and never grant vault or personal-information authority. The npm bridge exchanges \`${contract.authentication.clientIdEnvVar}\` and \`${contract.authentication.clientSecretEnvVar}\` locally at the token endpoint, retains the resulting Bearer token only in process memory, and renews it before expiry.
 
 Every tool uses shallow, fully described JSON Schema. Successful calls return \`structuredContent\` as the canonical result and \`content[0].text\` as its compatibility mirror. Execution errors return \`isError: true\` with safe JSON text only, so a strict client never validates an error against a success output schema.

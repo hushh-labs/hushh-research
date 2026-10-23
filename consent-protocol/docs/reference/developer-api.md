@@ -127,12 +127,55 @@ Authorization: Bearer <developer-token>
 
 ### OAuth / PKCE for remote connector hosts
 
-OAuth is an additional transport-authentication option for hosts such as Claude that cannot attach a static bearer header. It does **not** replace the consent lifecycle or grant any personal information access.
+Claude and ChatGPT use the same remote MCP endpoint and OAuth authorization-code
+flow with S256 PKCE. OAuth authenticates the application; it does **not** approve
+information access, unlock a vault, or supply a connector encryption key.
 
-- Discovery: `GET /.well-known/oauth-authorization-server`
-- Authorization: `GET /oauth/authorize` with `response_type=code`, a registered `redirect_uri`, and `code_challenge_method=S256`
-- Token and refresh: `POST /oauth/token` with confidential-client authentication and PKCE `code_verifier`
-- Revocation: `POST /oauth/revoke`
+- Resource discovery: `GET /.well-known/oauth-protected-resource` (also available at `/.well-known/oauth-protected-resource/mcp/`). Unauthenticated MCP responses carry its URL in `WWW-Authenticate`.
+- Authorization-server discovery: `GET /.well-known/oauth-authorization-server`.
+- Preferred registration: CIMD. An HTTPS metadata URL is the exact `client_id`.
+- Compatibility registration: `POST /oauth/register` (RFC 7591), returning `201` with a new client ID and, for confidential clients, a secret revealed once.
+- Authorization: `GET /oauth/authorize` with `response_type=code`, an exact registered callback, `code_challenge_method=S256`, and `resource=<CONSENT_API_PUBLIC_ORIGIN>/mcp/`.
+- Token exchange: `POST /oauth/token` with the same resource, callback, authorization code and PKCE verifier. Responses are non-cacheable.
+- Refresh: `POST /oauth/token` with `grant_type=refresh_token`. Resource may be omitted to retain the original binding; changing it is rejected. Refresh-token replay revokes only that authorization family, with rotation and replay serialized in one transaction.
+- Revocation: `POST /oauth/revoke` with the registered client authentication method.
+
+CIMD supports public-client authentication (`none`). It negotiates that method
+from the published methods, including ChatGPT's plural method list, and selects
+only authorization-code and refresh capabilities from broader documents such as
+Claude's. Signed client assertions (`private_key_jwt`) are not implemented or
+advertised. DCR supports `none`, `client_secret_basic` (the default), and
+`client_secret_post`. Existing manually provisioned confidential clients continue
+to work. Client credentials remain an operations-only partner policy.
+
+Every DCR registration gets an isolated `oauth_dynamic` app; every exact validated
+CIMD URL gets a stable isolated app. These have no Firebase owner, partner status,
+reserved capabilities, connector key, developer bearer token or inherited consent.
+A submitted name is self-asserted, so registry display names identify an unverified
+OAuth app. Registering again never rotates another connection's credentials.
+
+Metadata is fetched anew before each CIMD authorization through the existing
+public-only HTTPS transport: DNS checks at connection time, no redirects/proxies,
+port 443 only, a 5 KiB response cap, an 8-second total deadline and four concurrent
+fetches per process. Client identifiers require a path and cannot contain query
+strings or fragments. Persisted callbacks are a projection, not permanent proof
+that remote metadata is still valid. Failed fetches never update them. DCR accepts
+at most 5 KiB and ten callbacks; registration and authorization use the existing
+rate-limit storage seam. Without shared storage, limits are process-local.
+
+CIMD users of one exact client URL share the existing per-app MCP request budget
+(`MCP_REMOTE_RATE_LIMIT`, default `120/minute`) in the configured limiter store.
+With memory storage that budget is per process. DCR registrations have separate
+app identities and budgets. Plan a bounded CIMD rollout against that shared
+capacity; this change does not expand quotas or turn OAuth subjects into
+information-access authority.
+
+Rollout requires migration `409_mcp_oauth_client_registration.sql` before serving
+this code and a canonical `CONSENT_API_PUBLIC_ORIGIN`. Apply the rollback script
+and restore the previous code to retire dynamic clients; additive columns and audit
+history remain preserved. Source tests establish compatibility contracts; actual
+Claude/ChatGPT connection and published-directory acceptance require deployed
+end-to-end testing. No encrypted-information delivery is implied by OAuth success.
 
 Authorization-code and refresh-token grants remain the self-serve interactive
 path. `client_credentials` is available only to an operations-provisioned

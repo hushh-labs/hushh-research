@@ -92,34 +92,7 @@ import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 
-function jsonResponse(
-  body: unknown,
-  status = 200,
-  headers?: Record<string, string>,
-): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json", ...headers },
-  });
-}
-
-function makeUnsignedToken(payload: Record<string, unknown>): string {
-  const payloadBase64 = btoa(JSON.stringify(payload))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-  return `header.${payloadBase64}.sig`;
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
+import { jsonResponse, makeUnsignedToken, deferred } from "../fixtures/api-service-responses";
 
 describe("ApiService.apiFetch", () => {
   it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
@@ -1583,6 +1556,26 @@ describe("ApiService.apiFetch", () => {
       "Bearer firebase-id-token",
     );
     expect(payload.meta?.market_mode).toBe("baseline");
+  });
+
+  it("keeps US Market session status independent of the viewer timezone", async () => {
+    const resolvedOptions = new Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...resolvedOptions,
+      timeZone: "Asia/Kolkata",
+    });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ generated_at: "2026-10-22T14:00:00Z" }));
+
+    await ApiService.getKaiMarketInsights({
+      userId: "user_123",
+      vaultOwnerToken: "fixture-vault-token",
+    });
+
+    const [calledUrl] = mockFetch.mock.calls[0] as [string];
+    const query = new URL(calledUrl, "http://localhost").searchParams;
+    expect(query.get("tz")).toBe("Asia/Kolkata");
+    expect(query.get("exchange")).toBe("US");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("starts UAT phone test verification through the account proxy", async () => {

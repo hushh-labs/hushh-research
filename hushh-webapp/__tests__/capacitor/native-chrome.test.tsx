@@ -230,6 +230,8 @@ describe("ordinary private Profile form contract", () => {
     const pages = (ids: readonly string[]) => ids.map(id => ({ id, title: "Public page", sections: [] })) as never;
     expect(validNativeConnectorPath(pages(["connectors", "connector-custom"]))).toBe(true);
     expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-confirm"]))).toBe(true);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-group-files"]))).toBe(true);
+    expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-trust", "connector-group-files"]))).toBe(false);
     expect(validNativeConnectorPath(pages(["connectors", "account-delete"]))).toBe(false);
     expect(validNativeConnectorPath(pages(["connectors", "connector-custom", "connector-confirm"]))).toBe(false);
     expect(validNativeConnectorPath(pages(["connectors", "connector-detail", "connector-trust", "connector-trust-rule", "connector-trust-confirm"]))).toBe(true);

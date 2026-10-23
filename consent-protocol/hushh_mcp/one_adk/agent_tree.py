@@ -2543,24 +2543,10 @@ def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
 
 def build_google_search_agent(*, model: Any | None = None) -> LlmAgent:
     """The manifest-owned public Search child, shared by One's bounded tasks."""
-    from google.adk.tools.google_search_tool import GoogleSearchTool
-
-    manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
-    from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
-    from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
+    from hushh_mcp.one_adk.web_search import build_web_search_agent
 
     resolved = model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
-    return managed_text_agent(
-        name=manifest.name,
-        model=resolved,
-        description=manifest.description,
-        instruction=manifest.system_instruction,
-        tools=[
-            AzurePublicSearchTool()
-            if isinstance(resolved, AzureOpenAIAdkModel)
-            else GoogleSearchTool()
-        ],
-    )
+    return build_web_search_agent(resolved, manifest=_ONE_MANIFEST)
 
 
 def _one_roster_tools(
@@ -2808,8 +2794,11 @@ def build_one_text_agent(
     from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
 
     if isinstance(text_model, ManagedPrimaryTextModel) and google_search_model is None:
-        # Native Google Search is a separate declared capability, not a text fallback.
-        google_search_model = build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
+        # Search keeps the same Azure-only processor and invocation authority.
+        # Native search requires LOW/default rather than minimal reasoning.
+        google_search_model = text_model.model_copy(
+            update={"allow_web_search": True, "default_reasoning_effort": "low"}
+        )
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
     async def track_current_consent(callback_context: Any) -> None:

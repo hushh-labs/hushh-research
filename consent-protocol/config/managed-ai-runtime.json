@@ -25,7 +25,7 @@
     "dev": {
       "project": "hushh-gemini-bridge",
       "auth_mode": "vertex_adc",
-      "text_model": "gemini-3.8-flash",
+      "text_model": "gemini-3.7-flash",
       "text_locations": [
         "global"
       ],
@@ -75,7 +75,7 @@
     }
   },
   "pwm_research_uat": {
-    "provider": "azure_openai_web_search",
+    "provider": "azure_openai_tavily",
     "owner_source_provider": "public_https",
     "search_invocations": 8,
     "model_calls": 16,

@@ -56,6 +56,7 @@ import {
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
+import { managedChatRunErrorMessage, MODEL_CAPACITY_MESSAGE } from "@/lib/agent/managed-chat-run-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
 import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
@@ -1006,14 +1007,6 @@ const CHAT_KEY_REFUSAL_MESSAGES: Record<string, string> = {
   CHAT_CONVERSATION_RETIRED: "This conversation is no longer available. Start a new chat.",
 };
 
-const MODEL_CAPACITY_MESSAGE = "One is temporarily at capacity. Please try again in a moment.";
-
-const AUTHORED_RETRYABLE_RUN_ERRORS: Record<string, string> = {
-  RESOURCE_EXHAUSTED: MODEL_CAPACITY_MESSAGE,
-  MODEL_UNAVAILABLE: "One's model service was briefly unavailable. Please try again.",
-  SERVER_RESTARTING: "One was interrupted because the service restarted. Please send that again.",
-};
-
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
   // The direct path can refuse before a chat request exists. Its typed boundary
   // (or exact SDK message) maps to fixed copy, never to transport details.
@@ -1040,10 +1033,10 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
   if (code === "DATABASE_UNAVAILABLE" || code === "DATABASE_EXECUTION_ERROR") {
     return "One's conversation history is temporarily unavailable. Please try again.";
   }
-  // The server's own retryable terminal errors (hushh_mcp/one_adk/run_errors.py)
+  // The server's authored terminal errors (hushh_mcp/one_adk/run_errors.py)
   // carry a fixed, content-free message; keyed by code, never by that text.
-  const authoredRetryable = code ? AUTHORED_RETRYABLE_RUN_ERRORS[code] : undefined;
-  if (authoredRetryable) return authoredRetryable;
+  const authored = managedChatRunErrorMessage(code);
+  if (authored) return authored;
   // AG-UI may deliver provider failures as an untyped RunErrorEvent when the
   // ADK bridge cannot preserve the backend error code. Recognize only the
   // stable provider markers and keep the raw message out of the transcript.

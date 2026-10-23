@@ -16,8 +16,11 @@ Nothing here reads owner content. Lifecycle logs carry codes and counts only;
 the sealed job state (draft, sources, identity) is only readable with the
 owner's request-scoped chat key and never appears in logs.
 
-UAT uses Azure GPT-5 mini for planning, Bing research and structured reporting after
-explicit Azure/Bing consent. Production remains on Vertex. The Google-specific
+UAT uses Azure GPT-5 mini for planning and structured reporting, with Tavily
+Search after explicit Azure/Tavily consent. The keyless UAT search trial has a
+shared rate limit; a 429 must fail visibly rather than trigger a paid fallback.
+Findings remain in the owner-key encrypted review inbox until explicit discard
+or account deletion. Legacy Google/Bing checkpoints keep 24-hour cleanup. Production remains on Vertex. The Google-specific
 provider refusal and project checks below apply to Vertex; first identify the
 serving provider when investigating UAT.
 

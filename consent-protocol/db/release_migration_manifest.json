@@ -344,7 +344,9 @@
     "405_one_legacy_shared_continuity.sql",
     "406_stripe_payout_source_binding.sql",
     "407_plg_memory_revision_index.sql",
-    "408_validate_plg_memory_revision_index.sql"
+    "408_validate_plg_memory_revision_index.sql",
+    "409_mcp_oauth_client_registration.sql",
+    "410_drive_group_index.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -571,7 +573,8 @@
       "233_drive_suggestion_preparation.sql",
       "234_drive_permission_management_retention.sql",
       "235_drive_share_notification_outbox.sql",
-      "236_drive_native_picker_attempts.sql"
+      "236_drive_native_picker_attempts.sql",
+      "409_mcp_oauth_client_registration.sql"
     ]
   },
   "rollback_migrations": {
@@ -730,6 +733,8 @@
     "370_one_marketing_preferences.sql": "rollback/370_one_marketing_preferences.rollback.sql",
     "399_public_profile_release_foundation.sql": "rollback/399_public_profile_release_foundation.rollback.sql",
     "407_plg_memory_revision_index.sql": "rollback/407_plg_memory_revision_index.rollback.sql",
-    "408_validate_plg_memory_revision_index.sql": "rollback/408_validate_plg_memory_revision_index.rollback.sql"
+    "408_validate_plg_memory_revision_index.sql": "rollback/408_validate_plg_memory_revision_index.rollback.sql",
+    "409_mcp_oauth_client_registration.sql": "rollback/409_mcp_oauth_client_registration.rollback.sql",
+    "410_drive_group_index.sql": "rollback/410_drive_group_index.rollback.sql"
   }
 }

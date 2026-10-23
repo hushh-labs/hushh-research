@@ -8,6 +8,14 @@ the immersive Your Map route suppresses persistent app chrome.
 
 `/one/location` has one compact default hub: **Now**, **People**, and **Links**.
 
+## Header and typography contract
+
+The maintained [Location contract](./ui-contracts/location.md#typography-responsive-geometry-and-layering) owns the complete mounted typography/CTA ledger and evidence. Location reuses Connect's shared `[Back] Location [Profile]` composition, with a17/22/600 current title and one accessible root heading. Its live switch/status retains its existing handler and compact row.
+
+The entire mounted journey uses the matching Connect semantic hierarchy: full flow titles28/36/600, ordinary rows14/21/550, descriptions12/18/400 and distinct utility, compact, full-primary, Task and Circle roles. Ordinary semantic inputs use16px through620px and14px above; Task and explicit Circle contexts retain their own verified breakpoint/cascade. Actual portal hosts carry the presentation scope. No blanket descendant reset or workspace geometry is imported.
+
+See [role comparison](./ui-contracts/location-typography-roles.md) and [verification report](./ui-contracts/location-verification.md) for source/effective values, screenshots, the request-duration wrapping correction and acceptance gaps. The Location-only toast cascade fix is checked against a Connect scope-exit negative control. Provider/auth/service information in screenshots is synthetic; no live sharing or emergency delivery is asserted.
+
 ## Now
 
 Now is intentionally bounded on a normal phone viewport. It contains only:

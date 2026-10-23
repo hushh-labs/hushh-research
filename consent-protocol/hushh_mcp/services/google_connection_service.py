@@ -25,6 +25,10 @@ from sqlalchemy import text
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
 from hushh_mcp.services import oauth_redirect_policy
+from hushh_mcp.services.google_calendar_account_status import (
+    calendar_accounts_status as project_calendar_accounts_status,
+)
+from hushh_mcp.services.google_calendar_profile_photo import CalendarProfilePhotos
 from hushh_mcp.services.google_oauth_attempt import (
     connection_generation,
     decode_attempt,
@@ -106,6 +110,7 @@ def _clean(value: object | None) -> str:
 class GoogleConnectionService:
     def __init__(self, db: Any | None = None) -> None:
         self.db = db or get_db()
+        self._calendar_photos = CalendarProfilePhotos(self)
 
     async def _execute_raw_async(self, sql: str, params: dict[str, Any] | None = None) -> Any:
         """Keep legacy synchronous database work off the async request loop."""
@@ -469,49 +474,20 @@ class GoogleConnectionService:
         )
         return result.data[0] if result.data else None
 
+    async def _calendar_picture(
+        self, *, user_id: str, account_id: str, row: dict[str, Any]
+    ) -> str | None:
+        return await self._calendar_photos.lookup(user_id=user_id, account_id=account_id, row=row)
+
     async def calendar_accounts_status(self, *, user_id: str) -> dict[str, Any]:
         """List only this owner's Calendar identities; never return credentials."""
-        default = await self.status(user_id=user_id, service="calendar")
-        result = await self._execute_raw_async(
-            """SELECT account_id, provider_email, status, scope_csv, access_level
-               FROM google_calendar_additional_accounts WHERE user_id = :user_id
-               ORDER BY connected_at, account_id""",
-            {"user_id": user_id},
+        return await project_calendar_accounts_status(
+            self,
+            user_id=user_id,
+            calendar_list_access=lambda value: _scopes_cover(
+                set(_clean(value).split()), {CALENDAR_LIST_READ_SCOPE}
+            ),
         )
-        accounts = []
-        if default["status"] != "disconnected":
-            accounts.append(
-                {
-                    "account_id": "default",
-                    "google_email": default["google_email"],
-                    "status": default["status"],
-                    "connected": default["connected"],
-                    "access_level": default["access_level"],
-                    "calendar_list_access": default.get("calendar_list_access", False),
-                }
-            )
-        for row in result.data:
-            if row["status"] == "disconnected":
-                continue
-            accounts.append(
-                {
-                    "account_id": row["account_id"],
-                    "google_email": row["provider_email"],
-                    "status": row["status"],
-                    "connected": row["status"] == "connected",
-                    "access_level": row["access_level"],
-                    "calendar_list_access": _scopes_cover(
-                        set(_clean(row["scope_csv"]).split()), {CALENDAR_LIST_READ_SCOPE}
-                    ),
-                }
-            )
-        return {
-            **default,
-            # Legacy top-level fields describe the default grant. One and
-            # existing connector callers cannot act through an added account.
-            "accounts": accounts,
-            "account_limit": 3,
-        }
 
     async def _mark_needs_reauth(
         self,

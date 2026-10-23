@@ -443,14 +443,16 @@ describe("CalendarConnectedWorkspace", () => {
   });
 
   it("ends an event at its actual instant regardless of the display timezone", () => {
-    const event = { ...dailyEvents[1], start: { dateTime: "2026-10-16T17:30:00Z" }, end: { dateTime: "2026-10-16T18:00:00Z" } };
+    const event = { ...dailyEvents[1], start: { dateTime: "2026-10-16T17:30:00Z" }, end: { dateTime: "2026-10-16T18:00:00Z" }, conference_url: "https://meet.google.com/abc-defg-hij" };
     const props = { event, zone: "Asia/Kolkata", onOpen: vi.fn() };
     const view = render(<CalendarTimelineRow {...props} active ongoing now={Date.parse("2026-10-16T17:52:00Z")} />);
     expect(screen.getByText("Happening now")).toBeVisible();
     expect(screen.queryByText("Ended")).toBeNull();
+    expect(screen.getByRole("link", { name: `Join meeting: ${event.title}` })).toBeInTheDocument();
     view.rerender(<CalendarTimelineRow {...props} active={false} ongoing={false} now={Date.parse("2026-10-16T18:00:00Z")} />);
     expect(screen.queryByText("Happening now")).toBeNull();
     expect(screen.getByText("Ended")).toBeVisible();
+    expect(screen.queryByRole("link", { name: `Join meeting: ${event.title}` })).toBeNull();
   });
 
   it("highlights the next upcoming event when no meeting is ongoing", async () => {

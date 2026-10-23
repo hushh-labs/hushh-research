@@ -80,7 +80,7 @@ async def run_probe(*, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS) -> dict
         # Endpoint, deployment and federated identity are operator-owned. This
         # script deliberately offers no override for any of these values.
         policy = load_pwm_policy()
-        if policy["provider"] != "azure_openai_web_search":
+        if policy["provider"] not in {"azure_openai_web_search", "azure_openai_tavily"}:
             raise ReadinessConfigurationError("Azure is not selected")
         config = policy["azure"]
         report["deployment"] = config["primary_deployment"]
