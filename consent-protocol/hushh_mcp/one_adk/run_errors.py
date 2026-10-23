@@ -12,6 +12,7 @@ that ``google.genai`` puts on its errors, never the message after it.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from ag_ui.core import BaseEvent, RunErrorEvent
 
@@ -20,6 +21,7 @@ from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_erro
 SERVER_RESTARTING_CODE = "SERVER_RESTARTING"
 MODEL_CAPACITY_CODE = "RESOURCE_EXHAUSTED"
 MODEL_UNAVAILABLE_CODE = "MODEL_UNAVAILABLE"
+TEXT_AUTHORITY_ENDED_CODE = "TEXT_AUTHORITY_ENDED"
 RETRYABLE_METADATA = {"retryable": True}
 
 SERVER_RESTARTING_RUN_ERROR = RunErrorEvent(
@@ -37,12 +39,26 @@ MODEL_UNAVAILABLE_RUN_ERROR = RunErrorEvent(
     code=MODEL_UNAVAILABLE_CODE,
     metadata=RETRYABLE_METADATA,
 )
+TEXT_AUTHORITY_ENDED_RUN_ERROR = RunErrorEvent(
+    message="Chat access changed. Please check your access before trying again.",
+    code=TEXT_AUTHORITY_ENDED_CODE,
+    metadata={"retryable": False},
+)
+_AUTHORITY_ENDED_MESSAGES = frozenset(
+    {
+        "Managed Azure processing policy changed",
+        "UAT managed text processing policy changed",
+        "Current text invocation authority ended",
+        "Current owner invocation authority ended",
+    }
+)
 _AUTHORED = {
     event.code: event
     for event in (
         SERVER_RESTARTING_RUN_ERROR,
         MODEL_CAPACITY_RUN_ERROR,
         MODEL_UNAVAILABLE_RUN_ERROR,
+        TEXT_AUTHORITY_ENDED_RUN_ERROR,
     )
 }
 # The installed bridge turns an exception raised by the ADK run into one of
@@ -113,6 +129,26 @@ def _leaf_exceptions(error: BaseException) -> list[BaseException]:
     return [error]
 
 
+def managed_authority_error(error: BaseEvent | BaseException) -> RunErrorEvent | None:
+    """Expected revocation is a refusal; missing authority wiring remains a failure."""
+    if isinstance(error, RunErrorEvent):
+        return (
+            TEXT_AUTHORITY_ENDED_RUN_ERROR
+            if error.code in _BRIDGE_ERROR_CODES and error.message in _AUTHORITY_ENDED_MESSAGES
+            else None
+        )
+    if isinstance(error, BaseException):
+        from hushh_mcp.runtime_providers.managed_text import ManagedTextAuthorityError
+
+        leaves = _leaf_exceptions(error)
+        if all(
+            isinstance(leaf, ManagedTextAuthorityError) and str(leaf) in _AUTHORITY_ENDED_MESSAGES
+            for leaf in leaves
+        ):
+            return TEXT_AUTHORITY_ENDED_RUN_ERROR
+    return None
+
+
 def transient_model_error_for_exception(error: BaseException) -> RunErrorEvent | None:
     """The same mapping for an exception that escaped the bridge."""
     if not isinstance(error, Exception):
@@ -143,3 +179,56 @@ def server_is_draining() -> bool:
     from sse_starlette.sse import AppStatus
 
     return bool(AppStatus.should_exit)
+
+
+def error_class(code: Any) -> str:
+    """Classify a protocol error without retaining its untrusted message/code."""
+    if not isinstance(code, str):
+        return "untyped"
+    if code.startswith("MCP_"):
+        return "connector"
+    if code.startswith("DATABASE_"):
+        return "database"
+    if code.startswith("AGENT_RUNTIME_"):
+        return "runtime"
+    if code in {"MODEL_ERROR", MODEL_CAPACITY_CODE, MODEL_UNAVAILABLE_CODE}:
+        return "model"
+    if code == SERVER_RESTARTING_CODE:
+        return "shutdown"
+    if code == TEXT_AUTHORITY_ENDED_CODE:
+        return "refusal"
+    return "other"
+
+
+# The codes the AG-UI bridge and this module author. Anything else is "unlisted":
+# a code is logged only from this fixed set, never from a provider-controlled value.
+_KNOWN_ERROR_CODES = frozenset(
+    {
+        "AGENT_ERROR",
+        "BACKGROUND_EXECUTION_ERROR",
+        "ENCODING_ERROR",
+        "EXECUTION_ERROR",
+        "EXECUTION_TIMEOUT",
+        "NO_TOOL_RESULTS",
+        "PENDING_TOOL_CALLS",
+        "TOOL_RESULT_BUFFER_ERROR",
+        "TOOL_RESULT_PROCESSING_ERROR",
+        MODEL_CAPACITY_CODE,
+        MODEL_UNAVAILABLE_CODE,
+        SERVER_RESTARTING_CODE,
+        TEXT_AUTHORITY_ENDED_CODE,
+    }
+)
+
+
+def error_code(code: Any) -> str:
+    """A run error's code when it is one we know, else a fixed placeholder.
+
+    Dotted and lower-case on purpose: the log redactor masks any 24-128 character
+    token made of letters, digits, `_` and `-` as a possible identifier, which
+    would turn `BACKGROUND_EXECUTION_ERROR` into `[REDACTED]` in the very line it
+    is meant to explain.
+    """
+    if not isinstance(code, str):
+        return "untyped"
+    return code.lower().replace("_", ".") if code in _KNOWN_ERROR_CODES else "unlisted"

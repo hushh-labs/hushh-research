@@ -104,16 +104,24 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
         if self.runtime_binding is not None:
             try:
                 self.runtime_binding.require_current()
-            except Exception:
-                raise ManagedTextAuthorityError("Managed Azure processing policy changed") from None
+            except RuntimeError as error:
+                if str(error) == "Managed Azure processor selection changed":
+                    raise ManagedTextAuthorityError(
+                        "Managed Azure processing policy changed"
+                    ) from None
+                raise
         policy = managed_text_policy()
         if policy is None or policy["generation"] != self.policy_generation:
             raise ManagedTextAuthorityError("UAT managed text processing policy changed")
         if self.require_current is not None:
             try:
                 await self.require_current()
-            except Exception:
-                raise ManagedTextAuthorityError("Current text invocation authority ended") from None
+            except ManagedTextAuthorityError:
+                raise
+            except PermissionError:
+                raise ManagedTextAuthorityError(
+                    "Text invocation authority validation failed"
+                ) from None
 
     async def generate_content_async(self, llm_request, stream=False):
         current = self._require_current
@@ -389,7 +397,8 @@ class ManagedTextAgent(LlmAgent):
             if (
                 not owner
                 or not token
-                or await validate_first_party_owner_token(owner, token) is None
+                or await validate_first_party_owner_token(owner, token, report_unavailable=True)
+                is None
             ):
                 raise ManagedTextAuthorityError("Current owner invocation authority ended")
 

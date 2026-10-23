@@ -800,7 +800,7 @@ async def test_managed_invocation_guards_are_owner_local_and_policy_changes_bloc
     )
     agent = managed.managed_text_agent(name="one", model=wrapped)
     validator = AsyncMock(
-        side_effect=lambda owner, credential: (
+        side_effect=lambda owner, credential, **kwargs: (
             object() if credential == f"synthetic-{owner}" else None
         )
     )

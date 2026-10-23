@@ -1540,6 +1540,9 @@ and semantic document requests. One text chat requires Azure and never falls bac
 media or other capabilities. `/api/one/models/preference` projects the
 central deployment as effective, with `source:administrator_policy`; old saved
 choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.
+Connected-stream revocation emits the fixed `TEXT_AUTHORITY_ENDED` refusal without
+automatic retry. Failure to validate current authority still fails closed and
+remains an actionable runtime error, including consent database outages.
 Managed UAT fleet aliases resolve through the selected Azure compatibility port;
 responses and telemetry retain the actual model/provider. BYOK remains explicit.
 

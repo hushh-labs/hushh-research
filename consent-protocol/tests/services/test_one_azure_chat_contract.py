@@ -61,6 +61,29 @@ async def test_managed_minimal_effort_preserves_explicit_specialist_reasoning():
     assert client.requests[0]["parallel_tool_calls"] is False
 
 
+async def test_managed_owner_guard_preserves_validation_outage_as_actionable(monkeypatch):
+    from hushh_mcp.adk_bridge.delegation import OwnerTokenValidationUnavailable
+    from hushh_mcp.runtime_providers import managed_text as managed
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+
+    async def unavailable():
+        raise OwnerTokenValidationUnavailable("Owner authority validation unavailable")
+
+    base, _, _, _ = model([])
+    wrapped = managed.ManagedPrimaryTextModel(
+        **base.model_dump(exclude={"api_key", "client"}),
+        token_supplier=lambda: "synthetic",
+        require_current=unavailable,
+        policy_generation=managed.managed_text_policy()["generation"],
+        processing_scope="one_text_chat",
+    )
+    with pytest.raises(OwnerTokenValidationUnavailable):
+        await wrapped._require_current()
+
+
 async def test_actual_one_roster_executes_azure_search_then_answers(monkeypatch):
     from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
     from hushh_mcp.one_adk.agent_tree import build_one_text_agent
