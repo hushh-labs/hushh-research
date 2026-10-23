@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-HELPER = Path(__file__).resolve().parents[2] / "deploy/plg/bind_secrets.sh"
+ROOT = Path(__file__).resolve().parents[2]
+HELPER = ROOT / "deploy/plg/bind_secrets.sh"
+BACKEND_SECRET_PORT = ROOT / "scripts/deploy/commerce-preview-bindings.sh"
 
 
 @pytest.mark.parametrize(
@@ -38,7 +40,9 @@ def test_binding_requires_enabled_versions_in_production(
         pytest.skip("Bash is required for the production deploy helper")
     script = r"""
 set -euo pipefail
-add_secret() { printf '%s:%s\n' "$1" "$2"; }
+PROJECT_ID=test-project
+_SECRET_PREFIX=''
+secrets=''
 gcloud() {
   [[ "$*" == *'--project=test-project'* ]] || return 17
   if [[ "$*" == *'--secret=ONE_PLG_EXPORT_ACCOUNT_IDS'* ]]; then
@@ -55,10 +59,23 @@ gcloud() {
     printf '%s\n' ENABLED
   fi
 }
+source "$3"
 source "$1" "$2" test-project
+IFS=',' read -r -a bindings <<< "$secrets"
+for binding in "${bindings[@]}"; do
+  [[ -z "$binding" ]] || printf '%s\n' "$binding"
+done
 """
     result = subprocess.run(  # noqa: S603 -- fixed helper and synthetic CLI, no cloud access
-        [bash, "-c", script, "plg-bindings", HELPER.as_posix(), profile],
+        [
+            bash,
+            "-c",
+            script,
+            "plg-bindings",
+            HELPER.as_posix(),
+            profile,
+            BACKEND_SECRET_PORT.as_posix(),
+        ],
         env={
             **os.environ,
             "PLG_TEST_SECOND_STATE": state,
@@ -76,15 +93,15 @@ source "$1" "$2" test-project
     )
     bindings = []
     if profile == "production":
-        bindings += ["ONE_PLG_EXPORT_SECRET:ONE_PLG_EXPORT_SECRET"]
+        bindings += ["ONE_PLG_EXPORT_SECRET=ONE_PLG_EXPORT_SECRET:latest"]
         if state == "ENABLED":
-            bindings += ["ONE_PLG_EXPORT_ACCOUNT_IDS:ONE_PLG_EXPORT_ACCOUNT_IDS"]
+            bindings += ["ONE_PLG_EXPORT_ACCOUNT_IDS=ONE_PLG_EXPORT_ACCOUNT_IDS:latest"]
         if subscription == "ENABLED":
-            bindings += ["ONE_PLG_SUBSCRIPTION_SECRET:ONE_PLG_SUBSCRIPTION_SECRET"]
+            bindings += ["ONE_PLG_SUBSCRIPTION_SECRET=ONE_PLG_SUBSCRIPTION_SECRET:latest"]
     if profile == "production" and audience == "ENABLED":
-        bindings += ["ONE_PLG_AUDIENCE_SECRET:ONE_PLG_AUDIENCE_SECRET"]
+        bindings += ["ONE_PLG_AUDIENCE_SECRET=ONE_PLG_AUDIENCE_SECRET:latest"]
     if profile == "production" and policy == "ENABLED":
-        bindings += ["ONE_PLG_REPORTING_POLICY_JSON:ONE_PLG_REPORTING_POLICY_JSON"]
+        bindings += ["ONE_PLG_REPORTING_POLICY_JSON=ONE_PLG_REPORTING_POLICY_JSON:latest"]
     assert result.stdout.splitlines() == bindings
 
 
