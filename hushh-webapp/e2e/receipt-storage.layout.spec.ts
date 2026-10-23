@@ -90,7 +90,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  const synthetic = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfT8AAAAASUVORK5CYII=", "base64");
+  const synthetic = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64");
   await page.route("https://receipt-logo.test/**", route => route.fulfill({ contentType: "image/png", body: synthetic, headers: { "access-control-allow-origin": "*" } }));
 });
 
@@ -199,7 +199,7 @@ for (const width of [390, 1000]) {
     ] as const;
     // Local evidence uses downloaded official assets; CI proves decoding and the
     // reviewed domain contract with a synthetic image, without external requests.
-    const synthetic = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jfT8AAAAASUVORK5CYII=", "base64");
+    const synthetic = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64");
     for (const [, domain, file] of assets) await page.route(`https://receipt-logo.test/${domain}.svg`, route => route.fulfill({ contentType: "image/png", body: file ? fs.readFileSync(file) : synthetic }));
     await page.route("http://localhost/receipt-storage.js", route => route.fulfill({ contentType: "application/javascript", body: script }));
     await page.route("http://localhost/receipt-storage-fixture?brands=true", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><title>Reviewed training receipt logos</title><style>${css}</style></head><body><div id="root"></div><script src="/receipt-storage.js"></script></body></html>` }));
