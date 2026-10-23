@@ -6,8 +6,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { StockDetailContent, type StockHistoryLoader } from "@/components/kai/cards/stock-detail-content";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
-import { Badge } from "@/components/ui/badge";
-import { StockListToolbar } from "@/components/kai/cards/stock-list-toolbar";
+import { StockListToolbar, StockRowsPerPage } from "@/components/kai/cards/stock-list-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -24,6 +23,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import type {
+  KaiHomeNewsItem,
   KaiHomePickSource,
   KaiHomeRenaissanceItem,
   KaiMarketCompanyFacts,
@@ -38,20 +38,6 @@ const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
 const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
 
 
-function tierTone(tier: string | null | undefined): string {
-  const normalized = String(tier || "")
-    .trim()
-    .toUpperCase();
-  if (normalized === "ACE")
-    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (normalized === "KING")
-    return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
-  if (normalized === "QUEEN")
-    return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  if (normalized === "JACK")
-    return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
-  return "bg-muted text-muted-foreground";
-}
 
 function rowSearchText(row: KaiHomeRenaissanceItem): string {
   return [
@@ -94,6 +80,7 @@ export function RiaPicksList({
   onSelectedSymbolChange,
   loadHistory,
   toolbarActions,
+  news = [],
 }: {
   rows?: KaiHomeRenaissanceItem[];
   sources?: KaiHomePickSource[];
@@ -105,6 +92,7 @@ export function RiaPicksList({
   onSelectedSymbolChange?: (symbol: string | null) => void;
   loadHistory?: StockHistoryLoader;
   toolbarActions?: ReactNode;
+  news?: KaiHomeNewsItem[];
 }) {
   const isMobile = useIsMobile();
   void controlMode;
@@ -279,15 +267,8 @@ export function RiaPicksList({
         sector={sectorFilter} setSector={setSectorFilter} sectors={sectors}
         pageSize={pageSize} setPageSize={setPageSize} pageSizes={pageSizeOptions}
         sources={availableSources} activeSource={activeSource?.id || "default"} onSourceChange={onSourceChange} actions={toolbarActions} />
+      <div className="flex items-baseline justify-between gap-3"><h2 className="text-sm font-semibold">Companies</h2><p className="text-xs text-muted-foreground">{filteredRows.length} results</p></div>
       <SettingsGroup className={marketSettingsGroupClassName}>
-        <div className="px-4 py-3">
-          <p className="text-xs leading-5 text-muted-foreground">
-            {filteredRows.length > 0
-              ? `${visibleStart}-${visibleEnd} of ${filteredRows.length} names`
-              : `No matches · ${rows.length} names available`}
-          </p>
-        </div>
-
         {filteredRows.length === 0 ? (
           <div className="px-4 py-4 text-sm text-muted-foreground">
             {rows.length ? "No stocks match the current filters." : `No stocks are available in ${activeSource?.label || "this list"}.`}
@@ -326,32 +307,12 @@ export function RiaPicksList({
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span data-stock-name className="text-sm font-medium text-foreground">
-                        {row.company_name || row.symbol}
-                      </span>
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          "border-0 px-2 py-0.5 text-[10px] font-semibold",
-                          tierTone(row.tier),
-                        )}
-                      >
-                        {row.tier || "CORE"}
-                      </Badge>
-                      {row.degraded ? (
-                        <Badge
-                          variant="outline"
-                          className="border-amber-500/16 bg-amber-500/8 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
-                        >
-                          Delayed
-                        </Badge>
-                      ) : null}
-                    </div>
+                    <p data-stock-name className="text-sm font-semibold text-foreground">{row.symbol}</p>
+                    <p data-stock-meta className="mt-1 text-xs leading-[18px] text-muted-foreground">{row.company_name || row.symbol}</p>
                     <p data-stock-meta className="mt-1 flex flex-wrap gap-x-2 text-xs leading-[18px] text-muted-foreground">
-                      <span>{row.symbol}</span>
-                      {row.sector ? <span >{row.sector}</span> : null}
-                      <span className="whitespace-nowrap">{capLabel}</span>
+                      {row.sector ? <span>{row.sector}</span> : null}
+                      <span>{row.tier || "CORE"}</span><span>{capLabel}</span>
+                      {row.degraded ? <span>Delayed</span> : null}
                     </p>
                   </div>
                   <div
@@ -457,6 +418,7 @@ export function RiaPicksList({
           </div>
         ) : null}
       </SettingsGroup>
+      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs leading-[18px] text-muted-foreground">{visibleStart}–{visibleEnd} of {filteredRows.length} companies</p><StockRowsPerPage value={pageSize} onChange={setPageSize} options={pageSizeOptions} /></div>
 
       <KaiControlSurface
         open={Boolean(selectedRow)}
@@ -475,12 +437,12 @@ export function RiaPicksList({
           ) : null
         }
         title={
-          selectedRow?.symbol || "Stock detail"
+          selectedRow?.company_name || selectedRow?.symbol || "Stock detail"
         }
         description={
           selectedRow
             ? [
-                selectedRow.company_name,
+                selectedRow.symbol,
                 selectedRow.sector,
                 activeSource?.label || "Advisor list",
               ]
@@ -496,7 +458,7 @@ export function RiaPicksList({
           onAnalyze(symbol);
         }}>Analyze {selectedRow.symbol}</Button> : undefined}
       >
-        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} /> : null}
+        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} news={news} /> : null}
       </KaiControlSurface>
     </div>
   );

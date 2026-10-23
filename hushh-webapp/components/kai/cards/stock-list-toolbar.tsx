@@ -14,7 +14,7 @@ function OptionField({ label, value, options, onChange }: {
     <SelectContent>{options.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>;
 }
 
-export function StockListToolbar({ query, setQuery, tier, setTier, sector, setSector, sectors, pageSize, setPageSize, pageSizes, sources, activeSource, onSourceChange, actions }: {
+export function StockListToolbar({ query, setQuery, tier, setTier, sector, setSector, sectors, sources, activeSource, onSourceChange, actions }: {
   query: string; setQuery: (query: string) => void; tier: string; setTier: (tier: string) => void;
   sector: string; setSector: (sector: string) => void; sectors: string[];
   pageSize: number; setPageSize: (size: number) => void; pageSizes: readonly number[];
@@ -24,15 +24,18 @@ export function StockListToolbar({ query, setQuery, tier, setTier, sector, setSe
     <div className={styles.toolbar}>
       <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-        <Input type="search" aria-label="Search stocks" value={query} onChange={event => setQuery(event.target.value)} placeholder="Symbol or company" className="pl-10" autoComplete="off" autoCorrect="off" spellCheck={false} />
+        <Input type="search" aria-label="Search stocks" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search company or ticker" className="pl-10" autoComplete="off" autoCorrect="off" spellCheck={false} />
       </div>
       {actions}
     </div>
     {sources.length > 1 ? <OptionField label="List source" value={activeSource} onChange={value => onSourceChange?.(value)} options={sources.map(source => ({ value: source.id, label: `${source.label}${source.state === "ready" ? "" : ` · ${source.state}`}` }))} /> : null}
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 gap-2">
       <OptionField label="Tier" value={tier} onChange={setTier} options={[{ value: "all", label: "All tiers" }, ...["ACE", "KING", "QUEEN", "JACK"].map(value => ({ value, label: value }))]} />
       <OptionField label="Sector" value={sector} onChange={setSector} options={[{ value: "all", label: "All sectors" }, ...sectors.map(value => ({ value, label: value }))]} />
-      <OptionField label="Rows per page" value={String(pageSize)} onChange={value => setPageSize(Number(value))} options={pageSizes.map(value => ({ value: String(value), label: `${value} rows` }))} />
     </div>
   </div>;
+}
+
+export function StockRowsPerPage({ value, onChange, options }: { value: number; onChange: (value: number) => void; options: readonly number[] }) {
+  return <div className="w-auto min-w-32"><OptionField label="Rows per page" value={String(value)} onChange={value => onChange(Number(value))} options={options.map(value => ({ value: String(value), label: `${value} rows` }))} /></div>;
 }

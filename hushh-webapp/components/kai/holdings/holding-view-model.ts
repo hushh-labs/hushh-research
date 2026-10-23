@@ -7,6 +7,7 @@ export type HoldingsListItem = PortfolioHolding & {
 };
 
 export function finiteNumber(value: unknown): number | null {
+  if ((typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim())) return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -44,8 +45,11 @@ export function toHoldingViewModel(
     averagePrice:
       costBasis !== null && shares > 0
         ? costBasis / shares
-        : finiteNumber(holding.price),
+        : null,
     currentPrice: finiteNumber(holding.price),
+    costBasis,
+    source: holding.source_type || null,
+    quoteAsOf: holding.institution_price_as_of || null,
     portfolioWeightPct:
       totalMarketValue > 0 ? (marketValue / totalMarketValue) * 100 : 0,
     sector: sector || null,

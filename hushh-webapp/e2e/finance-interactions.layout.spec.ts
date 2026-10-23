@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
+import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks } from "./fixtures/finance-screen-checks";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
@@ -46,6 +47,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         {
           find: /^next\/navigation$/,
           replacement: path.join(root, "e2e/fixtures/agent-markdown-boundaries.ts"),
@@ -153,6 +155,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       await page.addScriptTag({ content: marketScript });
       await awaitProductFont(page);
       await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
+      await expectMarketMiniCharts(page);
       const action = page.getByRole("button", { name: "All news", exact: true });
       await expect(action).toBeVisible();
       const target = await action.boundingBox();
@@ -262,6 +265,8 @@ test.afterAll(() => {
 
 
 async function mount(page: Page, width = 393) {
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", error => runtimeErrors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
   await page.route("http://localhost/fonts/Inter/InterVariable.woff2", route => route.fulfill({
     contentType: "font/woff2", body: fs.readFileSync(path.join(process.cwd(), "public/fonts/Inter/InterVariable.woff2")),
@@ -272,6 +277,10 @@ async function mount(page: Page, width = 393) {
   }));
   await page.goto("http://localhost/finance-fixture");
   await page.addScriptTag({ content: script });
+  await page.waitForFunction(() => Boolean(document.querySelector("#root > main")), undefined, { timeout: 5000 }).catch(error => {
+    throw new Error(runtimeErrors.join("\n") || String(error));
+  });
+  expect(runtimeErrors).toEqual([]);
   await awaitProductFont(page);
   await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
 }
@@ -338,19 +347,7 @@ for (const width of [375, 393, 430]) {
       expect(headingStyle.clamp).toBe("none");
       expect(headingStyle.overflow).not.toBe("hidden");
       expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-      const line = detail.locator("path.recharts-line-curve");
-      await expect(line).toHaveAttribute("d", /^M/);
-      const chart = await line.evaluate(element => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height,
-        stroke: getComputedStyle(element).stroke, color: getComputedStyle(element).color }));
-      expect(chart.width).toBeGreaterThan(100);
-      expect(chart.height).toBeGreaterThan(10);
-      expect(chart.stroke).not.toBe("none");
-      expect(chart.color).not.toBe("rgba(0, 0, 0, 0)");
-      // Measure both positions in one frame while the sheet is entering.
-      expect(await detail.evaluate(element => {
-        const value = [...element.querySelectorAll("p")].find(row => row.textContent === "7,712.57")!;
-        return value.getBoundingClientRect().top < element.querySelector("path.recharts-line-curve")!.getBoundingClientRect().top;
-      })).toBe(true);
+      await expectMarketIndexChart(detail);
       await expect(detail.getByText("Yahoo Chart (Batch)", { exact: true })).toBeVisible();
       await expect(detail.getByText("Oct 21, 2:15 AM", { exact: true })).toBeVisible();
       await detail.getByRole("button", { name: "Close", exact: true }).click();
@@ -464,7 +461,7 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
       expect(typography.size).toBe("14px");
       expect(typography.weight).toBe("550");
       await row.click();
-      const detail = page.getByRole("dialog", { name: "BRK-B", exact: true });
+      const detail = page.getByRole("dialog", { name: "Berkshire Hathaway Inc. Class B", exact: true });
       await expect(detail.getByText("$456.78", { exact: true })).toBeVisible();
       const chart = detail.getByRole("region", { name: "Price history", exact: true });
       await expect(chart.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
@@ -484,3 +481,6 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
     });
   }
 }
+
+
+registerFinanceScreenChecks(mount);

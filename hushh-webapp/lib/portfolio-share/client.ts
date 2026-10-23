@@ -1,3 +1,7 @@
+import { formatCurrency, formatSignedCurrency, formatSignedPercent } from "@/lib/portfolio-share/format";
+import { drawPortfolioReportSummary, type PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
+export type { PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
+
 import { Capacitor } from "@capacitor/core";
 
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
@@ -28,22 +32,6 @@ const SNAPSHOT_COLORS = [
   "#8b5cf6",
   "#ec4899",
 ];
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatSignedCurrency(value: number): string {
-  return `${value >= 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
-}
-
-function formatSignedPercent(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
-}
 
 function formatDateLabel(value: string): string {
   const parsed = new Date(value);
@@ -228,17 +216,7 @@ export function buildPortfolioSharePayloadFromDashboardModel(
           pct: Number(row.pct || 0),
         }));
 
-  const performanceHistory = model.history.slice(-24);
-  const performance =
-    performanceHistory.length > 0
-      ? performanceHistory.map((point) => ({
-          label: point.date,
-          value: Number(point.value || 0),
-        }))
-      : [
-          { label: "Start", value: Number(model.hero.beginningValue || 0) },
-          { label: "Current", value: Number(model.hero.endingValue || model.hero.totalValue || 0) },
-        ].filter((point) => point.value > 0);
+  const performance = model.history.slice(-24).map(point => ({ label: point.date, value: point.value }));
 
   return sanitizePortfolioSharePayload({
     schemaVersion: 1,
@@ -363,7 +341,7 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
   });
 }
 
-export async function generatePortfolioReportPdf(payloadInput: unknown): Promise<Blob> {
+export async function generatePortfolioReportPdf(payloadInput: unknown, context?: PortfolioReportContext): Promise<Blob> {
   const payload = sanitizePortfolioSharePayload(payloadInput);
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
@@ -372,32 +350,7 @@ export async function generatePortfolioReportPdf(payloadInput: unknown): Promise
   const left = 44;
   const right = pageWidth - 44;
 
-  doc.setFillColor(248, 250, 252);
-  doc.rect(0, 0, pageWidth, doc.internal.pageSize.getHeight(), "F");
-
-  doc.setTextColor(15, 23, 42);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(21);
-  doc.text("Portfolio Report", left, 56);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Generated ${new Date(payload.generatedAt).toLocaleString("en-US")}`, left, 74);
-
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(15, 23, 42);
-  doc.setFontSize(13);
-  doc.text("Portfolio Value", left, 108);
-  doc.setFontSize(28);
-  doc.text(formatCurrency(payload.portfolioValue), left, 138);
-  doc.setFontSize(12);
-  doc.setTextColor(payload.dailyChangeValue >= 0 ? "#059669" : "#dc2626");
-  doc.text(
-    `${formatSignedCurrency(payload.dailyChangeValue)} (${formatSignedPercent(payload.dailyChangePct)})`,
-    left,
-    160
-  );
+  drawPortfolioReportSummary(doc, payload, left, right, context);
 
   let y = 198;
   doc.setTextColor(15, 23, 42);
@@ -524,9 +477,9 @@ export async function sharePortfolioSnapshot(payloadInput: unknown): Promise<Sha
   );
 }
 
-export async function exportPortfolioPdf(payloadInput: unknown): Promise<ShareDelivery> {
+export async function exportPortfolioPdf(payloadInput: unknown, context?: PortfolioReportContext): Promise<ShareDelivery> {
   const payload = sanitizePortfolioSharePayload(payloadInput);
-  const blob = await generatePortfolioReportPdf(payload);
+  const blob = await generatePortfolioReportPdf(payload, context);
   return deliverBlob(
     blob,
     `portfolio-report-${Date.now()}.pdf`,

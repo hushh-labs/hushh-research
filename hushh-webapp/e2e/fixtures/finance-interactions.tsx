@@ -13,12 +13,32 @@ import financeStyles from "../../components/kai/shared/finance-workspace.module.
 import { LineChart } from "../../components/icons";
 import marketStyles from "../../components/kai/shared/market-briefing.module.css";
 
+import { PortfolioReportAction } from "../../components/kai/cards/portfolio-report-action";
+import { PortfolioOverview } from "../../components/kai/views/portfolio-overview";
+import { AnalysisHistoryList } from "../../components/kai/views/analysis-history-list";
+import { VersionOptions } from "../../components/kai/views/analysis-history-version-options";
+import { AnalysisSummaryView } from "../../components/kai/views/analysis-summary-view";
+import { StockComparisonPreview } from "../../components/kai/cards/stock-comparison-preview";
+import { PortfolioAllocationBar } from "../../components/kai/charts/portfolio-allocation-bar";
+import { HoldingDetailsDrawer } from "../../components/kai/holdings/holding-details-drawer";
+import { toHoldingViewModel } from "../../components/kai/holdings/holding-view-model";
+import { mapPortfolioToDashboardViewModel } from "../../components/kai/views/dashboard-data-mapper";
+import type { PortfolioData } from "../../components/kai/types/portfolio";
+
+const samplePortfolio: PortfolioData = { account_summary: { beginning_value: 24000, ending_value: 24680.42, cash_balance: 2000 },
+  holdings: [{ symbol: "TEST", name: "Sample Company", market_value: 22680.42, price: 226.8042, quantity: 100, cost_basis: 21000, sector: "Technology", source_type: "Statement", institution_price_as_of: "2026-10-20T20:00:00Z" }] };
+const sampleModel = mapPortfolioToDashboardViewModel(samplePortfolio);
+const savedEntry = { ticker: "TEST", timestamp: "2026-10-20T20:00:00Z", decision: "hold", confidence: .82, consensus_reached: false,
+  agent_votes: { fundamental: "buy", sentiment: "hold", valuation: "reduce" }, final_statement: "Consider valuation alongside company strength and your portfolio exposure.",
+  raw_card: { company_strength_score: 7, market_trend_score: 6, fair_value_score: 5, short_recommendation: "Consider valuation alongside company strength and your portfolio exposure." }, version: 3, companyName: "Sample Company With A Deliberately Long Name" };
+
 const observedFixture = Array.from({ length: 31 }, (_, index) => ({
   date: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
   value: 440 + index / 2 + Math.sin(index) * 3,
 }));
 
 function Fixture() {
+  const [holdingOpen, setHoldingOpen] = useState(false);
   const [updated, setUpdated] = useState(false);
   const [action, setAction] = useState("");
   const [indexMetric, setIndexMetric] = useState<MarketOverviewMetric | null>(null);
@@ -45,6 +65,22 @@ function Fixture() {
     <section data-testid="portfolio-chart-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <PortfolioValueCard source="Sample" value={24680.42} change={584.24} changePct={2.43} period="Sample portfolio · September 20 – October 20"
         history={observedFixture.map(point => ({ ...point, value: point.value * 54 }))} />
+    </section>
+    <section data-testid="portfolio-overview-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
+      <p className="mb-4 text-xs text-muted-foreground">Design verification · Sample figures only</p>
+      <PortfolioOverview model={sampleModel} portfolio={samplePortfolio} source="Sample" period="Sample statement · October 2026" onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
+      <button className="mt-4 min-h-11" onClick={() => setHoldingOpen(true)}>Open sample holding</button>
+      <HoldingDetailsDrawer open={holdingOpen} onOpenChange={setHoldingOpen} holding={toHoldingViewModel({ ...samplePortfolio.holdings![0]!, client_id: "sample" }, 24680.42)} onEdit={() => setAction("Edit sample")} onToggleDelete={() => setAction("Delete sample")} />
+    </section>
+    <section data-testid="finance-history-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
+      <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} onVersions={() => setAction("Open versions")} onDelete={() => setAction("Delete saved")} onDeleteTicker={() => setAction("Delete ticker")} />
+      <VersionOptions entries={[savedEntry]} onOpen={() => setAction("Open version 3")} onDelete={() => setAction("Delete version 3")} />
+    </section>
+    <section data-testid="finance-subpages-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full space-y-5`}>
+      <PortfolioAllocationBar data={sampleModel.allocation} totalValue={sampleModel.hero.totalValue} />
+      <AnalysisSummaryView entry={savedEntry} embedded showHeader={false} />
+      <StockComparisonPreview embeddedInDetailSurface preview={{ symbol: "TEST", quote: { company_name: "Sample Company", price: 226.8, change_pct: 1.2, sector: "Technology", as_of: "2026-10-20T20:00:00Z" },
+        list_match: { in_list: true, tier: "KING", recommendation_bias: "Hold", sector: "Technology", fcf_billions: 4, investment_thesis: "Full investment thesis remains readable on a phone. Consider durable cash generation, competitive position, valuation assumptions and risks alongside the needs of your own portfolio." }, pick_sources: [], active_pick_source: "default" } as Parameters<typeof StockComparisonPreview>[0]["preview"]} onStartDebate={() => setAction("Start analysis")} />
     </section>
     <section data-testid="market-iphone-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <RiaPicksList controlMode="adaptive-surface" loadHistory={async () => ({ points: observedFixture, stale: true, retrievedAt: "2026-10-20T20:00:00Z" })} rows={[
