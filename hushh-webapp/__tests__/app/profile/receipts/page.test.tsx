@@ -108,10 +108,10 @@ vi.mock("sonner", () => ({
   toast: mocks.toast,
 }));
 
-vi.mock("@/hooks/use-auth", () => ({
-  useAuth: mocks.useAuth,
-}));
-
+vi.mock("@/hooks/use-auth", () => ({ useAuth: mocks.useAuth }));
+// These legacy-mail journeys use a confirmed Shared owner and matching auth.
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => mocks.useAuth().user ?? null } }));
+vi.mock("@/lib/services/private-agent-specialist-chat", () => ({ ownerContentIsPrivate: async () => false }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: mocks.useGmailConnectorStatus,
 }));
@@ -1714,7 +1714,7 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByTestId("mail-receipt-sync")).not.toBeInTheDocument();
     expect(screen.queryByText("Status", { exact: true })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Draft with One." })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Manage" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Manage" })).toBeVisible();
     expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
     expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
   });
@@ -2556,7 +2556,7 @@ describe("ProfileReceiptsPage", () => {
 
   it("reconnects through the combined reading/sending consent flow", async () => {
     render(<ProfileReceiptsPage />);
-    fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /^reconnect$/i }));
     await waitFor(() => expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
       expect.objectContaining({ purpose: "send", userId: "user-123" }),
@@ -2566,7 +2566,7 @@ describe("ProfileReceiptsPage", () => {
 
   it("keeps Mail connected when disconnect confirmation is canceled", async () => {
     render(<ProfileReceiptsPage />);
-    fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /^disconnect$/i }));
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Keep connected" }));
     expect(gmailView.disconnectGmail).not.toHaveBeenCalled();
@@ -2617,7 +2617,7 @@ describe("ProfileReceiptsPage", () => {
     expect((await loadReceiptSnapshot(testStoreSession, "akshat@example.com"))?.value.rows).toHaveLength(1);
     // Disconnect is available through Manage on the Mail overview.
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-    fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
+    fireEvent.keyDown(await screen.findByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
     fireEvent.click(
       await screen.findByRole("menuitem", { name: /^disconnect$/i }),
     );
