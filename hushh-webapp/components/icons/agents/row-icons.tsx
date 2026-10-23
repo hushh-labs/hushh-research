@@ -8,7 +8,6 @@ import {
   Broadcast,
   Buildings,
   ChatCircle,
-  ChatCircleText,
   CheckCircle,
   CircleHalf,
   ClipboardText,
@@ -29,11 +28,7 @@ import {
   Play,
   SealCheck,
   Siren,
-  TextAa,
-  TextAlignLeft,
-  Translate,
   Tray,
-  UserCircle,
   UserPlus,
   UsersThree,
   Vault,
@@ -141,8 +136,4 @@ export const SharedHostingRowIcon = createRowIcon(Buildings, ROW_TONE.indigo, "S
 export const OwnCloudRowIcon = createRowIcon(Cloud, ROW_TONE.sky, "OwnCloudRowIcon");
 export const DedicatedHostingRowIcon = createRowIcon(House, ROW_TONE.emerald, "DedicatedHostingRowIcon");
 // How One writes to the owner (Preferences)
-export const PreferredNameRowIcon = createRowIcon(UserCircle, ROW_TONE.cobalt, "PreferredNameRowIcon");
-export const ToneRowIcon = createRowIcon(ChatCircleText, ROW_TONE.purple, "ToneRowIcon");
-export const ReplyLengthRowIcon = createRowIcon(TextAlignLeft, ROW_TONE.sky, "ReplyLengthRowIcon");
-export const LanguageRowIcon = createRowIcon(Translate, ROW_TONE.indigo, "LanguageRowIcon");
-export const PunctuationRowIcon = createRowIcon(TextAa, ROW_TONE.amber, "PunctuationRowIcon");
+export { PreferredNameRowIcon, ToneRowIcon, ReplyLengthRowIcon, LanguageRowIcon, PunctuationRowIcon } from "../ui/profile-writing-icons";

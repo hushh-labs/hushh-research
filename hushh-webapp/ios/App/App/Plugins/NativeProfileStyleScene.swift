@@ -263,9 +263,15 @@ private struct NativeProfileStyleContent: View {
     private func label(_ title: String, _ icon: String) -> some View {
         HStack(spacing: 12) {
             if let artwork = NativeProfileArtwork.resolve(icon) {
-                Image(uiImage: artwork.base).resizable()
-                    .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.colorHex) ?? .label))
-                    .frame(width: 28, height: 28).frame(width: 32, height: 32).accessibilityHidden(true)
+                ZStack {
+                    Image(uiImage: artwork.base).resizable()
+                        .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.colorHex) ?? .label))
+                    if let accent = artwork.accent {
+                        Image(uiImage: accent).resizable()
+                            .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(artwork.accentColorHex) ?? model.accent))
+                    }
+                }
+                .frame(width: 28, height: 28).frame(width: 32, height: 32).accessibilityHidden(true)
             }
             Text(title)
         }

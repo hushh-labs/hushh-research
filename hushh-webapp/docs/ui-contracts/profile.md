@@ -208,6 +208,7 @@ must be read from these child contracts before changing a nested CTA.
 | App haptics | Native preference only; immediate update, disabled until ready/during save; saving/saved/error feedback. |
 | How One writes to you · Unlock to edit | Unlocks before editing protected writing preferences. Web fields are inline; native **Writing style** opens a scene. |
 | Writing fields | **Call me** (64 max), **Tone** (No preference/Direct/Warm/Casual/Formal/Executive), **Length** (Short/Balanced/Detailed), **Language** (12 languages plus no preference), **Avoid em dashes**, **Style note** (280 max, one paragraph). |
+| Writing icons | The five field glyphs use Profile's theme-aware neutral outlines with selected-accent details. Web and native artwork retain the same official Phosphor geometry. |
 | Writing Save | Draft until explicit Save writes encrypted `identity.communication_preferences`; disabled unless dirty/available. Failure preserves draft. Native Save stays open; Cancel/Back closes the scene but shared in-memory draft may remain for that visit. No separate web Cancel button in inline writing group. |
 | Gemini · Use Hussh's AI / Use my own key | Managed choice is an owner operation. Own-key entry selects **API endpoint**: Google AI Studio or Google Cloud Vertex API key, with conditional project/location and secret-key fields. |
 | Validate key → Confirm and save | Checking then ready confirmation; protected owner/vault-fenced operation. Inline errors retain recovery. **Remove key** exists only for a saved key. Native blocks Back while pending. |

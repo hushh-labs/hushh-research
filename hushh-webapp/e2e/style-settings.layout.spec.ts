@@ -10,7 +10,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
  * 16 px sides and 8 px top and bottom, one 60 px row rhythm on a wide screen
  * with labels and fields side by side at every width, every control 44 px tall with
  * one shared right edge, the note block and footer on the same 16 px inset, a flat surface (no glass blur), the ripple on the Save
- * press with no scale, duotone row glyphs and no em dash in the copy. Light and
+ * press with no scale, neutral-and-accent outline glyphs and no em dash in the copy. Light and
  * dark, phone and desktop, then again with every row's text widened a little,
  * because CI's Linux fonts set wider than a Mac.
  * Set STYLE_SETTINGS_SHOT_DIR to capture one screenshot per width and theme.
@@ -83,6 +83,23 @@ async function box(locator: Locator) {
   const bounds = await locator.boundingBox();
   if (!bounds) throw new Error("element has no box");
   return bounds;
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`writing icons keep Profile ink and follow its accent in ${theme} mode`, async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 844 });
+    await open(page, theme);
+    const ink = await page.locator("main").evaluate(node => getComputedStyle(node).color);
+    const icons = page.locator("[data-slot=settings-row-icon] svg");
+    await expect(icons).toHaveCount(5);
+    for (const accent of ["rgb(0, 122, 255)", "rgb(169, 121, 33)"]) {
+      await page.locator("html").evaluate((node, color) => node.style.setProperty("--app-accent", color), accent);
+      for (const icon of await icons.all()) {
+        await expect(icon).toHaveCSS("color", ink);
+        await expect(icon.locator(".profile-pane-icon-accent-fill")).toHaveCSS("fill", accent);
+      }
+    }
+  });
 }
 
 const onGrid = (value: number, unit: number) => Math.abs(value / unit - Math.round(value / unit)) < 0.02;
@@ -208,6 +225,13 @@ for (const theme of ["light", "dark"] as const)
       for (const well of await page.locator("[data-slot='settings-row-icon']").all()) {
         expect(await well.getAttribute("data-icon-tone")).toBe("capability");
         expect(await well.locator("svg [opacity='0.2']").count()).toBe(0);
+        const colors = await well.locator("svg").evaluate(node => ({
+          ink: getComputedStyle(node).color,
+          accent: getComputedStyle(node.querySelector(".profile-pane-icon-accent-fill")!).fill,
+        }));
+        expect(colors.ink).not.toBe(colors.accent);
+        expect(await well.locator("svg").getAttribute("viewBox")).toBe("0 0 256 256");
+        expect(await well.locator("svg").getAttribute("fill")).toMatch(/^url\(#/);
       }
       const text = (await page.getByTestId("style-settings").textContent()) ?? "";
       expect(text).not.toMatch(/[—–]/);

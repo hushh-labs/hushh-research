@@ -623,24 +623,47 @@ jobs:
           path: /tmp/uat-verification-plan.json
           if-no-files-found: error
 
-      - name: Set up Node runtime for protected PKM verification
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+      - name: Set up Node runtime for UAT browser verification
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
         uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
 
-      - name: Install protected PKM browser dependencies
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+      - name: Cache UAT Chromium binaries
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          # CI's browser cache also promises WebKit; this lane installs Chromium.
+          key: ${{ runner.os }}-uat-chromium-${{ hashFiles('hushh-webapp/package-lock.json') }}
+
+      - name: Install UAT browser verification dependencies
+        id: install-browser-dependencies
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        timeout-minutes: 8
         shell: bash
         run: |
           set -euo pipefail
-          npm ci --prefix hushh-webapp
-          (
-            cd hushh-webapp
-            npx playwright install --with-deps chromium
-          )
+          npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
+          # Keep the runner's signed archive/security fallbacks. PR CI uses this
+          # same removal after the preferred Azure mirror stalled for 23 minutes.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
+          fi
+          # Always verify installation, including restored binaries and system
+          # libraries. Playwright reuses its completed browser downloads.
+          for attempt in 1 2; do
+            if (cd hushh-webapp && npx --no-install playwright install --with-deps chromium); then
+              break
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::UAT Chromium installation failed twice."
+              exit 1
+            fi
+            sleep 15
+          done
 
       - name: Verify One Location read-only rollout prerequisites
         id: one_location_read_only_rollout
@@ -1748,23 +1771,6 @@ jobs:
           ' "${smoke_revision}")"
           echo "revision=${smoke_revision}" >> "$GITHUB_OUTPUT"
           echo "url=${candidate_url}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Node runtime for UAT analytics verification
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      - name: Install UAT analytics smoke dependencies
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        shell: bash
-        working-directory: hushh-webapp
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts
-          npx playwright install --with-deps chromium
 
       - name: Verify governed analytics transport on zero-traffic UAT candidate
         id: verify-analytics-uat

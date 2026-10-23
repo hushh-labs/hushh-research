@@ -1550,6 +1550,16 @@ runner's `azure.archive.ubuntu.com` mirror preference and retains its existing
 official archive/security entries and signed package checks. Chromium, WebKit,
 matched packs, workers and timeout remain unchanged. A faster install is a
 hosted measurement to verify, not a guaranteed mirror characteristic.
+
+UAT uses the same mirror preference removal and prepares locked npm dependencies,
+Chromium and its system libraries once for the union of frontend analytics and
+selected protected browser checks. Setup retries at most twice within eight
+minutes and remains blocking. Its Chromium cache has a separate key from CI's
+Chromium/WebKit cache; restored binaries still pass the normal installer.
+Both backend provider probes run independently after image and IAM verification.
+The required provider aggregate waits for both results and the deployed candidate
+before selection; dev and production retain their predeployment Vertex gate.
+
 ## Combined UI Contracts gate
 
 Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core and the full Vitest suite, which retain behavior coverage.
