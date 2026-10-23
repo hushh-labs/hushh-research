@@ -106,7 +106,7 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
     candidate_step = content.split(
         "      - name: Resolve zero-traffic frontend analytics candidate", 1
-    )[1].split("      - name: Set up Node runtime for UAT analytics verification", 1)[0]
+    )[1].split("      - name: Verify governed analytics transport on zero-traffic UAT candidate", 1)[0]
     secret_removal = candidate_step.index("--remove-secrets=BACKEND_URL,DEVELOPER_API_URL")
     literal_binding = candidate_step.index('--update-env-vars="BACKEND_URL=')
     assert (
