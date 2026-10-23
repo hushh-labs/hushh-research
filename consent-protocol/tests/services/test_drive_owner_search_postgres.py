@@ -45,6 +45,11 @@ def store(lifecycle, monkeypatch):
     monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
     with lifecycle.db.engine.begin() as connection:
         connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
+        connection.execute(
+            text(
+                "ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID"
+            )
+        )
         connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
         # This isolated fixture has no share-request tables, so it cannot run
         # migration 256. Keep its search table at the current runtime shape.

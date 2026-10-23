@@ -510,13 +510,21 @@ async def test_bulk_worker_passes_frozen_expiry_and_records_it_for_early_stop(sh
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tamper", [False, True])
+@pytest.mark.parametrize("provider_packet", [False, True])
 async def test_discovery_delivery_uses_metadata_acl_checks_and_rejects_forged_source(
-    tamper, shared_hub_owner
+    tamper, provider_packet, shared_hub_owner
 ):
     worker, store, adapter = _worker()
     job = _discovery_job()
     file = job["file"]
     checkpoint = file["discoveryEvidence"]
+    if provider_packet:
+        file.update(
+            packageDigest="a" * 64,
+            sourceVersion="7",
+            metadataOnly=True,
+            fingerprintBasis="provider_metadata",
+        )
     if tamper:
         file["name"] = "Changed recording"
     job["file"] = file

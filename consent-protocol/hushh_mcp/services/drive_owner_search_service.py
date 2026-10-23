@@ -1523,7 +1523,25 @@ class DriveOwnerSearchService:
                 version=reusable_packet["version"],
             )
             validate_reusable_packet(manifest, reusable_packet, user_id)
-            return {"kind": "packet", "reusable_packet": reusable_packet}
+            return {
+                "kind": "packet",
+                "reusable_packet": reusable_packet,
+                **(
+                    {
+                        "provider_packet": True,
+                        "plan": manifest["search"]["authored_plan"],
+                        "model_binding": manifest["search"]["model_binding"],
+                        "queries": manifest["search"]["queries"],
+                        "period": {
+                            "start": manifest["periodStart"],
+                            "end": manifest["periodEnd"],
+                            "timezone": manifest["timezone"],
+                        },
+                    }
+                    if manifest.get("kind") == "provider_discovery"
+                    else {}
+                ),
+            }
         try:
             status = await self._facts_store().current_index_status(owner_user_id=user_id)
         except DriveReadError as error:
@@ -1834,7 +1852,7 @@ class DriveOwnerSearchService:
         if (
             brain is not None
             and (parsed_brain is None or v1_live_request)
-            or plan_source not in {None, "deterministic_brain", "model"}
+            or plan_source not in {None, "deterministic_brain", "model", "frozen_provider_packet"}
         ):
             raise DriveReadError("invalid_argument")
         if (
@@ -1853,6 +1871,18 @@ class DriveOwnerSearchService:
             raise DriveReadError("invalid_argument")
         route = evidence_route or {"kind": "provider"}
         indexed = route["kind"] in {"index", "packet"}
+        provider_packet = route.get("provider_packet") is True and route["kind"] == "packet"
+        if plan_source == "frozen_provider_packet" and not provider_packet:
+            raise DriveReadError("invalid_argument")
+        if provider_packet:
+            if (
+                plan != route["plan"]
+                or semantic_model_binding != route["model_binding"]
+                or purpose.get("periodStart") != route["period"]["start"]
+                or purpose.get("periodEnd") != route["period"]["end"]
+            ):
+                raise DriveReadError("packet_integrity_invalid")
+            timezone = route["period"]["timezone"]
         if (
             not (purpose.get("periodStart") and purpose.get("periodEnd"))
             and route["kind"] != "packet"
@@ -1879,7 +1909,7 @@ class DriveOwnerSearchService:
             )
 
             semantic_plan = SemanticDrivePlan.model_validate(semantic_plan).model_dump(mode="json")
-            if v1_live_request or indexed or parsed_brain is not None:
+            if v1_live_request or indexed and not provider_packet or parsed_brain is not None:
                 raise DriveReadError("invalid_argument")
             from hushh_mcp.services.drive_request_package_service import assessment_policy_version
 
@@ -1896,7 +1926,13 @@ class DriveOwnerSearchService:
             return existing
         if indexed:
             period = {"start": purpose.get("periodStart"), "end": purpose.get("periodEnd")}
-            queries = [{"arguments": {"orderBy": "modifiedTime desc"}}]
+            queries = (
+                route["queries"]
+                if provider_packet
+                else [{"arguments": {"orderBy": "modifiedTime desc"}}]
+            )
+            if provider_packet:
+                period = route["period"]
         else:
             queries, period = compile_request_queries(
                 plan,
@@ -1906,7 +1942,7 @@ class DriveOwnerSearchService:
                 v1_live_request=v1_live_request,
                 brain=parsed_brain,
             )
-        if discovery_delivery_enabled:
+        if discovery_delivery_enabled and not provider_packet:
             from hushh_mcp.services.drive_request_semantic_plan import SemanticPlanInputRequired
 
             try:
@@ -1993,6 +2029,7 @@ class DriveOwnerSearchService:
                     else {}
                 ),
                 "evidence_route": route["kind"],
+                **({"provider_packet": True} if provider_packet else {}),
                 **(
                     {
                         key: route[key]
@@ -2597,6 +2634,14 @@ class DriveOwnerSearchService:
                 version=binding["version"],
             )
             validate_reusable_packet(manifest, binding, job["user_id"])
+            if manifest.get("kind") == "provider_discovery":
+                if checkpoint.get("provider_packet") is not True or not discovery_delivery(
+                    checkpoint
+                ):
+                    raise DriveReadError("packet_integrity_invalid")
+                from hushh_mcp.services.drive_period_packet_page import frozen_provider_page
+
+                return await frozen_provider_page(self, job, manifest, checkpoint)
             offset = checkpoint["packet_offset"]
             sources = manifest["sources"][offset : offset + PAGE_SIZE]
             documents = [
@@ -3046,7 +3091,7 @@ class DriveOwnerSearchService:
             ):
                 raise DriveReadError("provider_response_invalid")
             incomplete = incomplete or large_page_incomplete
-        if checkpoint.get("request_origin_id"):
+        if checkpoint.get("request_origin_id") or checkpoint.get("period_packet_origin"):
             _counter(checkpoint, "providerRowsScanned", len(candidates))
             _counter(checkpoint, "providerFilePages")
             original_candidates = candidates
@@ -3128,7 +3173,7 @@ class DriveOwnerSearchService:
                 _phase(checkpoint, "drives")
             else:
                 done = _advance_query(checkpoint)
-        if checkpoint.get("request_origin_id") and (
+        if (checkpoint.get("request_origin_id") or checkpoint.get("period_packet_origin")) and (
             checkpoint["coverage_counts"].get("providerFilePages", 0) >= MAX_REQUEST_FILE_PAGES
             and not done
             or len(json.dumps(checkpoint, ensure_ascii=False).encode("utf-8"))

@@ -131,6 +131,9 @@ async def sharing(documents, monkeypatch):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
             connection.exec_driver_sql((MIGRATIONS / name).read_text().replace("%", "%%"))
+        connection.exec_driver_sql(
+            "ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID"
+        )
         # This compact fixture has no Feed tables, so migration 288's
         # projection/notification portion runs in the Feed fixture instead.
         # Apply its real event vocabulary here: payment and request services

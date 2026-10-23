@@ -1364,6 +1364,9 @@ function UnlockedDocumentReview({
               ? ({ preparing: "Finding files", ready: "Request prepared",
                   no_match: "No matching files", unavailable: "Couldn't check this request",
                   stale: "Checking request", allowed: "Request prepared" } as const)[agentPackage.status]
+            : agentPackage?.confidenceBasis === "provider_search" && UNDECIDED.has(snapshot.status.status)
+              ? ({ preparing: "Finding files", ready: "Files ready", no_match: "No matching files",
+                  unavailable: "Couldn’t check files", stale: "Files changed", allowed: "Sharing allowed" } as const)[agentPackage.status]
             : agentPackage && UNDECIDED.has(snapshot.status.status)
               ? ({ preparing: "Preparing your file package", ready: agentPackage.coverageStatus === "partial" ? "Incomplete package"
                   : agentPackage.coverageStatus === "unknown" ? "Unable to verify"
@@ -1562,7 +1565,7 @@ function UnlockedDocumentReview({
           <Fact label="Share with" value={review.recipientEmail} />
           {review.requesterProfile?.type === "ria" ? <Fact label="Requester"
             value={`${review.requesterProfile.legalName ?? review.requesterProfile.displayName ?? "Advisor"} · Verified RIA`} /> : null}
-          {review.purpose.periodStart ? <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
+          {review.purpose.periodStart ? <Fact label={agentPackage.confidenceBasis === "provider_search" ? "Search period" : "Period"} value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
           <Fact label="Access" value={review.requestedAccessDays != null
             ? `Viewer for ${review.approvedAccessDays ?? review.requestedAccessDays} days`
             : "Viewer, until removed"} />
@@ -1601,16 +1604,16 @@ function UnlockedDocumentReview({
         <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
         <dl className={HAIRLINES}>
           <Fact label="Share with" value={review.recipientEmail} />
-          {review.purpose.periodStart ? <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
+          {review.purpose.periodStart ? <Fact label={agentPackage.confidenceBasis === "provider_search" ? "Search period" : "Period"} value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
           <Fact label="Access" value="Viewer, until removed" />
           <Fact label="Package" value={`${agentPackage.selectedCount.toLocaleString()} ${agentPackage.selectedCount === 1 ? "file" : "files"}`} />
-          <Fact label="Coverage" value={{ complete: "Complete", partial: "Partial", unknown: "Not established" }[agentPackage.coverageStatus]} />
+          {agentPackage.confidenceBasis !== "provider_search" ? <Fact label="Coverage" value={{ complete: "Complete", partial: "Partial", unknown: "Not established" }[agentPackage.coverageStatus]} /> : null}
           {agentPackage.suggestedPriceCents !== null ? <Fact label="Suggested price" value={formatDocumentRequestPrice(agentPackage.suggestedPriceCents)} /> : null}
           {agentPackage.status === "allowed" && review.priceCents != null ? <Fact label="Agreed price" value={formatDocumentRequestPrice(review.priceCents)} /> : null}
         </dl>
         <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
           <dl className={HAIRLINES}>
-          <Fact label="Evaluated" value={`${agentPackage.evaluatedCount.toLocaleString()} of ${agentPackage.candidateCount.toLocaleString()} candidates`} />
+          {agentPackage.confidenceBasis !== "provider_search" ? <Fact label="Evaluated" value={`${agentPackage.evaluatedCount.toLocaleString()} of ${agentPackage.candidateCount.toLocaleString()} candidates`} /> : null}
           {agentPackage.confidenceScore !== null ? <Fact label="Agent assessment" value={`${agentPackage.confidenceScore}/100`} /> : null}
           {agentPackage.importanceScore !== null ? <Fact label="Importance" value={`${agentPackage.importanceScore}/500`} /> : null}
           </dl>
@@ -1621,7 +1624,7 @@ function UnlockedDocumentReview({
           <ul className="divide-y divide-border/60" aria-label="Included files">
             {agentPackage.selectedFiles.map(file => <li key={file.position} className="py-2">
               <HelperText className="[overflow-wrap:anywhere]">{file.name}</HelperText>
-              <HelperText>Weightage {file.weightageOutOf10}/10 · Model assessment {file.confidenceScore}/100</HelperText>
+              {agentPackage.confidenceBasis !== "provider_search" ? <HelperText>Weightage {file.weightageOutOf10}/10 · Model assessment {file.confidenceScore}/100</HelperText> : null}
             </li>)}
           </ul>
           {agentPackage.selectedCount > agentPackage.selectedFiles.length ? <HelperText>
@@ -1644,6 +1647,8 @@ function UnlockedDocumentReview({
           ? "Agent One is preparing this packet."
           : agentPackage.status === "allowed"
             ? review.paymentRequired ? "The requester pays before this approved package is shared." : "Your approved package is being shared."
+          : agentPackage.confidenceBasis === "provider_search" && agentPackage.status === "ready"
+            ? "Files matched the Drive search. Their contents were not read."
           : agentPackage.status === "ready"
             ? agentPackage.canAllow ? "Allow this packet at the suggested price, or edit it."
               : agentPackage.coverageStatus === "partial" ? "Coverage is incomplete."
@@ -1661,7 +1666,7 @@ function UnlockedDocumentReview({
             disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
             onClick={() => denyConfirm.activate(() => decide("decline"))}>{denyConfirm.label("Deny")}</Button>}
         /> : null}
-        {ownerDecision && review.paymentRequired ? <Button size="standard" variant="none" disabled={locked} onClick={openPriceSheet}>Edit price</Button> : null}
+        {ownerDecision && review.paymentRequired && agentPackage.confidenceBasis !== "provider_search" ? <Button size="standard" variant="none" disabled={locked} onClick={openPriceSheet}>Edit price</Button> : null}
         {allowError && !priceOpen ? <HelperText role="alert">{allowError}</HelperText> : null}
         <DocumentRequestPriceSheet
           moneyPolicy="drive_cents"

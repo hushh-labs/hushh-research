@@ -136,7 +136,7 @@ export type AgentDocumentPackage = {
   digest: string | null;
   selectedCount: number;
   /** Owner-only preview from the sealed membership; older servers omit it. */
-  selectedFiles?: Array<{ position: number; name: string; weightageOutOf10: number; confidenceScore: number }>;
+  selectedFiles?: Array<{ position: number; name: string; weightageOutOf10?: number; confidenceScore?: number }>;
   selectedFileCount?: number;
   /** Owner-only, provisional matches while the live request is still being checked. */
   provisionalFiles?: Array<{ position: number; name: string; weightageOutOf10: number; confidenceScore: number }>;
@@ -146,7 +146,7 @@ export type AgentDocumentPackage = {
   candidateCount: number;
   /** A model assessment score, not a calibrated probability. */
   confidenceScore: number | null;
-  confidenceBasis: "model_assessment";
+  confidenceBasis: "model_assessment" | "provider_search";
   importanceScore: number | null;
   suggestedPriceCents: number | null;
   priceReason: string;
@@ -284,10 +284,11 @@ function preparationError(value: unknown): SharingPreparationError | null {
 }
 function parseAgentDocumentPackage(value: unknown): AgentDocumentPackage {
   const item = record(value);
+  const discovery = item.confidenceBasis === "provider_search";
   if (typeof item.status !== "string" ||
       !["preparing", "ready", "no_match", "unavailable", "stale", "allowed"].includes(item.status) ||
       typeof item.coverageStatus !== "string" || !["complete", "partial", "unknown"].includes(item.coverageStatus) ||
-      item.confidenceBasis !== "model_assessment" || typeof item.canAllow !== "boolean" ||
+      (!discovery && item.confidenceBasis !== "model_assessment") || typeof item.canAllow !== "boolean" ||
       !Array.isArray(item.gaps) || item.gaps.length > 24)
     throw new DriveSharingError("invalid_response");
   const packageDigest = item.digest === null ? null : digest(item.digest);
@@ -298,6 +299,7 @@ function parseAgentDocumentPackage(value: unknown): AgentDocumentPackage {
       throw new DriveSharingError("invalid_response");
     const rows = value.map(raw => {
       const file = record(raw);
+      if (discovery) return { position: bulkCount(file.position, 10_000), name: bulkText(file.name, 1000) };
       if (typeof file.weightageOutOf10 !== "number" || !Number.isFinite(file.weightageOutOf10) ||
           file.weightageOutOf10 < 1 || file.weightageOutOf10 > 10)
         throw new DriveSharingError("invalid_response");
@@ -311,14 +313,19 @@ function parseAgentDocumentPackage(value: unknown): AgentDocumentPackage {
     return rows;
   };
   const selectedFiles = item.selectedFiles === undefined ? undefined : parseFileRows(item.selectedFiles);
-  const provisionalFiles = item.provisionalFiles === undefined ? undefined : parseFileRows(item.provisionalFiles);
+  if (discovery && [item.provisionalFiles, item.verifiedCount, item.pendingCount].some(value => value !== undefined))
+    throw new DriveSharingError("invalid_response");
+  // Only the unchanged model-assessment branch can carry scored provisional rows.
+  const provisionalFiles = item.provisionalFiles === undefined ? undefined :
+    parseFileRows(item.provisionalFiles) as AgentDocumentPackage["provisionalFiles"];
   const verifiedCount = item.verifiedCount === undefined ? undefined : bulkCount(item.verifiedCount, 10_000);
   const pendingCount = item.pendingCount === undefined ? undefined : bulkCount(item.pendingCount, 10_000);
   const evaluatedCount = bulkCount(item.evaluatedCount, 10_000);
   const candidateCount = bulkCount(item.candidateCount, 10_000);
   const confidenceScore = item.confidenceScore === null ? null : bulkCount(item.confidenceScore, 100);
   const importanceScore = item.importanceScore === null ? null : bulkCount(item.importanceScore, 500);
-  if (importanceScore === 0 || item.suggestedPriceCents !== null &&
+  if (discovery && (confidenceScore !== null || importanceScore !== null || evaluatedCount !== 0 || item.suggestedPriceCents !== 500) ||
+      importanceScore === 0 || item.suggestedPriceCents !== null &&
       !isValidDocumentRequestPriceCents(item.suggestedPriceCents) ||
       item.canAllow && (item.status !== "ready" || !packageDigest || selectedCount === 0) ||
       (selectedFiles === undefined) !== (selectedFileCount === undefined) ||
@@ -336,7 +343,7 @@ function parseAgentDocumentPackage(value: unknown): AgentDocumentPackage {
     ...(selectedFiles === undefined ? {} : { selectedFiles, selectedFileCount }),
     ...(provisionalFiles === undefined ? {} : { provisionalFiles, verifiedCount, pendingCount }),
     evaluatedCount, candidateCount,
-    confidenceScore, confidenceBasis: "model_assessment", importanceScore,
+    confidenceScore, confidenceBasis: discovery ? "provider_search" : "model_assessment", importanceScore,
     suggestedPriceCents: item.suggestedPriceCents as number | null,
     priceReason: string(item.priceReason), summary: string(item.summary),
     coverageStatus: item.coverageStatus as AgentDocumentPackage["coverageStatus"],

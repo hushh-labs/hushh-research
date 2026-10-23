@@ -1,6 +1,6 @@
-"""Resumable private content evaluation; neither approval nor provider mutation.
+"""Resumable provider selections or legacy content evaluation, never approval.
 
-Each lease reads at most six candidates. Provider text lives only in memory;
+Legacy content leases read at most six candidates. Provider text lives only in memory;
 only encrypted cited observations reach the store. Final assembly gets its own
 lease so a slow model never silently consumes the next worker's authority.
 """
@@ -627,12 +627,13 @@ class DriveRequestPackageService:
         )
         return finalized
 
-    async def run_one(self, *, user_id, job_id, v1_only=False):
+    async def run_one(self, *, user_id, job_id, v1_only=False, provider_only=False):
         try:
             job = await self.store.claim_evaluation(
                 user_id=user_id,
                 job_id=job_id,
                 **({"v1_only": True} if v1_only else {}),
+                **({"provider_only": True} if provider_only else {}),
             )
         except DriveReadError:
             # Admission can change after due_evaluations. No lease was granted;
@@ -642,6 +643,20 @@ class DriveRequestPackageService:
             return "not_claimed"
         try:
             async with asyncio.timeout(BATCH_SECONDS):
+                if job.get("checkpoint", {}).get("provider_packet") is True:
+                    manifest = await self._reusable_manifest(job)
+                    if not isinstance(manifest, dict) or (
+                        manifest.get("kind") != "provider_discovery"
+                        or manifest.get("schema_version") != 2
+                    ):
+                        raise DriveReadError("source_changed")
+                    await self.store.require_evaluation_current(job)
+                    result = await self.store.finalize_provider_packet(job)
+                    logger.info(
+                        "drive_request_provider_packet status=%s content_assessment=not_applicable",
+                        result["status"],
+                    )
+                    return result["status"]
                 if job["candidates"]:
                     await self._read_batch(job)
                     await self.store.release_evaluation(job)
@@ -667,15 +682,20 @@ class DriveRequestPackageService:
             await self.store.release_evaluation(job, retryable=retryable, error=code)
             return "unavailable"
 
-    async def run(self, *, max_jobs=1, deadline_seconds=120, v1_only=False):
+    async def run(self, *, max_jobs=1, deadline_seconds=120, v1_only=False, provider_only=False):
         counts = Counter()
         try:
             async with asyncio.timeout(deadline_seconds):
                 for job in await self.store.due_evaluations(
-                    limit=max_jobs, **({"v1_only": True} if v1_only else {})
+                    limit=max_jobs,
+                    **({"v1_only": True} if v1_only else {}),
+                    **({"provider_only": True} if provider_only else {}),
                 ):
                     result = await self.run_one(
-                        user_id=job["user_id"], job_id=str(job["job_id"]), v1_only=v1_only
+                        user_id=job["user_id"],
+                        job_id=str(job["job_id"]),
+                        v1_only=v1_only,
+                        **({"provider_only": True} if provider_only else {}),
                     )
                     counts[result] += 1
         except TimeoutError:

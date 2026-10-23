@@ -345,7 +345,12 @@ class DriveBulkShareWorker:
                 expected_version=file.get("sourceVersion", "1"),
                 require_app_authorized=False,
                 require_genai_eligibility=False,
-                metadata_only=not bool(file.get("packageDigest") or file.get("contentVerified")),
+                metadata_only=(
+                    file.get("metadataOnly") is True
+                    and file.get("fingerprintBasis") == "provider_metadata"
+                    and evidence is not None
+                )
+                or not bool(file.get("packageDigest") or file.get("contentVerified")),
                 expected_name=file["name"],
                 time_field="modifiedTime",
                 start_time="1970-01-01T00:00:00Z",

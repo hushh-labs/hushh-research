@@ -4358,6 +4358,52 @@ inside encrypted operational metadata. Only documented rate-limit reason codes o
 a bounded 403 response are treated as transient. An uncertain permission POST is
 reconciled with reads rather than automatically repeated.
 
+### Two-month Drive packets (UAT)
+
+`features.drive_period_packets` admits the separate `DRIVE_PERIOD_PACKETS_ENABLED`
+capability in UAT. It does not enable the retired content collection, extraction,
+four-group classifier or legacy package builder. Current authorized owners receive
+Financial statements, Account statements, Brokerage and Insurance categories.
+Each category has an independent calendar-pair packet: January–February through
+November–December. Enrollment is bounded to elapsed/current pairs of the current
+year; current pairs are Building and cannot be listed or purchased before closure.
+Heads record an explicit UTC calendar boundary; the period window is displayed
+with each packet rather than inferred from the viewer's timezone.
+Explicit background OFF, connector revocation, owner placement and account erasure
+remain execution fences. Default enrollment records a product policy, not an owner
+acceptance or permission grant.
+
+The existing Azure planner authors the search expression. The existing discovery
+compiler, Drive pagination and owner-search leases collect metadata without reading
+document bodies or running another content assessor. Only a complete closed search
+can freeze a packet; incomplete, failed and over-limit results remain unavailable.
+Frozen membership and query provenance live encrypted in the existing packet
+version store, independently of temporary search results. A selected metadata date
+window is not a claim about statement reporting coverage.
+
+`GET /api/connectors/google_drive/sharing/packets` retains its legacy packet shape
+and adds a discriminated `kind: "provider_discovery"` item with `category`,
+`periodStart`, `periodEnd`, `timezone`, server lifecycle state, fixed `priceCents:500`,
+and recipient-bound `requestId`/`purchaseState`. Unfrozen heads have version zero;
+frozen heads have version one. Owner-only contents contain bounded original links.
+Visitors receive only explicitly listed summaries under the existing connection
+audience, never unpurchased filenames or links.
+
+Listing and purchase use the existing `/sharing/packets/{id}/listing` and
+`/sharing/packets/{id}/requests` endpoints. The new admission cannot reactivate a
+legacy content packet. Every purchase binds the exact packet version, manifest
+digest, listing revision, 500-cent price and verified recipient. The normal exact
+owner Allow, one-time checkout, recipient-access preflight and permission worker
+remain authoritative. Repeat purchases resume their existing request. All-existing
+access completes without a charge; mixed and unknown access retain their existing
+review/refusal behavior. Disabling payments blocks new period listings and purchases
+while retaining owner previews; it never silently makes advertised paid packets free.
+There is no recurring charge or automatic addition of the
+next period's files. Provider-search package summaries use
+`confidenceBasis:"provider_search"`, null model scores and zero assessed documents;
+buyer disclosures report unknown content coverage and an explicit search-only
+limitation. A provider-search disclosure cannot claim verified content periods.
+
 ### Exact-file Drive sharing (default-off)
 
 All routes below use `/api/connectors/google_drive/sharing` and require a current Vault

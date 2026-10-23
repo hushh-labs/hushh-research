@@ -1,4 +1,4 @@
-import type { DrivePacket, DrivePacketDocument, DrivePacketPeriod } from "@/lib/services/drive-packet-service";
+import type { DiscoveryDrivePacket, DrivePacket, DrivePacketCategory, DrivePacketDocument, DrivePacketPeriod } from "@/lib/services/drive-packet-service";
 
 import type { PacketTone } from "./packet-rows";
 
@@ -67,11 +67,24 @@ export function buyerSummary(packet: DrivePacket): string | null {
 
 /** What the owner still needs to add, in the agent's words; never a status line in disguise. */
 export function packetGaps(packet: DrivePacket): string[] {
-  return packet.gaps.filter(gap => !STATUS_GAPS.has(gap));
+  return packet.kind === "provider_discovery" ? [] : packet.gaps.filter(gap => !STATUS_GAPS.has(gap));
+}
+export const PACKET_CATEGORY_NAMES: Record<DrivePacketCategory, string> = {
+  financial: "Financial statements", bank: "Account statements", brokerage: "Brokerage", insurance: "Insurance",
+};
+export function categoryPeriods(packets: readonly DrivePacket[], category: DrivePacketCategory): DiscoveryDrivePacket[] {
+  return packets.filter((packet): packet is DiscoveryDrivePacket => packet.kind === "provider_discovery" && packet.category === category)
+    .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+}
+export function packetCategories(packets: readonly DrivePacket[], defaults = false): DrivePacketCategory[] {
+  return (Object.keys(PACKET_CATEGORY_NAMES) as DrivePacketCategory[]).filter(category => defaults || categoryPeriods(packets, category).length > 0);
+}
+export function packetPeriod(packet: DrivePacket): DrivePacketPeriod | null {
+  return packet.kind === "provider_discovery" ? { start: packet.periodStart, end: packet.periodEnd } : packet.contents?.period ?? null;
 }
 
 export type OwnerPacketStatus = {
-  word: "Ready to list" | "Listed" | "Not listed" | "Checking" | "Needs attention" | "Couldn’t check" | "Too large to list" | "Paused";
+  word: "Ready to list" | "Listed" | "Not listed" | "Checking" | "Needs attention" | "Couldn’t check" | "Too large to list" | "Paused" | "Building" | "No files";
   tone: PacketTone;
   detail: string;
   /** Lower sorts first: decisions, then live listings, then work in progress. */
@@ -79,6 +92,15 @@ export type OwnerPacketStatus = {
 };
 
 export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
+  if (packet.kind === "provider_discovery") {
+    if (packet.state === "building") return { word: "Building", tone: "waiting", order: 4, detail: "Updates until this period closes." };
+    if (packet.state === "empty") return { word: "No files", tone: "paused", order: 3, detail: "No matching files this period." };
+    if (packet.state === "unable_to_verify") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Files couldn’t be confirmed." };
+    if (packet.freshness !== "current") return { word: "Paused", tone: "paused", order: 5, detail: "This packet isn’t available now." };
+    if (packet.listingEnabled) return { word: "Listed", tone: "listed", order: 1, detail: "Connections can ask to buy. You approve each buyer." };
+    if (!packet.canList) return { word: "Not listed", tone: "paused", order: 3, detail: "This packet can’t be listed." };
+    return { word: packet.listingRevision ? "Not listed" : "Ready to list", tone: "ready", order: 2, detail: "Only you can see it." };
+  }
   // Either switch pauses preparation (Prepare packets, or Background Drive access), so this names neither.
   if (packet.freshness === "paused") return { word: "Paused", tone: "paused", order: 5,
     detail: packet.listingEnabled ? "Preparation is paused. Connections can see it but can’t buy it." : "Preparation is paused." };
@@ -97,13 +119,13 @@ export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
 
 /** "Ready to list · 3 documents · Jan–Jun 2026". */
 export function ownerStatusLine(packet: DrivePacket): string {
-  return [ownerPacketStatus(packet).word, documentCount(packet.documentCount), periodLabel(packet.contents?.period)]
+  return [ownerPacketStatus(packet).word, documentCount(packet.documentCount), periodLabel(packetPeriod(packet))]
     .filter(Boolean).join(" · ");
 }
 
 /** A price shows only where it means something: listed, or ready to list. */
 export function ownerPacketPrice(packet: DrivePacket): number | null {
-  return packet.listingEnabled || packet.canList ? packet.priceCents : null;
+  return packet.state === "building" ? null : packet.listingEnabled || packet.canList ? packet.priceCents : null;
 }
 
 /** "Oct 13, 2026": when Agent One last checked a packet. */
@@ -112,12 +134,23 @@ export function checkedDate(value: string): string {
 }
 
 /** What a buyer's own request for one packet version did, in this session. */
-export type BuyerPacketRequest = { requestId: string; existingAccess: boolean };
+export type BuyerPacketRequest = { requestId: string; existingAccess: boolean; purchaseState?: "pending" | "paid" | "delivered" };
+/** Durable receipts take precedence over this mounted list's transient retry result. */
+export function savedPacketRequest(packet: DrivePacket): BuyerPacketRequest | null {
+  return packet.kind === "provider_discovery" && packet.requestId && packet.purchaseState !== "none"
+    ? { requestId: packet.requestId, existingAccess: false, purchaseState: packet.purchaseState } : null;
+}
 
 /** A buyer's one line for a packet: "3 documents · January to June 2026", or where their request stands. */
 export function buyerPacketStatus(packet: DrivePacket, request: BuyerPacketRequest | null, ownerName: string): { line: string; tone: PacketTone } {
   if (request?.existingAccess) return { line: "You have these files", tone: "listed" };
+  if (request?.purchaseState === "delivered") return { line: "Files available", tone: "listed" };
+  if (request?.purchaseState === "paid") return { line: "Paid", tone: "waiting" };
   if (request) return { line: `Requested · Waiting for ${ownerName}`, tone: "waiting" };
+  if (packet.kind === "provider_discovery" && packet.state !== "ready") {
+    const status = ownerPacketStatus(packet);
+    return { line: status.word, tone: status.tone };
+  }
   if (!packet.canRequest) return { line: "Not available right now", tone: "paused" };
   return { line: [documentCount(packet.documentCount), buyerSummary(packet)].filter(Boolean).join(" · "), tone: "ready" };
 }
@@ -127,6 +160,7 @@ const PARTIAL_DRIVE = "this is not a complete inventory of matching records.";
 
 /** What a packet may leave out, in plain words, for its buyers and for its owner's "What buyers see". */
 export function buyerNotes(packet: DrivePacket): string[] {
+  if (packet.kind === "provider_discovery") return ["Files matched a Drive search. Their contents were not read."];
   return packet.description.includes(PARTIAL_DRIVE) ? ["It may not include every matching file."] : [];
 }
 

@@ -283,6 +283,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "refunds": {"succeeded": 1},
             "owner_payouts": {"transferred": 1},
             "packet_orders": {"refunded": 1},
+            "period_packets": {"unavailable": 1},
         },
     }
     assert "no-store" in response.headers["Cache-Control"]

@@ -478,7 +478,15 @@ async def set_packet_listing(
         body.decision == "allow"
         and os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
     ):
-        raise _error(DriveSharingError("packet_unavailable"))
+        if os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() != "true":
+            raise _error(DriveSharingError("packet_unavailable"))
+        await _call(
+            "require_period_packet",
+            owner=owner,
+            factory=_packet_service,
+            packet_id=str(packet_id),
+            version=body.version,
+        )
     return await _call(
         "set_listing",
         owner=owner,
@@ -500,7 +508,15 @@ async def request_packet(
     owner: Owner = Depends(_owner),
 ):
     if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true":
-        raise _error(DriveSharingError("packet_unavailable"))
+        if os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() != "true":
+            raise _error(DriveSharingError("packet_unavailable"))
+        await _call(
+            "require_period_packet",
+            owner=owner,
+            factory=_packet_service,
+            packet_id=str(packet_id),
+            version=body.version,
+        )
     return await _call(
         "request_packet",
         owner=owner,

@@ -1629,9 +1629,7 @@ class DriveSharingStore(DriveDocumentStore):
                     # The Google account files go to, as sealed in the request.
                     "recipientEmail": sealed["recipient"]["email"],
                 }
-            if _new_requests_use_legacy_flow():
-                if reusable_packet is not None:
-                    raise DriveSharingError("packet_unavailable")
+            if _new_requests_use_legacy_flow() and reusable_packet is None:
                 if access_days is not None or requester_profile is not None or reason:
                     raise DriveSharingError("invalid_argument")
             packet_manifest = None
@@ -1647,6 +1645,19 @@ class DriveSharingStore(DriveDocumentStore):
                     version=reusable_packet["version"],
                     viewer_user_id=recipient.user_id,
                 )
+                provider_packet = (
+                    packet_manifest.get("kind") == "provider_discovery"
+                    and os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() == "true"
+                )
+                if provider_packet:
+                    from hushh_mcp.services.drive_period_packet_reader import (
+                        period_purchases_enabled,
+                    )
+
+                    if not period_purchases_enabled():
+                        raise DriveSharingError("packet_unavailable")
+                if _new_requests_use_legacy_flow() and not provider_packet:
+                    raise DriveSharingError("packet_unavailable")
                 if (
                     owner_initiated
                     or packet_manifest["state"] != "ready"
@@ -1703,7 +1714,12 @@ class DriveSharingStore(DriveDocumentStore):
                 and drive["status"] == "connected"
                 and drive["validation_state"] == "verified"
                 and drive["verified_policy_hash"] == LIVE_POLICY_HASH
-                and not _new_requests_use_legacy_flow()
+                and (
+                    not _new_requests_use_legacy_flow()
+                    or packet_manifest is not None
+                    and packet_manifest.get("kind") == "provider_discovery"
+                    and os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() == "true"
+                )
             )
             if reusable_packet is not None and not agent_package:
                 raise DriveSharingError("packet_unavailable")
@@ -1787,7 +1803,9 @@ class DriveSharingStore(DriveDocumentStore):
                     **({"v1_live_request": True} if v1_live_request else {}),
                     **(
                         {"legacy_request_policy": LEGACY_REQUEST_POLICY}
-                        if _new_requests_use_legacy_flow() and not owner_initiated
+                        if _new_requests_use_legacy_flow()
+                        and not owner_initiated
+                        and not agent_package
                         else {}
                     ),
                     # Trusted or allowed: every in-period match after payment,
@@ -3332,6 +3350,12 @@ class DriveSharingStore(DriveDocumentStore):
                 package = DriveRequestPackageStore(
                     db=self.db, cipher=self.sharing_cipher, sharing=self
                 ).validate_ready_package(connection, row, private, package_revision, package_digest)
+                if (
+                    package.get("basis") == "provider_discovery"
+                    and row["payment_required"] is True
+                    and amount_cents != package["price_cents"]
+                ):
+                    raise DriveSharingError("invalid_payment_amount")
             # A paid request needs the owner's price; a free one takes none.
             if (row["payment_required"] is True) != (amount_cents is not None):
                 raise DriveSharingError("invalid_payment_amount")

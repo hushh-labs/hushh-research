@@ -27,6 +27,7 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "drive_four_group_index",
     "drive_document_sharing",
     "drive_agent_packages_enabled",
+    "drive_period_packets",
     "gmail_chat_reads",
     "google_drive_chat_reads",
     "curated_mcp_connectors",
@@ -208,6 +209,8 @@ def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
 
 def _validate_connector_rollout(args: argparse.Namespace) -> None:
     """Fail before touching Secret Manager on an unsafe hosted rollout."""
+    if getattr(args, "drive_period_packets", "false") == "true" and args.environment != "uat":
+        raise ValueError("Drive period packets rollout is limited to UAT")
     enabled = any(getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS)
     uat_cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
     prod_cohort = str(getattr(args, "connector_production_owner_cohort", "") or "")
@@ -323,6 +326,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "drive_four_group_index": getattr(args, "drive_four_group_index", "false"),
         "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
         "drive_agent_packages_enabled": getattr(args, "drive_agent_packages_enabled", "false"),
+        "drive_period_packets": getattr(args, "drive_period_packets", "false"),
         "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
         "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
         "curated_mcp_connectors": getattr(args, "curated_mcp_connectors", "false"),
@@ -530,6 +534,10 @@ def main() -> int:
     parser.add_argument("--drive-four-group-index", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
     parser.add_argument("--drive-agent-packages-enabled", default="false", choices=["true", "false"])
+    parser.add_argument(
+        "--drive-period-packets-enabled", dest="drive_period_packets", default="false",
+        choices=["true", "false"],
+    )
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])

@@ -1379,6 +1379,7 @@ tests/eval_drive_packets/test_sources_read_only.py
 tests/eval_drive_packets/test_stats.py
 
 tests/services/test_drive_reusable_packets_postgres.py
+tests/services/test_drive_period_packets.py
 
 tests/services/test_drive_packet_catalog_postgres.py
 

@@ -145,6 +145,10 @@ async def reusable(sharing, collection, ingestion, monkeypatch):
             (MIGRATIONS / "334_drive_reusable_packets.sql").read_text(),
             execution_options={"no_parameters": True},
         )
+        connection.exec_driver_sql(
+            (MIGRATIONS / "411_drive_period_packets.sql").read_text(),
+            execution_options={"no_parameters": True},
+        )
     facts = DriveDocumentFactsStore(db=collection.db, cipher=collection.cipher)
     packets = DrivePacketStore(db=collection.db, cipher=collection.cipher)
     worker = DrivePacketWorker(
@@ -2116,3 +2120,146 @@ async def test_worker_carries_host_file_time_without_persisting_it_in_manifest(r
     )
     assert manifest["sources"]
     assert all("created_time" not in item for item in manifest["sources"])
+
+
+async def frozen_provider_period(reusable, monkeypatch):
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
+    from datetime import UTC, datetime
+
+    from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+    from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
+    from hushh_mcp.services.drive_period_packet_service import DrivePeriodPacketService
+    from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
+    from hushh_mcp.services.drive_request_discovery import discovery_evidence
+    from tests.services.test_drive_period_packets import semantic
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_package_assessment.validate_semantic_model_binding",
+        lambda value: value,
+    )
+    period = DrivePeriodPacketStore(db=reusable.collection.db, cipher=reusable.collection.cipher)
+    await period.ensure_owner(user_id="owner", now=datetime(2020, 3, 1, tzinfo=UTC))
+    with period.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_collection_sync SET processing_enabled=FALSE WHERE user_id='owner'")
+        )
+    job = await period.claim_build(user_id="owner")
+    assert job and job["period_start"].year == 2020
+    plan = {"file_kind": "any", "semantic_query": semantic()}
+    binding = {
+        "provider": "azure_openai",
+        "deployment": "synthetic",
+        "config_fingerprint": "synthetic",
+        "approval_generation": None,
+    }
+    search = DriveOwnerSearchStore(db=period.db)
+    authored = {
+        **plan,
+        "subject_scope": "specific_records",
+        "subject_complete": True,
+        "semantic_intent": "other",
+        "discovery_clues": ["statement"],
+        "required_entities": [],
+        "expected_document_anatomy": "Provider search membership only.",
+    }
+    planner = AsyncMock(return_value=authored)
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_period_packet_service.semantic_request_model_binding",
+        lambda: binding,
+    )
+    service = DrivePeriodPacketService(
+        store=period, search=DriveOwnerSearchService(store=search), planner=planner
+    )
+    plan, binding = await service._plan(job, AsyncMock())
+    planner.assert_awaited_once()
+    state = await service._search_job(job, plan, binding)
+    claimed = await search.claim(user_id="owner", job_id=state["jobId"])
+    checkpoint = claimed["checkpoint"]
+    file = {
+        "id": "synthetic-file",
+        "name": "Synthetic statement",
+        "mimeType": "application/pdf",
+        "modifiedTime": f"{job['period_start'].isoformat()}T00:00:00Z",
+        "sourceVersion": "1",
+        "shareable": True,
+    }
+    file["discoveryEvidence"] = discovery_evidence(
+        checkpoint, user_id="owner", generation=1, metadata=file
+    )
+    await search.commit_page(claimed, checkpoint=checkpoint, files=[file], done=True)
+    job["build"] = {"plan": plan, "model_binding": binding}
+    manifest = await period.freeze(job, search_job_id=state["jobId"])
+    return period, job, state, manifest, file
+
+
+async def test_provider_period_freezes_metadata_once_without_facts_or_collection(
+    reusable, monkeypatch
+):
+    period, job, state, manifest, file = await frozen_provider_period(reusable, monkeypatch)
+    plan = job["build"]["plan"]
+    assert manifest["state"] == "ready" and manifest["kind"] == "provider_discovery"
+    assert len(manifest["sources"]) == 1 and manifest["search"]["authored_plan"] == plan
+    assert "assessment_score" not in manifest["assessment"]
+    with pytest.raises(DriveReadError, match="packet_superseded"):
+        await period.freeze(job, search_job_id=state["jobId"])
+    current = await reusable.packets.current_packet_manifest(
+        owner_user_id="owner", packet_id=str(job["packet_id"]), version=1
+    )
+    assert current["digest"] and current["price_cents"] == 500
+    page = await reusable.packets.list_packets(user_id="owner", owner_contents=True, limit=100)
+    assert await period.due_owners(limit=1) == ["owner"]
+    item = next(item for item in page["packets"] if item["packetId"] == str(job["packet_id"]))
+    assert item["contents"]["documents"][0]["name"] == file["name"]
+    assert item["contents"]["documents"][0]["type"] is None
+    with period.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_packet_members WHERE packet_id=:id"),
+                {"id": job["packet_id"]},
+            ).scalar_one()
+            == 0
+        )
+        connection.exec_driver_sql(
+            (MIGRATIONS / "411_drive_period_packets.sql").read_text(),
+            execution_options={"no_parameters": True},
+        )
+        connection.exec_driver_sql(
+            (MIGRATIONS / "rollback/411_drive_period_packets.rollback.sql").read_text(),
+            execution_options={"no_parameters": True},
+        )
+    assert (
+        await reusable.packets.current_packet_manifest(
+            owner_user_id="owner", packet_id=str(job["packet_id"]), version=1
+        )
+    )["digest"] == current["digest"]
+
+
+@pytest.mark.parametrize("state", ["reclaimed", "expired"])
+async def test_period_provider_call_fence_rejects_lost_head_lease(reusable, monkeypatch, state):
+    from datetime import UTC, datetime
+
+    from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
+
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
+    period = DrivePeriodPacketStore(db=reusable.collection.db, cipher=reusable.collection.cipher)
+    await period.ensure_owner(user_id="owner", now=datetime(2020, 3, 1, tzinfo=UTC))
+    job = await period.claim_build(user_id="owner")
+    arguments = {
+        "user_id": "owner",
+        "packet_id": str(job["packet_id"]),
+        "revision": job["revision"],
+        "lease_id": job["lease_id"],
+    }
+    await period.require_build_current(**arguments)
+    change = (
+        "lease_id=gen_random_uuid()"
+        if state == "reclaimed"
+        else "lease_expires_at=clock_timestamp()-INTERVAL '1 second'"
+    )
+    with period.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_packet_heads SET " + change + " WHERE packet_id=:id"),
+            {"id": job["packet_id"]},
+        )
+    with pytest.raises(DriveReadError, match="packet_superseded"):
+        await period.require_build_current(**arguments)

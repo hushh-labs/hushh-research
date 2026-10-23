@@ -74,13 +74,21 @@ class DriveSuggestionWorker:
                     }.get(outcome, "unavailable")
                 ] += count
             return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
-        packages = self._package_service() if _agent_packages_enabled() else None
+        period_only = (
+            not _agent_packages_enabled()
+            and os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() == "true"
+        )
+        packages = self._package_service() if _agent_packages_enabled() or period_only else None
         if packages is not None:
             # A separate finite task prevents either legacy or package traffic
             # from starving the other; neither branch can extend this deadline.
             async with asyncio.TaskGroup() as group:
                 package_run = group.create_task(
-                    packages.run(max_jobs=max_jobs, deadline_seconds=deadline_seconds)
+                    packages.run(
+                        max_jobs=max_jobs,
+                        deadline_seconds=deadline_seconds,
+                        **({"provider_only": True} if period_only else {}),
+                    )
                 )
                 legacy_run = group.create_task(
                     DriveSuggestionWorker(self.service).run(

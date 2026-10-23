@@ -1874,7 +1874,8 @@ describe("PersonProfilePage packets a connection has listed", () => {
     publishValidatedAuthSessionOwner(null);
   });
 
-  it("shows them as history rows, not a card in a card, and the page names who approves", async () => {
+  it.each(["legacy", "period"])("shows listed packets through the %s availability flag", async (feature) => {
+    mocks.connectorOverview.mockResolvedValue({ driveAgentPackagesEnabled: feature === "legacy", features: { drive_period_packets: feature === "period" } });
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     const list = await screen.findByRole("region", { name: "Available document packets" });
     const row = await within(list).findByRole("button", { name: /^Example Bank statements/ });

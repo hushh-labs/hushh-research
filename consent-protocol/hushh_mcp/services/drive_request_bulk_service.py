@@ -447,7 +447,14 @@ class DriveRequestBulkService:
             route = await self.search.request_evidence_route(
                 user_id=user_id, reusable_packet=context.get("reusablePacket"), request=purpose
             )
-        if context.get("semanticSearch") is True:
+        provider_packet = bool(route and route.get("provider_packet") is True)
+        if provider_packet:
+            # Buying an immutable search packet reuses its Azure-authored plan.
+            # The exact frozen members, rather than a new query/model turn,
+            # become the request's separately approved selection.
+            plan = route["plan"]
+            plan_source = "frozen_provider_packet"
+        elif context.get("semanticSearch") is True:
             # This creation-time policy never falls back to a lexical planner.
             # The complete interpretation is sealed; v2 delivers provider-query matches.
             prompt = {
@@ -577,14 +584,20 @@ class DriveRequestBulkService:
             **({"planner_fallback": planner_fallback} if planner_fallback is not None else {}),
             **({"brain": brain.as_checkpoint()} if brain is not None else {}),
             **({"plan_source": plan_source} if plan_source is not None else {}),
-            **({"semantic_search": True} if context.get("semanticSearch") is True else {}),
             **(
-                {"discovery_delivery_enabled": True}
-                if context.get("discoveryDelivery") is True
+                {"semantic_search": True}
+                if provider_packet or context.get("semanticSearch") is True
                 else {}
             ),
             **(
-                {"semantic_model_binding": context["semanticModelBinding"]}
+                {"discovery_delivery_enabled": True}
+                if provider_packet or context.get("discoveryDelivery") is True
+                else {}
+            ),
+            **(
+                {"semantic_model_binding": route["model_binding"]}
+                if provider_packet and route.get("model_binding") is not None
+                else {"semantic_model_binding": context["semanticModelBinding"]}
                 if context.get("semanticSearch") is True
                 and context.get("semanticModelBinding") is not None
                 else {}

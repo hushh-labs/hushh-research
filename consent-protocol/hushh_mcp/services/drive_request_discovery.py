@@ -106,13 +106,25 @@ def discovery_evidence(checkpoint: Mapping, *, user_id, generation, metadata) ->
     queries = checkpoint["queries"]
     query_index = checkpoint["query_index"]
     query = queries[query_index]["arguments"]["query"]
+    period_origin = checkpoint.get("period_packet_origin")
+    origin = (
+        {
+            "origin_kind": "period_packet",
+            "request_id": period_origin["packet_id"],
+            "request_revision": period_origin["revision"],
+        }
+        if period_origin is not None
+        else {
+            "request_id": checkpoint["request_origin_id"],
+            "request_revision": checkpoint["request_revision"],
+        }
+    )
     return {
         "policy": DISCOVERY_DELIVERY_POLICY,
         "basis": "drive_query",
         "content_assessment": "not_applicable_by_delivery_policy",
         "owner_user_id": user_id,
-        "request_id": checkpoint["request_origin_id"],
-        "request_revision": checkpoint["request_revision"],
+        **origin,
         "connection_generation": generation,
         "plan_digest": checkpoint["semantic_plan_digest"],
         "query_index": query_index,
