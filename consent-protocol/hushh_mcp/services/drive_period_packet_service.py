@@ -8,8 +8,6 @@ import os
 from collections import Counter
 from datetime import UTC, datetime
 
-from sqlalchemy import text
-
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_period_packet_contract import CATEGORY_PURPOSES, PERIOD_PACKET_POLICY
 from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
@@ -38,26 +36,15 @@ class DrivePeriodPacketService:
         return await self.store.ensure_owner(user_id=user_id, timezone=timezone)
 
     async def _plan(self, job, require_current):
-        def cached(connection):
-            rows = connection.execute(
-                text("""SELECT * FROM drive_packet_heads
-              WHERE user_id=:user AND connection_generation=:generation
-                AND packet_kind='provider_discovery' AND category=:category
-                AND build_envelope IS NOT NULL ORDER BY updated_at DESC LIMIT 6"""),
-                {
-                    "user": job["user_id"],
-                    "generation": job["connection_generation"],
-                    "category": job["category"],
-                },
-            ).mappings()
-            return [self.store._build(row) for row in rows]
-
         binding = semantic_request_model_binding()
         if binding["provider"] != "azure_openai":
             raise DriveReadError("connector_unavailable")
-        for build in await self.store._transaction(cached):
-            if build.get("model_binding") == binding and build.get("plan"):
-                return build["plan"], binding
+        # A plan was authored for this exact category/period. Another period's
+        # interpretation may contain date-specific predicates and cannot be reused.
+        build = job["build"]
+        if build.get("model_binding") == binding and build.get("plan"):
+            await require_current()
+            return build["plan"], binding
         prompt = {
             "document_request": {
                 "purpose": CATEGORY_PURPOSES[job["category"]],

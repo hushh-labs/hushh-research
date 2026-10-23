@@ -207,3 +207,34 @@ async def test_worker_threads_exact_head_lease_to_pre_send_guard(monkeypatch):
     store.require_build_current.assert_awaited_once_with(
         user_id="owner", packet_id=identity, revision=3, lease_id="lease-current"
     )
+
+
+@pytest.mark.parametrize("cached", [False, True])
+async def test_planning_reuses_only_this_exact_period_checkpoint(monkeypatch, cached):
+    import json
+
+    module = "hushh_mcp.services.drive_period_packet_service"
+    binding = {"provider": "azure_openai", "deployment": "central"}
+    authored = {"semantic_query": semantic()}
+    monkeypatch.setattr(f"{module}.semantic_request_model_binding", lambda: binding)
+    plan = AsyncMock(return_value=SimpleNamespace(model_dump=lambda **_: authored))
+    monkeypatch.setattr(f"{module}.plan_semantic_live_search", plan)
+    store = SimpleNamespace(_transaction=AsyncMock(side_effect=AssertionError("other periods")))
+    service = DrivePeriodPacketService(store=store, search=SimpleNamespace())
+    current = AsyncMock()
+    job = {
+        "user_id": "owner",
+        "category": "financial",
+        "period_timezone": "UTC",
+        "period_start": date(2026, 3, 1),
+        "period_end": date(2026, 4, 30),
+        "build": {"model_binding": binding, "plan": authored} if cached else {},
+    }
+    assert await service._plan(job, current) == (authored, binding)
+    store._transaction.assert_not_awaited()
+    if cached:
+        current.assert_awaited_once()
+        plan.assert_not_awaited()
+    else:
+        request = json.loads(plan.await_args.kwargs["prompt"])["document_request"]
+        assert request["periodStart"] == "2026-03-01" and request["periodEnd"] == "2026-04-30"

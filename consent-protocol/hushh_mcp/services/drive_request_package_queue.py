@@ -10,37 +10,9 @@ from hushh_mcp.services.drive_owner_search_store import _identity
 
 MAX_BATCH = 6
 
-
-def document_ref(position: int) -> str:
-    return f"p{position}"
-
-
-async def due_evaluations(store, limit=2, *, v1_only=False, provider_only=False):
-    if (
-        type(limit) is not int
-        or not 1 <= limit <= 20
-        or type(v1_only) is not bool
-        or type(provider_only) is not bool
-        or v1_only
-        and provider_only
-    ):
-        raise ValueError("invalid evaluation limit")
-    provider_filter = (
-        """
-        AND EXISTS(SELECT 1 FROM drive_packet_heads h
-          WHERE h.packet_id=r.reusable_packet_id AND h.user_id=r.user_id
-            AND h.packet_kind='provider_discovery')
-    """
-        if provider_only
-        else ""
-    )
-
-    def operation(connection):
-        rows = [
-            dict(row)
-            for row in connection.execute(
-                text(
-                    """WITH due AS (
+# Separate fixed statements keep retained pre-provider schemas compatible.
+# Both apply all admission predicates before the bound LIMIT.
+DUE_SQL = """WITH due AS (
                   SELECT j.job_id FROM drive_owner_search_jobs j
                   JOIN drive_share_requests r ON r.request_id=j.client_request_id
                     AND r.user_id=j.user_id
@@ -56,14 +28,57 @@ async def due_evaluations(store, limit=2, *, v1_only=False, provider_only=False)
                       WHERE b.user_id=j.user_id AND b.origin_request_id=r.request_id)
                     AND NOT EXISTS(SELECT 1 FROM drive_request_payment_orders o
                       WHERE o.request_id=r.request_id)
-                  """
-                    + provider_filter
-                    + """
                   ORDER BY j.inspected_at,j.created_at,j.job_id
                   LIMIT :limit FOR UPDATE OF j SKIP LOCKED)
                 UPDATE drive_owner_search_jobs j SET inspected_at=clock_timestamp()
                 FROM due WHERE j.job_id=due.job_id RETURNING j.user_id,j.job_id"""
-                ),
+
+PROVIDER_DUE_SQL = """WITH due AS (
+                  SELECT j.job_id FROM drive_owner_search_jobs j
+                  JOIN drive_share_requests r ON r.request_id=j.client_request_id
+                    AND r.user_id=j.user_id
+                  WHERE j.status='completed' AND j.incomplete_search=FALSE
+                    AND r.agent_package_required=TRUE
+                    AND (:v1_only=FALSE OR j.v1_statement_search=TRUE)
+                    AND j.evaluation_status IN ('pending','running')
+                    AND j.expires_at>clock_timestamp() AND r.expires_at>clock_timestamp()
+                    AND r.status='pending' AND r.access_stop_requested_at IS NULL
+                    AND j.evaluation_next_at<=clock_timestamp()
+                    AND (j.lease_id IS NULL OR j.lease_expires_at<=clock_timestamp())
+                    AND NOT EXISTS(SELECT 1 FROM drive_bulk_shares b
+                      WHERE b.user_id=j.user_id AND b.origin_request_id=r.request_id)
+                    AND NOT EXISTS(SELECT 1 FROM drive_request_payment_orders o
+                      WHERE o.request_id=r.request_id)
+                    AND EXISTS(SELECT 1 FROM drive_packet_heads h
+                      WHERE h.packet_id=r.reusable_packet_id AND h.user_id=r.user_id
+                        AND h.packet_kind='provider_discovery')
+                  ORDER BY j.inspected_at,j.created_at,j.job_id
+                  LIMIT :limit FOR UPDATE OF j SKIP LOCKED)
+                UPDATE drive_owner_search_jobs j SET inspected_at=clock_timestamp()
+                FROM due WHERE j.job_id=due.job_id RETURNING j.user_id,j.job_id"""
+
+
+def document_ref(position: int) -> str:
+    return f"p{position}"
+
+
+async def due_evaluations(store, limit=2, *, v1_only=False, provider_only=False):
+    if (
+        type(limit) is not int
+        or not 1 <= limit <= 20
+        or type(v1_only) is not bool
+        or type(provider_only) is not bool
+        or v1_only
+        and provider_only
+    ):
+        raise ValueError("invalid evaluation limit")
+    query = PROVIDER_DUE_SQL if provider_only else DUE_SQL
+
+    def operation(connection):
+        rows = [
+            dict(row)
+            for row in connection.execute(
+                text(query),
                 {"limit": limit, "v1_only": v1_only},
             ).mappings()
         ]
