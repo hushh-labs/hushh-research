@@ -13,7 +13,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Calendar, Save } from "@/components/icons";
+import { Save } from "@/components/icons";
+import { HoldingAcquisitionDateField } from "@/components/kai/holdings/holding-acquisition-date-field";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
@@ -373,13 +374,6 @@ export function EditHoldingModal({
     });
   }, [formData, validate, onSave]);
 
-  const formatAcquisitionDate = useCallback((value?: string) => {
-    if (!value) return "";
-    const [year, month, day] = value.split("-");
-    if (!year || !month || !day) return value;
-    return `${month}/${day}/${year}`;
-  }, []);
-
   const isNewHolding = !holding?.symbol;
 
   return (
@@ -613,49 +607,12 @@ export function EditHoldingModal({
             )}
           </div>
 
-          {/* Acquisition Date */}
-          <div>
-            <label htmlFor="holding-acquisition-date" className="block text-sm font-medium mb-1">
-              Acquisition Date
-            </label>
-            <div className="relative">
-              {/*
-                Decorative display layer. The REAL date input is the invisible
-                full-size overlay below: iOS WKWebView only opens the native
-                date wheel from a direct user tap ON the date input itself -
-                programmatic click()/focus()/showPicker() on a hidden 1px input
-                are ignored there, which is why this field previously could not
-                be filled on iOS. pointer-events-none keeps every tap landing
-                on the overlay input.
-              */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none flex h-12 w-full items-center rounded-xl border border-border bg-background px-4 pr-12 transition-colors"
-              >
-                <span className={formData.acquisition_date ? "" : "text-muted-foreground"}>
-                  {formatAcquisitionDate(formData.acquisition_date) || "MM/DD/YYYY"}
-                </span>
-              </div>
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground"
-              >
-                <Calendar className="h-4 w-4" />
-              </span>
-              <input
-                id="holding-acquisition-date"
-                type="date"
-                value={formData.acquisition_date || ""}
-                onChange={(e) => handleChange("acquisition_date", e.target.value)}
-                max={maxAcquisitionDate}
-                aria-label="Acquisition date"
-                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-              />
-            </div>
-            {errors.acquisition_date && (
-              <p className="text-sm text-red-500 mt-1">{errors.acquisition_date}</p>
-            )}
-          </div>
+          <HoldingAcquisitionDateField
+            value={formData.acquisition_date}
+            max={maxAcquisitionDate}
+            error={errors.acquisition_date}
+            onChange={(value) => handleChange("acquisition_date", value)}
+          />
 
           {/* Gain/Loss Preview */}
           {formData.cost_basis !== undefined && formData.cost_basis > 0 && (

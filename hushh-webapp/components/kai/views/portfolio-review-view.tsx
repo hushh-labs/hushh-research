@@ -17,6 +17,7 @@
 "use client";
 
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
+import { PortfolioReviewSummary } from "@/components/kai/cards/portfolio-review-summary";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -26,8 +27,6 @@ import {
   RefreshCw,
   Loader2,
   Building2,
-  TrendingUp,
-  TrendingDown,
   PieChart,
   Wallet,
 } from "@/components/icons";
@@ -262,16 +261,6 @@ function formatCurrency(value: number | undefined | null): string {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatCurrencyCompact(value: number | undefined | null): string {
-  if (value === undefined || value === null) return "$0";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
     maximumFractionDigits: 2,
   }).format(value);
 }
@@ -2016,82 +2005,13 @@ export function PortfolioReviewView({
       <div className="md:grid md:grid-cols-12 md:items-start md:gap-5">
         {/* Left Column / Mobile Top: Summary & Info */}
         <div className="space-y-5 md:col-span-5">
-          {/* Summary Card - Redesigned for bigger numbers */}
-          <MorphyCard variant="none" preset="surface-feature" className="overflow-hidden">
-            <CardContent className="relative p-5 space-y-5">
-
-              <div className="text-left">
-                <p className="text-xs font-medium text-muted-foreground mb-2">
-                  Total Portfolio Value
-                </p>
-                <p className="max-w-full text-[30px] font-semibold leading-tight tracking-tight tabular-nums break-words text-foreground">
-                  <span title={formatCurrency(totalValue)}>{formatCurrencyCompact(totalValue)}</span>
-                </p>
-
-                {totalUnrealizedGainLoss !== 0 && (
-                  <div className="flex justify-start mt-3">
-                    <Badge
-                      className={cn(
-                        "font-bold py-1 px-3",
-                        totalUnrealizedGainLoss >= 0
-                          ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                          : "bg-red-500/10 text-red-500 border-red-500/20"
-                      )}
-                    >
-                      {totalUnrealizedGainLoss >= 0 ? (
-                        <Icon icon={TrendingUp} size={12} className="mr-1.5" aria-hidden="true" />
-                      ) : (
-                        <Icon icon={TrendingDown} size={12} className="mr-1.5" aria-hidden="true" />
-                      )}
-                      <span title={formatCurrency(totalUnrealizedGainLoss)}>
-                        {formatCurrencyCompact(totalUnrealizedGainLoss)} unrealized
-                      </span>
-                    </Badge>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 border-t border-primary/10 pt-6 sm:grid-cols-3">
-                <div className="min-w-0 text-left pl-2 sm:pl-4">
-                  <p className="text-lg font-semibold sm:text-xl">{activeHoldings.length}</p>
-                  <p className="text-xs font-medium text-muted-foreground">Assets</p>
-                </div>
-                <div className="min-w-0 flex flex-col items-center justify-center">
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "font-semibold text-xs uppercase tracking-widest px-2",
-                      riskBucket === "aggressive"
-                        ? "app-critical-badge"
-                        : riskBucket === "moderate"
-                          ? "border-primary/30 bg-primary/10 text-primary"
-                          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    )}
-                  >
-                    {riskBucket}
-                  </Badge>
-                  <p className="text-xs font-medium text-muted-foreground mt-1.5">Portfolio Risk</p>
-                </div>
-                <div className="min-w-0 text-right pr-2 sm:pr-4">
-                  <p
-                    className={cn(
-                      "max-w-full text-base font-semibold leading-none tracking-normal tabular-nums truncate sm:text-lg",
-                      liveCashBalance < 0
-                        ? "text-red-500 dark:text-red-400"
-                        : "text-foreground"
-                    )}
-                  >
-                    <span title={formatCurrency(liveCashBalance)}>
-                      {formatCurrencyCompact(liveCashBalance)}
-                    </span>
-                  </p>
-                  <p className="text-xs font-medium text-muted-foreground mt-1.5">Cash</p>
-                </div>
-              </div>
-
-            </CardContent>
-          </MorphyCard>
-
+          <PortfolioReviewSummary
+            totalValue={totalValue}
+            unrealizedGainLoss={totalUnrealizedGainLoss}
+            holdingCount={activeHoldings.length}
+            riskBucket={riskBucket}
+            cashBalance={liveCashBalance}
+          />
 
       {/* Account & Meta Accordions */}
       <Accordion type="multiple" defaultValue={["account", "income"]} className="w-full space-y-4">

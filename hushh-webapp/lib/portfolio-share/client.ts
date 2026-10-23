@@ -1,3 +1,7 @@
+import { formatCurrency, formatSignedCurrency, formatSignedPercent } from "@/lib/portfolio-share/format";
+import { drawPortfolioReportSummary, type PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
+export type { PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
+
 import { Capacitor } from "@capacitor/core";
 
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
@@ -28,22 +32,6 @@ const SNAPSHOT_COLORS = [
   "#8b5cf6",
   "#ec4899",
 ];
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatSignedCurrency(value: number): string {
-  return `${value >= 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
-}
-
-function formatSignedPercent(value: number): string {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
-}
 
 function formatDateLabel(value: string): string {
   const parsed = new Date(value);
@@ -353,13 +341,6 @@ export async function generatePortfolioSnapshotPng(payloadInput: unknown): Promi
   });
 }
 
-export interface PortfolioReportContext {
-  source: string;
-  period: string;
-  change: number | null;
-  changePct: number | null;
-}
-
 export async function generatePortfolioReportPdf(payloadInput: unknown, context?: PortfolioReportContext): Promise<Blob> {
   const payload = sanitizePortfolioSharePayload(payloadInput);
   const { jsPDF } = await import("jspdf");
@@ -369,39 +350,7 @@ export async function generatePortfolioReportPdf(payloadInput: unknown, context?
   const left = 44;
   const right = pageWidth - 44;
 
-  doc.setFillColor(248, 250, 252);
-  doc.rect(0, 0, pageWidth, doc.internal.pageSize.getHeight(), "F");
-
-  doc.setTextColor(15, 23, 42);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(21);
-  doc.text("Portfolio Report", left, 56);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105);
-  doc.text(`Generated ${new Date(payload.generatedAt).toLocaleString("en-US")}`, left, 74);
-
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(15, 23, 42);
-  doc.setFontSize(13);
-  if (context) {
-    doc.setFontSize(9);
-    doc.text(doc.splitTextToSize(`${context.source} · ${context.period}`, right - left), left, 90);
-    doc.setFontSize(13);
-  }
-  doc.text("Portfolio Value", left, 118);
-  doc.setFontSize(28);
-  doc.text(formatCurrency(payload.portfolioValue), left, 148);
-  doc.setFontSize(12);
-  const change = context ? context.change : payload.dailyChangeValue;
-  const changePct = context ? context.changePct : payload.dailyChangePct;
-  doc.setTextColor(change === null ? "#64748b" : change >= 0 ? "#059669" : "#dc2626");
-  doc.text(change === null ? "Period balance change unavailable" : `${formatSignedCurrency(change)}${changePct === null ? "" : ` (${formatSignedPercent(changePct)})`}`, left, 168);
-  if (context && change !== null) {
-    doc.setFontSize(9);
-    doc.text("Period balance change includes cash flows.", left, 182);
-  }
+  drawPortfolioReportSummary(doc, payload, left, right, context);
 
   let y = 198;
   doc.setTextColor(15, 23, 42);
