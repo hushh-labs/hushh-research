@@ -263,6 +263,57 @@ async def test_connected_revocation_is_a_refusal_but_missing_authority_still_ale
         assert "error_code=text.authority.ended" in timing
 
 
+@pytest.mark.parametrize("bridged", [False, True])
+@pytest.mark.parametrize("filtered", [False, True])
+async def test_explicit_provider_filter_is_visible_but_does_not_page_as_an_outage(
+    monkeypatch, caplog, bridged, filtered
+):
+    from hushh_mcp.one_adk import agui_turn_timing
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureContentFilteredError
+
+    error = AzureContentFilteredError() if filtered else ValueError("Provider stream failed")
+
+    async def run(self, input):
+        yield TextMessageContentEvent(message_id="a", delta="Partial answer")
+        if bridged:
+            yield RunErrorEvent(message=str(error), code="BACKGROUND_EXECUTION_ERROR")
+        else:
+            raise error
+
+    monkeypatch.setattr(ADKAgent, "run", run)
+    caplog.set_level(logging.INFO, logger=agui_turn_timing.logger.name)
+    events = [event async for event in _agent().run(_input())]
+    assert events[0].delta == "Partial answer"
+    terminal = events[-1]
+    assert terminal.code == ("TEXT_CONTENT_FILTERED" if filtered else "AGENT_ERROR")
+    if filtered:
+        assert terminal.metadata == {"retryable": False}
+        assert terminal.message == "This response was filtered. Try rephrasing your message."
+    timing = next(
+        r.getMessage()
+        for r in caplog.records
+        if r.message.startswith("one_agent_chat_turn_complete ")
+    )
+    assert "outcome=error" in timing
+    assert ("error_class=refusal" in timing) is filtered
+    if filtered:
+        assert "error_code=text.content.filtered" in timing
+
+
+def test_filter_like_text_and_mixed_failures_stay_actionable():
+    from hushh_mcp.one_adk.output_privacy import normalize_history_error, safe_exception_event
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureContentFilteredError
+
+    error = AzureContentFilteredError()
+    assert safe_exception_event(ValueError(str(error))).code == "AGENT_ERROR"
+    assert (
+        safe_exception_event(ExceptionGroup("mixed", [error, ValueError("broken")])).code
+        == "AGENT_ERROR"
+    )
+    ordinary = TextMessageContentEvent(message_id="a", delta=str(error))
+    assert normalize_history_error(ordinary) is ordinary
+
+
 def test_one_builders_keep_reasoning_internal():
     from hushh_mcp.one_adk.agent_tree import build_one_intro_text_agent, build_one_text_agent
 

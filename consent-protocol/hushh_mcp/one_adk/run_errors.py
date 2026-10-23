@@ -22,6 +22,7 @@ SERVER_RESTARTING_CODE = "SERVER_RESTARTING"
 MODEL_CAPACITY_CODE = "RESOURCE_EXHAUSTED"
 MODEL_UNAVAILABLE_CODE = "MODEL_UNAVAILABLE"
 TEXT_AUTHORITY_ENDED_CODE = "TEXT_AUTHORITY_ENDED"
+TEXT_CONTENT_FILTERED_CODE = "TEXT_CONTENT_FILTERED"
 RETRYABLE_METADATA = {"retryable": True}
 
 SERVER_RESTARTING_RUN_ERROR = RunErrorEvent(
@@ -44,6 +45,11 @@ TEXT_AUTHORITY_ENDED_RUN_ERROR = RunErrorEvent(
     code=TEXT_AUTHORITY_ENDED_CODE,
     metadata={"retryable": False},
 )
+TEXT_CONTENT_FILTERED_RUN_ERROR = RunErrorEvent(
+    message="This response was filtered. Try rephrasing your message.",
+    code=TEXT_CONTENT_FILTERED_CODE,
+    metadata={"retryable": False},
+)
 _AUTHORITY_ENDED_MESSAGES = frozenset(
     {
         "Managed Azure processing policy changed",
@@ -59,6 +65,7 @@ _AUTHORED = {
         MODEL_CAPACITY_RUN_ERROR,
         MODEL_UNAVAILABLE_RUN_ERROR,
         TEXT_AUTHORITY_ENDED_RUN_ERROR,
+        TEXT_CONTENT_FILTERED_RUN_ERROR,
     )
 }
 # The installed bridge turns an exception raised by the ADK run into one of
@@ -149,6 +156,23 @@ def managed_authority_error(error: BaseEvent | BaseException) -> RunErrorEvent |
     return None
 
 
+def content_filtered_error(error: BaseEvent | BaseException) -> RunErrorEvent | None:
+    """Only an explicit provider filter signal maps to this authored refusal."""
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+        AZURE_CONTENT_FILTERED_MESSAGE,
+        AzureContentFilteredError,
+    )
+
+    if isinstance(error, RunErrorEvent):
+        if error.code in _BRIDGE_ERROR_CODES and error.message == AZURE_CONTENT_FILTERED_MESSAGE:
+            return TEXT_CONTENT_FILTERED_RUN_ERROR
+    elif isinstance(error, BaseException) and all(
+        isinstance(leaf, AzureContentFilteredError) for leaf in _leaf_exceptions(error)
+    ):
+        return TEXT_CONTENT_FILTERED_RUN_ERROR
+    return None
+
+
 def transient_model_error_for_exception(error: BaseException) -> RunErrorEvent | None:
     """The same mapping for an exception that escaped the bridge."""
     if not isinstance(error, Exception):
@@ -195,7 +219,7 @@ def error_class(code: Any) -> str:
         return "model"
     if code == SERVER_RESTARTING_CODE:
         return "shutdown"
-    if code == TEXT_AUTHORITY_ENDED_CODE:
+    if code in {TEXT_AUTHORITY_ENDED_CODE, TEXT_CONTENT_FILTERED_CODE}:
         return "refusal"
     return "other"
 
@@ -217,6 +241,7 @@ _KNOWN_ERROR_CODES = frozenset(
         MODEL_UNAVAILABLE_CODE,
         SERVER_RESTARTING_CODE,
         TEXT_AUTHORITY_ENDED_CODE,
+        TEXT_CONTENT_FILTERED_CODE,
     }
 )
 

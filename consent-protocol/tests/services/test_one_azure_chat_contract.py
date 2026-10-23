@@ -10,6 +10,102 @@ from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 from tests.services.test_azure_adk import Stream, call, message, model, request, response
 
 
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("reason", ["content_filter", "max_output_tokens", None, "unknown"])
+async def test_explicit_filtered_output_is_a_refusal_without_accepting_other_incomplete_output(
+    caplog, stream, reason
+):
+    import logging
+
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureContentFilteredError
+
+    incomplete = response(message("Synthetic partial text"))
+    incomplete.status = "incomplete"
+    incomplete.incomplete_details = SimpleNamespace(reason=reason)
+    events = Stream(
+        [
+            {"type": "response.output_text.delta", "delta": "Synthetic partial text"},
+            {"type": "response.incomplete", "response": incomplete},
+        ]
+    )
+    adapter, client, _, _ = model([events if stream else incomplete])
+    caplog.set_level(logging.INFO, logger="hushh_mcp.runtime_providers.azure_adk")
+    seen = []
+    expected = AzureContentFilteredError if reason == "content_filter" else ValueError
+    with pytest.raises(expected):
+        async for item in adapter.generate_content_async(request(), stream=stream):
+            seen.append(item)
+    assert all(item.partial for item in seen)
+    assert len(client.requests) == 1 and client.closed == 1
+    assert not stream or events.closed
+    telemetry = next(
+        r.getMessage() for r in caplog.records if "azure_model_call_complete" in r.message
+    )
+    assert f"error_kind={'filtered' if reason == 'content_filter' else 'protocol'}" in telemetry
+    assert "Synthetic partial text" not in telemetry
+
+
+@pytest.mark.parametrize("event_type", ["error", "response.failed"])
+async def test_provider_failure_cannot_masquerade_as_a_filter_refusal(event_type):
+    failed = response(message("Partial"))
+    failed.status = "incomplete"
+    failed.incomplete_details = SimpleNamespace(reason="content_filter")
+    events = Stream([{"type": event_type, "response": failed}])
+    adapter, _, _, _ = model([events])
+    with pytest.raises(ValueError):
+        _ = [item async for item in adapter.generate_content_async(request(), stream=True)]
+    assert events.closed
+
+
+@pytest.mark.parametrize("code", ["content_filter", "invalid_encrypted_content", None, {}])
+async def test_actual_sdk_sse_errors_preserve_failure_codes_without_inspecting_text(caplog, code):
+    import json
+    import logging
+
+    import httpx
+    from openai import APIError, AsyncOpenAI
+
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureContentFilteredError
+
+    calls = []
+
+    async def send(req):
+        calls.append(req)
+        frames = [
+            {
+                "type": "response.output_text.delta",
+                "delta": "Partial",
+                "sequence_number": 0,
+                "item_id": "synthetic",
+                "output_index": 0,
+                "content_index": 0,
+                "logprobs": [],
+            },
+            {"error": {"code": code, "message": "Untrusted content_filter wording"}},
+        ]
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content="".join("data: " + json.dumps(frame) + "\n\n" for frame in frames),
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(send))
+    adapter, _, _, _ = model([])
+    adapter.client_factory = lambda **kw: AsyncOpenAI(**kw, http_client=http)
+    caplog.set_level(logging.INFO, logger="hushh_mcp.runtime_providers.azure_adk")
+    seen = []
+    with pytest.raises(AzureContentFilteredError if code == "content_filter" else APIError):
+        async for item in adapter.generate_content_async(request(), stream=True):
+            seen.append(item)
+    assert len(calls) == 1 and http.is_closed
+    assert len(seen) == 1 and seen[0].partial
+    telemetry = next(
+        r.getMessage() for r in caplog.records if "azure_model_call_complete" in r.message
+    )
+    assert ("error_kind=filtered" in telemetry) is (code == "content_filter")
+    assert "Untrusted content_filter wording" not in telemetry
+
+
 @pytest.mark.parametrize("status", [429, 503])
 async def test_one_chat_never_falls_back_or_changes_processor(monkeypatch, status):
     from unittest.mock import AsyncMock
