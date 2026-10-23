@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -576,15 +576,15 @@ describe("global One Location Feed-first notification policy", () => {
     expect(mocks.stopEmergencySmsCue).toHaveBeenCalledWith({});
   });
 
-  it("does not duplicate successful native Web Audio with a bridge cue", async () => {
+  it("uses native sound and vibration together without also starting Web Audio", async () => {
     mocks.platform.native = true;
     mocks.platform.value = "ios";
     const sound = vi.spyOn(locationNotifications, "playOneLocationNotificationSound").mockReturnValue(true);
     try {
       await renderReady();
       dispatchLocation({ type: "location_share_created", grant_id: "audible-native", share_kind: "sos" });
-      expect(sound).toHaveBeenCalledWith("sos", "audible-native");
-      expect(mocks.playEmergencySmsCue).not.toHaveBeenCalled();
+      expect(sound).not.toHaveBeenCalled();
+      expect(mocks.playEmergencySmsCue).toHaveBeenCalledWith(expect.objectContaining({ grantId: "audible-native" }));
     } finally {
       sound.mockRestore();
     }
@@ -634,7 +634,7 @@ describe("global One Location Feed-first notification policy", () => {
     expect(mocks.toast).toHaveBeenCalledTimes(1);
     expect(mocks.toast.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
-        duration: 30000,
+        duration: Infinity,
         className: expect.stringMatching(
           /one-location-emergency-toast.*!bg-red-600.*!text-white/,
         ),
@@ -652,6 +652,68 @@ describe("global One Location Feed-first notification policy", () => {
         metadata: expect.objectContaining({ shareKind: "sos" }),
       }),
     );
+  });
+
+  it.each(["button", "swipe", "open", "unwatch"])("stops the recipient alarm on %s without allowing a replay", async (dismissal) => {
+    mocks.platform.native = true;
+    mocks.platform.value = "ios";
+    await renderReady();
+    const data = { type: "location_share_created", grant_id: `dismiss-${dismissal}`, share_kind: "sos" };
+    dispatchLocation(data);
+    const [popup, options] = mocks.toast.mock.calls[0];
+    if (dismissal === "button") {
+      render(<>{popup}</>);
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss alarm" }));
+      expect(mocks.routerPush).not.toHaveBeenCalled();
+    } else if (dismissal === "swipe") {
+      options.onDismiss();
+    } else if (dismissal === "open") {
+      locationNotifications.markOneLocationGrantOpened("recipient-user", data.grant_id);
+    } else {
+      locationNotifications.markOneLocationGrantUnwatched("recipient-user", data.grant_id);
+    }
+    expect(mocks.stopEmergencySmsCue).toHaveBeenCalledWith({ grantId: data.grant_id });
+    if (dismissal === "swipe") {
+      // Sonner already owns removal; requesting dismiss again re-enters its callback.
+      expect(mocks.toast.dismiss).not.toHaveBeenCalled();
+    } else {
+      expect(mocks.toast.dismiss).toHaveBeenCalledWith(`one-location-share:${data.grant_id}`);
+    }
+    dispatchLocation(data);
+    expect(mocks.playEmergencySmsCue).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops an alarm when another window acknowledges the same recipient's grant", async () => {
+    mocks.platform.native = true;
+    mocks.platform.value = "ios";
+    await renderReady();
+    dispatchLocation({ type: "location_share_created", grant_id: "other-window", share_kind: "sos" });
+    window.localStorage.setItem("one_location_opened_grants_v1:someone-else", JSON.stringify(["other-window"]));
+    window.dispatchEvent(new StorageEvent("storage"));
+    expect(mocks.toast.dismiss).not.toHaveBeenCalled();
+    window.localStorage.setItem("one_location_opened_grants_v1:recipient-user", JSON.stringify(["other-window"]));
+    window.dispatchEvent(new StorageEvent("storage"));
+    expect(mocks.stopEmergencySmsCue).toHaveBeenCalledWith({ grantId: "other-window" });
+    expect(mocks.toast.dismiss).toHaveBeenCalledWith("one-location-share:other-window");
+  });
+
+  it("removes the persistent private alarm popup on sign-out", async () => {
+    const view = renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalled());
+    dispatchLocation({ type: "location_share_created", grant_id: "private-popup", share_kind: "sos" });
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    mocks.auth.user = null;
+    view.rerender(<ConsentNotificationProvider><div>Signed out</div></ConsentNotificationProvider>);
+    expect(mocks.toast.dismiss).toHaveBeenCalledWith("one-location-share:private-popup");
+  });
+
+  it("does not sound a sender-side SOS echo", async () => {
+    mocks.platform.native = true;
+    mocks.platform.value = "ios";
+    await renderReady();
+    dispatchLocation({ type: "location_share_created", grant_id: "sender-echo", share_kind: "sos", owner_user_id: "recipient-user" });
+    expect(mocks.playEmergencySmsCue).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
   });
 
   it("never presents historical reconciliation as a popup", async () => {

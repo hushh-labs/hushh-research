@@ -507,18 +507,23 @@ def test_one_location_feed_only_transport_gate_overrides_alert_callers() -> None
         assert "image" not in encoded["apns"]["payload"], notification_type
 
 
-def test_one_location_sos_revoke_still_allows_ios_alert() -> None:
+@pytest.mark.parametrize("platform", ["web", "android", "ios"])
+def test_one_location_sos_revoke_is_silent_on_every_platform(platform: str) -> None:
     from firebase_admin import messaging
     from firebase_admin.messaging import _MessagingService
 
-    delivery_target = "ios-device-id"
+    delivery_target = "recipient-device-id"
     message = build_push_message(
         messaging,
         token=delivery_target,
-        platform="ios",
+        platform=platform,
         data={
             "type": "location_share_revoked",
             "share_kind": "sos",
+            "grant_id": "sos-grant",
+            "notification_profile": "one_location_sms_emergency",
+            "title": "SMS location sharing stopped",
+            "body": "Alex stopped sharing location with you over SMS.",
         },
         title="SMS location sharing stopped",
         body="Alex stopped sharing location with you over SMS.",
@@ -528,18 +533,19 @@ def test_one_location_sos_revoke_still_allows_ios_alert() -> None:
     )
     encoded = _MessagingService.encode_message(message)
 
-    assert message.notification is not None
-    assert encoded["notification"] == {
-        "title": "SMS location sharing stopped",
-        "body": "Alex stopped sharing location with you over SMS.",
-    }
-    aps = encoded["apns"]["payload"]["aps"]
-    assert aps["alert"] == {
-        "title": "SMS location sharing stopped",
-        "body": "Alex stopped sharing location with you over SMS.",
-    }
-    assert aps["sound"] == "one_location_sms_alarm.wav"
-    assert aps["category"] == "ONE_LOCATION_SMS_EMERGENCY"
+    assert message.notification is None
+    assert "notification" not in encoded
+    assert encoded["data"]["notification_presentation"] == "silent"
+    assert encoded["data"]["grant_id"] == "sos-grant"
+    assert "title" not in encoded["data"]
+    assert "body" not in encoded["data"]
+    assert "webpush" not in encoded
+    assert "android" not in encoded
+    if platform == "ios":
+        aps = encoded["apns"]["payload"]["aps"]
+        assert aps["content-available"] == 1
+        assert "alert" not in aps
+        assert "sound" not in aps
 
 
 def test_one_location_direct_circle_member_added_still_allows_ios_alert() -> None:

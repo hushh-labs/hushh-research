@@ -55,6 +55,8 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     private var emergencyPlayer: AVAudioPlayer?
     private var emergencyGrantId: String?
     private var emergencyGeneration = 0
+    private var emergencyPulse: Timer?
+    private var cancelledEmergencyGrants: [String] = []
     private var emergencyObservers: [NSObjectProtocol] = []
 
     override public func load() {
@@ -70,11 +72,14 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     deinit {
         emergencyObservers.forEach { NotificationCenter.default.removeObserver($0) }
         emergencyPlayer?.stop()
+        emergencyPulse?.invalidate()
     }
 
     private func stopEmergencyCue(grantId: String? = nil) {
         if let grantId, grantId != emergencyGrantId { return }
         emergencyGeneration += 1
+        emergencyPulse?.invalidate()
+        emergencyPulse = nil
         emergencyPlayer?.stop()
         emergencyPlayer = nil
         emergencyGrantId = nil
@@ -82,7 +87,14 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func stopEmergencySmsCue(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            self?.stopEmergencyCue(grantId: call.getString("grantId"))
+            if let self {
+                if let grantId = call.getString("grantId"), !grantId.isEmpty,
+                   !self.cancelledEmergencyGrants.contains(grantId) {
+                    self.cancelledEmergencyGrants.append(grantId)
+                    if self.cancelledEmergencyGrants.count > 128 { self.cancelledEmergencyGrants.removeFirst() }
+                }
+                self.stopEmergencyCue(grantId: call.getString("grantId"))
+            }
             call.resolve()
         }
     }
@@ -95,26 +107,41 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
                   let userId = call.getString("userId"), !userId.isEmpty,
                   Auth.auth().currentUser?.uid == userId,
                   let grantId = call.getString("grantId"), !grantId.isEmpty,
+                  !self.cancelledEmergencyGrants.contains(grantId),
                   let deadline = call.getDouble("expiresAt"), deadline.isFinite,
                   deadline > now, deadline <= now + 2000,
                   let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             else { call.resolve(["played": false]); return }
+            if self.emergencyGrantId == grantId {
+                call.resolve(["played": self.emergencyPlayer?.isPlaying ?? false]); return
+            }
+            let alarmDeadline = call.getDouble("alarmExpiresAt")
+            if let alarmDeadline, !alarmDeadline.isFinite || alarmDeadline <= now {
+                call.resolve(["played": false]); return
+            }
             self.stopEmergencyCue()
             do {
                 // AppDelegate prepares this same sound for background APNs alerts.
                 let url = library.appendingPathComponent("Sounds/one_location_sms_alarm.wav")
                 let player = try AVAudioPlayer(contentsOf: url)
-                player.numberOfLoops = 0
+                player.numberOfLoops = -1
                 player.prepareToPlay()
                 guard player.play() else { call.resolve(["played": false]); return }
                 self.emergencyPlayer = player
                 self.emergencyGrantId = grantId
                 AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
                 let generation = self.emergencyGeneration
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                    guard let self, self.emergencyGeneration == generation else { return }
-                    self.stopEmergencyCue()
+                let pulse = Timer(timeInterval: 1.5, repeats: true) { [weak self] timer in
+                    guard let self else { timer.invalidate(); return }
+                    guard self.emergencyGeneration == generation else { timer.invalidate(); return }
+                    guard UIApplication.shared.applicationState == .active,
+                          Auth.auth().currentUser?.uid == userId,
+                          alarmDeadline.map({ $0 > Date().timeIntervalSince1970 * 1000 }) ?? true
+                    else { self.stopEmergencyCue(grantId: grantId); return }
+                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
                 }
+                self.emergencyPulse = pulse
+                RunLoop.main.add(pulse, forMode: .common)
                 call.resolve(["played": true])
             } catch {
                 call.resolve(["played": false])
