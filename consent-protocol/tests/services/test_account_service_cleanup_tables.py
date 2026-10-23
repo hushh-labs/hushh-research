@@ -260,9 +260,9 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     pre_insert_sql = "\n".join(
         str(call.args[0]) for call in conn.execute.call_args_list[:first_insert_offset]
     )
-    assert first_insert_offset == 3
+    assert first_insert_offset == 4
     assert pre_insert_sql.count("pg_advisory_xact_lock") == 3
-    assert conn.execute.call_args_list[0].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
+    assert conn.execute.call_args_list[1].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
     first_delete_offset = executed_sql.index("DELETE FROM")
     assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
@@ -730,7 +730,7 @@ async def test_full_account_delete_returns_stable_external_resource_block_withou
     )
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account_transaction("user-123", requested_target="both")
+        result = await service._settle_full_account_transaction("user-123", requested_target="both")
 
     assert result["success"] is False
     assert result["account_deleted"] is False
@@ -1550,7 +1550,7 @@ async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
         cleanup.side_effect = PersonalAgentDeprovisioningRequiredError("pending")
     elif outcome == "exception":
         cleanup.side_effect = RuntimeError("synthetic failure")
-    monkeypatch.setattr(service, "_delete_full_account_transaction", transaction)
+    monkeypatch.setattr(service, "_settle_full_account_transaction", transaction)
     monkeypatch.setattr(
         "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
         lambda *, registry, backend: SimpleNamespace(deprovision=cleanup),  # the real signature
@@ -1696,7 +1696,7 @@ async def test_uat_backend_erasure_preserves_external_authorities(monkeypatch):
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
         wrong_database = await service.erase_uat_backend_account("user_delete_123")
     assert wrong_database["success"] is False
-    assert conn.execute.call_count == 1
+    assert conn.execute.call_count == 2
     pending.assert_not_called()
     snapshot.assert_not_called()
     release.assert_not_awaited()

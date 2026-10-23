@@ -1,12 +1,14 @@
 # hushh_mcp/services/account_service.py
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
+import asyncio
 import hashlib
 import json
 import logging
 import os
 from collections.abc import Iterable
 from datetime import datetime, timezone
+from time import monotonic
 from typing import Any, Dict, Literal
 
 from sqlalchemy import text
@@ -67,6 +69,12 @@ ACCOUNT_DELETION_FAILED_CODE = "ACCOUNT_DELETION_FAILED"
 # refused the erasure: nothing was deleted and it succeeds once the release ends.
 ACCOUNT_DELETION_PAUSED_CODE = "ACCOUNT_DELETION_PAUSED"
 _RELEASE_FENCE_MESSAGE = "during a lifecycle release"
+# Cancel blocked SQL in PostgreSQL, where cancellation also unwinds the
+# transaction. An asyncio timeout alone would leave a DB thread holding locks.
+_ACCOUNT_ERASURE_SQL_LIMITS = text(
+    "SELECT set_config('lock_timeout', '3000ms', TRUE), "
+    "set_config('statement_timeout', '20000ms', TRUE)"
+)
 
 
 def _is_release_fence_refusal(exc: BaseException) -> bool:
@@ -965,7 +973,16 @@ class AccountService:
         query = self._delete_by_user_queries.get(table_name)
         if query is None:
             raise ValueError(f"Unsafe or unsupported cleanup table requested: {table_name}")
-        conn.execute(query, params)
+        started = monotonic()
+        try:
+            conn.execute(query, params)
+        except Exception:
+            logger.error(
+                "account.erasure_statement_failed table=%s elapsed_ms=%d",
+                table_name,
+                (monotonic() - started) * 1000,
+            )
+            raise
 
     def _delete_optional_user_tables(
         self,
@@ -1381,7 +1398,7 @@ class AccountService:
     ) -> Dict[str, Any]:
         """Delete either the whole account or one persona."""
         requested_target = self._normalized_target(target)
-        actor_profile = self._load_actor_profile(user_id)
+        actor_profile = await asyncio.to_thread(self._load_actor_profile, user_id)
         personas = (
             [persona for persona in actor_profile["personas"] if persona in {"investor", "ria"}]
             if actor_profile
@@ -1931,7 +1948,7 @@ class AccountService:
         cleanup = await self._erase_shared_files_if_present(user_id, backend_only=backend_only)
         if cleanup is not None:
             return cleanup
-        result = await self._delete_full_account_transaction(
+        result = await self._settle_full_account_transaction(
             user_id, requested_target=requested_target, backend_only=backend_only
         )
         if result.get("error_code") != PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
@@ -1973,17 +1990,59 @@ class AccountService:
             return result
         # The first transaction has rolled back. The second independently checks
         # completion and archives evidence; a provider result cannot bypass it.
-        return await self._delete_full_account_transaction(
+        return await self._settle_full_account_transaction(
             user_id, requested_target=requested_target, backend_only=backend_only
         )
 
-    async def _delete_full_account_transaction(
+    async def _settle_full_account_transaction(
         self,
         user_id: str,
         *,
         requested_target: DeleteAccountTarget,
         backend_only: bool = False,
     ) -> Dict[str, Any]:
+        # Keep the connection, locks, erasure and commit/rollback on one worker
+        # thread. Blocking the event loop here previously killed the UAT worker
+        # for a missed Gunicorn heartbeat and left the HTTP outcome uncertain.
+        async def erase_and_release() -> Dict[str, Any]:
+            result, provider_credentials = await asyncio.to_thread(
+                self._delete_full_account_transaction,
+                user_id,
+                requested_target=requested_target,
+                backend_only=backend_only,
+            )
+            if result["success"]:
+                result["details"]["provider_grant_release"] = (
+                    {"status": "preserved_backend_only"}
+                    if backend_only
+                    else await release_provider_grants_after_erasure(provider_credentials)
+                )
+            return result
+
+        # A disconnected/cancelled caller cannot cancel psycopg2. Settle both
+        # the transaction and post-commit cleanup before propagating cancellation
+        # so no worker or encrypted provider snapshot is silently abandoned.
+        operation = asyncio.create_task(erase_and_release())
+        cancellation = None
+        while True:
+            try:
+                result = await asyncio.shield(operation)
+                break
+            except asyncio.CancelledError as exc:
+                if operation.cancelled():
+                    raise
+                cancellation = exc
+        if cancellation is not None:
+            raise cancellation
+        return result
+
+    def _delete_full_account_transaction(
+        self,
+        user_id: str,
+        *,
+        requested_target: DeleteAccountTarget,
+        backend_only: bool = False,
+    ) -> tuple[Dict[str, Any], ProviderCredentialSnapshot]:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
         results = {
             "actor_identity_cache": False,
@@ -2113,6 +2172,10 @@ class AccountService:
         graph_viewer_ids: set[str] = set()
         try:
             with get_db_connection() as conn:
+                # Apply before acquiring any lifecycle/domain lock. A blocked
+                # statement must roll back and release the privacy barrier
+                # before the HTTP transport or worker watchdog gives up.
+                conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
                 if backend_only:
                     row = conn.execute(text(UAT_DATABASE_ATTESTATION_SQL)).mappings().first()
                     if not row or not is_attested_hushh_tech_uat_database(
@@ -2510,7 +2573,7 @@ class AccountService:
                 "account_deleted": False,
                 "remaining_personas": [],
                 "details": results,
-            }
+            }, provider_credentials
         except Exception as exc:
             logger.exception("❌ Full account deletion failed for %s", user_id)
             return {
@@ -2524,7 +2587,7 @@ class AccountService:
                 "account_deleted": False,
                 "remaining_personas": [],
                 "details": results,
-            }
+            }, provider_credentials
 
         # Outside the erasure try-block on purpose: the deletion has committed,
         # and releasing provider grants is bounded best effort that never raises.
@@ -2535,11 +2598,6 @@ class AccountService:
                 _notify_connection_graph_changed(user_ids=graph_viewer_ids)
             except Exception:  # a failed doorbell cannot undo committed erasure
                 logger.warning("account.graph_sync_failed", exc_info=True)
-        results["provider_grant_release"] = (
-            {"status": "preserved_backend_only"}
-            if backend_only
-            else await release_provider_grants_after_erasure(provider_credentials)
-        )
         return {
             "success": True,
             "requested_target": requested_target,
@@ -2547,7 +2605,7 @@ class AccountService:
             "account_deleted": True,
             "remaining_personas": [],
             "details": results,
-        }
+        }, provider_credentials
 
     async def _delete_ria_persona(
         self,
