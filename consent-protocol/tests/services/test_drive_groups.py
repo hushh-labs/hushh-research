@@ -1342,6 +1342,82 @@ def inventory_row(identity, version="1"):
     return row(identity, "statement.pdf", version=version, modifiedTime="2026-04-01T00:00:00Z")
 
 
+async def test_worker_inventory_cache_uses_fresh_ports_and_never_returns_revoked_rows():
+    from hushh_mcp.services.drive_groups.inventory import InventoryCache
+
+    cache = InventoryCache()
+    current = AsyncMock()
+    listing = AsyncMock(return_value=([inventory_row("old")], True, False))
+    first = SimpleNamespace(
+        read_tool=AsyncMock(
+            side_effect=[
+                SimpleNamespace(
+                    is_error=False, truncated=False, payload={"startPageToken": "start"}
+                ),
+                changes_page([]),
+            ]
+        )
+    )
+    key = ("owner", 1, 1, 1)
+    await cache.load(first, "owner", key=key, listing=listing, require_current=current)
+    # Reuse the complete rows+cursor, but never the previous job's read port.
+    second = SimpleNamespace(
+        read_tool=AsyncMock(
+            return_value=changes_page(
+                [
+                    file_change("old", removed=True),
+                    file_change("new", version="2"),
+                ]
+            )
+        )
+    )
+    result = await cache.load(second, "owner", key=key, listing=listing, require_current=current)
+    assert listing.await_count == 1
+    assert [(item["id"], item["version"]) for item in result.rows] == [("new", "2")]
+    assert second.read_tool.await_count == 1 and first.read_tool.await_count == 2
+    current.side_effect = DriveReadError("connection_changed")
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await cache.load(second, "owner", key=key, listing=listing, require_current=current)
+    assert second.read_tool.await_count == 1
+
+
+async def test_worker_inventory_cache_refuses_revocation_after_delta_io():
+    from hushh_mcp.services.drive_groups.inventory import InventoryCache
+
+    cache = InventoryCache()
+    current = AsyncMock()
+    listing = AsyncMock(return_value=([inventory_row("old")], True, False))
+    port = SimpleNamespace(
+        read_tool=AsyncMock(
+            side_effect=[
+                SimpleNamespace(
+                    is_error=False, truncated=False, payload={"startPageToken": "start"}
+                ),
+                changes_page([]),
+            ]
+        )
+    )
+    key = ("owner", 1, 1, 1)
+    await cache.load(port, "owner", key=key, listing=listing, require_current=current)
+
+    async def revoked_during_read(**kwargs):
+        current.side_effect = DriveReadError("connection_changed")
+        return changes_page([file_change("new")])
+
+    port.read_tool.side_effect = revoked_during_read
+    with pytest.raises(DriveReadError, match="connection_changed"):
+        await cache.load(port, "owner", key=key, listing=listing, require_current=current)
+    # Restored authority must bootstrap; the revoked delta was not published.
+    current.side_effect = None
+    port.read_tool.side_effect = [
+        SimpleNamespace(is_error=False, truncated=False, payload={"startPageToken": "fresh"}),
+        changes_page([]),
+    ]
+    result = await cache.load(port, "owner", key=key, listing=listing, require_current=current)
+    assert result.mode == "full" and listing.await_count == 2
+    assert [item["id"] for item in result.rows] == ["old"]
+
+
 def changes_page(changes, *, following=None, terminal="next-cursor"):
     return SimpleNamespace(
         is_error=False,

@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import re
 from collections import Counter
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import replace
-from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from hushh_mcp.services.drive_document_prefix import PREFIX_POLICY
@@ -26,57 +24,30 @@ from hushh_mcp.services.drive_group_index_store import (
 )
 from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, TransportHeadSource
 from hushh_mcp.services.drive_groups.contract import four_group_index_enabled
-from hushh_mcp.services.drive_groups.indexer import evidence_from_row, index_files
+from hushh_mcp.services.drive_groups.indexer import index_files
+from hushh_mcp.services.drive_groups.inventory import WORKER_INVENTORY_CACHE, _moment, _validate_row
 from hushh_mcp.services.drive_groups.models import load_bundle
 from hushh_mcp.services.drive_groups.period import deciding_day, title_day
 from hushh_mcp.services.drive_search_paging_config import OWNER_SEARCH_PAGE_SIZE_MAX
 from hushh_mcp.services.drive_telemetry import drive_logger
 from hushh_mcp.services.google_drive_adapter import (
-    FILE_ID,
     LIVE_EXTRACTABLE_ORIGINAL_TYPES,
     RAW_PREFIX_LIMIT,
     DriveReadError,
-    valid_metadata_name,
 )
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 logger = drive_logger(__name__)
 PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
-CONTENT_BATCH = 20
+CONTENT_BATCH = 100
+READ_CONCURRENCY = 6
 # Leave the existing isolated embedding timeout (100s) and commit/cleanup room.
 EMBED_COMMIT_RESERVE = 115
 _QUERY = (
     "mimeType != 'application/vnd.google-apps.folder' and "
     "mimeType != 'application/vnd.google-apps.shortcut'"
 )
-
-
-def _moment(value, *, required=False):
-    if value is None and not required:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            raise ValueError("missing zone")
-        return parsed.astimezone(UTC)
-    except (AttributeError, TypeError, ValueError, OverflowError):
-        raise DriveReadError("provider_response_invalid") from None
-
-
-def _validate_row(row):
-    if (
-        not isinstance(row, dict)
-        or not isinstance(row.get("id"), str)
-        or not FILE_ID.fullmatch(row["id"])
-        or not valid_metadata_name(row.get("title"))
-        or evidence_from_row(row) is None
-        or not isinstance(row.get("version"), str)
-        or not re.fullmatch(r"[0-9]{1,32}", row["version"])
-    ):
-        raise DriveReadError("provider_response_invalid")
-    _moment(row.get("modifiedTime"), required=True)
-    _moment(row.get("createdTime"))
 
 
 class _JobReads:
@@ -109,11 +80,16 @@ class _JobEmbedding:
 
 
 class DriveGroupIndexJob:
-    def __init__(self, *, store=None, transport=None, embedder=None, bundle=None):
+    def __init__(
+        self, *, store=None, transport=None, embedder=None, bundle=None, inventory_cache=None
+    ):
         self.store = store if store is not None else DriveGroupIndexStore()
         self.transport = transport
         self.embedder = embedder
         self.bundle = bundle
+        self.inventory_cache = (
+            inventory_cache if inventory_cache is not None else WORKER_INVENTORY_CACHE
+        )
 
     @asynccontextmanager
     async def _lease(self, job):
@@ -194,7 +170,15 @@ class DriveGroupIndexJob:
         return list(rows.values()), complete and not limited, limited
 
     async def _listing(self, reads, user):
-        return await self.list_files(reads, user)
+        job = reads.job
+        inventory = await self.inventory_cache.load(
+            reads,
+            user,
+            key=(user, job["connection_generation"], job["revision"], job["background_revision"]),
+            listing=self.list_files,
+            require_current=lambda: self.store.require_current(job),
+        )
+        return inventory.rows, inventory.complete, inventory.limited
 
     async def _prepare(self, job, deadline):
         transport = self.transport or GoogleDriveRestTransport(raw_prefix=True)
@@ -202,8 +186,11 @@ class DriveGroupIndexJob:
             return await self._prepare_in_session(job, transport, deadline)
 
     async def _prepare_in_session(self, job, transport, deadline):
+        clock = asyncio.get_running_loop().time
+        started = clock()
         reads = _JobReads(self.store, transport, job)
         rows, complete, limited = await self._listing(reads, job["user_id"])
+        listed_at = clock()
         known = await self.store.known(job)
         original = self.bundle or load_bundle()
         # Source-version equality alone cannot reuse old full-download evidence.
@@ -235,19 +222,21 @@ class DriveGroupIndexJob:
                 "application/vnd.google-apps."
             )
 
-        # Cheap rows make progress even when a few difficult documents are slow.
-        batch = [row for row in pending if not uploaded_content(row)][:MAX_BATCH]
-        content = [row for row in pending if uploaded_content(row)][
-            : min(CONTENT_BATCH, MAX_BATCH - len(batch))
-        ]
+        # Reserve content slots first: media must not starve readable documents.
+        content = [row for row in pending if uploaded_content(row)][:CONTENT_BATCH]
+        batch = [row for row in pending if not uploaded_content(row)][: MAX_BATCH - len(content)]
         captured = {}
+        attempted = 0
         source = TransportHeadSource(reads, job["user_id"])
-        gate = asyncio.Semaphore(2)
+        gate = asyncio.Semaphore(READ_CONCURRENCY)
 
         async def capture(row):
+            nonlocal attempted
             async with gate:
+                attempted += 1
                 captured[row["id"]] = await source.head(row)
 
+        reads_started_at = clock()
         budget = max(
             0, min(40, deadline - asyncio.get_running_loop().time() - EMBED_COMMIT_RESERVE)
         )
@@ -265,6 +254,10 @@ class DriveGroupIndexJob:
                         task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
             batch.extend(row for row in content if row["id"] in captured)
+        if content and not batch:
+            # A healthy-looking empty commit must not hide budget starvation.
+            raise DriveReadError("processing_timeout")
+        captured_at = clock()
 
         class CapturedHeads:
             async def head(self, row):
@@ -279,6 +272,19 @@ class DriveGroupIndexJob:
             require_head=True,
         )
         await self.store.require_current(job)
+        logger.info(
+            "drive_group_index.prepare listed=%d pending=%d attempted=%d captured=%d deferred=%d "
+            "listing_ms=%.1f selection_ms=%.1f read_ms=%.1f index_ms=%.1f",
+            len(rows),
+            len(pending),
+            attempted,
+            len(captured),
+            len(content) - len(captured),
+            (listed_at - started) * 1000,
+            (reads_started_at - listed_at) * 1000,
+            (captured_at - reads_started_at) * 1000,
+            (clock() - captured_at) * 1000,
+        )
         by_id = {row["id"]: row for row in batch}
         zone = ZoneInfo(job["time_zone"])
         entries = []

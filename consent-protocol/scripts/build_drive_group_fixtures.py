@@ -602,6 +602,21 @@ def build() -> list[dict]:
                 for _ in range(count):
                     serial += 1
                     rows.append(build_row(maker, split, label, family, serial))
+    # Append independent training layouts after generating the original corpus.
+    # Its held-out rows stay byte-for-byte unchanged as coverage is expanded.
+    extra = json.loads(OUT.with_name("training_records.json").read_text())
+    additional = Maker(random.Random(SEED + 1))
+    for record in extra["families"]:
+
+        def family(m, record=record):
+            return record["head"].format(
+                person=m.pick(PEOPLE), date=m.date(), number=m.digits(8), amount=m.amount()
+            ), [record["name"]]
+
+        family.__name__ = record["family"]
+        for _ in range(PER_FAMILY["train"]):
+            serial += 1
+            rows.append(build_row(additional, "train", record["group"], family, serial))
     return rows
 
 

@@ -197,15 +197,7 @@ def signal_payloads(rows, vectors, labels, definitions) -> tuple[dict, dict, dic
         max_features=5000,
     )
     metadata = fit_linear(
-        [
-            metadata_features(
-                r["name"],
-                r["mime"],
-                owned_by_me=r["owned_by_me"],
-                shared_with_me=r["shared_with_me"],
-            )
-            for r in rows
-        ],
+        [metadata_features(r["name"], r["mime"]) for r in rows],
         labels,
         [family_of(r) for r in rows],
         c=3.0,
@@ -391,11 +383,31 @@ def main() -> None:
         {"kind": "groups_v1", "head_chars": HEAD_CHARS, "groups": DEFINITIONS},
         compact=False,
     )
+    synthetic = args.fixtures.resolve() == DEFAULT_FIXTURES.resolve()
+    provenance = {
+        "fitted_on": "train split of the synthetic fixtures"
+        if synthetic
+        else "train split of a private labelled file",
+        "fixtures_sha256": hashlib.sha256(
+            args.fixtures.read_bytes().replace(b"\r\n", b"\n")
+        ).hexdigest()[:16],
+        "rows": len(rows),
+        "folds": f"{folds} folds that hold out whole template families",
+        "target_precision": TARGET_PRECISION,
+        "embedding_model": f"{MODEL_ID}@{MODEL_REVISION}",
+        "fitted_at": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "note": "Synthetic data: a regression gate, not accuracy on a real Drive."
+        if synthetic
+        else "Fitted on private labels; keep these files out of the repository.",
+    }
     write(
         out,
         "fusion.json",
         {
-            "weights": {name: round(float(w), 5) for name, w in zip(SIGNALS, weights, strict=True)},
+            "weights": {
+                signal: round(float(weight), 5)
+                for signal, weight in zip(SIGNALS, policy.weights, strict=True)
+            },
             "calibration": {
                 "slope": round(policy.slope, 5),
                 "intercept": round(policy.intercept, 5),
@@ -404,24 +416,12 @@ def main() -> None:
             "min_margin": policy.min_margin,
             "min_agreement": policy.min_agreement,
             "provenance": {
-                "fitted_on": "train split of "
-                + ("the synthetic fixtures" if out == DATA_DIR else "a private labelled file"),
-                "fixtures_sha256": hashlib.sha256(
-                    args.fixtures.read_bytes().replace(b"\r\n", b"\n")
-                ).hexdigest()[:16],
-                "rows": len(rows),
-                "folds": f"{folds} folds that hold out whole template families",
+                **provenance,
+                "evidence_profile": "content",
                 "out_of_fold": {
-                    k: round(v, 4) if isinstance(v, float) else v for k, v in metrics.items()
+                    key: round(value, 4) if isinstance(value, float) else value
+                    for key, value in metrics.items()
                 },
-                "target_precision": TARGET_PRECISION,
-                "embedding_model": f"{MODEL_ID}@{MODEL_REVISION}",
-                "fitted_at": datetime.now(UTC).strftime("%Y-%m-%d"),
-                "note": (
-                    "Synthetic data: a regression gate, not accuracy on a real Drive."
-                    if out == DATA_DIR
-                    else "Fitted on private labels; keep these files out of the repository."
-                ),
             },
         },
         compact=False,

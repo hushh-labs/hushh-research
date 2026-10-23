@@ -298,12 +298,16 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   refuses to run (`GroupIndexDisabled`) and nothing is placed.
 - Live eval before promotion: `consent-protocol/scripts/eval_drive_groups.py`.
   On the 146 held-out synthetic files (template families the fit never saw) the
-  aid placed 57, 55 of them correctly (precision 0.965), placed 2 of 50 unrelated
-  files and kept 41 of 96 group files. Those are invented documents: a regression
-  gate, not accuracy on a real Drive. Promotion needs the same script run by the
+  refit `33f7631e3696` placed 85, all correctly, placed none of 50 unrelated
+  files and kept 11 of 96 group files (previously 55 correct and 2 unrelated
+  placements). The original evaluation rows are unchanged; the repair used this
+  benchmark diagnostically. Those are invented documents: a regression
+  gate, not accuracy on a real Drive. Accuracy evaluation needs the same script run by the
   owner on authorized real labels (`--fixtures` with a private file, counts only),
-  meeting the precision target, reported with per-class counts. Until then the aid
-  stays dark.
+  meeting the precision target, reported with per-class counts. The owner has
+  separately authorized the UAT organizing-aid rollout; that authorization does
+  not turn synthetic precision into measured real-file accuracy. Unreadable
+  prefixes and ordinary media remain kept; metadata never replaces content.
 
 ### Declared: request-local semantic Drive search
 
