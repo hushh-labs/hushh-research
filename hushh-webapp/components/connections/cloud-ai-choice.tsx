@@ -19,10 +19,11 @@ type CloudAiChoiceProps = {
   hasExplicitSelection: boolean;
   otherProvider: boolean;
   cloudAiVerified: boolean;
+  modelLabel?: string | null;
   onSelect: () => void;
 };
 
-export function CloudAiChoice({ placement, title, disabled, requiresExplicitSelection, selectedOption, mode, hasExplicitSelection, otherProvider, cloudAiVerified, onSelect }: CloudAiChoiceProps) {
+export function CloudAiChoice({ placement, title, disabled, requiresExplicitSelection, selectedOption, mode, hasExplicitSelection, otherProvider, cloudAiVerified, modelLabel, onSelect }: CloudAiChoiceProps) {
   return (
             <SettingsRow
               asChild
@@ -36,9 +37,9 @@ export function CloudAiChoice({ placement, title, disabled, requiresExplicitSele
               disabled={disabled}
               description={
                 placement === "azure"
-                  ? `Azure AI · ${cloudAiVerified ? "Verified" : "Check connection"}`
+                  ? `Azure AI · ${cloudAiVerified ? modelLabel || "Verified" : "Check connection"}`
                   : placement === "gcp"
-                    ? `Vertex AI · ${cloudAiVerified ? "Verified" : "Check connection"}`
+                    ? `Vertex AI · ${cloudAiVerified ? modelLabel || "Verified" : "Check connection"}`
                     : placement === "shared"
                       ? "Managed for you. No key needed."
                       : placement === "pending"

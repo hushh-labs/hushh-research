@@ -23,9 +23,12 @@ import {
   AZURE_SIGN_IN_CHANNEL,
   UPDATE_POPUP_CLOSED_NOTICE,
   announceAzureSetupStarted,
+  captureSignInPopupOwner,
+  openSignInPopup,
   useAzureSetupStartedSignal,
   useAzureSignIn,
 } from "@/lib/one/azure-sign-in";
+import { announceAzureCleanupReturn, listenForAzureCleanupReturn } from "@/lib/one/azure-cleanup-return";
 
 const SIGN_IN = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=u";
 
@@ -44,6 +47,41 @@ afterEach(() => {
 });
 
 describe("the update sign-in beside the app", () => {
+  it("retires an older cleanup's ownership when another action reuses the named popup", () => {
+    const first = openSignInPopup();
+    const original = captureSignInPopupOwner(first);
+    expect(original()).toBe(true);
+    expect(openSignInPopup()).toBe(first);
+    expect(original()).toBe(false);
+    expect(captureSignInPopupOwner(first)()).toBe(true);
+  });
+  it("hands cleanup back only to the current owner, operation and phase, without triggering setup", async () => {
+    const expected = { ownerId: "owner", operationId: "cleanup-1", phase: "execute" as const };
+    const refresh = vi.fn(); const setup = vi.fn(); let current = true;
+    renderHook(() => useAzureSetupStartedSignal(setup));
+    const stop = listenForAzureCleanupReturn(expected, () => current, refresh);
+    try {
+      for (const changed of [{ ownerId: "other" }, { operationId: "old" }, { phase: "inspect" as const }]) {
+        await expect(announceAzureCleanupReturn({ ...expected, ...changed }, new AbortController().signal, 40)).resolves.toBe(false);
+      }
+      expect(refresh).not.toHaveBeenCalled(); expect(setup).not.toHaveBeenCalled();
+      await expect(announceAzureCleanupReturn(expected, new AbortController().signal, 1000)).resolves.toBe(true);
+      await expect(announceAzureCleanupReturn(expected, new AbortController().signal, 1000)).resolves.toBe(true);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      current = false;
+      await expect(announceAzureCleanupReturn(expected, new AbortController().signal, 40)).resolves.toBe(false);
+    } finally { stop(); }
+  });
+
+  it("disposes a cancelled cleanup announcement without an acknowledgement or focus change", async () => {
+    const abort = new AbortController();
+    const focus = vi.spyOn(window, "focus");
+    const announced = announceAzureCleanupReturn({ ownerId: "owner", operationId: "cleanup-1", phase: "inspect" }, abort.signal, 1000);
+    abort.abort();
+    await expect(announced).resolves.toBe(false);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
   it("opens the update sign-in in a popup and words an early close for the update", async () => {
     const { result } = renderHook(() => useAzureSignIn());
     await act(async () => {

@@ -261,7 +261,7 @@ describe("verified owner cold entry before shell hydration", () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
-  it.each(["/", "/one", "/one/puppy", "/one/files", "/one/profile/software-updates"])(
+  it.each(["/", "/one", "/one/puppy", "/one/files", "/one/setup", "/one/setup/cloud", "/one/profile/software-updates"])(
     "recovers a withheld owner shell at %s once without executing an action", async (pathname) => {
       mocks.pathname = pathname;
       render(<AzureReturnBootRecovery />);

@@ -3,7 +3,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
-import { ROUTES } from "@/lib/navigation/routes";
 
 const mocks = vi.hoisted(() => ({ follow: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
@@ -27,7 +26,9 @@ it("labels an unplaced person honestly and opens the tier chooser", () => {
   expect(screen.getByText("Not chosen yet")).toBeInTheDocument();
   expect(screen.queryByText("Current")).toBeNull();
   fireEvent.click(screen.getByText("Hussh Shared"));
-  expect(mocks.push).toHaveBeenCalledWith(ROUTES.ONE_SETUP_CLOUD);
+  expect(mocks.push).toHaveBeenCalledWith(
+    "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting",
+  );
 });
 
 it("tells an unplaced person updates come after setup", () => {

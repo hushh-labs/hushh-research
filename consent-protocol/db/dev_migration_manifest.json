@@ -86,7 +86,8 @@
     "968_azure_vm_image_update_admission.sql",
     "969_gcp_browser_update_admission.sql",
     "970_azure_browser_update_admission.sql",
-    "971_private_action_channel_continuity.sql"
+    "971_private_action_channel_continuity.sql",
+    "972_personal_agent_cloud_removal.sql"
   ],
   "deferred_release_migrations": [
     {

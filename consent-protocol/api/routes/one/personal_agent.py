@@ -1,10 +1,10 @@
 """Owner-authorized provisioning for a user's own personal agent.
 
-Every action requires the owner's VAULT_OWNER token, so only the person themselves can
-stand up or tear down their own agent. Auth is resolved before the kill-switch check, so
-an unauthenticated caller gets 401 regardless of the flag; once authenticated, the surface
-returns 404 while ``PERSONAL_AGENT_ENABLED`` is off. Handlers are thin; the real work
-lives in the provisioning service and registry.
+Provisioning and teardown require the owner's VAULT_OWNER token. Status and
+reviewed update operations use their existing Firebase-owner authority. Authentication
+precedes the feature gate; an unauthenticated caller receives 401, while disabled
+capabilities return 404. The existing router composes bounded lifecycle handlers;
+resource authority remains in the provisioning service and registry.
 """
 
 from __future__ import annotations
@@ -21,11 +21,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one import personal_agent_direct_ingress as direct_ingress
+from api.routes.one.personal_agent_cloud import (
+    adopt_personal_agent as adopt_personal_agent,
+)
+from api.routes.one.personal_agent_cloud import (
+    deprovision_personal_agent as deprovision_personal_agent,
+)
+from api.routes.one.personal_agent_cloud import (
+    router as _cloud_lifecycle_router,
+)
 from api.routes.one.pod_capabilities import observed_ai_selection
 from hushh_mcp.runtime_settings import personal_agent_enabled
-from hushh_mcp.services.account_service import (
-    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
-    PersonalAgentDeprovisioningRequiredError,
+from hushh_mcp.services.account_personal_agent_erasure import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE as PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+)
+from hushh_mcp.services.account_personal_agent_erasure import (
+    PersonalAgentDeprovisioningRequiredError as PersonalAgentDeprovisioningRequiredError,
 )
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.compute_backend import resolve_compute_backend
@@ -894,46 +905,6 @@ async def provision_personal_agent(
     return {"success": True, **result}
 
 
-@router.post("/adopt")
-async def adopt_personal_agent(
-    user_id: str = Depends(require_firebase_auth),
-):
-    """Reconnect the caller to a pod that ALREADY exists in their own project.
-
-    Owner-authenticated but NOT vault-gated, unlike ``/provision``: adoption can only
-    RESTORE a lost row to a pod that is already running, never mint a new identity or
-    create compute, so it needs no vault-owner token. Returns ``{adopted: false}`` when
-    there is nothing to adopt (no orphan pod, or no BYOC cloud recorded) -- the caller
-    then falls through to reinit or rebuild. The recovery classifier tries this FIRST,
-    because reconnecting preserves the agent's identity and memory.
-    """
-    _require_enabled()
-    result = await _service().adopt_orphan(user_id=user_id)
-    if not result:
-        return {"adopted": False}
-    return {"adopted": True, **result}
-
-
-@router.post("/deprovision")
-async def deprovision_personal_agent(
-    token_data: dict = Depends(require_vault_owner_token),
-):
-    """Tear down the caller's own agent. Requires the owner's VAULT_OWNER token."""
-    _require_enabled()
-    user_id = token_data["user_id"]
-    try:
-        result = await _service().deprovision(user_id=user_id)
-    except PersonalAgentDeprovisioningRequiredError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
-                "message": "Private-agent erasure is incomplete. Recovery resources have been preserved.",
-            },
-        ) from exc
-    return {"success": True, **result}
-
-
 class SpaceNameRequest(BaseModel):
     """The owner's chosen handle for their space."""
 
@@ -992,3 +963,8 @@ async def set_space_name(
             },
         )
     return {"success": True, "spaceName": name}
+
+
+# Preserve the public router/import while composing its bounded cloud lifecycle.
+
+router.include_router(_cloud_lifecycle_router)

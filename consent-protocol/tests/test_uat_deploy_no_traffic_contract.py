@@ -2700,7 +2700,7 @@ def test_provider_capture_missing_target_companion_still_writes_failure_artifact
     }
 
 
-def test_release_workflow_pins_collectors_recovery_and_exact_build_identity():
+def test_provider_receipt_workflow_pins_collector_and_exact_build_identity():
     workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
     deploy = next(s for s in steps if s.get("id") == "deploy-backend")
@@ -2718,6 +2718,57 @@ def test_release_workflow_pins_collectors_recovery_and_exact_build_identity():
         assert command.index("run_uat_text_recovery_job.py") < command.index(
             'if [[ "${{ inputs.skip_managed_vertex_probe_once }}"'
         )
+
+
+def test_text_recovery_generation_matches_the_selected_runtime_processor(monkeypatch):
+    path = REPO_ROOT / "scripts/ops/run_uat_text_recovery_job.py"
+    spec = importlib.util.spec_from_file_location("uat_text_recovery_generation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    # Derive the expectation from the actual producer, not a second test formula.
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    generations = []
+    for provider in ("azure_openai", "vertex"):
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", provider)
+        monkeypatch.setenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", provider)
+        job = {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "env": [
+                                            {
+                                                "name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
+                                                "value": provider,
+                                            },
+                                            {
+                                                "name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
+                                                "value": provider,
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        actual = module.expected_policy_generation(job)
+        assert actual == managed_text_policy()["generation"]
+        generations.append(actual)
+        job["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"][1]["value"] = (
+            "invalid"
+        )
+        with pytest.raises(ValueError, match="bindings disagree"):
+            module.expected_policy_generation(job)
+    assert generations[0] != generations[1]
 
 
 def test_vertex_drive_evidence_cannot_qualify_one_chat():
