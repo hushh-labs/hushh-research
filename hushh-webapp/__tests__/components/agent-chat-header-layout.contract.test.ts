@@ -84,7 +84,7 @@ describe("agent chat header layout", () => {
     expect(toggleTag).toContain('size="sm"');
   });
 
-  it("shows the One and Puppy names on phones and explains where each runs", () => {
+  it("shows One and Puppy names with accessible runtime descriptions", () => {
     const header = headerBlock();
     const toggle = header.indexOf('ariaLabel="Where your agent runs"');
     const toggleTag = header.slice(
@@ -95,11 +95,12 @@ describe("agent chat header layout", () => {
     expect(toggleTag).toContain('labelClassName=""');
     expect(toggleTag).toContain('label: "One"');
     expect(toggleTag).toContain('label: "Puppy"');
-    expect(workspace).toContain("One: cloud");
-    expect(workspace).toContain("Puppy: your linked computer");
     expect(toggleTag).toContain("icon: Cloud");
     expect(toggleTag).toContain("icon: Laptop");
     expect(toggleTag.match(/accessibleLabel:/g)).toHaveLength(2);
+    expect(toggleTag).toContain('accessibleLabel: "One, your cloud agent"');
+    expect(toggleTag).toContain('accessibleLabel: "Puppy One, on your linked computer"');
+    expect(workspace).not.toContain("One: cloud · Puppy: your linked computer");
     // Keep the mark visible at phone widths and allow the text slot to absorb
     // pressure before it can overlap the trailing controls.
     expect(openingTag(header, "data-agent-chat-brand-tile")).toContain(

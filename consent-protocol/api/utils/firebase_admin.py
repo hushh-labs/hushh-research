@@ -30,6 +30,10 @@ class FirebaseAuthorityError(RuntimeError):
     """Bounded configuration refusal; never includes credentials or account IDs."""
 
 
+class SharedFirebaseIdentityRetained(FirebaseAuthorityError):
+    """A valid nonproduction runtime must preserve its shared production identity."""
+
+
 def _checked_project(app: Any, service_account: Optional[dict[str, Any]] = None) -> str:
     actual = _project_id_from_app(app)
     configured = _project_id_from_service_account(service_account)
@@ -69,7 +73,7 @@ def assert_firebase_identity_mutation_allowed(app: Any) -> None:
     ):
         raise FirebaseAuthorityError("firebase_authority_mismatch")
     if project == "hushh-pda" and environment not in production:
-        raise FirebaseAuthorityError("firebase_authority_mismatch")
+        raise SharedFirebaseIdentityRetained("firebase_authority_mismatch")
 
 
 def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:

@@ -429,7 +429,7 @@ async def _run_stale_writer_barrier_rehearsal(database_url: str) -> None:
             line
             for line in path.read_text(encoding="utf-8").splitlines()
             if not line.lstrip().startswith("\\")
-        )
+        ).replace(":'expected_fence_count'", "'2'")
 
     deletion_conn = await asyncpg.connect(database_url)
     writer_conn = await asyncpg.connect(database_url)

@@ -2,7 +2,7 @@
 """Regression test for route.py --hook mode (UserPromptSubmit contract).
 
 Run:
-    python3 .agents/adapters/claude/codex-bridge/scripts/test_route_hook.py
+    python3 .agents/routing/scripts/test_route_hook.py
 
 The hook contract:
   - Never block the turn: exit code must be 0 on every path, including malformed stdin.

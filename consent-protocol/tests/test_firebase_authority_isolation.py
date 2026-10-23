@@ -74,7 +74,7 @@ def test_adc_project_mismatch_cannot_fall_back_to_an_existing_app(monkeypatch):
 @pytest.mark.parametrize(
     "environment,project,expected",
     [
-        ("uat", "hushh-pda", "retry_pending"),
+        ("uat", "hushh-pda", "identity_retained"),
         ("uat", "hushh-pda-uat", "deleted"),
         ("production", "hushh-pda", "deleted"),
     ],
@@ -95,8 +95,8 @@ def test_cleanup_preserves_shared_prod_identity_and_keeps_pending_work(
     service = lifecycle.AccountDeletionLifecycleService()
     result = asyncio.run(service.delete_or_quarantine_firebase_identity("unchanged-fixture-uid"))
     assert result.outcome == expected
-    if expected == "retry_pending":
-        assert result.classification == "firebase_authority_mismatch"
+    if expected == "identity_retained":
+        assert result.classification == "firebase_shared_identity_retained"
         quarantine = asyncio.run(service.quarantine_firebase_identity("unchanged-fixture-uid"))
         assert quarantine.outcome == "quarantine_incomplete"
         delete.assert_not_called()
