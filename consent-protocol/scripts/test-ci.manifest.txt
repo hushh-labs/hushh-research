@@ -1084,6 +1084,7 @@ tests/test_azure_setup_authority_postgres.py
 tests/test_azure_vm_upgrade_postgres.py
 tests/test_azure_resource_teardown.py
 tests/test_azure_cleanup_lifecycle.py
+tests/test_personal_agent_cloud_removal_postgres.py
 tests/test_azure_resource_teardown_postgres.py
 tests/test_gcp_runtime_quota_grant_postgres.py
 tests/test_azure_partial_setup_erasure_postgres.py

@@ -107,6 +107,8 @@ async def bound_authorization(
     authorization: dict = await store.match_authorization(
         owner, attempt=selection.erasure_attempt, digest=selection.erasure_digest
     )
+    if authorization["purpose"] == "execute":
+        await store.require_cloud_purpose(owner, selection.erasure_attempt)
     context = authorization["context"]
     if (
         context["tenantId"] != selection.authority
@@ -272,6 +274,18 @@ async def run_cleanup(
         # The durable operation keeps accepted/uncertain provider outcomes. No
         # exception payload, bearer or provider body enters logs or task metadata.
         logger.warning("azure_cleanup.interrupted error_type=%s", type(exc).__name__)
-        await store.mark_authorization(
-            owner, selection, purpose, "attention_required", "RETRY_REQUIRED"
+        safe_codes = {
+            "AZURE_CLEANUP_UNRELATED_RESOURCES",
+            "AZURE_RESOURCE_OWNER_CHANGED",
+            "AZURE_CLEANUP_RESOURCE_CHANGED",
+            "AZURE_CLEANUP_INVENTORY_CHANGED",
+            "AZURE_CLEANUP_PLAN_CHANGED",
+            "AZURE_CLEANUP_OUTCOME_UNCERTAIN",
+            "AZURE_CLEANUP_ABSENCE_UNCONFIRMED",
+        }
+        code = (
+            exc.code
+            if isinstance(exc, AzureTeardownRefused) and exc.code in safe_codes
+            else "RETRY_REQUIRED"
         )
+        await store.mark_authorization(owner, selection, purpose, "attention_required", code)

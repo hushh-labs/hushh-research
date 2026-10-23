@@ -1,14 +1,17 @@
 "use client";
 
+import { CloudHostingHealth } from "./cloud-hosting-health";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { AgentUpdateActivity } from "@/components/profile/agent-update-activity";
 import { BrowserActivationPanel } from "@/components/computer-use/browser-activation-panel";
 import { AzureHostingNotice } from "@/components/profile/azure-hosting-notice";
+import { CloudRemovalControl } from "@/components/profile/cloud-removal-control";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
-import { readUpdateStatus, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
+import { canInstallUpdate, updateCheckMessage, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
@@ -36,36 +39,6 @@ function isHostingMode(value: unknown): value is HostingMode {
   return typeof value === "string" && value in HOST_LABELS;
 }
 
-// Older hubs expose only offerability; an explicit refusal always wins.
-function canInstallUpdate(
-  status: Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>> | null,
-) {
-  return (status?.updateInstallable ?? status?.updateOfferable) === true;
-}
-
-function updateCheckMessage(
-  status: Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>,
-) {
-  if (status.hostingMode === "shared")
-    return "Hussh Shared updates automatically.";
-  if (status.hostingMode === "pending")
-    return "Updates become available after setup finishes.";
-  if ((status.hostingMode as string) === "unplaced")
-    return "Choose where your agent runs first.";
-  if (status.updateFailed)
-    return "Update needs attention. Its outcome has not been verified.";
-  const activity = updateActivityLabel(readUpdateStatus(status));
-  if (activity) return `${activity}.`;
-  if (canInstallUpdate(status) && status.availableRelease) {
-    return `${releaseLabel(status.availableRelease.version, status.availableRelease.releasedAt)} is ready to install.`;
-  }
-  if (status.updateAvailable)
-    return "An update is available, but this pod is not ready to install it.";
-  if (status.installedReleaseVerified)
-    return "Your private agent is up to date.";
-  return "Update status checked. The running version is not yet verified.";
-}
-
 export function AgentSettingsPanel({
   kind,
   userId,
@@ -77,6 +50,8 @@ export function AgentSettingsPanel({
   const { status, update, refresh } = useAgentDeploymentFollow({ userId });
   const azureUpdate = useAzureUpdateProgress({ onSettled: refresh });
   const [busy, setBusy] = useState(false);
+  const [observedInspection, setInspection] = useState<{ value: Awaited<ReturnType<typeof ApiService.inspectPersonalAgentHosting>>; current: () => boolean } | null>(null);
+  const inspection = observedInspection?.current() ? observedInspection.value : null;
   const busyRef = useRef(false);
   const mounted = useRef(true);
   useEffect(() => {
@@ -102,9 +77,16 @@ export function AgentSettingsPanel({
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
-    const request = ApiService.getPersonalAgentStatus().then((next) => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    const current = () => mounted.current && !!owner && owner.userId === userId && isValidatedAuthSessionOwnerCurrent(owner);
+    const request = ApiService.getPersonalAgentStatus().then(async (next) => {
       if (!isHostingMode(next.hostingMode) || next.hostingMode === "unknown") {
         throw new Error("Hosting status unavailable");
+      }
+      if (kind === "hosting" && isOwnerCloudTarget(next.deploymentTarget)) {
+        const checked = await ApiService.inspectPersonalAgentHosting();
+        if (!current()) throw new DOMException("Session changed", "AbortError");
+        setInspection({ value: checked, current });
       }
       return next;
     });
@@ -115,7 +97,7 @@ export function AgentSettingsPanel({
             kind === "hosting" ? "Checking hosting…" : "Checking for updates…",
           success: (next) =>
             kind === "hosting"
-              ? `Hosting confirmed: ${HOST_LABELS[next.hostingMode as HostingMode]}.`
+              ? isOwnerCloudTarget(next.deploymentTarget) ? "Cloud resources checked." : `Hosting confirmed: ${HOST_LABELS[next.hostingMode as HostingMode]}.`
               : updateCheckMessage(next),
           error:
             kind === "hosting"
@@ -274,6 +256,7 @@ export function AgentSettingsPanel({
                 .join(" · ")}
             />
           ) : null}
+          <CloudHostingHealth inspection={inspection} />
         </SettingsGroup>
         {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
           <AzureHostingNotice onRebuilt={refresh} />
@@ -326,6 +309,7 @@ export function AgentSettingsPanel({
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
+          {isOwnerCloudTarget(status?.deploymentTarget) ? <CloudRemovalControl provider={ownerCloudProvider(status?.deploymentTarget) === "azure" ? "azure" : "gcp"} /> : null}
           <Button
             variant="muted"
             disabled={busy}

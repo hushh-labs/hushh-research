@@ -8,6 +8,15 @@ Preserve nine peer edits and the independently active ADK tree. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
 owns dated source, serving and installed-owner evidence.
 
+**Latest follow-up:** PR8377 landed as `49975547b6`; the core mirror (19m41s),
+26 exact-head checks, landed smoke and dev run `39928813587` passed. UAT remains
+at `989afe4336` (run `39920618646`). Background owner verification found a
+setup-shell stall; its bounded recovery repair is local. Cloud-only removal and
+read-only owner-resource inspection are also local, with dev-only migration972.
+Finish their focused authority/lifecycle checks, regenerate combined contracts,
+freeze once and follow normal exact-SHA validation before the next dev acceptance
+and UAT promotion. Never treat source proof as installed cleanup acceptance.
+
 One and Browser share the owner's image, container, non-root identity and
 lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
 Container Apps with it explicitly disabled. The whole owner pod is the compromise

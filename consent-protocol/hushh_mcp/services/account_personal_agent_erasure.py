@@ -215,6 +215,26 @@ def assert_external_resources_absent(
     if isinstance(erasure, dict) and erasure:
         _require_retained_erasure(conn, params, table_exists, finalize_erasure)
         return table_presence
+    # A completed cloud-only removal retains identity/history, not live cloud
+    # coordinates. SQL must match its exact clean replacement before those
+    # historical links can establish absence for a later account deletion.
+    if (
+        registry_row is not None
+        and byoc_row is None
+        and lifecycle_row is None
+        and migration_row is None
+    ):
+        available = conn.execute(
+            text("SELECT to_regprocedure('public.personal_agent_cloud_removed(text)') IS NOT NULL")
+        ).scalar()
+        if available is True and not standby_present(conn, params, table_exists):
+            if (
+                conn.execute(
+                    text("SELECT public.personal_agent_cloud_removed(:user_id)"), params
+                ).scalar()
+                is True
+            ):
+                return table_presence
     has_external_coordinates = _has_external_coordinates(registry)
     has_pending_deprovision = _pending_deprovision(conn, params, registry, table_exists)
     demonstrably_unprovisioned = (registry_row is None and lifecycle_row is None) or (
@@ -242,3 +262,17 @@ def assert_external_resources_absent(
     ):
         raise PersonalAgentDeprovisioningRequiredError(PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE)
     return table_presence
+
+
+def personal_agent_erasure_queries() -> dict:
+    """Explicit owner-bound deletes; callers retain absence/tombstone authority."""
+    return {
+        "byoc_setup_jobs": text("DELETE FROM byoc_setup_jobs WHERE user_id = :user_id"),
+        "pod_lifecycle_events": text("DELETE FROM pod_lifecycle_events WHERE user_id = :user_id"),
+        "personal_agent_registry": text(
+            "DELETE FROM personal_agent_registry WHERE user_id = :user_id"
+        ),
+        "personal_agent_cloud_removals": text(
+            "DELETE FROM personal_agent_cloud_removals WHERE user_id = :user_id"
+        ),
+    }

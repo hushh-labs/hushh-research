@@ -40,6 +40,7 @@ from hushh_mcp.services.account_personal_agent_erasure import (
 )
 from hushh_mcp.services.account_personal_agent_erasure import (
     assert_external_resources_absent,
+    personal_agent_erasure_queries,
 )
 from hushh_mcp.services.account_push_erasure import (
     erase_push_registrations,
@@ -211,9 +212,6 @@ class AccountService:
             "actor_profiles": text("DELETE FROM actor_profiles WHERE user_id = :user_id"),
             "one_action_directive_ledger": text(
                 "DELETE FROM one_action_directive_ledger WHERE user_id = :user_id"
-            ),
-            "pod_lifecycle_events": text(
-                "DELETE FROM pod_lifecycle_events WHERE user_id = :user_id"
             ),
             # Sealed arguments of connector calls awaiting review. A reset keeps the
             # actor_profiles row, so the FK cascade alone would leave them behind.
@@ -761,10 +759,7 @@ class AccountService:
                 "DELETE FROM circle_chat_preferences WHERE user_id = :user_id"
             ),
             "feed_events": text("DELETE FROM feed_events WHERE user_id = :user_id"),
-            "byoc_setup_jobs": text("DELETE FROM byoc_setup_jobs WHERE user_id = :user_id"),
-            "personal_agent_registry": text(
-                "DELETE FROM personal_agent_registry WHERE user_id = :user_id"
-            ),
+            **personal_agent_erasure_queries(),
             "vault_key_wrappers": text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
             "world_model_index_v2": text(
                 "DELETE FROM world_model_index_v2 WHERE user_id = :user_id"
@@ -1050,6 +1045,9 @@ class AccountService:
             if present:
                 conn.execute(self._delete_by_user_queries[table_name], params)
             results[table_name] = True
+        self._delete_optional_user_tables(
+            conn, table_names=["personal_agent_cloud_removals"], params=params, results=results
+        )
 
     @staticmethod
     def _lock_fabric_receipt_users(conn, *, user_ids: Iterable[str]) -> None:

@@ -38,14 +38,44 @@ dialog; a one-shot hosting observation can leave every AI choice disabled.
 The correction also covers abandoned AI edits, locked saved-key recovery and deletion notices through the real API/authentication path. Local core and exact-head CI passed. The deployed normal-owner rehearsal reached home without a setup loop; optional preferences remained clear of the fixed Finish control at 1464 × 929, with zero horizontal overflow. The inherited diagram-import and Mail-test failures were repaired without excluding checks. Known erased UIDs
 remain fenced; the shared Firebase deletion boundary cannot be bypassed.
 
-GitHub still reports nine dependency alerts and no secret alerts after merge; its
-dependency graph already contains the seven patched versions. Alert closure is
-pending provider refresh, not a manual dismissal. Source patches cover
+The earlier nine-alert inventory is superseded by the refreshed two-alert
+inventory above. Seven source-patched alerts are now closed by GitHub; none was
+manually dismissed. Source patches cover
 Next.js, DOMPurify (including the actual Mermaid bundle) and Nodemailer. ADK's
 supported OTEL cap excludes the patched release: ignore incoming vendor
 `tracestate` through the public propagator boundary, preserving traceparent
 and outbound context. This is an application mitigation, not an upstream alert
 closure. The dev-only unpatched `braces` tooling advisory remains tracked.
+
+## Latest stabilization and cloud removal — 23 October, 10:15 UTC
+
+[PR8377](https://github.com/hushh-labs/hushh-research/pull/8377) landed as
+`49975547b6`. One frozen-candidate core mirror completed in 19m41s; all 26 hosted
+PR checks and exact landed smoke passed. [Dev39928813587](https://github.com/hushh-labs/hushh-research/actions/runs/39928813587)
+completed successfully. Verified ADC readback at 09:26 UTC: backend
+`consent-protocol-00203-w5s` and frontend `hushh-webapp-00171-wsr`, both 100% at that
+SHA. UAT’s latest successful run remains `39920618646` at `989afe4336`; it has not
+received the subsequent local repair.
+
+A real background Chrome owner reached the verified Azure AI selection with
+Finish enabled, then stalled at the setup shell. The existing one-attempt,
+owner-fenced streamed-shell recovery omitted setup routes; both routes are now
+included locally. Tests cover them; installed verification waits for the next
+candidate. Do not generalize earlier successful home navigation to this newer
+failed journey.
+
+GitHub’s refreshed dependency inventory now has **two open OpenTelemetry alerts**
+(498,487); the seven patched alerts are closed. The ADK-supported version cap
+still excludes the fixed release. Incoming-tracestate mitigation remains
+qualified application protection, not upstream remediation. Secret and code
+scanning were clear at the prior verified read.
+
+The new **Remove cloud, keep account** flow and read-only Hosting inspection are
+local follow-up source. They reuse exact owner/resource erasure authority, retain
+uncertain cleanup, preserve previous homes and fence stale replacement callbacks.
+Dev-only migration972 is not deployed. Neither provider’s standalone cloud
+removal has live owner acceptance. The [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account)
+owns its authority, recovery and unavailable boundaries.
 
 ## Visual Context
 

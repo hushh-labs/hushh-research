@@ -686,6 +686,31 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 ---
 
+### Owner cloud removal and inspection
+
+- `GET /api/one/personal-agent/removal`: Firebase-owner, no-store discovery.
+  Returns `{available, provider}` only for the installed schema and recorded
+  GCP/Azure home, including qualified interrupted Azure setup. No provider calls,
+  reservations or mutations; missing/old schema does not offer the control.
+- `POST /api/one/personal-agent/removal`: current vault-owner authority. Strict
+  phases `inspect`, `status`, `approve`, `execute`, `finalize`; exact operation and
+  plan digest plus explicit contents/retention confirmation are required for
+  destructive work. Uses the existing erasure executor; never calls full account
+  deletion. Successful finalization returns `{status:"cloud_removed",
+  operationId, accountRetained:true, hostingMode:"unplaced"}` only for that exact
+  released identity. A stale replacement, uncertain outcome or changed approval
+  returns a bounded 409 and retains recovery custody.
+- `GET /api/one/personal-agent/hosting/inspection`: Firebase-owner, read-only
+  control-plane observation of the recorded service and historical receipt
+  coverage. Returns `connected`, `starting`, `absent`, `ownership_unverified`,
+  `cleanup_pending` or `unverified`, plus bounded previous-home metadata. A denied
+  read is never absence. This neither wakes nor repairs/deletes the pod.
+
+These routes use the existing One proxy and personal-agent feature authority.
+Cloud removal requires dev-only migration972; native execution and broad orphan
+scanning are not qualified. See the [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account).
+
+
 ## Route Categories
 
 ### One business suggestion completion
