@@ -1700,6 +1700,16 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "personal_agent_cloud_removals"
+      ],
+      "id": "personal_agent_cloud_removal",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Dev-only migration972; vault-owner POST /api/one/personal-agent/removal and the existing resource-erasure executor. Owner/attempt primary-key lookups and transactional finalization; GET discovery is Firebase-owner authenticated and creates no operation."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "personal_agent_registry",
         "byoc_setup_jobs",
         "pod_lifecycle_events",
@@ -6999,7 +7009,7 @@
     "action_gateway": "02448310d7910681448b55864231b81a20f60908470fc49539ee6f482450dc8d",
     "agent_registry": "a2eacdefb2221a47ec806f749510e5bed26c458a5ca0e16627583aafcd745c35",
     "cache_manifest": "8dbd3b9ea314314d2280430fa134ccfb7ed791249763e243b66402b601ed17e3",
-    "data_plane": "f43d1cc77258c5d429da702044c6b08724d577caf9cb63cebf8942a9fe3971f3",
+    "data_plane": "ca29bd28ca6f60faf54f7db7900605582fa6551b53c70649de8107a70936a6ea",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",
@@ -7018,6 +7028,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 160,
     "semantic_routes": 17,
-    "table_families": 126
+    "table_families": 127
   }
 }
