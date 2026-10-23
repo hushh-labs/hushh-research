@@ -464,3 +464,28 @@ Tavily receives only the admitted public-search context, never owner tokens, vau
 Retained research uses the existing owner-key encrypted `one_adk_sessions` store in `one.personal_world_model.v1/tavily-profile-v1`. Google/Bing `profile` rows keep their 24-hour cleanup and never migrate their contents into the durable inbox. Recent legacy start timestamps alone carry into initial rollout; each provider lineage retains its charged slots and work together. Operator rollback to an older binary is not a cross-provider budget proof. Explicit refresh replaces the current research generation through the existing budget gates; explicit discard tombstones its contents. Owner identity, consent-generation, key lifetime and ciphertext-CAS fences remain mandatory, including after restart. An `attention` completion is not successful preparation and cannot suppress missing research for seven days.
 
 The no-traffic candidate probe additionally performs one non-personal Tavily search and requires real returned sources. Azure model readiness alone is insufficient to claim search readiness.
+
+### Find more from approved public links
+
+For Azure research, **Find more about me** appears beside **Up to date** after
+all current findings have been reviewed. It opens the existing public-source
+chooser without starting research. The chooser can suggest up to three admitted
+public HTTPS citation URLs from confirmed findings in the current draft and from
+saved, owner-approved source records. Private declaration text is never parsed
+for links or supplied to public search. A tick confirms the statement; the
+chooser requests separate permission to use the selected links as search leads.
+
+The existing explicit jobs refresh supplies those URLs through `public_profiles`.
+The encrypted checkpoint retains previously approved links for later refreshes;
+**Use my existing search details** reuses that scope and verified contact inputs.
+Legacy declarations without citations are not invented into source records.
+The system instruction remains unchanged: a lead is not proof of identity, and
+new received findings still require review. Current owner decisions continue as
+private suppression context, outside search queries.
+
+Both page refresh entrypoints refuse an unreviewed queue, an in-flight review
+save, or pending/paused research. Accepted statements stay in **Confirmed by
+you** and normalized rejected statements stay hidden as new batches arrive.
+The existing owner, token, consent, budgets and checkpoint CAS still apply.
+This page guard does not introduce a cross-tab expected-draft precondition;
+concurrent API refresh semantics are unchanged.

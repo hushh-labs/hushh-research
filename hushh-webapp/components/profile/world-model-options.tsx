@@ -30,6 +30,8 @@ export function WorldModelOptions({
   failed,
   preferences,
   sourcesRequest,
+  findMoreRequest = 0,
+  publicSourceCandidates = [],
   canCheckForUpdates,
   canResearchPublicProfiles,
   pathname,
@@ -52,6 +54,8 @@ export function WorldModelOptions({
   preferences: PwmPreferences | null;
   /** Bumped after a claim moves the inviter's preview into these sources. */
   sourcesRequest: number;
+  findMoreRequest?: number;
+  publicSourceCandidates?: readonly string[];
   canCheckForUpdates: boolean;
   canResearchPublicProfiles: boolean;
   pathname: string;
@@ -66,10 +70,12 @@ export function WorldModelOptions({
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [busy, setBusy] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [findingMore, setFindingMore] = useState(false);
   const azureResearch = usesAzurePwm(preferences?.research_provider);
   const open = sheet !== null && (sheet !== "invite" || usable);
   const close = useCallback(() => {
     setSheet(null);
+    setFindingMore(false);
     setSaveFailed(false);
     return true;
   }, []);
@@ -82,6 +88,14 @@ export function WorldModelOptions({
     setSaveFailed(false);
     setSheet("sources");
   }, [sourcesRequest]);
+  const shownFindMore = useRef(findMoreRequest);
+  useEffect(() => {
+    if (shownFindMore.current === findMoreRequest) return;
+    shownFindMore.current = findMoreRequest;
+    if (!present || !preferences?.enabled || !canCheckForUpdates || !azureResearch) return;
+    setFindingMore(true);
+    setSheet("sources");
+  }, [findMoreRequest, present, preferences?.enabled, canCheckForUpdates, azureResearch]);
 
   async function update(value: Pick<PwmPreferences, "enabled" | "email_enabled">) {
     if (busy) return;
@@ -137,10 +151,10 @@ export function WorldModelOptions({
       <SettingsDetailPanel
         open={open && sheet === "sources"}
         onOpenChange={(next) => void (!next && close())}
-        title="Add a public source"
+        title={findingMore ? "Find more about me" : "Add a public source"}
       >
         <WorldModelSources
-          key={`${ownerId}:${vaultOwnerToken}:${sourcesRequest}`}
+          key={`${ownerId}:${vaultOwnerToken}:${sourcesRequest}:${findingMore}:${findMoreRequest}`}
           ownerId={ownerId}
           vaultKey={vaultKey}
           vaultOwnerToken={vaultOwnerToken}
@@ -149,6 +163,13 @@ export function WorldModelOptions({
           present={present && open && sheet === "sources"}
           backQuery={backQuery}
           onSaved={onSourcesSaved}
+          discovery={findingMore}
+          initialUrls={findingMore ? publicSourceCandidates : undefined}
+          onRefresh={findingMore && canCheckForUpdates && preferences?.enabled ? () => {
+            if (!present) return;
+            onCheckForUpdates();
+            close();
+          } : undefined}
           onResearchPublicProfiles={azureResearch && preferences?.enabled && canResearchPublicProfiles ? urls => {
             if (!present) return;
             onResearchPublicProfiles(urls);

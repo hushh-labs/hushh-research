@@ -1,3 +1,4 @@
+import { publicProfileUrls as admittedPublicUrls } from "@/lib/world-model/public-profile-urls";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => vi.fn());
 const streamFetch = vi.hoisted(() => vi.fn());
@@ -956,4 +957,14 @@ describe("PWM live progress", () => {
     controller.abort();
     await expect(run).rejects.toThrow();
   });
+});
+
+// These are proposed links only; the existing server repeats admission at dispatch.
+it("admits bounded public pivots without extracting or rewriting private URLs", () => {
+  const good = "https://github.com/public-owner";
+  expect(admittedPublicUrls([good, good, "http://example.com", "https://127.0.0.1/a", "https://[::1]/a",
+    "https://private.internal/a", "https://a.local/a", "https://user:secret@example.com/a",
+    "https://example.com/a?token=private", "https://example.com/a#private", "https://example.com:444/a",
+    "Private confirmed sentinel", "https://example.org/a", "https://example.net/b", "https://example.edu/c"]))
+    .toEqual([good, "https://example.org/a", "https://example.net/b"]);
 });
