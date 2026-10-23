@@ -14,3 +14,11 @@ export function partialDocumentDeliveryState(counts: {
   if (pending > 0) return "checking";
   return available === total ? "available" : "unavailable";
 }
+
+/** Terminal search evidence, distinct from payment or Google grant authority. */
+export type DocumentRequestOutcomeReason = "no_matching_files" | "matching_files_unshareable";
+export function documentRequestEmptyOutcomeLabel(reason: unknown): string {
+  if (reason === "matching_files_unshareable") return "Matching files could not be shared";
+  if (reason === "no_matching_files") return "No matching files";
+  return "No files were shared";
+}

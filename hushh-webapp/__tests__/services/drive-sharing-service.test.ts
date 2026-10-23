@@ -157,6 +157,23 @@ describe("requester document payment boundary", () => {
     expect(owner).not.toHaveProperty("price");
   });
 
+  it("parses bounded terminal evidence without leaking owner counts or coercing a reason", async () => {
+    for (const direction of ["incoming", "outgoing"]) {
+      fetcher.mockResolvedValueOnce(reply({ requestId, status: "no_match", revision: 1, direction,
+        outcomeReason: "matching_files_unshareable", matchedFileCount: 12, unshareableFileCount: 12 }));
+      const result = await DriveSharingService.status("vault", requestId, guard);
+      expect(result.outcomeReason).toBe("matching_files_unshareable");
+      expect(result.matchedFileCount).toBe(direction === "incoming" ? 12 : undefined);
+    }
+    for (const outcomeReason of [undefined, "unknown", ["matching_files_unshareable"], {}]) {
+      fetcher.mockResolvedValueOnce(reply({ requestId, status: "no_match", revision: 1,
+        direction: "incoming", outcomeReason, matchedFileCount: 12, unshareableFileCount: 12 }));
+      const result = await DriveSharingService.status("vault", requestId, guard);
+      expect(result).not.toHaveProperty("outcomeReason");
+      expect(result).not.toHaveProperty("matchedFileCount");
+    }
+  });
+
   it("reads the additive queue pair and price rule, dropping a malformed pair", async () => {
     const queue = { queuedAt: "2026-10-17T02:32:50+00:00", queueDelayed: true };
     const status = { requestId, status: "pending", revision: 0 };
