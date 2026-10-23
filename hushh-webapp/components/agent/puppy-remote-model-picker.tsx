@@ -20,8 +20,8 @@ const STATE_DOT: Record<PuppyMachineState, string> = {
 
 function stateSentence(state: PuppyMachineState, machine: string): string {
   const Machine = machine.charAt(0).toUpperCase() + machine.slice(1);
-  if (state === "live") return `${Machine} is ready.`;
-  if (state === "quiet") return `${Machine} is resting. It wakes up when you send a message.`;
+  if (state === "live") return `${Machine} is online.`;
+  if (state === "quiet") return `${Machine} hasn't checked in recently. Open Puppy on it to reconnect.`;
   return `${Machine} isn't reachable right now. Open Puppy on it to reconnect.`;
 }
 
@@ -93,8 +93,9 @@ function ModelList({ catalog, selected, loading, locked, machine, onPick }: {
 }
 
 /** The linked machine's models, with the read's own plain-words status and retry. */
-function ModelSection({ error, onRetry, ...list }: Parameters<typeof ModelList>[0] & {
+function ModelSection({ error, connectionMessage, onRetry, ...list }: Parameters<typeof ModelList>[0] & {
   error: string;
+  connectionMessage: string;
   onRetry: () => void;
 }) {
   return (
@@ -104,6 +105,7 @@ function ModelSection({ error, onRetry, ...list }: Parameters<typeof ModelList>[
         {list.loading && list.catalog?.models.length ? <Loader2 className="size-3 animate-spin text-muted-foreground" aria-label="Checking for changes" /> : null}
       </div>
       <ModelList {...list} />
+      {connectionMessage ? <p className="px-2 py-2 text-xs leading-5 text-muted-foreground" role="status">{connectionMessage}</p> : null}
       {error ? <p className="px-2 py-2 text-xs leading-5 text-muted-foreground" role="status">{error}</p> : null}
       {error && !list.loading ? (
         <button type="button" className="min-h-8 px-2 text-xs font-medium text-[color:var(--app-accent)]" onClick={onRetry}>Try again</button>
@@ -143,7 +145,7 @@ export function PuppyRemoteModelPicker({
   const setOpen = (next: boolean) => { setOpenState(next); onOpenChange?.(next); };
   const [choice, setChoice] = useState<string | null>(null);
   const choiceAfterClose = useRef<string | null>(null);
-  const { catalog, loading, error, pending, load, applyGlobal } = usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine,
+  const { catalog, loading, error, connectionMessage, pending, load, applyGlobal } = usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine, enabled: active,
     prefetch: active && (machineState === "live" || machineState === "quiet") });
 
   useEffect(() => {
@@ -194,7 +196,7 @@ export function PuppyRemoteModelPicker({
           </div>
           {deviceId && vaultOwnerToken ? (
             <ModelSection catalog={catalog} selected={selected} loading={loading} locked={busy} machine={machine}
-              error={error} onRetry={() => void load()}
+              error={error} connectionMessage={connectionMessage} onRetry={() => void load()}
               onPick={(id) => { choiceAfterClose.current = id; setOpen(false); }} />
           ) : null}
           {footer ? <div className="mt-2 border-t border-border/60 pt-2">{footer}</div> : null}

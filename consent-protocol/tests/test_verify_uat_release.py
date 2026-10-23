@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import httpx
 import pytest
 import requests
 
@@ -325,3 +326,76 @@ def test_requested_live_probe_transport_timeout_still_blocks(monkeypatch, tmp_pa
     assert report["status"] == "blocked"
     assert report["failures"] == ["ria_stage1_query_only"]
     assert report["degraded"] == []
+
+
+def _load_email_release_verifier():
+    path = Path(__file__).resolve().parents[2] / "scripts/ops/email_auth_uat_release.py"
+    spec = importlib.util.spec_from_file_location("email_auth_release", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_enabled_candidate_must_offer_email_sign_in_before_promotion(monkeypatch, available):
+    module = _load_email_release_verifier()
+    monkeypatch.setattr(
+        module.httpx,
+        "get",
+        lambda *args, **kwargs: httpx.Response(200, json={"enabled": available}),
+    )
+    url = "https://candidate---consent-protocol-example-uc.a.run.app"
+    if available:
+        assert module.verify_candidate(url)["candidate_ready"]
+    else:
+        with pytest.raises(module.ReleaseError, match="candidate_capabilities"):
+            module.verify_candidate(url)
+
+
+@pytest.mark.parametrize("recovers", [True, False])
+@pytest.mark.parametrize("failure", [httpx.ReadTimeout, httpx.ConnectError])
+def test_candidate_readiness_retries_only_bounded_transport_reads(monkeypatch, recovers, failure):
+    module = _load_email_release_verifier()
+    calls, sleeps = [], []
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        if recovers and len(calls) == 2:
+            return httpx.Response(200, json={"enabled": True})
+        raise failure("private diagnostic must not escape")
+
+    monkeypatch.setattr(module.httpx, "get", get)
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+    url = "https://candidate---consent-protocol-example-uc.a.run.app"
+    if recovers:
+        assert module.verify_candidate(url)["candidate_ready"]
+    else:
+        stage = "candidate_timeout" if failure is httpx.ReadTimeout else "candidate_transport"
+        with pytest.raises(module.ReleaseError, match=f"^{stage}$"):
+            module.verify_candidate(url)
+    assert len(calls) == 2
+    assert all(call == (url + "/api/auth/email/capabilities", {"timeout": 30}) for call in calls)
+    assert sleeps == [2]
+
+
+@pytest.mark.parametrize(
+    "response,stage",
+    [
+        (httpx.Response(200, content=b"not json"), "candidate_response"),
+        (httpx.Response(200, json=[]), "candidate_response"),
+        (httpx.Response(200, json={"enabled": "true"}), "candidate_capabilities"),
+        (httpx.Response(503), "candidate_capabilities"),
+    ],
+)
+def test_candidate_invalid_readiness_is_refused_without_retry(monkeypatch, response, stage):
+    module = _load_email_release_verifier()
+    calls = []
+
+    def get(*args, **kwargs):
+        calls.append(args)
+        return response
+
+    monkeypatch.setattr(module.httpx, "get", get)
+    with pytest.raises(module.ReleaseError, match=f"^{stage}$"):
+        module.verify_candidate("https://candidate---consent-protocol-example-uc.a.run.app")
+    assert len(calls) == 1
