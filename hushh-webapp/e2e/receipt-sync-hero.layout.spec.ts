@@ -625,9 +625,10 @@ for (const nested of [false, true]) {
     const beforeHeight = await overview.locator("..").evaluate(element => element.getBoundingClientRect().height);
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
     await expect(toolbar).toHaveAttribute("aria-busy", "true");
-    await expect(page.getByText("Checking for new receipts…")).toBeVisible();
+    await expect(page.getByText("Checking Mail for receipts…")).toBeVisible();
     const search = page.getByRole("searchbox", { name: "Search table" });
-    await search.focus();
+    await search.evaluate(element => element.focus({ preventScroll: true }));
+    await expect(search).toBeFocused();
     await page.evaluate(() => {
       const root = document.querySelector('[data-app-scroll-root="true"]') ?? document.scrollingElement!;
       const row = document.querySelector('[data-receipt-row-id]')!;
@@ -635,6 +636,7 @@ for (const nested of [false, true]) {
       (window as unknown as { oldReceipt: Element }).oldReceipt = row;
     });
     expect(await page.evaluate(() => (document.querySelector('[data-app-scroll-root="true"]') ?? document.scrollingElement!).scrollTop)).toBeGreaterThan(0);
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const anchor = await page.evaluate(() => (window as unknown as { oldReceipt: Element }).oldReceipt.getBoundingClientRect().top);
     await page.evaluate(() => (window as unknown as { finishReceiptRefresh: () => void }).finishReceiptRefresh());
     await expect(toolbar).toHaveAttribute("aria-busy", "false");
