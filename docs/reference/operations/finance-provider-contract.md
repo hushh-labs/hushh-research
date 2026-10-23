@@ -139,6 +139,13 @@ closing cannot overwrite the previous complete snapshot. News and filings run
 outside that scope. A missing stock-preview quote time is displayed as
 unavailable rather than replaced with the current time.
 
+Optional mover sparklines degrade independently from the assembled Market home.
+An empty mover symbol set skips the series lookup. A missing closed-session
+series or failed series provider preserves already loaded news, indices and
+movers, with unavailable history recorded in provider status. A cold price
+cache still remains unavailable until trading resumes; this fallback does not
+permit a closed-session price-provider request.
+
 Focused offline tests pass 135 cases. Six negative controls reproduce the old
 closed-session calls, extra quote/profile send and partial-snapshot overwrite by
 loading committed code only inside the test process. No live provider call,
