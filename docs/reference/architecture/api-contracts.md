@@ -1612,6 +1612,22 @@ still an authenticated write and follows the normal Firebase auth dependency.
 
 ### Kai Gmail receipt read-through
 
+Receipt availability is independent of legacy database write retirement. Shared
+status resolves current owner placement and advertises `receipt_sync_available`
+only for a configured, connected, non-revoked readonly grant with a provider account
+and connection generation. Private or unknown placement remains unavailable;
+status does not refresh provider credentials. `receipt_history_available` admits
+only the existing owner-authorized Shared history read. Every actual read retains
+its independent current authority and placement checks.
+
+The existing paginated receipt-history response adds constant provenance
+`{source: "legacy_server_read_only", account_binding: "unknown"}`. Historical
+rows have no provider-account binding. `amount_decimal` is PostgreSQL's exact
+four-decimal text; pagination ends with the unique `id DESC` tie-breaker. Clients
+must keep these owner records separate from live account totals, source locators,
+continuations and deduplication. No retired database writes are re-enabled.
+
+
 The supported receipt path is a stateless backend read-through over the
 authenticated owner's existing encrypted Gmail connection. It does not revive
 the retired receipt worker and does not write `kai_gmail_receipts` or
