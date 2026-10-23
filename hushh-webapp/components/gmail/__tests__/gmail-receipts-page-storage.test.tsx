@@ -38,11 +38,24 @@ const session = { userId: "synthetic-owner", vaultKey: "12".repeat(32), vaultOwn
 const account = "synthetic-account";
 const receipt: ReceiptListItem = { id: 1, source_id: "synthetic-source", receipt_key: "synthetic-source", source_kind: "gmail_live", gmail_message_id: "synthetic-message", merchant_name: "Plaid", merchant_domain: "plaid.com", category: "Software & Subscriptions", category_confidence: 1,
   transaction_date: "October 9, 2026", attention_date: "October 18", attention_state: "coming_up", attention_reason: "renewal_due", amount: 10, amount_decimal: "10.00", currency: "USD", status: "paid", document_kind: "receipt", event_type: "purchase" };
-const response = (items: ReceiptListItem[]) => ({ items, page: 1, has_more: false, next_cursor: null, coverage: { max_pages: 50, reached_limit: false } });
+const response = (items: ReceiptListItem[]) => ({ items: items.map(item => ({ ...item, event_id: Math.abs([...String(item.source_id)].reduce((n, char) => Math.imul(n, 31) + char.charCodeAt(0) | 0, 1)).toString(16).padStart(8, "0").repeat(8) })), page: 1, has_more: false, next_cursor: null, coverage: { max_pages: 50, reached_limit: false, listed_count: items.length } });
 const open = () => render(<GmailReceiptsPage initialWorkspace="receipts" forceWorkspace="receipts" />);
-const sync = async () => { await waitFor(() => expect(screen.getByRole("button", { name: /Start sync|Sync again/ })).toBeEnabled()); fireEvent.click(screen.getByRole("button", { name: /Start sync|Sync again/ })); };
+let syncEntries = 0;
+const sync = async () => {
+  if (syncEntries++ === 0) { await waitFor(() => expect(fixture.scan).toHaveBeenCalled()); return; }
+  const before = fixture.scan.mock.calls.length;
+  const retry = screen.queryByRole("button", { name: "Try again" });
+  if (retry) fireEvent.click(retry);
+  else {
+    const next = Date.now() + 6 * 60_000;
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(next);
+    fireEvent(document, new Event("visibilitychange"));
+  }
+  await waitFor(() => expect(fixture.scan.mock.calls.length).toBeGreaterThan(before));
+};
 // Real encrypted IndexedDB writes need a bounded wait on shared CI runners.
 beforeEach(() => {
+  syncEntries = 0; vi.useRealTimers();
   configure({ asyncUtilTimeout: 10000 });
   vi.restoreAllMocks(); fixture.scan.mockReset(); fixture.success.mockClear(); fixture.clearMemory.mockClear(); fixture.completion = 0;
   publishValidatedAuthSessionOwner(session.userId); clearCachedGmailReceipts(session.userId);
@@ -51,11 +64,11 @@ beforeEach(() => {
   window.sessionStorage.clear();
 });
 afterEach(async () => {
-  cleanup();
+  cleanup(); clearCachedGmailReceipts(session.userId);
   // Reset lazily clears markdown memory; let that real import finish before
   // Vitest tears down this file's environment and restores its dependencies.
   await vi.dynamicImportSettled();
-  vi.restoreAllMocks();
+  vi.restoreAllMocks(); vi.useRealTimers();
   configure({ asyncUtilTimeout: 1000 });
 });
 
@@ -85,20 +98,23 @@ describe("receipt sync durable completion", () => {
     expect(screen.getByText("Udemy")).toBeVisible();
     expect(screen.getAllByTestId("receipt-row")).toHaveLength(newSavedEvent ? 4 : 3);
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
-    expect(screen.getByRole("button", { name: "Start sync" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Start sync" })).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "true");
     expect(fixture.completion).toBe(completion);
-    expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
-    await act(async () => { rejectPage(new GmailReceiptRequestError("expired", 409, "GMAIL_RECEIPT_CURSOR_EXPIRED", false)); });
-    await waitFor(() => expect(screen.getByText("Couldn’t finish scanning your receipts.")).toBeVisible());
+    expect(screen.getByTestId("receipt-sync-toolbar")).toHaveTextContent(newSavedEvent ? "3 mail messages checked · 3 receipts found" : "2 mail messages checked · 2 receipts found");
+    await waitFor(() => expect(fixture.scan).toHaveBeenCalledTimes(2));
+    const progress = await loadReceiptSnapshot(session, account);
+    expect(progress!.revision).toBeGreaterThan(baseline!.revision);
+    expect(progress!.value.sync).toMatchObject({ checkpoint: baseline!.value.sync!.checkpoint, pending: { page: 1, cursor: "synthetic-next-page" } });
+    await act(async () => { rejectPage(new GmailReceiptRequestError("unavailable", 503, "GMAIL_RECEIPT_EXTRACTION_INVALID", false)); });
+    await waitFor(() => expect(screen.getByText("Mail couldn’t update. Saved receipts were kept.")).toBeVisible());
     expect(fixture.scan).toHaveBeenCalledTimes(2);
     expect(screen.getByText("Amazon")).toBeVisible();
     expect(screen.getAllByText("Plaid")).toHaveLength(newSavedEvent ? 2 : 1);
-    expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
+    expect(await loadReceiptSnapshot(session, account)).toEqual(progress);
     view.unmount(); clearCachedGmailReceipts(session.userId); open();
-    await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
+    await waitFor(() => expect(screen.getAllByText("Plaid")[0]).toBeVisible());
     expect(screen.getByText("Udemy")).toBeVisible();
-    expect(screen.queryByText("Amazon")).toBeNull();
+    expect(screen.getByText("Amazon")).toBeVisible();
   }, 30000);
 
   it("reproduces printed-date UAT failure and waits for real encrypted read-back before completing, then restores on remount", async () => {
@@ -110,7 +126,8 @@ describe("receipt sync durable completion", () => {
     const view = open(); await sync();
     await waitFor(() => expect(decrypt).toHaveBeenCalled());
     expect(fixture.completion).toBe(0); expect(fixture.success).not.toHaveBeenCalled();
-    expect(screen.getByText("Plaid")).toBeVisible();
+    expect(screen.queryByText("Plaid")).toBeNull();
+    expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "true");
     await act(async () => { release(); });
     await waitFor(() => expect(fixture.completion).toBe(1));
     expect(screen.queryByText(/couldn't be saved/)).not.toBeInTheDocument();
@@ -127,11 +144,11 @@ describe("receipt sync durable completion", () => {
     fixture.scan.mockClear();
     fixture.scan.mockRejectedValue(new GmailReceiptRequestError("invalid", 500, code, false));
     await sync();
-    await waitFor(() => expect(screen.getByText("Couldn’t finish scanning your receipts.")).toBeVisible());
+    await waitFor(() => expect(screen.getByText("Mail couldn’t update. Saved receipts were kept.")).toBeVisible());
     expect(fixture.scan).toHaveBeenCalledOnce();
     expect(screen.getByText("Plaid")).toBeVisible();
     expect(screen.queryByLabelText("Loading receipts")).toBeNull();
-    expect(screen.getByRole("button", { name: "Start sync" })).toHaveAttribute("aria-busy", "false");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
     view.unmount(); clearCachedGmailReceipts(session.userId); open();
     await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
@@ -145,9 +162,10 @@ describe("receipt sync durable completion", () => {
     if (restored) { view.unmount(); clearCachedGmailReceipts(session.userId); view = open(); await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible()); }
     const completion = fixture.completion; fixture.success.mockClear();
     fixture.scan.mockResolvedValue(response([{ ...receipt, source_id: "new-source", receipt_key: "new-source", merchant_name: "Udemy", amount: 99 }]));
-    vi.spyOn(crypto.subtle, "decrypt").mockRejectedValueOnce(new DOMException("synthetic", "OperationError"));
+    const originalDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, "decrypt").mockImplementationOnce(originalDecrypt).mockRejectedValueOnce(new DOMException("synthetic", "OperationError"));
     await sync();
-    await waitFor(() => expect(screen.getByText(/couldn't be saved/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText("Mail couldn’t update. Saved receipts were kept.")).toBeVisible());
     expect(fixture.completion).toBe(completion); expect(fixture.success).not.toHaveBeenCalled();
     if (restored) expect(screen.getByText("Plaid")).toBeVisible();
     expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
@@ -160,12 +178,14 @@ describe("receipt sync durable completion", () => {
     const baseline = await loadReceiptSnapshot(session, account);
     if (restored) { view.unmount(); clearCachedGmailReceipts(session.userId); view = open(); await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible()); }
     const completion = fixture.completion; fixture.success.mockClear();
-    fixture.scan.mockResolvedValue(response([]));
+    fixture.scan.mockResolvedValue({ ...response([]), sync_mode: "incremental", checkpoint: "grc1_" + "b".repeat(40) });
     await sync();
-    await waitFor(() => expect(screen.getByText(/couldn't be saved/)).toBeVisible());
+    await waitFor(() => expect(fixture.completion).toBe(completion + 1));
     expect(screen.getByText("Plaid")).toBeVisible();
-    expect(fixture.completion).toBe(completion); expect(fixture.success).not.toHaveBeenCalled();
-    expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
+    expect(fixture.completion).toBe(completion + 1); expect(fixture.success).not.toHaveBeenCalled();
+    const updated = await loadReceiptSnapshot(session, account);
+    expect(updated!.revision).toBeGreaterThan(baseline!.revision);
+    expect(updated!.value.sync!.checkpoint).toBe("grc1_" + "b".repeat(40));
     view.unmount(); clearCachedGmailReceipts(session.userId); open();
     await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
     expect(fixture.scan).toHaveBeenCalledTimes(2);
@@ -177,9 +197,11 @@ describe("receipt sync durable completion", () => {
     fixture.scan.mockResolvedValueOnce({ ...response([{ ...receipt, source_id: "partial-source", receipt_key: "partial-source" }]), has_more: true, next_cursor: "synthetic-cursor" });
     fixture.scan.mockRejectedValueOnce(new Error("synthetic provider unavailable"));
     await sync();
-    await waitFor(() => expect(screen.getByText("Couldn’t finish scanning your receipts.")).toBeVisible());
+    await waitFor(() => expect(screen.getByText("Mail couldn’t update. Saved receipts were kept.")).toBeVisible());
     expect(fixture.completion).toBe(1);
-    expect(await loadReceiptSnapshot(session, account)).toEqual(baseline);
+    const progress = await loadReceiptSnapshot(session, account);
+    expect(progress!.revision).toBeGreaterThan(baseline!.revision);
+    expect(progress!.value.sync).toMatchObject({ checkpoint: baseline!.value.sync!.checkpoint, pending: { page: 1, cursor: "synthetic-cursor" } });
   }, 30000);
   it("a stale pre-Reset read-back failure cannot mark the next scan as failed", async () => {
     fixture.scan.mockResolvedValueOnce(response([receipt]));
@@ -191,14 +213,14 @@ describe("receipt sync durable completion", () => {
     await act(async () => { await Durable.purgeUser(session.userId); });
     await waitFor(() => expect(fixture.clearMemory).toHaveBeenCalledExactlyOnceWith(session.userId));
     await act(async () => { releaseOld(); });
-    await waitFor(() => expect(screen.getByRole("button", { name: /Start sync/ })).toBeEnabled());
+    await waitFor(() => expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "false"));
     expect(screen.queryByText(/couldn't be saved/)).not.toBeInTheDocument();
     let finishNew!: (value: ReturnType<typeof response>) => void;
     fixture.scan.mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve; }));
     await sync(); await waitFor(() => expect(fixture.scan).toHaveBeenCalledTimes(2));
     await act(async () => { finishNew(response([receipt])); });
     await waitFor(() => expect(fixture.completion).toBe(1));
-    expect(fixture.success).toHaveBeenCalledOnce();
+    expect(fixture.success).not.toHaveBeenCalled();
     expect(screen.queryByText(/couldn't be saved/)).not.toBeInTheDocument();
     expect(await loadReceiptSnapshot(session, account)).toMatchObject({ generation: 1, revision: 1 });
   }, 30000);
@@ -208,8 +230,39 @@ describe("receipt sync durable completion", () => {
     open(); await sync(); await waitFor(() => expect(fixture.scan).toHaveBeenCalled());
     await act(async () => { await Durable.purgeUser(session.userId); finish(response([receipt])); });
     await waitFor(() => expect(fixture.clearMemory).toHaveBeenCalledExactlyOnceWith(session.userId));
-    await waitFor(() => expect(screen.getByRole("button", { name: /Start sync/ })).toBeEnabled());
+    await waitFor(() => expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "false"));
     expect(screen.queryByText("Plaid")).not.toBeInTheDocument(); expect(fixture.completion).toBe(0);
     expect(await loadReceiptSnapshot(session, account)).toBeNull();
   }, 30000);
 });
+
+
+it("quietly catches up from the 22nd on a 24th return, preserving receipts, focus and completed authority", async () => {
+  const checkpoint = "grc1_" + "a".repeat(40);
+  fixture.scan.mockResolvedValueOnce({ ...response([receipt]), checkpoint });
+  let view = open(); await sync(); await waitFor(() => expect(fixture.completion).toBe(1));
+  expect(screen.queryByRole("button", { name: /Start sync|Refresh/ })).toBeNull();
+  view.unmount(); clearCachedGmailReceipts(session.userId); fixture.success.mockClear();
+  vi.spyOn(Date, "now").mockReturnValue(new Date("2026-10-24T12:00:00Z").getTime());
+  let finish!: (value: ReturnType<typeof response> & { checkpoint: string; sync_mode: string }) => void;
+  fixture.scan.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  view = open();
+  await waitFor(() => expect(screen.getByText("Plaid")).toBeVisible());
+  await waitFor(() => expect(fixture.scan).toHaveBeenCalledTimes(2));
+  expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
+  expect(screen.queryByLabelText("Loading receipts")).toBeNull();
+  expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "true");
+  expect(fixture.scan.mock.calls[1][0]).toMatchObject({ checkpoint, accountKey: account, incremental: true });
+  const oldRow = screen.getByText("Plaid").closest("li");
+  const search = screen.getByRole("searchbox"); search.focus();
+  await act(async () => { finish({ ...response([{ ...receipt, id: 2, source_id: "new-amazon", receipt_key: "new-amazon", merchant_name: "Amazon", merchant_domain: "amazon.com" }]), sync_mode: "delta", checkpoint: "grc1_" + "b".repeat(40) }); });
+  await waitFor(() => expect(screen.getByText("Amazon")).toBeVisible());
+  await waitFor(() => expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "false"));
+  expect(screen.getByText("Plaid").closest("li")).toBe(oldRow);
+  expect(search).toHaveFocus(); expect(fixture.success).not.toHaveBeenCalled();
+  expect((await loadReceiptSnapshot(session, account))?.value.rows).toHaveLength(2);
+  vi.spyOn(Date, "now").mockRestore();
+  view.unmount(); clearCachedGmailReceipts(session.userId); open();
+  await waitFor(() => expect(screen.getByText("Amazon")).toBeVisible());
+  expect(screen.getByText("Plaid")).toBeVisible();
+}, 30000);

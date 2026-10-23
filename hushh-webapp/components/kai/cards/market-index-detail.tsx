@@ -53,7 +53,7 @@ export function MarketIndexDetailSurface({ metric, open, onOpenChange }: {
     <div className="space-y-5">
       <div>
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">Index level</p>
+          <p className="text-xs text-muted-foreground">Index level · points</p>
           {detail.statusLabel ? <span className="text-xs text-muted-foreground">{detail.statusLabel}</span> : null}
         </div>
         <p className={marketStyles.indexDetailValue}>{detail.value || metric.value}</p>

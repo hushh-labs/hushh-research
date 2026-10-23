@@ -1,6 +1,8 @@
 // Synthetic auth/native/Mail/cache boundaries; the production drawer, Drive
 // transport, popup controller, Picker adapter and card actions are unchanged.
 import { createContext, useState } from "react";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("data-packets")) publishValidatedAuthSessionOwner("fixture-owner");
 export function usePathname() { return "/"; }
 // This layout fixture has no unlocked encrypted custom-connector catalog.
 export const loadCustomConnectorConfigurations = async () => [];

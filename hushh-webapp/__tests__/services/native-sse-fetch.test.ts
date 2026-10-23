@@ -297,6 +297,7 @@ describe("nativeStreamFetch", () => {
 
   it("classifies lifecycle codes like the native Kai bridge", () => {
     expect(streamBridgeErrorCode(401, '{"detail":{"code":"AUTH_ACCOUNT_NOT_FOUND"}}')).toBe("AUTH_ACCOUNT_NOT_FOUND");
+    expect(streamBridgeErrorCode(401, '{"detail":{"code":"AUTH_ACCOUNT_NOT_FOUND","account_lifecycle":"deleted"}}')).toBe("AUTH_ACCOUNT_NOT_FOUND");
     expect(streamBridgeErrorCode(423, '{"detail":{"code":"AUTH_ACCOUNT_DELETION_IN_PROGRESS"}}')).toBe(
       "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
     );

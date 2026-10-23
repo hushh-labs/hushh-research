@@ -1536,12 +1536,17 @@ The old PUT remains a historical personal receipt operation; it cannot choose th
 managed UAT processor. Updated clients expose read-only processing information.
 
 All UAT users use the administrator managed-text policy for One text chat
-and semantic document requests. Candidate readiness prefers Azure and selects
-Vertex when only Vertex passes; either or both complete application bundles
-satisfy provider admission. Partial text-only readiness does not certify Voice,
+and semantic document requests. One text chat requires Azure and never falls back to Gemini. Candidate readiness requires the complete Azure application bundle; Vertex Drive-only evidence cannot authorize One. Drive retains its separately bounded alternate transport. Partial text-only readiness does not certify Voice,
 media or other capabilities. `/api/one/models/preference` projects the
 central deployment as effective, with `source:administrator_policy`; old saved
 choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.
+Connected-stream revocation emits the fixed `TEXT_AUTHORITY_ENDED` refusal without
+automatic retry. Failure to validate current authority still fails closed and
+remains an actionable runtime error, including consent database outages.
+An explicit Azure `incomplete/content_filter` response or structured SDK
+`content_filter` error (HTTP 400 or statusless SSE) emits `TEXT_CONTENT_FILTERED`
+with a fixed rephrasing notice and `retryable:false`. It remains a terminal error
+classified as a refusal; partial output never becomes a completed answer.
 Managed UAT fleet aliases resolve through the selected Azure compatibility port;
 responses and telemetry retain the actual model/provider. BYOK remains explicit.
 
@@ -1611,6 +1616,22 @@ still an authenticated write and follows the normal Firebase auth dependency.
 
 ### Kai Gmail receipt read-through
 
+Receipt availability is independent of legacy database write retirement. Shared
+status resolves current owner placement and advertises `receipt_sync_available`
+only for a configured, connected, non-revoked readonly grant with a provider account
+and connection generation. Private or unknown placement remains unavailable;
+status does not refresh provider credentials. `receipt_history_available` admits
+only the existing owner-authorized Shared history read. Every actual read retains
+its independent current authority and placement checks.
+
+The existing paginated receipt-history response adds constant provenance
+`{source: "legacy_server_read_only", account_binding: "unknown"}`. Historical
+rows have no provider-account binding. `amount_decimal` is PostgreSQL's exact
+four-decimal text; pagination ends with the unique `id DESC` tie-breaker. Clients
+must keep these owner records separate from live account totals, source locators,
+continuations and deduplication. No retired database writes are re-enabled.
+
+
 The supported receipt path is a stateless backend read-through over the
 authenticated owner's existing encrypted Gmail connection. It does not revive
 the retired receipt worker and does not write `kai_gmail_receipts` or
@@ -1628,7 +1649,7 @@ locator survives encrypted device snapshots without exposing the Gmail ID.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| POST | `/api/kai/gmail/receipts/scan` | Firebase + `VAULT_OWNER` | Body `{user_id,page?,per_page?,cursor?}` with `page<=50` and `per_page<=6`. Search a bounded receipt-like Gmail page, fetch bounded content only for those candidates, run at most two manifest-owned Email receipt extractors concurrently, and return normalized live items plus honest page coverage. Receipt scans use owner-scoped expiring task leases; timeout, cancellation, and caller disconnect release the lane without changing Gmail connection state. A successful empty provider page is `200` with `items:[]`; provider, authorization, malformed-response, timeout, and extraction failures remain typed non-empty errors. |
+| POST | `/api/kai/gmail/receipts/scan` | Firebase + `VAULT_OWNER` | Body `{user_id,page?,per_page?,cursor?,incremental?,checkpoint?,account_key?}` with `page<=50` and `per_page<=6`. Search a bounded receipt-like Gmail page, fetch bounded content only for those candidates, run at most two manifest-owned Email receipt extractors concurrently, and return normalized live items plus honest page coverage. Receipt scans use owner-scoped expiring task leases; timeout, cancellation, and caller disconnect release the lane without changing Gmail connection state. Incremental requests capture a pre-listing Gmail history baseline, then reconcile authenticated history changes. Responses add stable `event_id`, `sync_mode`, sealed `checkpoint`, and bounded `unavailable_events`. The requested account must match current server authority. Page 50 may return `has_more:true` with `reached_limit:true` and a signed rollover cursor for a later page-1 batch; it never advances a partially consumed checkpoint. Expired history/continuations return safe typed recovery codes. A successful empty provider page is `200` with `items:[]`; provider, authorization, malformed-response, timeout, and extraction failures remain typed non-empty errors. |
 | POST | `/api/kai/gmail/receipts/detail` | Firebase + `VAULT_OWNER` | Body `{user_id,source_id}`. Verify the signed owner/account-bound source handle, re-fetch only that Gmail message, and return its current normalized item plus an optional bounded object labelled `email_excerpt` / `Email preview`; it is never represented as a full invoice. |
 | GET | `/api/kai/gmail/receipts/{user_id}` | Firebase + `VAULT_OWNER` | Compatibility read of owner-scoped legacy receipt rows only. The table remains read-only and is not a dependency or write target for live scan results. |
 
@@ -3466,6 +3487,23 @@ debt/equity, or the provider company description. Unknown ratios are null.
 Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
 Provider retrieval time and financial period end remain separate.
 
+Stock detail reads `GET /api/kai/market/history/{user_id}?symbol=AAPL`
+through the existing Kai catch-all proxy and platform-aware `ApiService`.
+Firebase authentication must match the path owner before any cache/provider
+work. One uppercase symbol (at most 16 characters) and a recognized US exchange
+in the symbol master are required; unsupported listings return 422.
+The response contains `symbol`, `currency: "USD"`, `interval: "1d"`,
+`points: [{t, p}]` (Unix seconds and observed closes), `retrieved_at`, `stale`,
+and `unavailable`. At most 32 observations are returned from the existing
+month history fetcher. This is daily history, independent of the spot quote;
+it does not supply intraday candles or an earnings calendar.
+The shared L1/L2 owner uses `stock_history:v1:{symbol}:1mo`, a two-minute
+fresh window and seven-day stale-on-error window. The fetch closure refuses
+provider work outside the existing regular-session policy, including cold
+misses. A closed cold miss returns an empty unavailable result. The frontend
+preserves retrieval/cache status, aborts a dismissed selection, and offers only
+ranges containing at least two observations. No new provider or scraper is added.
+
 Sector rows now include `change_1w_pct`, `period_start_1d`, `period_start_1w`,
 `period_end` and `basis`. Both periods use observed sector ETF closes; one
 week spans five trading-session returns. Missing weekly observations stay
@@ -4016,6 +4054,34 @@ an owner confirmation card. Confirmation writes only an opaque proposal item
 identifier and the owner-visible follow-up title to the encrypted list; Gmail
 message identifiers, bodies, and received timestamps are never treated as a
 task due date or saved in the To-do record.
+
+### Owner Drive four-group folders
+
+`/api/connectors/google_drive/groups` uses a current Vault Owner, derives the owner
+from that credential, and rechecks it after storage I/O. Responses and authored
+errors are `private, no-store`. With `DRIVE_FOUR_GROUP_INDEX_ENABLED` off (the
+default), every endpoint returns 404 before storage construction. This is a
+virtual, sealed server index; it never mutates Drive, writes PKM or grants sharing.
+An enabled global switch still requires the existing environment-specific owner
+cohort; admission is rechecked after storage I/O and before lease renewal/commit.
+The existing connector catch-all web proxy forwards these endpoints. The Google
+Drive detail renders Data packets below Trusted documents on web and native.
+Content routes also require current shared-runtime placement; moving to a private
+runtime during a read prevents delivery of hub file names.
+
+| Method / suffix | Contract |
+| --- | --- |
+| `GET /` | `{status,groups,folders}`. `groups` is the four-item `{shelf,name}` catalog from `folders.json`, including empty categories. Status includes `enabled,state,revision,timeZone,listedFiles,indexedFiles,counts,listingComplete,limited,lastRunAt,modelVersion`; state is `off`, `paused`, `indexing`, `incomplete` or `ready`. Folders contain `shelf,name,period,fiscalYear,fiscalQuarter,count`. |
+| `POST /processing` | `{enabled:boolean,disclosure?:string,timeZone:string}`; strict boolean, no extra fields. Enabling requires the exact `drive-four-group-v1` disclosure and a valid IANA zone. Returns `{enabled,revision}`. Disabling pauses preparation without deleting entries. |
+| `GET /{shelf}/files?period=…&cursor=0&limit=50` | One of the four group IDs or `kept`; optional period `FY26-Q1` or `undated`, omitted for the whole shelf and always omitted for `kept`. Returns `{items,nextCursor,total}`; limit 1–100, non-negative integer offset cursor. Items contain `ref,title,mimeType,viewUrl,day,dayBasis,modifiedTime,shelf,candidate,confidence,reason,groupSource`. No text starts, vectors or provider file ID field. Offset pages are a current view, not a frozen snapshot. |
+| `POST /erase` | `{confirmed:true}`; repeat-safe owner erase, returns `{removed}`. Deletes entries, withdraws opt-in and invalidates in-flight work. No provider call. |
+
+The live Drive policy and generation remain authoritative. Background OFF pauses
+preparation; opt-in, background revision, lease expiry and connection changes fence
+late commits. Only a complete, uncapped listing permits deletion of absent files.
+The fiscal rule is title date, created time, then modified time in the owner's
+zone. Kept files have no fiscal folder. See [implementation and local release
+registration](../one/drive-four-group-index.md#slice-3-storage-worker-and-owner-api).
 
 ### Owner Drive searches
 

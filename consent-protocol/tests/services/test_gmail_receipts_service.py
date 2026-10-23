@@ -890,7 +890,7 @@ async def test_receipt_cutover_rejects_sync_before_provider_or_database_access(m
     assert result == {
         "accepted": False,
         "reason": "receipt_storage_migration",
-        "message": "Receipt sync is moving to private on-device processing. Existing receipts remain available.",
+        "message": "Earlier receipt history is read-only. Open Mail to check current receipt updates.",
         "run": None,
     }
 
@@ -1944,8 +1944,17 @@ async def test_disconnect_cancels_inflight_sync_run_and_marks_it_canceled(monkey
     )
 
 
+@pytest.mark.parametrize("placement", ["shared", "byoc", "unknown"])
 @pytest.mark.asyncio
-async def test_get_status_returns_snapshot_without_remote_api_calls(monkeypatch):
+async def test_get_status_returns_snapshot_without_remote_api_calls(monkeypatch, placement):
+    from hushh_mcp.services import owner_placement_guard
+
+    monkeypatch.setattr(
+        owner_placement_guard, "get_owner_hosting_mode", AsyncMock(return_value=placement)
+    )
+    monkeypatch.setattr(
+        gmail_receipts_service_module, "receipt_storage_writes_enabled", lambda: False
+    )
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
     monkeypatch.setattr(service, "_watch_enabled", lambda: True)
@@ -1954,7 +1963,7 @@ async def test_get_status_returns_snapshot_without_remote_api_calls(monkeypatch)
         "revoked": False,
         "google_email": "user@example.com",
         "google_sub": "sub_123",
-        "scope_csv": "gmail.readonly",
+        "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
         "last_sync_at": None,
         "last_sync_status": "idle",
         "last_sync_error": None,
@@ -2005,6 +2014,35 @@ async def test_get_status_returns_snapshot_without_remote_api_calls(monkeypatch)
     assert status["sync_state"] == "idle"
     assert status["watch_status"] == "active"
     assert status["receipt_counts"]["total"] == 12
+
+    assert status["receipt_storage_mode"] == "legacy_read_only"
+    assert status["receipt_sync_available"] is (placement == "shared")
+    assert status["receipt_history_available"] is (placement == "shared")
+
+
+@pytest.mark.parametrize(
+    "missing", ["scope_csv", "google_sub", "connected_at", "revoked", "configured"]
+)
+@pytest.mark.asyncio
+async def test_live_receipt_capability_requires_current_read_admission(monkeypatch, missing):
+    service = GmailReceiptsService()
+    row = {
+        "status": "connected",
+        "revoked": False,
+        "google_sub": "sub_123",
+        "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+        "connected_at": datetime(2026, 3, 1, tzinfo=timezone.utc),
+    }
+    if missing == "revoked":
+        row["revoked"] = True
+    elif missing != "configured":
+        row[missing] = None
+    monkeypatch.setattr(service, "is_configured", lambda: missing != "configured")
+    monkeypatch.setattr(service, "_read_status_snapshot", AsyncMock(return_value=(row, None)))
+    result = await service.get_status(user_id="user_123")
+    assert result["receipt_sync_available"] is False
+    assert result["receipt_history_available"] is True
+    assert result["receipt_storage_mode"] == "legacy_read_only"
 
 
 @pytest.mark.asyncio

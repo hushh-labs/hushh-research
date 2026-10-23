@@ -210,12 +210,12 @@ function LinkStatusBadge({
             aria-hidden="true"
           />
         ) : null}
-        <Footnote as="span" className="font-semibold">
+        <Footnote data-location-type-role="status" as="span" className="font-semibold">
           {label}
         </Footnote>
       </span>
       {lifecycle === "expired" ? null : (
-        <RowDescription as="span">
+        <RowDescription data-location-type-role="row-description" as="span">
           {formatDateTime(expiresAt)}
         </RowDescription>
       )}
@@ -298,7 +298,7 @@ function PublicLocationMap({
           {/* Same foreground as the label beside it: the live dot reads as
               part of the chip, not as a second location colour. */}
           <span className="h-2 w-2 rounded-full bg-current motion-safe:animate-pulse" />
-          <Footnote
+          <Footnote data-location-type-role="status"
             as="span"
             className="font-semibold !text-[color:var(--app-success)]"
           >
@@ -322,22 +322,22 @@ function PublicLocationMap({
       </div>
       <div className="space-y-3 p-3.5 sm:p-4">
         <div className="min-w-0">
-          <CardTitle as="p">Latest update</CardTitle>
-          <RowDescription className="mt-0.5">
+          <CardTitle data-location-type-role="section-heading" as="p">Latest update</CardTitle>
+          <RowDescription data-location-type-role="row-description" className="mt-0.5">
             Updated {capturedAt}
             {accuracy ? ` - ${accuracy}` : ""}
           </RowDescription>
         </div>
         {point.drive ? (
           <div className="rounded-[12px] bg-[color:var(--app-accent-tint)] p-3">
-            <Footnote
+            <Footnote data-location-type-role="helper"
               as="p"
               className="flex items-center gap-1.5 font-semibold text-[color:var(--app-accent)]"
             >
               <Route className="h-3.5 w-3.5" aria-hidden="true" />
               Driving to {point.drive.destination.label}
             </Footnote>
-            <BodyText className="mt-0.5 font-semibold">
+            <BodyText data-location-type-role="row-title" className="mt-0.5 font-semibold">
               {driveEtaText(point.drive.etaSeconds)}
             </BodyText>
           </div>
@@ -349,7 +349,7 @@ function PublicLocationMap({
             size="sm"
             className="h-11 w-fit min-w-36 rounded-full px-5"
           >
-            <a
+            <a data-location-type-role="primary-action"
               href={googleMapsDirectionsUrl(point)}
               target="_blank"
               rel="noopener noreferrer"
@@ -375,8 +375,8 @@ function TrustFooter() {
         aria-hidden="true"
       />
       <div className="min-w-0 space-y-1">
-        <Footnote className="font-semibold">Shared securely through Hussh</Footnote>
-        <LegalText as="p">
+        <Footnote data-location-type-role="helper" className="font-semibold">Shared securely through Hussh</Footnote>
+        <LegalText data-location-type-role="row-description" as="p">
           This link shows a location, who shared it, and when it expires.
         </LegalText>
       </div>
@@ -461,12 +461,12 @@ export default function PublicLocationViewPageClient() {
           : "This link is active, but no location has been attached to it yet.";
 
   return (
-    <main className="w-full text-foreground">
+    <main data-location-type-scale="connect" data-location-type-context="flow" className="w-full text-foreground">
       <div className="mx-auto flex w-full max-w-[760px] flex-col px-3 pb-5 pt-[max(16px,calc(env(safe-area-inset-top)+12px))] sm:px-6 sm:pt-[max(32px,calc(env(safe-area-inset-top)+20px))]">
         <div className="rounded-[24px] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-standard)] sm:p-6">
           <div className="space-y-4">
             <div>
-              <SectionLabel>Live location</SectionLabel>
+              <SectionLabel data-location-type-role="source-heading">Live location</SectionLabel>
               <div className="mt-2 flex items-start gap-3">
                 <div
                   className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${headerTone.tile} ${headerTone.glyph}`}
@@ -478,10 +478,10 @@ export default function PublicLocationViewPageClient() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <AgentTitle>
+                  <AgentTitle data-location-type-role="flow-title">
                     {ownerName ? `${ownerName}'s live location` : "Shared location"}
                   </AgentTitle>
-                  <BodyText className="mt-1 text-muted-foreground">
+                  <BodyText data-location-type-role="row-description" className="mt-1 text-muted-foreground">
                     {headline}
                   </BodyText>
                 </div>
@@ -511,7 +511,7 @@ export default function PublicLocationViewPageClient() {
                   <div
                     className={`rounded-[var(--app-card-radius-compact)] p-4 ${NO_SNAPSHOT_TONE.tile} ${NO_SNAPSHOT_TONE.glyph}`}
                   >
-                    <BodyText>
+                    <BodyText data-location-type-role="row-description">
                       {expiredWhileOpen
                         ? "The viewing window closed, so the location is no longer shown. Ask the sender to share a fresh live location link."
                         : awaitingExpiryConfirmation

@@ -84,7 +84,7 @@ function MapNameLabelsImpl({ labels, stalePositions }: MapNameLabelsProps) {
                     }
               }
             />
-            <span className="min-w-0 truncate">{label.text}</span>
+            <span data-location-type-role="row-title" className="min-w-0 truncate">{label.text}</span>
             {/* The tail. Without it, a name sitting between two nearby pins is
                 a guess about which one it belongs to. */}
             <span

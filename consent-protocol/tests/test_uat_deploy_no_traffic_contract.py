@@ -1261,7 +1261,7 @@ def _assert_vertex_candidate_probe(probe: str) -> None:
     for required in (
         'verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]',
         'verdict.get("one_chat_project") != os.environ["EXPECTED_CHAT_PROJECT"]',
-        'verdict.get("one_chat_probe_ok") is not True',
+        "verdict.get(scope_field) is not True",
         'verdict.get("one_voice_probe_ok") is not True',
     ):
         assert probe.index(required) < advisory
@@ -1412,29 +1412,34 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         assert rejected.returncode != 0, (key, rejected.stdout, rejected.stderr)
 
 
-def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
-    probe = managed_vertex_probe_script()
-    # Run the owning receipt parser and release decision. The job itself is
-    # represented by its exit status/log line; no provider or gcloud is called.
-    script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
-    project = load_profile("uat")["project"]
-    healthy = {
+def _healthy_vertex_verdict(project):
+    return {
         "check": "managed_vertex_runtime",
         "ok": True,
         "classification": "dependency_ok",
         "candidate_models_exercised": True,
         "config_hash": "checked-profile-hash",
         "one_chat_project": project,
-        "one_chat_probe_ok": True,
+        "one_chat_probe_ok": None,
+        "drive_document_requests_probe_ok": True,
         "one_voice_project": project,
         "one_voice_probe_ok": True,
         "live_model": "reviewed-live-model",
         "live_location": "reviewed-live-location",
         "probes": [
             {"probe": name, "ok": True, "classification": "dependency_ok"}
-            for name in ("one_chat", "embedding", "one_voice_live")
+            for name in ("drive_document_requests:synthetic@global", "embedding", "one_voice_live")
         ],
     }
+
+
+def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict() -> None:
+    probe = managed_vertex_probe_script()
+    # Run the owning receipt parser and release decision. The job itself is
+    # represented by its exit status/log line; no provider or gcloud is called.
+    script = "set -euo pipefail\n" + probe[probe.index('classification="$(') :]
+    project = load_profile("uat")["project"]
+    healthy = _healthy_vertex_verdict(project)
 
     def run_verdict(
         report: dict | str,
@@ -1481,7 +1486,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         "managed_vertex_probe_result not-json",
         {**healthy, "config_hash": "different-profile"},
         {**healthy, "one_chat_project": "different-project"},
-        {**healthy, "one_chat_probe_ok": False},
+        {**healthy, "drive_document_requests_probe_ok": False},
         {**healthy, "one_voice_probe_ok": False},
         {**healthy, "ok": False},
         {**healthy, "check": "different-check"},
@@ -1513,7 +1518,8 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
         "ok": False,
         "classification": "provider_unavailable",
         "candidate_models_exercised": False,
-        "one_chat_probe_ok": False,
+        "one_chat_probe_ok": None,
+        "drive_document_requests_probe_ok": False,
         "one_voice_probe_ok": False,
         "probes": [
             {
@@ -1523,7 +1529,7 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
                 "resource_exhausted": True,
             }
             for name in (
-                "one_chat:synthetic@global",
+                "drive_document_requests:synthetic@global",
                 "embedding",
                 "one_voice_live:reviewed-live-model@reviewed-live-location",
             )
@@ -1564,7 +1570,9 @@ def test_uat_cross_project_vertex_requires_a_complete_successful_probe_verdict()
     assert run_verdict(exhausted, 0, drive_provider="azure_openai").returncode != 0
     contradictory = {**exhausted, "probes": healthy["probes"]}
     assert run_verdict(contradictory, 1, drive_provider="azure_openai").returncode != 0
-    legacy = run_verdict(partial, 85, deploy_env="dev", voice_enabled="false")
+    legacy = run_verdict(
+        {**partial, "one_chat_probe_ok": True}, 85, deploy_env="dev", voice_enabled="false"
+    )
     assert legacy.returncode == 0, legacy.stderr
     assert "Release CONTINUES" in legacy.stdout
 
@@ -1610,7 +1618,7 @@ def test_one_chat_uses_central_project_and_verified_profile() -> None:
         in backend_build
     )
     assert 'EXPECTED_CHAT_PROJECT="${_GENAI_PROJECT_ID}"' in backend_build
-    assert 'verdict.get("one_chat_probe_ok") is not True' in backend_build
+    assert "verdict.get(scope_field) is not True" in backend_build
     assert 'verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]' in backend_build
     assert "binding.build_regional_adk_model(model)" in readiness
     assert '"one_chat_probe_ok": chat_ok' in readiness
@@ -2026,7 +2034,7 @@ def _provider_fixture(module, provider):
                 if provider == "azure_openai"
                 else document["environments"]["uat"]["text_locations"][0],
             }
-            for scope in module.SCOPES
+            for scope in module.PROVIDER_SCOPES[provider]
         },
     }
     job = ("azure-pwm-" if provider == "azure_openai" else "genai-ready-") + expected["build_id"]
@@ -2095,12 +2103,12 @@ def _provider_fixture(module, provider):
     "azure,vertex,selected",
     [
         (True, False, "azure_openai"),
-        (False, True, "vertex"),
+        (False, True, None),
         (True, True, "azure_openai"),
         (False, False, None),
     ],
 )
-def test_provider_release_admission_uses_or_and_prefers_azure(azure, vertex, selected):
+def test_provider_release_admission_requires_azure(azure, vertex, selected):
     module = _managed_provider_gate()
     expected, a = _provider_fixture(module, "azure_openai")
     _, v = _provider_fixture(module, "vertex")
@@ -2144,7 +2152,9 @@ def test_vertex_core_receipt_uses_the_actual_selected_policy_generation(monkeypa
     expected, receipt = _provider_fixture(module, "vertex")
     policy = managed_text_policy()
     receipt["core"]["policy_generation"] = policy["generation"]
-    assert module.evaluate({"vertex": receipt}, expected)["ready"] is True
+    result = module.evaluate({"vertex": receipt}, expected)
+    assert result["ready"] is False
+    assert result["providers"]["vertex"]["ready"] is True
 
 
 @pytest.mark.parametrize(
@@ -2544,7 +2554,7 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
     "azure,vertex,preferred",
     [
         (True, False, "azure_openai"),
-        (False, True, "vertex"),
+        (False, True, None),
         (True, True, "azure_openai"),
         (False, False, None),
     ],
@@ -2755,3 +2765,23 @@ def test_text_recovery_generation_matches_the_selected_runtime_processor(monkeyp
         with pytest.raises(ValueError, match="bindings disagree"):
             module.expected_policy_generation(job)
     assert generations[0] != generations[1]
+
+
+def test_vertex_drive_evidence_cannot_qualify_one_chat():
+    module = _managed_provider_gate()
+    expected, vertex = _provider_fixture(module, "vertex")
+    document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
+    assert module.valid_core(vertex["core"], "vertex", expected, document)
+    assert module.evaluate({"vertex": vertex}, expected)["selected_provider"] is None
+    vertex["core"]["scopes"]["one_text_chat"] = vertex["core"]["scopes"]["drive_document_requests"]
+    assert not module.valid_core(vertex["core"], "vertex", expected, document)
+
+
+def test_provider_selection_rejects_vertex_before_cloud_mutation(tmp_path, monkeypatch):
+    module = _managed_provider_gate()
+    expected, _ = _provider_fixture(module, "vertex")
+    calls = []
+    monkeypatch.setattr(module, "run_json", calls.append)
+    with pytest.raises(ValueError, match="qualified Azure"):
+        module.select({"ready": True, "selected_provider": "vertex"}, expected, tmp_path)
+    assert calls == []

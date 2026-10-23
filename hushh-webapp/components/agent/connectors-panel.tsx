@@ -88,6 +88,7 @@ import {
 } from "@/lib/agent/drive-oauth-chat-recovery";
 import { TrustedDocumentRulesView, useTrustedDocumentRules, type TrustedDocumentRulesModel } from "@/components/consent/trusted-document-rules";
 import { DriveCollectionView, useDriveCollectionModel, type DriveCollectionModel } from "@/components/agent/drive-collection-panel";
+import { DriveDataPacketsView, useDriveDataPackets, type DriveDataPacketsModel } from "@/components/agent/drive-data-packets";
 import { DrivePacketCatalogView, useDrivePacketCatalogModel, useOwnerPacketPageModel, type DrivePacketCatalogModel, type OwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
 import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
 import { PrivateOwnerConnectorsPanel } from "@/components/connections/private-owner-connectors-panel";
@@ -174,7 +175,7 @@ export type ConnectorDetailPresentation =
       selection: { files: readonly { name: string }[]; background: boolean; canPrepare: boolean; busy: boolean; changeBackground: (next: boolean) => void;
         confirm: ConnectorDetailAction; cancel: ConnectorDetailAction } | null;
       files: readonly { key: string; name: string; status: string; background: boolean; changeBackground?: (next: boolean) => void; sync?: ConnectorDetailAction; remove: ConnectorDetailAction }[];
-      collection: DriveCollectionModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; trust: TrustedDocumentRulesModel }
+      collection: DriveCollectionModel | null; groups: DriveDataPacketsModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; trust: TrustedDocumentRulesModel }
   | { kind: "gmail"; account: string; status: string; message: string; connected: boolean;
       sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
       retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
@@ -832,6 +833,9 @@ function OwnerConnectorsPanel({
   const collectionActive = drivePageActive && overview?.driveAgentPackagesEnabled === true &&
     overview.features.drive_document_indexing === true && drive?.profile === "live" && drive.status === "connected";
   const driveCollection = useDriveCollectionModel(liveBackground, collectionActive);
+  const groupsActive = drivePageActive && overview?.features.drive_four_group_index === true &&
+    drive?.profile === "live" && drive.status === "connected";
+  const driveGroups = useDriveDataPackets(groupsActive, `${drive?.accountLabel ?? ""}:${drive?.connectedAt ?? ""}`, liveBackground);
   const drivePackets = useDrivePacketCatalogModel({ enabled: collectionActive && !!driveCollection.status,
     refreshKey: driveCollection.revision, preparationPaused: driveCollection.paused || !driveCollection.status?.enabled });
   const ownerPacket = useOwnerPacketPageModel({ packet: drivePageActive && drivePackets.opened ? drivePackets.live ?? (drivePackets.cursor ? drivePackets.opened : null) : null,
@@ -2406,7 +2410,8 @@ function OwnerConnectorsPanel({
       ...(item.backgroundProcessing && overview?.features.drive_document_indexing ? { sync: detailAction("Sync now", driveBusy, () => syncDriveFile(item)) } : {}),
       remove: detailAction("Remove", driveBusy, () => setConfirm(item.documentId), true),
     })),
-    collection: collectionActive ? driveCollection : null, packets: drivePackets, packet: ownerPacket, trust: documentTrust,
+    collection: collectionActive ? driveCollection : null, groups: groupsActive ? driveGroups : null,
+    packets: drivePackets, packet: ownerPacket, trust: documentTrust,
   };
   const mailDetail: Extract<ConnectorDetailPresentation, { kind: "gmail" }> = {
     kind: "gmail", account: gmail.status?.google_email || "Gmail",
@@ -2496,10 +2501,11 @@ function OwnerConnectorsPanel({
             ref={detailBackRef}
             className="size-11 text-foreground"
             onClick={() => {
+              if (groupsActive && driveGroups.selected) { driveGroups.close(); return; }
               setConfirm(null);
               setActiveConnector(null);
             }}
-            aria-label="Back to connectors"
+            aria-label={groupsActive && driveGroups.selected ? "Back to data packets" : "Back to connectors"}
           >
             <ArrowLeftIcon className="size-[22px]" aria-hidden="true" />
           </ShellActionSurface>
@@ -2807,6 +2813,7 @@ function OwnerConnectorsPanel({
                 </details>
               )}
               {vaultOwnerToken ? <TrustedDocumentRulesView model={documentTrust} /> : null}
+              {groupsActive ? <DriveDataPacketsView model={driveGroups} /> : null}
               {hasDriveGrant && drive?.status === "connected" && (
                 <Button className={`${touch} self-start px-0 text-destructive`} variant="ghost" disabled={driveBusy}
                   onClick={() => setConfirm("drive")}>Disconnect Drive</Button>

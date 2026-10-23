@@ -44,6 +44,13 @@ from hushh_mcp.services.renaissance_service import get_renaissance_service
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
+from ._analysis_presentation import (
+    _analysis_measurements,
+    _collect_degraded_agents,
+    _market_snapshot,
+    _synthesis_recommendation,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Kai Streaming"])
@@ -897,17 +904,9 @@ def _derive_fair_value(
     price_targets: dict[str, Any] | None,
     valuation_metrics: dict[str, Any] | None,
     valuation_recommendation: str,
-) -> tuple[str, float, float | None]:
-    current_price = _pick_first_numeric(
-        valuation_metrics,
-        (
-            "current_price",
-            "price",
-            "market_price",
-            "spot_price",
-            "last_price",
-        ),
-    )
+    provider_snapshot: dict[str, Any] | None = None,
+) -> tuple[str, float | None, float | None]:
+    current_price = _safe_float(provider_snapshot.get("last_price")) if provider_snapshot else None
     target_price = _pick_first_numeric(
         price_targets,
         (
@@ -925,13 +924,7 @@ def _derive_fair_value(
         gap_pct = ((target_price - current_price) / current_price) * 100.0
         score = _clamp(5.0 + (gap_pct / 4.0), 0.0, 10.0)
     else:
-        rec = (valuation_recommendation or "").strip().lower()
-        if "under" in rec:
-            score = 7.2
-        elif "over" in rec:
-            score = 2.8
-        else:
-            score = 5.0
+        return "Unavailable", None, None
     if score >= 6.2:
         label = "Undervalued"
     elif score <= 3.8:
@@ -951,12 +944,12 @@ def _derive_company_strength_score(
     market_trend_score: float,
 ) -> float:
     fundamental_score = (
-        _clamp((fundamental_confidence or 0.5) * 10.0, 0.0, 10.0)
+        _clamp(fundamental_confidence * 10.0, 0.0, 10.0)
         if fundamental_confidence is not None
         else 5.0
     )
     valuation_score = (
-        _clamp((valuation_confidence or 0.5) * 10.0, 0.0, 10.0)
+        _clamp(valuation_confidence * 10.0, 0.0, 10.0)
         if valuation_confidence is not None
         else fair_value_score
     )
@@ -965,7 +958,7 @@ def _derive_company_strength_score(
         if sentiment_score is not None
         else market_trend_score
     )
-    debate_score = _clamp((debate_confidence or 0.5) * 10.0, 0.0, 10.0)
+    debate_score = _clamp(debate_confidence * 10.0, 0.0, 10.0)
     blended = (
         (fundamental_score * 0.40)
         + (valuation_score * 0.20)
@@ -1241,6 +1234,12 @@ async def analyze_stream_generator(
 
     logger.info("[Kai Stream] Starting analysis for %s - user %s", ticker, user_id)
 
+    from hushh_mcp.services.market_provider_telemetry import (
+        finish_provider_call_counts,
+        start_provider_call_counts,
+    )
+
+    provider_calls_token = start_provider_call_counts()
     stream_token = _stream_ctx.set(CanonicalSSEStream("stock_analyze"))
     stream_ctx = _stream_ctx.get()
     stream_id = stream_ctx.stream_id if stream_ctx is not None else None
@@ -2090,6 +2089,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                     "sources": valuation_insight.sources,
                     "round": 1,
@@ -2125,6 +2125,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                     "sources": valuation_insight.sources,
                     "fallback_used": True,
@@ -2347,6 +2348,7 @@ async def analyze_stream_generator(
                     "confidence": valuation_insight.confidence,
                     "valuation_metrics": valuation_insight.valuation_metrics,
                     "peer_comparison": valuation_insight.peer_comparison,
+                    "peer_ranking": valuation_insight.peer_ranking,
                     "price_targets": valuation_insight.price_targets,
                 },
                 debate_payload={
@@ -2363,50 +2365,34 @@ async def analyze_stream_generator(
             ),
             timeout=min(remaining_timeout(), 30.0),
         )
+        _collect_degraded_agents(
+            degraded_agents, fundamental_insight, sentiment_insight, valuation_insight
+        )
         analysis_degraded = len(degraded_agents) > 0
         if analysis_degraded:
             analysis_mode = "degraded"
-        synthesis_short = ""
-        if isinstance(synthesis_payload, dict):
-            for key in ("short_recommendation", "thesis", "summary"):
-                value = synthesis_payload.get(key)
-                if isinstance(value, str) and value.strip():
-                    synthesis_short = value.strip()
-                    break
-        short_recommendation = (
-            synthesis_short
-            if synthesis_short
-            else _build_short_recommendation(
-                debate_result.decision,
-                debate_result.confidence,
-                debate_result.final_statement,
-                degraded_agents,
-            )
+        short_recommendation = _synthesis_recommendation(
+            synthesis_payload, debate_result, degraded_agents, _build_short_recommendation
         )
-        sentiment_score_value = _safe_float(sentiment_insight.sentiment_score)
-        market_trend_label, market_trend_score = _derive_market_trend(
-            sentiment_score_value,
-            debate_result.decision,
-        )
-        fair_value_label, fair_value_score, fair_value_gap_pct = _derive_fair_value(
-            price_targets=valuation_insight.price_targets,
-            valuation_metrics=valuation_insight.valuation_metrics,
-            valuation_recommendation=valuation_insight.recommendation,
-        )
-        company_strength_score = _derive_company_strength_score(
-            fundamental_confidence=_safe_float(fundamental_insight.confidence),
-            valuation_confidence=_safe_float(valuation_insight.confidence),
-            debate_confidence=_safe_float(debate_result.confidence) or 0.5,
-            sentiment_score=sentiment_score_value,
-            fair_value_score=fair_value_score,
-            market_trend_score=market_trend_score,
+        (
+            market_trend_label,
+            market_trend_score,
+            fair_value_label,
+            fair_value_score,
+            fair_value_gap_pct,
+            company_strength_score,
+        ) = _analysis_measurements(
+            fundamental_insight,
+            sentiment_insight,
+            valuation_insight,
+            debate_result,
+            _safe_float,
+            _derive_market_trend,
+            _derive_fair_value,
+            _derive_company_strength_score,
         )
         analysis_updated_at = _now_utc_iso()
-        market_snapshot = _derive_market_snapshot(
-            valuation_metrics=valuation_insight.valuation_metrics,
-            price_targets=valuation_insight.price_targets,
-            analysis_updated_at=analysis_updated_at,
-        )
+        market_snapshot = _market_snapshot(valuation_insight.market_snapshot)
 
         pkm_context = {
             "risk_profile": full_user_context.get("risk_profile"),
@@ -2637,6 +2623,7 @@ async def analyze_stream_generator(
     finally:
         _stream_activity_ctx.reset(activity_token)
         _stream_ctx.reset(stream_token)
+        finish_provider_call_counts(provider_calls_token)
 
 
 def _create_sse_response(generator: AsyncGenerator[dict, None]) -> EventSourceResponse:

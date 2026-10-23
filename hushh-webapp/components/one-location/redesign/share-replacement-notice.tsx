@@ -25,7 +25,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
+  AlertDialogContent as UnscopedAlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
@@ -34,6 +34,9 @@ import {
 
 import { WarningCard } from "./primitives";
 import { MUTED_TEXT } from "./tokens";
+import { withLocationTypography } from "./location-typography";
+
+const AlertDialogContent = withLocationTypography(UnscopedAlertDialogContent);
 
 export type ShareReplacementRow = {
   recipientUserId: string;

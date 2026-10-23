@@ -313,6 +313,9 @@ async def observability_middleware(request: Request, call_next):
 
 
 def configure_opentelemetry(app: FastAPI) -> None:
+    from api.utils.private_trace_exporter import protect_incoming_trace_context
+
+    protect_incoming_trace_context()
     enabled_raw = str(os.getenv("OTEL_ENABLED", "false")).strip().lower()
     if enabled_raw not in {"1", "true", "yes", "on"}:
         logger.info("observability.otel_disabled")

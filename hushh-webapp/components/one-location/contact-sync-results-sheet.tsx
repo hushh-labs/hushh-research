@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Check, Loader2, Send, ShieldAlert } from "@/components/icons";
 import { toast } from "sonner";
 
-import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { ContactInvitationSheet } from "@/components/connections/contact-invitation-sheet";
 import { CONTACT_SHEET_MAX_HEIGHT_CLASSNAME } from "@/components/connections/contact-sheet-layout";
 import type { ContactInvitationController } from "@/lib/contacts/use-contact-invitations";
@@ -13,11 +13,10 @@ import {
   TAKEOVER_OVERLAY_Z_CLASSNAME,
   TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
-  SheetContent,
+  SheetContent as UnscopedSheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
@@ -32,18 +31,11 @@ import type { GoogleContactSyncController } from "@/lib/contacts/use-google-cont
 import { googleContactSyncSummary } from "@/lib/contacts/google-contact-sync-summary";
 import { connectPersonName } from "@/lib/connections/person-label";
 import { CONNECT_CONNECTIONS_LIST_HREF } from "@/lib/navigation/connect-routes";
+import { withLocationTypography } from "@/components/one-location/redesign/location-typography";
+
+const SheetContent = withLocationTypography(UnscopedSheetContent);
 
 const MATCH_PAGE_SIZE = 100;
-
-function initials(value: string): string {
-  return value
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-}
 
 function resultStatus(
   outcome: OneLocationContactSignalResult["matches"][number]["outcome"],
@@ -141,7 +133,7 @@ export function ContactSyncResultsSheet({
             </SheetDescription>
           </SheetHeader>
           {googleSync.busy ? (
-            <p
+            <p data-location-type-role="status"
               role="status"
               className="mt-6 flex items-center gap-2 text-sm text-muted-foreground"
             >
@@ -225,7 +217,7 @@ export function ContactSyncResultsSheet({
         </SheetHeader>
 
         {result.sourcePlatform === "google" ? (
-          <p className="mt-3 text-sm text-muted-foreground">
+          <p data-location-type-role="body" className="mt-3 text-sm text-muted-foreground">
             Read {result.readContactCount} saved Google{" "}
             {result.readContactCount === 1 ? "contact" : "contacts"}.{" "}
             <a
@@ -252,7 +244,7 @@ export function ContactSyncResultsSheet({
                 className="rounded-2xl bg-muted/45 px-3 py-2.5"
               >
                 <p className="text-lg font-semibold text-foreground">{count}</p>
-                <p className="text-xs text-muted-foreground">{label}</p>
+                <p data-location-type-role="row-description" className="text-xs text-muted-foreground">{label}</p>
               </div>
             ))}
           </div>
@@ -269,27 +261,27 @@ export function ContactSyncResultsSheet({
             !result.unknownContactCount &&
             !result.uncheckedContactCount &&
             !result.lookupLimitExceeded ? (
-              <p>Only part of your contact list was checked.</p>
+              <p data-location-type-role="body">Only part of your contact list was checked.</p>
             ) : null}
             {result.partialFailureMessage ? (
-              <p className="flex items-start gap-2 text-foreground">
+              <p data-location-type-role="body" className="flex items-start gap-2 text-foreground">
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
                 {result.partialFailureMessage}
               </p>
             ) : null}
             {result.unknownContactCount ? (
-              <p>
+              <p data-location-type-role="body">
                 {result.unknownContactCount} contacts need confirmation. They
                 are not counted as unmatched or inviteable.
               </p>
             ) : null}
             {result.uncheckedContactCount ? (
-              <p>
+              <p data-location-type-role="body">
                 {result.uncheckedContactCount} contacts were not checked yet.
               </p>
             ) : null}
             {result.lookupLimitExceeded ? (
-              <p>
+              <p data-location-type-role="body">
                 This address book exceeded the secure{" "}
                 {CONTACT_SYNC_MAX_LOOKUPS.toLocaleString()}-number sync limit.
                 {result.lookupLimitedContactCount
@@ -298,13 +290,13 @@ export function ContactSyncResultsSheet({
               </p>
             ) : null}
             {result.uncheckableContactCount ? (
-              <p>
+              <p data-location-type-role="body">
                 {result.uncheckableContactCount} contacts had no usable phone
                 number.
               </p>
             ) : null}
             {result.excludedSelfContactCount ? (
-              <p>
+              <p data-location-type-role="body">
                 {result.excludedSelfContactCount} contact entries containing
                 your own number were skipped.
               </p>
@@ -323,30 +315,26 @@ export function ContactSyncResultsSheet({
                     key={match.userId}
                     className="flex min-h-16 items-center gap-3 px-3 py-2.5"
                   >
-                    <Avatar className="h-10 w-10 shrink-0">
-                      {match.photoUrl ? (
-                        <AvatarImage src={match.photoUrl} alt="" />
-                      ) : null}
-                      <AvatarFallback>{initials(name)}</AvatarFallback>
-                    </Avatar>
+                    <ConnectionPersonAvatar
+                      size="list"
+                      photoUrl={match.photoUrl}
+                      label={name}
+                      fromContacts={match.outcome === "auto_connected" || match.outcome === "already_connected"}
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-                        <p className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">
+                        <p data-location-type-role="row-title" className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">
                           {name}
                         </p>
-                        {match.outcome === "auto_connected" ||
-                        match.outcome === "already_connected" ? (
-                          <ContactSourceBadge />
-                        ) : null}
                       </div>
-                      <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                      <p data-location-type-role="row-description" className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                         {requested
                           ? "Request sent"
                           : resultStatus(match.outcome)}
                       </p>
                     </div>
                     {match.outcome === "request_required" && !requested ? (
-                      <Button
+                      <Button data-location-type-role="compact-action"
                         type="button"
                         size="sm"
                         variant="outline"
@@ -390,10 +378,10 @@ export function ContactSyncResultsSheet({
             <div className="rounded-2xl bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
               {googleSummary ? (
                 <>
-                  <p className="font-medium text-foreground">
+                  <p data-location-type-role="body" className="font-medium text-foreground">
                     {googleSummary.title}
                   </p>
-                  <p className="mt-2">{googleSummary.description}</p>
+                  <p data-location-type-role="body" className="mt-2">{googleSummary.description}</p>
                 </>
               ) : (
                 <>
@@ -406,11 +394,11 @@ export function ContactSyncResultsSheet({
           )}
           {hiddenMatchCount ? (
             <div className="mt-3 flex flex-col items-center gap-2">
-              <p className="text-xs text-muted-foreground" aria-live="polite">
+              <p data-location-type-role="row-description" className="text-xs text-muted-foreground" aria-live="polite">
                 Showing {visibleMatches.length} of {result.matches.length}{" "}
                 matched people
               </p>
-              <Button
+              <Button data-location-type-role="compact-action"
                 type="button"
                 variant="outline"
                 size="sm"

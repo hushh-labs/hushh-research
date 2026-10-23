@@ -124,7 +124,27 @@ These are source-level candidates. No end-to-end trace or live timing was collec
 | B request → review or answer | Request creation can await two best-effort wakes; live preparation or an allowed question invokes model/provider work; selected mode may wait for the finite indexing worker. | Each wake has a 5 s limit; live question and foreground file preparation have 160 s bounds. Current scheduler code configures documents every four minutes and suggestions every four minutes with a two-minute offset. |
 | Selected-index retrieval | A local E5 query embedding may start cold before encrypted-chunk retrieval. | A processor comment reports about 71 s for a cold E5 query on the UAT worker's 2-CPU/4-GiB allocation, with 105/100 s admission/child bounds. This does not apply to PR #7079's live share search. |
 
-The code settings do not establish current deployed scheduler state, queue depth, Google response times, or which interval the reported latency concerns. Generic chat latency baselines are not measurements of these Drive card and worker paths. The live Drive path has outcome/stage logs but lacks per-stage elapsed measurements; worker HTTP returns aggregate counts.
+The code settings do not establish current deployed scheduler state, queue depth, Google response times, or which interval the reported latency concerns. Generic chat latency baselines are not measurements of these Drive card and worker paths. Each fenced live read also logs one `drive_rest.call` line (see below, source only until deployed); worker HTTP still returns aggregate counts.
+
+### Redacted latency measurement of the Drive listing
+
+The channel is Google Drive REST v3 (`files.list`, `files.get`) through `GoogleDriveRestTransport`, over the owner's live OAuth grant (scope `drive`); the Drive MCP preview is not used. Four closed log lines describe it, with fixed labels, counts and milliseconds only, never a query, title, file ID, owner, token or page cursor:
+
+| Line | What it measures |
+| --- | --- |
+| `drive_rest.timing operation=… outcome=… duration_ms=…` | One REST request, per operation (`list`, `metadata`, `content`, `export`, …). |
+| `drive_rest.response operation=… headers_ms=… body_ms=…` | Time to Google's response headers, then to the end of the body (`-1` = not received). |
+| `drive_rest.call channel=google_drive_rest_v3 profile=live tool=… rows=… more=… credential_ms=… provider_ms=… recheck_ms=… total_ms=…` | One fenced read: the fixed tool name, rows returned (`-1` for a tool that lists nothing), whether another page exists, and each stage's milliseconds. |
+| `drive_metadata_index.refresh … pages=… rows=… entries=… duration_ms=…` | One owner name-index listing slice. |
+
+To take a measurement, run one owner action in UAT (for example **Find files** in chat), note the UTC window, then read that window:
+
+```bash
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="consent-protocol" AND textPayload:"drive_rest.call channel=google_drive_rest_v3"' \
+  --project hushh-pda-uat --freshness=1h --limit=200 --format='value(timestamp,textPayload)'
+```
+
+Use `consent-protocol-drive-worker` as the service for background work. For one request, pages are the `tool=search_files` lines sharing a `request_tag`, rows are the sum of `rows`, and listing time is the sum of `provider_ms`; `files.get` is `tool=get_file_metadata` or `read_file_content`. Record the deployed SHA with the numbers. No latency is claimed here until that run has been made.
 
 The P0 branch uses Google Drive REST `files.list` and `files.get`/export for live search. The separate selected-file index remains opt-in. The review stream reports preparation stages to A only; a typed chat turn shows its private-memory preparation and Drive tool activity but does not stream each document's bytes or model tokens. Real Google latency and end-to-end improvement still require a deployed UAT run with redacted timing evidence.
 

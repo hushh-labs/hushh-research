@@ -641,6 +641,7 @@ class GoogleCalendarService:
             "start": event.get("start"),
             "end": event.get("end"),
             "status": event.get("status"),
+            "event_type": event.get("eventType"),
             "organizer": event.get("organizer"),
             "can_decline": not _mapping(event.get("organizer")).get("self")
             and not event.get("attendeesOmitted")

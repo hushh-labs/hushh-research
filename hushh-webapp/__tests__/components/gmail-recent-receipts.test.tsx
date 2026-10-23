@@ -157,7 +157,7 @@ describe("receipt merchant logo", () => {
       "true",
     );
     expect(
-      screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
+      screen.getAllByTestId("receipt-month-group").map(group => group.querySelector("h3")?.textContent),
     ).toEqual(["OCTOBER 2026", "SEPTEMBER 2026"]);
     expect(screen.getAllByTestId("receipt-row")[0]).toHaveAccessibleName(
       /Supabase.*Overdue.*Cloud & Infra.*124\.01/i,

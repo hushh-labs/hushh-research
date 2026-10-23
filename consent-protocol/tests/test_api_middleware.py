@@ -280,7 +280,8 @@ async def test_require_vault_owner_token_recovers_terminal_deleted_account(monke
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == {
         "code": "AUTH_ACCOUNT_NOT_FOUND",
-        "message": "Account not found",
+        "message": "Account information has been deleted",
+        "account_lifecycle": "deleted",
     }
 
 

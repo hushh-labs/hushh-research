@@ -267,7 +267,7 @@ struct NativeDrawerProjection: Codable {
     static func validConnectorPath(_ path: [String]) -> Bool {
         guard path.first == "connectors", path.count <= 5 else { return false }
         let children: [String: Set<String>] = ["connectors": ["connector-detail", "connector-confirm", "connector-custom", "connector-custom-detail", "connector-custom-confirm"],
-            "connector-detail": ["connector-confirm", "connector-preparation", "connector-files", "connector-selection", "connector-packets", "connector-trust"],
+            "connector-detail": ["connector-confirm", "connector-preparation", "connector-files", "connector-group-files", "connector-selection", "connector-packets", "connector-trust"],
             "connector-files": ["connector-confirm", "connector-selection"], "connector-packets": ["connector-packet"], "connector-trust": ["connector-trust-rule"], "connector-trust-rule": ["connector-trust-confirm"],
             "connector-custom-detail": ["connector-custom-confirm"]]
         return path.dropFirst().enumerated().allSatisfy { children[path[$0.offset]]?.contains($0.element) == true }

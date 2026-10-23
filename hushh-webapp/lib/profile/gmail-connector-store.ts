@@ -118,6 +118,8 @@ const inflightStatusRequests = new Map<
   string,
   Promise<GmailConnectionStatus | null>
 >();
+const queuedStatusRequests = new Map<string, Parameters<typeof fetchStatusFromNetwork>[0]>();
+const trailingStatusOwners = new Set<string>();
 const inflightRunPollers = new Map<string, AbortController>();
 let activeConnectorOwnerId: string | null = null;
 
@@ -590,7 +592,8 @@ function finishTaskFromRun(
 
 async function fetchStatusFromNetwork(params: {
   userId: string;
-  idToken: string;
+  idToken?: string;
+  trailing?: boolean;
   force?: boolean;
   reconcile?: boolean;
   routeHref?: string | null;
@@ -603,7 +606,11 @@ async function fetchStatusFromNetwork(params: {
   if (!normalizedUserId) return null;
 
   const existingRequest = inflightStatusRequests.get(normalizedUserId);
-  if (existingRequest && !params.force) {
+  if (existingRequest) {
+    if (params.force && !trailingStatusOwners.has(normalizedUserId)) {
+      const queued = queuedStatusRequests.get(normalizedUserId);
+      queuedStatusRequests.set(normalizedUserId, { ...params, reconcile: Boolean(queued?.reconcile || (params.reconcile ?? Boolean(params.force))), trailing: true });
+    }
     return existingRequest;
   }
 
@@ -648,15 +655,23 @@ async function fetchStatusFromNetwork(params: {
 
   const shouldReconcile = params.reconcile ?? Boolean(params.force);
   let request: Promise<GmailConnectionStatus | null>;
-  const statusParams = {
-    idToken: params.idToken,
-    userId: normalizedUserId,
+  let resolvedToken = params.idToken ?? "";
+  const acquireToken = async () => {
+    let timer: ReturnType<typeof setTimeout>;
+    try { return await Promise.race([Promise.resolve().then(() => params.idTokenProvider?.() ?? ""),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Mail connection check timed out.")), 10_000); })]); }
+    finally { clearTimeout(timer!); }
   };
-  request = (shouldReconcile
-    ? GmailReceiptsService.reconcile(statusParams)
-    : GmailReceiptsService.getStatus({ ...statusParams, force: params.force }))
+  if (params.trailing) trailingStatusOwners.add(normalizedUserId);
+  request = Promise.resolve().then(async () => {
+    resolvedToken ||= await acquireToken();
+    if (!requestIsCurrent()) return null;
+    const statusParams = { idToken: resolvedToken, userId: normalizedUserId };
+    return shouldReconcile ? GmailReceiptsService.reconcile(statusParams)
+      : GmailReceiptsService.getStatus({ ...statusParams, force: params.force });
+  })
     .then((status) => {
-      if (!requestIsCurrent()) return null;
+      if (!requestIsCurrent() || !status) return null;
       primeConnectorStatus({
         userId: normalizedUserId,
         status,
@@ -672,10 +687,10 @@ async function fetchStatusFromNetwork(params: {
     })
     .catch(async (error) => {
       if (!requestIsCurrent()) return null;
-      if (shouldReconcile) {
+      if (shouldReconcile && resolvedToken) {
         try {
           const fallbackStatus = await GmailReceiptsService.getStatus({
-            idToken: params.idToken,
+            idToken: resolvedToken,
             userId: normalizedUserId,
             force: params.force,
           });
@@ -713,7 +728,17 @@ async function fetchStatusFromNetwork(params: {
       });
       return entry.status;
     })
+    .then(async status => {
+      const queued = queuedStatusRequests.get(normalizedUserId);
+      if (queued && requestIsCurrent() && !params.trailing) {
+        queuedStatusRequests.delete(normalizedUserId);
+        if (inflightStatusRequests.get(normalizedUserId) === request) inflightStatusRequests.delete(normalizedUserId);
+        return fetchStatusFromNetwork(queued);
+      }
+      return status;
+    })
     .finally(() => {
+      if (params.trailing) trailingStatusOwners.delete(normalizedUserId);
       if (inflightStatusRequests.get(normalizedUserId) === request) {
         inflightStatusRequests.delete(normalizedUserId);
         if (requestIsCurrent()) {
@@ -1250,6 +1275,8 @@ export function clearConnectorStatus(userId: string): void {
   entries.delete(normalizedUserId);
   connectorViewCache.delete(normalizedUserId);
   inflightStatusRequests.delete(normalizedUserId);
+  queuedStatusRequests.delete(normalizedUserId);
+  trailingStatusOwners.delete(normalizedUserId);
   const controller = inflightRunPollers.get(normalizedUserId);
   controller?.abort();
   inflightRunPollers.delete(normalizedUserId);
@@ -1295,10 +1322,8 @@ export function useGmailConnectorStatus(
       if (!enabled || !normalizedUserId || !provider) {
         return getConnectorView(normalizedUserId).status;
       }
-      const idToken = await provider();
       return fetchStatusFromNetwork({
         userId: normalizedUserId,
-        idToken,
         force: refreshOptions?.force,
         reconcile: refreshOptions?.reconcile,
         routeHref,

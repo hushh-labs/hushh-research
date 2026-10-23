@@ -22,18 +22,16 @@ function functionBody(name: string): string {
 }
 
 describe("Location hub hierarchy", () => {
-  it("keeps exactly one Location title before the local tab strip and content", () => {
+  it("keeps the accessible Location heading without duplicating the shared title", () => {
     const body = functionBody("LocationRedesignHub");
-    const headerIndex = body.indexOf("<PageHeader");
-    const headerMatches = body.match(/<PageHeader\b[\s\S]*?\/>/g) ?? [];
+    const headerIndex = body.indexOf('<h1 className="sr-only">Location</h1>');
     const tabsIndex = body.indexOf("<TopShellTabs");
     const swipeIndex = body.indexOf("<SwipeViews");
     const linksIndex = body.indexOf("<LinksHub");
 
-    expect(countOccurrences(body, "<PageHeader")).toBe(1);
-    expect(headerMatches).toHaveLength(1);
-    expect(headerMatches[0]).toContain('title="Location"');
-    expect(headerMatches[0]).toContain('titleRole="agent"');
+    expect(body).not.toContain("<PageHeader");
+    expect(countOccurrences(body, '<h1 className="sr-only">Location</h1>')).toBe(1);
+    expect(body).toContain("<LocationHeaderActions vm={vm} />");
     expect(countOccurrences(body, "<TopShellTabs")).toBe(1);
     expect(countOccurrences(body, "<SwipeViews")).toBe(1);
     expect(headerIndex).toBeGreaterThan(-1);

@@ -24,6 +24,7 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "google_drive_live",
     "google_drive_picker",
     "drive_document_indexing",
+    "drive_four_group_index",
     "drive_document_sharing",
     "drive_agent_packages_enabled",
     "gmail_chat_reads",
@@ -319,6 +320,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "google_drive_live": getattr(args, "google_drive_live", "false"),
         "google_drive_picker": getattr(args, "google_drive_picker", "false"),
         "drive_document_indexing": getattr(args, "drive_document_indexing", "false"),
+        "drive_four_group_index": getattr(args, "drive_four_group_index", "false"),
         "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
         "drive_agent_packages_enabled": getattr(args, "drive_agent_packages_enabled", "false"),
         "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
@@ -525,6 +527,7 @@ def main() -> int:
     parser.add_argument("--google-drive-live", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-four-group-index", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
     parser.add_argument("--drive-agent-packages-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Collect candidate-bound provider evidence and enforce UAT's any-provider rule.
 
-This decides deployment readiness, never invocation, information or action authority.
-Provider bodies, credentials and customer information are never retained.
+Decides readiness, never invocation, information or action authority; retains no provider bodies, credentials or customer information.
 """
 
 from __future__ import annotations
@@ -12,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -20,6 +20,7 @@ from uuid import UUID, uuid5
 ROOT = Path(__file__).resolve().parents[2]
 SCOPES = {"one_text_chat", "drive_document_requests"}
 PROVIDERS = {"azure_openai", "vertex"}
+PROVIDER_SCOPES = {"azure_openai": SCOPES, "vertex": {"drive_document_requests"}}
 
 
 def fingerprint(value):
@@ -62,7 +63,7 @@ def context(env):
 
 def run_json(args):
     result = subprocess.run(
-        ["gcloud", *args, "--format=json"],
+        [shutil.which("gcloud") or "gcloud", *args, "--format=json"],
         capture_output=True,
         text=True,
         timeout=300 if args[:3] == ["run", "services", "update"] else 60,
@@ -114,7 +115,7 @@ def valid_core(core, provider, expected, document):
         or core.get("policy_generation") != generation
         or core.get("config_fingerprint") != expected["config_fingerprint"]
         or not isinstance(scopes, dict)
-        or set(scopes) != SCOPES
+        or set(scopes) != PROVIDER_SCOPES[provider]
     ):
         return False
     model = (
@@ -516,8 +517,11 @@ def evaluate(envelopes, expected):
             )
             and value.get("execution_terminal") in {"True", "False"}
             and valid_core(value.get("core"), provider, expected, document)
-            and valid_capabilities(
-                value.get("capability_proof"), provider, expected, document
+            and (
+                provider == "vertex"
+                or valid_capabilities(
+                    value.get("capability_proof"), provider, expected, document
+                )
             )
             and (
                 provider != "azure_openai"
@@ -537,13 +541,7 @@ def evaluate(envelopes, expected):
             if valid
             else {},
         }
-    selected = (
-        "azure_openai"
-        if accepted["azure_openai"]
-        else "vertex"
-        if accepted["vertex"]
-        else None
-    )
+    selected = "azure_openai" if accepted["azure_openai"] else None
     return {
         "schema": "managed_provider_readiness.v1",
         "ready": selected is not None and not trust_failed,
@@ -649,6 +647,8 @@ def candidate(service, expected, tag):
 
 
 def select(result, expected, folder):
+    if result.get("ready") is not True or result.get("selected_provider") != "azure_openai":
+        raise ValueError("One UAT requires qualified Azure processing")
     service = os.environ["READINESS_SERVICE"]
     tag = os.environ["READINESS_TAG"]
     if (

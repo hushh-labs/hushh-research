@@ -42,6 +42,7 @@ from hushh_mcp.runtime_providers.dependency_health import (  # noqa: E402
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name  # noqa: E402
 from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error  # noqa: E402
 from hushh_mcp.runtime_settings import managed_ai_settings  # noqa: E402
+from scripts._managed_probe_verdicts import text_probe_verdicts  # noqa: E402
 
 PROBE_TIMEOUT_SECONDS = 25
 PROBE_START_INTERVAL_SECONDS = 30
@@ -464,7 +465,7 @@ async def main() -> dict[str, object]:
 
         labelled.append(
             (
-                f"one_chat:{chat_model}@{','.join(chat_locations)}",
+                f"{'drive_document_requests' if os.getenv('ENVIRONMENT') == 'uat' else 'one_chat'}:{chat_model}@{','.join(chat_locations)}",
                 probe_chat,
             )
         )
@@ -567,13 +568,8 @@ async def main() -> dict[str, object]:
 
     failed = [item for item in probes if not item["ok"]]
     classification = summarize([str(item["classification"]) for item in failed])
-    one_chat_probe_ok = (
-        next(
-            (bool(item["ok"]) for item in probes if str(item["probe"]).startswith("one_chat:")),
-            False,
-        )
-        if chat_binding is not None
-        else None
+    one_chat_probe_ok, drive_document_requests_probe_ok = text_probe_verdicts(
+        probes, chat_binding is not None, os.getenv("ENVIRONMENT") == "uat"
     )
     one_voice_probe_ok = (
         next(
@@ -587,14 +583,8 @@ async def main() -> dict[str, object]:
         if live_config.enabled and live_config.vertex_project
         else None
     )
-    capabilities_ready = None
-    if os.environ.get("ENVIRONMENT") == "uat" and not failed:
-        from scripts.probe_managed_capabilities import probe_managed_capabilities
-
-        capabilities = await probe_managed_capabilities("vertex")
-        capabilities_ready = capabilities["ready"]
     return {
-        "managed_runtime_capabilities_ready": capabilities_ready,
+        "managed_runtime_capabilities_ready": None,
         "config_hash": managed_ai_settings().config_hash,
         "check": "managed_vertex_runtime",
         "ok": not failed,
@@ -603,6 +593,7 @@ async def main() -> dict[str, object]:
         "models": list(models),
         "one_chat_project": chat_project or None,
         "one_chat_probe_ok": one_chat_probe_ok,
+        "drive_document_requests_probe_ok": drive_document_requests_probe_ok,
         "managed_text_provider_probe": managed_text_receipt,
         "one_voice_probe_ok": one_voice_probe_ok,
         "probes": probes,

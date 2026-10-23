@@ -1,0 +1,30 @@
+{
+  "calibration": {
+    "intercept": 0.57583,
+    "slope": 1.47448
+  },
+  "min_agreement": 3,
+  "min_confidence": 0.775,
+  "min_margin": 0.4,
+  "provenance": {
+    "embedding_model": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "fitted_at": "2026-10-21",
+    "fitted_on": "train split of the synthetic fixtures",
+    "fixtures_sha256": "84a6955451b7175b",
+    "folds": "4 folds that hold out whole template families",
+    "note": "Synthetic data: a regression gate, not accuracy on a real Drive.",
+    "out_of_fold": {
+      "none_placed": 0,
+      "placed": 67,
+      "precision": 0.9851,
+      "recall": 0.3438
+    },
+    "rows": 276,
+    "target_precision": 0.98
+  },
+  "weights": {
+    "embedding": 0.85174,
+    "metadata": 0.0,
+    "text": 0.24459
+  }
+}

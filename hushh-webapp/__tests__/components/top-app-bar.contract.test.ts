@@ -439,7 +439,7 @@ describe("Top app bar responsive contract", () => {
     expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
     expect(back).toContain("params.navigate(action);");
     expect(backGraph).toContain(
-      'items: [{ label: fromProfile ? "Profile" : "One" }],',
+      'items: [{ label: "Location" }],',
     );
     expect(source).not.toContain("history.back()");
   });

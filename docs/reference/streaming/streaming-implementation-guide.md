@@ -42,6 +42,9 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
   admission is not a silent model stream. Cancellation invalidates the run so
   late admission cannot dispatch a cancelled turn or restart its watchdog.
 - Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
+- Managed `TEXT_CONTENT_FILTERED` and `TEXT_AUTHORITY_ENDED` errors use fixed
+  client notices and do not imply backend capacity strain. Keep partial answer
+  text, show the reason beneath it, and never turn the refusal into a successful answer.
 - A confirmed chat-key refusal may retain one unexecuted request in memory for
   its requested unlock. The shared composer still clears on lock. Recovery
   requires the same validated authentication generation and restored conversation;

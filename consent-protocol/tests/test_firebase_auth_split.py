@@ -223,7 +223,7 @@ def test_revocation_remote_lookup_sheds_load_when_at_capacity(monkeypatch):
     assert remote_calls == 0
 
 
-def test_account_deletion_tombstone_maps_to_account_not_found(monkeypatch):
+def test_account_deletion_tombstone_is_distinct_from_missing_identity(monkeypatch):
     from api.utils import firebase_auth as firebase_auth_module
 
     monkeypatch.setattr(
@@ -238,7 +238,8 @@ def test_account_deletion_tombstone_maps_to_account_not_found(monkeypatch):
     assert exc.value.status_code == 401
     assert exc.value.detail == {
         "code": "AUTH_ACCOUNT_NOT_FOUND",
-        "message": "Account not found",
+        "account_lifecycle": "deleted",
+        "message": "Account information has been deleted",
     }
     assert exc.value.headers == {"Cache-Control": "private, no-store"}
 
@@ -337,7 +338,6 @@ def test_revoked_token_is_rejected_after_local_verification(monkeypatch):
 
     assert exc.value.status_code == 401
     assert exc.value.detail == "Invalid Firebase ID token"
-    # The third local call is the existing tombstone recovery path.
     assert verification_modes == [False, True, False]
 
 

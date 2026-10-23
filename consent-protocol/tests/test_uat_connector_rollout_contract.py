@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import re
+import shutil
+import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
@@ -71,9 +75,80 @@ def test_explicit_all_users_mode_accepts_enabled_uat_features():
     )
 
 
-def test_enabled_feature_requires_a_cohort_or_all_users_mode():
+@pytest.mark.parametrize("feature", ["gmail_chat_reads", "drive_four_group_index"])
+def test_enabled_feature_requires_a_cohort_or_all_users_mode(feature):
     with pytest.raises(ValueError, match="require a lane-specific cohort or all-users mode"):
-        _module()._validate_connector_rollout(_args(gmail_chat_reads="true"))
+        _module()._validate_connector_rollout(_args(**{feature: "true"}))
+
+
+def test_four_group_hosted_compilers_default_off_and_require_explicit_uat_activation():
+    for lane in ("dev", "uat", "production"):
+        workflow = (ROOT / f".github/workflows/deploy-{lane}.yml").read_text(encoding="utf-8")
+        argument = (
+            "--drive-four-group-index \"${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}\""
+            if lane == "uat"
+            else '--drive-four-group-index "false"'
+        )
+        assert argument in workflow
+        # UAT has its own explicit, default-off activation. Other lanes stay off.
+        if lane != "production":
+            assert '"${drive_group_args[@]}"' in workflow
+            assert "if grep -q -- '--drive-four-group-index'" in workflow
+
+
+@pytest.mark.parametrize("lane,requested", [("dev", "false"), ("uat", "false"), ("uat", "true")])
+@pytest.mark.parametrize("supports_groups", [False, True])
+def test_selected_sha_compiler_preserves_flag_compatibility(
+    tmp_path, lane, requested, supports_groups
+):
+    # Execute the actual workflow guard against both parser generations. An
+    # unconditional new CLI option used to make a supported old SHA undeployable.
+    bash = shutil.which("bash")
+    if sys.platform == "win32":
+        git = shutil.which("git")
+        candidate = Path(git).resolve().parents[1] / "bin/bash.exe" if git else None
+        bash = str(candidate) if candidate and candidate.is_file() else None
+    if not bash:
+        pytest.skip("The deployment shell compatibility test requires bash")
+    workflow = (ROOT / f".github/workflows/deploy-{lane}.yml").read_text(encoding="utf-8")
+    guard = re.search(r"(?ms)^ +drive_group_args=\(\)\n.*?^ +fi$", workflow)
+    assert guard is not None
+    script = tmp_path / "scripts/ops/sync_backend_runtime_secrets.py"
+    script.parent.mkdir(parents=True)
+    script.write_text(
+        "import argparse,json\np=argparse.ArgumentParser()\n"
+        + (
+            'p.add_argument("--drive-four-group-index", choices=["true","false"])\n'
+            if supports_groups
+            else ""
+        )
+        + "print(json.dumps(vars(p.parse_args())))\n",
+        encoding="utf-8",
+    )
+    # GitHub renders this expression before handing the step to Bash. Exercise
+    # both UAT values without accessing or changing any repository variable.
+    rendered_guard = guard[0].replace(
+        "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}", requested
+    )
+    command = (
+        "set -euo pipefail\n"
+        + rendered_guard
+        + '\n"$COMPAT_PYTHON" scripts/ops/sync_backend_runtime_secrets.py "${drive_group_args[@]}"\n'
+    )
+    import os
+
+    result = subprocess.run(  # noqa: S603 - actual authored workflow guard and synthetic local parser
+        [bash, "-c", command],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "COMPAT_PYTHON": sys.executable},
+        timeout=10,
+    )
+    assert json.loads(result.stdout) == (
+        {"drive_four_group_index": requested} if supports_groups else {}
+    )
 
 
 @pytest.mark.parametrize("environment", ["production", "dev", "local", "test"])

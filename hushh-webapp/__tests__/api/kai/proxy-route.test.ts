@@ -25,6 +25,8 @@ function createRequest(url: string, init: RequestInit): NextRequest {
 describe("/api/kai/[...path] proxy", () => {
   it.each([
     ["GMAIL_RECEIPT_CONTRACT_MISMATCH", true, false],
+    ["GMAIL_RECEIPT_CHECKPOINT_EXPIRED", false, false],
+    ["GMAIL_RECEIPT_ACCOUNT_CHANGED", false, false],
     ["GMAIL_PROVIDER_UNAVAILABLE", false, false],
     ["GMAIL_PROVIDER_UNAVAILABLE", undefined, true],
   ])("sanitizes receipt %s and preserves retry policy", async (code, retryable, expected) => {

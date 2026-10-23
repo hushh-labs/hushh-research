@@ -20,6 +20,16 @@ RELEASE_RUN_ID="${RELEASE_RUN_ID:?release run id required}"
 SNAPSHOT_PATH="${SNAPSHOT_PATH:?persistent V1 scheduler snapshot path required}"
 PREVIOUS_REVISION_PATH="${PREVIOUS_REVISION_PATH:?persistent V1 revision path required}"
 DRIVE_WORK_DRAIN_ENABLED="${DRIVE_WORK_DRAIN_ENABLED:-true}"
+DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED="${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED:-false}"
+if [[ "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" != true && "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" != false ]]; then
+  echo "Data packet activation must be true or false" >&2
+  exit 1
+fi
+if [[ "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" == true && "${DRIVE_WORK_DRAIN_ENABLED}" != true ]]; then
+  echo "Data packets require an enabled private worker; the V1 pause is preserved" >&2
+  exit 1
+fi
+groups_snapshot="${SNAPSHOT_PATH%.json}-groups.json"
 if [[ "${DRIVE_WORK_DRAIN_ENABLED}" != true && "${DRIVE_WORK_DRAIN_ENABLED}" != false ]]; then
   echo "V1 background processing must be true or false" >&2
   exit 1
@@ -89,6 +99,7 @@ rollback() {
   if [[ "${snapshot_captured}" == true ]]; then
     if ! bash deploy/drive/restore_v1_worker.sh "${SNAPSHOT_PATH}" "${previous_revision}" >&2; then
       python3 deploy/drive/v1_scheduler_state.py quarantine >&2 || true
+      python3 deploy/drive/v1_scheduler_state.py quarantine --stage groups >&2 || true
       echo "CRITICAL: V1 worker rollback is incomplete; the V1 job is quarantined" >&2
     fi
   fi
@@ -180,6 +191,10 @@ if [[ "${snapshot_captured}" != true ]]; then
   python3 deploy/drive/v1_scheduler_state.py capture --snapshot "${SNAPSHOT_PATH}"
   snapshot_captured=true
 fi
+python3 deploy/drive/v1_scheduler_state.py capture --stage groups --snapshot "${groups_snapshot}"
+if [[ "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" != true ]]; then
+  python3 deploy/drive/v1_scheduler_state.py quarantine --stage groups
+fi
 if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == true ]]; then
   gcloud run services add-iam-policy-binding "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
@@ -195,18 +210,25 @@ if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]; then
   exit 0
 fi
 python3 deploy/drive/v1_scheduler_state.py apply
+scheduled_jobs=("${JOB}")
+if [[ "${DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED}" == true ]]; then
+  python3 deploy/drive/v1_scheduler_state.py apply --stage groups
+  python3 deploy/drive/v1_scheduler_state.py verify --stage groups
+  scheduled_jobs+=(drive-work-groups-uat)
+fi
 
+for scheduled_job in "${scheduled_jobs[@]}"; do
 triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-gcloud scheduler jobs run "${JOB}" --project="${PROJECT_ID}" --location="${REGION}" --quiet
+gcloud scheduler jobs run "${scheduled_job}" --project="${PROJECT_ID}" --location="${REGION}" --quiet
 worker_url="$(gcloud run services describe "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --format='value(status.url)')"
 verified=false
 for _attempt in $(seq 1 55); do
   if gcloud logging read \
-    "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${JOB}\" AND timestamp>=\"${triggered_at}\"" \
+    "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${scheduled_job}\" AND timestamp>=\"${triggered_at}\"" \
     --project="${PROJECT_ID}" --freshness=10m --limit=20 --format=json \
     | EXPECTED_URL="${worker_url}/api/internal/drive-work/drain" \
-      EXPECTED_JOB="projects/${PROJECT_ID}/locations/${REGION}/jobs/${JOB}" \
+      EXPECTED_JOB="projects/${PROJECT_ID}/locations/${REGION}/jobs/${scheduled_job}" \
       python3 -c 'import json,os,sys; rows=json.load(sys.stdin); url=os.environ["EXPECTED_URL"]; job=os.environ["EXPECTED_JOB"]; sys.exit(0 if any((p:=row.get("jsonPayload") or {}).get("@type")=="type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" and p.get("jobName")==job and p.get("url")==url and "URL_CRAWLED. Original HTTP response code number = 200" in str(p.get("debugInfo") or "") for row in rows if isinstance(row,dict)) else 1)'; then
     verified=true
     break
@@ -217,6 +239,7 @@ if [[ "${verified}" != true ]]; then
   echo "V1 Scheduler did not produce a fresh 200 response" >&2
   exit 1
 fi
+done
 python3 deploy/drive/v1_scheduler_state.py verify
 trap - EXIT INT TERM
 echo "Verified isolated V1 worker ${candidate_revision}, SHA ${DEPLOY_SHA}; ${JOB} returned 200"

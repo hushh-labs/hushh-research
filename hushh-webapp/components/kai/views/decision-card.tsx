@@ -751,6 +751,9 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
   const isReduce = decisionPresentation.tone === "negative";
 
   const rawCard = result.raw_card;
+  const degraded = Boolean(result.analysis_degraded || rawCard?.analysis_degraded);
+  const degradedAgents = result.degraded_agents || rawCard?.degraded_agents || [];
+
   const pickSourceDisplayLabel = resolvePickSourceLabel(rawCard);
   const sources = useMemo(() => {
     const sourceList: StructuredSource[] = [];
@@ -821,12 +824,15 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             variant="outline"
             className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
           >
-            COMPLETE
+            {degraded ? "Limited analysis" : "Complete"}
           </Badge>
         </div>
       </MorphyCardHeader>
       
       <MorphyCardContent>
+        {degraded ? <p role="status" className="mb-3 text-sm text-muted-foreground">
+          Some source information or analysts were unavailable{degradedAgents.length ? `: ${degradedAgents.join(", ")}` : "."}
+        </p> : null}
         <div className="space-y-4">
         
         {/* HERO SECTION: Decision + Badges */}
@@ -857,6 +863,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
               <strong className="text-foreground">{confidencePercent}%</strong> confidence
             </span>
         </div>
+        <p className="text-sm text-muted-foreground">{decisionPresentation.guidance}</p>
 
         <Separator className="bg-primary/10" />
 

@@ -402,7 +402,7 @@ export function RequestCard({
               {/* Named, because the complaint was not that the shorter answer
                   was hard to reach -- it was that nothing on the card said it
                   existed. Every amount here is less than what was asked. */}
-              <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+              <p data-location-type-role="helper" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
                 {isExtension ? "Or add less" : "Or approve for less"}
               </p>
               <div
@@ -573,13 +573,13 @@ export function SharedWithMeCard({
             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-success)]" />
           </span>
           <div className="min-w-0 flex-1 pt-0.5">
-            <RowLabel
+            <RowLabel data-location-type-role="row-title"
               as="p"
               className="truncate text-[16px] font-semibold leading-5 text-[color:var(--app-label)]"
             >
               {name}
             </RowLabel>
-            <RowDescription
+            <RowDescription data-location-type-role="row-description"
               className={cn(
                 MUTED_TEXT,
                 "mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] font-medium leading-5 text-[color:var(--app-secondary-label)]",
@@ -606,7 +606,7 @@ export function SharedWithMeCard({
                 aria-hidden="true"
               />
             ) : (
-              <RowDescription className="min-w-0 break-words text-[13px] font-medium leading-5 text-[color:var(--app-label)]">
+              <RowDescription data-location-type-role="row-description" className="min-w-0 break-words text-[13px] font-medium leading-5 text-[color:var(--app-label)]">
                 {address ?? coordinatesFallback}
               </RowDescription>
             )}
@@ -623,7 +623,7 @@ export function SharedWithMeCard({
                 className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)]"
                 aria-hidden="true"
               />
-              <RowDescription
+              <RowDescription data-location-type-role="row-description"
                 as="p"
                 aria-live="polite"
                 className="min-w-0 break-words text-[14px] leading-5 text-[color:var(--app-secondary-label)]"
@@ -658,7 +658,7 @@ export function SharedWithMeCard({
                 </HelperText>
               </div>
               {onAskReshare ? (
-                <Button
+                <Button data-location-type-role="utility-action"
                   variant="outline"
                   size="sm"
                   onClick={onAskReshare}
@@ -680,7 +680,7 @@ export function SharedWithMeCard({
 
       {canTogglePreview ? (
         <div className="px-3.5 pb-2.5 sm:px-4 sm:pb-3">
-          <button
+          <button data-location-type-role="utility-action"
             type="button"
             className={cn(
               "ui-text-button-label inline-flex min-h-11 items-center gap-2 rounded-[13px] px-3.5 text-[color:var(--app-accent)] transition-[background-color,color,transform] duration-150 hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none",
@@ -740,7 +740,7 @@ export function SharedWithMeCard({
 
       {message ? (
         <div className="px-4 pt-3.5 sm:px-5">
-          <RowDescription
+          <RowDescription data-location-type-role="row-description"
             as="p"
             className={cn(
               MUTED_TEXT,
@@ -758,7 +758,7 @@ export function SharedWithMeCard({
           className="mt-1 flex min-w-0 flex-row flex-wrap items-center gap-1 border-t border-[color:var(--app-separator)] px-3 py-1 sm:mt-1.5 sm:px-3.5"
         >
           {canOpenMap ? (
-            <Button
+            <Button data-location-type-role="utility-action"
               asChild
               variant="ghost"
               size="sm"
@@ -776,7 +776,7 @@ export function SharedWithMeCard({
             </Button>
           ) : null}
           {onRemove ? (
-            <button
+            <button data-location-type-role="utility-action"
               type="button"
               onClick={onRemove}
               disabled={removeBusy}
@@ -876,7 +876,7 @@ export function TemporaryLinkCard({
           onClick={onShare}
           className="ui-text-button-label h-12 rounded-[15px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
-          <Share2 className="mr-1.5 h-4 w-4" />
+          <Share2 onAccent className="mr-1.5 h-4 w-4" />
           Share
         </Button>
         <Button

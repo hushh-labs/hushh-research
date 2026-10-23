@@ -781,7 +781,7 @@ export function SavedLocationsSection() {
               {group.key === "favorite" ? (
                 <button
                   type="button"
-                  onClick={() => void handleAdd()}
+                  data-location-type-role="utility-action" onClick={() => void handleAdd()}
                   disabled={!hasVaultAccess || locationControl.paused || capturing}
                   className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
                 >
@@ -800,10 +800,10 @@ export function SavedLocationsSection() {
                     <ShieldCheck className="h-4 w-4" aria-hidden="true" />
                   </span>
                   <div className="min-w-0">
-                    <p className="text-[17px] font-normal leading-[22px] text-foreground">
+                    <p data-location-type-role="row-title" className="text-[17px] font-normal leading-[22px] text-foreground">
                       Unlock your vault to view saved places
                     </p>
-                    <p className="mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                    <p data-location-type-role="row-description" className="mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
                       Exact locations stay encrypted and are available only while
                       your vault is unlocked.
                     </p>
@@ -812,18 +812,18 @@ export function SavedLocationsSection() {
               ) : loading ? (
                 <div
                   className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
-                  role="status"
+                  role="status" data-location-type-role="status"
                 >
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   Loading saved places…
                 </div>
               ) : loadError ? (
                 <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
-                  <p className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
+                  <p data-location-type-role="helper" className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
                     {loadError}
                   </p>
                   <button
-                    type="button"
+ data-location-type-role="compact-action"                    type="button"
                     onClick={() => void reload()}
                     className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)]"
                   >
@@ -833,10 +833,10 @@ export function SavedLocationsSection() {
               ) : group.locations.length === 0 ? (
                 <div className="flex min-h-[110px] items-center justify-center p-5 text-center sm:min-h-[119px]">
                   <div>
-                    <p className="text-[15px] font-semibold leading-5 text-[color:var(--app-secondary-label)]">
+                    <p data-location-type-role="section-heading" className="text-[15px] font-semibold leading-5 text-[color:var(--app-secondary-label)]">
                       {group.key === "favorite" ? "No places yet" : "No checked-in places yet"}
                     </p>
-                    <p className={group.key === "favorite" ? "sr-only" : "mt-1 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]"}>
+                    <p data-location-type-role="row-description" className={group.key === "favorite" ? "sr-only" : "mt-1 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]"}>
                       {group.key === "favorite"
                         ? "Add Home, Work, or another place to see it here."
                         : "Save a place after checking out to find it here."}
@@ -878,15 +878,15 @@ export function SavedLocationsSection() {
                       >
                         <CategoryIcon category={location.category} />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
+                          <p data-location-type-role="row-title" className="truncate text-[17px] font-normal leading-[22px] text-foreground">
                             {name}
                           </p>
-                          <p className={cn("mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]", checkedIn ? "break-words" : "truncate")}>
+                          <p data-location-type-role="row-description" className={cn("mt-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]", checkedIn ? "break-words" : "truncate")}>
                             {address || (findingAddress ? "Finding address…" : "Address unavailable")}
                           </p>
                         </div>
                         {visitDate ? (
-                          <time
+                          <time data-location-type-role="row-description"
                             dateTime={dateValue}
                             title={`${location.checkedInAt ? "Checked in" : "Saved"} on ${visitDate.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`}
                             className="shrink-0 self-start pt-0.5 text-right text-[12px] leading-[18px] tabular-nums text-[color:var(--app-secondary-label)]"
@@ -908,7 +908,7 @@ export function SavedLocationsSection() {
                           {!location.address && (resolvedAddresses[location.id] === null || (!address && !findingAddress)) ? (
                             <button
                               type="button"
-                              onClick={() => void handleRepairAddress(location)}
+                              data-location-type-role="compact-action" onClick={() => void handleRepairAddress(location)}
                               disabled={repairingId !== null}
                               className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
                             >
@@ -926,7 +926,7 @@ export function SavedLocationsSection() {
                           {checkedIn ? (
                             <button
                               type="button"
-                              onClick={() => void handleFavorite(location)}
+                              data-location-type-role="compact-action" onClick={() => void handleFavorite(location)}
                               disabled={favoritingId !== null || removingId !== null}
                               className="press-scale inline-flex min-h-11 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
                             >
@@ -935,7 +935,7 @@ export function SavedLocationsSection() {
                             </button>
                           ) : <button
                             type="button"
-                            onClick={() => handleEditSavedLocation(location)}
+                            data-location-type-role="compact-action" onClick={() => handleEditSavedLocation(location)}
                             disabled={
                               removingId !== null ||
                               repairingId !== null ||
@@ -953,7 +953,7 @@ export function SavedLocationsSection() {
                           </button>}
                           <button
                             type="button"
-                            onClick={() => void handleRemove(location.id)}
+                            data-location-type-role="compact-action" onClick={() => void handleRemove(location.id)}
                             disabled={removingId !== null || favoritingId !== null}
                             className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 disabled:opacity-45"
                           >

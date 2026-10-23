@@ -14,7 +14,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
+  AlertDialogContent as UnscopedAlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   HelperText,
+  FormLabel,
   PageSubtitle,
   RowDescription,
   RowLabel,
@@ -34,6 +35,9 @@ import type {
   EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { withLocationTypography } from "./location-typography";
+
+const AlertDialogContent = withLocationTypography(UnscopedAlertDialogContent);
 
 const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
@@ -356,7 +360,7 @@ export function SosPanel({
         : "Hold 2 seconds";
 
   const quickPill =
-    "ui-text-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
+    "ui-text-compact-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
 
   return (
     <section
@@ -368,18 +372,19 @@ export function SosPanel({
           Save My Soul
         </h1>
         {recipientsLoading && noContacts ? (
-          <PageSubtitle>Checking emergency contacts…</PageSubtitle>
+          <PageSubtitle data-location-type-role="row-description">Checking emergency contacts…</PageSubtitle>
         ) : noContacts ? (
           null
         ) : (
           <div className="flex items-center gap-3">
-            <PageSubtitle className="min-w-0 flex-1 truncate">
+            <PageSubtitle data-location-type-role="row-description" className="min-w-0 flex-1 truncate">
               {recipientCountLabel} · Live location
             </PageSubtitle>
             <button
               type="button"
               onClick={onEditContacts}
               aria-label="Edit emergency contacts"
+              data-location-type-role="utility-action"
               className="ui-text-button-label press-scale -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)]"
             >
               Edit
@@ -391,7 +396,7 @@ export function SosPanel({
       {!active && recipientsLoading && noContacts ? (
         <div
           role="status"
-          className="mt-6 flex min-h-24 items-center justify-center gap-2 rounded-[16px] bg-[color:var(--app-card-surface-default-solid)] text-[14px] text-[color:var(--app-secondary-label)]"
+          className="ui-text-status mt-6 flex min-h-24 items-center justify-center gap-2 rounded-[16px] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-secondary-label)]"
         >
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Updating your SMS Circle…
@@ -452,7 +457,7 @@ export function SosPanel({
       ) : (
         <>
           <div className="mt-5 sm:mt-6">
-            <RowLabel as="p">Choose or type a message</RowLabel>
+            <FormLabel as="p">Choose or type a message</FormLabel>
           </div>
 
           <div className="mt-3 flex gap-2.5">
@@ -471,7 +476,7 @@ export function SosPanel({
                   className={cn(
                     quickPill,
                     selected
-                      ? "border-[color:var(--app-destructive)]/40 bg-[color:var(--app-destructive)]/8 font-semibold text-[color:var(--app-destructive)]"
+                      ? "border-[color:var(--app-destructive)]/40 bg-[color:var(--app-destructive)]/8 text-[color:var(--app-destructive)]"
                       : "border-transparent bg-[color:var(--sos-control-surface)] text-[color:var(--sos-control-text)] hover:bg-[color:var(--sos-control-surface-hover)] active:bg-[color:var(--sos-control-surface-active)]",
                   )}
                 >
@@ -524,7 +529,7 @@ export function SosPanel({
                 onKeyUp={(event) => handleKeyUp(event, "composer")}
                 onBlur={cancelHold}
                 onContextMenu={(event) => event.preventDefault()}
-                className="ui-text-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
+                className="ui-text-compact-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
               >
                 {tapCountdownActive
                   ? "Cancel"

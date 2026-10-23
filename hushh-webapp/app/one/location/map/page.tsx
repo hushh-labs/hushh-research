@@ -50,6 +50,6 @@ export default function OneLocationMapPage() {
   // Every map state value is owner-scoped: renderer consent, decrypted markers,
   // nearby attendees, and pending location work must never survive an account
   // switch. A user-id key enforces that boundary before passive effects run.
-  if (legacyCheckIn) return <div role="status" className="grid min-h-[100dvh] place-items-center bg-[color:var(--app-primary-surface)] text-[color:var(--app-secondary-label)]">Checking you in…</div>;
+  if (legacyCheckIn) return <div role="status" className="ui-text-status grid min-h-[100dvh] place-items-center bg-[color:var(--app-primary-surface)] text-[color:var(--app-secondary-label)]">Checking you in…</div>;
   return <LocationImmersiveMap key={auth.userId ?? "anonymous"} />;
 }

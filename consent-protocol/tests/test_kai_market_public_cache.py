@@ -1,62 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 
 import pytest
 
 from api.routes.kai import market_insights
+from hushh_mcp.services import market_insights_cache as cache_module
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
-
-
-class _FakeEntry:
-    def __init__(self, payload, updated_at_ts: float, fresh_until_ts: float, stale_until_ts: float):
-        self.payload = payload
-        self.updated_at_ts = updated_at_ts
-        self.fresh_until_ts = fresh_until_ts
-        self.stale_until_ts = stale_until_ts
-
-    def is_fresh(self, now_ts: float | None = None) -> bool:
-        now = self.updated_at_ts if now_ts is None else now_ts
-        return now <= self.fresh_until_ts
-
-    def is_stale_servable(self, now_ts: float | None = None) -> bool:
-        now = self.updated_at_ts if now_ts is None else now_ts
-        return now <= self.stale_until_ts
-
-    def age_seconds(self, now_ts: float | None = None) -> int:
-        now = self.updated_at_ts if now_ts is None else now_ts
-        return max(0, int(now - self.updated_at_ts))
-
-
-class _FakeStore:
-    def __init__(self) -> None:
-        self.entries: dict[str, _FakeEntry] = {}
-
-    async def get_entry(self, cache_key: str):
-        return self.entries.get(cache_key)
-
-    async def set_entry(
-        self,
-        *,
-        cache_key: str,
-        payload,
-        fresh_ttl_seconds: int,
-        stale_ttl_seconds: int,
-        provider_status=None,
-    ) -> None:
-        from time import time
-
-        now = time()
-        self.entries[cache_key] = _FakeEntry(
-            payload,
-            updated_at_ts=now,
-            fresh_until_ts=now + fresh_ttl_seconds,
-            stale_until_ts=now + stale_ttl_seconds,
-        )
-
-
-async def _payload_fetcher():
-    return {"rows": [{"symbol": "AAPL"}], "provider_status": {"quote:AAPL": "ok"}}
+from tests.helpers.market_public_cache import (  # noqa: F401
+    _FakeEntry,
+    _FakeStore,
+    _payload_fetcher,
+    regular_session_clock,
+)
 
 
 @pytest.mark.asyncio
@@ -101,6 +58,53 @@ async def test_public_module_reads_back_from_l2_when_l1_is_cold(monkeypatch):
     assert tier == "postgres"
     assert cache_hit is True
     assert fetch_count["count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tier", ["memory", "postgres"])
+@pytest.mark.parametrize("failure", [False, True])
+async def test_fresh_degraded_quotes_retry_without_losing_fallback(monkeypatch, tier, failure):
+    now = datetime.fromisoformat("2026-07-14T14:00:00+00:00").timestamp()
+    monkeypatch.setattr(market_insights, "time", lambda: now)
+    monkeypatch.setattr(cache_module.time, "time", lambda: now)
+    store, cache = _FakeStore(), MarketInsightsCache()
+    key = "quotes:AAPL"
+    degraded = {"rows": [], "provider_status": {"quote:AAPL": "failed"}}
+    if tier == "memory":
+        cache.seed_entry(key, degraded, now - 1)
+    else:
+        store.entries[key] = _FakeEntry(degraded, now - 1, now + 1800, now + 3600)
+    monkeypatch.setattr(market_insights, "market_insights_cache", cache)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    calls = []
+
+    async def fetch():
+        calls.append(True)
+        if failure:
+            raise RuntimeError("provider unavailable")
+        return {"rows": [{"symbol": "AAPL", "price": 100}], "provider_status": {"quote:AAPL": "ok"}}
+
+    result = await market_insights._get_or_refresh_public_module(
+        key=key,
+        fresh_ttl_seconds=600,
+        stale_ttl_seconds=1800,
+        fetcher=fetch,
+        serve_stale_while_revalidate=False,
+    )
+    assert calls == [True]
+    assert result[1] is failure
+    if failure:
+        assert result[0] == degraded
+    else:
+        assert result[0]["rows"][0]["price"] == 100
+        await market_insights._get_or_refresh_public_module(
+            key=key,
+            fresh_ttl_seconds=600,
+            stale_ttl_seconds=1800,
+            fetcher=fetch,
+            serve_stale_while_revalidate=False,
+        )
+        assert calls == [True]
 
 
 def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalization():
@@ -372,3 +376,80 @@ async def test_sector_periods_use_distinct_observed_session_closes(monkeypatch):
     assert rows[0]["change_1w_pct"] == pytest.approx(10)
     assert rows[0]["period_start_1d"] != rows[0]["period_start_1w"]
     assert rows[0]["basis"] == "Sector ETF price return"
+
+
+@pytest.mark.asyncio
+async def test_stock_history_auth_currency_and_closed_session_boundary(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from api.routes.kai import price_history
+
+    called = []
+    saved = None
+    degraded = False
+    supported = {"exchange": "Nasdaq"}
+    monkeypatch.setattr(
+        price_history,
+        "get_symbol_master_service",
+        lambda: SimpleNamespace(get_ticker_metadata=lambda _: supported),
+    )
+
+    async def public_module(**kwargs):
+        nonlocal saved
+        called.append(kwargs["key"])
+        try:
+            saved = await kwargs["fetcher"]()
+        except RuntimeError:
+            if saved is None:
+                raise
+            return saved, True, 10, "stale", True
+        return saved, False, 0, "live", False
+
+    async def observed(symbols):
+        called.append("provider")
+        if degraded:
+            from hushh_mcp.services.market_provider_telemetry import record_provider_degradation
+
+            record_provider_degradation("fixture:session_history")
+        return {
+            symbols[0]: [
+                {"t": 1792000000, "p": 230.0},
+                {"t": 1792086400, "p": 232.0},
+                {"t": 1792086401, "p": float("nan")},
+            ]
+        }
+
+    monkeypatch.setattr(market_insights, "_get_or_refresh_public_module", public_module)
+    monkeypatch.setattr(price_history, "fetch_market_session_history", observed)
+    monkeypatch.setattr(price_history, "us_market_is_open", lambda: False)
+    with pytest.raises(HTTPException) as error:
+        await price_history.get_stock_price_history("owner", "AAPL", "another-owner")
+    assert error.value.status_code == 403
+    assert called == []
+    supported["exchange"] = "NSE"
+    with pytest.raises(HTTPException) as error:
+        await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert error.value.status_code == 422
+    assert called == []
+    supported["exchange"] = "Nasdaq"
+    closed = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert closed["unavailable"] is True and closed["points"] == []
+    assert "provider" not in called
+    monkeypatch.setattr(price_history, "us_market_is_open", lambda: True)
+    opened = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert opened["currency"] == "USD" and opened["interval"] == "1d"
+    assert opened["points"] == [{"t": 1792000000.0, "p": 230.0}, {"t": 1792086400.0, "p": 232.0}]
+    assert opened["stale"] is False and opened["unavailable"] is False
+    assert called.count("provider") == 1
+
+    degraded = True
+    fallback = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert fallback["stale"] is True
+    assert fallback["retrieved_at"] == opened["retrieved_at"]
+    assert fallback["points"] == opened["points"]
+    saved = None
+    cold = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+    assert cold["stale"] is True and cold["unavailable"] is True
+    assert cold["retrieved_at"] is None

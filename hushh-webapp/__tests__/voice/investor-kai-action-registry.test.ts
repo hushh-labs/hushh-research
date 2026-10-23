@@ -108,6 +108,8 @@ describe("investor-kai-action-registry", () => {
       "profile.gmail.connect",
       "profile.gmail.sync_now",
       "profile.gmail.disconnect",
+      "profile.gmail.receipt_sync_details",
+      "profile.gmail.restore_saved_receipts",
     ]) {
       expect(INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === actionId)).toBeDefined();
     }
@@ -143,6 +145,8 @@ describe("investor-kai-action-registry", () => {
       "profile.gmail.connect",
       "profile.gmail.sync_now",
       "profile.gmail.disconnect",
+      "profile.gmail.receipt_sync_details",
+      "profile.gmail.restore_saved_receipts",
     ]);
 
     const pkmActions = listInvestorKaiActionsForSurface({

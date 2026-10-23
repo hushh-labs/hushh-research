@@ -413,6 +413,10 @@ jobs:
               --phase resources --report-path /tmp/dev-runtime-secret-sync.json
             exit 0
           fi
+          drive_group_args=()
+          if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
+            drive_group_args=(--drive-four-group-index "false")
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment dev \
@@ -436,6 +440,7 @@ jobs:
             --plaid-tx-history-days "730" \
             --one-location-read-only-state-enabled "false" \
             --hushh-trusted-device-enabled "false" \
+            "${drive_group_args[@]}" \
             > /tmp/dev-runtime-secret-sync.json
 
           # Same main-workflow vs train-tree skew guard as the backend sync:

@@ -2978,7 +2978,6 @@ body:has([data-profile-stack="true"]:not(.profile-pane-sheet *)) .foundation-pub
 }
 
 body:has(.profile-account-content:not(.profile-pane-sheet *)) [data-app-top-bar],
-body:has(.profile-account-content:not(.profile-pane-sheet *)) .bottom-chrome-surface,
 body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pill {
   background: var(--ios-account-nav-material-background) !important;
   border-color: var(--ios-account-nav-material-border) !important;
@@ -6476,6 +6475,51 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     0 2px 6px rgba(0, 0, 0, 0.5) !important;
 }
 
+/* One glass material for the message/voice bar on every route. The low tint
+   lets nearby content diffuse through the capsule; its white rim catches the
+   light without turning the whole bar into an opaque card. */
+.bottom-chrome-surface,
+.dark .bottom-chrome-surface {
+  --agent-composer-material: rgba(255, 255, 255, 0.48);
+  --agent-composer-rim: rgba(255, 255, 255, 0.9);
+  --agent-composer-sheen: rgba(255, 255, 255, 0.3);
+  --agent-composer-highlight: rgba(255, 255, 255, 0.8);
+  --agent-composer-shadow: rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--agent-composer-rim) !important;
+  background:
+    linear-gradient(165deg, var(--agent-composer-sheen), transparent 48%),
+    var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 var(--agent-composer-highlight),
+    inset 0 -1px 0 var(--agent-composer-sheen),
+    0 4px 16px -8px var(--agent-composer-shadow),
+    0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(150%);
+  backdrop-filter: blur(6px) saturate(150%);
+}
+
+.dark .bottom-chrome-surface {
+  --agent-composer-material: color-mix(in oklab, var(--background) 58%, transparent);
+  --agent-composer-rim: rgba(255, 255, 255, 0.24);
+  --agent-composer-sheen: rgba(255, 255, 255, 0.07);
+  --agent-composer-highlight: rgba(255, 255, 255, 0.16);
+  --agent-composer-shadow: rgba(0, 0, 0, 0.4);
+}
+
+.bottom-chrome-surface:has(:focus-visible) {
+  outline: 2px solid var(--app-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .bottom-chrome-surface,
+  .dark .bottom-chrome-surface {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 /* The One composer is a direct-entry surface, not another navigation pill.
    It keeps the shared chrome geometry while giving active writing a warmer
    elevation and an accent-only focus state. */
@@ -6508,53 +6552,12 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 /* The retained Agent Bar owns the material in both modes. Chat projects its
  * existing form into that bar, not another glass pill or another text box. */
 [data-agent-dock-surface="text"] {
-  /* The fixed composer can overlap the last message while the keyboard is
-   * present. Give that overlap an iOS material so the transcript recedes
-   * behind the writing surface instead of reading through it. */
-  --agent-composer-material: color-mix(
-    in oklab,
-    var(--background) 72%,
-    transparent
-  );
-  --agent-composer-rim: color-mix(
-    in oklab,
-    var(--foreground) 10%,
-    transparent
-  );
   display: block;
   min-width: 0;
   overflow: visible;
   border-radius: 1.5rem;
-  border-color: var(--agent-composer-rim) !important;
-  background: var(--agent-composer-material) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
-    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
-    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  backdrop-filter: blur(28px) saturate(180%);
 }
 
-.dark [data-agent-dock-surface="text"] {
-  --agent-composer-material: color-mix(
-    in oklab,
-    var(--background) 76%,
-    transparent
-  );
-  --agent-composer-rim: color-mix(
-    in oklab,
-    var(--foreground) 16%,
-    transparent
-  );
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  [data-agent-dock-surface="text"] {
-    background: var(--background) !important;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
 [data-agent-dock-surface="voice"] {
   /* Same resting frame as the one-line composer: only content changes on
    * route navigation. Taller drafts still grow inside the bounded editor. */
@@ -6624,7 +6627,9 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .dark [data-agent-dock-embedded].agent-chat-composer-surface {
   border: 0;
   background: transparent !important;
-  box-shadow: none;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 /* The retained dock is available immediately. A route-owned entrance fade
    made the same bar appear to disappear/reinstall on Talk -> Message. */
@@ -6830,39 +6835,6 @@ html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-
   box-shadow:
     0 10px 30px -18px rgba(0, 0, 0, 0.28),
     0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
-}
-
-/* The canonical chat composer is embedded in the shared dock rather than the
-   route tree. The embedded reset above keeps voice chrome plain, but must not
-   cancel the text composer's material while it overlaps the transcript. */
-[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface {
-  border-color: var(--agent-composer-rim) !important;
-  background: var(--agent-composer-material) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
-    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
-    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  backdrop-filter: blur(28px) saturate(180%);
-}
-
-[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
-  border-color: color-mix(in oklab, var(--app-accent) 55%, transparent) !important;
-  background: var(--agent-composer-material) !important;
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
-    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
-    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent),
-    0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface,
-  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
-    background: var(--background) !important;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 /* Copy / like / dislike on a settled answer. With a fine pointer on a wide
@@ -10250,4 +10222,277 @@ html:has([data-profile-type-scale]),
   max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* Location consumes Connect's role scale without its workspace geometry.
+   The scope sits on existing route roots and actual portal content hosts.
+   Task surfaces and explicit Circle scopes retain their own local tokens. */
+@layer base {
+  [data-location-type-scale="connect"] {
+    --foundation-title1-size: 28px;
+    --foundation-title1-line: 36px;
+    --foundation-title1-weight: 600;
+    --foundation-title3-size: 14px;
+    --foundation-title3-line: 22px;
+    --foundation-title3-weight: 600;
+    --type-page-title-size: 28px;
+    --type-page-title-line: 36px;
+    --type-page-title-weight: 600;
+    --type-page-subtitle-size: 12px;
+    --type-page-subtitle-line: 18px;
+    --type-card-title-size: 14px;
+    --type-card-title-line: 22px;
+    --type-card-title-weight: 600;
+    --type-section-label-size: 14px;
+    --type-section-label-line: 22px;
+    --type-section-label-weight: 600;
+    --type-section-label-compact-size: 14px;
+    --type-section-label-compact-line: 22px;
+    --type-section-label-compact-weight: 600;
+    --type-row-label-size: 14px;
+    --type-row-label-line: 21px;
+    --type-row-label-weight: 550;
+    --type-row-label-compact-size: 14px;
+    --type-row-label-compact-line: 21px;
+    --type-row-label-compact-weight: 550;
+    --type-row-description-size: 12px;
+    --type-row-description-line: 18px;
+    --type-row-description-weight: 400;
+    --type-row-description-compact-size: 12px;
+    --type-row-description-compact-line: 18px;
+    --type-form-label-size: 15px;
+    --type-form-label-line: 22px;
+    --type-form-label-weight: 550;
+    --type-input-value-size: 14px;
+    --type-input-value-line: 22px;
+    --type-compact-button-label-size: 12px;
+    --type-compact-button-label-line: 18px;
+    --type-compact-button-label-weight: 550;
+    font-family: var(--font-app-body), system-ui, sans-serif;
+  }
+
+  /* Raw shared dialogs use their existing title rung. A Task .frame supplies
+     its own unlayered 20/28 title and 13/20 actions on the same DOM element. */
+  [data-location-type-scale="connect"][data-location-type-context="overlay"] {
+    --foundation-title3-size: 20px;
+    --foundation-title3-line: 25px;
+    --foundation-title3-weight: 600;
+  }
+  [data-location-type-scale="connect"][data-location-type-context="flow"] {
+    --foundation-title3-size: var(--foundation-title1-size);
+    --foundation-title3-line: var(--foundation-title1-line);
+    --foundation-title3-weight: var(--foundation-title1-weight);
+  }
+  [data-location-type-scale="connect"][data-task-surface] {
+    --type-page-subtitle-size: 14px;
+    --type-page-subtitle-line: 20px;
+  }
+
+  /* These two supporting labels already used the secondary color. A semantic
+     row-description class must not recolor them during the type refinement. */
+  [data-location-type-scale="connect"] :is([data-testid="one-location-header-status"], [data-location-share-description]) {
+    color: var(--app-secondary-label) !important;
+  }
+
+  /* Foundation heading locks live in this layer. Only semantic section roles
+     opt into the compact heading rung; explicit Circle roles remain peers of
+     their current Connect counterparts. No bare h1/h2 or descendant reset. */
+  [data-location-type-scale="connect"] :is(.ui-text-section-label, .ui-text-section-title, [data-slot="settings-group-heading"]):not([data-profile-type-scale="circles"] *) {
+    font-size: var(--type-section-label-size) !important;
+    line-height: var(--type-section-label-line) !important;
+    font-weight: var(--type-section-label-weight) !important;
+  }
+  [data-location-type-scale="connect"] [data-settings-titles="form-label"] [data-slot="settings-row-title"]:not([data-profile-type-scale="circles"] *) {
+    font-size: var(--type-form-label-size) !important;
+    line-height: var(--type-form-label-line) !important;
+    font-weight: var(--type-form-label-weight) !important;
+  }
+  [data-location-type-scale="connect"] :is([data-location-row-title], [data-ui-id="location-live-share-title"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-row-label-size) !important;
+    line-height: var(--type-row-label-line) !important;
+    font-weight: var(--type-row-label-weight) !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-row-description] {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-row-description-size) !important;
+    line-height: var(--type-row-description-line) !important;
+    font-weight: var(--type-row-description-weight) !important;
+    letter-spacing: 0 !important;
+  }
+  /* This full-page Ask step previously shrank to stay on one line. Match
+     Connect's authoring title and allow a long title to wrap on a phone. */
+  [data-location-type-scale="connect"] .location-request-duration-header h1.ui-text-page-title {
+    font-size: var(--type-page-title-size) !important;
+    line-height: var(--type-page-title-line) !important;
+    font-weight: var(--type-page-title-weight) !important;
+    white-space: normal;
+  }
+}
+
+/* Raw app-owned text opts into a named role. These declarations are font-only:
+   color, geometry, wrapping, material, motion and event ownership stay local.
+   Repeating the attribute makes an explicit role win existing heading locks
+   (including the request-duration title) in the same important base layer. */
+@layer base {
+  [data-location-type-scale="connect"] [data-location-type-role="flow-title"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 28px !important;
+    line-height: 36px !important;
+    font-weight: 600 !important;
+    letter-spacing: var(--foundation-title1-tracking) !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="section-heading"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="source-heading"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="row-title"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="row-description"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="form-label"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 15px !important;
+    line-height: 22px !important;
+    font-weight: 550 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="input"][data-location-type-role]:not([data-profile-type-scale="circles"] *) {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-input-value-size) !important;
+    line-height: var(--type-input-value-line) !important;
+    font-weight: 400 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="compact-action"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 550 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="utility-action"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="helper"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="status"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0 !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="body"][data-location-type-role]:not([data-profile-type-scale="circles"] *) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 400 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="primary-action"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-button-label-size) !important;
+    line-height: var(--type-button-label-line) !important;
+    font-weight: var(--type-button-label-weight) !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="task-title"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.025em !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="task-description"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    font-weight: 400 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="task-action"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="overlay-title"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 20px !important;
+    line-height: 25px !important;
+    font-weight: 600 !important;
+    letter-spacing: var(--foundation-title3-tracking) !important;
+  }
+  [data-location-type-scale="connect"] [data-location-type-role="sms-display"][data-location-type-role] {
+    font-family: var(--font-app-body) !important;
+    font-size: 42px !important;
+    line-height: 42px !important;
+    font-weight: 600 !important;
+    letter-spacing: normal !important;
+  }
+}
+
+/* Connect semantic fields change at 620px. Raw native-safe fields retain the
+   shared <=767px floor; Task fields retain their independent 768px breakpoint,
+   and explicit Circle fields retain the matching shared Circle hierarchy. */
+@media (max-width: 620px) {
+  @layer base {
+    [data-location-type-scale="connect"] {
+      --type-input-value-size: 16px;
+    }
+    [data-location-type-scale="connect"] [data-location-type-role="utility-action"][data-location-type-role] {
+      font-size: 12px !important;
+    }
+  }
+}
+
+/* Sonner lives beside the route, not below its type scope. Its vendor rules
+   otherwise replace the product font and the shared authored 20px line box.
+   Keep this presentation-only correction active for the mounted Location
+   journey; shared feedback elsewhere keeps its existing ownership. */
+html:has([data-location-type-scale="connect"]) [data-sonner-toaster] {
+  font-family: var(--font-app-body);
+}
+html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-title] {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-description] {
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
 }

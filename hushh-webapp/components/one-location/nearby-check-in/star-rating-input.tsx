@@ -107,7 +107,7 @@ export function StarRatingInput({
 
       {/* Radix announces the item on focus, but a VoiceOver double-tap reads
           only that item's label -- and the adjective is not in it. */}
-      <span
+      <span data-location-type-role="helper"
         aria-live="polite"
         className="w-12 shrink-0 text-right text-[13px] font-medium leading-4 text-muted-foreground"
       >

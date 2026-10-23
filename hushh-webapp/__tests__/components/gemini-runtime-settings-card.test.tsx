@@ -45,8 +45,6 @@ vi.mock("@/lib/services/api-service", () => ({
       validateGeminiRuntimeCredentialMock(...args),
     selectManagedGeminiRuntime: (...args: unknown[]) =>
       selectManagedGeminiRuntimeMock(...args),
-    // Mounted-effect poll for a previously-recorded BYOC project; a neutral
-    // (non-"recorded") status keeps the card in its default managed-first state.
     getPersonalAgentStatus: (...args: unknown[]) =>
       getPersonalAgentStatusMock(...args),
     ownerPodRequest: (...args: unknown[]) => ownerPodRequestMock(...args),
@@ -93,7 +91,6 @@ beforeEach(() => {
 
 describe("GeminiRuntimeSettingsCard setup choice", () => {
 
-
   it("does not manufacture a selected choice before the fresh user confirms one", () => {
     getPersonalAgentStatusMock.mockReturnValue(new Promise(() => {}));
     render(
@@ -133,9 +130,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     expect(screen.getByText("Use Hussh AI")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Bring your own AI" })).toBeTruthy();
-    // Restraint Charter: the mandatory first-run step lets the person choose only
-    // managed AI, so the future-providers list is deferred to the settings context
-    // rather than competing with the one decision here.
+    // Unavailable providers stay out of the first-run choice.
     expect(screen.queryByRole("heading", { name: "Coming soon" })).toBeNull();
     expect(screen.queryByTestId("profile-coming-soon-openai")).toBeNull();
   });
@@ -206,13 +201,15 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       credentialRef.endsWith("selected_provider") ? provider :
       credentialRef.endsWith(provider === "azure_openai" ? "azure_openai_configuration" : `${provider}_api_key`) ? "fixture-key" : null);
     const onCanContinueChange = vi.fn();
-    render(<GeminiRuntimeSettingsCard userId="fresh-user" vaultKey="fixture"
-      vaultOwnerToken="fixture" needsVaultCreation={false} needsUnlock={false}
+    const card = (unlocked: boolean) => <GeminiRuntimeSettingsCard userId="fresh-user" vaultKey={unlocked ? "fixture" : null}
+      vaultOwnerToken={unlocked ? "fixture" : null} needsVaultCreation={false} needsUnlock={!unlocked}
       onRequestVaultUnlock={vi.fn()} onRequestVaultCreation={vi.fn()}
-      requiresExplicitSelection initiallyConfigured={false}
-      initialSetupChoice="byok_pending_vault"
-      onCanContinueChange={onCanContinueChange} />);
-
+      requiresExplicitSelection initiallyConfigured={false} initialSetupChoice="byok_pending_vault"
+      onCanContinueChange={onCanContinueChange} />;
+    const view = render(card(false));
+    expect(onCanContinueChange).toHaveBeenLastCalledWith(false);
+    expect(loadRuntimeSecretMock).not.toHaveBeenCalled();
+    view.rerender(card(true));
     await waitFor(() => expect(onCanContinueChange).toHaveBeenLastCalledWith(true));
     if (provider === "gemini") expect(screen.getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true");
   });
@@ -280,12 +277,6 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(onSelectionReadyChange).toHaveBeenCalledWith("hushh_managed_vertex");
   });
 
-  // -- the managed path finally reaches the server -------------------------------
-  //
-  // Choosing managed used to be entirely client-side: the mode went into the user's
-  // own PKM vault and no server route was called at all. Managed is the DEFAULT, so
-  // for most people the server never learned an AI connection existed -- and
-  // provisioning a private agent hangs off exactly that event.
 
   const renderSetupCard = (
     onSelectionReadyChange = vi.fn().mockResolvedValue(undefined),
@@ -314,18 +305,8 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     fireEvent.click(runtimeChoice("profile-managed-runtime"));
   };
 
-  it("tells the server about the managed choice", async () => {
-    renderSetupCard();
-    await clickManaged();
-    await waitFor(() =>
-      expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(1),
-    );
-  });
-
   it("verifies the managed runtime BEFORE committing the choice", async () => {
-    // Ordering, not merely both-happened. Persisting first and probing second means
-    // a person can be told "selected" about a runtime that cannot generate -- and
-    // the BYOK path already validates first, so this is parity, not preference.
+    // Verify before publishing a saved choice.
     const order: string[] = [];
     selectManagedGeminiRuntimeMock.mockImplementation(async () => {
       order.push("verify");
@@ -367,8 +348,6 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
   });
 
   it("says the agent is being built only when one actually was", async () => {
-    // "We are building your private agent" and "you are on the shared runtime" are
-    // different promises. One cheerful string for both is how a product starts lying.
     selectManagedGeminiRuntimeMock.mockResolvedValue({
       status: "ready",
       model: "gemini-3-pro",
@@ -626,6 +605,21 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     agentScheduled: false,
     agentReason: "synthetic prior-owner outcome",
   };
+
+  it.each(["pending", "unavailable"])("recovers %s hosting without inferring a ready connection", async (initial) => {
+    if (initial === "unavailable") getPersonalAgentStatusMock.mockRejectedValueOnce(new Error("offline"));
+    else getPersonalAgentStatusMock.mockResolvedValueOnce({ hostingMode: "pending" });
+    getPersonalAgentStatusMock.mockResolvedValue({ hostingMode: "shared" });
+    render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
+    const retry = await screen.findByRole("button", { name: "Check connection" });
+    expect(runtimeChoice("profile-managed-runtime")).toBeDisabled();
+    expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(runtimeChoice("profile-managed-runtime")).toBeEnabled());
+    expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
+    fireEvent.click(runtimeChoice("profile-managed-runtime"));
+    await waitFor(() => expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledOnce());
+  });
 
   it.each([false, true])(
     "discards a pending prior-owner selection, including return to A=%s",
@@ -975,6 +969,7 @@ it.each([false, true])(
 );
 
 it("confirms a verified Azure default concisely and cancels AI editing through authored Back", async () => {
+  const ready = vi.fn();
   const { unwindBackLayer } = await import("@/lib/navigation/back-layers");
   publishValidatedAuthSessionOwner(null);
   publishValidatedAuthSessionOwner("fresh-user");
@@ -1007,6 +1002,7 @@ it("confirms a verified Azure default concisely and cancels AI editing through a
       onRequestVaultUnlock={vi.fn()}
       onRequestVaultCreation={vi.fn()}
       requiresExplicitSelection
+      onCanContinueChange={ready}
       onSelectionReadyChange={vi.fn().mockResolvedValue(undefined)}
     />,
   );
@@ -1026,6 +1022,7 @@ it("confirms a verified Azure default concisely and cancels AI editing through a
   });
   expect(screen.queryByLabelText("Gemini API key")).toBeNull();
   expect(screen.getByRole("button", { name: "Change AI" })).toBeVisible();
+  expect(ready).toHaveBeenLastCalledWith(true);
   expect(ownerPodRequestMock).toHaveBeenCalledOnce();
   expect(ownerPodRequestMock.mock.calls[0][1].method).toBe("PATCH");
 });

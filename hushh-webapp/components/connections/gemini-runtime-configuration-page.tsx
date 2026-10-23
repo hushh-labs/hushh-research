@@ -13,6 +13,7 @@ import { PrivateAgentCard } from "@/components/connections/private-agent-card";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import setupStyles from "@/components/onboarding/setup/one-setup-hub.module.css";
+import { Button } from "@/lib/morphy-ux/button";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -220,7 +221,17 @@ function OwnerRuntimeConfigurationPage({
         },
   );
 
+  const resumeSavedKey = Boolean(
+    setupMode && setupChoice === "byok_pending_vault" && !isVaultUnlocked &&
+    user?.uid && !PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid),
+  );
   const runtimeSettings = (
+    <>
+    {resumeSavedKey ? (
+      <Button type="button" variant="link" onClick={() => setUnlockOpen(true)}>
+        Unlock saved AI connection
+      </Button>
+    ) : null}
     <GeminiRuntimeSettingsCard
       userId={user?.uid}
       vaultKey={vaultKey}
@@ -275,13 +286,26 @@ function OwnerRuntimeConfigurationPage({
           : undefined
       }
     />
+    </>
   );
+
+  const vaultDialog = user ? (
+    <VaultUnlockDialog
+      user={user}
+      open={unlockOpen}
+      onOpenChange={setUnlockOpen}
+      title={needsVaultCreation ? "Set up your private vault" : "Open your private vault"}
+      description="Manage your AI connection securely."
+      onSuccess={() => setUnlockOpen(false)}
+    />
+  ) : null;
 
   if (embedded) {
     return (
       <section aria-label="AI access" className="space-y-4">
         <h2 className="text-base font-semibold">AI access</h2>
         {runtimeSettings}
+        {vaultDialog}
       </section>
     );
   }
@@ -347,20 +371,7 @@ function OwnerRuntimeConfigurationPage({
           supportingText="Pick one to continue."
         />
       ) : null}
-      {!setupMode && user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={unlockOpen}
-          onOpenChange={setUnlockOpen}
-          title={
-            needsVaultCreation
-              ? "Set up your private vault"
-              : "Open your private vault"
-          }
-          description="Manage your AI connection securely."
-          onSuccess={() => setUnlockOpen(false)}
-        />
-      ) : null}
+      {vaultDialog}
     </AppPageShell>
   );
 

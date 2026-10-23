@@ -43,6 +43,26 @@ def transport(*, current=None, adapter=None, monkeypatch=None, enabled=True):
     return rest.GoogleDriveRestTransport(oauth=oauth, adapter=adapter or SimpleNamespace())
 
 
+@pytest.mark.parametrize("tool", ["search_files", "changes_start_token", "list_changes"])
+async def test_group_index_read_refuses_a_replacement_grant_before_provider_io(monkeypatch, tool):
+    adapter = SimpleNamespace(
+        list_files=AsyncMock(return_value={"files": []}),
+        collection_start_token=AsyncMock(return_value="next-cursor"),
+        index_changes=AsyncMock(return_value={"changes": [], "newStartPageToken": "next-cursor"}),
+    )
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    with pytest.raises(DriveOAuthError, match="connection_changed"):
+        await drive.read_group_index_tool(
+            user_id="owner",
+            tool_name=tool,
+            arguments={"pageToken": "old-cursor"} if tool == "list_changes" else {},
+            expected_generation=6,
+        )
+    adapter.list_files.assert_not_awaited()
+    adapter.collection_start_token.assert_not_awaited()
+    adapter.index_changes.assert_not_awaited()
+
+
 async def test_real_rest_page_keeps_version_and_bounded_provider_relationship_facts(monkeypatch):
     source = {
         "id": FILE_ID,
@@ -434,6 +454,42 @@ async def test_compilation_can_tell_when_drive_extraction_was_truncated(monkeypa
         user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
     )
     assert result.payload == {"fileContent": "first pages", "contentTruncated": True}
+
+
+@pytest.mark.parametrize("native", [False, True])
+async def test_index_prefix_uses_bounded_bytes_and_never_falls_back_to_exports(monkeypatch, native):
+    mime = "application/vnd.google-apps.document" if native else "application/pdf"
+    adapter = SimpleNamespace(
+        get_metadata=AsyncMock(
+            return_value=DriveMetadata(FILE_ID, "Synthetic", mime, "3", None, 999999, None)
+        ),
+        read_live_prefix=AsyncMock(return_value=(mime, b"bounded prefix")),
+        read_live_bytes=AsyncMock(side_effect=AssertionError("full download forbidden")),
+    )
+    parse = AsyncMock(side_effect=DriveReadError("invalid_document"))
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    drive._raw_prefix = True
+    drive._parser = SimpleNamespace(parse=parse)
+    result = await drive.read_group_index_tool(
+        user_id="owner",
+        tool_name="read_file_content",
+        arguments={"fileId": FILE_ID},
+        expected_generation=7,
+    )
+    assert result.payload["textFormattingNotSupported"] is True
+    adapter.read_live_bytes.assert_not_awaited()
+    if native:
+        assert result.payload["reason"] == "prefix_unavailable"
+        adapter.read_live_prefix.assert_not_awaited()
+        parse.assert_not_awaited()
+    else:
+        adapter.read_live_prefix.assert_awaited_once()
+        assert parse.await_args.kwargs == {
+            "mime_type": mime,
+            "content": b"bounded prefix",
+            "live": True,
+            "raw_prefix": True,
+        }
 
 
 async def test_an_unparseable_file_is_unsupported_not_a_failure(monkeypatch):

@@ -997,7 +997,7 @@ class OwnerMetadataIndexer:
             raise DriveReadError("invalid_argument")
         state = self._state(owner_id, connection_generation)
         started = time.perf_counter()
-        pages_before, outcome = state.pages, "ok"
+        pages_before, rows_before, outcome = state.pages, state.rows, "ok"
         async with state.lock:
             try:
                 deadline = self._clock() + deadline_seconds
@@ -1049,10 +1049,11 @@ class OwnerMetadataIndexer:
                 raise
             finally:
                 logger.info(
-                    "drive_metadata_index.refresh outcome=%s pages=%d entries=%d ready=%d "
-                    "complete=%d duration_ms=%.1f",
+                    "drive_metadata_index.refresh outcome=%s pages=%d rows=%d entries=%d "
+                    "ready=%d complete=%d duration_ms=%.1f",
                     outcome,
                     state.pages - pages_before,
+                    state.rows - rows_before,
                     len(state.index),
                     int(state.ready),
                     int(state.ready and not state.incomplete),

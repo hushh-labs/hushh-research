@@ -6,6 +6,19 @@ import * as apiClient from "@/lib/services/api-client";
 describe("OneLocationService maps methods", () => {
   beforeEach(() => vi.restoreAllMocks());
 
+  it.each([true, false, undefined])("preserves nearby discovery completeness=%s across the API boundary", async (discoveryIncomplete) => {
+    const suggestions = [{ placeId: "cafe", text: "Coffee Shop", categories: ["cafes"] }];
+    const mockApiJson = vi.spyOn(apiClient, "apiJson").mockResolvedValueOnce({ suggestions, discoveryIncomplete } as never);
+    const places = await OneLocationService.nearbyPlaces({ vaultOwnerToken: "vault-token", lat: 18.579, lng: 73.738, category: "cafes" });
+    expect([...places]).toEqual(suggestions);
+    expect(places.discoveryIncomplete).toBe(discoveryIncomplete === true);
+    expect(mockApiJson).toHaveBeenCalledWith("/api/one/location/maps/nearby-places", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ lat: 18.579, lng: 73.738, category: "cafes" }),
+    }));
+  });
+
+
   it("placesAutocomplete posts input and returns suggestions", async () => {
     const spy = vi
       .spyOn(apiClient, "apiJson")

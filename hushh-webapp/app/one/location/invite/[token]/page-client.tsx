@@ -64,8 +64,8 @@ function InviterIdentity({ label }: { label: string }) {
   const match = label.match(/^(?:(.*?)\s*[-–—]\s*)?[*•●xX]{2,}\s*(\d{4})\s*$/u);
   return (
     <span className="inline-flex max-w-full flex-wrap items-baseline gap-x-2 gap-y-1">
-      <span className="min-w-0 [overflow-wrap:anywhere]">{match ? match[1]?.trim() || "A trusted person" : label}</span>
-      {match ? <span className="inline-block whitespace-nowrap tabular-nums" aria-label={`Phone ending in ${match[2]}`}>•••• {match[2]}</span> : null}
+      <span data-location-type-role="row-description" className="min-w-0 [overflow-wrap:anywhere]">{match ? match[1]?.trim() || "A trusted person" : label}</span>
+      {match ? <span data-location-type-role="row-description" className="inline-block whitespace-nowrap tabular-nums" aria-label={`Phone ending in ${match[2]}`}>•••• {match[2]}</span> : null}
     </span>
   );
 }
@@ -287,17 +287,17 @@ export default function OneLocationCircleInvitePageClient({
     !claimed &&
     !phoneVerificationRequired && !checkingPhone && !phoneCheckError;
 
-  if (!hydrated || auth.loading) return <HushhLoader label="Checking your account" />;
+  if (!hydrated || auth.loading) return <HushhLoader label="Checking your account" className="ui-text-status [&>p]:[font:inherit]" />;
 
   if (!signedIn) {
-    return <GuestPreview key={inviteToken} invitation={{ kind: "connection", ownerName: invite?.ownerLabel ?? undefined, loading, unavailable, error: error ? unavailable ? "This invitation is unavailable. Ask for a new link." : "Preview is temporarily unavailable. You can still sign in." : null }} onStart={() => router.push(loginHref(invitePath))} />;
+    return <GuestPreview key={inviteToken} locationTypography invitation={{ kind: "connection", ownerName: invite?.ownerLabel ?? undefined, loading, unavailable, error: error ? unavailable ? "This invitation is unavailable. Ask for a new link." : "Preview is temporarily unavailable. You can still sign in." : null }} onStart={() => router.push(loginHref(invitePath))} />;
   }
 
   return (
     // No height floor. min-h-screen compiles to 100vh, which in a WKWebView
     // does not shrink for chrome or safe areas, so it renders taller than the
     // visible viewport. The scroll root already fills the screen.
-    <main className="bg-background text-foreground">
+    <main data-location-type-scale="connect" data-location-type-context="flow" className="bg-background text-foreground">
       <div className="mx-auto flex w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
         <div className="space-y-6 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-none sm:p-6">
           <div className="flex items-start gap-4">
@@ -313,10 +313,10 @@ export default function OneLocationCircleInvitePageClient({
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+              <div data-location-type-role="row-description" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                 Invitation
               </div>
-              <h1 className="ui-text-agent-title mt-1">
+              <h1 data-location-type-role="flow-title" className="ui-text-agent-title mt-1">
                 Connect on One
               </h1>
               <p className="mt-3 text-[15px] font-normal leading-[20px] text-muted-foreground">
@@ -326,7 +326,7 @@ export default function OneLocationCircleInvitePageClient({
                     ? error
                     : claimed
                       ? "You're connected on One."
-                      : <><InviterIdentity label={ownerLabel(invite)} /><span className="mt-1 block">invited you to connect.</span></>}
+                      : <><InviterIdentity label={ownerLabel(invite)} /><span data-location-type-role="row-description" className="mt-1 block">invited you to connect.</span></>}
               </p>
             </div>
           </div>
@@ -342,26 +342,26 @@ export default function OneLocationCircleInvitePageClient({
           {!loading && !invite ? (
             unavailable ? (
               <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">Ask the person who invited you for a new link.</p>
+                <p data-location-type-role="row-description" className="text-sm text-muted-foreground">Ask the person who invited you for a new link.</p>
                 <Button asChild className="min-h-11 w-full rounded-full"><Link href={ROUTES.ONE_HOME}>Open One</Link></Button>
               </div>
-            ) : <Button onClick={() => setInviteLoadAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
+            ) : <Button data-location-type-role="primary-action" onClick={() => setInviteLoadAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
           ) : null}
 
           {!loading && invite ? (
             <div className="space-y-4">
-              {invite.expiresAt ? <p className="text-[13px] text-muted-foreground">Expires {formatDateTime(invite.expiresAt)}</p> : null}
+              {invite.expiresAt ? <p data-location-type-role="row-description" className="text-[13px] text-muted-foreground">Expires {formatDateTime(invite.expiresAt)}</p> : null}
 
               {invite.message && !/^join me on one\.?$/i.test(invite.message.trim()) ? (
-                <p className="text-[15px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+                <p data-location-type-role="row-description" className="text-[15px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
                   {invite.message}
                 </p>
               ) : null}
 
-              <p className="text-[15px] leading-5 text-muted-foreground">Your location stays private until you choose to share it.</p>
+              <p data-location-type-role="row-description" className="text-[15px] leading-5 text-muted-foreground">Your location stays private until you choose to share it.</p>
 
               {claimError ? (
-                <div
+                <div data-location-type-role="row-description"
                   className={`rounded-[var(--app-card-radius-compact)] p-4 text-[15px] leading-5 ${CLAIM_FAILURE_TONE.tile} ${CLAIM_FAILURE_TONE.glyph}`}
                 >
                   {claimError}
@@ -370,11 +370,11 @@ export default function OneLocationCircleInvitePageClient({
 
               {phoneCheckError ? (
                 <div role="alert" className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Couldn't check your account. Please try again.</p>
-                  <Button onClick={() => setPhoneCheckAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
+                  <p data-location-type-role="row-description" className="text-sm text-muted-foreground">Couldn't check your account. Please try again.</p>
+                  <Button data-location-type-role="primary-action" onClick={() => setPhoneCheckAttempt((attempt) => attempt + 1)} className="min-h-11 w-full rounded-full">Try again</Button>
                 </div>
               ) : auth.loading || checkingPhone ? (
-                <Button disabled className="h-11 rounded-full">
+                <Button data-location-type-role="primary-action" disabled className="h-11 rounded-full">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                   {auth.loading ? "Checking sign in" : "Checking phone"}
                 </Button>
@@ -386,7 +386,7 @@ export default function OneLocationCircleInvitePageClient({
                     Accept invitation
                   </Link>
                 </Button>
-                <p className="text-center text-[13px] text-muted-foreground">Verify your phone to accept this invitation.</p>
+                <p data-location-type-role="row-description" className="text-center text-[13px] text-muted-foreground">Verify your phone to accept this invitation.</p>
                 </div>
               ) : !isVaultUnlocked || !vaultOwnerToken ? (
                 <div className="space-y-2">
@@ -396,10 +396,10 @@ export default function OneLocationCircleInvitePageClient({
                     Accept invitation
                   </Link>
                 </Button>
-                <p className="text-center text-[13px] text-muted-foreground">Unlock your private place to continue.</p>
+                <p data-location-type-role="row-description" className="text-center text-[13px] text-muted-foreground">Unlock your private place to continue.</p>
                 </div>
               ) : (
-                <Button
+                <Button data-location-type-role="primary-action"
                   onClick={() => void handleClaim()}
                   disabled={!canClaim || claiming}
                   className="min-h-11 w-full rounded-full"

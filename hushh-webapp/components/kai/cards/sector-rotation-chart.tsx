@@ -81,6 +81,11 @@ export function SectorRotationChart({ rows, active = true, onScopeAvailabilityCh
   const starts = chartRows.map((row) => period === "1w" ? row.period_start_1w : row.period_start_1d).filter(Boolean).sort();
   const ends = chartRows.map((row) => row.period_end).filter(Boolean).sort();
   const dateRange = starts.length && ends.length ? `${starts[0]} to ${ends.at(-1)}` : "Period dates unavailable";
+  const periodStart = starts.length ? new Date(`${starts[0]}T00:00:00Z`) : null;
+  const periodEnd = ends.length ? new Date(`${ends.at(-1)}T00:00:00Z`) : null;
+  const shortDateRange = periodStart && periodEnd && Number.isFinite(periodStart.getTime()) && Number.isFinite(periodEnd.getTime()) && periodStart <= periodEnd
+    ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).formatRange(periodStart, periodEnd)
+    : "Period dates unavailable";
   const maximumReturn = Math.max(0.01, ...chartRows.map((row) => Math.abs(row.changePct)));
   return (
     <div className={marketBriefingStyles.sectorContent}>
@@ -93,9 +98,8 @@ export function SectorRotationChart({ rows, active = true, onScopeAvailabilityCh
             ariaLabel="Sector performance period" variant="filter" className="w-auto"
             options={[{ value: "1d", label: "1 day" }, { value: "1w", label: "1 week" }]} />
         </div>
-        <p className="col-span-2 text-xs leading-5 text-muted-foreground sm:col-span-1">
-          {dateRange}
-          {chartRows[0]?.basis ? ` · ${chartRows[0].basis}` : ""}
+        <p className="col-span-2 text-xs leading-5 text-muted-foreground sm:col-span-1" title={dateRange}>
+          {shortDateRange}
         </p>
       </div>
       {!chartRows.length ? <p className="py-5 text-sm text-muted-foreground">{period === "1w" ? "Weekly" : "Daily"} sector performance is unavailable.</p> : (
@@ -123,10 +127,12 @@ export function SectorRotationChart({ rows, active = true, onScopeAvailabilityCh
           <CartesianGrid
             horizontal={false}
             strokeDasharray="3 3"
+            strokeOpacity={0.45}
             stroke="var(--one-line)"
           />
           <XAxis
             type="number"
+            tickCount={3}
             tickFormatter={(value) => `${value >= 0 ? "+" : ""}${value}%`}
             axisLine={false}
             tickLine={false}
@@ -167,6 +173,7 @@ export function SectorRotationChart({ rows, active = true, onScopeAvailabilityCh
           {expanded ? "Show highlights" : `All ${chartRows.length} sectors`}
         </Button>
       </div> : null}
+      {chartRows[0]?.basis ? <p className="text-xs leading-5 text-muted-foreground">{chartRows[0].basis}</p> : null}
       <ul className="sr-only">{visibleRows.map((row) => <li key={row.sector}>{row.sector}: {row.changePct >= 0 ? "+" : ""}{row.changePct.toFixed(2)}%</li>)}</ul>
     </div>
   );

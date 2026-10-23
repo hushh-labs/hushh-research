@@ -75,12 +75,14 @@ for test_file in "${TESTS[@]}"; do
 done
 
 CI_OFFLINE_DB_DIR=""
+CI_PYTEST_ARGS_FILE="$(mktemp "${TMPDIR:-/tmp}/hushh-pytest-args.XXXXXX")"
 if [ -z "${OFFLINE_DB_PATH:-}" ]; then
   CI_OFFLINE_DB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hushh-protocol-ci.XXXXXX")"
   OFFLINE_DB_PATH="$CI_OFFLINE_DB_DIR/protocol.db"
 fi
 
 cleanup_offline_db() {
+  rm -f "$CI_PYTEST_ARGS_FILE"
   if [ -n "$CI_OFFLINE_DB_DIR" ] && [ -d "$CI_OFFLINE_DB_DIR" ]; then
     rm -rf "$CI_OFFLINE_DB_DIR"
   fi
@@ -88,6 +90,13 @@ cleanup_offline_db() {
 trap cleanup_offline_db EXIT
 
 run_pytest() {
+  # One argument per line preserves the complete manifest without exceeding
+  # Windows' native command-line limit. pytest supports @files since 8.2.
+  printf '%s\n' "$@" > "$CI_PYTEST_ARGS_FILE"
+  local args_file="$CI_PYTEST_ARGS_FILE"
+  if command -v cygpath >/dev/null 2>&1; then
+    args_file="$(cygpath -m "$args_file")"
+  fi
   TESTING="${TESTING:-true}" \
   GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-hushh-ci-test}" \
   DB_OFFLINE="${DB_OFFLINE:-1}" \
@@ -96,7 +105,7 @@ run_pytest() {
   VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
   HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
   PYTHONPATH=. \
-  "$PYTHON_BIN" -m pytest -q "$@"
+  "$PYTHON_BIN" -m pytest -q "@$args_file"
 }
 
 if [ "${#PARALLEL_TESTS[@]}" -gt 0 ]; then

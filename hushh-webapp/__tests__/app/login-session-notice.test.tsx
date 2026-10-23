@@ -91,7 +91,7 @@ describe("login terminal-session notice", () => {
 
     await waitFor(() =>
       expect(mocks.toastSuccess).toHaveBeenCalledWith(
-        "Account deleted. You have been securely signed out.",
+        "This account’s information was deleted. Contact support if you cannot start again.",
         { id: "auth-session-account-deleted" },
       ),
     );
@@ -118,10 +118,10 @@ describe("login terminal-session notice", () => {
     mocks.search = "auth_notice=account_deletion_finishing";
     render(<LoginPage />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("finishing account removal");
+    expect(screen.getByRole("status")).toHaveTextContent("Account removal still needs attention");
     expect(screen.getByRole("status")).not.toHaveTextContent("start fresh");
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(
-      expect.stringContaining("finishing account removal"),
+      expect.stringContaining("Account removal still needs attention"),
       { id: "auth-session-account-deletion-finishing" },
     ));
   });

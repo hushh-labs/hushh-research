@@ -37,6 +37,7 @@ METADATA_LIMIT = 256 * 1024
 OWNER_SEARCH_METADATA_LIMIT = OWNER_SEARCH_METADATA_BYTES_MAX
 MAX_FILE_LIST_PAGE_SIZE = FILE_LIST_PAGE_SIZE_MAX
 MAX_OWNER_SEARCH_PAGE_SIZE = OWNER_SEARCH_PAGE_SIZE_MAX
+RAW_PREFIX_LIMIT = 200 * 1024
 ERROR_RESPONSE_LIMIT = 16 * 1024
 RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 CONTENT_LIMIT = 4 * 1024 * 1024
@@ -352,9 +353,10 @@ class GoogleDriveAdapter:
         limit: int,
         resource_keys: dict[str, str] | None = None,
         owner_search_page: bool = False,
+        raw_prefix: bool = False,
     ) -> bytes:
         _resource_keys(resource_keys)
-        if type(owner_search_page) is not bool:
+        if type(owner_search_page) is not bool or type(raw_prefix) is not bool:
             raise DriveReadError("operation_not_allowed")
         # Fixed operation names only. The path can contain a private provider ID
         # and params can contain the owner's search, so neither is logged.
@@ -389,6 +391,7 @@ class GoogleDriveAdapter:
                     limit=limit,
                     **({"owner_search_page": True} if owner_search_page else {}),
                     **({"resource_keys": resource_keys} if resource_keys else {}),
+                    **({"raw_prefix": True} if raw_prefix else {}),
                 )
             outcome = "ok"
             return result
@@ -427,6 +430,7 @@ class GoogleDriveAdapter:
         limit: int,
         resource_keys: dict[str, str] | None = None,
         owner_search_page: bool = False,
+        raw_prefix: bool = False,
     ) -> bytes:
         _resource_keys(resource_keys)
         if resource_keys and any(
@@ -561,7 +565,16 @@ class GoogleDriveAdapter:
             or type(owner_search_page) is not bool
             or owner_search_page
             and path != "/files"
-            or limit
+            or type(raw_prefix) is not bool
+            or raw_prefix
+            and (
+                limit != RAW_PREFIX_LIMIT
+                or params.get("alt") != "media"
+                or not path.startswith("/files/")
+                or path.endswith("/export")
+            )
+            or not raw_prefix
+            and limit
             not in {
                 METADATA_LIMIT,
                 OWNER_SEARCH_METADATA_LIMIT,
@@ -595,6 +608,7 @@ class GoogleDriveAdapter:
                     headers={
                         "Authorization": f"Bearer {access_token}",
                         "Accept-Encoding": "identity",
+                        **({"Range": f"bytes=0-{RAW_PREFIX_LIMIT - 1}"} if raw_prefix else {}),
                         **(
                             {
                                 "X-Goog-Drive-Resource-Keys": ",".join(
@@ -625,8 +639,22 @@ class GoogleDriveAdapter:
                         "rate_limited" if response.status_code == 429 else "server_error",
                     )
                     raise DriveReadError("provider_unavailable", retryable=True)
-                if response.status_code != 200:
+                if raw_prefix and response.status_code == 416:
+                    raise DriveReadError("no_extractable_text")
+                if response.status_code not in ({200, 206} if raw_prefix else {200}):
                     raise DriveReadError("provider_response_invalid")
+                expected_length = None
+                if response.status_code == 206:
+                    content_range = re.fullmatch(
+                        r"bytes 0-([0-9]{1,20})/([0-9]{1,20}|\*)",
+                        response.headers.get("Content-Range", ""),
+                    )
+                    if not content_range:
+                        raise DriveReadError("provider_response_invalid")
+                    end, total = content_range.groups()
+                    expected_length = int(end) + 1
+                    if expected_length > limit or total != "*" and int(total) < expected_length:
+                        raise DriveReadError("provider_response_invalid")
                 # HTTPX's decompressor can allocate beyond our budget before
                 # aiter_bytes yields. Request identity and refuse compression;
                 # never trust Content-Length or transparently inflate content.
@@ -634,9 +662,18 @@ class GoogleDriveAdapter:
                     raise DriveReadError("provider_response_invalid")
                 body = bytearray()
                 async for chunk in response.aiter_raw():
+                    if raw_prefix:
+                        if expected_length is not None and len(body) + len(chunk) > expected_length:
+                            raise DriveReadError("provider_response_invalid")
+                        body.extend(chunk[: limit - len(body)])
+                        if len(body) == limit:
+                            break  # Close an ignored Range response without consuming its tail.
+                        continue
                     if len(body) + len(chunk) > limit:
                         raise DriveReadError("file_too_large")
                     body.extend(chunk)
+                if expected_length is not None and len(body) != expected_length:
+                    raise DriveReadError("provider_response_invalid")
                 outcome = "ok"
                 return bytes(body)
         except (httpx.HTTPError, TimeoutError) as error:
@@ -1036,6 +1073,21 @@ class GoogleDriveAdapter:
             await self._get(
                 "/drives", access_token=access_token, params=params, limit=METADATA_LIMIT
             )
+        )
+
+    async def read_live_prefix(
+        self, *, file_id: str, mime_type: str, access_token: str
+    ) -> tuple[str, bytes]:
+        """Only the first 200 KiB of an uploaded file; never fall back to full content."""
+        if mime_type in LIVE_EXPORTS:
+            # Workspace exports do not support partial downloads.
+            raise DriveReadError("operation_not_allowed")
+        return mime_type, await self._get(
+            _file_path(file_id),
+            access_token=access_token,
+            params={"alt": "media", "supportsAllDrives": "true"},
+            limit=RAW_PREFIX_LIMIT,
+            raw_prefix=True,
         )
 
     async def read_live_bytes(

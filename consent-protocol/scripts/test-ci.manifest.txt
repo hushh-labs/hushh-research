@@ -30,6 +30,8 @@ tests/test_drive_uat_registry_provisioning.py
 tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
+tests/services/test_drive_groups.py
+tests/services/test_drive_group_index_postgres.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
@@ -54,6 +56,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_runtime_config_retention.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
 tests/services/test_drive_live_reader.py
 tests/services/test_drive_candidate_selection.py
@@ -66,6 +69,8 @@ tests/services/test_drive_live_formats.py
 # Calendar writes: a reschedule patches only what the owner reviewed (never a
 # full-replacement PUT), and the review counts the event's real guests.
 tests/services/test_google_calendar_service.py
+tests/services/test_google_calendar_event_type.py
+tests/services/test_google_calendar_profile_photos.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
 tests/agents/test_calendar_agent_tools.py
@@ -95,6 +100,7 @@ tests/services/test_drive_request_package_service.py
 # Managed UAT text: primary/fallback transport, current owner authority,
 # immutable administrator policy and actual foreground/background ADK entrypoints.
 tests/services/test_azure_adk.py
+tests/services/test_one_azure_chat_contract.py
 tests/test_model_preference_resolution.py
 tests/test_one_adk_text_runtime.py
 tests/services/test_drive_bounded_search_unit.py
@@ -152,6 +158,8 @@ tests/test_mcp_log_redaction.py
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_developer_oauth.py
+tests/test_mcp_oauth_registration.py
 tests/test_developer_commerce_contracts.py
 # Consumer-paid scope admission and accounting: real isolated PostgreSQL,
 # signed provider receipts, and OIDC-only reconciliation through rollback.
@@ -353,6 +361,8 @@ tests/services/test_one_referral_weekly_award_service.py
 # bandit were the only things reading this code.
 tests/test_place_taxonomy.py
 tests/services/test_google_maps_service.py
+tests/services/test_nearby_place_discovery.py
+tests/test_one_location_maps_routes.py
 tests/test_places_directory.py
 tests/services/test_one_location_extra_time_requests.py
 tests/services/test_one_location_circle_service.py
@@ -532,6 +542,7 @@ tests/scripts/test_eval_pkm_structure_agent.py
 tests/scripts/test_eval_pkm_latency.py
 tests/scripts/test_eval_kai_adk_synthetic.py
 tests/scripts/test_measure_agent_chat_latency.py
+tests/scripts/test_reviewer_chat_acceptance.py
 tests/test_evalsets_are_valid.py
 tests/test_conformance_harness.py
 tests/test_nav_conformance.py
@@ -595,6 +606,11 @@ tests/test_nav_a2a_agent.py
 tests/test_one_adk_agent_tree.py
 # Finance market tools: providers receive the ticker only, never owner identity.
 tests/test_one_finance_market_tools.py
+
+# Market price sessions, cache reopening and owner validation before runtime ports.
+tests/test_market_refresh_policy.py
+tests/test_market_runtime_port.py
+tests/test_kai_market_session_cache.py
 tests/test_a2a_delegation_scopes.py
 tests/test_connections_a2a.py
 tests/test_specialist_availability.py

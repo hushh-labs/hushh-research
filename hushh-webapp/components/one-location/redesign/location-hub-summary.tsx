@@ -128,11 +128,11 @@ export function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
           <span className="min-w-0 self-center">
             <CardTitle
               as="span"
-              className="block !text-[17px] !font-semibold !leading-[22px]"
+              className="block"
             >
               You&apos;re not sharing
             </CardTitle>
-            <span className="mt-0.5 block text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+            <span data-location-share-description="" className="ui-text-row-description mt-0.5 block text-[color:var(--app-secondary-label)]">
               Choose a Circle or contact.
             </span>
           </span>
