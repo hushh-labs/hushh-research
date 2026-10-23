@@ -5,8 +5,8 @@ server restarting under them, the model provider out of capacity mid-answer)
 must still end with a terminal ``RUN_ERROR``. Each event here is authored: a
 fixed message, a stable code and ``metadata.retryable``. None carries provider
 text, request content or an identifier, so they may cross the public-output
-projection unchanged. Classification reads only the leading HTTP status token
-that ``google.genai`` puts on its errors, never the message after it.
+projection unchanged. Classification reads explicit SDK signals and fixed HTTP
+status prefixes, never the provider body after a status token.
 """
 
 from __future__ import annotations
@@ -125,6 +125,10 @@ def transient_model_run_error(event: BaseEvent) -> RunErrorEvent | None:
     """
     if not isinstance(event, RunErrorEvent) or is_authored_run_error(event):
         return None
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AZURE_RATE_LIMITED_MESSAGE
+
+    if event.code in _BRIDGE_ERROR_CODES and event.message == AZURE_RATE_LIMITED_MESSAGE:
+        return MODEL_CAPACITY_RUN_ERROR
     status = _provider_status(event.message)
     return _for_status(status) if status is not None else None
 
@@ -177,6 +181,10 @@ def transient_model_error_for_exception(error: BaseException) -> RunErrorEvent |
     """The same mapping for an exception that escaped the bridge."""
     if not isinstance(error, Exception):
         return None
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureRateLimitedError
+
+    if all(isinstance(leaf, AzureRateLimitedError) for leaf in _leaf_exceptions(error)):
+        return MODEL_CAPACITY_RUN_ERROR
     for leaf in _leaf_exceptions(error):
         from openai import APIConnectionError, APIStatusError, APITimeoutError
 

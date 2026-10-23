@@ -1547,6 +1547,10 @@ An explicit Azure `incomplete/content_filter` response or structured SDK
 `content_filter` error (HTTP 400 or statusless SSE) emits `TEXT_CONTENT_FILTERED`
 with a fixed rephrasing notice and `retryable:false`. It remains a terminal error
 classified as a refusal; partial output never becomes a completed answer.
+An explicit Azure SSE `rate_limit_exceeded` error without an HTTP error status
+emits the existing retryable `RESOURCE_EXHAUSTED` capacity notice. Telemetry
+records `quota` while preserving the unknown HTTP status as zero; no automatic
+replay or alternate provider is introduced.
 Managed UAT fleet aliases resolve through the selected Azure compatibility port;
 responses and telemetry retain the actual model/provider. BYOK remains explicit.
 
