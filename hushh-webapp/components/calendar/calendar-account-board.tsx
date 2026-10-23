@@ -217,6 +217,7 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
               const meetings = account.events.filter(isCountedBoardEvent);
               const occasions = account.events.filter(event => boardOccasionKind(event) !== null);
               const otherItems = account.events.filter(event => !isCountedBoardEvent(event) && boardOccasionKind(event) === null);
+              const scrollEvents = meetings.length + otherItems.length > 3;
               const [accountName, accountDomain] = accountEmailParts(account.google_email);
               const photoUrl = account.profile_photo_url ?? status.accounts?.find(item => item.account_id === account.account_id)?.profile_photo_url;
               const safePhotoUrl = photoUrl ? googleAvatarSource(photoUrl)?.href : null;
@@ -233,11 +234,10 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
                   : response === "declined" ? "Declined · not busy"
                   : event.transparency === "transparent" ? "Doesn’t block time"
                   : !sourceIncluded ? "Not counted in free time"
-                  : response === "tentative" ? "Tentative"
-                  : response === "needsAction" ? "Awaiting your response" : null;
+                  : response === "tentative" ? "Tentative" : null;
                 return <li key={eventIdentity(event)} className={styles.eventRow} data-ended={ended || undefined}>
                   <button type="button" className={styles.eventMain} onClick={button => open(event, button.currentTarget)} aria-label={`Open ${event.title} in ${accountLabel(account.google_email)}`}>
-                    <span className={styles.eventCopy}><strong title={event.title}>{event.title}</strong><span>{eventTime(event, zone)}</span><small className={styles.eventSource}>{provider ? <CalendarMeetingIcon provider={provider} /> : null}<span title={source}>{source}</span></small>{eventStatus ? <small className={styles.eventStatus} data-response={response === "needsAction" ? "pending" : undefined}>{eventStatus}</small> : null}</span>
+                    <span className={styles.eventCopy}><strong title={event.title}>{event.title}</strong><span>{eventTime(event, zone)}</span><small className={styles.eventSource}>{provider ? <CalendarMeetingIcon provider={provider} /> : null}<span title={source}>{source}</span></small>{eventStatus ? <small>{eventStatus}</small> : null}</span>
                   </button>
                   <div className={styles.eventActions}>
                     {ended ? <span className={styles.eventEnded}><Clock aria-hidden className="size-3" />Ended</span> : join ? <a className={styles.eventJoin} href={join} target="_blank" rel="noopener noreferrer" aria-label={`Join meeting: ${event.title}`}><JoinVideoIcon />Join</a> : null}
@@ -253,13 +253,15 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
                     <DropdownMenuItem onSelect={() => onDisconnectAccount(account.account_id)}>Disconnect this Calendar account</DropdownMenuItem>
                   </DropdownMenuContent></DropdownMenu>
                 </div>
-                <p className={styles.connectionState} data-status={account.status}><span aria-hidden="true" />{account.status === "complete" ? "Connected" : account.status === "needs_reauth" ? "Reconnect needed" : "Check incomplete"}{account.checked_at ? ` · ${new Date(account.checked_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""}</p>
+                <p className={styles.connectionState} data-status={account.status}><span aria-hidden="true" />{account.status === "complete" ? "Connected" : account.status === "needs_reauth" ? "Reconnect needed" : "Check incomplete"}</p>
                 <div className={styles.accountTabs}><SegmentedTabs ariaLabel={`View for ${accountLabel(account.google_email)}`} variant="filter" value={view} onValueChange={value => setViews(current => ({ ...current, [account.account_id]: value as "events" | "free" }))} options={[{ value: "events", label: `Events (${account.events.length})` }, { value: "free", label: "Free time" }]} /></div>
                 {account.status !== "complete" ? <div className={styles.accountError} role="status"><AlertTriangle aria-hidden className="size-4" /><p>{account.error || "This account could not be checked. Its time is excluded from shared availability."}</p><Button variant="outline" onClick={() => account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? account.account_id === "default" ? onConnect("read", true) : onReconnectAccount(account.account_id) : setRevision(value => value + 1)}>{account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? "Reconnect" : "Retry check"}</Button></div> : view === "events" ? <div className={styles.accountStream}>
                   {account.unreadable_calendars.length ? <p className={styles.coverage}>Event details unavailable for {account.unreadable_calendars.map(calendar => calendar.name || calendar.id).join(", ")}. Busy time is still checked.</p> : null}
                   <div className={styles.eventBreakdown}><span>{meetings.length} meeting{meetings.length === 1 ? "" : "s"}</span>{occasions.length ? <button type="button" onClick={() => setOccasionAccountId(account.account_id)} aria-label={`View ${occasions.length} occasion${occasions.length === 1 ? "" : "s"} for ${accountLabel(account.google_email)}`}><span className={styles.occasionIcons} aria-hidden="true">{occasions.some(event => boardOccasionKind(event) === "birthday") ? <Cake /> : null}{occasions.some(event => boardOccasionKind(event) === "holiday") ? <Confetti /> : null}</span>{occasions.length} occasion{occasions.length === 1 ? "" : "s"}</button> : null}</div>
-                  {meetings.length ? <div className={styles.meetingViewport} role="region" tabIndex={meetings.length > 3 ? 0 : undefined} aria-label={`Events for ${accountLabel(account.google_email)}`} data-scrollable={meetings.length > 3 || undefined}><ul className={styles.eventList}>{meetings.map(renderEvent)}</ul></div> : !otherItems.length && !occasions.length ? <p className={styles.empty}>No readable events on this day.</p> : null}
-                  {otherItems.length ? <div className={styles.otherViewport} role="region" tabIndex={otherItems.length > 1 ? 0 : undefined} aria-label={`Other calendar items for ${accountLabel(account.google_email)}`} data-scrollable={otherItems.length > 1 || undefined}><ul className={styles.eventList}>{otherItems.map(renderEvent)}</ul></div> : null}
+                  <div className={styles.eventViewport} role="region" aria-label={`Calendar events for ${accountLabel(account.google_email)}`} tabIndex={scrollEvents ? 0 : undefined} data-scrollable={scrollEvents || undefined}>
+                  {meetings.length ? <div className={styles.meetingViewport} role="region" aria-label={`Events for ${accountLabel(account.google_email)}`}><ul className={styles.eventList}>{meetings.map(renderEvent)}</ul></div> : !otherItems.length && !occasions.length ? <p className={styles.empty}>No readable events on this day.</p> : null}
+                  {otherItems.length ? <div className={styles.otherViewport} role="region" aria-label={`Other calendar items for ${accountLabel(account.google_email)}`}><ul className={styles.eventList}>{otherItems.map(renderEvent)}</ul></div> : null}
+                  </div>
                 </div> : <div className={styles.freeStream} role="region" tabIndex={0} aria-label={`Free time for ${accountLabel(account.google_email)}`}>
                   {account.free_windows.length ? <ul className={styles.freeList}>{account.free_windows.map(window => <li key={`${window.start_at}:${window.end_at}`}><Clock aria-hidden className="size-4" /><span>{availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}</span></li>)}</ul> : <p className={styles.empty}>No free time on this day.</p>}
                 </div>}

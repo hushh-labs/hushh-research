@@ -33,11 +33,11 @@ enum NativeProfileArtwork {
         case "privacy": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "terms": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "sign-out": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
-        case "style-name": colorHex = "#2563EB"; accentColorHex = nil; hasAccent = false; original = false
-        case "style-tone": colorHex = "#8B5CF6"; accentColorHex = nil; hasAccent = false; original = false
-        case "style-length": colorHex = "#0284C7"; accentColorHex = nil; hasAccent = false; original = false
-        case "style-language": colorHex = "#6366F1"; accentColorHex = nil; hasAccent = false; original = false
-        case "style-punctuation": colorHex = "#F59E0B"; accentColorHex = nil; hasAccent = false; original = false
+        case "style-name": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "style-tone": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "style-length": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "style-language": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "style-punctuation": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-name": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-mail": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "account-phone": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
