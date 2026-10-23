@@ -57,6 +57,25 @@ flowchart TB
 
 ---
 
+## Private Google mailbox accounts
+
+These owner-direct routes extend the existing pod connector owner. They are not
+shared hub OAuth endpoints and never accept a hub consent token as owner admission.
+
+| Route | Authority | Contract |
+| --- | --- | --- |
+| `GET /api/one/pod/connectors/gmail/accounts` | Owner app pod session, `pod.status` | Verified mailbox account IDs, credential IDs, email when verified, status, default flag and capabilities; no tokens, provider subjects or scopes. |
+| `PUT /api/one/pod/connectors/gmail` | Owner app pod session, held incarnation, `pod.config` | Existing sealed credential and native custody transition. Optional encrypted `mailAccount: {mode: "add"}` retains existing accounts. Reconnect adds `accountId` and expected `credentialId` and requires the same verified Google subject. Omitted intent preserves the default-account contract. |
+| `DELETE /api/one/pod/connectors/gmail/accounts/{accountId}?credential_id={credentialId}` | Owner app pod session, held incarnation, `pod.config` | Clears only the expected mailbox credential; stale selection returns 409. Reports provider revocation separately from local disconnect. |
+
+Add returns the stable account ID. Duplicate add, wrong-identity reconnect, stale
+credential and account-limit refusals are typed 422 outcomes. All credential
+storage remains in the existing encrypted pod log with compare-and-set writes;
+refresh and erasure include additional mailbox instances. Existing tools and
+watches remain default-mailbox only. Web add uses the phone handoff; native client
+availability is unchanged. This local contract does not enable Outlook or new
+receipt scan routes. See [Mail acceptance](../operations/mail-drive-uat-acceptance.md).
+
 ## Azure software-update continuation
 
 An `upgrade_started` result from the existing Azure authorization-completion

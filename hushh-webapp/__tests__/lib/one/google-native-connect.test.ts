@@ -19,7 +19,7 @@ import {
   nativeGoogleClient,
 } from "@/lib/one/google-native-connect";
 import { openGoogleConnectorAuth } from "@/lib/one/google-connector-auth";
-import { googleConnectorIntent } from '@/lib/one/google-connector-intent';
+import { googleConnectorIntent, parseGoogleConnectorIntent } from '@/lib/one/google-connector-intent';
 import { base64UrlEncode } from "@/lib/one/ai-selection-seal";
 
 const TRANSITION = { id: `gct_${'a'.repeat(32)}`, nonce: 'b'.repeat(43) };
@@ -132,12 +132,23 @@ describe("google native connect", () => {
     const sent = JSON.parse(String(init.body));
     expect(sent).toMatchObject({ kind: "authorization_code", clientProfile: "hussh_ios", clientId: IOS_CLIENT, code: "4/0Acode" });
     expect(sent.transition).toEqual(TRANSITION);
+    expect(sent.mailAccount).toBeUndefined(); // Existing permission upgrades keep their legacy behavior.
     expect(apiFetch).toHaveBeenCalledWith('/api/one/google/connect/transition/prepare', expect.objectContaining({
       headers: expect.objectContaining({ 'X-Hushh-Consent': CAPABILITY }),
       body: JSON.stringify({ user_id: 'owner', client_profile: 'hussh_ios', confirmed: false }),
     }));
     expect(JSON.stringify(apiFetch.mock.calls)).not.toContain('4/0Acode');
     expect(sent.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
+  });
+
+  it('keeps reconnect identity inside the credential sent to the owner pod', async () => {
+    const mailAccount = { mode: 'reconnect' as const, accountId: 'a'.repeat(32), credentialId: '11111111-2222-4333-8444-555555555555' };
+    const outcome = await connectGoogleConnector('gmail', { platform: 'ios', vaultOwnerCapability: CAPABILITY, mailAccount,
+      openAuthSession: async url => `${nativeGoogleClient('ios')!.redirectUri}?code=synthetic&state=${new URL(url).searchParams.get('state')}` });
+    expect(outcome.ok).toBe(true);
+    const [, init] = ownerPodRequest.mock.calls.find(([, options]) => options.method === 'PUT')!;
+    expect(JSON.parse(init.body).mailAccount).toEqual(mailAccount);
+    expect(JSON.stringify(apiFetch.mock.calls)).not.toContain(mailAccount.accountId);
   });
 
   it("passes the agent's refusal code through and words it plainly", async () => {
@@ -173,6 +184,9 @@ describe("google native connect", () => {
     expect(ownerPodRequest.mock.calls.some(([, init]) => init.method === 'PUT')).toBe(false);
   });
   it('accepts only connector intent in a QR, without any owner, endpoint or OAuth material', () => {
+    expect(parseGoogleConnectorIntent('hushh://one/connect/google/gmail/add')).toEqual({ connector: 'gmail', addMailbox: true });
+    expect(parseGoogleConnectorIntent('hushh://one/connect/google/drive/add')).toBeNull();
+    expect(parseGoogleConnectorIntent('hushh://one/connect/google/gmail/add?accountId=owner')).toBeNull();
     expect(googleConnectorIntent('hushh://one/connect/google/drive')).toBe('drive');
     for (const suffix of ['?code=secret', '?owner=user', '?endpoint=https://evil', '#verifier']) {
       expect(googleConnectorIntent(`hushh://one/connect/google/drive${suffix}`)).toBeNull();

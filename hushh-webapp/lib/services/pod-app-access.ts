@@ -57,6 +57,7 @@ const OWNER_POD_ROUTE_PATTERNS: readonly RegExp[] = [
   /^actions\/(gcal|gmod|gdrv)_[A-Za-z0-9_-]{16,64}\/confirm$/,
   /^browser\/tasks\/browser_[a-f0-9]{32}(\/(frame|control|input|review|session))?$/,
   /^connectors\/(gmail|calendar|drive|contacts)$/,
+  /^connectors\/gmail\/accounts(\/[a-f0-9]{32})?$/,
   /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/,
   /^agent-chat\/history\/[A-Za-z0-9_-]{1,256}\/information-requests$/,
   /^agent-chat\/connectors\/[A-Za-z0-9_-]{1,128}\/mcp\/review$/,
@@ -224,6 +225,11 @@ export async function ownerPodRequest(
         throw new Error("POD_OWNER_CHANGED");
     }
   }
+  if (/^connectors\/gmail\/accounts(\/[a-f0-9]{32})?$/.test(route) && (
+    session.role !== 'app' || body != null ||
+    (route === 'connectors/gmail/accounts' ? method !== 'GET' : method !== 'DELETE') ||
+    !session.scopes.includes(method === 'GET' ? 'pod.status' : 'pod.config')
+  )) throw new Error('POD_CONNECTOR_REQUEST_REFUSED');
   if (
     route === "ai-selection" &&
     ((method !== "GET" && method !== "DELETE" && method !== "PATCH") ||

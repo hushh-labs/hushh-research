@@ -10,6 +10,42 @@
   },
   "actions": [
     {
+      "action_id": "profile.gmail.manage_mailboxes",
+      "label": "Manage connected mailboxes",
+      "meaning": "Lists the private agent's verified Google mailboxes. The owner can add a Gmail or Workspace account, reconnect the same identity, or disconnect one mailbox while keeping others. Web additions finish on the owner's phone. Live combined receipt sync is not enabled by this control.",
+      "aliases": ["add another mailbox", "connect work email", "manage mail accounts"],
+      "search_keywords": ["Gmail", "Google Workspace", "Hussh email", "mailboxes"],
+      "reachability": {
+        "routes": ["/one/gmail"], "screens": ["gmail"], "hidden_navigable": false,
+        "navigation_prerequisites": ["Mail Overview is selected", "The owner has an unlocked vault and a private agent"]
+      },
+      "guard_ids": ["manual_user_execution"], "risk_level": "high", "execution_policy": "manual_only",
+      "execution_target": {"status": "unwired", "reason": "Mailbox identity selection and Google authorization require the owner's manual review.", "intended_handler": "MailGoogleAccounts"},
+      "control_ids": ["mail_google_accounts"], "state_exposure": [],
+      "docs_references": ["components/gmail/mail-google-accounts.tsx", "lib/services/private-google-connections.ts"],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.gmail.saved_receipt_report",
+      "label": "Report saved receipt spending",
+      "meaning": "Calculates paid or recorded recurring charges for the chosen month from explicitly selected saved mailboxes. Shows separate currency totals, per-account coverage, unresolved duplicate risk and excluded conflicts. Does not search an unsynced inbox or forecast subscription bills.",
+      "aliases": ["saved receipt report", "monthly receipt spending", "recurring charges paid"],
+      "search_keywords": ["receipts", "spending", "subscriptions", "mailboxes"],
+      "reachability": {
+        "routes": ["/one/gmail"], "screens": ["gmail"], "hidden_navigable": false,
+        "navigation_prerequisites": ["Mail Overview is selected", "The validated owner has an unlocked vault and saved receipt snapshots"]
+      },
+      "guard_ids": ["manual_user_execution"],
+      "risk_level": "medium", "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired", "reason": "The owner's explicit mailbox, month and report selection stays in the local saved-report form.",
+        "intended_handler": "MailSavedReceiptReport.runReport"
+      },
+      "control_ids": ["mail_saved_receipt_report"], "state_exposure": [],
+      "docs_references": ["components/gmail/mail-saved-receipt-report.tsx", "lib/mail/receipt-report-store.ts"],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "profile.gmail.visit_merchant",
       "label": "Visit merchant",
       "meaning": "Opens the selected receipt merchant's reviewed official HTTPS homepage in an external browser, preserving the receipt detail sheet.",

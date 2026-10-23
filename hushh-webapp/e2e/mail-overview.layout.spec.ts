@@ -24,11 +24,15 @@ test.beforeAll(async () => {
   fixtureDir = outDir;
   const boundaries = path.join(root, "e2e/fixtures/mail-workspace-boundaries.tsx");
   const stubbed = ['next/navigation', '@/lib/consent/use-consent-pending-summary-count', '@/lib/feed/use-feed-unread-count', '@/lib/firebase/config', '@/lib/firebase/auth-context', '@/hooks/use-auth', '@/lib/vault/vault-context', '@/hooks/use-effective-avatar-url', '@/lib/persona/persona-context', '@/lib/capacitor/native-presentation-regions', '@/lib/services/vault-service', '@/lib/flows/delete-account', '@/lib/profile/gmail-connector-store', '@/lib/kai/actions/voice-surface-metadata', '@/lib/agent/local-onboarding-actions', '@/lib/capacitor', '@/lib/services/pre-vault-user-state-service', '@/lib/services/kyc-identity-profile-pkm-service', '@/lib/services/gmail-information-requests-service', '@/components/vault/vault-unlock-dialog', '@/lib/services/api-service'];
+  stubbed.push('@/lib/services/private-agent-specialist-chat');
   await build({
     configFile: false,
     logLevel: "error",
     oxc: { jsx: { runtime: "automatic" } },
     plugins: [
+      { name: "relative-api-boundary", enforce: "pre", resolveId(source, importer) {
+        if (importer && source.startsWith('.') && path.resolve(path.dirname(importer), source).replace(/\.(tsx?|jsx?)$/, '') === path.join(root, 'lib/services/api-service')) return boundaries;
+      } },
       { name: "relative-boundaries", resolveId(source, importer) {
         if (!importer || !source.startsWith(".")) return;
         const candidate = path.resolve(path.dirname(importer), source).replace(/\.(tsx?|jsx?)$/, "");
@@ -100,6 +104,74 @@ test.beforeAll(async () => {
 
 
 test.afterAll(() => { if (fixtureDir) fs.rmSync(fixtureDir, { recursive: true, force: true }); });
+
+for (const width of [393, 1280]) {
+  test(`Saved mailbox receipt reports preserve currency, scope and mobile layout at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.route("http://localhost/fixture.js", route => route.fulfill({ contentType: "application/javascript", body: script }));
+    await page.route("http://localhost/mail-reports", route => route.fulfill({ contentType: "text/html",
+      body: `<!doctype html><html data-workspace="overview" data-saved-report="1"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>` }));
+    await page.goto("http://localhost/mail-reports");
+    const report = page.getByRole("region", { name: "Saved receipt report" });
+    await expect(report).toBeVisible();
+    await awaitProductFont(page);
+    await report.getByLabel("Report month").fill("2026-10");
+    await report.getByRole("button", { name: "Show report" }).click();
+    await expect(report.getByRole("status")).toContainText("2 saved mailboxes");
+    await expect(report.getByRole("status")).toContainText("USD 0.30");
+    await expect(report.getByRole("status")).toContainText("INR 30.00");
+    await expect(report.getByRole("status")).toContainText("1 duplicate copies removed");
+    await report.getByLabel("Report type").click();
+    await page.getByRole("option", { name: "Recurring charges paid" }).click();
+    await expect(report.getByRole("status")).toHaveCount(0);
+    await report.getByRole("button", { name: "Show report" }).click();
+    await expect(report.getByRole("status")).toContainText("USD 0.30");
+    await expect(report.getByRole("status")).not.toContainText("INR 30.00");
+    await report.getByLabel("Report mailboxes").click();
+    await page.getByRole("option", { name: "alex.morgan@northstar.example" }).click();
+    await report.getByRole("button", { name: "Show report" }).click();
+    await expect(report.getByRole("status")).toContainText("USD 0.10");
+    const details = report.locator("summary");
+    await details.scrollIntoViewIfNeeded();
+    await details.click();
+    await expect(report.getByText(/Includes annual charges/)).toBeVisible();
+    const frame = await page.getByTestId("app-bottom-nav-frame").boundingBox();
+    const bounds = await details.boundingBox();
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(frame!.y);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    expect(errors).toEqual([]);
+    await report.screenshot({ path: testInfo.outputPath(`saved-mail-report-${width}.png`) });
+  });
+}
+
+for (const width of [393, 1280]) {
+  test(`Google mailbox accounts fit and disconnect independently at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route('http://localhost/fixture.js', route => route.fulfill({ contentType: 'application/javascript', body: script }));
+    await page.route('http://localhost/mail-workspace', route => route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<!doctype html><html data-workspace="overview" data-mail-accounts="1"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>` }));
+    await page.goto('http://localhost/mail-workspace');
+    const accounts = page.getByRole('region', { name: 'Connected mailboxes' });
+    await expect(accounts.getByText('personal@gmail.example')).toBeVisible();
+    await awaitProductFont(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    for (const button of await accounts.getByRole('button').all()) {
+      expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    await accounts.screenshot({ path: testInfo.outputPath(`google-mailboxes-${width}.png`) });
+    await accounts.getByRole('button', { name: 'Disconnect' }).nth(1).click();
+    await expect(accounts.getByText('personal@gmail.example')).toHaveCount(0);
+    await expect(accounts.getByText('work@workspace.example')).toBeVisible();
+    await page.evaluate(() => window.addEventListener('hushh:google-connector-intent', event => { document.documentElement.dataset.mailIntent = (event as CustomEvent<string>).detail; }, { once: true }));
+    await accounts.getByRole('button', { name: 'Add Google account' }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-mail-intent', 'hushh://one/connect/google/gmail/add');
+    expect(errors).toEqual([]);
+  });
+}
 
 for (const width of [360, 393, 430, 768, 1024, 1440]) {
   for (const theme of ["light", "dark"] as const) {

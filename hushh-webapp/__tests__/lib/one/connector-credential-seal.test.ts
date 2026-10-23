@@ -58,6 +58,14 @@ async function openAsAgent(envelope: ConnectorCredentialEnvelope, info: string):
 }
 
 describe("connector credential seal golden vector", () => {
+  it('seals mailbox intent with the code and refuses retargeting it to Drive', async () => {
+    const mailAccount = { mode: 'reconnect' as const, accountId: 'a'.repeat(32), credentialId: vector.aad.credentialId };
+    const plaintext = { ...vector.plaintext, mailAccount };
+    const envelope = await sealConnectorCredential('gmail', plaintext, recipient);
+    expect(JSON.parse(await openAsAgent(envelope, vector.hkdfInfo)).mailAccount).toEqual(mailAccount);
+    expect(JSON.stringify(envelope)).not.toContain(mailAccount.accountId);
+    await expect(sealConnectorCredential('drive', plaintext, recipient)).rejects.toThrow('CREDENTIAL_INVALID');
+  });
   it("produces the agent's expected envelope byte for byte", async () => {
     expect(canonical(vector.aad)).toBe(vector.aadCanonical);
     expect(canonical(vector.plaintext)).toBe(vector.plaintextCanonical);

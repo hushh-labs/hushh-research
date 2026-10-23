@@ -27,10 +27,12 @@ function MailOverviewIcon() {
 }
 
 export function MailConnectedAccount({
+  email,
   busy = false,
   onReconnect,
   onDisconnect,
 }: {
+  email?: string | null;
   busy?: boolean;
   onReconnect: () => void;
   onDisconnect: () => void;
@@ -42,6 +44,7 @@ export function MailConnectedAccount({
         <MailOverviewIcon />
         <div>
           <h2 className={mailStyles.sectionTitle}>Mail</h2>
+          {email ? <p className={`${mailStyles.support} break-all`}>{email} · Google</p> : null}
           <p className={`${mailStyles.support} flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400`}>
             <span aria-hidden="true" className="size-2.5 rounded-full bg-emerald-500" />
             Connected

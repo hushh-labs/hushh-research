@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Button } from '@/components/ui/button';
 import { ApiService } from '@/lib/services/api-service';
 import { ROUTES } from '@/lib/navigation/routes';
-import { googleConnectorIntent, GOOGLE_CONNECTOR_HANDOFF_EVENT } from '@/lib/one/google-connector-intent';
+import { parseGoogleConnectorIntent, GOOGLE_CONNECTOR_HANDOFF_EVENT } from '@/lib/one/google-connector-intent';
+import { privateMailAccounts } from '@/lib/services/private-google-connections';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { GoogleConnectorPhoneHandoff } from './google-connector-phone-handoff';
 import { phoneHandoff } from '@/lib/one/google-native-connect';
@@ -24,6 +25,7 @@ export function NativePrivateGoogleConnectorHandoff() {
   const { vaultKey, vaultOwnerToken } = useVault();
   const { confirmTransition, transitionDialog, transitionPending, cancelTransition } = useGoogleConnectorTransitionReview(user?.uid, snapshotVaultSessionEpoch());
   const [connector, setConnector] = useState<GoogleConnector | null>(null);
+  const [addMailbox, setAddMailbox] = useState(false);
   const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -33,8 +35,8 @@ export function NativePrivateGoogleConnectorHandoff() {
   useEffect(() => {
     const receive = (event: Event) => {
       const detail: unknown = (event as CustomEvent).detail;
-      const next = typeof detail === 'string' ? googleConnectorIntent(detail) : null;
-      if (next) { intentEpoch.current += 1; cancelTransition(); setConnector(next); setMessage(''); setPaused(false); setBusy(false); }
+      const next = typeof detail === 'string' ? parseGoogleConnectorIntent(detail) : null;
+      if (next) { intentEpoch.current += 1; cancelTransition(); setConnector(next.connector); setAddMailbox(next.addMailbox); setMessage(''); setPaused(false); setBusy(false); }
     };
     window.addEventListener(GOOGLE_CONNECTOR_HANDOFF_EVENT, receive);
     return () => window.removeEventListener(GOOGLE_CONNECTOR_HANDOFF_EVENT, receive);
@@ -47,8 +49,8 @@ export function NativePrivateGoogleConnectorHandoff() {
     let remove: (() => void) | undefined;
     let liveArrival = false;
     const consume = (raw: string) => {
-      const next = googleConnectorIntent(raw);
-      if (next && !disposed) { intentEpoch.current += 1; cancelTransition(); setConnector(next); setMessage(''); setBusy(false); }
+      const next = parseGoogleConnectorIntent(raw);
+      if (next && !disposed) { intentEpoch.current += 1; cancelTransition(); setConnector(next.connector); setAddMailbox(next.addMailbox); setMessage(''); setBusy(false); }
     };
     void import('@capacitor/app').then(async ({ App }) => {
       const listener = await App.addListener('appUrlOpen', (event) => { liveArrival = true; consume(event.url); });
@@ -68,9 +70,15 @@ export function NativePrivateGoogleConnectorHandoff() {
     setBusy(true); setMessage('');
     try {
       const outcome = await connectGoogleConnector(connector, { isCurrent: current, vaultOwnerCapability: vaultOwnerToken,
+        ...(addMailbox ? { mailAccount: { mode: 'add' as const } } : {}),
         confirmLegacyTransition: confirmTransition });
       if (!current()) return;
       if (!outcome.ok) { setMessage(connectRefusalMessage(outcome.code, connector)); return; }
+      if (addMailbox) {
+        const accounts = await privateMailAccounts();
+        if (current()) setMessage(accounts.some(account => account.accountId === outcome.accountId && account.status === 'connected') ? outcome.legacyCleanup === 'unconfirmed' ? 'Mailbox connected. The previous Google connection still needs verification.' : 'Your mailbox is connected to your private agent.' : 'Your agent could not confirm the mailbox. Refresh Mail.');
+        return;
+      }
       const response = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
       const confirmed = await response.json() as { connectorId?: string; status?: string };
       if (!current()) return;
@@ -83,8 +91,8 @@ export function NativePrivateGoogleConnectorHandoff() {
   return <><Dialog open={connector !== null && !paused && !transitionPending} onOpenChange={(open) => { if (!open && !busy) { intentEpoch.current += 1; setConnector(null); setMessage(''); } }}>
     <DialogContent>
       <DialogTitle>Connect {connector === 'gmail' ? 'Gmail' : `Google ${connector ?? ''}`}</DialogTitle>
-      <DialogDescription>This phone connects to the private agent of the account signed in here. The scanned link carries only the connector name.</DialogDescription>
-      {!Capacitor.isNativePlatform() && connector ? <GoogleConnectorPhoneHandoff handoff={phoneHandoff(connector)} /> : !loading && !user ? <Button onClick={() => { setPaused(true); router.push(ROUTES.LOGIN); }}>Sign in on this phone</Button> :
+      <DialogDescription>This phone connects to the private agent of the account signed in here. The scanned link requests a Google connection and carries no account details.</DialogDescription>
+      {!Capacitor.isNativePlatform() && connector ? <GoogleConnectorPhoneHandoff handoff={phoneHandoff(connector, addMailbox)} /> : !loading && !user ? <Button onClick={() => { setPaused(true); router.push(ROUTES.LOGIN); }}>Sign in on this phone</Button> :
         !vaultKey || !vaultOwnerToken ? <Button disabled={loading} onClick={() => { setPaused(true); router.push(ROUTES.PROFILE_CONNECTORS); }}>Unlock your vault</Button> :
           <Button disabled={busy} onClick={() => void connect()}>{busy ? 'Connecting…' : 'Continue with Google'}</Button>}
       {message && <p role="status" className="text-sm">{message}</p>}

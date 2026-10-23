@@ -137,6 +137,7 @@ class OpenedConnectorCredential:
     code_verifier: Optional[str] = field(default=None, repr=False)
     client_secret: Optional[str] = field(default=None, repr=False)
     mcp: Optional[dict[str, Any]] = field(default=None, repr=False)
+    mail_account: Optional[dict[str, str]] = None
 
 
 def _refuse(code: str) -> ConnectorCredentialRefused:
@@ -271,12 +272,35 @@ def _mcp_oauth(body: Mapping[str, Any]) -> dict[str, Any]:
 
 def _parse_plaintext(raw: bytes, *, kind: str, connector_id: str) -> dict[str, Any]:
     body = core.parse_json_object(raw, purpose=SEAL_PURPOSE)
+    mail_account = body.pop("mailAccount", None)
+    if mail_account is not None:
+        from hushh_mcp.services.pod_mail_accounts import ACCOUNT_ID
+
+        if (
+            connector_id != "gmail"
+            or kind != KIND_AUTHORIZATION_CODE
+            or not isinstance(mail_account, dict)
+        ):
+            raise _refuse(BAD_ENVELOPE)
+        if mail_account.get("mode") == "add":
+            if set(mail_account) != {"mode"}:
+                raise _refuse(BAD_ENVELOPE)
+        elif mail_account.get("mode") == "reconnect":
+            if (
+                set(mail_account) != {"mode", "accountId", "credentialId"}
+                or not isinstance(mail_account.get("accountId"), str)
+                or not ACCOUNT_ID.fullmatch(mail_account["accountId"])
+            ):
+                raise _refuse(BAD_ENVELOPE)
+            core.check_uuid4(mail_account.get("credentialId"), purpose=SEAL_PURPOSE)
+        else:
+            raise _refuse(BAD_ENVELOPE)
     if body.get("kind") not in _KIND_KEYS or body.get("kind") != kind:
         raise _refuse(CREDENTIAL_KIND_UNSUPPORTED)
     if set(body) != _KIND_KEYS[kind]:
         raise _refuse(BAD_ENVELOPE)
     if kind == KIND_AUTHORIZATION_CODE:
-        return _authorization_code(body, connector_id)
+        return {**_authorization_code(body, connector_id), "mail_account": mail_account}
     if kind == KIND_OWNER_CLIENT:
         return _owner_client(body)
     return _mcp_oauth(body)

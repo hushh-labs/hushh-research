@@ -239,6 +239,23 @@ def id_token_subject(
     return subject
 
 
+def id_token_email(id_token: Optional[str], *, client_id: str) -> str:
+    """Display only a verified email from the same provider token as the subject."""
+    id_token_subject(id_token, client_id=client_id)
+    part = str(id_token).split(".")[1]
+    claims = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+    email = claims.get("email")
+    return (
+        email
+        if claims.get("email_verified") is True
+        and isinstance(email, str)
+        and len(email) <= 254
+        and "@" in email
+        and not any(c.isspace() for c in email)
+        else ""
+    )
+
+
 __all__ = [
     "ACCOUNT_UNVERIFIED",
     "INVALID_GRANT",

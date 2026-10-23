@@ -4,7 +4,10 @@ import { IDBFactory } from "fake-indexeddb";
 import { webcrypto } from "node:crypto";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
-import { loadReceiptSnapshot } from "@/lib/mail/receipt-store";
+import { loadReceiptSnapshot, writeReceiptSnapshot, receiptStoreVersion } from "@/lib/mail/receipt-store";
+import { captureReceiptSnapshot } from "@/lib/mail/receipt-snapshot";
+import { MailSavedReceiptReport } from "@/components/gmail/mail-saved-receipt-report";
+import * as receiptReports from "@/lib/mail/receipt-report-store";
 import { SecureDurableResourceService as Durable } from "@/lib/services/secure-durable-resource-service";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
 import { GmailReceiptRequestError } from "@/lib/services/gmail-receipts-service";
@@ -73,6 +76,55 @@ afterEach(async () => {
 });
 
 describe("receipt sync durable completion", () => {
+  it("can calculate again after leaving Overview during an in-flight report", async () => {
+    const snapshot = await captureReceiptSnapshot([{ ...receipt, transaction_date: "2026-10-09" }], account,
+      { partial: false, truncated: false, source_count: 1, window_from: null, window_to: null, source: "gmail_live" });
+    await writeReceiptSnapshot(session, snapshot, await receiptStoreVersion(session.userId, account));
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const run = receiptReports.runSavedReceiptReport;
+    const reportSpy = vi.spyOn(receiptReports, "runSavedReceiptReport").mockImplementationOnce(async (...args) => {
+      const result = await run(...args); await gate; return result;
+    });
+    const props = { session, activeAccount: account, receiptRevision: "1" };
+    const view = render(<MailSavedReceiptReport {...props} enabled />);
+    fireEvent.click(await screen.findByRole("button", { name: "Show report" }));
+    await waitFor(() => expect(reportSpy).toHaveBeenCalledOnce());
+    view.rerender(<MailSavedReceiptReport {...props} enabled={false} />);
+    await act(async () => { release(); });
+    view.rerender(<MailSavedReceiptReport {...props} enabled />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Show report" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Show report" }));
+    await waitFor(() => expect(reportSpy).toHaveBeenCalledTimes(2));
+    await screen.findByRole("status");
+  });
+  it("does not scan a mailbox whose verified status says receipt sync is unavailable", async () => {
+    fixture.gmail.status.receipt_sync_available = false;
+    try {
+      open();
+      expect(await screen.findByText("Receipt sync is not available for this account right now.")).toBeInTheDocument();
+      expect(fixture.scan).not.toHaveBeenCalled();
+    } finally { cleanup(); fixture.gmail.status.receipt_sync_available = true; }
+  });
+  it("refreshes the retained report after the first saved sync and clears decrypted results on Reset", async () => {
+    const list = Durable.list.bind(Durable); let inventories = 0;
+    vi.spyOn(Durable, "list").mockImplementation(async (...args) => { const keys = await list(...args); inventories += 1; return keys; });
+    const view = render(<MailSavedReceiptReport session={session} activeAccount={account} activeEmail="work@example.test" receiptRevision="0" />);
+    await waitFor(() => expect(inventories).toBe(1));
+    expect(screen.queryByRole("button", { name: "Show report" })).not.toBeInTheDocument();
+    const snapshot = await captureReceiptSnapshot([{ ...receipt, transaction_date: "2026-10-09", recurrence: "recurring" }], account,
+      { partial: false, truncated: false, source_count: 1, window_from: null, window_to: null, source: "gmail_live" });
+    await writeReceiptSnapshot(session, snapshot, await receiptStoreVersion(session.userId, account));
+    view.rerender(<MailSavedReceiptReport session={session} activeAccount={account} activeEmail="work@example.test" receiptRevision="1" />);
+    const show = await screen.findByRole("button", { name: "Show report" });
+    fireEvent.change(screen.getByLabelText("Report month"), { target: { value: "2026-10" } });
+    fireEvent.click(show);
+    expect((await screen.findAllByText("USD 10.00")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Saved receipts only, not total spending/)).toBeInTheDocument();
+    await act(async () => { await Durable.purgeUser(session.userId); });
+    expect(screen.queryAllByText("USD 10.00")).toHaveLength(0);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Show report" })).not.toBeInTheDocument());
+  });
   it.each([false, true])("shows each restored-refresh page immediately, dedupes saved groups and keeps the durable snapshot on failure (new saved event=%s)", async newSavedEvent => {
     const purchase = { ...receipt, order_id: "SHARED-ORDER" };
     const fulfillment = { ...purchase, id: 2, source_id: "saved-shipping", receipt_key: "saved-shipping",

@@ -7,6 +7,8 @@ import { resolveTopShellRouteProfile } from '@/components/app-ui/top-shell-metri
 import { resolveSignedInShellContentOffset, resolveTopShellGeometryStyle } from '@/components/app-ui/signed-in-shell-content-offset';
 import { primeCachedGmailReceipts } from '@/lib/profile/gmail-receipts-cache';
 import { publishValidatedAuthSessionOwner } from '@/lib/auth/session-owner';
+import { captureReceiptSnapshot } from '@/lib/mail/receipt-snapshot';
+import { receiptStoreVersion, writeReceiptSnapshot } from '@/lib/mail/receipt-store';
 const syntheticReceipts = ['Amazon','Apple','Myntra','Udemy','Plaid'].map((merchant, i) => ({
  id: i + 1, source_id: `synthetic-source-${i}`, receipt_key: `synthetic-source-${i}`, source_kind: 'gmail_live' as const,
  source_evidence: [], gmail_message_id: `synthetic-message-${i}`, merchant_name: merchant, merchant_domain: `${merchant.toLowerCase()}.com`,
@@ -28,4 +30,23 @@ function Fixture() {
   <AppTopShell model={resolveTopShellRouteProfile('/one/gmail').model}/>
  </div>;
 }
-createRoot(document.getElementById('root')!).render(<Fixture/>);
+async function mount() {
+ if (document.documentElement.dataset.savedReport === '1') {
+  const base = { ...syntheticReceipts[0]!, transaction_date: '2026-10-10', currency: 'USD', amount: 0.1, amount_decimal: '0.10',
+   recurrence: 'recurring' as const, identifiers: [{ kind: 'invoice' as const, value: 'INVOICE-1' }] };
+  const accounts = [
+   { account: 'synthetic-account', items: [base] },
+   { account: 'synthetic-other-account', items: [{ ...base, id: 20, source_id: 'forwarded-copy', receipt_key: 'forwarded-copy' },
+    { ...base, id: 21, source_id: 'second-charge', receipt_key: 'second-charge', amount: 0.2, amount_decimal: '0.20', identifiers: [{ kind: 'invoice' as const, value: 'INVOICE-2' }] },
+    { ...base, id: 22, source_id: 'inr-charge', receipt_key: 'inr-charge', currency: 'INR', amount: 30, amount_decimal: '30.00', recurrence: 'one_time' as const, identifiers: [{ kind: 'invoice' as const, value: 'INVOICE-3' }] }] },
+  ];
+  for (const { account, items } of accounts) {
+   const snapshot = await captureReceiptSnapshot(items, account, { partial: false, truncated: false, source_count: items.length,
+    window_from: '2026-10-01', window_to: '2026-11-01', source: 'gmail_live' });
+   await writeReceiptSnapshot({ userId: 'synthetic-owner', vaultKey: '12'.repeat(32), vaultOwnerToken: 'synthetic-owner-token' },
+    snapshot, await receiptStoreVersion('synthetic-owner', account));
+  }
+ }
+ createRoot(document.getElementById('root')!).render(<Fixture/>);
+}
+void mount();
