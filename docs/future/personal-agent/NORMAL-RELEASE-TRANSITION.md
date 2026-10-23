@@ -2,7 +2,7 @@
 
 **Status:** [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365)
 landed as `51a5a86675`; dev and exact-revision UAT accepted, 23 October 2026.
-Continue on the preserved infrastructure branch; main through `04081d3c46` is inherited, including Calendar, Copilot styling and the Azure filtering repair. That later source integration does not change the accepted application revision above.
+Continue on the preserved infrastructure branch; main through `2f57085b09` is inherited, including Calendar, Copilot styling, Azure filtering, bounded account erasure and Drive cleanup. That later source integration does not change the accepted application revision above.
 PR8337 landed as `0ea0f8fce3` with exact-head CI and landed smoke successful.
 Preserve nine peer edits and the independently active ADK tree. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)

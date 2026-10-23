@@ -220,6 +220,8 @@ def assert_external_resources_absent(
     # historical links can establish absence for a later account deletion.
     if (
         registry_row is not None
+        and status == "unprovisioned"
+        and (registry.get("backend_metadata") or {}).get("detachedPlacements")
         and byoc_row is None
         and lifecycle_row is None
         and migration_row is None

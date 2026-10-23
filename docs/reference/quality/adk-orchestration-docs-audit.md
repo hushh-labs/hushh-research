@@ -47,7 +47,7 @@ supported OTEL cap excludes the patched release: ignore incoming vendor
 and outbound context. This is an application mitigation, not an upstream alert
 closure. The dev-only unpatched `braces` tooling advisory remains tracked.
 
-## Latest stabilization and cloud removal — 23 October, 10:15 UTC
+## Latest stabilization and cloud removal — 23 October, 11:10 UTC
 
 [PR8377](https://github.com/hushh-labs/hushh-research/pull/8377) landed as
 `49975547b6`. One frozen-candidate core mirror completed in 19m41s; all 26 hosted
@@ -76,6 +76,14 @@ uncertain cleanup, preserve previous homes and fence stale replacement callbacks
 Dev-only migration972 is not deployed. Neither provider’s standalone cloud
 removal has live owner acceptance. The [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account)
 owns its authority, recovery and unavailable boundaries.
+
+Fresh main through `2f57085b09` is integrated locally, preserving its threaded
+account erasure, PostgreSQL lock/statement limits and Drive cleanup changes.
+Combined cleanup verification passes 87 cases, including real PostgreSQL cloud
+removal and blocked-erasure rollback. The first broader run exposed two legacy
+fixture failures: ordinary never-provisioned accounts now avoid the cloud-history
+receipt lookup, and the absent-table receipt expectation includes the new ledger.
+The corrected combined candidate still requires its final core and hosted checks.
 
 ## Visual Context
 
