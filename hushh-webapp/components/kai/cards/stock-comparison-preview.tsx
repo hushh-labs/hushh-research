@@ -186,16 +186,17 @@ export function StockComparisonPreview({
                   : "p-4",
               )}
             >
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     Debate source
                   </p>
-                  <p className={cn("text-sm text-muted-foreground", embeddedInDetailSurface && "hidden sm:block")}>
-                    One will use this active list context when the debate starts and when the result is saved.
+                  <p className="text-sm text-muted-foreground">
+                    Used for this analysis and its saved result.
                   </p>
                 </div>
-                <div className="w-[min(11rem,58%)] shrink-0 sm:w-auto sm:min-w-[220px]">
+                <div className="w-full shrink-0 sm:w-[220px]">
+                  {displaySources.length > 1 ? (
                   <Select
                     value={selectedSource?.id || preview.active_pick_source || "default"}
                     onValueChange={(nextValue) => {
@@ -217,7 +218,7 @@ export function StockComparisonPreview({
                         </SelectItem>
                       ))}
                     </SelectContent>
-                  </Select>
+                  </Select>) : <p className="text-sm font-medium">{selectedSource?.label || preview.list_match.label || "List source unavailable"}</p>}
                 </div>
               </div>
             </SurfaceInset>
@@ -229,19 +230,19 @@ export function StockComparisonPreview({
             className={cn(
               "grid gap-3 sm:grid-cols-[1.15fr_1fr]",
               embeddedInDetailSurface &&
-                "grid-cols-2 gap-0 overflow-hidden rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-neutral-fill)]",
+                "grid-cols-1 gap-4",
             )}
           >
             <SurfaceInset className={cn(embeddedInDetailSurface ? "rounded-none border-0 !bg-transparent p-3 shadow-none" : "p-4")}>
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                    Live market
+                    Market quote
                   </p>
                   <h3 className={cn("font-semibold text-foreground", embeddedInDetailSurface ? "text-base" : "text-lg")}>
                     {preview.quote.company_name}
                   </h3>
-                  <p className={cn("text-sm text-muted-foreground", embeddedInDetailSurface && "hidden sm:block")}>
+                  <p className="text-sm text-muted-foreground">
                     {preview.quote.sector || "Sector unavailable"}
                   </p>
                 </div>
@@ -262,7 +263,7 @@ export function StockComparisonPreview({
               </div>
             </SurfaceInset>
 
-            <SurfaceInset className={cn(embeddedInDetailSurface ? "rounded-none border-0 border-l border-[color:var(--app-card-border-standard)] !bg-transparent p-3 shadow-none" : "p-4")}>
+            <SurfaceInset className={cn(embeddedInDetailSurface ? "rounded-none border-0 border-t border-[color:var(--app-card-border-standard)] !bg-transparent p-3 shadow-none" : "p-4")}>
               <div className="space-y-1">
                 <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   List comparison
@@ -270,13 +271,13 @@ export function StockComparisonPreview({
                 <h3 className={cn("font-semibold text-foreground", embeddedInDetailSurface ? "text-base" : "text-lg")}>
                   {preview.list_match.in_list ? "Included on the active list" : "Not on the active list"}
                 </h3>
-                <p className={cn("text-sm text-muted-foreground", embeddedInDetailSurface && "line-clamp-2 text-xs leading-4")}>
+                <p className={cn("text-sm text-muted-foreground", embeddedInDetailSurface && "text-sm leading-[21px]")}>
                   {preview.list_match.in_list
                     ? preview.list_match.company_name || preview.quote.company_name
                     : "One does not currently match this stock to the selected picks list."}
                 </p>
               </div>
-              <div className={cn("flex flex-wrap gap-2", embeddedInDetailSurface ? "mt-2 hidden sm:flex" : "mt-4")}>
+              <div className={cn("flex flex-wrap gap-2", embeddedInDetailSurface ? "mt-2" : "mt-4")}>
                 {preview.list_match.tier ? (
                   <Badge className="bg-[color:var(--app-card-surface-compact)] text-muted-foreground">
                     Tier {preview.list_match.tier}
@@ -329,10 +330,10 @@ export function StockComparisonPreview({
                 {preview.list_match.in_list ? <SearchCheck className="h-4 w-4" /> : <BarChart3 className="h-4 w-4" />}
               </span>
               <div className="min-w-0 space-y-2">
-                <p className={cn("text-sm font-medium text-foreground", embeddedInDetailSurface && "line-clamp-2 text-xs leading-4")}>
+                <p className={cn("text-sm font-medium text-foreground", embeddedInDetailSurface && "text-sm leading-[21px]")}>
                   {preview.list_match.investment_thesis || "One can launch the full debate to generate the deeper thesis and recommendation context."}
                 </p>
-                <p className={cn("text-xs text-muted-foreground", embeddedInDetailSurface && "hidden sm:block")}>
+                <p className="text-xs text-muted-foreground">
                   Source: {selectedSource?.label || preview.list_match.label || preview.list_match.source_id} · {preview.quote.as_of
                     ? `Quote as of ${new Date(preview.quote.as_of).toLocaleString()}`
                     : "Quote time unavailable"}
@@ -344,8 +345,8 @@ export function StockComparisonPreview({
           {showStartAction ? (
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button
-                variant="blue-gradient"
-                effect="fill"
+                variant="none"
+                effect="fade"
                 onClick={onStartDebate}
                 disabled={loading || starting}
               >

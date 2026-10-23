@@ -47,7 +47,7 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
   return <section aria-label="Stocks" className={marketSurfaceVariablesClassName} data-testid="kai-stocks-browser">
     {browseStocks && loading && !payload ? <p role="status" className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading stocks…</p> : null}
     {browseStocks && error && !payload ? <p role="status" className="py-4 text-sm text-muted-foreground">Stocks are temporarily unavailable.</p> : null}
-    {browseStocks && payload ? <RiaPicksList rows={rows} sources={payload.pick_sources ?? []}
+    {browseStocks && payload ? <RiaPicksList rows={rows} sources={payload.pick_sources ?? []} news={payload.news_tape ?? []}
       activeSourceId={activePickSource} onSourceChange={handlePickSourceChange}
       controlMode="adaptive-surface" loadCompanyFacts={active ? loadCompanyFacts : undefined}
       loadHistory={active ? loadHistory : undefined} toolbarActions={historyButton}
