@@ -4,7 +4,7 @@ run-name: Security alerts for ${{ github.event.workflow_run.id || inputs.source_
 on:
   workflow_run:
     workflows: ["PR Validation"]
-    types: [in_progress]
+    types: [requested]
   workflow_dispatch:
     inputs:
       source_run_id:
