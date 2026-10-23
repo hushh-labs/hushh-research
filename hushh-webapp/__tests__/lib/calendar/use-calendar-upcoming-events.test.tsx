@@ -46,6 +46,15 @@ describe("useCalendarUpcomingEvents", () => {
     expect(mockedListEvents).not.toHaveBeenCalled();
   });
 
+  it.each([{ has_more: true }, { truncated: true }])("keeps provider truncation visible to task coverage: %j", async flags => {
+    mockedListEvents.mockResolvedValueOnce({ events: [RAW_EVENT], ...flags });
+    const { result } = renderHook(() => useCalendarUpcomingEvents({ userId: "user-1", vaultOwnerToken: "vault-token", isConnected: true }));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.incomplete).toBe(true);
+    expect(result.current.events).toHaveLength(1);
+    expect(JSON.stringify(result.current.events)).not.toContain(RAW_EVENT.description);
+  });
+
   it("redacts description, location, attendees, and html_link before returning events", async () => {
     mockedListEvents.mockResolvedValueOnce({
       events: [RAW_EVENT],

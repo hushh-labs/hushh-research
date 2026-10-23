@@ -1,6 +1,10 @@
 import { webcrypto } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readTodoCapabilities, type TaskReadContext } from "@/lib/services/todo-capability-sources";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { useTodoCapabilitySources } from "@/lib/todos/use-todo-capability-sources";
+import { CacheService } from "@/lib/services/cache-service";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const mocks = vi.hoisted(() => ({ messages: vi.fn(), wallet: vi.fn(), persona: vi.fn(), home: vi.fn(), mail: vi.fn(), invitations: vi.fn(), memory: vi.fn() }));
 vi.mock("@/lib/services/direct-messages-service", () => ({ DirectMessagesService: { unreadCount: mocks.messages } }));
@@ -8,7 +12,7 @@ vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessSe
 vi.mock("@/lib/services/ria-service", () => ({ RiaService: { getPersonaState: mocks.persona, getHome: mocks.home } }));
 vi.mock("@/lib/services/gmail-receipts-service", () => ({ GmailReceiptsService: { listNudges: mocks.mail } }));
 vi.mock("@/lib/services/google-calendar-service", () => ({ GoogleCalendarService: { invitations: mocks.invitations } }));
-vi.mock("@/lib/pkm/memory-refresh", () => ({ peekLiveMirror: mocks.memory }));
+vi.mock("@/lib/pkm/memory-refresh", async original => ({ ...await original<typeof import("@/lib/pkm/memory-refresh")>(), peekLiveMirror: mocks.memory }));
 const context = (): TaskReadContext => ({ userId: "owner", vaultOwnerToken: "fixture", getIdToken: async () => "fixture-id", isCurrent: () => true, mailConnected: true, calendarConnected: true, mailStatusKnown: true, calendarStatusKnown: true });
 const requestId = "00000000-0000-4000-8000-000000000001";
 describe("owner-safe capability task reads", () => {
@@ -30,6 +34,10 @@ describe("owner-safe capability task reads", () => {
     expect(serialized).not.toContain("raw-thread");
     expect(serialized).not.toContain("raw-message");
     expect(result.find(row => row.coverage.capability === "gmail")?.coverage.status).toBe("incomplete");
+    expect(result.find(row => row.coverage.capability === "gmail")?.evidence).toEqual([
+      expect.objectContaining({ pendingTitle: "Reply about the meeting", href: "/one/gmail" }),
+    ]);
+    expect(result.find(row => row.coverage.capability === "messages")?.evidence[0]).toMatchObject({ reviewTitle: "Review 3 unread messages" });
   });
   it("paginates pending Wallet work and keeps the exact reviewed request destination", async () => {
     mocks.wallet.mockResolvedValueOnce({ items: [{ id: requestId }], hasMore: true, nextCursor: requestId }).mockResolvedValueOnce({ items: [], hasMore: false, nextCursor: null });
@@ -41,8 +49,10 @@ describe("owner-safe capability task reads", () => {
   });
   it("preserves other sources and marks failed reads unavailable", async () => {
     mocks.wallet.mockRejectedValue(new Error("Offline"));
+    mocks.memory.mockImplementation(() => { throw new Error("Projection unavailable"); });
     const result = await readTodoCapabilities(context());
     expect(result.find(row => row.coverage.capability === "wallet")?.coverage.status).toBe("unavailable");
+    expect(result.find(row => row.coverage.capability === "pkm")?.coverage.status).toBe("unavailable");
     expect(result.find(row => row.coverage.capability === "messages")?.coverage.count).toBe(3);
   });
   it("never calls unknown connection states disconnected", async () => {
@@ -61,12 +71,48 @@ describe("owner-safe capability task reads", () => {
     mocks.home.mockResolvedValue({ needs_attention: [{ id: "attention-one", title: "Review the client request", next_action: "Review request", href: "/ria/requests" }], counts: { needs_attention: 1 } });
     const result = await readTodoCapabilities(context());
     const advisor = result.find(row => row.coverage.capability === "ria")!;
-    expect(advisor.coverage).toEqual({ capability: "ria", count: 1, status: "ready" });
+    expect(advisor.coverage).toEqual({ capability: "ria", count: 1, status: "incomplete" });
     expect(advisor.evidence[0]).toMatchObject({ pendingTitle: "Review request", href: "/ria/requests" });
   });
   it("does not release an old owner's results", async () => {
     let current = true;
     mocks.messages.mockImplementation(async () => { current = false; return 3; });
     await expect(readTodoCapabilities({ ...context(), isCurrent: () => current })).rejects.toThrow("Session changed");
+  });
+
+  it("observes the existing owner's Memory publication without refetching providers or losing a publication during initial load", async () => {
+    let finish!: (value: { items: []; hasMore: boolean }) => void;
+    mocks.wallet.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const ctx = context();
+    const { result, rerender } = renderHook(({ enabled }) => useTodoCapabilitySources({ ...ctx, idTokenProvider: ctx.getIdToken, enabled }), { initialProps: { enabled: true } });
+    await waitFor(() => expect(mocks.wallet).toHaveBeenCalledOnce());
+    const mirror = { ownerId: "owner", vaultEpoch: snapshotVaultSessionEpoch(), inventoryComplete: true, conflicts: [{}], sources: [{ state: "conflict", pendingChanges: 0, reason: null }] };
+    mocks.memory.mockReturnValue(mirror);
+    const before = mocks.memory.mock.calls.length;
+    act(() => CacheService.getInstance().set("pkm_memory_document_other", {}));
+    expect(mocks.memory).toHaveBeenCalledTimes(before);
+    act(() => CacheService.getInstance().set("pkm_memory_document_owner", {}));
+    expect(result.current.reads.find(read => read.coverage.capability === "pkm")?.evidence[0]).toMatchObject({ reviewTitle: "Review memory disagreements" });
+    mocks.memory.mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        mocks.memory.mockReturnValue({ ...mirror, conflicts: [{}, {}] });
+        CacheService.getInstance().set("pkm_memory_document_owner", {});
+      });
+      return mirror;
+    });
+    await act(async () => finish({ items: [], hasMore: false }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.reads.find(read => read.coverage.capability === "pkm")?.coverage.count).toBe(2);
+    mocks.memory.mockReturnValue({ ...mirror, conflicts: [], sources: [{ state: "current", pendingChanges: 2, reason: null }] });
+    act(() => CacheService.getInstance().set("pkm_memory_document_owner", {}));
+    expect(result.current.reads.find(read => read.coverage.capability === "pkm")).toMatchObject({ coverage: { count: 0, status: "incomplete" }, evidence: [] });
+    expect(mocks.mail).toHaveBeenCalledOnce();
+    mocks.memory.mockReturnValue(null);
+    act(() => CacheService.getInstance().invalidate("pkm_memory_document_owner"));
+    expect(result.current.reads.find(read => read.coverage.capability === "pkm")).toMatchObject({ coverage: { status: "unavailable" }, evidence: [] });
+    rerender({ enabled: false });
+    mocks.memory.mockReturnValue(mirror);
+    act(() => CacheService.getInstance().set("pkm_memory_document_owner", {}));
+    expect(result.current.reads).toEqual([]);
   });
 });

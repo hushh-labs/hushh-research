@@ -7,6 +7,7 @@ let state = {
   error: false,
   failSave: false,
   hideAgent: false,
+  sourceReviews: false,
   revision: 0,
   message: "",
   href: "",
@@ -91,9 +92,22 @@ export function cachedGmailReceiptDisplayItems() {
 }
 // This isolated fixture never contains Gmail receipts, so clearing is a no-op.
 export function clearCachedGmailReceipts() {}
-// Only the synthetic Feed task participates in this lifecycle fixture.
+// No Mail account exists in this persistence fixture. A receipt read is a bug.
+export async function loadReceiptSnapshot(): Promise<never> {
+  throw new Error("This fixture must not read Mail receipts");
+}
+const emptyReceiptResource = { snapshot: null };
+export const MailReceiptResourceService = {
+  subscribe: () => () => {},
+  peek: () => emptyReceiptResource,
+};
+// Provider summaries are synthetic; projection and source review rows are production code.
 export async function readTodoCapabilities() {
-  return [];
+  return state.sourceReviews ? [{ coverage: { capability: "messages", count: 2, status: "ready" }, evidence: [{ capability: "messages", key: "messages:unread", summary: "2 unread messages", reviewTitle: "Review 2 unread messages", href: "/chat" }] }] : [];
+}
+export function subscribeLiveMirror() { return () => {}; }
+export function readTodoMemory() {
+  return { coverage: { capability: "pkm", count: state.sourceReviews ? 1 : 0, status: "ready" }, evidence: state.sourceReviews ? [{ capability: "pkm", key: "memory:attention", summary: "Memory disagreement", reviewTitle: "Review memory disagreements", href: "/one/memory" }] : [] };
 }
 export async function todoSuggestionsAvailable() {
   return false;

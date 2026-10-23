@@ -127,7 +127,7 @@ describe("TodoListPage row actions", () => {
   it("shows a truthful empty collection and distinguishes completed-only state", async () => {
     mocks.events = [];
     const view = render(<TodoListPage />);
-    expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "No tasks in the checked sources" })).toBeVisible();
     expect(screen.getByText("Add an item to get started.")).toBeVisible();
     expect(screen.queryByText("All clear")).not.toBeInTheDocument();
 
@@ -135,7 +135,7 @@ describe("TodoListPage row actions", () => {
     vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [done] });
     view.unmount();
     render(<TodoListPage />);
-    expect(await screen.findByRole("heading", { name: "No pending tasks" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "No tasks in the checked sources" })).toBeVisible();
     expect(screen.getByText("New tasks will appear here.")).toBeVisible();
   });
 
@@ -144,11 +144,10 @@ describe("TodoListPage row actions", () => {
     vi.mocked(TodoListPkmService.load).mockRejectedValue(new Error("read failed"));
     render(<TodoListPage />);
     expect(await screen.findByText("Your saved items couldn’t load.")).toBeVisible();
-    expect(screen.queryByText("No tasks yet")).not.toBeInTheDocument();
-    expect(screen.queryByText("No pending tasks")).not.toBeInTheDocument();
+    expect(screen.queryByText("No tasks in the checked sources")).not.toBeInTheDocument();
     vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [] });
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "No tasks in the checked sources" })).toBeVisible();
   });
 
   it("keeps a saved suggestion tied to its offered source and marks it already pending", () => {
@@ -162,17 +161,17 @@ describe("TodoListPage row actions", () => {
     let finishCreate!: (value: { task: TodoItem; result: { success: boolean } }) => void;
     vi.spyOn(todoService, "createTodo").mockImplementation(() => new Promise(resolve => { finishCreate = resolve; }) as ReturnType<typeof todoService.createTodo>);
     const view = render(<TodoListPage />);
-    await screen.findByRole("heading", { name: "No tasks yet" });
+    await screen.findByRole("heading", { name: "No tasks in the checked sources" });
     fireEvent.click(screen.getByRole("button", { name: "Add item" }));
     fireEvent.change(screen.getByPlaceholderText("What do you want to do?"), { target: { value: "Owner A private task" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(finishCreate).toBeDefined());
     mocks.user.uid = "another-owner";
     view.rerender(<TodoListPage />);
-    await screen.findByRole("heading", { name: "No tasks yet" });
+    await screen.findByRole("heading", { name: "No tasks in the checked sources" });
     await act(async () => finishCreate({ task: buildTodo({ title: "Owner A private task", type: "manual" }), result: { success: true } }));
     expect(screen.queryByText("Owner A private task")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "No tasks yet" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "No tasks in the checked sources" })).toBeVisible();
   });
 
   it("does not reveal a late saved read after the vault locks", async () => {

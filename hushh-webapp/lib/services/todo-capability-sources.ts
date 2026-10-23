@@ -55,7 +55,8 @@ async function readAdvisor(context: TaskReadContext, idToken: string): Promise<C
     const href = normalizeInternalRouteHref(item.href);
     return href ? [{ ...evidence("ria", `ria:${item.id}`, item.title, item.next_action || item.title), href }] : [];
   });
-  return result("ria", home.counts.needs_attention, rows, home.counts.needs_attention > rows.length ? "incomplete" : "ready");
+  // Home is an attention preview, not an exhaustive relationship inventory.
+  return result("ria", home.counts.needs_attention, rows, "incomplete");
 }
 
 async function readMail(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
@@ -63,7 +64,7 @@ async function readMail(context: TaskReadContext, idToken: string): Promise<Capa
   if (!context.mailConnected) return result("gmail", 0, [], "not_connected");
   const mail = await GmailReceiptsService.listNudges({ idToken, userId: context.userId, vaultOwnerToken: context.vaultOwnerToken, limit: 50 });
   const rows = await Promise.all(mail.nudges.filter(row => row.type === "needs_reply").map(async row =>
-    evidence("gmail", `mail:${await sourceKey(context.userId, `${row.thread_id}:${row.message_id}`)}`, row.title)));
+    evidence("gmail", `mail:${await sourceKey(context.userId, `${row.thread_id}:${row.message_id}`)}`, row.title, row.title)));
   // This publisher scans recent threads, not the entire mailbox.
   return result("gmail", rows.length, rows, "incomplete");
 }
@@ -77,13 +78,19 @@ async function readInvitations(context: TaskReadContext, idToken: string): Promi
   return result("calendar", data.pending_count, rows, data.complete && data.pending_count <= rows.length ? "ready" : "incomplete");
 }
 
-function readMemory(context: TaskReadContext): CapabilityRead {
-  const view = peekLiveMirror(context.userId);
-  if (!view || view.ownerId !== context.userId || !isVaultSessionEpochCurrent(view.vaultEpoch)) return result("pkm", 0, [], "unavailable");
-  const conflicts = view.conflicts?.length ?? 0;
-  const changes = view.sources.reduce((count, source) => count + (source.pendingChanges ?? 0), 0);
-  const rows = conflicts || changes ? [evidence("pkm", `memory:${view.builtAt}`, `${conflicts} memory disagreements and ${changes} pending source updates need review.`)] : [];
-  return result("pkm", conflicts + changes, rows, view.inventoryComplete && view.sources.every(source => ["current", "conflict"].includes(source.state) && source.pendingChanges !== null && source.reason === null) ? "ready" : "incomplete");
+export function readTodoMemory(context: Pick<TaskReadContext, "userId">): CapabilityRead {
+  try {
+    const view = peekLiveMirror(context.userId);
+    if (!view || view.ownerId !== context.userId || !isVaultSessionEpochCurrent(view.vaultEpoch)) return result("pkm", 0, [], "unavailable");
+    const conflicts = view.conflicts?.length ?? 0;
+    const rows = conflicts ? [{
+      ...evidence("pkm", "memory:attention", `${conflicts} memory disagreements need review.`),
+      reviewTitle: "Review memory disagreements",
+    }] : [];
+    return result("pkm", conflicts, rows, view.inventoryComplete && view.sources.every(source => ["current", "conflict"].includes(source.state) && source.pendingChanges === 0 && source.reason === null) ? "ready" : "incomplete");
+  } catch {
+    return result("pkm", 0, [], "unavailable");
+  }
 }
 
 export async function readTodoCapabilities(context: TaskReadContext): Promise<CapabilityRead[]> {
@@ -92,15 +99,14 @@ export async function readTodoCapabilities(context: TaskReadContext): Promise<Ca
   const current = () => context.isCurrent() && isVaultSessionEpochCurrent(epoch);
   if (!current()) throw new DOMException("Session changed", "AbortError");
   const tasks: [TaskCapability, () => Promise<CapabilityRead>][] = [
-    ["messages", async () => { const count = await DirectMessagesService.unreadCount({ idToken }); return result("messages", count, count ? [evidence("messages", "messages:unread", `${count} unread messages across People and Circles.`)] : []); }],
+    ["messages", async () => { const count = await DirectMessagesService.unreadCount({ idToken }); return result("messages", count, count ? [{ ...evidence("messages", "messages:unread", `${count} unread messages across People and Circles.`), reviewTitle: `Review ${count} unread ${count === 1 ? "message" : "messages"}` }] : []); }],
     ["wallet", () => readWallet(context)], ["ria", () => readAdvisor(context, idToken)],
     ["gmail", () => readMail(context, idToken)], ["calendar", () => readInvitations(context, idToken)],
-    ["pkm", async () => readMemory(context)],
   ];
   const results = await Promise.allSettled(tasks.map(([, read]) => read()));
   if (!current()) throw new DOMException("Session changed", "AbortError");
-  return tasks.map(([capability], index) => {
+  return [...tasks.map(([capability], index) => {
     const value = results[index];
     return value?.status === "fulfilled" ? value.value : result(capability, 0, [], "unavailable");
-  });
+  }), readTodoMemory(context)];
 }

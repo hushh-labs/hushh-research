@@ -60,6 +60,14 @@ type Cached = {
 };
 const peekCached = (userId: string) => CacheService.getInstance().peek<Cached>(CACHE_KEY(userId));
 
+/** Observe this owner's existing RAM projection; subscribing never refreshes or writes it. */
+export function subscribeLiveMirror(userId: string, listener: () => void): () => void {
+  const key = CACHE_KEY(userId);
+  return CacheService.getInstance().subscribe(event => {
+    if (event.type === "clear" || (event.type === "set" ? event.key === key : event.keys.includes(key))) listener();
+  });
+}
+
 /**
  * Newer source verifications from this owner's unlocked session. An unchanged
  * sync re-verified its sources without a write or a rebuild, so its time is

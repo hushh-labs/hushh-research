@@ -23,8 +23,9 @@ import {
 import { Button } from "@/lib/morphy-ux/button";
 import { taskSort, TODO_SOURCE_LABELS, type TodoItem } from "@/lib/todos/todo-list-model";
 import { cn } from "@/lib/utils";
-import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
-import { buildGmailWorkspaceRoute } from "@/lib/navigation/routes";
+import type { DueReceiptItem } from "@/lib/todos/todo-receipts";
+export { extractDueReceipts, extractSavedDueReceipts } from "@/lib/todos/todo-receipts";
+export type { DueReceiptItem } from "@/lib/todos/todo-receipts";
 
 /** Shared presentation and gestures only. The workspace/preview supplies all
  * read and mutation owners; importing a row never initializes a workspace. */
@@ -306,100 +307,6 @@ export function TodoRow({
       </div>
     </SurfaceCard>
   );
-}
-
-export interface DueReceiptItem {
-  id: string;
-  merchantName: string;
-  title: string;
-  amount: string | null;
-  date: string | null;
-  status: "overdue" | "renewal_due" | "payment_failed" | "attention";
-  statusLabel: string;
-  href: string;
-}
-
-export function extractDueReceipts(
-  items: readonly ReceiptListItem[],
-): DueReceiptItem[] {
-  const dueItems: DueReceiptItem[] = [];
-  for (const item of items) {
-    const isOverdue =
-      item.status === "overdue" || item.attention_reason === "overdue";
-    const isFailed =
-      item.status === "payment_failed" ||
-      item.attention_reason === "payment_failed";
-    const isRenewal =
-      item.status === "renewal_due" || item.attention_reason === "renewal_due";
-    const isSuspended =
-      item.status === "suspended" || item.attention_reason === "suspended";
-    const needsAttention =
-      item.attention_state === "needs_attention" ||
-      item.attention_state === "coming_up" ||
-      item.attention_state === "needs_review";
-
-    if (
-      !isOverdue &&
-      !isFailed &&
-      !isRenewal &&
-      !isSuspended &&
-      !needsAttention
-    ) {
-      continue;
-    }
-
-    const status: DueReceiptItem["status"] = isFailed
-      ? "payment_failed"
-      : isOverdue
-        ? "overdue"
-        : isRenewal
-          ? "renewal_due"
-          : "attention";
-
-    const statusLabel = isFailed
-      ? "Payment failed"
-      : isOverdue
-        ? "Payment overdue"
-        : isRenewal
-          ? "Renewal due"
-          : isSuspended
-            ? "Payment suspended"
-            : "Review payment";
-
-    const merchant = item.merchant_name || item.from_name || "Payment due";
-    const amountStr =
-      typeof item.amount === "number" && Number.isFinite(item.amount)
-        ? new Intl.NumberFormat(undefined, {
-            style: "currency",
-            currency: item.currency || "USD",
-          }).format(item.amount)
-        : null;
-
-    const dateStr =
-      item.attention_date || item.receipt_date || item.transaction_date || null;
-    let formattedDate: string | null = null;
-    if (dateStr) {
-      const parsed = new Date(dateStr);
-      if (!Number.isNaN(parsed.getTime())) {
-        formattedDate = new Intl.DateTimeFormat(undefined, {
-          month: "short",
-          day: "numeric",
-        }).format(parsed);
-      }
-    }
-
-    dueItems.push({
-      id: String(item.source_id || item.gmail_message_id || item.id),
-      merchantName: merchant,
-      title: item.subject || item.short_detail || merchant,
-      amount: amountStr,
-      date: formattedDate,
-      status,
-      statusLabel,
-      href: buildGmailWorkspaceRoute("receipts"),
-    });
-  }
-  return dueItems;
 }
 
 export function DueReceiptRow({ receipt }: { receipt: DueReceiptItem }) {

@@ -7,6 +7,7 @@ export type TaskCoverage = {
   capability: TaskCapability;
   status: "ready" | "unavailable" | "incomplete" | "not_connected";
   count: number;
+  scope?: string;
 };
 /** Presentation identities stay with One's existing capability catalog. */
 export function taskCapabilities() {
@@ -19,6 +20,8 @@ export type TaskEvidence = {
   href: string;
   /** Existing pending tasks are shown directly, never proposed again. */
   pendingTitle?: string;
+  /** Source-owned attention: open the source to resolve, never save a completion tombstone. */
+  reviewTitle?: string;
 };
 export const taskSuggestionSchema = z.object({
   items: z.array(z.object({ source_ref: z.string(), title: z.string().min(1).max(160), reason: z.string().min(1).max(240) }).strict()).max(12),
