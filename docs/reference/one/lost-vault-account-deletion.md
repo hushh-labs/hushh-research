@@ -51,6 +51,8 @@ The flow is an escape hatch from the locked gate, not a hidden Profile setting. 
 - A shared production Firebase identity may be deliberately retained in UAT. Its `identity_retained` result survives central sign-out as a distinct login notice, states that identity removal will not happen automatically, and never offers fresh signup. Temporary cleanup and uncertain outcomes retain their own notices. A fresh-start link requires explicit `ready_to_start_fresh === true`. This repair does not add same-UID re-enrollment or change the environment boundary.
 - The [public deletion page](../../../hushh-webapp/app/delete-account/page.tsx) remains the route for someone who cannot sign in at all. Support must verify ownership and record consent before any assisted deletion.
 
+Automated phone-entry and OTP coverage uses synthetic provider and SMS ports. It does not establish real SMS delivery, UAT identity configuration, live erasure, native hardware behavior, or complete fresh signup. A linked-phone proof may use a distinct phone-only Firebase UID; the existing lost-vault route erases the primary owner, so removal of that separate provider identity and subsequent registration remain acceptance gaps. Shared identities deliberately retained across environments continue to prevent fresh registration.
+
 ## Delivery plan and release gates
 
 1. Expose the locked-vault CTA, review, identity verification, irreversible confirmation, and outcome states in the shared web view. Use concise language and semantic destructive styling.
