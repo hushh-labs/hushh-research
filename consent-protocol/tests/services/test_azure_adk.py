@@ -216,12 +216,14 @@ async def test_structured_contract_is_native_and_remains_subject_to_strict_host_
         confidence: int = Field(ge=0, le=100)
 
     adapter, client, _, _ = model([response(message('{"title":"Observed","confidence":98}'))])
+    adapter.text_verbosity = "low"
     (answer,) = [
         item async for item in adapter.generate_content_async(request(response_schema=Output))
     ]
     parsed = Output.model_validate_json(answer.content.parts[0].text)
     assert parsed.title == "Observed"
     wire = client.requests[0]["text"]["format"]
+    assert client.requests[0]["text"]["verbosity"] == "low"
     assert wire["type"] == "json_schema" and wire["strict"] is True
     assert set(wire["schema"]["properties"]) == {"title", "confidence"}
     assert wire["schema"]["additionalProperties"] is False

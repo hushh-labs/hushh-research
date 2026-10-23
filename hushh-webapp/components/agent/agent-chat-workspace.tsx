@@ -301,6 +301,7 @@ import {
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
   clearAgentChatHistoryCache,
+  isAgentChatHistorySnapshotCurrent,
 } from "@/lib/agent/agent-chat-history-cache";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
@@ -4951,13 +4952,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const restoreEpoch = historyRestoreEpochRef.current;
     const historyOwner = snapshotValidatedAuthSessionOwner();
     const historyVaultEpoch = snapshotVaultSessionEpoch();
+    const historyChatEpoch = chatSessionRef.current.value;
     let cancelled = false;
     const cached = peekAgentChatHistoryCache(user.uid);
+    const authorityCurrent = () => !cancelled && Boolean(historyOwner) &&
+      historyOwner?.userId === user.uid && workspaceOwnerIdRef.current === user.uid &&
+      isValidatedAuthSessionOwnerCurrent(historyOwner!) && isVaultSessionEpochCurrent(historyVaultEpoch);
+    const restoreCurrent = () => authorityCurrent() && restoreEpoch === historyRestoreEpochRef.current &&
+      chatSessionRef.current.isCurrent(historyChatEpoch);
 
-    const applySnapshot = async (snapshot: NonNullable<typeof cached>) => {
-      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current || !historyOwner || historyOwner.userId !== user.uid ||
-          !isValidatedAuthSessionOwnerCurrent(historyOwner) || !isVaultSessionEpochCurrent(historyVaultEpoch)) return;
-      historyListOwner.current = { auth: historyOwner, epoch: historyVaultEpoch };
+    const applySnapshot = async (snapshot: NonNullable<typeof cached>, refresh = false) => {
+      const current = () => restoreCurrent() && isAgentChatHistorySnapshotCurrent(user.uid, snapshot);
+      if (!current()) return;
+      historyListOwner.current = { auth: historyOwner!, epoch: historyVaultEpoch };
       setConversations(snapshot.conversations);
       const selectedId = selectedInAppChat(user.uid);
       // A first turn the person left may not be in a cached list yet; its
@@ -4978,14 +4985,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const reattaching = isAgentTurnWatched(user.uid, selectedId);
       const loadSelected = () => loadAgentChatConversationHistory({
         userId: user.uid, conversationId: selectedId, vaultOwnerToken, vaultKey: vaultKeyRef.current ?? "",
-        force: reattaching,
+        force: refresh,
       });
-      let stored = !reattaching && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
+      let stored = !refresh && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
         ? snapshot.latestMessages
         : await loadSelected();
+      if (!current()) return;
       // It may have settled while that read was in flight; read the answer.
-      if (reattaching && !isAgentTurnWatched(user.uid, selectedId)) stored = await loadSelected();
-      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
+      if (refresh && reattaching && !isAgentTurnWatched(user.uid, selectedId)) stored = await loadSelected();
+      if (!current()) return;
       const restored = storedMessagesToAgentMessages(stored);
       const stillRunning = isAgentTurnWatched(user.uid, selectedId);
       updateConversationId(selectedId, false);
@@ -5014,8 +5022,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setHasResponseOutput(false);
         setIsStreaming(true);
       } else {
-        void restorePendingMcpReviews(selectedId, vaultOwnerToken, () =>
-          !cancelled && restoreEpoch === historyRestoreEpochRef.current).catch(() => undefined);
+        void restorePendingMcpReviews(selectedId, vaultOwnerToken, current).catch(() => undefined);
       }
     };
 
@@ -5027,26 +5034,42 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
       historyLoadKeyRef.current = loadKey;
-      setIsLoadingHistory(true);
+      if (!restoreCurrent()) return;
+      setIsLoadingHistory(!cached);
       setSlotHistoryFailed(false);
+      let retainedCache = false;
       try {
+        if (cached) {
+          const needsRefresh = !cached.isFresh || isAgentTurnWatched(user.uid, selectedInAppChat(user.uid) || "");
+          await applySnapshot(cached);
+          if (!restoreCurrent()) return;
+          if (!isAgentChatHistorySnapshotCurrent(user.uid, cached)) throw new Error("Chat history was invalidated.");
+          retainedCache = true;
+          setHistoryReadyForSlot(true);
+          setIsLoadingHistory(false);
+          // A fresh settled thread needs no network request. Watched turns
+          // remain visibly pending while their existing recovery reads settle.
+          if (!needsRefresh) return;
+        }
         const next = await warmAgentChatHistoryCache({
           userId: user.uid,
           vaultOwnerToken,
           vaultKey: vaultKeyRef.current ?? "",
-          force: cached ? !cached.isFresh : false,
+          force: Boolean(cached),
         });
-        await applySnapshot(next);
-        if (!cancelled) setHistoryReadyForSlot(true);
+        // List warming may finish before its transcript fetch. Join that
+        // service-owned flight so background reconciliation publishes new text.
+        await applySnapshot(next, Boolean(cached));
+        if (restoreCurrent() && isAgentChatHistorySnapshotCurrent(user.uid, next)) setHistoryReadyForSlot(true);
       } catch {
-        if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
+        if (restoreCurrent() && !retainedCache) {
           historyLoadKeyRef.current = null;
           setSlotHistoryFailed(true);
         }
       } finally {
         // A user turn can supersede the snapshot without cancelling this read.
         // Its completion must still release the history-loading guard.
-        if (!cancelled) {
+        if (authorityCurrent()) {
           setIsLoadingHistory(false);
         }
       }
@@ -5502,6 +5525,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       try {
         await deletion;
         if (!stillCurrent()) return;
+        // Fence any pre-delete list/transcript read before warming again.
+        clearAgentChatHistoryCache(owner.userId);
         if (conversationIdRef.current === targetConversationId) {
           handleHistoryDrawerOpenChange(false);
           handleCreateNewChat();

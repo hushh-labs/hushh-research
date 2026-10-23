@@ -480,6 +480,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     # Managed conversational heads may reduce LOW/default effort. Explicit
     # MEDIUM/HIGH specialist requests retain their authored reasoning budget.
     default_reasoning_effort: Literal["minimal", "low"] | None = None
+    text_verbosity: Literal["low", "medium", "high"] | None = None
 
     @field_validator("endpoint")
     @classmethod
@@ -537,16 +538,22 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
             async for result in results:
                 yield result
 
-    async def _generate_azure_content(
-        self, llm_request: LlmRequest, stream: bool, counters: dict[str, Any]
-    ) -> AsyncGenerator[LlmResponse, None]:
+    def _generation_request(self, llm_request: LlmRequest) -> dict[str, Any]:
         kwargs = _request(llm_request, self.model, allow_web_search=self.allow_web_search)
+        if self.text_verbosity is not None:
+            kwargs.setdefault("text", {})["verbosity"] = self.text_verbosity
         if self.default_reasoning_effort and kwargs.get("reasoning", {}).get("effort") in {
             None,
             "low",
         }:
             kwargs.setdefault("reasoning", {})["effort"] = self.default_reasoning_effort
             kwargs["parallel_tool_calls"] = False
+        return kwargs
+
+    async def _generate_azure_content(
+        self, llm_request: LlmRequest, stream: bool, counters: dict[str, Any]
+    ) -> AsyncGenerator[LlmResponse, None]:
+        kwargs = self._generation_request(llm_request)
         counters["reasoning_effort"] = kwargs.get("reasoning", {}).get("effort", "provider_default")
         allowed = (
             {tool["name"] for tool in kwargs.get("tools", []) if tool["type"] == "function"}

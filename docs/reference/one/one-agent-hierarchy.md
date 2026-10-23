@@ -214,6 +214,12 @@ Consent AgentTool child use supported `chat` roots because ADK 2.9 Runner reject
 `single_turn` roots; this does not introduce shared owner history. One's intro
 and search instructions are authored in One's manifest subagent entries.
 
+Managed UAT One text keeps its Azure-native search child on LOW reasoning and
+requests low text verbosity for the intermediate evidence answer. The root still
+selects the tool and writes the final answer; citations, authority checks and
+bounded deadlines remain intact. This transport option does not change the
+standalone profile-research search defaults or enable another provider.
+
 ## Wiring Modes
 
 The current tree uses distinct mechanisms for local ADK children, process-local
