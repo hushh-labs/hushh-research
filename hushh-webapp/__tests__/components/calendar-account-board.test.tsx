@@ -17,7 +17,7 @@ vi.mock("@/lib/services/google-calendar-service", async importOriginal => ({
     confirmAttendance: mocks.confirmAttendance,
   },
 }));
-vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: vi.fn() }));
+vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: vi.fn(), useCoarseClock: () => Date.now() }));
 
 import { CalendarAccountBoard } from "@/components/calendar/calendar-account-board";
 import type { CalendarBoardDay, GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
@@ -79,7 +79,7 @@ describe("three-account Calendar board", () => {
     render(page());
     await screen.findByText("Planning review");
     expect(screen.getByText("Client call")).toBeTruthy();
-    expect(screen.getByText("third@example.com")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Calendar account third@example.com" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Free across all accounts" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Review 1 overlapping meeting for Planning review/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Resolve these overlaps" }));
@@ -209,6 +209,60 @@ describe("three-account Calendar board", () => {
     expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
     expect(join.closest("button")).toBeNull();
     expect(screen.getByText("Google Meet")).toBeInTheDocument();
+  });
+
+  it("summarizes occasions after meetings and opens a responsive detail dialog", async () => {
+    const birthday = { ...event("default", "birthday", "Birthday", "2026-10-21T00:00:00Z", "2026-10-22T00:00:00Z"), event_type: "birthday" };
+    const holiday = { ...event("default", "holiday", "Festival", "2026-10-21T00:00:00Z", "2026-10-22T00:00:00Z"), source_calendar_id: "en.indian#holiday@group.v.calendar.google.com" };
+    const extra = [2, 3, 4].map(number => event("default", `meeting-${number}`, `Meeting ${number}`, `2026-10-21T${number + 10}:00:00Z`, `2026-10-21T${number + 10}:30:00Z`));
+    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], events: [birthday, holiday, { ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }, ...extra] }], conflicts: [] });
+    const photo = "https://lh3.googleusercontent.com/a/default=s96-c";
+    const currentStatus = { ...status, accounts: [{ ...status.accounts[0], profile_photo_url: photo }] };
+    render(page(currentStatus));
+
+    const card = await screen.findByRole("group", { name: "Calendar account default@example.com" });
+    expect(within(card).getByRole("tab", { name: "Events (6)" })).toBeInTheDocument();
+    expect(within(card).getByText("4 meetings")).toBeInTheDocument();
+    expect(within(card).queryByText("Birthday")).toBeNull();
+    expect(within(card).queryByText("Festival")).toBeNull();
+    const meetingList = within(card).getByRole("region", { name: "Events for default@example.com" });
+    expect(meetingList).toHaveAttribute("data-scrollable", "true");
+    expect(within(meetingList).getAllByRole("listitem")).toHaveLength(4);
+    expect(card.querySelector("[data-photo-url]")).toHaveAttribute("data-photo-url", photo);
+    expect(within(card).getByRole("link", { name: "Join meeting: Planning review" })).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: "View 2 occasions for default@example.com" }));
+    const occasions = screen.getByRole("dialog", { name: "Occasions" });
+    expect(within(occasions).getByText("Birthday")).toBeInTheDocument();
+    expect(within(occasions).getByText("Festival")).toBeInTheDocument();
+    expect(occasions.querySelectorAll("[data-kind]")).toHaveLength(2);
+  });
+
+  it("marks an elapsed event as ended and removes Join from its card and details", async () => {
+    vi.setSystemTime(new Date("2026-10-21T12:00:00Z"));
+    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], events: [{ ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }] }] });
+    render(page({ ...status, accounts: status.accounts.slice(0, 1) }));
+    const open = await screen.findByRole("button", { name: "Open Planning review in default@example.com" });
+    const card = open.closest("li")!;
+    expect(card).toHaveAttribute("data-ended", "true");
+    expect(within(card).getByText("Ended")).toBeInTheDocument();
+    expect(within(card).queryByRole("link", { name: /Join meeting/ })).toBeNull();
+    fireEvent.click(open);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Ended")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("link", { name: "Join meeting" })).toBeNull();
+  });
+
+  it("updates the open details when a meeting reaches its end without a board refresh", async () => {
+    vi.setSystemTime(new Date("2026-10-21T10:59:00Z"));
+    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], events: [{ ...meetingA, conference_url: "https://meet.google.com/abc-defg-hij" }] }] });
+    const view = render(page({ ...status, accounts: status.accounts.slice(0, 1) }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Planning review in default@example.com" }));
+    expect(within(screen.getByRole("dialog")).getByRole("link", { name: "Join meeting" })).toBeInTheDocument();
+    vi.setSystemTime(new Date("2026-10-21T11:00:00Z"));
+    view.rerender(page({ ...status, accounts: status.accounts.slice(0, 1) }));
+    expect(within(screen.getByRole("dialog")).getByText("Ended")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).queryByRole("link", { name: "Join meeting" })).toBeNull();
+    expect(mocks.boardDay).toHaveBeenCalledOnce();
   });
 
   it("shows a concise event detail with one account address and the existing response actions", async () => {

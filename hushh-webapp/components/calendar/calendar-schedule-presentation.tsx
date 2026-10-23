@@ -6,6 +6,7 @@ import { CalendarDays, ChevronRight, MapPin, MoreHorizontal } from "@/components
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
+import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 import type { CalendarEventSummary } from "@/lib/services/google-calendar-service";
 import styles from "./calendar-schedule.module.css";
 
@@ -126,16 +127,16 @@ export function CalendarTimelineRow({ event, accountEmail, zone, active, ongoing
   const join = safeMeetingUrl(event.conference_url), provider = meetingProvider(event);
   const open = (click: MouseEvent<HTMLButtonElement>) => onOpen(event, click.currentTarget);
   const starts = event.start?.dateTime, ends = event.end?.dateTime;
-  const ended = Boolean(ends && Date.parse(ends) <= now);
+  const ended = isCalendarEventEnded(event, now, zone);
   const minutes = starts ? Math.ceil((Date.parse(starts) - now) / 60000) : 0;
   const providerColor = event.event_color || event.calendar_color;
   const color = /^#[0-9a-f]{6}$/i.test(providerColor || "") ? providerColor! : "var(--app-accent)";
   const detailsId = `${event.calendar_id}:${event.id}`;
-  return <li data-calendar-event={detailsId} data-highlighted={active || undefined} className={[styles.row, active && styles.highlighted].filter(Boolean).join(" ")}>
+  return <li data-calendar-event={detailsId} data-highlighted={active || undefined} data-ended={ended || undefined} className={[styles.row, active && styles.highlighted].filter(Boolean).join(" ")}>
     <div data-current={ongoing || undefined} className={[styles.timeColumn, active && styles.activeTime].filter(Boolean).join(" ")}>
       {active ? <span>{ongoing ? "Happening now" : minutes < 60 ? `In ${minutes} min` : "Up next"}</span> : starts && ends ? <><span>{railTimeLabel(starts, zone)}</span><span>{railTimeLabel(ends, zone)}</span></> : <span>All day</span>}
     </div>
-    <span aria-hidden="true" className={styles.stripe} style={{ backgroundColor: color }} />
+    <span aria-hidden="true" className={styles.stripe} style={{ backgroundColor: ended ? "var(--app-secondary-label)" : color }} />
     <div className={styles.eventCopy}>
       <button ref={detailsTrigger} type="button" className={styles.detailsButton} onClick={open}>
         <span className={styles.eventTitle} title={event.title}>{event.title}</span>
@@ -143,12 +144,12 @@ export function CalendarTimelineRow({ event, accountEmail, zone, active, ongoing
       </button>
       {provider || event.location ? <span className={styles.eventSource}>{provider ? <CalendarMeetingIcon provider={provider} /> : <MapPin aria-hidden weight="fill" className={styles.meetingIcon} />}<span className={styles.sourceLabel} title={provider || event.location || undefined}>{provider || event.location}</span></span> : event.calendar_name ? <span className={styles.eventSource}><span className={styles.sourceLabel} title={event.calendar_name}>{event.calendar_name}</span></span> : null}
       {provider && event.location && event.location !== join ? <span className={styles.eventSource}><MapPin aria-hidden weight="fill" className={styles.meetingIcon} /><span className={styles.sourceLabel} title={event.location}>{event.location}</span></span> : null}
-      {ended ? <span className={styles.eventSource}>Ended</span> : null}
+      {ended ? <span className={styles.endedLabel}>Ended</span> : null}
       {calendarResponse(event, accountEmail) === "needsAction" ? <span className={styles.eventSource}>Awaiting your response · See Invitations</span> : null}
       {calendarResponse(event, accountEmail) === "declined" ? <span className={styles.declined}>Declined</span> : null}
     </div>
     <div className={styles.rowActions}>
-      {join ? <a aria-label={`Join meeting: ${event.title}`} href={join} target="_blank" rel="noopener noreferrer" className={styles.joinButton}>Join</a> : null}
+      {join && !ended ? <a aria-label={`Join meeting: ${event.title}`} href={join} target="_blank" rel="noopener noreferrer" className={styles.joinButton}>Join</a> : null}
       <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className={styles.overflowButton} aria-label={`More options: ${event.title}`}><MoreHorizontal aria-hidden /></button></DropdownMenuTrigger><DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => { if (detailsTrigger.current) onOpen(event, detailsTrigger.current); }}>View details</DropdownMenuItem>
         {safeMeetingUrl(event.html_link) ? <DropdownMenuItem asChild><a href={safeMeetingUrl(event.html_link)!} target="_blank" rel="noopener noreferrer">Open in Google Calendar</a></DropdownMenuItem> : null}

@@ -208,6 +208,8 @@ class CalendarAccountBoardService:
             raise GoogleConnectionError(
                 "Calendar account list changed. Refresh the board.", status_code=409
             )
+        for account, identity in zip(accounts, latest["accounts"], strict=True):
+            account["profile_photo_url"] = identity.get("profile_photo_url")
         complete = all(account["status"] == "complete" for account in accounts)
         shared = accounts[0]["free_windows"] if complete else []
         if complete:
