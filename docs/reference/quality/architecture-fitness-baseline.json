@@ -6224,46 +6224,46 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/adapters/claude/codex-bridge/scripts/route.py|_route_hook|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/route.py|_route_hook|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/adapters/claude/codex-bridge/scripts/route.py",
+      "path": ".agents/routing/scripts/route.py",
       "symbol": "_route_hook",
       "value": 87
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/adapters/claude/codex-bridge/scripts/route.py|compose_workflow_briefing|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/route.py|compose_workflow_briefing|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/adapters/claude/codex-bridge/scripts/route.py",
+      "path": ".agents/routing/scripts/route.py",
       "symbol": "compose_workflow_briefing",
       "value": 90
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/adapters/claude/codex-bridge/scripts/route.py|render_check|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/route.py|render_check|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/adapters/claude/codex-bridge/scripts/route.py",
+      "path": ".agents/routing/scripts/route.py",
       "symbol": "render_check",
       "value": 81
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/adapters/claude/codex-bridge/scripts/route.py|route|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/route.py|route|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/adapters/claude/codex-bridge/scripts/route.py",
+      "path": ".agents/routing/scripts/route.py",
       "symbol": "route",
       "value": 97
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/adapters/claude/codex-bridge/scripts/test_route_hook.py|main|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/test_route_hook.py|main|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/adapters/claude/codex-bridge/scripts/test_route_hook.py",
+      "path": ".agents/routing/scripts/test_route_hook.py",
       "symbol": "main",
       "value": 135
     },
@@ -17573,10 +17573,10 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|.agents/adapters/claude/codex-bridge/scripts/route.py||module exceeds the advisory operon budget",
+      "key": "module_size|.agents/routing/scripts/route.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": ".agents/adapters/claude/codex-bridge/scripts/route.py",
+      "path": ".agents/routing/scripts/route.py",
       "symbol": null,
       "value": 1444
     },
@@ -73597,11 +73597,11 @@
     "active_path_moves": [
       [
         ".claude/skills/codex-bridge/scripts/route.py",
-        ".agents/adapters/claude/codex-bridge/scripts/route.py"
+        ".agents/routing/scripts/route.py"
       ],
       [
         ".claude/skills/codex-bridge/scripts/test_route_hook.py",
-        ".agents/adapters/claude/codex-bridge/scripts/test_route_hook.py"
+        ".agents/routing/scripts/test_route_hook.py"
       ],
       [
         ".codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py",

@@ -14,12 +14,13 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 | `.agents/skills/` | Canonical portable and governed **skills**; host discovery uses checked relative links |
 | `.agents/subagents/` | Canonical authored **subagent** lanes (`*.toml`). `.claude/agents/*.md` is generated from these and verified byte-for-byte in CI |
 | `.agents/skills/`, `.agents/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
-| `.agents/adapters/`, `.agents/evals/`, `.agents/imports/` | Native settings/projections, routing cases, and pinned third-party resources; host entrypoints are checked relative links |
+| `.agents/config.toml`, `.agents/startup.json`, `.agents/generated/` | Bounded configuration, startup and derived discovery; native entrypoints are checked links |
+| `.agents/evals/`, `.agents/imports/` | Routing cases and pinned third-party resources |
 | `docs/reference/architecture/private-agent-north-star.md` | Private-agent requirements and qualified implementation evidence |
 | `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
 | `docs/future/personal-agent/` | Private-agent designs, parity matrix and divergence register; verify implementation claims against current source |
 | `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
-| `.agents/adapters/claude/session_start.py` | Claude startup delivers `AGENTS.md` and the canonical contract path; no separate policy |
+| `.agents/scripts/startup.py` | Claude startup delivers `AGENTS.md` and the canonical contract path; no separate policy |
 | `docs/reference/architecture/runtime-topology-maintenance.md` | Recurring revision-bound audit cadence and existing workflow composition |
 
 **One development tree.** Author skills, workflows and subagents only under
@@ -220,7 +221,8 @@ explicitly loads this operating contract before routing or implementation.
 | `.agents/skills/<id>/` | Portable practice or governed owner/spoke; one authored behavior |
 | `.agents/subagents/<lane>.toml` | Read-only engineering evidence lanes, separate from runtime product agents |
 | `.agents/workflows/<id>/` | Existing workflow IDs, composed ownership, checks and handoff authority |
-| `.agents/adapters/<host>/` | Authored host invocation templates and resource adapters |
+| `.agents/config.toml`, `.agents/startup.json` | Shared configuration and checked startup; no vendor directory hierarchy |
+| `.agents/routing/`, `.agents/generated/subagents/` | Native invocation and generated discovery from the same authored framework |
 
 Every skill has matching directory/name frontmatter. Governed skills additionally
 retain their `skill.json`, owner/spoke sections, impact metadata, verification
@@ -236,9 +238,9 @@ and duplicate discovery. Pinned third-party
 imports retain licenses, provenance and explicit pending-review classifications;
 relocation never grants their writers authority.
 
-Native configuration sources live under `.agents/adapters`; `.codex/config.toml`
-and `.claude/settings.json` link there. `.codex/agents` links to the authored fleet.
-Claude projections live in `.agents/adapters/claude/agents`, exposed by a native
+Native configuration sources are `.agents/config.toml` and `.agents/startup.json`;
+`.codex/config.toml` and `.claude/settings.json` link to them. `.codex/agents` links to the authored fleet.
+Claude projections live in `.agents/generated/subagents`, exposed by a native
 link and generated from `.agents/subagents/`; never hand-edit a mirror. Read-only
 lane instructions do not create OS isolation; host permissions still govern execution.
 Run `.agents/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --write`

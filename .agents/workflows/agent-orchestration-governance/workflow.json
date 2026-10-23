@@ -7,7 +7,10 @@
   "task_type": "agent-orchestration-governance",
   "affected_surfaces": [
     ".agents/subagents",
-    ".agents/adapters",
+    ".agents/generated",
+    ".agents/startup.json",
+    ".agents/scripts",
+    ".agents/routing",
     ".agents/skills/agent-orchestration-governance",
     ".agents/workflows/agent-orchestration-governance",
     "docs/vision/bacterial-software-architecture.md",

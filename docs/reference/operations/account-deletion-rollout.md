@@ -358,8 +358,9 @@ durability path for pending Firebase deletion/quarantine work.
 
 ### Shared identity and repeat sign-in
 
-A non-production environment cannot delete a shared production Firebase
-principal. Backend erasure still fences its UID permanently; signing in again
+A shared Firebase identifier is supported across environments. A non-production
+environment cannot delete that shared production principal. Backend erasure
+still fences the environment's current application account permanently; signing in again
 with that UID cannot restore the erased account. Normal and lost-vault deletion
 report `ready_to_start_fresh` only after Firebase removal is confirmed. A
 terminal tombstone preserves the installed-client `AUTH_ACCOUNT_NOT_FOUND` code
@@ -369,9 +370,22 @@ does not establish provider cleanup or authorize re-enrollment.
 
 For repeat onboarding before terminal erasure, use the authorized account-reset
 flow. A genuinely new Firebase UID is independent of the previous tombstone.
-Already erased shared identities require an isolated identity authority or a
-separately reviewed account-generation contract; never clear the tombstone or
-mutate a production identity as an incident workaround.
+Same-UID re-registration requires an environment-scoped account-generation
+contract across authentication, consent, devices, pod admission, background jobs
+and database writes. Existing owners remain unchanged; retired authority must
+never reach a replacement generation. Separate Firebase projects are an alternative,
+not a prerequisite. Never clear a tombstone, reconnect by email or mutate a
+production identity as an incident workaround.
+
+Full-account cleanup now records `identity_retained` when validated nonproduction
+authority deliberately preserves the shared identity. The hashed tombstone stays;
+its raw cleanup UID and next-attempt timestamp are cleared, and the existing
+`quarantined` bookkeeping state stops automatic retries. This does not mean that
+Firebase was disabled, deleted or remotely logged out. Exact claim matching and
+the non-null-UID guard refuse late settlements. Genuine provider/configuration
+failures and provisional phone-orphan cleanup remain retryable. The response
+continues to report `ready_to_start_fresh: false` until safe re-enrollment is
+implemented or identity removal is independently confirmed.
 
 ## Maintainer UAT backend-only erasure
 

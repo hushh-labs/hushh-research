@@ -1179,3 +1179,15 @@ Stage certificate validation, destination routing and application compatibility
 first. Verify the deployed destination and provider registrations before changing
 canonical application origins or enabling redirects. Domain preparation is not
 proof of a completed migration or an enabled connector.
+
+### One reviewed task suggestions
+
+`ONE_TODO_SUGGESTIONS_ENABLED` is a default-off backend feature flag, hydrated
+from `BACKEND_RUNTIME_CONFIG_JSON.one_todo_suggestions_enabled`. It exposes the
+same boolean through the authenticated suggestions status route. Enabling it
+admits only explicitly approved, bounded owner summaries to the existing One
+single-turn gene in Shared placement; it does not authorize background reads,
+new task writes or provider actions. Recheck occurs before output release.
+Disable it to withdraw processing while preserving existing encrypted tasks.
+Live-model evaluation and provider rehearsal are required before promotion;
+private placement remains unavailable until its owner-direct transport qualifies.

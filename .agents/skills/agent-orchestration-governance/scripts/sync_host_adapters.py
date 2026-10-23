@@ -33,10 +33,10 @@ def expected_links(root: Path) -> dict[Path, Path]:
         if entry.get('discovery_path'):
             links[root / entry['discovery_path']] = root / entry['local_skill_path']
     native = {
-        '.codex/config.toml': '.agents/adapters/codex/config.toml',
+        '.codex/config.toml': '.agents/config.toml',
         '.codex/agents': '.agents/subagents',
-        '.claude/settings.json': '.agents/adapters/claude/settings.json',
-        '.claude/agents': '.agents/adapters/claude/agents',
+        '.claude/settings.json': '.agents/startup.json',
+        '.claude/agents': '.agents/generated/subagents',
     }
     links.update({root / host: root / source for host, source in native.items()})
     return links
@@ -94,16 +94,16 @@ def startup_self_test() -> None:
     """Exercise the configured command, including a project path with spaces."""
     import subprocess
     import tempfile
-    settings = json.loads((REPO_ROOT / '.agents/adapters/claude/settings.json').read_text())
+    settings = json.loads((REPO_ROOT / '.agents/startup.json').read_text())
     assert settings.get('includeCoAuthoredBy') is False
     entries = settings.get('hooks', {}).get('SessionStart', [])
     commands = [hook.get('command', '') for entry in entries for hook in entry.get('hooks', [])]
-    assert len(commands) == 1 and '.agents/adapters/claude/session_start.py' in commands[0]
+    assert len(commands) == 1 and '.agents/scripts/startup.py' in commands[0]
     with tempfile.TemporaryDirectory(prefix='agent startup ') as temporary:
         root = Path(temporary)
-        hook = root / '.agents/adapters/claude/session_start.py'
+        hook = root / '.agents/scripts/startup.py'
         hook.parent.mkdir(parents=True)
-        hook.symlink_to(REPO_ROOT / '.agents/adapters/claude/session_start.py')
+        hook.symlink_to(REPO_ROOT / '.agents/scripts/startup.py')
         entry = root / 'AGENTS.md'
         entry.write_text('Read `.agents/instructions.md` before acting.\n')
         source = root / '.agents/instructions.md'
@@ -136,9 +136,9 @@ def self_test() -> list[str]:
         inventory = root / INVENTORY
         inventory.parent.mkdir(parents=True)
         inventory.write_text('{}')
-        for name in ('.agents/subagents', '.agents/adapters/claude/agents'):
+        for name in ('.agents/subagents', '.agents/generated/subagents'):
             (root / name).mkdir(parents=True)
-        for name in ('.agents/adapters/codex/config.toml', '.agents/adapters/claude/settings.json',
+        for name in ('.agents/config.toml', '.agents/startup.json',
                      '.agents/skills/example/SKILL.md'):
             source = root / name
             source.parent.mkdir(parents=True, exist_ok=True)
@@ -146,7 +146,7 @@ def self_test() -> list[str]:
         write_links(root)
         write_links(root)  # Existing correct links remain idempotent on every host.
         assert not findings(root)
-        source = root / '.agents/adapters/codex/config.toml'
+        source = root / '.agents/config.toml'
         source.unlink()
         assert any('.codex/config.toml' in x for x in findings(root))
         source.write_text('Synthetic source')

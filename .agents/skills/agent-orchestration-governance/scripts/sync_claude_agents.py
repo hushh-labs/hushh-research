@@ -29,7 +29,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CODEX_AGENTS = REPO_ROOT / ".agents/subagents"
-CLAUDE_AGENTS = REPO_ROOT / ".agents/adapters/claude/agents"
+CLAUDE_AGENTS = REPO_ROOT / ".agents/generated/subagents"
 
 GENERATED_MARKER = "<!-- generated from .agents/subagents/"
 
@@ -92,7 +92,7 @@ def render(path: Path) -> str:
         "  files. Hand proposed edits back to the parent session as a diff or a precise instruction.",
         "- Shared skills live in `.agents/skills`. Load the named `SKILL.md` and follow its Read First,",
         "  owning workflow and Required Checks; host aliases do not create another authority.",
-        "- Fan-out limits come from `.agents/adapters/codex/config.toml`: `max_threads = 6`, `max_depth = 1`. You are a leaf",
+        "- Fan-out limits come from `.agents/config.toml`: `max_threads = 6`, `max_depth = 1`. You are a leaf",
         "  lane; do not spawn further subagents.",
         "- Your final message is the handoff. It must carry every field named in the truth-first protocol",
         "  above, and it must cite the files or commands that produced each conclusion.",

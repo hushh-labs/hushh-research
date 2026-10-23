@@ -12,6 +12,20 @@ ROOT = "/api/one/wallet/card-access"
 ID = "11111111-1111-4111-8111-111111111111"
 
 
+def test_pending_requests_use_authenticated_owner_bounded_paging_and_no_store():
+    service = MagicMock()
+    service.list_pending.return_value = {"items": [], "hasMore": False, "nextCursor": None}
+    with patch("api.routes.one.wallet_card_access.card_request_service", return_value=service):
+        response = client().get(ROOT + f"/requests?cursor={ID}&limit=20")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.list_pending.assert_called_once_with("owner", ID, 20)
+        service.reset_mock()
+        assert client().get(ROOT + "/requests?limit=101").status_code == 422
+        assert client().get(ROOT + "/requests?cursor=invalid").status_code == 422
+        service.list_pending.assert_not_called()
+
+
 def client(owner="owner"):
     app = FastAPI()
     app.include_router(router)
@@ -28,6 +42,7 @@ def client(owner="owner"):
         "/profile",
         "/history",
         "/history/" + ID,
+        "/requests",
         "/requests/" + ID,
     ],
 )

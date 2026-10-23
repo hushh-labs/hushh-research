@@ -869,6 +869,7 @@ The `/api/one/wallet/card-access` endpoints are:
 | POST | `/artwork/validate` | Same owner authority. At most 24 explicit catalog/issuer/product/variant/digest references under the private 16 KB cap. `purpose=selection` (default) requires current catalog version, selectable asset and complete provider snapshot. `purpose=saved` validates an immutable saved reference independently of unrelated catalog versions. Both require current approval, grant and rights. No stored owner image or card ID is disclosed. See [provider contract](../one/wallet-artwork-providers.md). |
 | POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
 | GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status, newest first in pages of 20. Optional `cursor` is the last grant ID; `nextCursor` and `hasMore` describe the next page, and each grant includes ISO `createdAt`. Cursors resolve only within the authenticated owner and card. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
+| GET | `/requests` | Matching Firebase and vault-owner identity; pending incoming Wallet requests only. Optional owner-bound UUID `cursor`, `limit=1..100`; returns metadata-only `items` (`id`, `createdAt`, `expiresAt`), `hasMore`, `nextCursor`. Requires current connection, no blocks, recipient-visible message and unexpired request. Pure read; never expires or mutates requests. |
 | GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
 | GET | `/profile` | Matching identity and vault-owner consent; current canonical Profile Card eligibility and server-issued card ID, without profile contents. |
 | GET | `/history` | Participant-only unified ledger. `direction=outgoing\|received`, optional `cardType=payment\|profile`, `limit=1..100` (default 20), and participant/filter-bound `cursor`. Returns `items`, `hasMore`, `nextCursor`, `serverNow`. |
@@ -2273,6 +2274,51 @@ v2 handles real directory candidates without widening that fixture contract.
 At the encrypted writer, an existing semantic entity can only be updated by the
 same business UID. A different or unidentified origin fails closed rather than
 merging two businesses merely because their names or contact details overlap.
+
+### One task inventory and reviewed suggestions
+
+One profile To-do and `/one/todos` share live pending-work projection and encrypted
+completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
+Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
+services. This is a bounded foreground inventory, not a background sweep of all
+connected information. Calendar agenda covers the next 168 hours plus bounded
+invitations; Mail inspects at most 50 recent nudges and reports limited coverage;
+Advisor reads existing advisor-persona attention items (other personas report
+unavailable coverage, not disconnected relationships); Memory inspects only the
+current session's verified Live Memory mirror metadata, never its contents.
+A cold or stale mirror is unavailable/incomplete. Consent and Wallet page at
+most 5,000 rows each and preserve incomplete coverage when capped. Source failures
+remain independent, never becoming a disconnected status or an empty success.
+
+`GET /api/one/todos/suggestions/status` requires vault-owner authentication and
+returns private/no-store `{available}` from `ONE_TODO_SUGGESTIONS_ENABLED`.
+`POST /api/one/todos/suggestions` additionally requires current self-owner
+authority and Shared placement, checked before processing and before release.
+The bounded input rotates across represented capabilities so one large queue
+cannot crowd out every other source. It is rate limited to three requests per
+minute and accepts only
+`{allow_model_processing: true, sources}`: 1-100 strict records containing
+`ref` (`s` followed by 1-4 digits), one of the nine capability IDs, a 1-240
+character summary, and `already_pending`. The client requires explicit processing
+approval and excludes message bodies, card details and Memory contents. Owner
+IDs, tokens, provider IDs and URLs are not included in the prompt.
+
+One's manifest-owned `one_todo_suggestions` single-turn gene has no tools or
+conversation history. Its strict response is `{items: [{source_ref,title,reason}]}`,
+at most 12 rows with title length 1-160 and reason length 1-240. Unknown or
+duplicate source references, invalid output, timeouts and changed authority fail
+closed. The host does not rewrite semantic output or create replacement tasks.
+Only opaque-count/status telemetry is emitted; no summaries or model text are logged.
+No source mutation or persistence occurs. A reviewed Add task uses the existing
+encrypted `one_todos` writer, with source links resolved locally. Completion and
+dismissal never execute the source action.
+
+The rollout defaults off and is rechecked before returning suggestions. Private
+placement refuses this Shared processing path; a qualified owner-direct version
+of the same gene is separate acceptance work. Web and native use the existing
+One API proxy/ApiService transport. Mock/schema tests do not qualify live model
+behavior or real-provider completeness. See the
+[semantic declaration](../../../consent-protocol/docs/reference/backend-semantic-boundary.md#declared-one-task-suggestions).
 
 ### One Google Calendar
 

@@ -5,7 +5,7 @@
 The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
 engineering evidence agents are authored under root `.agents/subagents/`.
-Claude projections are generated under `.agents/adapters/claude/agents` and exposed
+Claude projections are generated under `.agents/generated/subagents` and exposed
 through `.claude/agents`; `.codex/agents` links to the authored TOML fleet.
 Runtime agents and engineering lanes are separate namespaces.
 
