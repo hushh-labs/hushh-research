@@ -2797,7 +2797,11 @@ def build_one_text_agent(
         # Search keeps the same Azure-only processor and invocation authority.
         # Native search requires LOW/default rather than minimal reasoning.
         google_search_model = text_model.model_copy(
-            update={"allow_web_search": True, "default_reasoning_effort": "low"}
+            update={
+                "allow_web_search": True,
+                "default_reasoning_effort": "low",
+                "text_verbosity": "low",
+            }
         )
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 

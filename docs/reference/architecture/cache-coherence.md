@@ -338,7 +338,13 @@ Do:
 - Agent Chat conversation metadata and message history use a separate
   process-memory-only, user-scoped cache. Vault unlock single-flights a bounded
   warm of the recent conversation list and latest thread; opening Agent Chat
-  renders the composer first, consumes that warm cache when present, and defers
+  renders the composer first and restores authorized memory snapshots immediately,
+  including snapshots older than five minutes. Expiry starts one shared background
+  list/transcript refresh; failure retains readable history without blocking the
+  composer. Fresh settled returns make no history request. Owner, vault, chat,
+  restoration and cache generations fence every deferred publication. Successful
+  deletion invalidates the cache generation before warming again, so an older
+  in-flight list cannot restore the deleted conversation. The workspace defers
   a cold history request to an idle beat. Direct Ask One handoffs never wait for
   or get overwritten by restoration. Selecting another thread loads only that
   thread, and vault lock synchronously clears all cached chat text.

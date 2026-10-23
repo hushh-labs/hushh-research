@@ -293,7 +293,6 @@ async def test_managed_one_sse_allows_bounded_search_and_post_tool_first_output(
         raw,
         response(message("The source confirms this [1].")),
     ]
-    # AgentTool's isolated child is non-streaming while the root uses SSE.
     streams = [Stream([{"type": "response.completed", "response": outputs[i]}]) for i in (0, 2)]
     adapter, client, factory, token = model([streams[0], raw, streams[1]])
     create = client.create
@@ -340,11 +339,16 @@ async def test_managed_one_sse_allows_bounded_search_and_post_tool_first_output(
     assert len(result.tool_calls) == 1
     assert result.final_text == "The source confirms this [1]."
     assert client.requests[0]["stream"] is True and client.requests[2]["stream"] is True
-    assert client.requests[1]["tools"] == [{"type": "web_search", "external_web_access": False}]
+    _assert_compact_search_wire(client.requests)
     assert any(item.get("type") == "function_call_output" for item in client.requests[2]["input"])
     assert grounding[0].grounding_chunks[0].web.uri == "https://example.test/team/owner"
     assert all(r["store"] is False for r in client.requests)
     fallback.assert_not_called()
+
+
+def _assert_compact_search_wire(requests):
+    assert requests[1]["tools"] == [{"type": "web_search", "external_web_access": False}]
+    assert tuple(r.get("text", {}).get("verbosity") for r in requests) == (None, "low", None)
 
 
 @pytest.mark.parametrize("phase", ["fresh", "named_tool", "old_result", "native", "continuation"])
