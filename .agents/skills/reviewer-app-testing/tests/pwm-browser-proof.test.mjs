@@ -31,6 +31,11 @@ test("research request admission survives diagnostic stages and keeps save autho
     const settings = { enabled: true, email_enabled: false, consent_version: "pwm-azure-bing-v1" };
     assert.equal(admitPwmResearch(request("/api/one/world-model/preferences", settings, "PUT"), options), true);
     assert.equal(admitPwmResearch(request("/api/one/world-model/preferences", { ...settings, email_enabled: true }, "PUT"), options), false);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/preferences", { enabled: true, email_enabled: false }, "PUT"), { ...options, researchProvider: "unknown" }), false);
+    const tavily = { ...options, researchProvider: "azure_openai_tavily" };
+    assert.equal(admitPwmResearch(request("/api/one/world-model/preferences", { ...settings, consent_version: "pwm-azure-tavily-v1" }, "PUT"), tavily), true);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/preferences", settings, "PUT"), tavily), false);
+    assert.equal(admitPwmResearch(request("/api/one/world-model/preferences", { ...settings, consent_version: "pwm-native-v1" }, "PUT"), tavily), false);
   }
   for (const phase of ["unlock_and_owner", "save", "preservation", "sign_out", "cold_readback"])
     assert.equal(admitPwmResearch(request("/api/one/world-model/jobs", { refresh: true }), { phase, appOrigin: origin, researchPosts: 0 }), false);

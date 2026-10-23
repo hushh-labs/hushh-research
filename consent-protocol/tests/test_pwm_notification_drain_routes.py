@@ -52,6 +52,25 @@ def test_scheduler_exact_authority(monkeypatch, defect):
         drain.assert_not_awaited()
 
 
+def test_policy_remains_standalone_without_runtime_package_startup(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "hushh_mcp/managed_ai_config.py"
+    code = (
+        "import importlib.util,sys; "
+        f"s=importlib.util.spec_from_file_location('config', {str(path)!r}); "
+        "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+        "m.load_profile('uat'); m.load_pwm_policy(environment='uat', provider='azure_openai'); "
+        "assert 'hushh_mcp' not in sys.modules"
+    )
+    result = subprocess.run(  # noqa: S603 - exact repository file, isolated stdlib-only interpreter.
+        [sys.executable, "-S", "-c", code], cwd=tmp_path, capture_output=True, text=True, timeout=10
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_native_policy_rejects_third_party_and_unbounded_key_lease(tmp_path):
     import json
 
@@ -103,7 +122,7 @@ def test_checked_in_pwm_provider_changes_only_in_uat():
     from hushh_mcp.managed_ai_config import load_pwm_policy
 
     uat = load_pwm_policy(environment="uat")
-    assert uat["provider"] == "azure_openai_web_search"
+    assert uat["provider"] == "azure_openai_tavily"
     assert uat["azure"]["primary_deployment"] == "pwm-gpt-5-mini-eval"
     assert uat["azure"]["phi_deployment"] == "pwm-phi-4-mini-eval"
     for environment in ("development", "dev", "production"):

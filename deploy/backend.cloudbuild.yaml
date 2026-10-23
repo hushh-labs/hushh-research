@@ -542,7 +542,7 @@ steps:
         print(config.get("pwm_research_uat", config["pwm_research"])["provider"])
         PY
         )"
-        if [[ "${pwm_provider}" != "azure_openai_web_search" ]]; then
+        if [[ "${pwm_provider}" != "azure_openai_web_search" && "${pwm_provider}" != "azure_openai_tavily" ]]; then
           exit 0
         fi
         if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_REGION}" != "us-central1" ||

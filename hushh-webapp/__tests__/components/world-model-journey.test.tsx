@@ -426,11 +426,10 @@ describe("Personal World Model owner journey", () => {
     expect(await screen.findByText("Ready to review")).toBeInTheDocument();
     expect(statusLine()).toHaveTextContent("3 details to confirm.");
     expect(screen.queryByTestId("pwm-progress-row")).toBeNull();
-    const work = screen.getByText("Work").closest("[data-testid='settings-group']")!;
-    expect(within(work as HTMLElement).getByText(DESIGNER)).toBeInTheDocument();
-    expect(within(work as HTMLElement).getByText(SPEAKER)).toBeInTheDocument();
-    const education = screen.getByText("Education").closest("[data-testid='settings-group']")!;
-    expect(within(education as HTMLElement).getByText(STUDIED)).toBeInTheDocument();
+    const review = screen.getByText("To review").closest("[data-testid='settings-group']")!;
+    for (const statement of [DESIGNER, SPEAKER, STUDIED]) {
+      expect(within(review as HTMLElement).getByText(statement)).toBeInTheDocument();
+    }
     // Only the statement with doubtful evidence is tagged, and it is never blank.
     const doubtful = screen.getByText(SPEAKER).closest("[data-testid='pwm-fact-row']")!;
     expect(within(doubtful as HTMLElement).getByText("Possible match")).toBeInTheDocument();
@@ -444,7 +443,7 @@ describe("Personal World Model owner journey", () => {
 
     // Yes: shown as confirmed only after the encrypted write resolves.
     fireEvent.click(screen.getByRole("button", { name: `Yes, this is right: ${DESIGNER}` }));
-    expect(await screen.findByText("Confirmed by you")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(DESIGNER).closest("[data-testid='pwm-fact-row']")).toHaveTextContent("Confirmed by you"));
     expect(confirm).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "owner-a",
