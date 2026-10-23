@@ -23,7 +23,9 @@ preserved.
 
 The follow-up refresh re-fetched the pinned upstream domain list: 33 additions,
 no removals, unchanged CC0 license and seven-day validity. It also preserves typed
-cloud-AI refusals instead of a generic save error. These corrections are local;
+cloud-AI refusals instead of a generic save error. The management breadcrumb
+says Hosting; the verified action result remains the return-route authority.
+These corrections are local;
 they must receive their own exact-SHA validation and dev/UAT receipts. Main's
 subsequent Azure deadline repair `ec86118695` is preserved in the working branch.
 

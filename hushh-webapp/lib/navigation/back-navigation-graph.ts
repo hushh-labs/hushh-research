@@ -610,7 +610,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         hideBack: false,
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: "Setup", href: setupBackHref },
+          { label: setupBackHref === ROUTES.PROFILE_HOSTING ? "Hosting" : "Setup", href: setupBackHref },
           ...(capabilitySegment
             ? [
                 {
