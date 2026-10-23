@@ -1,7 +1,8 @@
-"""Bounded reasoning and Browser phase codecs for ephemeral Azure ADK history."""
+"""Bounded media, reasoning and Browser phase codecs for ephemeral Azure ADK history."""
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
@@ -91,3 +92,40 @@ def restore_reasoning(part: types.Part, *, role: str) -> dict | None:
     if not isinstance(item, dict) or item.get("type") != "reasoning":
         raise ValueError("Invalid Azure reasoning history")
     return item
+
+
+_MAX_MEDIA_BYTES = 25 * 1024 * 1024
+
+
+def inline_media(part: types.Part) -> dict:
+    """Translate already-admitted bytes; never fetch URLs or persist provider files."""
+    blob = part.inline_data
+    if (
+        blob is None
+        or not isinstance(blob.data, bytes)
+        or not 0 < len(blob.data) <= _MAX_MEDIA_BYTES
+    ):
+        raise ValueError("Azure inline media exceeds supported bounds")
+    data, mime = blob.data, blob.mime_type
+    if mime == "text/csv":
+        return {"type": "input_text", "text": data.decode("utf-8-sig", errors="strict")}
+    if mime == "application/pdf":
+        if not data.startswith(b"%PDF-") or b"%%EOF" not in data[-1024:]:
+            raise ValueError("Invalid Azure inline PDF")
+        return {
+            "type": "input_file",
+            "filename": "document.pdf",
+            "file_data": "data:application/pdf;base64," + base64.b64encode(data).decode("ascii"),
+        }
+    signatures = {
+        "image/png": data.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/jpeg": data.startswith(b"\xff\xd8\xff"),
+        "image/gif": data.startswith((b"GIF87a", b"GIF89a")),
+        "image/webp": data.startswith(b"RIFF") and data[8:12] == b"WEBP",
+    }
+    if not signatures.get(mime or "", False):
+        raise ValueError("Unsupported or invalid Azure inline media")
+    return {
+        "type": "input_image",
+        "image_url": f"data:{mime};base64," + base64.b64encode(data).decode("ascii"),
+    }

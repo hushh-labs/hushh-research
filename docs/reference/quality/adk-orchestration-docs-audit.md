@@ -5,7 +5,7 @@
 **Main integration is complete; [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) awaits corrected exact-head CI and dev acceptance before UAT.**
 [PR8337](https://github.com/hushh-labs/hushh-research/pull/8337) landed as
 `0ea0f8fce3` after all 26 exact-head checks and landed smoke passed. The preserved
-infrastructure branch reconciles subsequent main through `0828b5bd62`, preserving its Drive, Finance and Mail receipt changes. Earlier
+infrastructure branch reconciles subsequent main through `4ac0a122be`, preserving its Drive, Finance, Mail and Azure chat/search changes. Earlier
 MVP receipts remain history; they do not verify the current correction candidate.
 Production, stable-channel publication and automatic owner upgrades remain held.
 
@@ -126,7 +126,9 @@ passed with environment-only resumes: 23,113 backend cases passed, 142 skipped;
 three Bash 3.2 compatibility failures resolved on modern Bash, with all 33 affected
 cases passing. Web production build/types/lint, security/governance, MCP packaging
 and integration passed. The later diagram-import repair passes all 19 existing
-PDF cases and three real Node/Chromium diagram renders. Corrected hosted CI and
+PDF cases and three real Node/Chromium diagram renders. Main's Mail refresh copy
+and browser preconditions are reconciled; all four Chromium/WebKit document/app
+scroll cases pass with the original one-pixel, focus and row-identity assertions. Corrected hosted CI and
 live owner acceptance remain required; fixtures alone do not establish either.
 
 Next 16.4.2, DOMPurify 3.4.17 and Nodemailer 10.0.10 are patched in source.
