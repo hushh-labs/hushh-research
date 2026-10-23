@@ -17,10 +17,15 @@ joined shutdown. Azure's exact owner-approved installation completed as operatio
 1 vCPU / 2 GiB, minimum-zero configuration. Its initial review failure exposed an installed channel constraint; the 971/replay
 repair is now deployed. A later owner task reached fresh model-processing consent
 and active takeover, then exposed startup/resize before Browser initialization.
-The local join/viewport-epoch repair has focused evidence but is not installed.
+The join/viewport-epoch repair is on main with focused evidence but is not installed.
 Full takeover, handback, reconnect and Stop remain unverified on the owner image.
 GCP inventory/domain repair is recorded; its exact Browser activation and installed
 owner acceptance remain pending. Source implementation never grants activation.
+
+Application Hosting/AI/cleanup correction PR #8386 landed as `7671c6ca6d` on
+23 October 2026. Its application deployment does not install a new Browser image or
+complete the owner journeys above. The readiness memo records dev/UAT serving and
+installation outcomes separately.
 
 The current qualified policy covers Python documentation public research only.
 Login, submissions, selected PKM production and Files transfers retain their

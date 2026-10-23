@@ -1,128 +1,100 @@
 # Private-pod readiness: CTO decision memo
 
-## Decision — 2026-10-23 UTC
+## Current decision — 23 October 2026
 
-**The onboarding/security correction is accepted on dev and UAT. The CI trigger repair has landed on main.**
-[PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) landed as `51a5a86675`
-after all 26 exact-head checks and landed smoke passed. Dev run `39890010863`
-passed provenance, environment, schema and semantic checks. UAT run `39892483774`
-passed the same gates, private-worker attestation and text recovery. ADC readback
-at 04:27 UTC confirms both services on `51a5a86675`, at 100% in both environments. Normal Google-owner
-navigation passed refresh, Azure setup, passphrase unlock, Back/Finish and home
-with an enabled composer. Fresh Shared/GCP enrollment and deleted-user
-re-registration are not established by that owner rehearsal.
-[PR8337](https://github.com/hushh-labs/hushh-research/pull/8337) landed as
-`0ea0f8fce3` after all 26 exact-head checks and landed smoke passed. The preserved
-infrastructure branch inherits main through `04081d3c46`, including Drive, Finance,
-Mail, Azure chat/search and filtering, Calendar and Copilot styling without whole-file replacement. Earlier
-MVP receipts remain history; they do not verify the current correction candidate.
-Production, stable-channel publication and automatic owner upgrades remain held.
+**The Hosting/AI/cleanup correction is on main and accepted on dev.
+UAT promotion stopped safely before deployment on an expired email-domain
+risk snapshot; its refresh is local. Broader pod acceptance remains separate.**
+[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) landed as
+`7671c6ca6d` through the authorized Admin SOP. All required checks passed on
+`1ccf750ddc`; [landed-SHA smoke](https://github.com/hushh-labs/hushh-research/actions/runs/39967729093)
+also passed. Main's Profile, identity, consent, erasure, Drive, SMS and One presence
+changes were retained through normal merges. The infrastructure branch is
+fast-forwarded to the landed commit; the active ADK tree and peer edits remain
+preserved.
 
-Azure Dev 28 retains its approved image and economy configuration. Browser review
-and takeover reached the pod, but early takeover exposed `BROWSER_NOT_INITIALIZED`.
-Its startup/resize repair is integrated in source; no new pod image was installed.
-GCP inventory and old-domain repair preserved image, keys and identity. Browser
-remains unqualified on installed owner images. Advanced private context, remembered
-logins, broad capacity studies and retained synthetic erasure remain follow-ups.
+| Surface | Verified state |
+| --- | --- |
+| Main | `7671c6ca6d`; exact-head CI and landed smoke passed |
+| Dev | [Run 39968480755](https://github.com/hushh-labs/hushh-research/actions/runs/39968480755) passed; both services serve the landed SHA at 100% |
+| UAT | [Run 39972103223](https://github.com/hushh-labs/hushh-research/actions/runs/39972103223) refused before deployment: email-auth risk snapshot expired; serving remains `79a03e84c2` |
+| Serving readback | Corporate ADC: dev backend `00206-6dl`, frontend `00174-648`, both `7671c6ca6d` at 100%; UAT remains `79a03e84c2` pending promotion |
+| Owner pods | No new image installation or configuration change in this application release |
 
-The [public-research MVP](../../future/personal-agent/browser-completion-plan.md#immediate-mvp--critical-path-first)
-is P0: ask One, review, browse, take control, resume, reconnect and stop. Login,
-remembered sessions, private-context disclosure and transfers follow that proof.
-The 30-second cold target is an optimization goal. Economy hosting stays selected.
+The follow-up refresh re-fetched the pinned upstream domain list: 33 additions,
+no removals, unchanged CC0 license and seven-day validity. It also preserves typed
+cloud-AI refusals instead of a generic save error. These corrections are local;
+they must receive their own exact-SHA validation and dev/UAT receipts. Main's
+subsequent Azure deadline repair `ec86118695` is preserved in the working branch.
 
-## Onboarding correction — 23 October 2026
+This table describes application delivery, not complete private-agent acceptance.
+Production, stable publication and automatic owner upgrades remain held.
 
-Reported setup failures affected general cohorts, not a single owner: fixed-footer
-email preferences obscure controls; private AI setup cannot display its vault
-dialog; a one-shot hosting observation can leave every AI choice disabled.
-The correction also covers abandoned AI edits, locked saved-key recovery and deletion notices through the real API/authentication path. Local core and exact-head CI passed. The deployed normal-owner rehearsal reached home without a setup loop; optional preferences remained clear of the fixed Finish control at 1464 × 929, with zero horizontal overflow. The inherited diagram-import and Mail-test failures were repaired without excluding checks. Known erased UIDs
-remain fenced; the shared Firebase deletion boundary cannot be bypassed.
+## Corrected journeys
 
-The earlier nine-alert inventory is superseded by the refreshed two-alert
-inventory above. Seven source-patched alerts are now closed by GitHub; none was
-manually dismissed. Source patches cover
-Next.js, DOMPurify (including the actual Mermaid bundle) and Nodemailer. ADK's
-supported OTEL cap excludes the patched release: ignore incoming vendor
-`tracestate` through the public propagator boundary, preserving traceparent
-and outbound context. This is an application mitigation, not an upstream alert
-closure. The dev-only unpatched `braces` tooling advisory remains tracked.
+- Existing owners return from Hosting setup to Hosting through shell/native Back
+  and Finish. First-run onboarding keeps its own destination. Finish appears only
+  after hosting and AI are verified; abandoned AI edits retain the working choice.
+- The explicit cloud-default action verifies the admitted current pod even when
+  hub capability discovery is stale. Owner, placement, provider, incarnation and
+  configuration checks remain mandatory. The AI card retains the actual verified
+  model/deployment; it does not invent a multi-deployment catalog.
+- **Remove cloud, keep account** reuses exact reviewed erasure authority. It retains
+  the account, vault and PKM; the review explicitly covers cloud-only Files/history
+  loss. Progress, provider delays and repairable uncertainty are shown honestly.
+  Inspection pauses admission; closing its dialog does not cancel the operation.
+- **Check hosting** reads the recorded cloud home without waking or modifying the
+  pod. Broad historical orphan discovery and automatic subscription-wide deletion
+  are not implemented.
+- UAT recovery tracks one exact execution and requires provider success plus its
+  bound receipt. Run 39949039317 exposed an 180-second controller cancellation before
+  a 207-second worker receipt. The correction preserves task/batch limits, refuses
+  retained-job replay and keeps unconfirmed work available for reconciliation.
 
-## Hosting management follow-up — 23 October, 05:05 PDT
+## Verification and remaining boundaries
 
-Local core passed on `683639975a` in **13m01s**: 23,204 parallel backend cases
-and 1,285 serial cases passed, with 636 recorded skips. Frontend typecheck, lint,
-production build, security, governance, MCP and integration passed. Main then
-advanced with frontend-only SMS changes; those changes are integrated normally
-through `6a5960c7e1`. Combined UI contracts, 75 affected UI cases and the changed
-frontend core stage pass on `67b5b640b7`; unchanged backend proof is retained.
-[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) remains in
-validation. Initial hosted preflight refused combined-source UI drift and a
-missing required PR impact declaration; neither result is deployment acceptance.
-The declaration is now validated with its actual parser. No new deployment,
-personal-cloud deletion or owner installation has occurred for this follow-up.
+One local core passed in 13m01s: 24,489 backend cases passed and 636 skips were
+recorded, alongside frontend build/type/lint, security, governance, MCP and
+integration. Changed contracts subsequently passed 154 deployment cases and 21
+security authority/receipt tests. Original-code negative controls fail; the
+architecture ratchet has zero new/worsened findings. The final exact-head hosted
+run passed all required lanes, including full web suites, browser packs, backend
+and iOS. These layers do not substitute for deployed owner acceptance.
 
+Dev migration 972 passed the pre/post-deploy schema gates with no violations.
+Each provider's real standalone removal journey still requires separate evidence. UAT graduation remains separate; missing schema must
+keep the control unavailable. The historical account-deletion HTTP 500 was on older
+source and its underlying exception was not captured. No personal cloud has been
+deleted to qualify this UI.
 
-The current local correction preserves Hosting return intent for shell, native
-Back and Finish. Direct completed-owner entries are canonicalized using the
-existing owner-scoped setup completion predicate; first-run setup remains intact.
-Finish is visible only after hosting and AI readiness. Cleanup shows the current
-stage, verified counts and recoverable attention without an invented deadline.
-Azure's verified model/deployment is retained in the AI card.
+Browser startup/viewport repair is in source, but the installed Dev28 owner journey
+remains unqualified. Research, preview, takeover, handback, reconnect and Stop must
+pass on each exact installed image. Login, remembered sessions, selected PKM and
+Files transfers retain separate acceptance. The 30-second cold target is an
+optimization goal; economy hosting and owner-selected configurations remain.
 
-Live read-only evidence at 04:56 PDT: dev backend serves `79a03e84c2` at revision
-`00205-svf`, 100%; UAT remains `989afe4336` at `02478-fed`, 100%. The named Azure
-pod runs the same Dev28 digest currently offered by dev; there is no newer offer
-or active upgrade lease. Its heartbeat capability observation is empty despite
-Dev28 source supporting default verification. The local client now asks the
-admitted pod on the explicit cloud-default action rather than treating a missing
-advertisement as proof of incompatibility. Typed refusals and current owner,
-known placement, provider, incarnation and configuration authority remain required.
-Standalone cloud removal still lacks live migration972 and owner acceptance.
-The account deletion incident has no captured typed error yet; empty bounded
-error-log searches do not prove deletion succeeded or that no attempt occurred.
+Same-login re-registration remains staged: shared Firebase identifiers do not
+authorize clearing terminal account tombstones or mutating production identity
+from dev/UAT. Preserve the existing UID/vault/device/pod bindings and qualify the
+explicit lifecycle before promising a fresh start.
 
-Focused evidence: 114 UI cases and 121 backend cases pass; the cloud-default
-regression suite passes 50 cases and fails against the original advertisement
-guard. Architecture reports no new/worsened findings. These are local results;
-final core, exact hosted CI, deployment and installed acceptance remain required.
+## Security
 
-## Latest stabilization and cloud removal — 23 October, 11:10 UTC
+GitHub's refreshed inventory has **two open OpenTelemetry alerts**; seven patched
+alerts are closed, with none manually dismissed. The pinned ADK cap excludes the
+fixed version. Incoming vendor `tracestate` is ignored at the public propagator
+boundary while preserving traceparent/outbound context. This is mitigation, not
+upstream remediation. The protected worker accepts verified pending concurrency
+states without weakening exact repository/workflow/run/attempt/SHA binding. Its
+receipt cannot replace successful PR validation. Repository-secret removal is
+verified; original-token revocation remains separately unverified.
 
-[PR8377](https://github.com/hushh-labs/hushh-research/pull/8377) landed as
-`49975547b6`. One frozen-candidate core mirror completed in 19m41s; all 26 hosted
-PR checks and exact landed smoke passed. [Dev39928813587](https://github.com/hushh-labs/hushh-research/actions/runs/39928813587)
-completed successfully. Verified ADC readback at 09:26 UTC: backend
-`consent-protocol-00203-w5s` and frontend `hushh-webapp-00171-wsr`, both 100% at that
-SHA. UAT’s latest successful run remains `39920618646` at `989afe4336`; it has not
-received the subsequent local repair.
-
-A real background Chrome owner reached the verified Azure AI selection with
-Finish enabled, then stalled at the setup shell. The existing one-attempt,
-owner-fenced streamed-shell recovery omitted setup routes; both routes are now
-included locally. Tests cover them; installed verification waits for the next
-candidate. Do not generalize earlier successful home navigation to this newer
-failed journey.
-
-GitHub’s refreshed dependency inventory now has **two open OpenTelemetry alerts**
-(498,487); the seven patched alerts are closed. The ADK-supported version cap
-still excludes the fixed release. Incoming-tracestate mitigation remains
-qualified application protection, not upstream remediation. Secret and code
-scanning were clear at the prior verified read.
-
-The new **Remove cloud, keep account** flow and read-only Hosting inspection are
-local follow-up source. They reuse exact owner/resource erasure authority, retain
-uncertain cleanup, preserve previous homes and fence stale replacement callbacks.
-Dev-only migration972 is not deployed. Neither provider’s standalone cloud
-removal has live owner acceptance. The [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account)
-owns its authority, recovery and unavailable boundaries.
-
-Fresh main through `2f57085b09` is integrated locally, preserving its threaded
-account erasure, PostgreSQL lock/statement limits and Drive cleanup changes.
-Combined cleanup verification passes 87 cases, including real PostgreSQL cloud
-removal and blocked-erasure rollback. The first broader run exposed two legacy
-fixture failures: ordinary never-provisioned accounts now avoid the cloud-history
-receipt lookup, and the absent-table receipt expectation includes the new ledger.
-The corrected combined candidate still requires its final core and hosted checks.
+Earlier accepted application receipts remain historical evidence:
+[PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) and
+[PR #8377](https://github.com/hushh-labs/hushh-research/pull/8377). The
+[normal-release plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md)
+and [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account)
+own the operating procedures and retained acceptance gates.
 
 ## Visual Context
 
@@ -185,9 +157,12 @@ blind retry is permitted. Its earlier
 ordinary Google/CAPTCHA/SMS onboarding. The old RAM-only passphrase is gone;
 subsequent cleanup must not be described as normal unlocked-UI vault recovery.
 
-## Source and serving evidence
+<a id="source-and-serving-evidence"></a>
 
-The corrected application and immutable Dev 28 offer are deployed. Publishing and owner
+## Historical source and serving evidence — PR #8365
+
+The earlier correction `51a5a86675` and immutable Dev 28 offer were deployed.
+These receipts describe PR #8365, not the current PR #8386 rollout. Publishing and owner
 installation remain separate; Azure has completed its approval, while GCP has not.
 
 | Surface | Exact receipt | Boundary |
@@ -195,13 +170,13 @@ installation remain separate; Azure has completed its approval, while GCP has no
 | Dev app | ADC, 23 October 04:27 UTC: both `51a5a86675`; backend `00199-cvk`, web `00168-2xq`, both 100% | Governed run `39890010863`; immutable digests, schema, parity, semantics and normal-owner setup/Back/Finish accepted |
 | UAT app | ADC, 23 October 04:27 UTC: both `51a5a86675`; backend `02469-vej`, web `02026-9j2`, both 100% | Governed run `39892483774`: healthy; exact-SHA dev predecessor, schema, parity, provenance, semantics, worker and text recovery passed |
 | Azure owner pod | Dev 28; digest `8b846022…68ac07`; revision `ca-hussh-one-pod--u31257e45d565` | Normal approval `op_13e165d0d1bf4a6788ae230cc7e2a93f`, verified 02:22:22 UTC. Same service identity, 1 vCPU / 2 GiB, min 0 / max 1. Active-work drain overlap is not established |
-| Schema / rollback | Dev `39890010863` and UAT `39892483774` passed pre/post-deploy schema guards with no violations; this correction adds no SQL | Rollback targets: dev `00198-bps` / `00167-7zr`; UAT `02466-rec` / `02022-wwl`. Earlier 69-checksum/private-review replay evidence remains historical; it does not establish every current owner's placement. History cleanup stays separate |
-| Integration | Correction `51a5a86675` preserves reconciled ADK lineage and main through `4ac0a122be`, including Drive, Finance, Mail and Azure chat/search | PR8365 passed 26 exact-head checks; original branch fast-forwarded without force-push. Nine unrelated peer edits and the active ADK tree remain excluded |
+| Schema / rollback | Dev `39890010863` and UAT `39892483774` passed pre/post-deploy schema guards with no violations; that earlier correction added no SQL | Rollback targets: dev `00198-bps` / `00167-7zr`; UAT `02466-rec` / `02022-wwl`. Earlier 69-checksum/private-review replay evidence remains historical; it does not establish every current owner's placement. History cleanup stays separate |
+| Integration | Correction `51a5a86675` preserves reconciled ADK lineage and main through `4ac0a122be`, including Drive, Finance, Mail and Azure chat/search | PR #8365 passed 26 exact-head checks; original branch fast-forwarded without force-push. Nine unrelated peer edits and the active ADK tree remain excluded |
 | Published pod offer | Dev 28 reuses image `sha256:8b846022947bca939fba48cddf1101f3c26dddfb043ab41e20bd7407e068ac07`, source `67a64533ac6a` | Both exact personal predecessors recovered identity, six sealed records, consent/PKM state and 245,763 exact file bytes. Temporary resources cleaned; GCP seven-day soft-delete retention preserved |
 | GCP configuration / inventory | Revision `00019-p6z`, unchanged predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8, min 0 / max 1 | Guarded inventory reconciliation committed locally as `02a7aec016` and applied. Storage protection enforced; all 39 objects preserved. Authenticated domain repair recovered identical keys, permits both exact dev domains and refuses unrelated origins; temporary job absence verified |
 | Browser component evidence | GCP Gemini 3.8: 20.366 s / three rounds; Azure actual `one-chat` GPT-5.6 Luna: 16.823 s / five rounds | Real frames, native continuations, 390 × 844 resize, login-observation fencing and joined Stop. Component takeover followed model completion. These are not installed-owner, cold or full-pod capacity results |
 
-### Correction evidence
+### Historical correction evidence — PR #8365
 
 The correction preserves nine unrelated peer edits and the active ADK worktree.
 Focused evidence: 278 UI cases; 154 backend cases; eight setup layouts at
@@ -275,7 +250,7 @@ not re-enable catch-up. Manual release authority remains unchanged.
 
 | Measurement | Result | Decision |
 | --- | --- | --- |
-| Current delivery cycle | Exact-head CI: 29m18s including one failed-jobs-only retry; dev: 19m50s; UAT: 76m15s | UAT includes 33m48s initial queue; deployment job 39m51s. CI initial queue 1m44s; dev 5s. Measure from dispatch to last job completion; never sum parallel jobs or call queue time test execution |
+| Earlier PR #8365 delivery cycle | Exact-head CI: 29m18s including one failed-jobs-only retry; dev: 19m50s; UAT: 76m15s | UAT includes 33m48s initial queue; deployment job 39m51s. CI initial queue 1m44s; dev 5s. Measure from dispatch to last job completion; never sum parallel jobs or call queue time test execution |
 | CI trigger repair | Exact-head run `39903975455`: 26 checks passed; backend 27m40s; iOS 23m56s | Parallel backend tests 12m10s; isolated serial database tests 11m57s. The earlier failing run stopped before serial checks, so it is not a full-run timing baseline. No limits or isolation weakened |
 | Matched cloud chat | 20 cold / 20 warm per cloud: GCP p95 71.721 / 7.700 s; Azure 71.304 / 13.389 s | Retain this historical baseline. Thirty seconds is an optimization goal; fix measured startup work and recovery, without a permanent warm floor |
 | Personal chat | Latest zero-instance sample: first content 44.837 s, complete 46.040 s; capabilities 40.304 s | Wake/readiness dominates this sample; not a percentile or physical paint measurement |
@@ -297,7 +272,10 @@ paid work; spending thresholds warn without stopping service.
 1. **CI/security owner:** preserve one initial worker and fresh exact-attempt retry
    clearance through the governed command. Keep current receipts on the canonical
    task; successful application suites remain retained during a gate-only retry.
-   The application correction, dev owner acceptance and UAT promotion are complete.
+   PR #8386 is on main and dev deployment `39968480755` passed.
+   Owner Back/Finish and removal explanation passed in background Chrome.
+   UAT `39972103223` refused an expired risk snapshot before deployment.
+   Validate a refreshed pinned snapshot and repeat the exact-SHA release chain.
 2. **Security owner:** retain the two ADK-constrained OTEL records and verify
    GitHub's closure of the seven patched records. Original-token revocation
    remains separately unverified; the exposed repository secret is retired.
@@ -309,8 +287,11 @@ Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
-Main integration and this correction have verified dev and UAT receipts. The
-CI trigger follow-up does not require another application rollout. Production, stable publication,
+Main integration and landed-SHA smoke are verified for `7671c6ca6d`.
+The current application correction has healthy dev provenance/schema/semantic
+receipts and real owner Back/Finish acceptance. Exact-SHA UAT promotion
+was stopped by expired risk evidence; earlier receipts do not replace
+its terminal result. Production, stable publication,
 automatic owner upgrades, managed Hussh provisioning and unqualified hosting moves
 remain unavailable. Broader Files/connector/voice/update/erasure lifecycle evidence,
 general schedules and economic qualification stay tracked in the

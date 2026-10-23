@@ -405,9 +405,14 @@ export function useGeminiRuntimeSettingsModel({
         router.push(ROUTES.ONE_SETUP_CLOUD);
         return false;
       }
+      const cloudRefusal = error instanceof Error && privateCloud
+        ? aiSelectionRefusalMessage(error.message, placement === "azure" ? "Azure AI" : "Vertex AI")
+        : null;
       toast.error(
         error instanceof Error && privateCloud && ["QUOTA_EXCEEDED", "MODEL_UNAVAILABLE", "KEY_REFUSED", "AI_DEFAULT_UNAVAILABLE"].includes(error.message)
           ? "Your cloud AI is unavailable. Check model access or connect your own key below."
+          : cloudRefusal
+          ? cloudRefusal
           : error instanceof Error && error.message === "AGENT_UNREACHABLE"
           ? "Your private agent could not be reached. Try again."
           : error instanceof Error && error.message === "PKM_CONFLICT"

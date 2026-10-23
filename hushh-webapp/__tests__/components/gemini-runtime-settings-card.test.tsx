@@ -1025,6 +1025,14 @@ it("confirms a verified Azure default concisely and cancels AI editing through a
   expect(ready).toHaveBeenLastCalledWith(true);
   expect(ownerPodRequestMock).toHaveBeenCalledOnce();
   expect(ownerPodRequestMock.mock.calls[0][1].method).toBe("PATCH");
+  ownerPodRequestMock.mockResolvedValueOnce(Response.json({ detail: { code: "PROVIDER_UNSUPPORTED" } }, { status: 422 }));
+  fireEvent.click(screen.getByRole("button", { name: "Change AI" }));
+  fireEvent.click(runtimeChoice("profile-byok-runtime"));
+  fireEvent.click(runtimeChoice("profile-managed-runtime"));
+  await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Your agent needs an update to use Azure AI."));
+  await act(async () => { expect(unwindBackLayer("/one/profile/ai")).toBe(true); });
+  expect(ready).toHaveBeenLastCalledWith(true);
+  expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
 });
   it("retires the private key draft and pending validation when its owner changes", async () => {
     publishValidatedAuthSessionOwner("owner-a");
