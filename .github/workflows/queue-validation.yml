@@ -34,7 +34,7 @@ concurrency:
 jobs:
   pr-validation-reuse:
     name: "Reuse PR Validation Result"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -50,7 +50,7 @@ jobs:
 
   main-freshness-gate:
     name: "Base Freshness Gate"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -77,7 +77,7 @@ jobs:
       - pr-validation-reuse
       - main-freshness-gate
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Validate queue job outcomes

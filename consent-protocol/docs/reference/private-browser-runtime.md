@@ -22,8 +22,9 @@ Full takeover, handback, reconnect and Stop remain unverified on the owner image
 GCP inventory/domain repair is recorded; its exact Browser activation and installed
 owner acceptance remain pending. Source implementation never grants activation.
 
-Application Hosting/AI/cleanup correction PR #8386 landed as `7671c6ca6d` on
-23 October 2026. Its application deployment does not install a new Browser image or
+Application Hosting/AI/cleanup corrections PR #8386 and #8391 are on main.
+On 23 October 2026 dev accepted `ee77ebdb43` and UAT accepted `a68bddc8a8`.
+These application deployments do not install a new Browser image or
 complete the owner journeys above. The readiness memo records dev/UAT serving and
 installation outcomes separately.
 

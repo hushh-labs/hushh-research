@@ -648,7 +648,7 @@ jobs:
           echo "Next build number: ${NEXT_BUILD}"
 
       - name: Cache Swift packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ${{ runner.temp }}/spm

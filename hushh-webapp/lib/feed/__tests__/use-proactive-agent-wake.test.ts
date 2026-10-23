@@ -8,6 +8,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const { wakePod } = vi.hoisted(() => ({ wakePod: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { wakePod } }));
@@ -34,6 +35,8 @@ import {
 } from "@/lib/feed/use-proactive-agent-wake";
 
 beforeEach(() => {
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("owner-a");
   wakePod.mockReset();
   wakePod.mockResolvedValue({ state: "waking", etaMs: 12_000 });
   subscribeLifecycle.mockClear();
@@ -313,6 +316,7 @@ describe("wake observation boundaries", () => {
         useProactiveAgentWake({ userId, state: "active", health: "sleeping" }),
       { initialProps: { userId: "owner-a" } },
     );
+    publishValidatedAuthSessionOwner("owner-b");
     rerender({ userId: "owner-b" });
     await act(async () => {});
     expect(wakePod).toHaveBeenCalledTimes(2);
