@@ -4,10 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { ClipboardList } from "@/components/icons";
 import { TodoListPkmService, type TodoItem } from "@/lib/services/todo-list-pkm-service";
-import { TodoRow, DueReceiptRow, extractDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
+import { TodoRow, DueReceiptRow, extractSavedDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
-import { getCachedGmailReceipts, cachedGmailReceiptDisplayItems } from "@/lib/profile/gmail-receipts-cache";
+import { useTodoReceiptSnapshot } from "@/lib/todos/use-todo-receipt-snapshot";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./one-agent-profile-sheet.module.css";
 import { TodoAgentSuggestions } from "@/components/todos/todo-agent-suggestions";
@@ -64,25 +64,19 @@ export function OneTodoPreview({
   });
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
-  const cachedReceipts = useMemo(() => {
-    if (!ready || !receiptAccountKey) return null;
-    return getCachedGmailReceipts(user.uid, receiptAccountKey);
-  }, [ready, receiptAccountKey, user.uid]);
-
-  const dueReceipts = useMemo(() => {
-    if (!cachedReceipts) return [];
-    return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
-  }, [cachedReceipts]);
+  const receipts = useTodoReceiptSnapshot({ userId: user.uid, accountKey: receiptAccountKey, vaultKey, vaultOwnerToken, enabled: ready });
+  const dueReceipts = useMemo(() => extractSavedDueReceipts(receipts.snapshot), [receipts.snapshot]);
 
   const live = useTodoLiveTasks({ userId: user.uid, vaultOwnerToken, idTokenProvider, enabled: ready, tasks });
   const openTasks = live.pending;
-  const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading;
-  const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.sourceError);
+  const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading || receipts.loading;
+  const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.sourceError || receipts.error);
   const retry = () => {
     void loadTasks();
     live.calendar.refresh();
     live.upcoming.refresh();
     void live.refreshSources();
+    void receipts.refresh();
     void Promise.all([live.agentFeed.retry(), live.retryKyc()]).catch(() => undefined);
   };
   const groups = useMemo(() => groupByDate(openTasks), [openTasks]);

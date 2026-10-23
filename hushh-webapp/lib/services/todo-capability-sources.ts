@@ -63,7 +63,7 @@ async function readMail(context: TaskReadContext, idToken: string): Promise<Capa
   if (!context.mailConnected) return result("gmail", 0, [], "not_connected");
   const mail = await GmailReceiptsService.listNudges({ idToken, userId: context.userId, vaultOwnerToken: context.vaultOwnerToken, limit: 50 });
   const rows = await Promise.all(mail.nudges.filter(row => row.type === "needs_reply").map(async row =>
-    evidence("gmail", `mail:${await sourceKey(context.userId, `${row.thread_id}:${row.message_id}`)}`, row.title)));
+    evidence("gmail", `mail:${await sourceKey(context.userId, `${row.thread_id}:${row.message_id}`)}`, row.title, row.title)));
   // This publisher scans recent threads, not the entire mailbox.
   return result("gmail", rows.length, rows, "incomplete");
 }

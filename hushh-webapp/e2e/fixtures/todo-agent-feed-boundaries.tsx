@@ -91,6 +91,15 @@ export function cachedGmailReceiptDisplayItems() {
 }
 // This isolated fixture never contains Gmail receipts, so clearing is a no-op.
 export function clearCachedGmailReceipts() {}
+// No Mail account exists in this persistence fixture. A receipt read is a bug.
+export async function loadReceiptSnapshot(): Promise<never> {
+  throw new Error("This fixture must not read Mail receipts");
+}
+const emptyReceiptResource = { snapshot: null };
+export const MailReceiptResourceService = {
+  subscribe: () => () => {},
+  peek: () => emptyReceiptResource,
+};
 // Only the synthetic Feed task participates in this lifecycle fixture.
 export async function readTodoCapabilities() {
   return [];

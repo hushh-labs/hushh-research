@@ -30,6 +30,9 @@ describe("owner-safe capability task reads", () => {
     expect(serialized).not.toContain("raw-thread");
     expect(serialized).not.toContain("raw-message");
     expect(result.find(row => row.coverage.capability === "gmail")?.coverage.status).toBe("incomplete");
+    expect(result.find(row => row.coverage.capability === "gmail")?.evidence).toEqual([
+      expect.objectContaining({ pendingTitle: "Reply about the meeting", href: "/one/gmail" }),
+    ]);
   });
   it("paginates pending Wallet work and keeps the exact reviewed request destination", async () => {
     mocks.wallet.mockResolvedValueOnce({ items: [{ id: requestId }], hasMore: true, nextCursor: requestId }).mockResolvedValueOnce({ items: [], hasMore: false, nextCursor: null });

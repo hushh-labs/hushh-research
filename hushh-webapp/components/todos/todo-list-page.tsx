@@ -66,14 +66,11 @@ import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
-import {
-  getCachedGmailReceipts,
-  cachedGmailReceiptDisplayItems,
-} from "@/lib/profile/gmail-receipts-cache";
+import { useTodoReceiptSnapshot } from "@/lib/todos/use-todo-receipt-snapshot";
 
 import {
   TodoRows,
-  extractDueReceipts,
+  extractSavedDueReceipts,
   localDateKey,
 } from "./todo-list-presentation";
 // Compatibility exports preserve existing callers while previews use the leaf.
@@ -316,14 +313,8 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   });
   const receiptAccountKey =
     gmail.status?.google_sub || gmail.status?.google_email || null;
-  const cachedReceipts = useMemo(() => {
-    if (!writeReady || !receiptAccountKey) return null;
-    return getCachedGmailReceipts(userId, receiptAccountKey);
-  }, [receiptAccountKey, userId, writeReady]);
-  const dueReceipts = useMemo(() => {
-    if (!cachedReceipts) return [];
-    return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
-  }, [cachedReceipts]);
+  const receipts = useTodoReceiptSnapshot({ userId: userId ?? "", accountKey: receiptAccountKey, vaultKey, vaultOwnerToken, enabled: writeReady });
+  const dueReceipts = useMemo(() => extractSavedDueReceipts(receipts.snapshot), [receipts.snapshot]);
   const loadItems = useCallback(async () => {
     const revision = ++itemsLoadRevision.current;
     if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -577,6 +568,12 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             <Button variant="none" effect="fade" size="compact" onClick={() => { calendar.refresh(); upcoming.refresh(); }}>Retry</Button>
           </div>
         ) : null}
+        {writeReady && receipts.error ? (
+          <div className="flex items-center gap-2" role="status">
+            <HelperText as="p">Saved Mail payments could not refresh.</HelperText>
+            <Button variant="none" effect="fade" size="compact" onClick={() => void receipts.refresh()}>Retry</Button>
+          </div>
+        ) : null}
         {writeReady && !itemsLoading && totalToday > 0 ? (
           <div className="mt-5 flex items-center gap-4" aria-live="polite">
             <CaptionText data-profile-role="description" className="shrink-0 tabular-nums !text-[color:var(--app-secondary-label)]">
@@ -603,8 +600,8 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       <AppPageContentRegion className="space-y-6 pb-6">
         {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
           userId={userId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
-          evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading)}
-          onSaved={() => void loadItems()} onRefresh={() => { void loadItems(); void liveTasks.refreshSources(); void agentFeed.retry(); void retryKyc(); calendar.refresh(); upcoming.refresh(); }}
+          evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading || receipts.loading)}
+          onSaved={() => void loadItems()} onRefresh={() => { void loadItems(); void liveTasks.refreshSources(); void receipts.refresh(); void agentFeed.retry(); void retryKyc(); calendar.refresh(); upcoming.refresh(); }}
         /> : null}
         {!writeReady ? (
           <SurfaceCard>
@@ -619,7 +616,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             </div>
           </SurfaceCard>
         ) : !itemsLoaded || itemsLoading ||
-          ((agentLoading || calendarReadLoading || liveTasks.sourceLoading) && pending.length === 0) ? (
+          ((agentLoading || calendarReadLoading || liveTasks.sourceLoading || receipts.loading) && pending.length === 0 && dueReceipts.length === 0) ? (
           <div role="status" className="flex items-center gap-2 px-1">
             <RefreshCw
               className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
@@ -635,7 +632,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
-        ) : itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError ? null : (
+        ) : itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError || receipts.error ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">
