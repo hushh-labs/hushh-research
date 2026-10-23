@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -21,6 +22,8 @@ from hushh_mcp.services.drive_group_index_store import (
     GroupEntry,
 )
 from hushh_mcp.services.drive_groups.contract import FLAG, GroupIndexDisabled, Placement
+from hushh_mcp.services.drive_groups.inventory import InventoryCache
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveMetadata, DriveReadError
 from tests.services.test_drive_groups import basis, tiny_bundle
 from tests.services.test_drive_ingestion import (
@@ -49,88 +52,6 @@ async def groups(collection, monkeypatch):
     with collection.db.engine.begin() as connection:
         connection.exec_driver_sql(MIGRATION.read_text(), execution_options={"no_parameters": True})
     return DriveGroupIndexStore(db=collection.db, cipher=collection.cipher)
-
-
-async def test_production_job_uses_raw_prefix_and_never_files_metadata_without_a_head(monkeypatch):
-    from hushh_mcp.services import drive_group_index_job as module
-
-    monkeypatch.setenv(FLAG, "true")
-    store = SimpleNamespace(
-        known=AsyncMock(return_value={}),
-        require_current=AsyncMock(),
-        sealer=SimpleNamespace(ref=lambda user, file: file),
-    )
-    transport = SimpleNamespace()
-    factory = Mock(return_value=transport)
-    monkeypatch.setattr(module, "GoogleDriveRestTransport", factory)
-    row = {
-        "id": "synthetic-file",
-        "title": "Statement.pdf",
-        "mimeType": "application/pdf",
-        "version": "1",
-        "modifiedTime": MOMENT.isoformat(),
-        "createdTime": MOMENT.isoformat(),
-    }
-    job = module.DriveGroupIndexJob(
-        store=store,
-        bundle=replace(tiny_bundle(), version=VERSION),
-        embedder=SimpleNamespace(embed=AsyncMock()),
-    )
-    job._listing = AsyncMock(return_value=([row], True, False))
-    head = AsyncMock(return_value=None)
-    monkeypatch.setattr(module.TransportHeadSource, "head", head)
-    entries, progress = await job._prepare(
-        {"user_id": "owner", "time_zone": "UTC"}, asyncio.get_running_loop().time() + 180
-    )
-    factory.assert_called_once_with(raw_prefix=True)
-    assert entries[0].placement.shelf == "kept" and entries[0].head is None
-    assert entries[0].placement.version != VERSION
-    job.embedder.embed.assert_not_awaited()
-    assert progress["more"] is False and progress["keep"] == {"synthetic-file"}
-
-
-async def test_deadline_defers_slow_content_but_commits_completed_metadata(monkeypatch):
-    from hushh_mcp.services import drive_group_index_job as module
-
-    monkeypatch.setenv(FLAG, "true")
-    monkeypatch.setattr(module, "EMBED_COMMIT_RESERVE", 0)
-    store = SimpleNamespace(
-        known=AsyncMock(return_value={}),
-        require_current=AsyncMock(),
-        sealer=SimpleNamespace(ref=lambda user, file: file),
-    )
-    row = {
-        "id": "slow-file",
-        "title": "Statement.pdf",
-        "mimeType": "application/pdf",
-        "version": "1",
-        "modifiedTime": MOMENT.isoformat(),
-        "createdTime": MOMENT.isoformat(),
-    }
-    job = module.DriveGroupIndexJob(
-        store=store,
-        transport=SimpleNamespace(),
-        bundle=tiny_bundle(),
-        embedder=SimpleNamespace(embed=AsyncMock()),
-    )
-    job._listing = AsyncMock(
-        return_value=([row, {**row, "id": "metadata-file", "mimeType": "image/png"}], True, False)
-    )
-    stopped = asyncio.Event()
-
-    async def slow(self, row):
-        try:
-            await asyncio.Event().wait()
-        finally:
-            stopped.set()
-
-    monkeypatch.setattr(module.TransportHeadSource, "head", slow)
-    entries, progress = await job._prepare(
-        {"user_id": "owner", "time_zone": "UTC"}, asyncio.get_running_loop().time() + 0.05
-    )
-    assert [entry.file_id for entry in entries] == ["metadata-file"]
-    assert progress["more"] is True and stopped.is_set()
-    job.embedder.embed.assert_not_awaited()
 
 
 def entry(
@@ -463,6 +384,44 @@ async def test_a_complete_listing_prunes_missing_files_and_an_owner_move_survive
     assert known is None  # a finished run waits before the next one
 
 
+async def test_large_metadata_batch_is_atomic_and_preserves_owner_retention(groups):
+    job = await opted_in(groups)
+    await commit(groups, job, [entry("bulk-0", "personal_documents")])
+    with groups.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_group_index SET group_source='owner'"))
+    job = await groups.claim(user_id="owner")
+    batch = [entry(f"bulk-{i}") for i in range(5000)]
+    batch[0] = replace(batch[0], head="synthetic retained text", vector=basis(0))
+    started = time.monotonic()
+    result = await commit(groups, job, batch)
+    elapsed = time.monotonic() - started
+    assert result["written"] == 5000
+    stored = rows(groups)
+    assert len(stored) == 5000
+    owner = next(row for row in stored if row["group_source"] == "owner")
+    assert owner["shelf"] == "personal_documents"
+    assert groups.sealer.open_entry(owner)["head"] is None
+    assert groups.sealer.open_entry(owner)["vec"] is None
+    # Count-only timing is evidence for the worker's commit/cleanup reserve.
+    print(f"bulk_commit entries=5000 seconds={elapsed:.3f}")
+    assert elapsed < 15
+    before = {row["source_ref"]: row["entry_envelope"] for row in stored}
+    with groups.db.engine.begin() as connection:
+        connection.exec_driver_sql("""
+            CREATE FUNCTION reject_synthetic_bulk() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'synthetic bulk rollback'; END $$;
+            CREATE TRIGGER reject_synthetic_bulk BEFORE INSERT OR UPDATE ON drive_group_index
+            FOR EACH ROW WHEN (NEW.source_version='fail')
+            EXECUTE FUNCTION reject_synthetic_bulk();
+        """)
+    job = await groups.claim(user_id="owner")
+    replacement = [replace(item, title="synthetic update") for item in batch]
+    replacement[-1] = replace(replacement[-1], source_version="fail")
+    with pytest.raises(ConnectorLifecycleError, match="connector_storage_unavailable"):
+        await commit(groups, job, replacement)
+    assert {row["source_ref"]: row["entry_envelope"] for row in rows(groups)} == before
+
+
 async def test_folders_and_files_follow_the_owners_fiscal_quarter_and_time_zone(groups):
     job = await opted_in(groups, zone="Asia/Kolkata")
     late_march_utc = datetime(2025, 3, 31, 20, 0, tzinfo=UTC)
@@ -660,7 +619,19 @@ def worker(groups, monkeypatch, files, *, incomplete=False):
             )
         ),
         read_live_bytes=AsyncMock(return_value=("application/pdf", b"synthetic PDF")),
+        collection_start_token=AsyncMock(return_value="start"),
     )
+    previous = set()
+
+    async def changes(**kwargs):
+        nonlocal previous
+        current = {item["id"]: item for item in adapter.list_files.return_value["files"]}
+        result = [{"fileId": key, "file": item} for key, item in current.items()]
+        result += [{"fileId": key, "removed": True} for key in previous - current.keys()]
+        previous = set(current)
+        return {"changes": result, "newStartPageToken": "next"}
+
+    adapter.index_changes = AsyncMock(side_effect=changes)
     parser = AsyncMock(
         return_value=SimpleNamespace(pages=("statement statement",), truncated=False)
     )
@@ -672,6 +643,7 @@ def worker(groups, monkeypatch, files, *, incomplete=False):
         transport=rest.GoogleDriveRestTransport(oauth=oauth, adapter=adapter),
         embedder=embedder,
         bundle=replace(tiny_bundle(), version=VERSION),
+        inventory_cache=InventoryCache(),
     )
     return job, adapter, parser, embedder
 
@@ -691,6 +663,7 @@ async def test_worker_resumes_changed_batches_skips_unchanged_and_prunes_only_af
     assert (await job.run_one(user_id="owner"))["status"] == "queued"
     assert (await groups.status(user_id="owner"))["state"] == "indexing"
     assert (await job.run_one(user_id="owner"))["status"] == "indexed"
+    assert adapter.list_files.await_count == 1
     assert (await groups.status(user_id="owner"))["state"] == "ready"
     assert len(rows(groups)) == 2 and parser.await_count == 2
     assert adapter.list_files.await_args.kwargs["order_by"] == "createdTime desc"

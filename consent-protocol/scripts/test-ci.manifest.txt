@@ -31,6 +31,8 @@ tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
 tests/services/test_drive_groups.py
+tests/services/test_drive_group_inventory.py
+tests/services/test_drive_group_index_job.py
 tests/services/test_drive_group_index_postgres.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
@@ -400,7 +402,9 @@ tests/test_account_legal_acceptance.py
 tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
 tests/services/test_account_deletion_lifecycle_service.py
+tests/services/test_account_deletion_provider_cleanup.py
 tests/test_account_deletion_tombstone_migration.py
+tests/test_account_erasure_lock_timeout_postgres.py
 tests/test_account_deletion_release_workflow.py
 tests/test_cloud_run_image_resolution.py
 # Parallel digest-pinned web image build on every deploy lane, and promotion

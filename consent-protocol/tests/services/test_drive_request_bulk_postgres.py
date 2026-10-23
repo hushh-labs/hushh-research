@@ -45,6 +45,7 @@ from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_tr
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
     DRIVE_POLICY,
@@ -604,9 +605,22 @@ async def test_bounded_final_selection_can_enter_normal_review(request_bulk, sha
 
 
 @pytest.mark.asyncio
-async def test_completed_search_without_matches_has_no_permission_attempt(request_bulk, sharing):
+@pytest.mark.parametrize("matched", [0, 12])
+async def test_completed_search_without_deliverable_matches_has_no_permission_attempt(
+    request_bulk, sharing, matched
+):
     request = await _request(sharing)
-    _search(request_bulk, request_id=request["requestId"], count=0)
+    job = _search(
+        request_bulk,
+        request_id=request["requestId"],
+        count=matched,
+        shareability={position: False for position in range(1, matched + 1)},
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET unshareable_count=:count WHERE job_id=:job"),
+            {"job": job, "count": matched},
+        )
 
     await request_bulk.refresh_request(user_id="owner", request_id=request["requestId"])
 
@@ -614,6 +628,36 @@ async def test_completed_search_without_matches_has_no_permission_attempt(reques
     recipient = await sharing.request_status(user_id="recipient", request_id=request["requestId"])
     assert owner["status"] == "no_match"
     assert recipient["status"] == "no_files_shared"
+    reason = "matching_files_unshareable" if matched else "no_matching_files"
+    assert owner["outcomeReason"] == recipient["outcomeReason"] == reason
+    assert owner.get("matchedFileCount") == (matched or None)
+    assert "matchedFileCount" not in recipient and "unshareableFileCount" not in recipient
+    with pytest.raises(DriveSharingError, match="request_unavailable"):
+        await sharing.request_status(user_id="other-owner", request_id=request["requestId"])
+    feed = FeedService()
+
+    def execute_feed(sql, params):
+        with sharing.db.engine.connect() as connection:
+            return SimpleNamespace(
+                data=[dict(row) for row in connection.execute(text(sql), params).mappings()]
+            )
+
+    feed._db = SimpleNamespace(execute_raw=execute_feed)
+    event = {
+        "id": 1,
+        "event_type": "document_share_outcome",
+        "metadata": {
+            "request_id": request["requestId"],
+            "current_outcome_reason": "matching_files_unshareable",
+        },
+    }
+    for viewer in ("owner", "recipient", "other-owner"):
+        hydrated = feed._with_drive_payment_status(viewer, [event])[0]
+        metadata = feed._to_item(hydrated, viewer)["metadata"]
+        assert metadata.get("current_outcome_reason") == (
+            reason if viewer != "other-owner" else None
+        )
+        assert "matchedFileCount" not in metadata
     delivery = DriveSharingService(
         oauth=SimpleNamespace(lifecycle=SimpleNamespace(db=sharing.db)),
         store=DriveSuggestionStore(db=sharing.db),

@@ -19,6 +19,30 @@ necessary, but it is not sufficient on its own: a full deletion that was
 already in flight before the DDL committed can finish without crossing either
 root trigger, and a legacy account can lack one of the two root rows.
 
+## Database erasure runtime boundary
+
+Full account erasure runs its complete synchronous SQL transaction on one worker
+thread, including connection acquisition, lifecycle locks and commit or rollback.
+The server event loop remains available for heartbeats and unrelated requests.
+Before taking any domain or lifecycle lock, the transaction sets local lock and
+statement timeouts to 3 and 20 seconds respectively. These limits cancel SQL in
+PostgreSQL; an HTTP or coroutine timeout alone cannot stop a database thread.
+They bound individual statements, rather than the total erasure duration.
+
+A failed statement rolls back the tombstone and erasure together and releases
+the account barriers before returning the existing `ACCOUNT_DELETION_FAILED`
+response. Provider grant release and Firebase cleanup remain post-commit only.
+Clients must still confirm active status before retaining the session after a
+reported rollback; an untyped transport failure remains an uncertain outcome.
+Failed optional-table deletes log only the table name and elapsed time for
+diagnosis, without record contents or credentials.
+
+The regression rehearsal uses an empty disposable PostgreSQL database: it holds
+a row lock during erasure, proves bounded rollback without a tombstone or lost
+account rows, and then reads active account status while the row lock is still
+held. The event-loop regression separately proves a blocked database worker does
+not prevent the server heartbeat from running.
+
 ## Owner-cloud erasure boundary
 
 Account deletion also requires its owner's cloud inventory to settle. Preserve
