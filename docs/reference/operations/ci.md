@@ -112,6 +112,39 @@ an active source workflow or a duplicate test. Reconcile old entries with main a
 recent runs before disabling anything. Required security coverage must remain.
 No remote disable, cancellation or schedule change is authorized by this local edit.
 
+## Release-chain review — 2026-10-23
+
+One measured correction release, not a performance SLA:
+
+| Stage | Elapsed | Evidence |
+| --- | --- | --- |
+| Full PR validation | 35m02s | [39981561301](https://github.com/hushh-labs/hushh-research/actions/runs/39981561301) |
+| Landed-SHA smoke | 3m10s | [39986627702](https://github.com/hushh-labs/hushh-research/actions/runs/39986627702) |
+| Dev, both services | 24m09s | [39987252665](https://github.com/hushh-labs/hushh-research/actions/runs/39987252665) |
+| Sequential total before UAT | 62m21s | Includes gates, runner waits and cloud control-plane time |
+
+Dev's backend wrapper took 10m20s, including a 6m19s native Gemini readiness
+stage; migrations/schema took 3m08s and frontend rollout 2m30s. Images were
+pinned before migrations; the frontend image built in parallel. These measurements
+do not establish a redundant build or justify removing an authority gate.
+
+The PR's 23 Ubuntu notices announced the `ubuntu-latest` migration to Ubuntu 26;
+they were not download failures. Its successful hosted image was Ubuntu 24.04.5,
+runner 2.338.0. Core PR/queue/security/smoke and dev/UAT/production workflows pin
+`ubuntu-24.04` to retain that measured OS. Cache actions use v5's Node.js 24 runtime
+with unchanged keys, paths and PR restore-only/main-save boundaries. This addresses
+the observed seven Node.js 20 deprecation warnings; hosted verification is still
+required. A material latency reduction is not established. [Runner announcement](https://github.com/actions/runner-images/issues/14748),
+[cache runtime requirements](https://github.com/actions/cache#whats-new).
+
+The latest five protected security workers each bound a distinct source
+run/attempt. Their presence is credential isolation, not five new vulnerabilities.
+The long run title participates in exact receipt discovery; renaming the producer
+alone strands older PR consumers. Any title migration must preserve old/new
+consumer compatibility, chronological newer-failure refusal and source/artifact
+binding. macOS capacity notices are provider observations, not demonstrated code
+failures. Unchanged historical evidence remains reusable where its inputs match.
+
 ## Run-history review — 2026-10-18
 
 Read-only sample: 100 recent runs for discovery, then the last 20 completed PR

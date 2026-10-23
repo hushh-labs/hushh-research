@@ -34,7 +34,7 @@ jobs:
     name: "Read protected repository alerts"
     if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'
     environment: ci-security
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6

@@ -94,7 +94,7 @@ concurrency:
 jobs:
   select-target:
     name: Select UAT target
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       checks: read
@@ -176,7 +176,7 @@ jobs:
     name: Wait for UAT capacity outside the mutation lock
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 7
     permissions:
       contents: read
@@ -222,7 +222,7 @@ jobs:
     name: Deploy UAT Scope
     needs: [select-target, wait-capacity]
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency:
       group: deploy-uat
       cancel-in-progress: false

@@ -148,7 +148,7 @@ def test_guard_rejects_a_pr_save_and_a_drifted_key() -> None:
         mutated[path] = real[path].replace(old, new)
         return cache_scope_errors(mutated.__getitem__)
 
-    spm_restore = "uses: actions/cache/restore@v4\n        with:\n          path: ${{ runner.temp }}/spm"
+    spm_restore = "uses: actions/cache/restore@v5\n        with:\n          path: ${{ runner.temp }}/spm"
     errors = errors_after(CI, spm_restore, spm_restore.replace("cache/restore@", "cache@"))
     assert any("must use actions/cache/restore" in error for error in errors), errors
 

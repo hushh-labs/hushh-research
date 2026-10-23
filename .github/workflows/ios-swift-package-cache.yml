@@ -130,7 +130,7 @@ jobs:
       # entry already exists there is nothing to save.
       - name: Look up this package graph's entry
         id: spm-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/spm
           key: ios-spm-xcode${{ env.XCODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('hushh-webapp/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'hushh-webapp/ios/App/CapApp-SPM/Package.swift') }}
@@ -156,7 +156,7 @@ jobs:
       # run over an existing entry checks the pins and leaves the entry as is.
       - name: Save Swift packages for pull requests
         if: steps.spm-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ${{ runner.temp }}/spm
           key: ${{ steps.spm-cache.outputs.cache-primary-key }}
