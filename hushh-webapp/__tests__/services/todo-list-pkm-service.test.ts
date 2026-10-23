@@ -174,6 +174,21 @@ describe("TodoListPkmService", () => {
     });
   });
 
+  it("preserves reviewed suggestion links, deduplicates retries and does not claim a booking", async () => {
+    const save = mockSuccessfulWrite();
+    const input = { id: `suggested_${"a".repeat(64)}`, title: "Prepare meeting notes", type: "manual" as const, source: "calendar" as const, sourceId: "calendar-opaque", link: "/one/calendar" };
+    const existing = buildTodo(input);
+    expect(existing.link).toBe("/one/calendar");
+    expect(readTodoListState({ _private: { tasks: [existing] } }).tasks[0]?.link).toBe("/one/calendar");
+    await createTodo(input, persistence);
+    const captured = save.mock.calls[0]![0];
+    expect(captured.confirmation.source).toBe("one_todo_list_owner_confirmed_add");
+    const plan = await captured.build({ ...coordinatorContext, currentDomainData: { _private: { tasks: [{ ...existing, status: "done", completedAt: "2026-10-22T00:00:00Z" }] } } });
+    const stored = readTodoListState(plan.domainData).tasks;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ id: existing.id, status: "done", link: "/one/calendar" });
+  });
+
   it("persists completion before an item leaves the active list", async () => {
     const save = mockSuccessfulWrite();
 

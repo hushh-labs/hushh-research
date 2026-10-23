@@ -13,6 +13,10 @@ export const TODO_SOURCE_LABELS = {
   connections: "Connections",
   consent: "Consent",
   agent: "Private agent",
+  messages: "Messages",
+  wallet: "Wallet",
+  ria: "Advisor",
+  pkm: "Memory",
 } as const;
 export type TodoSourceAgent = keyof typeof TODO_SOURCE_LABELS | null;
 
@@ -45,4 +49,14 @@ export function openTodoItems(tasks: TodoItem[]): TodoItem[] {
 
 export function completedTodoItems(tasks: TodoItem[]): TodoItem[] {
   return tasks.filter((task) => task.status === "done");
+}
+
+export function taskSort(left: TodoItem, right: TodoItem): number {
+  const date = (left.date ?? "9999-12-31").localeCompare(
+    right.date ?? "9999-12-31",
+  );
+  if (date !== 0) return date;
+  const time = (left.time ?? "99:99").localeCompare(right.time ?? "99:99");
+  if (time !== 0) return time;
+  return left.title.localeCompare(right.title);
 }

@@ -119,6 +119,21 @@ describe("market index quote evidence", () => {
     expect(metric.detailPanel?.facts?.find((fact) => fact.label === "Quoted")?.value).not.toBe("Timestamp unavailable");
   });
 
+  it("keeps cached chart direction tied to daily change, including small moves and unavailable change", () => {
+    const cases = [
+      { change: 0.02, tone: "positive" }, { change: -0.02, tone: "negative" },
+      { change: 0, tone: "neutral" }, { change: null, tone: "warning" },
+    ];
+    const metrics = cases.map(({ change }, index) => ({
+      ...toIndexStripItems({ market_overview: [{ ...quote, delta_pct: change }] })[0], id: `quote-${index}`,
+    }));
+    const { container } = render(createElement(OneMarketIndexStrip, { metrics, onMetricSelect: () => {} }));
+    expect([...container.querySelectorAll("[data-index-chart-tone]")].map(node => node.getAttribute("data-index-chart-tone")))
+      .toEqual(cases.map(item => item.tone));
+    expect(metrics.every(metric => metric.quoteStatus === "Delayed" && metric.quotedAt === quote.as_of)).toBe(true);
+    expect(metrics[1].sparkline).toEqual([7700, 7712.57]); // Rising intraday points can still be a down day.
+  });
+
   it("rejects ETF proxy rows and leaves missing benchmarks unavailable", () => {
     const metrics = toIndexStripItems({ market_overview: [{ ...quote, symbol: "SPY" }] });
     expect(metrics.map((metric) => metric.label)).toEqual([

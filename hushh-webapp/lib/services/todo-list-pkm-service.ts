@@ -110,6 +110,13 @@ function normalizeTime(value: unknown): string | null {
   return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : null;
 }
 
+function hasInternalTaskLink(id: string, sourceId: string | null): boolean {
+  return Boolean(sourceId) && (
+    (id.startsWith("feed_") && sourceId!.startsWith("feed:")) ||
+    /^suggested_[a-f0-9]{64}$/.test(id)
+  );
+}
+
 function normalizeLink(value: unknown, allowInternal = false): string | null {
   const candidate = text(value, 1_500);
   if (!candidate) return null;
@@ -177,7 +184,7 @@ function normalizeItem(value: unknown): TodoItem | null {
     sourceId,
     link: normalizeLink(
       value.link,
-      id.startsWith("feed_") && Boolean(sourceId?.startsWith("feed:")),
+      hasInternalTaskLink(id, sourceId),
     ),
     notes: value.notes ? String(value.notes) : null,
     revision:
@@ -243,7 +250,7 @@ export function buildTodo(
     sourceId,
     link: normalizeLink(
       input.link,
-      id.startsWith("feed_") && Boolean(sourceId?.startsWith("feed:")),
+      hasInternalTaskLink(id, sourceId),
     ),
     notes: text(input.notes, 1_200) || null,
     createdAt: now,
@@ -432,9 +439,9 @@ export async function createTodo(
   const task = buildTodo(input);
   const result = await write(
     persistence,
-    task.sourceAgent === "calendar"
+    task.sourceAgent === "calendar" && task.type === "automatic"
       ? "one_todo_list_calendar_booking"
-      : task.sourceAgent === "gmail"
+      : task.sourceAgent === "gmail" && task.type === "automatic"
         ? "one_todo_list_gmail_follow_up"
         : "one_todo_list_owner_confirmed_add",
     `one_todo_list:create:${task.id}`,

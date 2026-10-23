@@ -16,6 +16,9 @@
 
 "use client";
 
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
+import { PortfolioReviewSummary } from "@/components/kai/cards/portfolio-review-summary";
+
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -24,8 +27,6 @@ import {
   RefreshCw,
   Loader2,
   Building2,
-  TrendingUp,
-  TrendingDown,
   PieChart,
   Wallet,
 } from "@/components/icons";
@@ -260,16 +261,6 @@ function formatCurrency(value: number | undefined | null): string {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatCurrencyCompact(value: number | undefined | null): string {
-  if (value === undefined || value === null) return "$0";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
     maximumFractionDigits: 2,
   }).format(value);
 }
@@ -1166,7 +1157,7 @@ export function PortfolioReviewView({
                 <p className={cn("font-semibold", deleted && "line-through")}>
                   {holding.symbol || "—"}
                 </p>
-                <Badge variant="outline" className={cn("h-5 px-1.5 text-[10px] uppercase", sideClass)}>
+                <Badge variant="outline" className={cn("h-5 px-1.5 text-xs uppercase", sideClass)}>
                   {side}
                 </Badge>
               </div>
@@ -1972,10 +1963,10 @@ export function PortfolioReviewView({
   }, [confirmDiscardChanges, onReimport]);
 
   return (
-    <div className={cn("relative w-full", className)}>
+    <div className={cn(financeStyles.detail, "relative w-full", className)}>
 
 
-      <div className="w-full space-y-8 pb-6 pt-4 transition-[opacity,transform] duration-150 ease-out md:pt-6">
+      <div className="w-full space-y-5 pb-6 pt-4 transition-[opacity,transform] duration-150 ease-out md:pt-6">
 
 
 
@@ -2011,86 +2002,16 @@ export function PortfolioReviewView({
 
 
 
-      <div className="xl:grid xl:grid-cols-12 xl:items-start xl:gap-10">
+      <div className="md:grid md:grid-cols-12 md:items-start md:gap-5">
         {/* Left Column / Mobile Top: Summary & Info */}
-        <div className="space-y-8 xl:col-span-5">
-          {/* Summary Card - Redesigned for bigger numbers */}
-          <MorphyCard variant="none" preset="surface-feature" className="overflow-hidden">
-            <div className="absolute inset-0 bg-linear-to-br from-primary/5 to-primary/10 dark:from-primary/10 dark:to-primary/20" />
-            <CardContent className="relative pt-8 px-6 pb-8 space-y-8">
-
-              <div className="text-center">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">
-                  Total Portfolio Value
-                </p>
-                <p className="max-w-full px-2 text-[28px] font-medium leading-none tracking-normal tabular-nums whitespace-nowrap bg-linear-to-br from-foreground to-foreground/70 bg-clip-text text-transparent sm:text-[32px]">
-                  <span title={formatCurrency(totalValue)}>{formatCurrencyCompact(totalValue)}</span>
-                </p>
-
-                {totalUnrealizedGainLoss !== 0 && (
-                  <div className="flex justify-center mt-3">
-                    <Badge
-                      className={cn(
-                        "font-bold py-1 px-3",
-                        totalUnrealizedGainLoss >= 0
-                          ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                          : "bg-red-500/10 text-red-500 border-red-500/20"
-                      )}
-                    >
-                      {totalUnrealizedGainLoss >= 0 ? (
-                        <Icon icon={TrendingUp} size={12} className="mr-1.5" aria-hidden="true" />
-                      ) : (
-                        <Icon icon={TrendingDown} size={12} className="mr-1.5" aria-hidden="true" />
-                      )}
-                      <span title={formatCurrency(totalUnrealizedGainLoss)}>
-                        {formatCurrencyCompact(totalUnrealizedGainLoss)} unrealized
-                      </span>
-                    </Badge>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 border-t border-primary/10 pt-6 sm:grid-cols-3">
-                <div className="min-w-0 text-left pl-2 sm:pl-4">
-                  <p className="text-lg font-semibold sm:text-xl">{activeHoldings.length}</p>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assets</p>
-                </div>
-                <div className="min-w-0 flex flex-col items-center justify-center">
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "font-semibold text-[10px] uppercase tracking-widest px-2",
-                      riskBucket === "aggressive"
-                        ? "app-critical-badge"
-                        : riskBucket === "moderate"
-                          ? "border-primary/30 bg-primary/10 text-primary"
-                          : "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    )}
-                  >
-                    {riskBucket}
-                  </Badge>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-1.5">Portfolio Risk</p>
-                </div>
-                <div className="min-w-0 text-right pr-2 sm:pr-4">
-                  <p
-                    className={cn(
-                      "max-w-full text-base font-semibold leading-none tracking-normal tabular-nums truncate sm:text-lg",
-                      liveCashBalance < 0
-                        ? "text-red-500 dark:text-red-400"
-                        : "text-foreground"
-                    )}
-                  >
-                    <span title={formatCurrency(liveCashBalance)}>
-                      {formatCurrencyCompact(liveCashBalance)}
-                    </span>
-                  </p>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-1.5">Cash</p>
-                </div>
-              </div>
-
-            </CardContent>
-          </MorphyCard>
-
+        <div className="space-y-5 md:col-span-5">
+          <PortfolioReviewSummary
+            totalValue={totalValue}
+            unrealizedGainLoss={totalUnrealizedGainLoss}
+            holdingCount={activeHoldings.length}
+            riskBucket={riskBucket}
+            cashBalance={liveCashBalance}
+          />
 
       {/* Account & Meta Accordions */}
       <Accordion type="multiple" defaultValue={["account", "income"]} className="w-full space-y-4">
@@ -2099,7 +2020,7 @@ export function PortfolioReviewView({
           value="account"
           className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
         >
-          <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
+          <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
 
 
             <div className="flex items-center gap-2">
@@ -2183,7 +2104,7 @@ export function PortfolioReviewView({
           value="allocation"
           className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
         >
-            <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
+            <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
 
 
               <div className="flex items-center gap-2">
@@ -2272,7 +2193,7 @@ export function PortfolioReviewView({
           value="income"
           className="border-b-0 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-default)] px-5 shadow-[var(--app-card-shadow-standard)]"
         >
-            <AccordionTrigger className="text-base font-bold py-5 hover:no-underline">
+            <AccordionTrigger className="text-sm font-semibold py-4 hover:no-underline">
 
 
               <div className="flex items-center gap-2">
@@ -2312,12 +2233,12 @@ export function PortfolioReviewView({
         </div>
 
         {/* Right Column / Mobile Bottom: Holdings */}
-        <div className="mt-8 xl:col-span-7 xl:mt-0 min-w-0 max-w-full">
+        <div className="mt-8 md:col-span-7 xl:mt-0 min-w-0 max-w-full">
           <MorphyCard variant="none" preset="surface" className="h-full min-w-0 max-w-full overflow-hidden">
             <CardHeader className="border-b border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-sticky-header)] px-6 pb-4 pt-6">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <CardTitle className="text-[15px] font-medium uppercase tracking-[0.14em] text-foreground">
+                  <CardTitle className="text-sm font-semibold tracking-normal text-foreground">
                     Holdings ({holdings.length})
                     {pendingDeleteCount > 0 ? (
                       <span className="ml-2 text-[11px] font-semibold text-muted-foreground">
@@ -2453,8 +2374,9 @@ export function PortfolioReviewView({
         className="sticky bottom-[calc(var(--app-sticky-bottom-offset,0px)+0.75rem)] z-20 px-6 pt-3"
       >
         <MorphyButton
-          variant="blue-gradient"
-          effect="fill"
+          variant="none"
+          effect="fade"
+          className="app-button-black"
           fullWidth
           onClick={() => {
             createdVaultCopyRef.current = hasVault === false;

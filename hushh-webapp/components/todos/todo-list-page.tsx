@@ -52,28 +52,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
-import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
-import {
-  useCalendarUpcomingEvents,
-  type RedactedCalendarEvent,
-} from "@/lib/calendar/use-calendar-upcoming-events";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   TodoListPkmService,
-  agentTodoInput,
-  buildTodo,
-  calendarTodoInput,
   completedTodoItems,
   createTodo,
-  openTodoItems,
-  isLiveAgentTodo,
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
-import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
-import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
+import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { TodoAgentSuggestions } from "./todo-agent-suggestions";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   getCachedGmailReceipts,
@@ -84,7 +75,6 @@ import {
   TodoRows,
   extractDueReceipts,
   localDateKey,
-  taskSort,
 } from "./todo-list-presentation";
 // Compatibility exports preserve existing callers while previews use the leaf.
 export {
@@ -104,74 +94,6 @@ type EditableTodoFields = {
   time: string | null;
   notes: string | null;
 };
-
-function calendarStart(event: RedactedCalendarEvent): Date | null {
-  const value =
-    event.start?.dateTime ??
-    (event.start?.date ? `${event.start.date}T00:00:00` : null);
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function calendarTask(
-  event: RedactedCalendarEvent,
-  index: number,
-): TodoItem | null {
-  const start = calendarStart(event);
-  if (!start || event.status?.toLowerCase() === "cancelled") return null;
-  const sourceId = event.id ?? `${event.title}-${start.toISOString()}-${index}`;
-  const input = calendarTodoInput({
-    id: sourceId,
-    title: event.title,
-    start: event.start,
-    conferenceUrl: event.conferenceUrl,
-  });
-  return input ? buildTodo(input, start.toISOString()) : null;
-}
-
-/** Merge fresh Calendar projection with encrypted owner completion/dismissal state. */
-function mergeAutomaticTasks(
-  events: RedactedCalendarEvent[],
-  saved: TodoItem[],
-): TodoItem[] {
-  const savedAutomatic = new Map(
-    saved
-      .filter((task) => task.type === "automatic" && !isLiveAgentTodo(task))
-      .map((task) => [task.sourceId ?? task.id, task]),
-  );
-  const seen = new Set<string>();
-  const projected = events.flatMap((event, index) => {
-    const fromCalendar = calendarTask(event, index);
-    if (!fromCalendar) return [];
-    const key = fromCalendar.sourceId ?? fromCalendar.id;
-    seen.add(key);
-    const stored = savedAutomatic.get(key);
-    if (stored?.status === "done" || stored?.status === "deleted") return [];
-    return [
-      {
-        ...fromCalendar,
-        ...(stored
-          ? {
-              status: stored.status,
-              completedAt: stored.completedAt,
-              deletedAt: stored.deletedAt,
-              createdAt: stored.createdAt,
-              updatedAt: stored.updatedAt,
-            }
-          : {}),
-      },
-    ];
-  });
-
-  // The Calendar read may lag briefly after a successful booking. Keep the
-  // encrypted automatic snapshot visible until the provider projection catches up.
-  for (const task of savedAutomatic.values()) {
-    const key = task.sourceId ?? task.id;
-    if (task.status === "pending" && !seen.has(key)) projected.push(task);
-  }
-  return projected.sort(taskSort);
-}
 
 function TodoAddItemSheet({
   open,
@@ -347,6 +269,16 @@ function AddItemButton({
 
 export function TodoListPage() {
   const { user } = useAuth();
+  const { isVaultUnlocked } = useVault();
+  const epoch = snapshotVaultSessionEpoch();
+  return <OwnerTodoListPage key={`${user?.uid ?? "anonymous"}:${epoch}:${isVaultUnlocked}`} epoch={epoch} />;
+}
+
+function OwnerTodoListPage({ epoch }: { epoch: number }) {
+  const active = useRef(true);
+  useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
+  const isCurrent = () => active.current && isVaultSessionEpochCurrent(epoch);
+  const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [editorOpen, setEditorOpen] = useState(false);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
@@ -364,15 +296,6 @@ export function TodoListPage() {
   const writeReady = Boolean(
     userId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );
-  const agentFeed = useFeedActionables({ enabled: writeReady });
-  const { pendingKyc, kycLoading, kycError, retryKyc } = useFeedBriefing({
-    enabled: writeReady,
-    includeCalendar: false,
-    includeNudges: false,
-  });
-  const agentLoadError = agentFeed.error || agentFeed.progressError || kycError;
-  const agentLoading =
-    agentFeed.loading || agentFeed.progressLoading || kycLoading;
   useEffect(() => {
     if (writeReady) return;
     setEditorOpen(false);
@@ -383,10 +306,10 @@ export function TodoListPage() {
     () => user?.getIdToken() ?? Promise.resolve(""),
     [user],
   );
-  const calendar = useCalendarConnectionStatus({
-    userId,
-    idTokenProvider: user ? idTokenProvider : null,
+  const liveTasks = useTodoLiveTasks({
+    userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady, tasks,
   });
+  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError } = liveTasks;
   const gmail = useGmailConnectorStatus({
     userId,
     idTokenProvider: user ? idTokenProvider : null,
@@ -401,16 +324,6 @@ export function TodoListPage() {
     if (!cachedReceipts) return [];
     return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
   }, [cachedReceipts]);
-  const upcoming = useCalendarUpcomingEvents({
-    userId,
-    vaultOwnerToken,
-    isConnected: calendar.connected,
-    windowHours: 168,
-  });
-  const calendarReadLoading = !calendar.loaded || calendar.loading ||
-    (calendar.connected && (!upcoming.loaded || upcoming.loading));
-  const calendarReadError = Boolean(calendar.error || upcoming.error);
-
   const loadItems = useCallback(async () => {
     const revision = ++itemsLoadRevision.current;
     if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -449,38 +362,6 @@ export function TodoListPage() {
     return () => { itemsLoadRevision.current += 1; };
   }, [loadItems]);
 
-  const pending = useMemo(() => {
-    const saved = new Map(tasks.map((task) => [task.id, task]));
-    const live = new Map<string, TodoItem>();
-    for (const item of agentFeed.actionables) {
-      if (!item.todo) continue;
-      const input = agentTodoInput(item.id, item.todo);
-      if (!input) continue;
-      const task = buildTodo(input);
-      const status = saved.get(task.id)?.status;
-      if (status !== "done" && status !== "deleted") live.set(task.id, task);
-    }
-    if (pendingKyc) {
-      const input = agentTodoInput(`kyc:${pendingKyc.workflowId}`, {
-        source: "kyc",
-        title:
-          pendingKyc.count > 1
-            ? `Review ${pendingKyc.count} information requests`
-            : "Review information request",
-        href: "/one/gmail?workspace=kyc",
-      });
-      if (input) {
-        const task = buildTodo(input);
-        const status = saved.get(task.id)?.status;
-        if (status !== "done" && status !== "deleted") live.set(task.id, task);
-      }
-    }
-    return [
-      ...mergeAutomaticTasks(upcoming.events, tasks),
-      ...live.values(),
-      ...openTodoItems(tasks).filter((task) => task.type === "manual"),
-    ].sort(taskSort);
-  }, [agentFeed.actionables, pendingKyc, upcoming.events, tasks]);
   const completed = useMemo(() => completedTodoItems(tasks), [tasks]);
   const today = localDateKey(new Date());
   const doneToday = completed.filter((task) => task.date === today).length;
@@ -509,12 +390,13 @@ export function TodoListPage() {
     });
     try {
       const { task } = await operation;
+      if (!isCurrent()) return;
       setTasks((currentTasks) => [task, ...currentTasks]);
       setEditorOpen(false);
     } catch {
       // The shared promise toast owns the failure state.
     } finally {
-      setSavingTaskId(null);
+      if (isCurrent()) setSavingTaskId(null);
     }
   };
 
@@ -549,13 +431,14 @@ export function TodoListPage() {
     try {
       await operation;
     } catch {
+      if (!isCurrent()) return;
       setTasks((current) =>
         current.some((item) => item.id === task.id)
           ? current.map((item) => (item.id === task.id ? task : item))
           : current,
       );
     } finally {
-      setSavingTaskId(null);
+      if (isCurrent()) setSavingTaskId(null);
     }
   };
 
@@ -590,13 +473,14 @@ export function TodoListPage() {
     try {
       await operation;
     } catch {
+      if (!isCurrent()) return;
       setTasks((current) =>
         current.some((item) => item.id === task.id)
           ? current.map((item) => (item.id === task.id ? task : item))
           : [task, ...current],
       );
     } finally {
-      setSavingTaskId(null);
+      if (isCurrent()) setSavingTaskId(null);
     }
   };
 
@@ -717,6 +601,11 @@ export function TodoListPage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-6 pb-6">
+        {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
+          userId={userId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
+          evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading)}
+          onSaved={() => void loadItems()} onRefresh={() => { void loadItems(); void liveTasks.refreshSources(); void agentFeed.retry(); void retryKyc(); calendar.refresh(); upcoming.refresh(); }}
+        /> : null}
         {!writeReady ? (
           <SurfaceCard>
             <div className="flex items-center gap-3 px-4 py-5">
@@ -730,7 +619,7 @@ export function TodoListPage() {
             </div>
           </SurfaceCard>
         ) : !itemsLoaded || itemsLoading ||
-          ((agentLoading || calendarReadLoading) && pending.length === 0) ? (
+          ((agentLoading || calendarReadLoading || liveTasks.sourceLoading) && pending.length === 0) ? (
           <div role="status" className="flex items-center gap-2 px-1">
             <RefreshCw
               className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
@@ -746,7 +635,7 @@ export function TodoListPage() {
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
-        ) : itemsLoadError || agentLoadError || calendarReadError ? null : (
+        ) : itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">

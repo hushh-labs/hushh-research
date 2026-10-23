@@ -5,9 +5,9 @@ import { ArrowLeft, RefreshCw, Scale } from "@/components/icons";
 import { APP_MEASURE_STYLES } from "@/components/app-ui/app-page-shell";
 
 import { Button } from "@/lib/morphy-ux/button";
-import { Card, CardContent } from "@/lib/morphy-ux/card";
+import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { Badge } from "@/components/ui/badge";
 import type { AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import { cn } from "@/lib/utils";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -169,10 +169,10 @@ function ScoreBar({
 }) {
   const clamped = value === null ? null : Math.max(0, Math.min(10, value));
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 border-t border-border pt-4">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold">{label}</p>
-        <p className="text-sm font-bold tabular-nums">
+        <p className="text-sm font-medium tabular-nums">
           {valueLabel || (clamped === null ? "N/A" : `${clamped.toFixed(1)} / 10`)}
         </p>
       </div>
@@ -302,13 +302,13 @@ export function AnalysisSummaryView({
   );
   const decisionToneClass =
     decisionPresentation.tone === "positive"
-      ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+      ? "text-emerald-700 dark:text-emerald-400"
       : decisionPresentation.tone === "negative"
-        ? "bg-rose-500/12 text-rose-600 dark:text-rose-400 border-rose-500/30"
-        : "bg-blue-500/12 text-blue-600 dark:text-blue-400 border-blue-500/30";
+        ? "text-rose-700 dark:text-rose-400"
+        : "text-foreground";
 
   return (
-    <div className="mx-auto w-full space-y-4 pt-1" style={APP_MEASURE_STYLES.reading}>
+    <div className={cn(financeStyles.detail, "mx-auto w-full space-y-5 pt-1")} style={APP_MEASURE_STYLES.reading}>
       {!embedded ? (
         <div className="flex items-center justify-between gap-3">
           <Button type="button" variant="none" effect="fade" size="sm" onClick={onBack} disabled={!onBack}>
@@ -363,24 +363,24 @@ export function AnalysisSummaryView({
         </div>
       ) : null}
 
-      <Card variant="none" effect="glass" preset="hero">
-        <CardContent className="space-y-5 p-6">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-bold uppercase tracking-widest text-primary">Analysis</span>
+      <SurfaceCard>
+        <SurfaceCardContent className="space-y-4 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-foreground">Analysis</span>
             <span className="text-xs font-medium text-muted-foreground">At analysis · {updatedAt}</span>
           </div>
 
           {rawCard.analysis_degraded ? <p role="status" className="text-sm text-muted-foreground">
             Limited analysis{Array.isArray(rawCard.degraded_agents) && rawCard.degraded_agents.length ? ` · ${rawCard.degraded_agents.join(", ")}` : ""}
           </p> : null}
-          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+          <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              <p className="text-xs font-medium text-muted-foreground">
                 Overall Decision
               </p>
-              <Badge variant="outline" className={decisionToneClass}>
+              <span className={cn("text-sm font-medium", decisionToneClass)}>
                 {decisionPresentation.label}
-              </Badge>
+              </span>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">{decisionPresentation.guidance}</p>
           </div>
@@ -407,25 +407,25 @@ export function AnalysisSummaryView({
             tone="warning"
             description={fairValueDetail}
           />
-        </CardContent>
-      </Card>
+        </SurfaceCardContent>
+      </SurfaceCard>
 
-      <Card variant="muted" effect="fill" preset="default">
-        <CardContent className="space-y-3 p-4">
-          <div className="border-l-2 border-primary pl-3">
+      <SurfaceCard>
+        <SurfaceCardContent className="space-y-3 p-4">
+          <div className="space-y-2">
             <p className="text-sm font-medium leading-relaxed">{shortRecommendation}</p>
-            <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              Finance Insight
+            <p className="mt-2 text-xs font-medium text-muted-foreground">
+              What to consider
             </p>
           </div>
           {!embedded && onOpenDebate ? (
-            <Button type="button" variant="blue-gradient" effect="fill" size="sm" onClick={onOpenDebate}>
+            <Button type="button" variant="none" effect="fade" size="sm" onClick={onOpenDebate}>
               <Icon icon={Scale} size="sm" className="mr-1" aria-hidden="true" />
               Open Detailed Debate
             </Button>
           ) : null}
-        </CardContent>
-      </Card>
+        </SurfaceCardContent>
+      </SurfaceCard>
     </div>
   );
 }
