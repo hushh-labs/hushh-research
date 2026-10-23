@@ -33,6 +33,27 @@ def test_filter_bridge_mapping_requires_exact_authored_signal():
     assert content_filtered_error(run_error(message + " untrusted suffix")) is None
 
 
+def test_statusless_azure_quota_requires_a_typed_or_exact_bridge_signal():
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureRateLimitedError
+
+    error = AzureRateLimitedError()
+    message = str(error)
+    assert transient_model_error_for_exception(error) == MODEL_CAPACITY_RUN_ERROR
+    assert (
+        transient_model_error_for_exception(ExceptionGroup("group", [error]))
+        == MODEL_CAPACITY_RUN_ERROR
+    )
+    assert (
+        transient_model_error_for_exception(ExceptionGroup("mixed", [error, ValueError()])) is None
+    )
+    assert transient_model_error_for_exception(RuntimeError(message)) is None
+    for code in ("EXECUTION_ERROR", "BACKGROUND_EXECUTION_ERROR"):
+        assert transient_model_run_error(run_error(message, code)) == MODEL_CAPACITY_RUN_ERROR
+        assert transient_model_run_error(run_error(message + " suffix", code)) is None
+    assert transient_model_run_error(run_error(message, "AGENT_ERROR")) is None
+    assert MODEL_CAPACITY_RUN_ERROR.metadata == {"retryable": True}
+
+
 PROVIDER_429 = "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'status': 'RESOURCE_EXHAUSTED'}}"
 ADK_ADVICE = "\nOn how to mitigate this issue, please refer to:\n\nhttps://example.test/adk\n\n\n"
 

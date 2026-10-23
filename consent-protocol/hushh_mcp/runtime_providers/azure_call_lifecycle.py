@@ -24,6 +24,7 @@ class AzureAuthenticationError(RuntimeError):
 
 
 AZURE_CONTENT_FILTERED_MESSAGE = "Azure response stopped by content filtering"
+AZURE_RATE_LIMITED_MESSAGE = "Azure model capacity is temporarily unavailable"
 
 
 class AzureContentFilteredError(RuntimeError):
@@ -31,6 +32,13 @@ class AzureContentFilteredError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__(AZURE_CONTENT_FILTERED_MESSAGE)
+
+
+class AzureRateLimitedError(RuntimeError):
+    """An explicit rate limit inside an HTTP-success stream has no HTTP status."""
+
+    def __init__(self) -> None:
+        super().__init__(AZURE_RATE_LIMITED_MESSAGE)
 
 
 async def acquire_token(token_supplier, counters: dict[str, Any]) -> str:
@@ -56,6 +64,9 @@ def _failure_details(error: Exception) -> tuple[str, int, str]:
     filtered = isinstance(error, AzureContentFilteredError) or (
         isinstance(error, APIError) and code == "content_filter" and status in {0, 400}
     )
+    limited = isinstance(error, AzureRateLimitedError) or (
+        isinstance(error, APIError) and code == "rate_limit_exceeded" and status == 0
+    )
     kind = (
         "filtered"
         if filtered
@@ -66,7 +77,7 @@ def _failure_details(error: Exception) -> tuple[str, int, str]:
         else "connection"
         if isinstance(error, APIConnectionError)
         else "quota"
-        if status == 429
+        if limited or status == 429
         else "server"
         if status >= 500
         else "protocol"
@@ -103,6 +114,8 @@ async def observe_call(source, model: str, counters: dict[str, Any]):
         error_kind, status, counters["provider_code"] = _failure_details(error)
         if error_kind == "filtered" and not isinstance(error, AzureContentFilteredError):
             raise AzureContentFilteredError() from None
+        if error_kind == "quota" and status == 0 and counters["provider_code"] == "rate.limit":
+            raise AzureRateLimitedError() from None
         raise
     finally:
         logger.info(

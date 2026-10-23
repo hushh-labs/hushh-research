@@ -57,32 +57,44 @@ async def test_provider_failure_cannot_masquerade_as_a_filter_refusal(event_type
     assert events.closed
 
 
-@pytest.mark.parametrize("code", ["content_filter", "invalid_encrypted_content", None, {}])
-async def test_actual_sdk_sse_errors_preserve_failure_codes_without_inspecting_text(caplog, code):
+@pytest.mark.parametrize(
+    "code", ["content_filter", "rate_limit_exceeded", "invalid_encrypted_content", None, {}]
+)
+@pytest.mark.parametrize("partial", [False, True])
+async def test_actual_sdk_sse_errors_preserve_failure_codes_without_inspecting_text(
+    caplog, code, partial
+):
     import json
     import logging
 
     import httpx
     from openai import APIError, AsyncOpenAI
 
-    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureContentFilteredError
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+        AzureContentFilteredError,
+        AzureRateLimitedError,
+    )
 
     calls = []
 
     async def send(req):
         calls.append(req)
-        frames = [
-            {
-                "type": "response.output_text.delta",
-                "delta": "Partial",
-                "sequence_number": 0,
-                "item_id": "synthetic",
-                "output_index": 0,
-                "content_index": 0,
-                "logprobs": [],
-            },
-            {"error": {"code": code, "message": "Untrusted content_filter wording"}},
-        ]
+        frames = (
+            [
+                {
+                    "type": "response.output_text.delta",
+                    "delta": "Partial",
+                    "sequence_number": 0,
+                    "item_id": "synthetic",
+                    "output_index": 0,
+                    "content_index": 0,
+                    "logprobs": [],
+                },
+            ]
+            if partial
+            else []
+        )
+        frames.append({"error": {"code": code, "message": "Untrusted content_filter wording"}})
         return httpx.Response(
             200,
             headers={"content-type": "text/event-stream"},
@@ -94,16 +106,66 @@ async def test_actual_sdk_sse_errors_preserve_failure_codes_without_inspecting_t
     adapter.client_factory = lambda **kw: AsyncOpenAI(**kw, http_client=http)
     caplog.set_level(logging.INFO, logger="hushh_mcp.runtime_providers.azure_adk")
     seen = []
-    with pytest.raises(AzureContentFilteredError if code == "content_filter" else APIError):
+    expected = (
+        AzureContentFilteredError
+        if code == "content_filter"
+        else AzureRateLimitedError
+        if code == "rate_limit_exceeded"
+        else APIError
+    )
+    with pytest.raises(expected):
         async for item in adapter.generate_content_async(request(), stream=True):
             seen.append(item)
     assert len(calls) == 1 and http.is_closed
-    assert len(seen) == 1 and seen[0].partial
+    assert len(seen) == int(partial) and all(item.partial for item in seen)
     telemetry = next(
         r.getMessage() for r in caplog.records if "azure_model_call_complete" in r.message
     )
     assert ("error_kind=filtered" in telemetry) is (code == "content_filter")
+    assert ("error_kind=quota" in telemetry) is (code == "rate_limit_exceeded")
+    assert "status=0" in telemetry
+    if code == "rate_limit_exceeded":
+        assert "provider_code=rate.limit" in telemetry
     assert "Untrusted content_filter wording" not in telemetry
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 429, 500, 503])
+async def test_http_error_status_takes_precedence_over_stream_quota_code(caplog, status):
+    import logging
+
+    import httpx
+    from openai import APIStatusError, AsyncOpenAI
+
+    calls = []
+
+    async def send(req):
+        calls.append(req)
+        return httpx.Response(
+            status,
+            json={"error": {"code": "rate_limit_exceeded", "message": "Private provider body"}},
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(send))
+    adapter, _, _, _ = model([])
+    adapter.client_factory = lambda **kw: AsyncOpenAI(**kw, http_client=http)
+    caplog.set_level(logging.INFO, logger="hushh_mcp.runtime_providers.azure_adk")
+    with pytest.raises(APIStatusError) as failure:
+        _ = [item async for item in adapter.generate_content_async(request(), stream=True)]
+    assert failure.value.status_code == status and len(calls) == 1 and http.is_closed
+    telemetry = next(
+        r.getMessage() for r in caplog.records if "azure_model_call_complete" in r.message
+    )
+    kind = (
+        "auth"
+        if status in {401, 403}
+        else "quota"
+        if status == 429
+        else "server"
+        if status >= 500
+        else "other"
+    )
+    assert f"error_kind={kind}" in telemetry and f"status={status}" in telemetry
+    assert "Private provider body" not in telemetry
 
 
 @pytest.mark.parametrize("status", [429, 503])

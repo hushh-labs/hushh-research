@@ -45,6 +45,9 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Managed `TEXT_CONTENT_FILTERED` and `TEXT_AUTHORITY_ENDED` errors use fixed
   client notices and do not imply backend capacity strain. Keep partial answer
   text, show the reason beneath it, and never turn the refusal into a successful answer.
+- An explicit Azure SSE rate limit remains an actionable capacity failure even
+  when the HTTP stream opened successfully. Show the existing retryable
+  `RESOURCE_EXHAUSTED` notice; do not replay the turn or its tools automatically.
 - A confirmed chat-key refusal may retain one unexecuted request in memory for
   its requested unlock. The shared composer still clears on lock. Recovery
   requires the same validated authentication generation and restored conversation;
