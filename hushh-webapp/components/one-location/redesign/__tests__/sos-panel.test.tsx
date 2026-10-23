@@ -386,7 +386,38 @@ describe("SosPanel", () => {
     expect(onTrigger).toHaveBeenCalledWith("Meet me by the north entrance.");
   });
 
-  it("starts a two-second countdown on Send tap, then sends without the circle", () => {
+  it.each(["sms", "composer"] as const)("shows hold progress only on the pressed %s control and clears it on release", (target) => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
+      target: { value: "Help me" },
+    });
+    const control = target === "sms"
+      ? screen.getByRole("button", { name: /press and hold for two seconds/i })
+      : screen.getByTestId("sos-send-custom-message");
+    const activeRing = target === "sms" ? "sos-sms-progress" : "sos-send-progress";
+    const inactiveRing = target === "sms" ? "sos-send-progress" : "sos-sms-progress";
+
+    fireEvent.pointerDown(control, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(1_000));
+    const ring = screen.getByTestId(activeRing);
+    const circumference = target === "sms" ? 1055.6 : 100;
+    expect(Number(ring.getAttribute("stroke-dashoffset"))).toBeGreaterThan(circumference * 0.4);
+    expect(Number(ring.getAttribute("stroke-dashoffset"))).toBeLessThan(circumference * 0.6);
+    expect(screen.queryByTestId(inactiveRing)).toBeNull();
+    if (target === "composer") {
+      expect(within(control).getByTestId(activeRing)).toBeInTheDocument();
+      expect(screen.getByTestId("sos-status-label")).toHaveTextContent("Hold 2 seconds");
+    }
+    expect(onTrigger).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(control, { pointerId: 1 });
+    expect(screen.queryByTestId(activeRing)).toBeNull();
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("shows a countdown on Send after a tap and sends once after two seconds", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
@@ -397,7 +428,10 @@ describe("SosPanel", () => {
     fireEvent.click(send);
     expect(send).toHaveTextContent("Cancel");
     expect(screen.getByText(/Sending in .* Tap Cancel/)).toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(1_999));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(within(send).getByTestId("sos-send-progress")).toBeInTheDocument();
+    expect(screen.queryByTestId("sos-sms-progress")).toBeNull();
+    act(() => vi.advanceTimersByTime(999));
     expect(onTrigger).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
     expect(onTrigger).toHaveBeenCalledTimes(1);

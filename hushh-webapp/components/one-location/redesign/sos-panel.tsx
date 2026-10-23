@@ -344,6 +344,8 @@ export function SosPanel({
   };
 
   const isHolding = progress > 0 && progress < 1 && !busy && !active;
+  const smsIsHolding = holdTarget === "sms" && isHolding;
+  const composerIsHolding = holdTarget === "composer" && isHolding;
   const progressDashOffset = RING_CIRCUMFERENCE * (1 - progress);
   const remainingSeconds = Math.max(
     0.1,
@@ -355,7 +357,7 @@ export function SosPanel({
     ? "Sending..."
     : active
       ? "Alert active"
-      : isHolding
+      : smsIsHolding
         ? `${remainingSeconds}s`
         : "Hold 2 seconds";
 
@@ -531,6 +533,36 @@ export function SosPanel({
                 onContextMenu={(event) => event.preventDefault()}
                 className="ui-text-compact-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
               >
+                {composerIsHolding ? (
+                  <svg
+                    viewBox="0 0 44 44"
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 m-auto h-11 w-11 -rotate-90"
+                  >
+                    <circle
+                      cx="22"
+                      cy="22"
+                      r="20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeOpacity="0.25"
+                      strokeWidth="2"
+                    />
+                    <circle
+                      data-testid="sos-send-progress"
+                      cx="22"
+                      cy="22"
+                      r="20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      pathLength="100"
+                      strokeDasharray="100"
+                      strokeDashoffset={100 * (1 - progress)}
+                    />
+                  </svg>
+                ) : null}
                 {tapCountdownActive
                   ? "Cancel"
                   : holdTarget === "composer" && isHolding
@@ -586,8 +618,9 @@ export function SosPanel({
                   strokeWidth="2"
                   vectorEffect="non-scaling-stroke"
                 />
-                {progress > 0 ? (
+                {smsIsHolding ? (
                   <circle
+                    data-testid="sos-sms-progress"
                     cx="172"
                     cy="172"
                     r="168"
@@ -619,7 +652,7 @@ export function SosPanel({
                   "relative z-10 flex h-[78%] w-[78%] touch-none select-none items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)] outline-none",
                   "transition-transform duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]",
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
-                  progress > 0 && "scale-[0.96]",
+                  smsIsHolding && "scale-[0.96]",
                   disabled && "cursor-not-allowed opacity-65",
                 )}
               >
