@@ -2,37 +2,54 @@
 
 ## Current decision — 23 October 2026
 
-**The Hosting/AI/cleanup correction is on main and accepted on dev.
-UAT promotion stopped safely before deployment on an expired email-domain
-risk snapshot. The refresh is now on main; combined promotion remains pending.
-Broader pod acceptance remains separate.**
-[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) landed as
-`7671c6ca6d` through the authorized Admin SOP. All required checks passed on
-`1ccf750ddc`; [landed-SHA smoke](https://github.com/hushh-labs/hushh-research/actions/runs/39967729093)
-also passed. Main's Profile, identity, consent, erasure, Drive, SMS and One presence
-changes were retained through normal merges. The infrastructure branch preserves that landing and later main through
-normal integration; the active ADK tree and peer edits remain
-preserved.
+**The Hosting/AI/cleanup correction is on main. Dev serves `ee77ebdb43`;
+UAT has accepted `a68bddc8a8`. The newer model-picker and Puppy warmup repair
+is local in [PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395).
+Broader installed-pod acceptance remains separate.**
 
 | Surface | Verified state |
 | --- | --- |
-| Main | Original correction `7671c6ca6d`; subsequent Azure repair `ec86118695` and published risk refresh `a68bddc8a8` are inherited |
-| Dev acceptance | [Run 39968480755](https://github.com/hushh-labs/hushh-research/actions/runs/39968480755) accepted the original correction; subsequent backend repair serves alongside that frontend, as read back below |
-| UAT | [Run 39972103223](https://github.com/hushh-labs/hushh-research/actions/runs/39972103223) refused before deployment: email-auth risk snapshot expired; serving remains `79a03e84c2` |
-| Serving readback | Corporate ADC: dev backend `00207-9fk` at `ec86118695`, frontend `00174-648` at `7671c6ca6d`, both 100%; UAT remains `79a03e84c2` |
-| Owner pods | No new image installation or configuration change in this application release |
+| Main | PR #8386 correction and PR #8391 typed AI refusals landed; peer Profile/calendar and UAT timing changes through `d0ff6decfb` are preserved locally |
+| Dev | [Run 39987252665](https://github.com/hushh-labs/hushh-research/actions/runs/39987252665) accepted `ee77ebdb43` in 24m09s |
+| UAT | [Run 39990262675](https://github.com/hushh-labs/hushh-research/actions/runs/39990262675) accepted `a68bddc8a8` in 57m06s; its workflow head `ee77ebdb43` is not its resolved application SHA |
+| Serving readback | Corporate ADC: dev backend `00209-h58` / frontend `00176-6p5`; UAT backend `02484-maf` / frontend `02042-6vp`; all 100% traffic and exact receipt provenance |
+| Owner pods | No image installation or cloud configuration change in this application release |
 
-The risk refresh subsequently landed through PR #8390 on main `a68bddc8a8`: 33
-additions, no removals, unchanged CC0 license and seven-day validity. Its published
-snapshot is inherited unchanged. PR #8391 preserves typed cloud-AI refusals
-instead of a generic save error. The management breadcrumb
-says Hosting; the verified action result remains the return-route authority.
-These UI/documentation corrections require their own exact-SHA validation and
-combined dev/UAT receipts. Main's
-subsequent Azure deadline repair `ec86118695` is preserved in the working branch.
-
-This table describes application delivery, not complete private-agent acceptance.
+The expired risk-snapshot refusal from run `39972103223` is resolved by the
+published refresh. PR #8391's management breadcrumb, return route and typed AI
+refusals are verified on dev, but are not yet included in UAT's older accepted
+revision. The next finished correction must retain the exact-SHA dev → UAT chain.
 Production, stable publication and automatic owner upgrades remain held.
+
+### Current account-specific findings
+
+- Both named Azure placements must use their pod's actual connection; the Chat
+  picker incorrectly reads Shared's Gemini catalog. The local repair uses admitted
+  pod selection metadata, refuses Shared writes/fallback for private placement,
+  and does not invent a default-model catalog when an older image omits it.
+- Account 54's Azure resource, incarnation, user-assigned identity, image and
+  registry coordinates match. Its Azure deployment is `gpt-5-mini`; compute was
+  healthy and scaled to zero. This inventory is not live app-admission evidence.
+- Account 1711's normal owner API confirmed BYOC placement and a linked but offline
+  Puppy. Hermes alone did not start the separate dev relay. Restoring the existing
+  `dev-puppy` identity produced authenticated admission in 2,063 ms and a sealed
+  connection in 428 ms, without inference or a new grant. The same model menu then
+  received the machine's local catalog. These are single observations, not latency
+  guarantees.
+- A synthetic owner turn subsequently reached the local Gemma 12B service
+  (HTTP 200 headers in 34 ms), but timed out before an answer. An isolated
+  eight-token local probe returned model data in 454 ms. Installed source permits
+  95-second broker prefill but cancels the outer ADK wait at 70 seconds. The local
+  correction gives ADK 100-second event waits while retaining the 150-second total
+  turn and existing inner deadlines. The timeout-ladder negative control catches
+  the old inversion. It still requires a new, owner-approved pod image and live
+  answer acceptance; a healthy socket alone does not prove inference.
+- The local frontend repair adds a coalesced foreground Chat wake and a bounded
+  readiness read on entering/returning to Puppy. Hidden tabs do not wake compute;
+  readiness never requests inference or enables a new grant. Owner-generation
+  fences retire cached device/model responses and prevent late model writes.
+- Real provider removal, broader orphan discovery, account re-registration and
+  installed Browser journeys remain the explicit boundaries below.
 
 ## Corrected journeys
 

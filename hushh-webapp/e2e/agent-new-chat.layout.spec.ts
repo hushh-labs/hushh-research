@@ -22,7 +22,7 @@ test.beforeAll(async () => {
         for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
     } }],
     resolve: { alias: [
-      ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/persona/persona-context",
+      ...["@/hooks/use-auth", "@/lib/firebase/auth-context", "@/lib/vault/vault-context", "@/lib/persona/persona-context",
         "@/lib/agent/chat-onboarding/use-chat-onboarding", "@/lib/profile/gmail-connector-store",
         "@/lib/navigation/use-root-chat-deferred-ready", "@/lib/one-voice/readiness", "@/hooks/use-effective-avatar-url",
         "@/lib/agent/use-one-display-name", "@/lib/agent/use-entry-welcome", "@/lib/services/model-preference-service",

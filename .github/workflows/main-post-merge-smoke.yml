@@ -36,7 +36,7 @@ env:
 jobs:
   smoke-gate:
     name: "Main Post-Merge Smoke Gate"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
@@ -85,7 +85,7 @@ jobs:
 
       - name: Restore Next.js build cache
         id: nextjs-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: hushh-webapp/.next/cache
           key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ steps.nextjs-cache-day.outputs.day }}
@@ -133,7 +133,7 @@ jobs:
       # build, so the saved entry is exactly what PRs look up.
       - name: Save Next.js build cache
         if: github.ref == 'refs/heads/main' && steps.nextjs-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: hushh-webapp/.next/cache
           key: ${{ steps.nextjs-cache.outputs.cache-primary-key }}

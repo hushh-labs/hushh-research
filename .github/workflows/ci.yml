@@ -45,7 +45,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -121,7 +121,7 @@ jobs:
     # check-dco-signoff.sh checks merge-base(origin/<default branch>)..HEAD,
     # the branch's own commits.
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
@@ -137,7 +137,7 @@ jobs:
   pr-base-policy:
     name: "PR Base Policy"
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
@@ -157,7 +157,7 @@ jobs:
 
   repo-governance:
     name: "Governance"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -187,7 +187,7 @@ jobs:
   # ============================================================================
   paths:
     name: "Path filters"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       frontend: ${{ steps.resolve.outputs.frontend }}
@@ -440,7 +440,7 @@ jobs:
 
   ui-contracts:
     name: "UI Contracts"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
@@ -474,7 +474,7 @@ jobs:
       - paths
       - main-freshness-gate
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       frontend: ${{ needs.paths.outputs.frontend }}
@@ -528,7 +528,7 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
@@ -556,7 +556,7 @@ jobs:
         run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Next.js build cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: hushh-webapp/.next/cache
           key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ steps.nextjs-cache-day.outputs.day }}
@@ -590,7 +590,7 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Keep node packs once; native Playwright sharding partitions each matched
     # browser command across four runners. The aggregate succeeds only when all
     # five jobs pass, and fail-fast leaves every verdict visible.
@@ -645,7 +645,7 @@ jobs:
       - name: Cache Playwright browsers
         id: playwright-cache
         if: matrix.part == 'browser'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
@@ -793,7 +793,7 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     # Three Vitest shards (`vitest --shard`, every test file in exactly one).
     # On one runner the suite took 425-715s of a 7.5-13.8 minute lane (runs
@@ -990,7 +990,7 @@ jobs:
       # next daily save.
       - name: Restore Swift packages resolved on main
         id: spm-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/spm
           key: ios-spm-xcode${{ env.XCODE_VERSION }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('hushh-webapp/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'hushh-webapp/ios/App/CapApp-SPM/Package.swift') }}
@@ -1106,7 +1106,7 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.android == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       NEXT_PUBLIC_BACKEND_URL: https://api.example.com
@@ -1170,7 +1170,7 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.backend == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     services:
       command-postgres:
@@ -1206,7 +1206,7 @@ jobs:
       # version or options differ and rechecks every module whose source hash
       # changed. The key follows the locked toolchain and the mypy config.
       - name: Cache mypy incremental state
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: consent-protocol/.mypy_cache
           key: ${{ runner.os }}-mypy-py${{ env.PYTHON_VERSION }}-${{ hashFiles('consent-protocol/uv.lock', 'consent-protocol/pyproject.toml') }}
@@ -1231,7 +1231,7 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.backend == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -1259,7 +1259,7 @@ jobs:
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
@@ -1318,7 +1318,7 @@ jobs:
   # ============================================================================
   subtree-sync-check:
     name: "Upstream Sync"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -1332,7 +1332,7 @@ jobs:
   main-freshness-gate:
     name: "Base Freshness Gate"
     if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -1431,7 +1431,7 @@ jobs:
   merge-fidelity-gate:
     name: "Merge Fidelity Gate (advisory)"
     if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     continue-on-error: true
     steps:
@@ -1478,7 +1478,7 @@ jobs:
       - integration-check
       - main-freshness-gate
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Validate job outcomes

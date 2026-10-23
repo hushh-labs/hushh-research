@@ -3913,11 +3913,14 @@ export class ApiService {
     return response.json();
   }
 
-  static async wakePod(): Promise<{ state: "awake" | "waking" | "gone"; etaMs: number; needsFreshSetup?: boolean }> {
+  static async wakePod(options?: { isEffectCurrent?: () => boolean }): Promise<{ state: "awake" | "waking" | "gone"; etaMs: number; needsFreshSetup?: boolean }> {
     const token = await ApiService.getFirebaseToken();
+    if (options?.isEffectCurrent && !options.isEffectCurrent())
+      throw new DOMException("The connection session changed.", "AbortError");
     const response = await ApiService.apiFetch("/api/one/pod/wake", {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      isEffectCurrent: options?.isEffectCurrent,
     });
     if (!response.ok) throw new Error(`pod wake failed: HTTP ${response.status}`);
     return response.json();
