@@ -94,12 +94,12 @@ Never rename required job/check contexts for cosmetic consistency.
 | Dependency cache | `ios-swift-package-cache.yml` | Daily main-owned cache preparation and bounded cold-fetch verification |
 | Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
 
-The local candidate removes the separate weekly offline pod drill and weekday
-completion-judge workflows. Both core test suites remain in Protocol CI's manifest;
+The separate weekly offline pod drill and weekday completion-judge workflow
+files are removed from main. Both core test suites remain in Protocol CI's manifest;
 the judge CLI and live completion receipts remain in the existing
 [readiness workflow](./pod-completion-judge.md). No scheduled failure is needed to
-announce an unchanged external prerequisite. These removals take effect on GitHub
-only after the source lands on the default branch.
+announce an unchanged external prerequisite. Historical workflow entries do not
+represent active source on the default branch.
 
 Capacity tick run titles are protocol inputs for checkpoint reconciliation. They
 retain their exact names independently of the workflow's display name. Dispatchers
@@ -879,7 +879,9 @@ fail-closed consumer to refuse clearance. See the [GitHub concurrency contract](
 The 23 October sample contained 80 successful worker records across 25 source
 attempts. Receipt reuse alone did not eliminate those repeated workflow starts.
 The automatic trigger now uses `requested` once for each new validation run,
-instead of repeated `in_progress` transitions. Missing, expired, mismatched or
+instead of repeated `in_progress` transitions. This landed through
+[PR #8371](https://github.com/hushh-labs/hushh-research/pull/8371), after all 26
+exact-head checks passed; the canonical task carries live initial/retry receipts. Missing, expired, mismatched or
 incomplete receipts fail closed. Local checks use the same bounded cursor
 reader without writing raw alerts to disk.
 
@@ -921,6 +923,12 @@ one retry, observes its incremented attempt, then dispatches the protected worke
 on main. An uncertain response is reconciled without another rerun request.
 The final gate verifies that new attempt's receipt even if GitHub retained the
 previous successful Secret Scan job. PR permissions remain read-only.
+
+When changing final-gate outcomes or conditions, run the nearest actual gate
+harness alongside the existing security authority/receipt suites before pushing:
+`cd consent-protocol && uv run pytest tests/test_ci_status_gate_fails_closed.py -q`.
+Its scenarios execute the outcome bash; retry cases isolate only checkout and
+receipt I/O. Unknown conditions still refuse verification.
 
 A raw GitHub UI rerun does not automatically launch the worker. Its consumer
 prints the exact main-only recovery command immediately and retains the bounded
