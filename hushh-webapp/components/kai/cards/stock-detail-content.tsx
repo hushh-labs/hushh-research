@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { PriceHistoryChart } from "@/components/kai/charts/price-history-chart";
 import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
-import type { KaiHomeRenaissanceItem, KaiMarketCompanyFacts } from "@/lib/services/api-service";
+import type { KaiHomeNewsItem, KaiHomeRenaissanceItem, KaiMarketCompanyFacts } from "@/lib/services/api-service";
 import type { StockPriceHistory } from "@/lib/kai/price-history";
 import { cn } from "@/lib/utils";
+import { OneMarketNewsCover } from "@/components/kai/cards/market-news-briefing";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { SectionLabel } from "@/components/app-ui/typography";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 
@@ -17,8 +19,8 @@ const asOf = (value: string | null | undefined) => value && Number.isFinite(Date
   ? new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Unavailable";
 
 /** The shared sheet owns focus/dismissal; this body owns only the selected quote. */
-export function StockDetailContent({ row, facts, loadHistory }: {
-  row: KaiHomeRenaissanceItem; facts?: KaiMarketCompanyFacts; loadHistory?: StockHistoryLoader;
+export function StockDetailContent({ row, facts, loadHistory, news = [] }: {
+  row: KaiHomeRenaissanceItem; facts?: KaiMarketCompanyFacts; loadHistory?: StockHistoryLoader; news?: KaiHomeNewsItem[];
 }) {
   const symbol = row.quote_symbol || row.symbol;
   const [history, setHistory] = useState<StockPriceHistory | null>(null);
@@ -34,9 +36,11 @@ export function StockDetailContent({ row, facts, loadHistory }: {
     });
     return () => controller.abort();
   }, [symbol, loadHistory]);
+  const companyNews = news.filter(item => [row.symbol, row.quote_symbol].some(ticker => ticker && ticker.toUpperCase() === item.symbol.trim().toUpperCase()) && /^https?:\/\//i.test(item.url)).slice(0, 4);
   const change = row.change_pct;
   const financialFacts = [
     ["Market cap", money(facts?.market_cap ?? row.market_cap, true)],
+    ["List tier", row.tier || "Unavailable"],
     ["P/E (TTM)", ratio(facts?.pe_ratio)],
     ["P/B", ratio(facts?.pb_ratio)],
     ["Debt / equity", ratio(facts?.debt_to_equity)],
@@ -60,5 +64,13 @@ export function StockDetailContent({ row, facts, loadHistory }: {
       <p className="mt-3 text-xs leading-[18px] text-muted-foreground">{facts?.source || "Financial source unavailable"}{facts?.retrieved_at ? ` · Retrieved ${asOf(facts.retrieved_at)}` : ""}{facts?.stale ? " · Cached" : ""}{facts?.ratio_basis ? ` · ${facts.ratio_basis}` : ""}</p>
     </section>
     <RenaissanceVerdictCard row={{ ...row, company_facts: facts }} />
+    <section aria-label="Company news" className="space-y-3">
+      <SectionLabel role="heading" aria-level={3}>Company news</SectionLabel>
+      {companyNews.length ? <div className="divide-y divide-border">{companyNews.map((item, index) => <button key={item.url} type="button"
+        className="flex min-h-14 w-full items-start gap-3 py-4 text-left focus-visible:outline-2 focus-visible:outline-ring" onClick={() => openExternalUrl(item.url)}>
+        <div className="min-w-0 flex-1"><p className="text-sm font-medium leading-[21px]">{item.title}</p><p className="mt-1 text-xs leading-[18px] text-muted-foreground">{item.source_name} · {asOf(item.published_at)}</p></div>
+        <OneMarketNewsCover row={item} index={index} thumbnail className="h-16 w-16 shrink-0 rounded-lg" />
+      </button>)}</div> : <p className={styles.description}>No company headlines are available from the current news feed.</p>}
+    </section>
   </div>;
 }

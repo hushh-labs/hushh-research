@@ -28,6 +28,16 @@
   font-family: var(--font-app-body);
 }
 .workspace { max-width: 728px; }
+.overviewGrid { display: grid; gap: 20px; align-items: start; }
+.description { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+.historyRow { display: flex; align-items: center; gap: 8px; margin-inline: 16px; border-bottom: 1px solid var(--border); }
+.historyRow:last-child { border-bottom: 0; }
+.historyPrimary { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; padding-block: 16px; text-align: left; overflow-wrap: anywhere; border-radius: var(--radius-sm); }
+.historyPrimary:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.summaryFacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; border-top: 1px solid var(--border); padding-top: 16px; }
+.summaryFacts dt { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
+.summaryFacts dd { margin-top: 4px; font-size: 14px; line-height: 21px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (min-width: 768px) { .overviewGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; } }
 :global(.dark) .workspace, :global(.dark) .detail {
   --finance-positive: var(--app-success-bright);
   --finance-negative: var(--app-destructive-bright);
