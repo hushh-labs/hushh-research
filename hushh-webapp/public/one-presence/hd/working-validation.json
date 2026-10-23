@@ -1,0 +1,21 @@
+{
+  "file": "hd/working.riv",
+  "artboards": [
+    {
+      "name": "working-hd",
+      "fps": 24,
+      "duration_seconds": 3,
+      "loop": true,
+      "frames_rendered": 72,
+      "max_pixel_channel_difference": 1,
+      "comparison": "Premultiplied RGBA; one-level float32 scaling-rounding tolerance",
+      "allowed_pixel_channel_difference": 1,
+      "out_of_tolerance_frames": 0,
+      "nonidentical_frames": 68,
+      "motion_changes": 33,
+      "state_machine_frames_tested": 146,
+      "state_machine_mismatches": 0
+    }
+  ],
+  "runtime": "@rive-app/canvas 2.44.2 (advanced API)"
+}

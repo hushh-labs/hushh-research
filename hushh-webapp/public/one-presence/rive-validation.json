@@ -46,6 +46,8 @@
         "frames_rendered": 72,
         "max_pixel_channel_difference": 0,
         "comparison": "Premultiplied RGBA; exact 8-bit visible channels and alpha",
+        "allowed_pixel_channel_difference": 0,
+        "out_of_tolerance_frames": 0,
         "nonidentical_frames": 0,
         "motion_changes": 33,
         "state_machine_frames_tested": 146,
