@@ -5,10 +5,15 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from unittest.mock import patch
+from time import monotonic
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import create_engine
 
+from hushh_mcp.services import account_deletion_lifecycle_service as lifecycle
+from hushh_mcp.services import account_service as account
+from hushh_mcp.services.account_deletion_provider_cleanup import ProviderCredentialSnapshot
 from tests.pkm_conformance import postgres_harness
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,15 +55,6 @@ async def test_real_blocked_erasure_rolls_back_and_releases_session_barrier(data
 
 async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer_conn) -> None:
     """A stuck DELETE must release the UID barriers without erasing the account."""
-    from time import monotonic
-    from unittest.mock import AsyncMock, patch
-
-    from sqlalchemy import create_engine
-
-    from hushh_mcp.services import account_deletion_lifecycle_service as lifecycle
-    from hushh_mcp.services import account_service as account
-    from hushh_mcp.services.account_deletion_provider_cleanup import ProviderCredentialSnapshot
-
     uid = "synthetic_blocked_erasure"
     await deletion_conn.execute("CREATE TABLE one_adk_sessions (user_id TEXT PRIMARY KEY)")
     await deletion_conn.execute("INSERT INTO actor_profiles(user_id) VALUES($1)", uid)
@@ -68,6 +64,7 @@ async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer
     engine = create_engine(database_url)
     release = AsyncMock()
     service = account.AccountService()
+    erasure = None
 
     def delete_blocked_row(conn, *, params, **_kwargs):
         service._delete_user_rows_if_table_exists(
@@ -100,10 +97,12 @@ async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer
             patch.object(service, "_delete_optional_user_tables", side_effect=delete_blocked_row),
         ):
             started = monotonic()
-            result = await asyncio.wait_for(
+            erasure = asyncio.create_task(
                 service._settle_full_account_transaction(uid, requested_target="both"),
-                timeout=6,
             )
+            completed, _ = await asyncio.wait({erasure}, timeout=6)
+            assert completed, "blocked erasure exceeded its SQL deadline"
+            result = await erasure
             assert monotonic() - started < 6
             assert result["success"] is False
             assert result["account_deleted"] is False
@@ -126,4 +125,6 @@ async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer
         )
     finally:
         await holder.rollback()
+        if erasure is not None:
+            await erasure
         engine.dispose()
