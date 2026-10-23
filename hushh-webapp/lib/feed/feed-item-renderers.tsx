@@ -24,7 +24,7 @@ import {
   reasonMidSentence,
 } from "@/lib/consent/consent-owner-copy";
 import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
-import { partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
+import { documentRequestEmptyOutcomeLabel, partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
 import {
   formatPaymentMoney,
   REQUESTER_PAYMENT_TITLES,
@@ -237,11 +237,8 @@ function driveFeedLine(
     case "document_share_outcome":
       if (metadata.current_existing_access_nocharge === true)
         return sharedWithMe ? "Files ready · Already had access · No charge" : "Files delivered · No payment due";
-      if (status === "no_files_shared") return "No files were shared";
-      if (status === "no_match")
-        return sharedWithMe
-          ? "No files were shared"
-          : "No file candidates in this search; nothing was shared";
+      if (status === "no_files_shared" || status === "no_match")
+        return documentRequestEmptyOutcomeLabel(metadata.current_outcome_reason);
       if (status === "partial") return partialDriveOutcomeLine(metadata);
       return "Drive sharing finished; check file results";
     case "document_share_revoked":

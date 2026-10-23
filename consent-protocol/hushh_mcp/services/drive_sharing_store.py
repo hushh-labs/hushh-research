@@ -46,6 +46,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     valid_request_price_cents,
     whole_dollar_request,
 )
+from hushh_mcp.services.drive_request_outcome_view import request_outcome_view
 from hushh_mcp.services.drive_request_payment_view import (
     order_view_input,
     requester_payment_view,
@@ -2763,8 +2764,15 @@ class DriveSharingStore(DriveDocumentStore):
                 """
                 SELECT r.*,p.status AS owner_payout_status,
                        account.account_ready AS payout_account_ready,
-                       o.amount_cents AS order_amount_cents,o.status AS order_status
+                       o.amount_cents AS order_amount_cents,o.status AS order_status,
+                       outcome_search.status AS outcome_search_status,
+                       outcome_search.incomplete_search AS outcome_search_incomplete,
+                       outcome_search.matched AS outcome_search_matched,
+                       outcome_search.unshareable_count AS outcome_search_unshareable
                 FROM drive_share_requests r
+                LEFT JOIN drive_owner_search_jobs outcome_search
+                  ON outcome_search.user_id=r.user_id
+                  AND outcome_search.client_request_id=r.request_id AND r.status='no_match'
                 LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
                   AND p.erased_at IS NULL
                 LEFT JOIN stripe_owner_payout_accounts account ON account.user_id=r.user_id
@@ -2825,6 +2833,7 @@ class DriveSharingStore(DriveDocumentStore):
             return {
                 **self._summary(row, recipient=recipient),
                 "direction": "outgoing" if recipient else "incoming",
+                **request_outcome_view(row, owner=not recipient),
                 # Waiting in the durable queue with no search yet; never "paused".
                 **queue_view(request_queued_since(row, now), now),
                 **self._started_work(connection, row, now, private),
