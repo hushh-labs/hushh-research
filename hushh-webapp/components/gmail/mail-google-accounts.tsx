@@ -88,6 +88,7 @@ export function MailGoogleAccounts({ session, enabled, fallback, fallbackReport,
   return <section className="space-y-3 py-3" aria-label="Connected mailboxes" data-voice-control-id="mail_google_accounts">
     <h2 className={styles.sectionTitle}>Your mailboxes</h2>
     <p className={styles.support}>Connect Gmail or Google Workspace, including your Hussh work email. Mail requests currently use the default mailbox.</p>
+    {visible.error ? fallback : null}
     {visible.error ? <p role="alert" className={styles.support}>{visible.error}</p> : visible.accounts.length === 0 ? <p className={styles.support}>No mailboxes connected.</p> : null}
     {visible.accounts.map((account, index) => <div key={account.accountId} className="flex flex-wrap items-center justify-between gap-2 border-b border-[color:var(--app-separator)] py-2 last:border-0">
       <div className="min-w-0"><p className="break-all text-sm">{account.email || `Google mailbox ${index + 1}`}</p><p className={styles.support}>{account.status === 'connected' ? 'Connected' : 'Reconnect needed'}{account.isDefault ? ' · Default mailbox' : ''}</p></div>

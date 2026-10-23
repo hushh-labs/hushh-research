@@ -71,7 +71,10 @@ Outlook provider acceptance is a separate later phase.
 Mail Overview now composes `MailGoogleAccounts` for an unlocked private owner.
 It lists verified Google mailbox identities, supports explicit Add, same-identity
 Reconnect and individual Disconnect. Existing shared-owner flows and default
-Google permission upgrades retain their previous behavior. Web Add hands off the
+Google permission upgrades retain their previous behavior. If an older private
+agent cannot list mailboxes, the existing default-mailbox controls remain usable
+while additional-account controls stay disabled with a refresh/update explanation.
+Web Add hands off the
 closed `hushh://one/connect/google/gmail/add` intent; the phone supplies its own
 owner, vault session and signed pod binding. Targeted reconnect stays in Mail on
 the phone; no account identity or credential is carried in the QR.

@@ -17,6 +17,14 @@ const props = { session: { userId: 'owner', vaultKey: 'synthetic-key', vaultOwne
 beforeEach(() => { fixture.uid = 'owner'; fixture.list.mockReset().mockResolvedValue([work, personal]); fixture.connect.mockReset().mockResolvedValue({ ok: true, status: 'connected' }); fixture.disconnect.mockReset().mockResolvedValue({ disconnected: true, providerRevoked: true }); });
 afterEach(cleanup);
 
+it('preserves default-mailbox controls when an older private agent cannot list accounts', async () => {
+  fixture.list.mockRejectedValue(new Error('Unsupported account inventory'));
+  render(<MailGoogleAccounts {...props} fallback={<button>Reconnect default mailbox</button>} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('could not load mailboxes');
+  expect(screen.getByRole('button', { name: 'Reconnect default mailbox' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Add Google account' })).toBeDisabled();
+});
+
 it('targets reconnect and disconnect to one mailbox and keeps the other visible', async () => {
   render(<MailGoogleAccounts {...props} />);
   await screen.findByText('personal@example.com');
