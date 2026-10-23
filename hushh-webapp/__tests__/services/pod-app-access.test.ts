@@ -268,6 +268,8 @@ it("seals an AI selection to the hub-signed key of the addressed pod, and refuse
   await expect(ownerPodRequest('connectors/gmail/accounts/' + 'a'.repeat(32), { method: 'GET' }, ports)).rejects.toThrow('POD_CONNECTOR_REQUEST_REFUSED');
   expect(fetch).not.toHaveBeenCalled();
   // Transition metadata cannot smuggle authorization material outside the seal.
+  await expect(ownerPodRequest('connectors/gmail/accounts/' + 'a'.repeat(32) + '/receipts/scan', { method: 'GET' }, ports)).rejects.toThrow('POD_CONNECTOR_REQUEST_REFUSED');
+  expect(fetch).not.toHaveBeenCalled();
   fetch.mockClear();
   await expect(ownerPodRequest('connectors/gmail', { method: 'PUT',
     body: JSON.stringify({ ...login, transition: { ...transition, code: login.code } }) }, ports)).rejects.toThrow('GOOGLE_TRANSITION_INVALID');

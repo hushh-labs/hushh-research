@@ -35,6 +35,7 @@ async def account_inventory(*, consent_token: str, verifier=None, session=None, 
                 "provider": "google",
                 "status": item.status,
                 "isDefault": not bool(item.account_id),
+                "receiptSyncAvailable": True,
                 **store.connector_permissions(item),
             }
             for item in accounts

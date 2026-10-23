@@ -569,7 +569,7 @@ function parseLiveReceiptItem(value: unknown): GmailLiveReceiptItem {
   return value as unknown as GmailLiveReceiptItem;
 }
 
-function parseLiveReceiptScanResponse(
+export function parseLiveReceiptScanResponse(
   payload: unknown,
   expected: { page: number; perPage: number },
 ): GmailLiveReceiptScanResponse {

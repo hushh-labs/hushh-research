@@ -38,12 +38,15 @@ verified or subtracted; currencies are not converted. Recurring paid charges are
 not a subscription inventory, a prediction of future bills or a normalized monthly
 price for annual plans. Saved scan coverage is not proof of all purchases.
 
-The reporting layer itself does **not** add simultaneous live Google mail connections, Microsoft
-Graph mailbox access, new private-pod receipt scan/detail doors or combined chat
-receipt-tool protocol support. Existing primary Google account behavior stays in
-place. The Mail UI now respects `receipt_sync_available: false`, including the
-provider-read entry and in-flight result fences. Do not describe this local report
-as a live search across Gmail, Workspace and Outlook.
+Mail Overview also supports independent Google mailbox custody and explicit
+foreground receipt sync for one or all connected Google mailboxes. Per-account
+scan/detail routes run inside the owner pod with its selected model, durable
+source key and admitted owner session. The client merges normalized receipt facts
+into its existing encrypted snapshots. A failed account keeps its previous
+snapshot while other accounts can finish. First-time verified empty coverage is
+saved; missing or failed coverage never becomes a fabricated zero. Reset, owner,
+vault and credential changes fence late writes. Every selected report snapshot
+is required. The existing default-account tools and watches remain unchanged.
 
 The requested Hussh work mailbox is Google Workspace. It uses the Google provider;
 an address's work domain is a display identity, not another OAuth provider.
@@ -57,12 +60,11 @@ sign-in callback. Native public-client code must not contain a client secret.
 See [Microsoft account audiences](https://learn.microsoft.com/en-us/entra/identity-platform/msal-client-application-configuration)
 and [Microsoft Graph Mail.Read](https://learn.microsoft.com/en-us/graph/permissions-reference#mailread).
 
-Remaining implementation beyond the account-custody phase below: add per-account
-receipt cursor fences, the Graph adapter and private receipt doors; carry explicit account
-scope through negotiated receipt chat contracts. Preserve the existing Google
-primary account and native custody transition. Live acceptance must prove two
-Google accounts plus Outlook, one-account failure, cross-account/owner cursor
+Remaining work: the deferred Graph adapter, automatic multi-account tracking and
+explicit account scope through negotiated receipt chat contracts. Live acceptance
+must prove two Google accounts, one-account failure, cross-account/owner cursor
 rejection, selected-account disconnect and accurate combined source coverage.
+Outlook provider acceptance is a separate later phase.
 
 ### Google mailbox custody phase — local, 2026-10-23
 
@@ -87,10 +89,12 @@ include every held account; no credentials move into the hub.
 This is local source, not a deployed or provider-qualified feature. The current
 native client configuration and Android development restrictions still apply.
 Existing legacy records without verified email display a generic mailbox label
-until reconnected. Tools, push watches and receipt scanning still use the default
-mailbox; account selection for those operations and combined chat answers remain
-unfinished. Outlook remains unconfigured. Do not describe this phase as an inbox
-switcher or all-account receipt sync.
+until reconnected. Tools and push watches still use the default mailbox; account
+selection for those operations and combined chat answers remain unfinished.
+Overview receipt sync is manual and scans at most the past year, up to 300
+candidates per mailbox. Older saved receipts survive a subsequent scan. Coverage,
+freshness and excluded conflicts are visible beside each combined report. Outlook
+remains unconfigured. This is not an inbox switcher or unattended tracking.
 
 Acceptance must prove two real Google accounts, duplicate add, wrong-identity
 reconnect, stale disconnect, restart, expiry/rotation and late-refresh rejection.

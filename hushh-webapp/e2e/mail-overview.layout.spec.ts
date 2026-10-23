@@ -162,6 +162,15 @@ for (const width of [393, 1280]) {
     for (const button of await accounts.getByRole('button').all()) {
       expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
+    await accounts.getByRole('button', { name: 'Sync receipts', exact: true }).click();
+    await expect(accounts.getByText('work@workspace.example: 1 receipt saved', { exact: true })).toBeVisible();
+    await expect(accounts.getByText('personal@gmail.example: 1 receipt saved', { exact: true })).toBeVisible();
+    const report = accounts.getByRole('region', { name: 'Saved receipt report' });
+    await report.getByLabel('Report month').fill('2026-10');
+    await report.getByRole('button', { name: 'Show report' }).click();
+    await expect(report.getByRole('status')).toContainText('USD 0.30');
+    await expect(report.getByRole('status')).toContainText('2 saved mailboxes');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await accounts.screenshot({ path: testInfo.outputPath(`google-mailboxes-${width}.png`) });
     await accounts.getByRole('button', { name: 'Disconnect' }).nth(1).click();
     await expect(accounts.getByText('personal@gmail.example')).toHaveCount(0);

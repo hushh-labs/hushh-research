@@ -11,6 +11,7 @@ export function receiptStoreGuard(session: ReceiptStoreSession) {
   const owner = snapshotValidatedAuthSessionOwner(); const epoch = snapshotVaultSessionEpoch();
   return () => Boolean(session.vaultKey && session.vaultOwnerToken && owner?.userId === session.userId && isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch) && (session.isCurrent?.() ?? true));
 }
+export { receiptStoreGuard as receiptSessionGuard };
 export async function receiptStoreVersion(userId: string, account: string) {
   return SecureDurableResourceService.version(userId, RECEIPT_SNAPSHOT_PREFIX + await receiptAccountBinding(account));
 }

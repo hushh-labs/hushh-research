@@ -12,15 +12,17 @@ import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from '@/lib/vau
 import type { ReceiptStoreSession } from '@/lib/mail/receipt-store';
 import { MailActionButton } from './mail-action-button';
 import styles from './mail-workspace.module.css';
+import { MailPrivateReceiptTracking } from './mail-private-receipt-tracking';
 
 type Props = {
   session: ReceiptStoreSession; enabled: boolean; fallback: ReactNode;
+  fallbackReport?: ReactNode;
   confirmTransition: (terms: GoogleConnectorTransitionReview) => Promise<boolean>;
   onChanged: () => void;
 };
 type Inventory = { scope: string; accounts: PrivateMailAccount[]; error?: string; private: boolean };
 
-export function MailGoogleAccounts({ session, enabled, fallback, confirmTransition, onChanged }: Props) {
+export function MailGoogleAccounts({ session, enabled, fallback, fallbackReport, confirmTransition, onChanged }: Props) {
   const epoch = snapshotVaultSessionEpoch();
   const scope = `${session.userId}:${epoch}`;
   const [inventory, setInventory] = useState<Inventory>();
@@ -82,7 +84,7 @@ export function MailGoogleAccounts({ session, enabled, fallback, confirmTransiti
   }
   const visible = inventory?.scope === scope ? inventory : undefined;
   if (!visible) return null;
-  if (!visible.private) return fallback;
+  if (!visible.private) return <>{fallback}{fallbackReport}</>;
   return <section className="space-y-3 py-3" aria-label="Connected mailboxes" data-voice-control-id="mail_google_accounts">
     <h2 className={styles.sectionTitle}>Your mailboxes</h2>
     <p className={styles.support}>Connect Gmail or Google Workspace, including your Hussh work email. Mail requests currently use the default mailbox.</p>
@@ -94,5 +96,6 @@ export function MailGoogleAccounts({ session, enabled, fallback, confirmTransiti
     </div>)}
     <div className="flex flex-wrap gap-2"><MailActionButton disabled={busy || !!visible.error || visible.accounts.length >= 20} onClick={() => void connect()} className="min-h-11 px-3 text-sm text-[color:var(--app-accent)]">Add Google account</MailActionButton>
       <MailActionButton disabled={busy} onClick={() => setRevision(value => value + 1)} className="min-h-11 px-3 text-sm">Refresh</MailActionButton></div>
+    <MailPrivateReceiptTracking session={session} accounts={visible.accounts} enabled={enabled} />
   </section>;
 }

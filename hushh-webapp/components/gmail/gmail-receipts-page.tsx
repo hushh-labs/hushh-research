@@ -239,7 +239,6 @@ export default function GmailReceiptsPage({
   const receiptsRef = useRef<ReceiptListItem[]>([]);
   const receiptEvidenceRef = useRef<ReceiptListItem[]>([]);
   const receiptReadsClosedRef = useRef(false);
-  const receiptSyncPermittedRef = useRef(false);
   const receiptLoadSequenceRef = useRef(0);
   const receiptScanAbortRef = useRef<AbortController | null>(null);
   const receiptConnectionLostRef = useRef(false);

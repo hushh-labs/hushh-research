@@ -26,6 +26,22 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "profile.gmail.sync_selected_mailboxes",
+      "label": "Sync selected mailbox receipts",
+      "meaning": "Reads receipt candidates from one selected connected Google mailbox or all connected Google mailboxes in the owner's private agent. Saves verified receipt facts in the owner's encrypted vault, preserves older receipts, and shows per-mailbox failures and bounded scan coverage. This is an explicit foreground sync.",
+      "aliases": ["sync all mailbox receipts", "track work and personal receipts"],
+      "search_keywords": ["Google Workspace", "Hussh mail", "Gmail", "receipts", "spending"],
+      "reachability": {
+        "routes": ["/one/gmail"], "screens": ["gmail"], "hidden_navigable": false,
+        "navigation_prerequisites": ["Mail Overview is selected", "The owner has an unlocked vault and connected Google mailboxes with receipt sync available"]
+      },
+      "guard_ids": ["manual_user_execution"], "risk_level": "medium", "execution_policy": "manual_only",
+      "execution_target": {"status": "unwired", "reason": "The owner chooses mailboxes and starts or cancels the foreground sync in Mail.", "intended_handler": "MailPrivateReceiptTracking.sync"},
+      "control_ids": ["mail_sync_selected_accounts"], "state_exposure": [],
+      "docs_references": ["components/gmail/mail-private-receipt-tracking.tsx", "lib/services/private-mail-receipts.ts"],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "profile.gmail.saved_receipt_report",
       "label": "Report saved receipt spending",
       "meaning": "Calculates paid or recorded recurring charges for the chosen month from explicitly selected saved mailboxes. Shows separate currency totals, per-account coverage, unresolved duplicate risk and excluded conflicts. Does not search an unsynced inbox or forecast subscription bills.",

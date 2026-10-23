@@ -8,7 +8,7 @@ vi.mock('@/lib/services/auth-service', () => ({ AuthService: { getCurrentUser: (
 vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: async () => true }));
 vi.mock('@/lib/services/private-google-connections', () => ({ privateMailAccounts: fixture.list, disconnectPrivateMailAccount: fixture.disconnect }));
 vi.mock('@/lib/one/google-native-connect', () => ({ connectGoogleConnector: fixture.connect, connectRefusalMessage: (code: string) => code }));
-vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => true } }));
+vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => true, getPlatform: () => 'ios' }, registerPlugin: () => ({}) }));
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }));
 
 const work = { accountId: 'a'.repeat(32), credentialId: '11111111-2222-4333-8444-555555555555', email: 'work@example.com', provider: 'google', status: 'connected', isDefault: true };

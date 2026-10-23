@@ -3528,6 +3528,453 @@
     },
     {
       "aliases": [
+        "Manage connected mailboxes",
+        "add another mailbox",
+        "connect work email",
+        "manage mail accounts"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.gmail.manage_mailboxes",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Lists the private agent's verified Google mailboxes. The owner can add a Gmail or Workspace account, reconnect the same identity, or disconnect one mailbox while keeping others. Web additions finish on the owner's phone. Live combined receipt sync is not enabled by this control.",
+      "execution": {
+        "binding_ref": "render:profile.gmail.manage_mailboxes",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.gmail.manage_mailboxes",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Manage connected mailboxes",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "Gmail",
+        "Google Workspace",
+        "Hussh email",
+        "mailboxes"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Sync selected mailbox receipts",
+        "sync all mailbox receipts",
+        "track work and personal receipts"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.gmail.sync_selected_mailboxes",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reads receipt candidates from one selected connected Google mailbox or all connected Google mailboxes in the owner's private agent. Saves verified receipt facts in the owner's encrypted vault, preserves older receipts, and shows per-mailbox failures and bounded scan coverage. This is an explicit foreground sync.",
+      "execution": {
+        "binding_ref": "render:profile.gmail.sync_selected_mailboxes",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.gmail.sync_selected_mailboxes",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Sync selected mailbox receipts",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "Google Workspace",
+        "Hussh mail",
+        "Gmail",
+        "receipts",
+        "spending"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Report saved receipt spending",
+        "saved receipt report",
+        "monthly receipt spending",
+        "recurring charges paid"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.gmail.saved_receipt_report",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Calculates paid or recorded recurring charges for the chosen month from explicitly selected saved mailboxes. Shows separate currency totals, per-account coverage, unresolved duplicate risk and excluded conflicts. Does not search an unsynced inbox or forecast subscription bills.",
+      "execution": {
+        "binding_ref": "render:profile.gmail.saved_receipt_report",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.gmail.saved_receipt_report",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Report saved receipt spending",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "receipts",
+        "spending",
+        "subscriptions",
+        "mailboxes"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Visit merchant",
         "visit merchant",
         "visit merchant website"
@@ -45412,7 +45859,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "fcdf6f28bdb69fced518c98345dc6a0bf1918d4c4130cb1be2bc7314b8fe568d",
+      "projection_digest": "4769e6618bc1ce4eec9a30a272cf9c94fa0e1213a5e445074c94e1332583fd63",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -45422,7 +45869,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
+        "capability_graph_evolution": "c09d4229ad0d7d33c76e833a53520d20df43c1a11645f33f46d034a2d43f57ee",
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -45431,7 +45878,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "2873f483995a8fbe",
+      "source_revision": "263ee45c54697b18",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -46949,7 +47396,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "2873f483995a8fbe",
+    "source_revision": "263ee45c54697b18",
     "web": {
       "actions": [
         {
@@ -46992,7 +47439,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "bd285bf6077aa9ad5bfc73c2a1e34f516ed9edb6b8ca88d7ccd79b53e2ce56de",
+      "projection_digest": "90973dd11691a8a8281dcb93b8e991d46ca7ea4d1e89381d3f57159b80527e9e",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -47002,7 +47449,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
+        "capability_graph_evolution": "c09d4229ad0d7d33c76e833a53520d20df43c1a11645f33f46d034a2d43f57ee",
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -47011,7 +47458,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "2873f483995a8fbe",
+      "source_revision": "263ee45c54697b18",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -48568,7 +49015,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "2873f483995a8fbe",
+  "revision": "263ee45c54697b18",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -50532,12 +50979,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.gmail.manage_mailboxes",
+      "actions:profile.gmail.saved_receipt_report",
+      "actions:profile.gmail.sync_selected_mailboxes"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "dc84beb721eb8553",
+    "from_revision": "2873f483995a8fbe",
     "migrated": [],
     "removed": []
   },
@@ -52843,21 +53294,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "ec7efe513b8f7f75baebc1bf750c7d100164a83ecfba508b2bfaf1fc57c600fd",
+    "capability_graph_evolution": "c09d4229ad0d7d33c76e833a53520d20df43c1a11645f33f46d034a2d43f57ee",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "02448310d7910681448b55864231b81a20f60908470fc49539ee6f482450dc8d",
+    "kai_action_gateway": "5da885af61ff15dd98c21b95e61b131cb9c49847a59351e7e763b5e1e7a7c6c5",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "a2eacdefb2221a47ec806f749510e5bed26c458a5ca0e16627583aafcd745c35",
+    "product_agent_registry": "e87dc1e5ba05685a1e14883aaae52bab9f111c85317dd1d2bc0cf5c05c0627c4",
     "route_orchestration_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "2873f483995a8fbe",
+  "source_revision": "263ee45c54697b18",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "2873f483995a8fbe",
+    "current_graph_revision": "263ee45c54697b18",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -52898,6 +53349,7 @@
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
+          "2873f483995a8fbe",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
@@ -53195,6 +53647,7 @@
           "14b86b8e434fc15c",
           "22194555a3198d88",
           "27a5c64caf11b36c",
+          "2873f483995a8fbe",
           "3b4a692078832301",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
@@ -53264,6 +53717,7 @@
           "14b86b8e434fc15c",
           "22194555a3198d88",
           "27a5c64caf11b36c",
+          "2873f483995a8fbe",
           "3b4a692078832301",
           "43c428db7505bdee",
           "45be718cd9891cd4",
@@ -53567,6 +54021,7 @@
           "22194555a3198d88",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
+          "2873f483995a8fbe",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
@@ -53894,6 +54349,7 @@
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
+          "2873f483995a8fbe",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
@@ -54217,6 +54673,7 @@
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
+          "2873f483995a8fbe",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
@@ -54540,6 +54997,7 @@
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
+          "2873f483995a8fbe",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
@@ -54861,6 +55319,7 @@
           "22b91ec0916f167f",
           "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
+          "2873f483995a8fbe",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",

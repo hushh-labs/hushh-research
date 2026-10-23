@@ -15,9 +15,9 @@ type Props = Parameters<typeof MailOverview>[0] & {
 
 export function MailOverviewWorkspace({ connected, busy, onReconnect, onDisconnect, session, account, email, receiptRevision, active, confirmTransition, onAccountsChanged, ...overview }: Props) {
   const accountCard = connected ? <MailConnectedAccount email={email} busy={busy} onReconnect={onReconnect} onDisconnect={onDisconnect} /> : null;
+  const report = session ? <MailSavedReceiptReport session={session} activeAccount={account} activeEmail={email} receiptRevision={receiptRevision} enabled={active} /> : null;
   return <>
-    {session && confirmTransition && onAccountsChanged ? <MailGoogleAccounts key={session.userId} session={session} enabled={active} fallback={accountCard} confirmTransition={confirmTransition} onChanged={onAccountsChanged} /> : accountCard}
+    {session && confirmTransition && onAccountsChanged ? <MailGoogleAccounts key={session.userId} session={session} enabled={active} fallback={accountCard} fallbackReport={report} confirmTransition={confirmTransition} onChanged={onAccountsChanged} /> : <>{accountCard}{report}</>}
     {connected ? <MailOverview {...overview} /> : null}
-    {session ? <MailSavedReceiptReport session={session} activeAccount={account} activeEmail={email} receiptRevision={receiptRevision} enabled={active} /> : null}
   </>;
 }

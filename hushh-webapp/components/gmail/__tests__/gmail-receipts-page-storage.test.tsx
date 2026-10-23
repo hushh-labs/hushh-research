@@ -102,7 +102,7 @@ describe("receipt sync durable completion", () => {
     fixture.gmail.status.receipt_sync_available = false;
     try {
       open();
-      expect(await screen.findByText("Receipt sync is not available for this account right now.")).toBeInTheDocument();
+      expect(await screen.findByText("New receipt updates aren’t available with this setup yet.")).toBeInTheDocument();
       expect(fixture.scan).not.toHaveBeenCalled();
     } finally { cleanup(); fixture.gmail.status.receipt_sync_available = true; }
   });

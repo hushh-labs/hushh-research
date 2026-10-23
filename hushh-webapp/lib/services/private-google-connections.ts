@@ -23,7 +23,7 @@ export type PrivateGoogleStatus = {
 };
 
 export type PrivateMailAccount = PrivateGoogleStatus & {
-  accountId: string; credentialId: string; email: string | null; provider: 'google'; isDefault: boolean;
+  accountId: string; credentialId: string; email: string | null; provider: 'google'; isDefault: boolean; receiptSyncAvailable?: boolean;
 };
 
 export async function privateMailAccounts(): Promise<PrivateMailAccount[]> {

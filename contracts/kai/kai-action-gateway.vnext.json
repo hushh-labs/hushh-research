@@ -4386,6 +4386,115 @@
       }
     },
     {
+      "action_id": "profile.gmail.sync_selected_mailboxes",
+      "surface_id": "gmail",
+      "label": "Sync selected mailbox receipts",
+      "aliases": [
+        "sync all mailbox receipts",
+        "track work and personal receipts"
+      ],
+      "search_keywords": [
+        "Google Workspace",
+        "Hussh mail",
+        "Gmail",
+        "receipts",
+        "spending"
+      ],
+      "meaning": "Reads receipt candidates from one selected connected Google mailbox or all connected Google mailboxes in the owner's private agent. Saves verified receipt facts in the owner's encrypted vault, preserves older receipts, and shows per-mailbox failures and bounded scan coverage. This is an explicit foreground sync.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Mail Overview is selected",
+          "The owner has an unlocked vault and connected Google mailboxes with receipt sync available"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner chooses mailboxes and starts or cancels the foreground sync in Mail.",
+        "intended_handler": "MailPrivateReceiptTracking.sync"
+      },
+      "control_ids": [
+        "mail_sync_selected_accounts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/gmail/mail-private-receipt-tracking.tsx",
+        "lib/services/private-mail-receipts.ts"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.sync_selected_mailboxes",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.sync_selected_mailboxes",
+            "label": "Sync selected mailbox receipts",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "profile.gmail.saved_receipt_report",
       "surface_id": "gmail",
       "label": "Report saved receipt spending",

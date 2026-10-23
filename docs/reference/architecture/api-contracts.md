@@ -67,14 +67,17 @@ shared hub OAuth endpoints and never accept a hub consent token as owner admissi
 | `GET /api/one/pod/connectors/gmail/accounts` | Owner app pod session, `pod.status` | Verified mailbox account IDs, credential IDs, email when verified, status, default flag and capabilities; no tokens, provider subjects or scopes. |
 | `PUT /api/one/pod/connectors/gmail` | Owner app pod session, held incarnation, `pod.config` | Existing sealed credential and native custody transition. Optional encrypted `mailAccount: {mode: "add"}` retains existing accounts. Reconnect adds `accountId` and expected `credentialId` and requires the same verified Google subject. Omitted intent preserves the default-account contract. |
 | `DELETE /api/one/pod/connectors/gmail/accounts/{accountId}?credential_id={credentialId}` | Owner app pod session, held incarnation, `pod.config` | Clears only the expected mailbox credential; stale selection returns 409. Reports provider revocation separately from local disconnect. |
+| `POST /api/one/pod/connectors/gmail/accounts/{accountId}/receipts/{scan,detail}` | Owner app pod session, held incarnation, `pkm.read` | Strict body `{credential_id,page?,per_page?,cursor?,source_id?}`; maximum 50 pages of 6 candidates. Captures exact account/credential and owner-model revision, uses only that mailbox token and the configured owner model, and returns the existing live receipt schema. The source key derives from the durable pod key; no hub receipt tables or shared model fallback. Admission, cancellation and an owner-wide scan lock bound foreground reads. |
 
 Add returns the stable account ID. Duplicate add, wrong-identity reconnect, stale
 credential and account-limit refusals are typed 422 outcomes. All credential
 storage remains in the existing encrypted pod log with compare-and-set writes;
 refresh and erasure include additional mailbox instances. Existing tools and
 watches remain default-mailbox only. Web add uses the phone handoff; native client
-availability is unchanged. This local contract does not enable Outlook or new
-receipt scan routes. See [Mail acceptance](../operations/mail-drive-uat-acceptance.md).
+availability is unchanged. Explicit Overview receipt sync can select one or all
+Google mailboxes; other tools and watches retain their default-mailbox contract.
+This local contract does not enable Outlook, background multi-account sync or
+combined receipt chat tools. See [Mail acceptance](../operations/mail-drive-uat-acceptance.md).
 
 ## Azure software-update continuation
 

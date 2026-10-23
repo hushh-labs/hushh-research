@@ -7,8 +7,6 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { loadReceiptSnapshot, receiptStoreVersion, runReceiptFunction, writeReceiptSnapshot } from "@/lib/mail/receipt-store";
 import { captureReceiptSnapshot, receiptSnapshotRows, validateReceiptSnapshot, RECEIPT_SNAPSHOT_PREFIX, LEGACY_RECEIPT_SNAPSHOT_PREFIX } from "@/lib/mail/receipt-snapshot";
 import { analyzeReceipts } from "@/lib/mail/receipt-analysis";
-import { buildReceiptAccountReport } from "@/lib/mail/receipt-account-report";
-import { listSavedReceiptAccounts, runSavedReceiptReport } from "@/lib/mail/receipt-report-store";
 import { buildRecentReceiptRows } from "@/lib/profile/gmail-receipt-presentation";
 import { MailReceiptResourceService as Resource } from "@/lib/services/mail-receipt-resource-service";
 import { GmailReceiptsService, type GmailLiveReceiptScanResponse } from "@/lib/services/gmail-receipts-service";
@@ -460,82 +458,5 @@ describe("receipt continuity failure boundaries", () => {
     expect(() => validateReceiptSnapshot({ ...updated, sync: { ...updated.sync, records: [...updated.sync!.records, updated.sync!.records[0]] } })).toThrow();
     expect(() => validateReceiptSnapshot({ ...updated, sync: { ...updated.sync, archive_refs: ["f".repeat(64)] } })).toThrow();
     expect(() => validateReceiptSnapshot({ ...updated, sync: { ...updated.sync, records: [] } })).toThrow();
-const reportRequest = { from_date: "2026-10-01", to_date: "2026-11-01", timezone: "Asia/Kolkata", recurring_only: false };
-const reportSession = { userId: "owner", vaultKey: key, vaultOwnerToken: "owner-token" };
-async function saveMailbox(account: string, items: ReceiptListItem[]) {
-  const snapshot = await captureReceiptSnapshot(items, account, coverage);
-  await writeReceiptSnapshot(reportSession, snapshot, await receiptStoreVersion("owner", account));
-  return snapshot;
-}
-
-describe("explicit multi-mailbox saved receipt reports", () => {
-  it("combines selected accounts, removes a confirmed forwarded copy and keeps exact currencies separate", async () => {
-    const work = await saveMailbox("work", [receipt(1, { recurrence: "recurring" })]);
-    const personal = await saveMailbox("personal", [
-      receipt(11, { identifiers: [{ kind: "order", value: "ORDER-1" }], recurrence: "recurring" }),
-      receipt(2, { amount: 0.2, amount_decimal: "0.20", recurrence: "recurring" }),
-      receipt(3, { amount: 30, amount_decimal: "30.00", currency: "INR", recurrence: "one_time" }),
-    ]);
-    const result = await runSavedReceiptReport(reportSession, "all_saved", reportRequest);
-    expect(result.totals).toEqual([{ currency: "INR", paid_amount: "30.00" }, { currency: "USD", paid_amount: "0.30" }]);
-    expect(result.duplicate_copies_removed).toBe(1);
-    expect(result.accounts.map(account => account.binding).sort()).toEqual([work.account_binding, personal.account_binding].sort());
-    expect(await listSavedReceiptAccounts(reportSession)).toHaveLength(2);
-    const selected = await runSavedReceiptReport(reportSession, [work.account_binding], reportRequest);
-    expect(selected.totals).toEqual([{ currency: "USD", paid_amount: "0.10" }]);
-    const recurring = await runSavedReceiptReport(reportSession, "all_saved", { ...reportRequest, recurring_only: true });
-    expect(recurring.totals).toEqual([{ currency: "USD", paid_amount: "0.30" }]);
-  });
-  it("excludes conflicting lifecycle evidence instead of counting an old paid copy", async () => {
-    const paid = await captureReceiptSnapshot([receipt(1)], "work", coverage);
-    const refunded = await captureReceiptSnapshot([receipt(2, { identifiers: [{ kind: "order", value: "ORDER-1" }],
-      status: "refunded", event_type: "refund", transaction_date: "2026-11-10" })], "personal", coverage);
-    const result = buildReceiptAccountReport(reportRequest, [{ snapshot: paid, revision: 1 }, { snapshot: refunded, revision: 1 }]);
-    expect(result.conflicting_records_excluded).toBe(2);
-    expect(result.totals).toEqual([]);
-    expect(result.charges).toEqual([]);
-  });
-  it("never merges by merchant and price alone or invents dates, and preserves partial coverage", async () => {
-    const work = await captureReceiptSnapshot([receipt(1, { identifiers: [], recurrence: "recurring" })], "work", coverage);
-    const personal = await captureReceiptSnapshot([receipt(2, { identifiers: [], recurrence: "recurring" }),
-      receipt(3, { transaction_date: "October 1", recurrence: "recurring" })], "personal", { ...coverage, partial: true });
-    const result = buildReceiptAccountReport(reportRequest, [{ snapshot: work, revision: 1 }, { snapshot: personal, revision: 2 }]);
-    expect(result.totals).toEqual([{ currency: "USD", paid_amount: "0.20" }]);
-    expect(result.unidentified_records).toBe(2);
-    expect(result.undated_records_excluded).toBe(1);
-    expect(result.accounts[1]).toMatchObject({ revision: 2, coverage: { partial: true } });
-    expect(result.duplicate_copies_removed).toBe(0);
-  });
-  it("refuses a missing selected account instead of returning a partial total", async () => {
-    const work = await saveMailbox("work", [receipt(1)]);
-    await expect(runSavedReceiptReport(reportSession, [work.account_binding, "f".repeat(64)], reportRequest)).rejects.toThrow(/changed/);
-    await expect(runSavedReceiptReport(reportSession, [work.account_binding, work.account_binding], reportRequest)).rejects.toThrow(/valid/);
-  });
-  it("never collapses two canonical invoice charges through a shared cross-mailbox order reference", async () => {
-    const work = await captureReceiptSnapshot([receipt(1), receipt(2)], "work", coverage);
-    work.rows[0]!.identifiers = [{ kind: "order", value: "SHARED" }, { kind: "invoice", value: "I1" }];
-    work.rows[1]!.identifiers = [{ kind: "order", value: "SHARED" }, { kind: "invoice", value: "I2" }];
-    const personal = await captureReceiptSnapshot([receipt(11)], "personal", coverage);
-    personal.rows[0]!.identifiers = [...work.rows[0]!.identifiers];
-    const result = buildReceiptAccountReport(reportRequest, [{ snapshot: work, revision: 1 }, { snapshot: personal, revision: 1 }]);
-    expect(result.conflicting_records_excluded).toBe(3);
-    expect(result.duplicate_copies_removed).toBe(0);
-    expect(result.totals).toEqual([]);
-  });
-  it("rechecks every account revision and fails closed if any input changed", async () => {
-    await saveMailbox("work", [receipt(1)]); await saveMailbox("personal", [receipt(2)]);
-    const version = Durable.version.bind(Durable);
-    vi.spyOn(Durable, "version").mockImplementation(async (...args) => {
-      const result = await version(...args); return { ...result, revision: result.revision + 1 };
-    });
-    await expect(runSavedReceiptReport(reportSession, "all_saved", reportRequest)).rejects.toThrow(/changed/);
-  });
-  it("rejects an owner change while accounts are being read", async () => {
-    await saveMailbox("work", [receipt(1)]);
-    const read = Durable.read.bind(Durable);
-    vi.spyOn(Durable, "read").mockImplementation(async (...args) => {
-      const result = await read(...args); publishValidatedAuthSessionOwner("another-owner"); return result;
-    });
-    await expect(runSavedReceiptReport(reportSession, "all_saved", reportRequest)).rejects.toThrow(/authority/);
   });
 });

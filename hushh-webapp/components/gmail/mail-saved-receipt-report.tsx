@@ -27,18 +27,20 @@ function monthRange(month: string) {
 }
 
 /** Saved-only reporting: this never implies a disconnected or unsynced inbox was searched. */
-export function MailSavedReceiptReport({ session, activeAccount, activeEmail, receiptRevision, enabled = true }: {
+export function MailSavedReceiptReport({ session, activeAccount, activeEmail, receiptRevision, enabled = true, availableAccounts }: {
   session: ReceiptStoreSession; activeAccount: string | null; activeEmail?: string | null; receiptRevision: string; enabled?: boolean;
+  availableAccounts?: readonly { accountId: string; email: string | null }[];
 }) {
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
   const [month, setMonth] = useState(previousMonth);
   const [scope, setScope] = useState("all_saved");
   const [kind, setKind] = useState("spending");
   const [reset, setReset] = useState(0);
-  const [accounts, setAccounts] = useState<{ tag: string; rows: SavedReceiptAccount[]; active: string | null; error?: string }>();
+  const [accounts, setAccounts] = useState<{ tag: string; rows: (SavedReceiptAccount & { label?: string })[]; active: string | null; error?: string }>();
   const [state, setState] = useState<ReportState>();
   const requestId = useRef(0);
-  const ownerTag = JSON.stringify([session.userId, epoch, reset, receiptRevision]);
+  const availableTag = JSON.stringify(availableAccounts?.map(a => [a.accountId, a.email]));
+  const ownerTag = JSON.stringify([session.userId, epoch, reset, receiptRevision, availableTag]);
   const tag = JSON.stringify([ownerTag, scope, month, kind]);
   const current = receiptSessionGuard(session);
   const visible = current() && state?.tag === tag ? state : undefined;
@@ -58,7 +60,11 @@ export function MailSavedReceiptReport({ session, activeAccount, activeEmail, re
     const isCurrent = receiptSessionGuard(stableSession);
     void (async () => {
       try {
-        const saved = await listSavedReceiptAccounts(stableSession);
+        let saved: (SavedReceiptAccount & { label?: string })[] = await listSavedReceiptAccounts(stableSession);
+        if (availableAccounts) saved = await Promise.all(availableAccounts.map(async (account, index) => {
+          const binding = await receiptAccountBinding(account.accountId);
+          return { binding, freshness: '', count: 0, partial: true, ...saved.find(row => row.binding === binding), label: account.email || `Google mailbox ${index + 1}` };
+        }));
         const active = activeAccount ? await receiptAccountBinding(activeAccount) : null;
         if (!cancelled && id === requestId.current && isCurrent()) {
           setAccounts({ tag: ownerTag, rows: saved, active });
@@ -69,18 +75,19 @@ export function MailSavedReceiptReport({ session, activeAccount, activeEmail, re
       }
     })();
     return () => { cancelled = true; requestId.current += 1; };
-  }, [stableSession, ownerTag, activeAccount, enabled]);
+  }, [stableSession, ownerTag, activeAccount, enabled, availableAccounts]);
 
   async function runReport() {
     const id = ++requestId.current;
     const isCurrent = receiptSessionGuard(stableSession);
     setState({ tag, busy: true });
     try {
-      const report = await runSavedReceiptReport(stableSession, scope === "all_saved" ? scope : [scope], {
+      const reportScope = scope === 'all_saved' ? availableAccounts ? rows.map(row => row.binding) : scope : [scope];
+      const report = await runSavedReceiptReport(stableSession, reportScope, {
         ...monthRange(month), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, recurring_only: kind === "recurring",
       });
       if (id === requestId.current && isCurrent()) {
-        if (scope === "all_saved") setAccounts(previous => ({ tag: ownerTag, active: previous?.tag === ownerTag ? previous.active : null,
+        if (scope === "all_saved" && !availableAccounts) setAccounts(previous => ({ tag: ownerTag, active: previous?.tag === ownerTag ? previous.active : null,
           rows: report.accounts.map(account => ({ binding: account.binding, freshness: account.freshness,
             count: account.canonical_count, partial: account.coverage.partial || account.coverage.truncated })) }));
         setState({ tag, report });
@@ -92,11 +99,11 @@ export function MailSavedReceiptReport({ session, activeAccount, activeEmail, re
 
   if (!enabled || !rows.length && !(current() && accounts?.tag === ownerTag && accounts.error)) return null;
   const labels = Object.fromEntries(rows.map((account, index) => [account.binding,
-    account.binding === accounts?.active ? activeEmail || "Current mailbox" : `Saved mailbox ${index + 1}`]));
+    account.label || (account.binding === accounts?.active ? activeEmail || "Current mailbox" : `Saved mailbox ${index + 1}`)]));
   return <section className="space-y-3 border-t border-[color:var(--app-separator)] py-4" aria-label="Saved receipt report">
     <h2 className={styles.sectionTitle}>Spending from receipts</h2>
     <p className={`${styles.support} text-muted-foreground`}>Choose a mailbox or combine saved receipts. This does not search mail that has not been synced.</p>
-    <ReceiptReportFilters {...{ labels, scope, month, kind, setScope, setMonth, setKind }} />
+    <ReceiptReportFilters {...{ labels, scope, month, kind, setScope, setMonth, setKind }} allLabel={availableAccounts ? 'All connected mailboxes' : 'All saved mailboxes'} />
     <MailActionButton type="button" data-voice-control-id="mail_saved_receipt_report" disabled={Boolean(visible?.busy) || !rows.length} onClick={() => void runReport()}>
       {visible?.busy ? "Calculating…" : "Show report"}
     </MailActionButton>
@@ -106,14 +113,15 @@ export function MailSavedReceiptReport({ session, activeAccount, activeEmail, re
   </section>;
 }
 
-function ReceiptReportFilters({ labels, scope, month, kind, setScope, setMonth, setKind }: {
+function ReceiptReportFilters({ labels, scope, month, kind, setScope, setMonth, setKind, allLabel }: {
   labels: Record<string, string>; scope: string; month: string; kind: string;
   setScope: (value: string) => void; setMonth: (value: string) => void; setKind: (value: string) => void;
+  allLabel: string;
 }) {
   return <div className="grid gap-3 sm:grid-cols-3">
     <label className="min-w-0 space-y-1"><span className={styles.support}>Mailboxes</span>
       <Select value={scope} onValueChange={setScope}><SelectTrigger className="w-full min-h-11" aria-label="Report mailboxes"><SelectValue /></SelectTrigger>
-        <SelectContent><SelectItem value="all_saved">All saved mailboxes</SelectItem>
+        <SelectContent><SelectItem value="all_saved">{allLabel}</SelectItem>
           {Object.entries(labels).map(([binding, label]) => <SelectItem key={binding} value={binding}>{label}</SelectItem>)}
         </SelectContent></Select>
     </label>
