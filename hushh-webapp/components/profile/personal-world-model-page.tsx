@@ -23,7 +23,7 @@ import {
   ProfilePaneWorldModelIcon,
 } from "@/components/profile/profile-pane-icons";
 import { useWorldModelResearch } from "@/components/profile/world-model-provider";
-import { PWM_AZURE_RESEARCH_DISCLOSURE } from "@/components/onboarding/setup/pwm-research-disclosure";
+import { pwmProviderDisclosure, usesAzurePwm } from "@/components/onboarding/setup/pwm-research-disclosure";
 import { WorldModelClaimInvitation } from "@/components/profile/world-model-claim-invitation";
 import { WorldModelFactRow } from "@/components/profile/world-model-fact-row";
 import {
@@ -322,43 +322,6 @@ function draftMeta(fact: WorldModelDraftFact): string {
   return `${rest.length > 0 ? `${first.title} and ${rest.length} more` : first.title}${rating}`;
 }
 
-/** Checkpoint findings are cited research, not owner-approved memory. */
-function ProvisionalFindings({ facts }: { facts: readonly PwmValidatedFact[] }) {
-  if (facts.length === 0) return null;
-  return (
-    <SettingsGroup
-      title={`Research findings so far · ${facts.length}`}
-      description="These cited findings are awaiting the full review. They are not saved details yet."
-      density="compact"
-    >
-      {facts.map((fact) => (
-        <SettingsRow
-          key={fact.id}
-          testId="pwm-provisional-fact"
-          title={<span className="[overflow-wrap:anywhere]">{fact.statement}</span>}
-          description={
-            <span className="block space-y-1">
-              {fact.identity_state === "candidate_for_review" || fact.confidence !== "supported" ? (
-                <span className="block">Possible match · check the cited pages</span>
-              ) : null}
-              <span className="block [overflow-wrap:anywhere]">
-                {fact.sources.map((source, index) => (
-                  <span key={`${fact.id}:${source.url}:${index}`}>
-                    {index > 0 ? " · " : null}
-                    <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
-                      {source.title}
-                    </a>
-                  </span>
-                ))}
-              </span>
-            </span>
-          }
-        />
-      ))}
-    </SettingsGroup>
-  );
-}
-
 /** Yes buttons of statements still waiting for the owner, in page order. */
 function yesButtons(inPage: HTMLElement | null) {
   return [
@@ -377,6 +340,7 @@ export type PersonalWorldModelPageOptions = {
 type WorldModelSession = { live: boolean; generation: number; decisions: Set<string>; preferencePending: boolean;
   enabled: boolean; owner: string | null; key: string | null; token: string | null; epoch: number };
 const EMPTY_WORLD_MODEL_KEYS: ReadonlySet<string> = new Set();
+const EMPTY_VALIDATED_FACTS: readonly PwmValidatedFact[] = [];
 
 /** One feature controller below the existing app-level research reader. Its
  * private owner/session values never belong in a native presentation payload. */
@@ -445,7 +409,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   // Each claim moves the inviter's preview into this owner's sources.
   const [claims, setClaims] = useWorldModelSessionState(session, 0);
   const [keyed, setKeyed] = useWorldModelSessionState<{
-    draftId: string;
+    source: Offered | readonly PwmValidatedFact[];
     facts: WorldModelDraftFact[];
   } | null>(session, null);
   const [pending, setPending] = useWorldModelSessionState(session, EMPTY_WORLD_MODEL_KEYS);
@@ -579,16 +543,26 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   }, [ready, present, ownerId, vaultKey, vaultOwnerToken, mounted, revision, readRevision, scopeCurrent, session, setLoaded, setReadFailed]);
 
   const offered: Offered | null = result?.status === "offered" ? result : null;
+  const reviewSource = offered ?? validatedFacts ?? EMPTY_VALIDATED_FACTS;
   useEffect(() => {
-    if (!ready || !offered) {
+    if (!ready) {
       setKeyed(null);
       return;
     }
     if (!present) return;
     let active = true;
-    const flat = offered.report.sections.flatMap((section) =>
-      section.facts.map((fact) => ({ ...fact, topic: section.kind })),
-    );
+    const flat: Omit<WorldModelDraftFact, "kind" | "key">[] = offered
+      ? offered.report.sections.flatMap((section) => section.facts.map((fact) => ({
+          statement: fact.statement, topic: section.kind, confidence: fact.confidence,
+          evidenceScore: fact.evidence_score, evidenceReason: fact.evidence_reason,
+          matchStatus: offered.report.match_status, sources: fact.sources,
+          reason: offered.research.identity.reason,
+        })))
+      : (reviewSource as readonly PwmValidatedFact[]).map((fact) => ({
+          statement: fact.statement, topic: fact.topic, confidence: fact.confidence,
+          matchStatus: fact.identity_state === "owner_linked" ? "matched" : "uncertain",
+          sources: fact.sources, reason: "",
+        }));
     void Promise.all(flat.map((fact) => pwmClaimKey(fact.statement))).then(
       (keys) => {
         if (!active || !scopeCurrent()) return;
@@ -598,26 +572,15 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
           const key = keys[index]!;
           if (seen.has(key)) return;
           seen.add(key);
-          facts.push({
-            kind: "draft",
-            key,
-            statement: fact.statement,
-            topic: fact.topic,
-            confidence: fact.confidence,
-            evidenceScore: fact.evidence_score,
-            evidenceReason: fact.evidence_reason,
-            matchStatus: offered.report.match_status,
-            sources: fact.sources,
-            reason: offered.research.identity.reason,
-          });
+          facts.push({ ...fact, kind: "draft", key });
         });
-        setKeyed({ draftId: offered.draft_id, facts });
+        setKeyed({ source: reviewSource, facts });
       },
     );
     return () => {
       active = false;
     };
-  }, [offered, ready, present, scopeCurrent, setKeyed]);
+  }, [offered, reviewSource, ready, present, scopeCurrent, setKeyed]);
 
   /** Shows a decision only after the service resolves with committed memory. */
   const commit = useCallback(
@@ -659,6 +622,8 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     return () => cancelAnimationFrame(frame);
   }, [focusAfter]);
 
+  const currentReviewFacts = useRef<readonly WorldModelDraftFact[]>([]);
+
   /**
    * One decision per statement at a time, shared by its row and its detail
    * sheet. Resolves only after the encrypted memory write commits.
@@ -666,6 +631,9 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   async function decide(fact: WorldModelDraftFact, save: () => Promise<void>) {
     const owner = ownerAuthority();
     if (!owner) throw new Error("World model is no longer active.");
+    const current = currentReviewFacts.current.find((row) => row.key === fact.key);
+    if (!current || JSON.stringify(current) !== JSON.stringify(fact))
+      throw new Error("Research changed. Review the current finding before saving.");
     if (session.decisions.has(fact.key))
       throw new Error("This detail is already saving.");
     session.decisions.add(fact.key);
@@ -767,12 +735,12 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     } catch { /* The shared preference owner presents its sanitized outcome. */ }
   }
 
-  const draftsReady = !offered || keyed?.draftId === offered.draft_id;
+  const draftsReady = keyed?.source === reviewSource;
   // Exact-key suppression only: a decided statement never comes back as a draft.
-  const drafts =
-    memory && offered && draftsReady && keyed
+  const drafts = useMemo(() =>
+    memory && draftsReady && keyed
       ? keyed.facts.filter((fact) => !memory.decidedKeys.has(fact.key))
-      : [];
+      : [], [memory, draftsReady, keyed]);
   const saved = memory?.saved ?? [];
   const matchStatus = offered?.report.match_status;
   const usable =
@@ -808,7 +776,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     retrying: Boolean(retrying),
     preferences,
     memoryReady: memory !== null && draftsReady,
-    found: offered && draftsReady && keyed ? keyed.facts.length : 0,
+    found: draftsReady && keyed ? keyed.facts.length : 0,
     undecided: drafts.length,
     saved: saved.length + sourcedFacts.length,
     checkpoint: progress !== null,
@@ -849,7 +817,12 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     drafts: drafts.filter((fact) => pwmSectionForTopic(fact.topic) === section.id),
     saved: saved.filter((claim) => pwmSectionForTopic(claim.topic) === section.id),
   })).filter((section) => section.drafts.length + section.saved.length > 0);
-  const provisionalFacts = offered ? [] : (validatedFacts ?? []);
+  useLayoutEffect(() => {
+    currentReviewFacts.current = drafts;
+    if (!draftsReady || detail?.kind !== "draft") return;
+    const current = drafts.find((fact) => fact.key === detail.key);
+    if (!current || JSON.stringify(current) !== JSON.stringify(detail)) setDetail(null);
+  }, [drafts, draftsReady, detail, setDetail]);
   const detailTopic = detail?.kind === "draft" ? detail.topic : detail?.claim.topic;
   const detailTitle = detailTopic
     ? (PWM_SECTIONS.find((section) => section.id === pwmSectionForTopic(detailTopic))
@@ -873,7 +846,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const checkpoint = !preparing && (retry || spent || retrying) ? progress : null;
   const StatusIcon = STATUS_ICON[status.kind];
 
-  return { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, provisionalFacts, sections, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory };
+  return { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory };
 }
 export type PersonalWorldModelModel = ReturnType<typeof usePersonalWorldModelModel>;
 
@@ -887,7 +860,7 @@ export function PersonalWorldModelPage({ model, ...props }: PersonalWorldModelPa
 }
 
 function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAccount }: PersonalWorldModelPageOptions & { model: PersonalWorldModelModel }) {
-  const { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, provisionalFacts, sections, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory } = model;
+  const { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory } = model;
   const content = (
     <SurfaceStack compact data-pwm-page>
       <SettingsPresentationProvider density="compact">
@@ -1006,9 +979,9 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               <HelperText role="status" className="profile-account-note">
                 Nothing is looked up while it’s off.
               </HelperText>
-              {preferences?.research_provider === "azure_openai_web_search" ? (
+              {usesAzurePwm(preferences?.research_provider) ? (
                 <HelperText className="profile-account-note">
-                  {PWM_AZURE_RESEARCH_DISCLOSURE}
+                  {pwmProviderDisclosure(preferences?.research_provider)}
                 </HelperText>
               ) : null}
               <Button
@@ -1076,44 +1049,30 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
         ) : null}
         {ready && mounted ? (
           <>
-            <ProvisionalFindings facts={provisionalFacts} />
-            {sections.map((section) => (
-              <SettingsGroup key={section.id} title={section.label} density="compact">
-                {section.drafts.map((fact) => (
-                  <WorldModelFactRow
-                    key={`draft:${fact.key}`}
-                    factKey={fact.key}
-                    statement={fact.statement}
-                    meta={draftMeta(fact)}
-                    unsure={
-                      fact.confidence !== "supported" ||
-                      fact.matchStatus !== "matched" ||
-                      (fact.evidenceScore !== undefined && fact.evidenceScore <= 5)
-                    }
-                    undecided
-                    saving={pending.has(fact.key)}
-                    failed={errors.has(fact.key)}
+            {drafts.length > 0 ? (
+              <SettingsGroup title="To review" density="compact">
+                {drafts.map((fact) => (
+                  <WorldModelFactRow key={`draft:${fact.key}`} factKey={fact.key}
+                    statement={fact.statement} meta={draftMeta(fact)}
+                    unsure={fact.confidence !== "supported" || fact.matchStatus !== "matched" ||
+                      (fact.evidenceScore !== undefined && fact.evidenceScore <= 5)}
+                    undecided saving={pending.has(fact.key)} failed={errors.has(fact.key)}
                     onYes={() => void actions.confirm(fact).catch(() => undefined)}
                     onNo={() => void actions.reject(fact).catch(() => undefined)}
-                    onOpen={() => setDetail(fact)}
-                  />
-                ))}
-                {section.saved.map((claim) => (
-                  <WorldModelFactRow
-                    key={`saved:${claim.key}`}
-                    statement={claim.text}
-                    meta="Confirmed by you"
-                    unsure={false}
-                    undecided={false}
-                    saving={false}
-                    failed={false}
-                    onYes={() => {}}
-                    onNo={() => {}}
-                    onOpen={() => setDetail({ kind: "saved", claim })}
-                  />
+                    onOpen={() => setDetail(fact)} />
                 ))}
               </SettingsGroup>
-            ))}
+            ) : null}
+            {saved.length > 0 ? (
+              <SettingsGroup title="Confirmed by you" density="compact">
+                {saved.map((claim) => (
+                  <WorldModelFactRow key={`saved:${claim.key}`} statement={claim.text}
+                    meta="Confirmed by you" unsure={false} undecided={false}
+                    saving={false} failed={false} onYes={() => {}} onNo={() => {}}
+                    onOpen={() => setDetail({ kind: "saved", claim })} />
+                ))}
+              </SettingsGroup>
+            ) : null}
             {sourcedFacts.length > 0 ? (
               <SettingsGroup title="From pages you added" density="compact">
                 {sourcedFacts.map((fact) => (

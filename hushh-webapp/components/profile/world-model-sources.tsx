@@ -124,7 +124,7 @@ export function WorldModelSources({
             {busy ? "Reading pages…" : "Read these pages"}
           </Button>
           {onResearchPublicProfiles && <>
-            <HelperText>Use these profiles as starting links for GPT-5 mini research. Azure and Bing receive the public links. You review findings before saving.</HelperText>
+            <HelperText>Use these profiles as starting links for GPT-5 mini research. Azure and the search provider shown in Research and email receive the public links. You review findings before saving.</HelperText>
             <Button size="compact" data-voice-control-id="pwm_public_profiles_research"
               disabled={busy || !permitted || !name.trim() || !urls.trim() || !present}
               onClick={() => {

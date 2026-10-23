@@ -1,7 +1,7 @@
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PwmClaim, PwmMemory } from "@/lib/services/world-model-decision-service";
+import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 import type { PwmProgress, PwmValidatedFact } from "@/lib/services/world-model-research-service";
 
 const mock = vi.hoisted(() => ({
@@ -106,8 +106,7 @@ import { pwmClaimKey } from "@/lib/services/world-model-decision-service";
 import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/profile/world-model-fact-sheet";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
-const DRAFT_ID = "00000000-0000-4000-8000-000000000001";
-const source = { title: "Hushh team page", url: "https://hushh.ai/team" };
+import { source, offered, memoryOf, claim, pending, progressOf, provisionalFact } from "../fixtures/world-model-review";
 
 it("does not let a retained World Model detail consume another Profile page’s Back", () => {
   const close = vi.fn();
@@ -123,57 +122,6 @@ it("does not let a retained World Model detail consume another Profile page’s 
   view.rerender(<WorldModelFactSheet {...props} present={false} />);
   act(() => { expect(unwindBackLayer("/one", new URLSearchParams("profile_pane=1&profile_panel=world-model"))).toBe(false); });
 });
-
-function offered(
-  facts: { statement: string; kind: string; confidence?: string }[],
-  matchStatus: "matched" | "uncertain" | "no_match" = "matched",
-) {
-  return {
-    status: "offered",
-    pkm_written: false,
-    draft_id: DRAFT_ID,
-    report: {
-      match_status: matchStatus,
-      name: "Alice",
-      summary: "Alice works on private agents.",
-      sections: facts.map((fact) => ({
-        kind: fact.kind,
-        facts: [
-          {
-            statement: fact.statement,
-            confidence: fact.confidence ?? "supported",
-            sources: [source],
-          },
-        ],
-      })),
-    },
-    grounded_answers: [{ answer: "RAW GROUNDED ANSWER", sources: [], search_suggestions: [] }],
-    search_suggestions: [],
-    research: {
-      identity: { reason: "Same verified email on the team page." },
-      candidates: [] as { id: string; label: string }[],
-    },
-  };
-}
-
-function memoryOf(saved: PwmClaim[] = [], decided: string[] = []): PwmMemory {
-  return {
-    claims: Object.fromEntries(saved.map((claim) => [claim.key, claim])),
-    saved,
-    decidedKeys: new Set([...saved.map((claim) => claim.key), ...decided]),
-  };
-}
-
-async function claim(text: string, topic: PwmClaim["topic"] = "career"): Promise<PwmClaim> {
-  return {
-    key: await pwmClaimKey(text),
-    decision: "accepted",
-    text,
-    topic,
-    decided_at: "2026-10-15T10:00:00.000Z",
-    basis: "owner_declaration",
-  };
-}
 
 function research(
   result: unknown,
@@ -204,35 +152,6 @@ function research(
     ...live,
   };
 }
-
-const pending = { status: "pending", pkm_written: false, restart_required: false };
-const progressOf = (over: Partial<PwmProgress> = {}): PwmProgress => ({
-  stage: "coverage",
-  searches_used: 9,
-  searches_total: 32,
-  model_calls_used: 20,
-  model_calls_total: 128,
-  topics_checked: ["career", "education", "public_roles", "interests"],
-  sources_found: 5,
-  recent_sources: [
-    { title: "Acme Corp – Team", url: "https://acme.example/team" },
-    { title: "Example Uni – Alumni", url: "https://uni.example/alumni" },
-  ],
-  identity_state: "owner_linked",
-  candidates: 1,
-  started_at: "2026-10-15T10:00:00.000Z",
-  last_activity_at: "2026-10-15T10:00:30.000Z",
-  slice: 1,
-  ...over,
-});
-const provisionalFact: PwmValidatedFact = {
-  id: "candidate-a:career:fact-1",
-  topic: "career",
-  statement: "Works at Acme Corp",
-  confidence: "supported",
-  sources: [{ title: "Acme team page", url: "https://acme.example/team" }],
-  identity_state: "owner_linked",
-};
 
 /** Moves the clock forward and wakes every reader of it. */
 function advance(ms: number) {
@@ -342,7 +261,7 @@ describe("Personal World Model page", () => {
     expect(screen.queryByText("Confirmed by you")).not.toBeInTheDocument();
 
     finish(memoryOf([saved]));
-    expect(await screen.findByText("Confirmed by you")).toBeInTheDocument();
+    expect((await screen.findAllByText("Confirmed by you")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Yes, this is right/ })).not.toBeInTheDocument();
     expect(screen.getByText("Up to date")).toBeInTheDocument();
   });
@@ -537,7 +456,7 @@ describe("Personal World Model page", () => {
     expect(directOptIn).toHaveTextContent("outside Azure's compliance and data residency boundary");
     expect(screen.getByRole("button", { name: "Turn on" })).toBeInTheDocument();
     fireEvent.click(await screen.findByText("Research and email"));
-    expect(screen.getByText(/Bing may receive your name and verified email or phone/)).toHaveTextContent(
+    expect(screen.getAllByText(/Bing receives search terms that can include your name and verified email or phone/)[0]).toHaveTextContent(
       "outside Azure's compliance and data residency boundary",
     );
   });
@@ -599,23 +518,70 @@ describe("Personal World Model page", () => {
     expect(screen.getByTestId("pwm-sources-row")).toHaveTextContent("Sources in last checkpoint");
     expect(screen.queryByTestId("pwm-progress-bar")).toBeNull();
     expect(screen.queryByText("Nothing was saved.")).toBeNull();
-    const provisional = screen.getByTestId("pwm-provisional-fact");
-    expect(provisional).toHaveTextContent("Works at Acme Corp");
-    expect(within(provisional).getByRole("link", { name: "Acme team page" })).toHaveAttribute("href", "https://acme.example/team");
-    expect(within(provisional).queryByRole("button")).toBeNull();
-    expect(screen.getByText("These cited findings are awaiting the full review. They are not saved details yet.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Yes, this is right: Works at Acme Corp" })).toBeEnabled();
+    expect(screen.getByText("To review")).toBeInTheDocument();
+    expect(screen.getAllByText("Confirmed by you").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
   });
 
-  it("shows partial research while running without memory actions", async () => {
+  it("reviews a streamed finding and shows confirmation only after a committed save", async () => {
     research(pending, undefined, {
       validatedFacts: [{ ...provisionalFact, identity_state: "candidate_for_review", confidence: "uncertain" }],
     });
-    render(<PersonalWorldModelPage embedded />);
-    const provisional = await screen.findByTestId("pwm-provisional-fact");
-    expect(provisional).toHaveTextContent("Possible match · check the cited pages");
+    const saved = await claim(provisionalFact.statement);
+    let finish!: (value: PwmMemory) => void;
+    mock.confirm.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const view = render(<PersonalWorldModelPage embedded />);
+    const yes = await screen.findByRole("button", { name: `Yes, this is right: ${provisionalFact.statement}` });
+    expect(screen.getByText("To review")).toBeInTheDocument();
+    expect(screen.getByText("Possible match")).toBeInTheDocument();
+    fireEvent.click(yes);
+    expect(await screen.findByText("Saving…")).toBeInTheDocument();
+    expect(screen.queryByText("Confirmed by you")).not.toBeInTheDocument();
+    await act(async () => { finish(memoryOf([saved])); });
+    expect(screen.getAllByText("Confirmed by you").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Yes, this is right/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /No, this is not right/ })).toBeNull();
+    // The final model may omit a provisional finding; the owner's declaration remains.
+    research(offered([]));
+    view.rerender(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText(provisionalFact.statement)).toBeInTheDocument();
+    view.unmount();
+    mock.load.mockResolvedValue(memoryOf([saved]));
+    render(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText(provisionalFact.statement)).toBeInTheDocument();
+  });
+
+  it("withdraws an open streamed detail when its current batch revokes the finding", async () => {
+    research(pending, undefined, { validatedFacts: [provisionalFact] });
+    const view = render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByText(provisionalFact.statement));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    research(pending, undefined, { validatedFacts: [] });
+    view.rerender(<PersonalWorldModelPage embedded />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mock.confirm).not.toHaveBeenCalled();
+    expect(mock.edit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a rejected stream finding hidden through later batches, final report and remount", async () => {
+    const key = await pwmClaimKey(provisionalFact.statement);
+    const rejected = memoryOf([], [key]);
+    mock.reject.mockResolvedValue(rejected);
+    research(pending, undefined, { validatedFacts: [provisionalFact] });
+    const view = render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByRole("button", { name: `No, this isn’t right: ${provisionalFact.statement}` }));
+    await waitFor(() => expect(screen.queryByText(provisionalFact.statement)).toBeNull());
+    research(pending, undefined, { validatedFacts: [{ ...provisionalFact, statement: "  WORKS  at Acme Corp! " }] });
+    view.rerender(<PersonalWorldModelPage embedded />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Yes, this is right/ })).toBeNull());
+    research(offered([{ statement: provisionalFact.statement, kind: "career" }]));
+    view.rerender(<PersonalWorldModelPage embedded />);
+    await waitFor(() => expect(screen.queryByText(provisionalFact.statement)).toBeNull());
+    view.unmount();
+    mock.load.mockResolvedValue(rejected);
+    render(<PersonalWorldModelPage embedded />);
+    await waitFor(() => expect(mock.load).toHaveBeenCalled());
+    expect(screen.queryByText(provisionalFact.statement)).toBeNull();
   });
 
   it("shows an immediate retry state while preserving the stopped checkpoint", async () => {

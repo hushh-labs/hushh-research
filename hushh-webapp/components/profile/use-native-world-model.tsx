@@ -7,7 +7,7 @@ import { nativeDrawers } from "@/lib/capacitor/native-drawers";
 import type { NativeDrawerChoice, NativeDrawerRow, NativeProfilePage, NativeWorldModelPageId } from "@/lib/capacitor/native-drawers";
 import type { WorldModelForm } from "@/lib/capacitor/native-profile-world-model-scene";
 import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
-import { PWM_AZURE_RESEARCH_DISCLOSURE } from "@/components/onboarding/setup/pwm-research-disclosure";
+import { pwmProviderDisclosure, usesAzurePwm } from "@/components/onboarding/setup/pwm-research-disclosure";
 import { PROFILE_SECTION_LABELS, type ProfileResearchResult } from "@/lib/services/profile-research-service";
 import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import { useProfileResearchModel } from "@/components/agent/profile-research-card";
@@ -148,7 +148,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
       root.push({ id: visit.handle("claim-research"), label: "Turn public research back on after claiming", enabled: !claim.busy, toggle: true,
         options: [{ id: on, label: "On", selected: claim.researchConsent }, { id: off, label: "Off", selected: !claim.researchConsent }] });
     }
-    if (claim.azureResearchOff) root.push(...read("claim-azure", "Azure public research stays off after claiming. Open Research and email in your Personal World Model to review Bing search use before turning it on."));
+    if (claim.azureResearchOff) root.push(...read("claim-azure", "Azure public research stays off after claiming. Open Research and email in your Personal World Model to review search-provider use before turning it on."));
     root.push(action("claim", "Claim my model", async () => { await claim.claim(); }, { enabled: !claim.busy }),
       action("claim-decline", "Decline", async () => { await claim.decline(); }, { enabled: !claim.busy }));
   }
@@ -164,7 +164,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
   }, { enabled: model.status.kind !== "outage" || model.retryDue }));
   if (model.status.kind === "off") {
     root.push(...read("off", "Nothing is looked up while it’s off."));
-    if (model.preferences?.research_provider === "azure_openai_web_search") root.push(...read("azure-off", PWM_AZURE_RESEARCH_DISCLOSURE));
+    if (usesAzurePwm(model.preferences?.research_provider)) root.push(...read("azure-off", pwmProviderDisclosure(model.preferences?.research_provider)));
     root.push(action("turn-on", "Turn on", () => model.turnOn(), { enabled: !model.preferenceBusy, pending: model.preferenceBusy }));
   }
   if (model.preferenceFailed) root.push(...read("preference-error", "Couldn’t save. Try again."));
@@ -173,21 +173,18 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
       ...read("identity-email", `Email\n${model.identity.email ? maskEmail(model.identity.email) : "Not added"}${model.identity.email ? model.identity.emailVerified ? " · Verified" : " · Not verified" : ""}`),
       ...read("identity-phone", `Phone\n${model.identity.phone ? formatMaskedPhoneNumber(model.identity.phone) : "Not added"}`));
     if (model.status.kind === "insufficient") root.push(action("account", "Open your account", onAccount, { chevron: true, artworkId: "account" }));
-    for (const [i, fact] of model.provisionalFacts.entries()) root.push(...read(`provisional-${i}`, `${fact.statement}\nThese findings await the full review and are not saved details.`),
-      ...fact.sources.map((source, j) => link(`provisional-${i}-${j}`, source.title, source.url)));
-    for (const section of model.sections) {
-      root.push(...read(`section-${section.id}`, section.label));
-      for (const fact of section.drafts) root.push(action(`draft-${fact.key}`, fact.statement, () => model.setDetail(fact),
-        { chevron: true, detail: fact.matchStatus === "matched" && fact.confidence === "supported" ? "Review before saving" : "Possible match · check the sources", pending: model.pending.has(fact.key), enabled: !model.pending.has(fact.key) }));
-      for (const claim of section.saved) root.push(action(`saved-${claim.key}`, claim.text, () => model.setDetail({ kind: "saved", claim }), { chevron: true, detail: "Confirmed by you" }));
-    }
+    if (model.drafts.length) root.push(...read("to-review-heading", "To review"));
+    for (const fact of model.drafts) root.push(action(`draft-${fact.key}`, fact.statement, () => model.setDetail(fact),
+      { chevron: true, detail: fact.matchStatus === "matched" && fact.confidence === "supported" ? "Review before saving" : "Possible match · check the sources", pending: model.pending.has(fact.key), enabled: !model.pending.has(fact.key) }));
+    if (model.saved.length) root.push(...read("confirmed-heading", "Confirmed by you"));
+    for (const claim of model.saved) root.push(action(`saved-${claim.key}`, claim.text, () => model.setDetail({ kind: "saved", claim }), { chevron: true, detail: "Confirmed by you" }));
     if (model.sourcedFacts.length) {
       root.push(...read("sourced-heading", "From pages you added"));
       for (const [i, fact] of model.sourcedFacts.entries()) root.push(...read(`sourced-${i}`, fact.statement), ...fact.sources.map((source, j) => link(`sourced-${i}-${j}`, source.title, source.url)));
       root.push(action("memory", "Edit or remove these details", onMemory, { chevron: true, artworkId: "my-data" }));
     }
     for (const [i, answer] of (model.offered?.grounded_answers ?? []).entries()) {
-      root.push(...read(`answer-${i}`, `Bing web research\n${answer.answer}`));
+      root.push(...read(`answer-${i}`, `Public web research\n${answer.answer}`));
       for (const [j, citation] of (answer.citations ?? []).entries()) root.push(link(`citation-${i}-${j}`, citation.title, citation.url));
     }
     for (const [i, suggestion] of searchSuggestions.entries()) root.push(...read(`suggestion-${i}`, `Related Google searches\n${suggestion.text}`),
@@ -217,7 +214,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
   } else if (local.panel === "research") {
     const p = model.preferences, content: NativeDrawerRow[] = [];
     if (p) {
-      content.push(...read("research-disclosure", p.research_provider === "azure_openai_web_search" ? PWM_AZURE_RESEARCH_DISCLOSURE : "Uses your name and verified email or phone to find pages about you with Google Search through Vertex AI."));
+      content.push(...read("research-disclosure", usesAzurePwm(p.research_provider) ? pwmProviderDisclosure(p.research_provider) : "Uses your name and verified email or phone to find pages about you with Google Search through Vertex AI."));
       const toggle = (key: "enabled" | "email_enabled", label: string) => {
         const on = bind(`research-${key}-on`, () => run(() => model.updatePreferences({ enabled: p.enabled, email_enabled: p.email_enabled, [key]: true })));
         const off = bind(`research-${key}-off`, () => run(() => model.updatePreferences({ enabled: p.enabled, email_enabled: p.email_enabled, [key]: false })));
@@ -233,9 +230,9 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
     const content = [...read("sources-name", `Your name\n${model.user?.displayName?.trim() || "Not added"}`),
       action("sources-edit", "Add public pages", () => openForm({ scene: "world-model-sources", draft: { urls: source.urls, permitted: source.permitted } }),
         { chevron: true, enabled: !sourceReview.busy && !sourceReview.saveStarted })];
-    if (publicProfilesSupported && model.preferences?.research_provider === "azure_openai_web_search" && model.preferences.enabled &&
+    if (publicProfilesSupported && usesAzurePwm(model.preferences?.research_provider) && model.preferences.enabled &&
       model.canResearchPublicProfiles) {
-      content.push(...read("public-profile-disclosure", "Use these profiles as starting links for GPT-5 mini research. Azure and Bing receive the public links. You review findings before saving."),
+      content.push(...read("public-profile-disclosure", "Use these profiles as starting links for GPT-5 mini research. Azure and the search provider shown in Research and email receive the public links. You review findings before saving."),
         action("public-profile-research", "Research your profiles", () => openForm({ scene: "world-model-public-profiles", draft: { urls: source.urls, permitted: source.permitted } }), { chevron: true }));
     }
     if (source.message) content.push(...read("sources-error", source.message));
@@ -321,7 +318,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
           }
           if (value.scene === "world-model-public-profiles") {
             const m = latest.model;
-            if (!value.draft.permitted || !value.draft.urls.trim() || m.preferences?.research_provider !== "azure_openai_web_search" ||
+            if (!value.draft.permitted || !value.draft.urls.trim() || !usesAzurePwm(m.preferences?.research_provider) ||
                 !m.preferences.enabled || !m.canResearchPublicProfiles) return false;
             m.researchPublicProfiles(value.draft.urls.split("\n").map(url => url.trim()).filter(Boolean));
             return true;

@@ -90,7 +90,7 @@ def semantic_request_model_binding(
         if active_policy is None or approval_generation != active_policy["generation"]:
             raise ValueError("Documents UAT processing policy changed")
     policy = load_pwm_policy(environment="uat")
-    if policy["provider"] != "azure_openai_web_search":
+    if policy["provider"] not in {"azure_openai_web_search", "azure_openai_tavily"}:
         raise ValueError("Documents requires the trusted UAT Azure configuration")
     if approval_generation is not None:
         try:

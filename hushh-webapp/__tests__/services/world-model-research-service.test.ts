@@ -24,7 +24,6 @@ import {
   WorldModelResearchService,
   pwmReportSchema,
   pwmResultSchema,
-  type PwmProgress,
 } from "@/lib/services/world-model-research-service";
 import { WorldModelInvitationsService } from "@/lib/services/world-model-invitations-service";
 vi.mock("@/lib/share/app-origin", () => ({
@@ -166,43 +165,8 @@ const session = {
   vaultOwnerToken: "synthetic-token",
   isCurrent: () => true,
 };
-const progress = (searches: number): PwmProgress => ({
-  stage: "coverage",
-  searches_used: searches,
-  searches_total: 32,
-  model_calls_used: searches * 2,
-  model_calls_total: 128,
-  topics_checked: ["career"],
-  sources_found: searches,
-  recent_sources: [{ title: "Public page", url: "https://example.test/p" }],
-  identity_state: "owner_linked",
-  candidates: 1,
-  started_at: "2026-10-15T00:00:00Z",
-  last_activity_at: "2026-10-15T00:01:00Z",
-  slice: 1,
-});
-const validatedFact = {
-  id: "candidate-a:career:fact-1",
-  topic: "career",
-  statement: "Works at Acme Corp",
-  confidence: "supported",
-  sources: [{ title: "Acme team page", url: "https://acme.example/team" }],
-  identity_state: "owner_linked",
-};
-const frame = (event: string, data: unknown) =>
-  `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-/** A live response whose frames arrive in the given pieces. */
-const eventStream = (...pieces: string[]) =>
-  new Response(
-    new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const piece of pieces)
-          controller.enqueue(new TextEncoder().encode(piece));
-        controller.close();
-      },
-    }),
-    { status: 200, headers: { "content-type": "text/event-stream" } },
-  );
+import { progress, validatedFact, frame, eventStream } from "../fixtures/world-model-stream";
+
 describe("PWM service authority and request recovery", () => {
   beforeEach(() => {
     api.mockReset();
@@ -214,6 +178,7 @@ describe("PWM service authority and request recovery", () => {
   afterEach(() => vi.useRealTimers());
   it.each([
     ["azure_openai_web_search", "pwm-azure-bing-v1"],
+    ["azure_openai_tavily", "pwm-azure-tavily-v1"],
     ["vertex_google_search", "pwm-native-v1"],
   ] as const)("sends the %s consent marker for preference updates", async (research_provider, consent_version) => {
     const response = { enabled: true, email_enabled: false, consent_version: "pwm-native-v1", research_provider };

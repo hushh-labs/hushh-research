@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
 import {
   PwmResearchDisclosure,
-  PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
 } from "@/components/onboarding/setup/pwm-research-disclosure";
 
 const state = vi.hoisted(() => ({
@@ -143,12 +142,12 @@ describe("AI-choice setup invitation continuation", () => {
     expect(screen.getByRole("dialog")).toBeVisible();
     expect(ready).not.toHaveBeenCalledWith(true);
   });
-  it("requires a distinct Azure/Bing opt-in disclosure in the UAT setup", () => {
+  it("requires separate provider disclosure and opt-in after UAT setup", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     try {
       render(<PwmResearchDisclosure compact />);
       expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
-        PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
+        "Review the search provider and information use there before starting.",
       );
       expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
         "off until you turn it on",

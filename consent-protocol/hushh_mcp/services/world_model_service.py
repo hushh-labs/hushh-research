@@ -24,8 +24,12 @@ from hushh_mcp.runtime_settings import get_app_runtime_settings, one_profile_res
 from hushh_mcp.services.chat_key import get_chat_key_provider
 from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
 from hushh_mcp.services.owner_placement_guard import hub_content_check
-from hushh_mcp.services.profile_research_jobs import TTL_SECONDS, ProfileResearchJobs, pending
+from hushh_mcp.services.profile_research_jobs import ProfileResearchJobs, pending
 from hushh_mcp.services.profile_research_service import resolve_profile_research_identity
+from hushh_mcp.services.world_model_checkpoints import (
+    carry_legacy_starts,
+    prepare_discovery_start_state,
+)
 from hushh_mcp.services.world_model_preferences import (
     azure_bing_consented,
     checkpoint_before_write,
@@ -33,12 +37,19 @@ from hushh_mcp.services.world_model_preferences import (
     draft_completed,
     enroll_default,
     preferences,
+    provider_consented,
 )
 from hushh_mcp.services.world_model_progress import derive_progress
 
 NAMESPACE = "one.personal_world_model.v1"
 # A finished model is prepared again once its latest run is this old.
 PWM_REPREPARE_AFTER_SECONDS = 7 * 86400
+
+
+def research_consented(consent):
+    if POLICY["provider"] == "azure_openai_web_search":
+        return azure_bing_consented(consent)
+    return provider_consented(consent)
 
 
 def content_access(user_id, consent_token):
@@ -87,7 +98,7 @@ async def admission(user_id, consent_token):
     require_access = content_access(user_id, consent_token)
     await require_access()
     if (
-        POLICY["provider"] == "azure_openai_web_search"
+        POLICY["provider"] in {"azure_openai_web_search", "azure_openai_tavily"}
         and get_app_runtime_settings().environment != "uat"
     ):
         # Only the UAT Cloud Run service identity is federated into Azure.
@@ -100,7 +111,10 @@ async def admission(user_id, consent_token):
     await require_access()
     if not consent or not consent["enabled"]:
         return {"status": "consent_required", "pkm_written": False}, ""
-    if POLICY["provider"] == "azure_openai_web_search" and not azure_bing_consented(consent):
+    if POLICY["provider"] in {
+        "azure_openai_web_search",
+        "azure_openai_tavily",
+    } and not research_consented(consent):
         return {"status": "consent_required", "pkm_written": False}, ""
     setup_ready = await asyncio.wait_for(owner_setup_resolved(user_id), 5)
     await require_access()
@@ -145,8 +159,8 @@ async def offer(
             not consent
             or not consent["enabled"]
             or (
-                POLICY["provider"] == "azure_openai_web_search"
-                and not azure_bing_consented(consent)
+                POLICY["provider"] in {"azure_openai_web_search", "azure_openai_tavily"}
+                and not research_consented(consent)
             )
             or str(consent["generation"]) != authorized_generation
         ):
@@ -156,7 +170,7 @@ async def offer(
     await require_access()
     runner = run_world_model
     provider_args = {}
-    if POLICY["provider"] == "azure_openai_web_search":
+    if POLICY["provider"] in {"azure_openai_web_search", "azure_openai_tavily"}:
         from hushh_mcp.one_adk.azure_workload_identity import azure_openai_token_provider
         from hushh_mcp.one_adk.world_model_azure import run_world_model_azure
 
@@ -169,6 +183,7 @@ async def offer(
             "primary_endpoint": config["primary_endpoint"],
             "primary_deployment": config["primary_deployment"],
             "primary_token_supplier": token_provider,
+            "search_provider": "tavily" if POLICY["provider"] == "azure_openai_tavily" else "bing",
         }
     result = await runner(
         identity=identity,
@@ -193,70 +208,16 @@ async def offer(
 
 
 def _prepare_discovery_start_state(state, *, scope, stored_attempts, clock):
-    """Translate a provider checkpoint without resetting paid hourly starts."""
     from hushh_mcp.one_adk.world_model_azure import AZURE_WORK_VERSION
 
-    prior_scope = state.get("budget_scope")
-    if prior_scope == scope:
-        return state
-    work = state.get("work")
-    if isinstance(work, dict) and "azure_work_version" in work:
-        if (
-            type(work["azure_work_version"]) is not int
-            or work["azure_work_version"] != AZURE_WORK_VERSION
-        ):
-            raise RuntimeError("Unsupported discovery work version")
-    if prior_scope is not None:
-        # A same-provider layout change needs its own migration, even if
-        # every old slot index happens to fit the new range.
-        known_limits = {
-            "vertex_google_search:v1:32:128": 160,
-            "azure_openai_web_search:v1:8:16": 24,
-        }
-        prior_limit = known_limits.get(prior_scope) if isinstance(prior_scope, str) else None
-        if prior_limit is None:
-            raise RuntimeError("Unsupported discovery budget scope")
-        prior_provider = prior_scope.split(":", 1)[0]
-        if prior_provider == POLICY["provider"]:
-            raise RuntimeError("Unsupported discovery budget scope")
-        prior = state.get("attempted_combinations", [])
-        if (
-            not isinstance(prior, list)
-            or any(type(index) is not int or not 1 <= index <= prior_limit for index in prior)
-            or len(set(prior)) != len(prior)
-        ):
-            raise RuntimeError("Invalid discovery attempt budget")
-        incompatible = True
-    elif POLICY["provider"] == "vertex_google_search":
-        incompatible = isinstance(work, dict) and "azure_work_version" in work
-    elif isinstance(work, dict) and "azure_work_version" in work:
-        # Azure checkpoints written before the scope marker shipped.
-        return {**state, "budget_scope": scope}
-    else:
-        prior = state.get("attempted_combinations", [])
-        valid_vertex_slots = (
-            isinstance(prior, list)
-            and all(type(index) is int and 1 <= index <= 160 for index in prior)
-            and len(set(prior)) == len(prior)
-        )
-        incompatible = valid_vertex_slots and (
-            work or any(index > stored_attempts for index in prior)
-        )
-
-    if incompatible:
-        # A provider switch gets a fresh provider ledger and private work.
-        # Hourly starts survive so switching cannot evade start limits.
-        return {
-            **{key: value for key, value in state.items() if key not in {"work", "inputs"}},
-            "budget_scope": prior_scope or "legacy-provider-checkpoint",
-            "identity_binding": "",
-            "resume_binding": "",
-            "attempted_combinations": [],
-            "discovery_started_at": clock(),
-        }
-    # No incompatible evidence exists. Carry ambiguous paid slots rather
-    # than granting a second Azure budget after an early provider failure.
-    return {**state, "budget_scope": scope}
+    return prepare_discovery_start_state(
+        state,
+        scope=scope,
+        stored_attempts=stored_attempts,
+        clock=clock,
+        provider=POLICY["provider"],
+        work_version=AZURE_WORK_VERSION,
+    )
 
 
 class PublicProfilesChanged(ValueError):
@@ -269,16 +230,25 @@ class WorldModelJobs(ProfileResearchJobs):
     #: Owners whose last-seen checkpoint revision this process remembers.
     activity_capacity = 1024
 
-    def __init__(self, **kwargs):
+    def __init__(self, *, legacy_store=None, **kwargs):
         super().__init__(**kwargs)
+        self.legacy_store = legacy_store
         # user_id -> (revision, when this process first saw it). The store does
         # not return a write time; this is the best per-process stand-in.
         self.activity: dict[str, tuple[int, float]] = {}
 
+    def checkpoint_retained(self, since: float) -> bool:
+        return bool(getattr(self.store, "durable", False)) or super().checkpoint_retained(since)
+
+    async def purge_expired(self) -> None:
+        await super().purge_expired()
+        if self.legacy_store is not None:
+            await self.legacy_store.purge_expired()
+
     def budget_scope(self) -> str:
         # Slot numbers are meaningful only within a provider's ledger layout.
         version = 1
-        if POLICY["provider"] == "azure_openai_web_search":
+        if POLICY["provider"] in {"azure_openai_web_search", "azure_openai_tavily"}:
             from hushh_mcp.one_adk.world_model_azure import AZURE_WORK_VERSION
 
             version = AZURE_WORK_VERSION
@@ -342,7 +312,7 @@ class WorldModelJobs(ProfileResearchJobs):
             return refused
         if current_binding != binding:
             return pending(restart=True)
-        if POLICY["provider"] == "azure_openai_web_search":
+        if POLICY["provider"] in {"azure_openai_web_search", "azure_openai_tavily"}:
             from hushh_mcp.one_adk.world_model_azure import checkpoint_usage
 
             usage = checkpoint_usage(state.get("work"), state.get("attempted_combinations", []))
@@ -355,6 +325,14 @@ class WorldModelJobs(ProfileResearchJobs):
     ):
         require_access = content_access(user_id, consent_token)
         await require_access()
+        await carry_legacy_starts(
+            user_id,
+            require_access,
+            store=self.store,
+            legacy_store=self.legacy_store,
+            context_factory=lambda: self.job_context(user_id, consent_token),
+            clock=self.clock,
+        )
         result = await super().start(
             user_id, consent_token, inputs=inputs, refresh_completed=refresh_completed
         )
@@ -372,8 +350,8 @@ class WorldModelJobs(ProfileResearchJobs):
             not consent
             or not consent["enabled"]
             or (
-                POLICY["provider"] == "azure_openai_web_search"
-                and not azure_bing_consented(consent)
+                POLICY["provider"] in {"azure_openai_web_search", "azure_openai_tavily"}
+                and not research_consented(consent)
             )
         ):
             raise PermissionError("Research consent required")
@@ -392,7 +370,7 @@ class WorldModelJobs(ProfileResearchJobs):
                 carried[field] = prior[field]
         profiles = carried.get("public_profiles")
         if profiles is not None:
-            if POLICY["provider"] != "azure_openai_web_search":
+            if POLICY["provider"] not in {"azure_openai_web_search", "azure_openai_tavily"}:
                 raise PublicProfilesChanged("Public profile discovery requires Azure consent")
             profiles = OwnerPublicProfiles.model_validate(profiles).model_dump()
             carried["public_profiles"] = profiles
@@ -411,7 +389,10 @@ class WorldModelJobs(ProfileResearchJobs):
         require_access = content_access(user_id, consent_token)
         await require_access()
         # Preserve existing opt-outs; placement admission precedes enrollment.
-        if POLICY["provider"] != "azure_openai_web_search" and one_profile_research_enabled():
+        if (
+            POLICY["provider"] not in {"azure_openai_web_search", "azure_openai_tavily"}
+            and one_profile_research_enabled()
+        ):
             consent = await preferences(user_id)
             await require_access()
             if consent is None:
@@ -434,7 +415,7 @@ class WorldModelJobs(ProfileResearchJobs):
             state is not None
             and current_binding
             and state.get("status") in {"offered", "low_confidence", "saved"}
-            and self.clock() - state.get("finished_at", self.clock()) >= TTL_SECONDS
+            and not self.checkpoint_retained(state.get("finished_at", self.clock()))
         ):
             # Past retention but not yet purged: decide as if it is already gone,
             # so an aged-out draft never buys a new run before the interval.
@@ -499,10 +480,16 @@ class WorldModelJobs(ProfileResearchJobs):
             raise RuntimeError("Draft changed; retry discard")
 
 
+# Keep the old namespace's cleanup active. Old Bing/Google evidence never
+# receives the durable policy merely because deployment configuration changed.
+_legacy_store = EncryptedSessionCheckpointStore(app_name=NAMESPACE, session_id="profile")
+_durable_research = POLICY["provider"] == "azure_openai_tavily"
 world_model_jobs = WorldModelJobs(
+    legacy_store=_legacy_store if _durable_research else None,
     store=EncryptedSessionCheckpointStore(
         app_name=NAMESPACE,
-        session_id="profile",
+        session_id="tavily-profile-v1" if _durable_research else "profile",
+        durable=_durable_research,
         on_commit=checkpoint_committed,
         before_write=checkpoint_before_write,
     ),

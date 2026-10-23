@@ -311,7 +311,7 @@ async def probe() -> None:
         raise RuntimeError("Azure PWM runtime probe is UAT-only")
     _initialize_synthetic_runtime()
     policy = load_pwm_policy(environment="uat")
-    if policy["provider"] != "azure_openai_web_search":
+    if policy["provider"] not in {"azure_openai_web_search", "azure_openai_tavily"}:
         raise RuntimeError("UAT Azure PWM provider is not selected")
     config = policy["azure"]
     readiness = await run_probe()
@@ -332,6 +332,14 @@ async def probe() -> None:
         ),
         flush=True,
     )
+    if policy["provider"] == "azure_openai_tavily":
+        from hushh_mcp.one_adk.tavily_search import extract_tavily_receipts, search_tavily
+
+        search_started = time.monotonic()
+        receipt = extract_tavily_receipts(await search_tavily("Tavily Search documentation"))
+        if not receipt.observed or not receipt.sources:
+            raise RuntimeError("Tavily search readiness requires received sources")
+        _stage("tavily_search", "ok", started_at=search_started)
     await _probe_managed_text()
     started_at = time.monotonic()
     _stage("federation", "start", started_at=started_at)

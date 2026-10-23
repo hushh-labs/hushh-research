@@ -41,6 +41,7 @@ from hushh_mcp.services.profile_research_service import (
     offer_profile_research,
     resolve_profile_research_identity,
 )
+from hushh_mcp.services.research_job_budget import refund_refused_charge
 
 logger = logging.getLogger(__name__)
 NAMESPACE = "one.magic.discovery.v1"
@@ -225,9 +226,15 @@ class ProfileResearchJobs:
         while True:
             await asyncio.sleep(3600)
             try:
-                await self.store.purge_expired()
+                await self.purge_expired()
             except Exception:
                 logger.warning("one.magic_discovery_retention_unavailable")
+
+    async def purge_expired(self) -> None:
+        await self.store.purge_expired()
+
+    def checkpoint_retained(self, since: float) -> bool:
+        return self.clock() - since < TTL_SECONDS
 
     def reusable(self, state: dict[str, Any]) -> bool:
         now = self.clock()
@@ -235,7 +242,7 @@ class ProfileResearchJobs:
             return now < state["started_at"] + (self.lease_seconds or LEASE_SECONDS)
         age = now - state["finished_at"]
         if state["status"] in {"offered", "low_confidence"} or self.exhausted(state):
-            return age < TTL_SECONDS
+            return self.checkpoint_retained(state["finished_at"])
         return state["status"] == "unavailable" and age < self.cooldown(state)
 
     @staticmethod
@@ -412,7 +419,7 @@ class ProfileResearchJobs:
             and same_inputs
             and state.get("status") == "unavailable"
             and state.get("result", {}).get("reason") == "provider_throttled"
-            and self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
+            and self.checkpoint_retained(state.get("discovery_started_at", state["started_at"]))
         )
         if throttle_resume:
             refused, binding = await self.check(user_id, consent_token)
@@ -456,7 +463,7 @@ class ProfileResearchJobs:
             or (state or {}).get("resume_binding", ""),
             "attempted_combinations": list(prior_attempts)
             if state
-            and self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
+            and self.checkpoint_retained(state.get("discovery_started_at", state["started_at"]))
             else [],
             "discovery_started_at": (state or {}).get(
                 "discovery_started_at", (state or {}).get("started_at", self.clock())
@@ -481,7 +488,7 @@ class ProfileResearchJobs:
             and same_inputs
             and state
             and (
-                self.clock() - state.get("discovery_started_at", state["started_at"]) < TTL_SECONDS
+                self.checkpoint_retained(state.get("discovery_started_at", state["started_at"]))
                 and state["status"] in {"pending", "paused", "unavailable"}
             )
         ):
@@ -708,27 +715,11 @@ class ProfileResearchJobs:
                 provider_code, provider_status = provider_error(error)
                 rejected = provider_rejected(provider_code, provider_status)
                 throttled = provider_throttled(provider_code, provider_status)
-                refund: tuple[int, ...] = ()
                 if rejected:
                     self.breaker.record(self.clock())
-                    # Refused before inference: the last slot this run charged
-                    # bought nothing. Earlier charges and other runs stay paid.
-                    refund = charges[-1] if charges else ()
-                    # So is the hourly start this run bought: an outage must not
-                    # lock the owner out of the budget once the provider is back.
-                    # Every other failure keeps its start (and the cooldown).
-                    starts = state["starts"]
-                    if charged_start is not None and starts[-1:] == [charged_start]:
-                        starts = starts[:-1]
-                    state = {
-                        **state,
-                        "starts": starts,
-                        "attempted_combinations": [
-                            index
-                            for index in state["attempted_combinations"]
-                            if index not in refund
-                        ],
-                    }
+                state, refund = refund_refused_charge(
+                    state, charges, charged_start, rejected=rejected
+                )
                 logger.warning(
                     "%sfailed stage=%s job=%s error_type=%s cause_type=%s cause_origin=%s provider_code=%s provider_status=%s provider_rejected=%s provider_throttled=%s refunded=%s provider_failures=%s llm_calls=%s elapsed_ms=%s duration_ms=%s",
                     self.log_event,

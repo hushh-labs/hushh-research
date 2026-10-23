@@ -377,8 +377,9 @@ def test_candidate_pkm_evaluator_inherits_exact_revision_resources(
     assert calls[-1][:4] == ["run", "jobs", "delete", "uat-pkm-eval-123-1"]
 
 
+@pytest.mark.parametrize("pwm_provider", ["azure_openai_web_search", "azure_openai_tavily"])
 def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
-    tmp_path: Path,
+    tmp_path: Path, pwm_provider: str
 ) -> None:
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     steps = build["steps"]
@@ -402,7 +403,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         json.dumps(
             {
                 "pwm_research": {"provider": "vertex_google_search"},
-                "pwm_research_uat": {"provider": "azure_openai_web_search"},
+                "pwm_research_uat": {"provider": pwm_provider},
             }
         ),
         encoding="utf-8",
