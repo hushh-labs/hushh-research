@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -246,3 +247,87 @@ async def test_refresh_crossing_close_cannot_replace_complete_saved_prices(monke
     assert value == saved
     assert cache.peek(key).value == saved and cache.peek(key).fetched_at == saved_at
     assert store.entries == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("saved_movers", [False, True])
+async def test_closed_home_keeps_news_and_indices_without_sparklines(monkeypatch, saved_movers):
+    now = datetime.fromisoformat("2026-07-14T22:00:00+00:00").timestamp()
+    saved_at = now - 2 * 60 * 60
+    quoted_at = "2026-07-14T20:00:00+00:00"
+    cache, store = MarketInsightsCache(), _FakeStore()
+    monkeypatch.setattr(cache_module.time, "time", lambda: now)
+    monkeypatch.setattr(market_insights, "market_insights_cache", cache)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    monkeypatch.setattr(
+        market_insights,
+        "_resolve_pick_source_rows",
+        AsyncMock(return_value=([], [market_insights._default_pick_source()], "default")),
+    )
+    indices = ["^GSPC", "^IXIC", "^DJI", "^RUT"]
+    cache.seed_entry(
+        f"quotes:{','.join(sorted([*indices, 'AAPL']))}",
+        {"quotes": {symbol: {"price": 100, "quoted_at": quoted_at} for symbol in indices}},
+        saved_at,
+    )
+    if saved_movers:
+        cache.seed_entry(
+            "movers:v2:us",
+            ({"gainers": [{"symbol": "AAPL", "price": 200, "change_pct": 1}]}, {}),
+            saved_at,
+        )
+    price_fetchers = []
+    for name in (
+        "fetch_market_data_batch",
+        "fetch_market_data",
+        "_fetch_macro_bundle",
+        "_fetch_movers_from_fmp",
+        "_fetch_sector_rotation_snapshot",
+        "_fetch_symbol_series_batch",
+    ):
+        fetcher = AsyncMock(side_effect=AssertionError("closed price provider must not run"))
+        monkeypatch.setattr(market_insights, name, fetcher)
+        price_fetchers.append(fetcher)
+    monkeypatch.setattr(
+        market_insights,
+        "_fetch_recommendation",
+        AsyncMock(return_value={"signal": "NEUTRAL", "degraded": True}),
+    )
+    news = AsyncMock(
+        return_value=[
+            {
+                "title": "After-hours company update",
+                "url": "https://example.com/after-hours",
+                "publishedAt": "2026-07-14T21:00:00+00:00",
+            }
+        ]
+    )
+    monkeypatch.setattr(market_insights, "fetch_market_news", news)
+
+    async def images(_symbol, articles):
+        return articles
+
+    monkeypatch.setattr(market_insights, "enrich_market_news_images", images)
+    payload = await market_insights._get_market_insights_payload(
+        user_id="test-user",
+        requested_watchlist_symbols=["AAPL"],
+        filtered_symbols=[],
+        watchlist_symbols=["AAPL"],
+        days_back=7,
+        active_pick_source="default",
+        consent_token=None,
+        personalized=False,
+    )
+
+    assert payload["news_tape"][0]["title"] == "After-hours company update"
+    overview = {row.get("symbol"): row for row in payload["market_overview"]}
+    assert overview["^GSPC"]["value"] == 100
+    assert overview["^GSPC"]["as_of"] == quoted_at
+    assert payload["stale_reason"] == "market_closed"
+    assert payload["provider_status"].get("home") != "failed"
+    if saved_movers:
+        assert payload["movers"]["gainers"][0]["symbol"] == "AAPL"
+        assert payload["provider_status"]["sparklines"] == "unavailable"
+    news.assert_awaited_once()
+    for fetcher in price_fetchers:
+        fetcher.assert_not_awaited()
