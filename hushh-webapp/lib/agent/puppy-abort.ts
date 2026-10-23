@@ -23,8 +23,15 @@ export function whileNotAborted<T>(operation: Promise<T>, signal: AbortSignal): 
 }
 
 /** A signal that aborts with a TimeoutError after `ms`, plus its cleanup. */
-export function deadlineSignal(ms: number): { signal: AbortSignal; clear: () => void } {
+export function deadlineSignal(ms: number): { signal: AbortSignal; clear: () => void; cancel: () => void } {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new DOMException("deadline", "TimeoutError")), ms);
-  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer),
+    cancel: () => {
+      clearTimeout(timer);
+      controller.abort(new DOMException("cancelled", "AbortError"));
+    },
+  };
 }
