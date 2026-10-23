@@ -367,7 +367,7 @@ describe("WalletService", () => {
   });
 
   it("writes a manual code with exact owner authority and never sends it for network resolution", async () => {
-    const card = { pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099, securityCode: "0123" };
+    const card = { draftId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", pan: "4111111111111111", cardholderName: "Synthetic Owner", expiryMonth: 12, expiryYear: 2099, securityCode: "0123" }; // A fixed opaque ID avoids coincidental CVV substrings.
     const saved = await WalletService.addCard({ ...CONTEXT, card, surface: "web", source: "one_wallet_add" });
     const call = mockStoreWalletDomain.mock.calls[0][0];
     expect(call.securityCodeChange).toEqual({ cardId: saved.cardId, value: "0123" });

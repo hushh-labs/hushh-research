@@ -125,19 +125,23 @@ def test_revoked_refresh_is_a_typed_reauth_result_and_never_a_server_error(mail)
 
 
 async def test_reconnect_and_owner_ai_revision_fence_extraction(mail, monkeypatch):
+    from hushh_mcp.agents.email import runtime
     from hushh_mcp.services import pod_ai_selection
-    from hushh_mcp.services.gmail_receipt_extractor import run_live_receipt_extractor
 
     revision = [1]
     monkeypatch.setattr(pod_ai_selection, "ai_selection_revision", lambda: revision[0])
     model = object()
     monkeypatch.setattr(service, "owner_receipt_model", lambda: model)
     monkeypatch.setattr(service, "receipt_source_key", lambda: b"x" * 32)
+    runner = AsyncMock(return_value={"is_receipt": False})
+    monkeypatch.setattr(runtime, "run_email_gene", runner)
     connection = service.PodReceiptConnection(
         "owner", public_account_id(mail.second), mail.second.credential_id
     )
     receipts, current = service.owner_receipt_service(connection, AsyncMock())
     await current()
+    await receipts._extractor({}, "owner", "invocation-label")
+    assert runner.await_args.kwargs["model"] is model
     revision[0] += 1
     with pytest.raises(GmailApiError, match="model changed"):
         await current()
@@ -145,11 +149,6 @@ async def test_reconnect_and_owner_ai_revision_fence_extraction(mail, monkeypatc
     store.set_active_connector_credentials({"gmail": mail.first})
     with pytest.raises(GmailApiError, match="Reconnect"):
         await current()
-    runner = AsyncMock(return_value={"is_receipt": False})
-    await run_live_receipt_extractor(
-        {}, "owner", "invocation-label", gene_runner=runner, timeout=1, model=model
-    )
-    assert runner.await_args.kwargs["model"] is model
     assert receipts._gmail is connection
     with pytest.raises(RuntimeError, match="hub tables"):
         _ = connection.db

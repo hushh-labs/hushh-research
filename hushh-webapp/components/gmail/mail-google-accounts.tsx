@@ -76,7 +76,7 @@ export function MailGoogleAccounts({ session, enabled, fallback, fallbackReport,
       if (!current()) return;
       if (result.disconnected) {
         toast.success('Mailbox disconnected.');
-        if (result.providerRevoked === false) toast.info('One stopped using this mailbox. Google could not confirm removal of access; review it in your Google account.');
+        if (result.providerRevoked === false) toast.info('Review Google access. Removal was not confirmed.');
       } else toast.info('This mailbox changed while disconnecting. Review its current connection.');
       setRevision(value => value + 1); onChanged();
     } catch { if (current()) toast.error('Could not confirm the disconnect. Refresh Mail before trying again.'); }
