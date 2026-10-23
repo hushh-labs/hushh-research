@@ -1,28 +1,33 @@
 # Private agent: normal release transition
 
 **Current delivery — 23 October 2026:**
-[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) landed as
-`7671c6ca6d`; exact-head CI and landed smoke passed. The governed dev run
-`39968480755` passed, including provenance, schema and semantics. Live Azure
-owner Back/Finish and removal-explanation checks passed in background Chrome.
-UAT promotion `39972103223` refused before deployment because the pinned
-email-domain risk snapshot expired. The refresh then landed in PR #8390 as
-`a68bddc8a8`; its published snapshot is inherited unchanged by PR #8391. The
-combined candidate still needs accepted dev/UAT receipts. The security check and
-enabled email sign-in remain unchanged. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
-owns the serving revisions and dated outcomes.
+[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) and
+[PR #8391](https://github.com/hushh-labs/hushh-research/pull/8391) landed.
+Dev accepted `ee77ebdb43` in run `39987252665`. UAT accepted `a68bddc8a8` in
+run `39990262675`; that run's workflow head differs from its resolved application
+SHA. Serving revisions, receipt provenance and 100% traffic were read back with
+corporate ADC. The expired snapshot blocker is resolved. The
+[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns the
+exact revision matrix and remaining journey boundaries.
 
-Main through `6a84c73e18` was integrated normally, preserving Profile/mobile,
-identity, consent, commerce, erasure, Drive, SMS and One presence changes. The
-infrastructure branch is fast-forwarded to the landed SHA. Nine peer files and the
-active ADK tree at `48140fcd70` are preserved. No production deployment, stable
+[PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395) now also carries
+the local provider-correct Chat picker and owner-safe Puppy foreground-readiness
+repair. Its previous hosted attempt stopped in governance because its PR body
+omitted the required Live Memory source-impact section; the body is corrected.
+A finished, locally verified candidate needs fresh exact-head hosted validation
+before any merge or deployment. Existing successful application receipts cannot
+certify this new source.
+
+Peer main changes through `d0ff6decfb`, including Profile/calendar polish and UAT
+parallelism, are integrated normally without whole-file replacement. Nine peer
+paths and the active ADK tree remain preserved. No production deployment, stable
 publication, owner installation or destructive cloud cleanup is implied.
 
-The current correction includes Hosting return/Finish, explicit verification of
-the admitted cloud AI, truthful cleanup progress, reviewed cloud-only removal and
-read-only recorded-home inspection. Dev-only migration 972 passed deployed schema
-gates; real provider removal still needs separate acceptance evidence. UAT schema graduation remains
-separate. Earlier PR #8365/8377 receipts are history, not proof of this correction.
+The current application correction includes Hosting return/Finish, explicit
+verification of admitted cloud AI, truthful cleanup progress, reviewed cloud-only
+removal and recorded-home inspection. Dev-only migration 972 passed schema gates;
+UAT graduation and real provider removal remain separate. Missing schema keeps
+removal unavailable. Earlier PR #8365/8377 receipts remain historical evidence.
 
 One and Browser share the owner's image, container, non-root identity and
 lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
@@ -37,13 +42,11 @@ rehearsal or a new capacity study. Preserve those designs and keep unqualified
 execution unavailable. This supersedes the broader acceptance gate below wherever
 it would delay the MVP. Production remains outside this authorization.
 
-The current application correction follows that normal path. Its exact-head and
-landed checks are green; dev and owner navigation passed on the same landed
-revision. UAT refused expired email-domain risk evidence before deployment;
-refresh the pinned source and repeat the validated candidate chain. Preserve the exact-SHA predecessor
-receipt chain. The source recovery controller now observes one exact execution;
-provider cancellation cannot qualify from a later worker receipt, and uncertain
-work is not automatically replayed.
+The next application correction follows that normal path: finish local verification,
+validate its exact head, land through the Admin SOP, then read back the actual
+resolved application SHA in dev and UAT. A workflow head alone is insufficient.
+The source recovery controller observes one exact execution; provider cancellation
+cannot qualify from a later worker receipt, and uncertain work is never replayed.
 
 The protected security consumer runs immutable main code with exact-attempt
 binding. Initial requested events avoid repeated trigger starts; verified pending

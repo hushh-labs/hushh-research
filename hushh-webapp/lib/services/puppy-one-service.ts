@@ -22,6 +22,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 import { HEARTBEAT_FRESH_MS } from "@/lib/trusted-device/sync-display";
 import { withAbortDeadline } from "@/lib/utils/request-timeouts";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, type AuthSessionOwnerSnapshot } from "@/lib/auth/session-owner";
 
 export interface PuppyStatus {
   connected: boolean;
@@ -631,10 +632,14 @@ export function derivePuppyLink(devices: unknown, nowMs: number): PuppyLink {
  */
 export async function fetchPuppyLink(signal?: AbortSignal): Promise<PuppyLink> {
   const checkedAt = Date.now();
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (!owner) return derivePuppyLink(null, checkedAt);
+  const current = () => isValidatedAuthSessionOwnerCurrent(owner);
   try {
-    const response = await ApiService.listTrustedDevices({ signal });
+    const response = await ApiService.listTrustedDevices({ signal, isCurrentOwner: current });
     if (!response.ok) return derivePuppyLink(null, checkedAt);
     const payload = (await response.json()) as { devices?: unknown } | null;
+    if (!current()) return derivePuppyLink(null, checkedAt);
     return derivePuppyLink(payload?.devices, checkedAt);
   } catch {
     return derivePuppyLink(null, checkedAt);
@@ -653,16 +658,17 @@ const PUPPY_LINK_READ_DEADLINE_MS = 20_000;
 type LinkListener = (link: PuppyLink | null) => void;
 
 const linkStore: {
+  owner: AuthSessionOwnerSnapshot | null;
   link: PuppyLink | null;
   listeners: Set<LinkListener>;
   /** The poll's unregister handle while a subscriber exists. */
   timer: (() => void) | null;
   inFlight: Promise<PuppyLink> | null;
-} = { link: null, listeners: new Set(), timer: null, inFlight: null };
+} = { owner: null, link: null, listeners: new Set(), timer: null, inFlight: null };
 
 /** The last link read, or null before the first read lands. */
 export function getPuppyLinkSnapshot(): PuppyLink | null {
-  return linkStore.link;
+  return linkStore.owner && isValidatedAuthSessionOwnerCurrent(linkStore.owner) ? linkStore.link : null;
 }
 
 /**
@@ -671,10 +677,26 @@ export function getPuppyLinkSnapshot(): PuppyLink | null {
  * hears the answer at once.
  */
 export function refreshPuppyLink(): Promise<PuppyLink> {
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (!owner) {
+    linkStore.owner = null;
+    linkStore.link = null;
+    linkStore.inFlight = null;
+    return Promise.resolve(derivePuppyLink(null, Date.now()));
+  }
+  if (!linkStore.owner || !isValidatedAuthSessionOwnerCurrent(linkStore.owner)) {
+    linkStore.owner = owner;
+    linkStore.link = null;
+    linkStore.inFlight = null;
+  }
   if (linkStore.inFlight) return linkStore.inFlight;
   const read = withAbortDeadline(
     fetchPuppyLink, PUPPY_LINK_READ_DEADLINE_MS, () => derivePuppyLink(null, Date.now()),
   ).then((next) => {
+    // A retired read must not publish a device or clear the next owner's read.
+    if (!isValidatedAuthSessionOwnerCurrent(owner) || linkStore.inFlight !== read) {
+      return derivePuppyLink(null, Date.now());
+    }
     linkStore.inFlight = null;
     linkStore.link = next;
     for (const listener of linkStore.listeners) listener(next);
@@ -691,8 +713,8 @@ export function refreshPuppyLink(): Promise<PuppyLink> {
  */
 export function subscribePuppyLink(listener: LinkListener): () => void {
   linkStore.listeners.add(listener);
+  if (!getPuppyLinkSnapshot()) void refreshPuppyLink();
   if (linkStore.timer === null) {
-    void refreshPuppyLink();
     // On the shared idle clock (one wake with the other polls, after a
     // frame, never while hidden); the handle is the unregister function.
     linkStore.timer = registerPeriodicTask({
@@ -716,6 +738,7 @@ export function subscribePuppyLink(listener: LinkListener): () => void {
 export function resetPuppyLinkStoreForTests(): void {
   if (linkStore.timer !== null) linkStore.timer();
   linkStore.timer = null;
+  linkStore.owner = null;
   linkStore.link = null;
   linkStore.inFlight = null;
   linkStore.listeners.clear();

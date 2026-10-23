@@ -192,10 +192,8 @@ import {
   CardNetworkMark,
   cardNetworkLabel,
 } from "@/components/wallet/card-network-mark";
-import {
-  ModelPreferenceService,
-  type ModelPreference,
-} from "@/lib/services/model-preference-service";
+import { useOneModelPreference } from "@/lib/agent/use-one-model-preference";
+import { useChatAgentWake } from "@/lib/agent/use-chat-agent-wake";
 import {
   SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
@@ -2543,6 +2541,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // on the owner's machine.
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
+  useChatAgentWake(user?.uid ?? null, isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired);
   // Puppy One is mounted on FIRST use and hidden thereafter, never unmounted.
   // Unmounting it destroyed the whole on-device conversation and its Hermes
   // session on every glance at One, which is exactly what the comment beside
@@ -2686,7 +2685,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const generatedDriveSearchDraftRef = useRef(false);
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
-  const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
+  const { modelPreference, modelPreferenceSaving, handleOneModelChange } = useOneModelPreference(user, isCanonicalChatRoute && !isPuppySurface && isVaultUnlocked);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   const [queuedDeliveryUnconfirmed, setQueuedDeliveryUnconfirmed] = useState(false);
   const [queuedDeliveryChecking, setQueuedDeliveryChecking] = useState(false);
@@ -3417,16 +3416,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const canPickOneModel = Boolean(
     modelPreference && modelPreference.choices.length > 1,
   );
-  const handleOneModelChange = (nextModel: string) => {
-    if (!modelPreference || !user || isPuppySurface) return;
-    const previous = modelPreference;
-    setModelPreference({ ...previous, effective_model: nextModel });
-    void (async () => {
-      try {
-        setModelPreference(await ModelPreferenceService.set(await user.getIdToken(), nextModel));
-      } catch { setModelPreference(previous); }
-    })();
-  };
   const statusText = useMemo(() => {
     // Every line below narrates One's turn, so in Puppy One a bare "Thinking"
     // or "Streaming" would report on an agent the reader is not looking at:
@@ -3650,26 +3639,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       void cancelled;
     };
   }, [user?.uid, vaultKey, getVaultOwnerToken]);
-
-  useEffect(() => {
-    if (!user) {
-      setModelPreference(null);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const preference = await ModelPreferenceService.get(await user.getIdToken());
-        if (!cancelled) setModelPreference(preference);
-      } catch {
-        // A picker that cannot load is non-blocking: the turn still runs on
-        // whatever the backend resolves.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -9788,6 +9757,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {canPickOneModel && modelPreference && !isPuppySurface && hasInlineModelPicker ? (
                 <Select
                   value={modelPreference.effective_model}
+                  disabled={modelPreferenceSaving}
                   onValueChange={handleOneModelChange}
                 >
                   <SelectTrigger
@@ -9795,13 +9765,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     // Names the agent it configures, so it still says which
                     // one when it is read out of context.
                     aria-label="One's model"
+                    aria-busy={modelPreferenceSaving || undefined}
                     title={`Running ${modelPreference.effective_model}`}
                     className="agent-chat-model-picker h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
                   >
-                    {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
-                        Gemini, so the shared word is the one thing a narrow
-                        header cannot afford. The full label stays in the menu
-                        and in the tooltip. */}
+                    {/* The verified catalog owns labels; a short Gemini label
+                        saves space without assuming the provider of other rows. */}
                     <Cpu aria-hidden="true" className="agent-chat-model-icon size-4 shrink-0" />
                     <span className="truncate">
                       {(
@@ -9898,8 +9867,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
             nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
             modelControl={canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
-              <Select value={modelPreference.effective_model} onValueChange={handleOneModelChange}>
-                <SelectTrigger aria-label="One's model" className="h-11 w-full">
+              <Select value={modelPreference.effective_model} disabled={modelPreferenceSaving} onValueChange={handleOneModelChange}>
+                <SelectTrigger aria-label="One's model" aria-busy={modelPreferenceSaving || undefined} className="h-11 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper" className="z-[560]">

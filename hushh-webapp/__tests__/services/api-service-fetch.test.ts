@@ -95,6 +95,17 @@ const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 import { jsonResponse, makeUnsignedToken, deferred } from "../fixtures/api-service-responses";
 
 describe("ApiService.apiFetch", () => {
+  it("does not wake a pod when owner authority retires during token retrieval", async () => {
+    const token = deferred<string>();
+    vi.mocked(AuthService.getIdToken).mockReturnValueOnce(token.promise);
+    let current = true;
+    const pending = ApiService.wakePod({ isEffectCurrent: () => current });
+    current = false;
+    token.resolve("retired-id-token");
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("preserves cookie-free pod requests (stream=%s) and hub cookies", async (streaming) => {
     const url = "https://owner-pod.example/api/one/pod/status";
     mockFetch.mockResolvedValue(jsonResponse({ ok: true }));

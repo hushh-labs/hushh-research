@@ -9,6 +9,7 @@ import {
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { ApiService } from "@/lib/services/api-service";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, type AuthSessionOwnerSnapshot } from "@/lib/auth/session-owner";
 
 /**
  * Proactively wake the person's own pod so it is warm the moment they need it.
@@ -49,7 +50,7 @@ const WAKE_COOLDOWN_MS = 45_000;
 // Module-scoped so every surface and every trigger share ONE cooldown and ONE
 // in-flight wake. Not React state: these coordinate network side effects across
 // unrelated component trees, not any single component's render.
-let wakeOwner: string | null = null;
+let wakeOwner: AuthSessionOwnerSnapshot | null = null;
 let lastWakeAtMs = 0;
 let wakeInFlight: Promise<{
   state: WakeState;
@@ -68,19 +69,25 @@ async function issueWakeDeduped(userId: string): Promise<{
   needsFreshSetup?: boolean;
 } | null> {
   if (shouldSkipReviewerBackgroundWritesForAutomation()) return null;
-  if (wakeOwner !== userId) {
-    wakeOwner = userId;
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (!owner || owner.userId !== userId) return null;
+  if (!wakeOwner || !isValidatedAuthSessionOwnerCurrent(wakeOwner)) {
+    wakeOwner = owner;
     lastWakeAtMs = 0;
     wakeInFlight = null;
   }
-  if (wakeInFlight) return wakeInFlight;
+  if (wakeInFlight) {
+    const result = await wakeInFlight;
+    return isValidatedAuthSessionOwnerCurrent(owner) ? result : null;
+  }
   if (Date.now() - lastWakeAtMs < WAKE_COOLDOWN_MS) return null;
   lastWakeAtMs = Date.now();
-  const pending = ApiService.wakePod().finally(() => {
+  const pending = ApiService.wakePod({ isEffectCurrent: () => isValidatedAuthSessionOwnerCurrent(owner) }).finally(() => {
     if (wakeInFlight === pending) wakeInFlight = null;
   });
   wakeInFlight = pending;
-  return pending;
+  const result = await pending;
+  return isValidatedAuthSessionOwnerCurrent(owner) ? result : null;
 }
 
 /** Test-only: reset the module cooldown/in-flight between cases. */

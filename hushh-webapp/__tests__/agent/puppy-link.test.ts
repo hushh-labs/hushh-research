@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
   listTrustedDevices: vi.fn(),
@@ -212,6 +213,8 @@ describe("derivePuppyLink", () => {
 
 describe("fetchPuppyLink", () => {
   beforeEach(() => {
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner-1");
     mocks.listTrustedDevices.mockReset();
   });
 

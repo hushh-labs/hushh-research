@@ -1,6 +1,7 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
+import { useAuth } from "@/lib/firebase/auth-context";
 
 import {
   getPuppyLinkSnapshot,
@@ -17,8 +18,11 @@ import {
  * machine. Null until the first read lands; "unavailable" after a failed one.
  */
 export function usePuppyLink(): PuppyLink | null {
+  const { user } = useAuth();
+  // Re-subscribe after account changes so the new owner never waits for the old poll.
+  const subscribe = useCallback((listener: () => void) => user ? subscribePuppyLink(listener) : () => {}, [user]);
   return useSyncExternalStore(
-    subscribePuppyLink,
+    subscribe,
     getPuppyLinkSnapshot,
     () => null,
   );

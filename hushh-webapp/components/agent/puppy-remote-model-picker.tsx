@@ -143,7 +143,8 @@ export function PuppyRemoteModelPicker({
   const setOpen = (next: boolean) => { setOpenState(next); onOpenChange?.(next); };
   const [choice, setChoice] = useState<string | null>(null);
   const choiceAfterClose = useRef<string | null>(null);
-  const { catalog, loading, error, pending, load, applyGlobal } = usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine });
+  const { catalog, loading, error, pending, load, applyGlobal } = usePuppyCatalog({ hushhId, deviceId, vaultOwnerToken, machine,
+    prefetch: active && (machineState === "live" || machineState === "quiet") });
 
   useEffect(() => {
     if (active) return;

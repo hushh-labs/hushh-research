@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
@@ -10,9 +11,11 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/services/api-service", () => ({ ApiService: api }));
 
 import { PuppyRemoteModelPicker } from "@/components/agent/puppy-remote-model-picker";
-import { PUPPY_CATALOG_TIMEOUT_MS, resetPuppyCatalogMemory } from "@/lib/agent/use-puppy-catalog";
+import { PUPPY_CATALOG_TIMEOUT_MS, resetPuppyCatalogMemory, usePuppyCatalog, type PuppyCatalog } from "@/lib/agent/use-puppy-catalog";
 
 beforeEach(() => {
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("owner-1");
   resetPuppyCatalogMemory();
   api.getPuppyDirectModels.mockResolvedValue({
     status: "available",
@@ -24,6 +27,65 @@ beforeEach(() => {
 });
 
 describe("Puppy remote model picker", () => {
+  const owner = { hushhId: "owner-1", deviceId: "device-1", vaultOwnerToken: "owner-capability" };
+
+  it("does not send a model change after its owner retires during the version read", async () => {
+    const view = renderHook(() => usePuppyCatalog(owner));
+    await act(async () => { await view.result.current.load(); });
+    api.getPuppyModelSelection.mockClear();
+    let release!: (value: { version: number }) => void;
+    api.getPuppyModelSelection.mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = view.result.current.applyGlobal("local/other", vi.fn());
+      void view.result.current.applyGlobal("local/default", vi.fn());
+    });
+    expect(api.getPuppyModelSelection).toHaveBeenCalledOnce();
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner-1");
+    await act(async () => { release({ version: 1 }); await pending; });
+    expect(api.setPuppyGlobalModel).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("does not publish a retired owner's final model refresh", async () => {
+    vi.useFakeTimers();
+    const view = renderHook(() => usePuppyCatalog(owner));
+    try {
+      await act(async () => { await view.result.current.load(); });
+      api.setPuppyGlobalModel.mockResolvedValueOnce({ id: "operation" });
+      api.getPuppyModelSelection.mockResolvedValue({ status: "applied", version: 2, id: "operation" });
+      let release!: (value: PuppyCatalog) => void;
+      api.getPuppyDirectModels.mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+      const applied = vi.fn();
+      let pending!: Promise<void>;
+      await act(async () => { pending = view.result.current.applyGlobal("local/other", applied); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(api.setPuppyGlobalModel).toHaveBeenCalledTimes(1);
+      publishValidatedAuthSessionOwner("owner-2");
+      await act(async () => {
+        release({ status: "available", defaultModel: "local/other", models: [{ id: "local/other" }], catalogVersion: "new", observedAt: null, receivedAt: null });
+        await pending;
+      });
+      expect(applied).not.toHaveBeenCalled();
+      view.rerender();
+      expect(view.result.current.catalog).toBeNull();
+    } finally { view.unmount(); vi.useRealTimers(); }
+  });
+
+  it("coalesces visible Puppy readiness with opening the model menu, without a model change", async () => {
+    let release!: (value: PuppyCatalog) => void;
+    api.getPuppyDirectModels.mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+    render(<PuppyRemoteModelPicker {...owner} chatModel={null} busy={false} hasTurns={false}
+      onChatModel={vi.fn()} onGlobalModel={vi.fn()} machineState="quiet" />);
+    expect(api.getPuppyDirectModels).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /^Choose Puppy model/ }));
+    expect(api.getPuppyDirectModels).toHaveBeenCalledTimes(1);
+    await act(async () => { release({ status: "available", defaultModel: "local/default", models: [{ id: "local/default" }], catalogVersion: "one", observedAt: null, receivedAt: null }); });
+    expect(await screen.findByRole("button", { name: /^local\/default/ })).toBeVisible();
+    expect(api.setPuppyGlobalModel).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])("retires the model portal on loss of ownership (confirmation: %s)", async confirmation => {
     const props = { hushhId: "owner-1", deviceId: "device-1", vaultOwnerToken: "owner-capability",
       chatModel: null, busy: false, hasTurns: false, onChatModel: vi.fn(), onGlobalModel: vi.fn() };
