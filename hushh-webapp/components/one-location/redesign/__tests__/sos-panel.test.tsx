@@ -13,45 +13,13 @@ import path from "node:path";
 
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { isSosShareReadyRecipient } from "@/lib/one-location/sos-trigger";
-import type { OneLocationRecipient } from "@/lib/one-location/types";
+import { baseProps, recipient } from "./sos-panel-fixtures";
 import { toast } from "sonner";
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() },
 }));
 const toastError = vi.mocked(toast.error);
-
-const recipient = (
-  overrides: Partial<OneLocationRecipient>,
-): OneLocationRecipient => ({
-  userId: "u1",
-  displayName: "Carol",
-  phoneVerified: true,
-  keyAlgorithm: "ECDH-P256-AES256-GCM",
-  canReceiveLocation: true,
-  ...overrides,
-});
-
-const baseProps = {
-  recipients: [recipient({ userId: "u1", displayName: "Carol" })],
-  active: false,
-  busy: false,
-  onTrigger: vi.fn(),
-  onStopSos: vi.fn(),
-  stopBusy: false,
-  onClose: vi.fn(),
-  onEditContacts: vi.fn(),
-  recipientLabel: (value: OneLocationRecipient) => value.displayName,
-  isRecipientShareReady: (value: OneLocationRecipient) =>
-    value.canReceiveLocation,
-  emergency: {
-    countryCode: "IN",
-    countryName: "India",
-    number: "112",
-  },
-  emergencyStatus: "resolved" as const,
-  onResolveEmergencyNumber: vi.fn(),
-};
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
@@ -386,7 +354,36 @@ describe("SosPanel", () => {
     expect(onTrigger).toHaveBeenCalledWith("Meet me by the north entrance.");
   });
 
-  it("starts a two-second countdown on Send tap, then sends without the circle", () => {
+  it.each(["sms", "composer"] as const)("shows hold progress only on the pressed %s control and clears it on release", (target) => {
+    render(<SosPanel {...baseProps} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
+      target: { value: "Help me" },
+    });
+    const control = target === "sms"
+      ? screen.getByRole("button", { name: /press and hold for two seconds/i })
+      : screen.getByTestId("sos-send-custom-message");
+    const activeRing = target === "sms" ? "sos-sms-progress" : "sos-send-progress";
+    const inactiveRing = target === "sms" ? "sos-send-progress" : "sos-sms-progress";
+
+    fireEvent.pointerDown(control, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(1_000));
+    const ring = screen.getByTestId(activeRing);
+    expect(Number(ring.getAttribute("stroke-dashoffset"))).toBeGreaterThan(40);
+    expect(Number(ring.getAttribute("stroke-dashoffset"))).toBeLessThan(60);
+    expect(screen.queryByTestId(inactiveRing)).toBeNull();
+    if (target === "composer") {
+      expect(within(control).getByTestId(activeRing)).toBeInTheDocument();
+      expect(screen.getByTestId("sos-status-label")).toHaveTextContent("Hold 2 seconds");
+    }
+    expect(baseProps.onTrigger).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(control, { pointerId: 1 });
+    expect(screen.queryByTestId(activeRing)).toBeNull();
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(baseProps.onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("shows a countdown on Send after a tap and sends once after two seconds", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
@@ -397,7 +394,10 @@ describe("SosPanel", () => {
     fireEvent.click(send);
     expect(send).toHaveTextContent("Cancel");
     expect(screen.getByText(/Sending in .* Tap Cancel/)).toBeInTheDocument();
-    act(() => vi.advanceTimersByTime(1_999));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(within(send).getByTestId("sos-send-progress")).toBeInTheDocument();
+    expect(screen.queryByTestId("sos-sms-progress")).toBeNull();
+    act(() => vi.advanceTimersByTime(999));
     expect(onTrigger).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
     expect(onTrigger).toHaveBeenCalledTimes(1);

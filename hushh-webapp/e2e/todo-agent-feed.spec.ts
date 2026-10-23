@@ -28,7 +28,7 @@ test.beforeAll(async () => {
       "useCalendarConnectionStatus",
     "lib/profile/gmail-connector-store.ts": "useGmailConnectorStatus",
     "lib/profile/gmail-receipts-cache.ts":
-      "getCachedGmailReceipts,cachedGmailReceiptDisplayItems",
+      "getCachedGmailReceipts,cachedGmailReceiptDisplayItems,clearCachedGmailReceipts",
     "lib/services/todo-capability-sources.ts": "readTodoCapabilities",
     "lib/services/todo-suggestion-service.ts":
       "todoSuggestionsAvailable,suggestTodoTasks",

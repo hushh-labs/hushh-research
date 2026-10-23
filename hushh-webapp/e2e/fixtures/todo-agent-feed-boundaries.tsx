@@ -89,6 +89,8 @@ export function getCachedGmailReceipts() {
 export function cachedGmailReceiptDisplayItems() {
   return [];
 }
+// This isolated fixture never contains Gmail receipts, so clearing is a no-op.
+export function clearCachedGmailReceipts() {}
 // Only the synthetic Feed task participates in this lifecycle fixture.
 export async function readTodoCapabilities() {
   return [];
