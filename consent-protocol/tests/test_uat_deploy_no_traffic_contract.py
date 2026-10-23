@@ -393,10 +393,9 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         < deploy_index
         < probe_index
     )
-    assert steps[probe_index]["waitFor"] == ["deploy-backend"]
+    assert set(steps[probe_index]["waitFor"]) == {"build-backend-image", "verify-runtime-iam"}
     probe = steps[probe_index]["args"][-1]
     assert "execution_name" in probe and "--set-secrets" in probe
-
     config_path = tmp_path / "consent-protocol/config/managed-ai-runtime.json"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
@@ -2330,6 +2329,7 @@ def test_required_provider_aggregate_cannot_be_allowed_to_fail():
     aggregate = steps["verify-managed-provider-readiness"]
     assert aggregate.get("allowFailure", False) is False
     assert set(aggregate["waitFor"]) == {
+        "deploy-backend",
         "verify-azure-pwm-runtime",
         "verify-managed-vertex-runtime",
     }
@@ -2340,7 +2340,7 @@ def test_required_provider_aggregate_cannot_be_allowed_to_fail():
             assert 'if [[ "${_DEPLOY_ENV}" == "uat" ]]; then exit 0; fi' in shell
             assert 'exit "${probe_status}"' in shell
         else:
-            assert steps[provider]["waitFor"] == ["deploy-backend"]
+            assert set(steps[provider]["waitFor"]) == {"build-backend-image", "verify-runtime-iam"}
             shell = steps[provider]["args"][-1]
         assert "trap finish_provider_probe EXIT" in shell
         assert shell.index("managed_provider_readiness.py record") < shell.index(
