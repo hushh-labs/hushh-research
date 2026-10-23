@@ -194,7 +194,7 @@ export default defineConfig({
         /style-settings\.layout\.spec\.ts/,
         /text-attachment-viewer\.layout\.spec\.ts/,
         /circle-chat\.layout\.spec\.ts/,
-        /direct-chat\.layout\.spec\.ts/,
+        /direct-chat(?:-selection)?\.layout\.spec\.ts/,
         /one-location-live-share\.layout\.spec\.ts/,
         /profile-sign-out\.spec\.ts/,
         /profile-confirmation-back\.spec\.ts/,

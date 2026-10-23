@@ -445,7 +445,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [loadingInbox, setLoadingInbox] = useState(false);
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
-  const [threadError, setThreadError] = useState<string | null>(null);
+  const [threadError, setThreadError] = useState<{ message: string; unavailable?: boolean } | null>(null);
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [unconfirmedDraft, setUnconfirmedDraft] = useState<string | null>(null);
@@ -960,7 +960,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           invalidateOperations(); setPresentedScope(null); setLoadingOlder(false);
           prependPosition.current = null; jumping.current = false; setJumpTarget(null);
           setThread(EMPTY_THREAD); setMessages([]); settleReadScope(null);
-          setThreadError("This conversation is not available right now.");
+          setThreadError({ message: "This conversation is not available right now.", unavailable: true });
           return;
         }
         // A short-lived refresh failure must not replace an already readable
@@ -970,11 +970,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           return;
         }
         const message = error instanceof Error ? error.message : "";
-        setThreadError(
-          /not found/i.test(message)
+        setThreadError({ message: /not found/i.test(message)
             ? "This connection is not available for messaging right now."
             : "Messages could not be loaded. Check your connection and try again.",
-        );
+        });
         settleReadScope(null);
       } finally {
         if (generation === loadGeneration.current) {
@@ -1220,7 +1219,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     return () => { cancelled = true; };
   }, [activeConversationId, loadingThread, messages, inboxItems, user, deliveryRevision, selectionGeneration]);
 
-  const selectedInboxItem = !threadError ? inboxItems.find((item) => requestedConversationId
+  const selectedInboxItem = !threadError?.unavailable ? inboxItems.find((item) => requestedConversationId
     ? item.id === requestedConversationId : requestedPersonRef && item.peerPersonRef === requestedPersonRef) : undefined;
   const selectedLabel = displayThread.peerDisplayName || displayThread.conversation?.peerDisplayName || selectedInboxItem?.peerDisplayName || "Conversation";
   const peerPhotoUrl = displayThread.peerPhotoUrl || selectedInboxItem?.peerPhotoUrl || null;
@@ -1264,6 +1263,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     : inboxItems;
 
   const openConversation = (conversation: DirectMessageConversation) => {
+    // Reopening the active route can be a router no-op. Refresh its exact
+    // selection instead, preserving the last transcript until history settles.
+    if (requestedConversationId === conversation.id ||
+        (requestedPersonRef && requestedPersonRef === conversation.peerPersonRef)) {
+      void loadThread({ preserveMessages: isCurrentRead });
+      return;
+    }
     void navigateDirectMessage(router, { conversationId: conversation.id });
   };
 
@@ -1944,7 +1950,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               >
                 {threadError && !thread.disconnectedNotice ? (
                   <div className={styles.threadError} role="alert">
-                    <p>{threadError}</p>
+                    <p>{threadError.message}</p>
                     <Button
                       type="button"
                       variant="none"
@@ -1953,6 +1959,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     >
                       Try again
                     </Button>
+                  </div>
+                ) : null}
+                {pendingSelection && displayMessages.length === 0 && !threadError ? (
+                  <div className={styles.emptyThread} role="status">
+                    <p>Loading messages…</p>
                   </div>
                 ) : null}
                 {thread.nextBefore ? (
