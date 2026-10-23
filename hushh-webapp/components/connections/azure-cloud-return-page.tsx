@@ -25,6 +25,8 @@ import {
   useAzureSignIn,
 } from "@/lib/one/azure-sign-in";
 import { ApiService } from "@/lib/services/api-service";
+import { announceAzureCleanupReturn } from "@/lib/one/azure-cleanup-return";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import type {
   AzureAuthorizeCompletion,
@@ -45,7 +47,7 @@ import type {
  */
 
 type ReturnView =
-  | { kind: "cleanup"; operationId: string; review: boolean }
+  | { kind: "cleanup"; operationId: string; review: boolean; keepAccount: boolean }
   | { kind: "completing" }
   | { kind: "continuing"; authorizationUrl: string }
   | { kind: "redirecting" }
@@ -94,7 +96,7 @@ function returnLinkProblem(input: {
 
 function viewForCompletion(result: AzureAuthorizeCompletion): ReturnView {
   if (result.status === "cleanup_pending" || result.status === "cleanup_review_required") return {
-    kind: "cleanup", operationId: result.operationId, review: result.status === "cleanup_review_required",
+    kind: "cleanup", operationId: result.operationId, review: result.status === "cleanup_review_required", keepAccount: result.cleanupPurpose === "remove_cloud",
   };
   if (result.status === "continue") return { kind: "continuing", authorizationUrl: result.authorizationUrl };
   if (result.status === "setup_started") return { kind: "redirecting" };
@@ -244,11 +246,29 @@ function useReturnHandBack(view: ReturnView) {
   return { handedOff, keptHere, upgradeJobId };
 }
 
+function useCleanupHandBack(view: ReturnView) {
+  const { user } = useAuth();
+  const operationId = view.kind === "cleanup" ? view.operationId : null;
+  const phase = view.kind === "cleanup" && view.review ? "inspect" : "execute";
+  const userId = user?.uid;
+  useEffect(() => {
+    if (!operationId || !userId || !isSignInPopup()) return;
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (!owner || owner.userId !== userId) return;
+    const lifetime = new AbortController();
+    void announceAzureCleanupReturn({ ownerId: userId, operationId, phase }, lifetime.signal).then((acked) => {
+      if (acked && !lifetime.signal.aborted && isValidatedAuthSessionOwnerCurrent(owner)) window.close();
+    });
+    return () => lifetime.abort();
+  }, [operationId, phase, userId]);
+}
+
 export function AzureCloudReturnPage() {
   const router = useRouter();
   const search = useSearchParams();
   const cleanup = isCleanupReturn(search.get("state"));
   const view = useAzureCompletion();
+  useCleanupHandBack(view);
   // This page may itself be the sign-in popup: every restart stays in this window.
   const signIn = useAzureSignIn({ inPlace: true });
   const { start } = signIn;
@@ -279,8 +299,8 @@ export function AzureCloudReturnPage() {
       <AppPageContentRegion className="space-y-6">
         {shown.kind === "cleanup" ? (
           <div className="space-y-3" data-testid="azure-cleanup-return">
-            <p className="text-sm text-muted-foreground">{shown.review ? "Your cloud cleanup plan is ready to review." : "Your cleanup request was received. Follow its verified progress in Account settings."} Your account remains until you finish deletion.</p>
-            <Link className="inline-flex min-h-11 items-center underline underline-offset-4" href={ROUTES.PROFILE_ACCOUNT}>Return to Account settings</Link>
+            <p className="text-sm text-muted-foreground">{shown.review ? "Your cloud cleanup plan is ready to review." : "Your cleanup request was received. Check its verified progress."} {shown.keepAccount ? "Your Hussh account stays." : "Your account remains until you finish deletion."}</p>
+            <Link className="inline-flex min-h-11 items-center underline underline-offset-4" href={shown.keepAccount ? ROUTES.PROFILE_HOSTING : ROUTES.PROFILE_ACCOUNT}>{shown.keepAccount ? "Return to Hosting" : "Return to Account settings"}</Link>
           </div>
         ) : shown.kind === "handed_off" ? (
           <p className="text-sm text-muted-foreground" data-testid="azure-return-handed-off">

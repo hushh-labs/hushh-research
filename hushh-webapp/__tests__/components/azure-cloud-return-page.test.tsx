@@ -48,6 +48,8 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 
 import { AzureCloudReturnPage } from "@/components/connections/azure-cloud-return-page";
 import { AZURE_SIGN_IN_CHANNEL } from "@/lib/one/azure-sign-in";
+import { listenForAzureCleanupReturn } from "@/lib/one/azure-cleanup-return";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import {
   ROUTES,
   isOneSetupNavigationRoute,
@@ -347,7 +349,22 @@ describe("the Microsoft sign-in return", () => {
 describe("account cleanup return", () => {
   beforeEach(() => {
     vi.clearAllMocks(); mocks.user.value = { uid: "owner" }; mocks.search.value = "code=c0de&state=st4te";
+    publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner");
   });
+it("closes only an acknowledged cleanup popup without focusing or provisioning", async () => {
+  complete.mockResolvedValue({ status: "cleanup_review_required", operationId: "attempt-1" });
+  const opener = { focus: vi.fn() }; vi.stubGlobal("opener", opener);
+  const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+  const refresh = vi.fn();
+  const stop = listenForAzureCleanupReturn({ ownerId: "owner", operationId: "attempt-1", phase: "inspect" }, () => true, refresh);
+  try {
+    const { unmount } = render(<AzureCloudReturnPage />);
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    expect(refresh).toHaveBeenCalledTimes(1); expect(opener.focus).not.toHaveBeenCalled();
+    expect(ApiService.beginAzureByocAuthorize).not.toHaveBeenCalled();
+    unmount();
+  } finally { stop(); vi.unstubAllGlobals(); close.mockRestore(); }
+});
 it.each(["cleanup_pending", "cleanup_review_required"] as const)("keeps %s in account cleanup, never provisioning", async (status) => {
   complete.mockResolvedValue({ status, operationId: "attempt-1" });
   render(<AzureCloudReturnPage />);

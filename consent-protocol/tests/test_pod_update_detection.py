@@ -459,6 +459,13 @@ def test_deferred_settings_installation_requires_compatibility_and_no_lease(leas
     installed = digest if supported else "sha256:" + "c" * 64
     result = _update_offer(metadata, "rel_next", release, installed)
     assert result["updateOfferable"] is (lease is None and supported)
+    assert result.get("updateBlockedReason") == (
+        "UPDATE_IN_PROGRESS"
+        if lease is not None
+        else "PREDECESSOR_NOT_QUALIFIED"
+        if not supported
+        else None
+    )
     metadata["upgradeDeferral"] = {
         "releaseId": "rel_next",
         "remindAt": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(),

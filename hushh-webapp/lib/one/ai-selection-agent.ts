@@ -9,6 +9,7 @@
 import { readUpdateStatus } from "@/lib/feed/agent-update-status";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
+import { ownerCloudProvider } from "./owner-cloud";
 import type {
   AiSelectionPlaintext,
   AiSelectionProvider,
@@ -286,9 +287,15 @@ export async function verifyAgentCloudAi(): Promise<AiSelectionOutcome> {
   const status = await readAgentStatus();
   if (!isValidatedAuthSessionOwnerCurrent(owner))
     return { ok: false, code: "AGENT_UNREACHABLE" };
-  if (advertisedAiProviders(status) === null || status?.aiSelection?.defaultVerification !== true)
-    return { ok: false, code: "PROVIDER_UNSUPPORTED" };
-  const expectedProvider = status?.deploymentTarget === "user_azure" ? "azure_openai" : "gemini";
+  const provider = ownerCloudProvider(status?.deploymentTarget);
+  const knownPlacement = (status?.hostingMode === "byoc" && provider !== null) ||
+    (status?.hostingMode === "hussh_pods" && status.deploymentTarget === "gcp");
+  if (!status || !knownPlacement || status.state !== "active")
+    return { ok: false, code: "AGENT_UNREACHABLE" };
+  // A missing heartbeat advert is unread evidence, not a refusal by the pod.
+  // The explicit owner action uses its admitted configuration door; old images
+  // still refuse with 404/405 and provider/owner/incarnation checks remain intact.
+  const expectedProvider = provider === "azure" ? "azure_openai" : "gemini";
   try {
     const response = await ApiService.ownerPodRequest("ai-selection", { method: "PATCH" }, false, undefined, undefined, () => isValidatedAuthSessionOwnerCurrent(owner));
     const body = await response.json().catch(() => null);

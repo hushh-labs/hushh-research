@@ -38,14 +38,91 @@ dialog; a one-shot hosting observation can leave every AI choice disabled.
 The correction also covers abandoned AI edits, locked saved-key recovery and deletion notices through the real API/authentication path. Local core and exact-head CI passed. The deployed normal-owner rehearsal reached home without a setup loop; optional preferences remained clear of the fixed Finish control at 1464 × 929, with zero horizontal overflow. The inherited diagram-import and Mail-test failures were repaired without excluding checks. Known erased UIDs
 remain fenced; the shared Firebase deletion boundary cannot be bypassed.
 
-GitHub still reports nine dependency alerts and no secret alerts after merge; its
-dependency graph already contains the seven patched versions. Alert closure is
-pending provider refresh, not a manual dismissal. Source patches cover
+The earlier nine-alert inventory is superseded by the refreshed two-alert
+inventory above. Seven source-patched alerts are now closed by GitHub; none was
+manually dismissed. Source patches cover
 Next.js, DOMPurify (including the actual Mermaid bundle) and Nodemailer. ADK's
 supported OTEL cap excludes the patched release: ignore incoming vendor
 `tracestate` through the public propagator boundary, preserving traceparent
 and outbound context. This is an application mitigation, not an upstream alert
 closure. The dev-only unpatched `braces` tooling advisory remains tracked.
+
+## Hosting management follow-up — 23 October, 05:05 PDT
+
+Local core passed on `683639975a` in **13m01s**: 23,204 parallel backend cases
+and 1,285 serial cases passed, with 636 recorded skips. Frontend typecheck, lint,
+production build, security, governance, MCP and integration passed. Main then
+advanced with frontend-only SMS changes; those changes are integrated normally
+through `6a5960c7e1`. Combined UI contracts, 75 affected UI cases and the changed
+frontend core stage pass on `67b5b640b7`; unchanged backend proof is retained.
+[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) remains in
+validation. Initial hosted preflight refused combined-source UI drift and a
+missing required PR impact declaration; neither result is deployment acceptance.
+The declaration is now validated with its actual parser. No new deployment,
+personal-cloud deletion or owner installation has occurred for this follow-up.
+
+
+The current local correction preserves Hosting return intent for shell, native
+Back and Finish. Direct completed-owner entries are canonicalized using the
+existing owner-scoped setup completion predicate; first-run setup remains intact.
+Finish is visible only after hosting and AI readiness. Cleanup shows the current
+stage, verified counts and recoverable attention without an invented deadline.
+Azure's verified model/deployment is retained in the AI card.
+
+Live read-only evidence at 04:56 PDT: dev backend serves `79a03e84c2` at revision
+`00205-svf`, 100%; UAT remains `989afe4336` at `02478-fed`, 100%. The named Azure
+pod runs the same Dev28 digest currently offered by dev; there is no newer offer
+or active upgrade lease. Its heartbeat capability observation is empty despite
+Dev28 source supporting default verification. The local client now asks the
+admitted pod on the explicit cloud-default action rather than treating a missing
+advertisement as proof of incompatibility. Typed refusals and current owner,
+known placement, provider, incarnation and configuration authority remain required.
+Standalone cloud removal still lacks live migration972 and owner acceptance.
+The account deletion incident has no captured typed error yet; empty bounded
+error-log searches do not prove deletion succeeded or that no attempt occurred.
+
+Focused evidence: 114 UI cases and 121 backend cases pass; the cloud-default
+regression suite passes 50 cases and fails against the original advertisement
+guard. Architecture reports no new/worsened findings. These are local results;
+final core, exact hosted CI, deployment and installed acceptance remain required.
+
+## Latest stabilization and cloud removal — 23 October, 11:10 UTC
+
+[PR8377](https://github.com/hushh-labs/hushh-research/pull/8377) landed as
+`49975547b6`. One frozen-candidate core mirror completed in 19m41s; all 26 hosted
+PR checks and exact landed smoke passed. [Dev39928813587](https://github.com/hushh-labs/hushh-research/actions/runs/39928813587)
+completed successfully. Verified ADC readback at 09:26 UTC: backend
+`consent-protocol-00203-w5s` and frontend `hushh-webapp-00171-wsr`, both 100% at that
+SHA. UAT’s latest successful run remains `39920618646` at `989afe4336`; it has not
+received the subsequent local repair.
+
+A real background Chrome owner reached the verified Azure AI selection with
+Finish enabled, then stalled at the setup shell. The existing one-attempt,
+owner-fenced streamed-shell recovery omitted setup routes; both routes are now
+included locally. Tests cover them; installed verification waits for the next
+candidate. Do not generalize earlier successful home navigation to this newer
+failed journey.
+
+GitHub’s refreshed dependency inventory now has **two open OpenTelemetry alerts**
+(498,487); the seven patched alerts are closed. The ADK-supported version cap
+still excludes the fixed release. Incoming-tracestate mitigation remains
+qualified application protection, not upstream remediation. Secret and code
+scanning were clear at the prior verified read.
+
+The new **Remove cloud, keep account** flow and read-only Hosting inspection are
+local follow-up source. They reuse exact owner/resource erasure authority, retain
+uncertain cleanup, preserve previous homes and fence stale replacement callbacks.
+Dev-only migration972 is not deployed. Neither provider’s standalone cloud
+removal has live owner acceptance. The [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account)
+owns its authority, recovery and unavailable boundaries.
+
+Fresh main through `2f57085b09` is integrated locally, preserving its threaded
+account erasure, PostgreSQL lock/statement limits and Drive cleanup changes.
+Combined cleanup verification passes 87 cases, including real PostgreSQL cloud
+removal and blocked-erasure rollback. The first broader run exposed two legacy
+fixture failures: ordinary never-provisioned accounts now avoid the cloud-history
+receipt lookup, and the absent-table receipt expectation includes the new ledger.
+The corrected combined candidate still requires its final core and hosted checks.
 
 ## Visual Context
 

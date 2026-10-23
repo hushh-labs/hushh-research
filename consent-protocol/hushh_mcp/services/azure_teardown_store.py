@@ -32,7 +32,31 @@ class AzureTeardownStore:
         )
         if not isinstance(value, dict):
             raise AzureTeardownRefused("AZURE_CLEANUP_AUTHORIZATION_UNAVAILABLE")
+        if purpose == "execute":
+            await self.require_cloud_purpose(owner, value.get("context", {}).get("attemptId", ""))
         return value
+
+    async def require_cloud_purpose(self, owner: str, attempt: str) -> None:
+        """Optional cloud-only admission also fences legacy callback/worker entrypoints."""
+        installed = await self._value(
+            "SELECT to_regclass('public.personal_agent_cloud_removals') IS NOT NULL AS value",
+            {},
+        )
+        if installed is not True:
+            return
+        available = await self._value(
+            "SELECT to_regprocedure('public.azure_cleanup_cloud_purpose_authorized(text,text)') IS NOT NULL AS value",
+            {},
+        )
+        if (
+            available is not True
+            or await self._value(
+                "SELECT public.azure_cleanup_cloud_purpose_authorized(:owner,:attempt) AS value",
+                {"owner": owner, "attempt": attempt},
+            )
+            is not True
+        ):
+            raise AzureTeardownRefused("CLOUD_REMOVAL_APPROVAL_CHANGED")
 
     async def require_completion_contract(self) -> None:
         exists = await self._value(
@@ -214,6 +238,11 @@ class AzureTeardownStore:
             "termsVersion": state.get("plan", {}).get("termsVersion"),
             "canFinalize": complete is True,
             "workerOutcome": exited.get("outcome"),
+            "inProgress": complete is not True
+            and (
+                (bool(worker) and not bool(exited))
+                or bool(latest and latest.get("status") == "running")
+            ),
             "approvalRequired": complete is not True and not isinstance(authorized, dict),
             "authorizationOutcome": latest,
             "retention": [

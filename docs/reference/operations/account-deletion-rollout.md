@@ -104,6 +104,50 @@ for governed rehearsal, together with 963’s complete archive projection.
 Destructive admission remains unavailable until both contracts are installed;
 selection does not establish disposable live acceptance. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
 
+## Remove cloud while keeping the account
+
+The local follow-up adds **Remove cloud** to onboarding’s account menu and Hosting.
+Discovery is read-only; the action is offered only when the installed schema
+supports it. It opens a distinct **Remove cloud, keep account?** review. It does
+not invoke account deletion. Vault unlock, exact resource/retention terms and
+provider authority remain required. Opening the menu starts no inspection or
+mutation. Native clients currently direct this operation to the website.
+
+Dev-only migration972 binds this purpose to the existing erasure attempt and
+resource journal. Azure execution rechecks that separate approval before OAuth
+redemption and every worker admission. GCP reuses the recorded direct resource
+erasure backend; it does not borrow Azure’s access-only capability. Approval
+expires after ten minutes; a reviewed retry resumes the same retained operation.
+Progress reads stop while hidden, on terminal/attention states, at their bounded
+deadline and on closing. A running worker offers status refresh, not another
+execution. Unknown progress is not rendered as verified resource counts.
+
+Finalization requires qualified absence/retention evidence and reconciled setup
+history. It atomically archives that proof, clears live cloud coordinates and
+keys, advances the placement epoch, and retains the stable Hussh identity and
+prior-home snapshots. The account, Firebase identity, vault and PKM stay. The
+person chooses hosting again; Shared is never silently selected. A lost final
+response is recoverable only while that exact released identity remains current.
+An old response cannot remove or relabel a replacement pod. Unresolved historical
+resources block completion; pending saves or provider timeouts do not release
+custody. Eventual full account deletion removes this operation through its
+existing independent transaction.
+
+**Check hosting** observes only recorded owner resources through cloud control
+APIs, without waking the pod. Confirmed absence, unreadable resources, a changed
+incarnation and a running cleanup are distinct outcomes. Existing **Link existing
+pod**, **Reconnect** and owner-approved Azure rebuild retain their own authority.
+Reconnect repairs transport; it cannot recreate missing compute. Earlier cloud
+homes remain visible when their cleanup cannot be proven. There is no
+subscription-wide automatic reaper, label-only adoption or unattended deletion
+of discovered resources.
+
+This follow-up is locally verified source, not installed-cloud acceptance.
+Migration972 remains dev-only; UAT/production do not acquire deletion authority
+from a frontend deployment. Governed dev rehearsal must verify the exact schema,
+owner review, cancellation/retry and resulting provider absence before availability
+is claimed.
+
 ## GCP runtime quota grants
 
 Dev-only migration 964 extends the existing runtime-grant erasure journal with a

@@ -143,7 +143,7 @@ def verify_source(read: Read, repository: str, expected: Document) -> Document:
         != expected["attempt"]
         or source.get("head_sha") != expected["head_sha"]
         or source.get("event") not in {"pull_request", "workflow_dispatch"}
-        or source.get("status") not in {"queued", "in_progress", "completed"}
+        or source.get("status") not in {"pending", "queued", "in_progress", "completed"}
     ):
         raise Refused("Source repository, workflow, run, attempt or SHA mismatch")
     # Fork code is never read or executed: the canonical base repository owns CI.

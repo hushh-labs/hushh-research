@@ -553,17 +553,12 @@ def test_personal_agent_cleanup_erases_only_demonstrably_unprovisioned_state(mon
         results=results,
     )
 
-    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
-    lifecycle_delete_index = next(
-        index for index, sql in enumerate(executed_sql) if "DELETE FROM pod_lifecycle_events" in sql
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert executed_sql.index("DELETE FROM pod_lifecycle_events") < executed_sql.index(
+        "DELETE FROM personal_agent_registry"
     )
-    registry_delete_index = next(
-        index
-        for index, sql in enumerate(executed_sql)
-        if "DELETE FROM personal_agent_registry" in sql
-    )
-    assert lifecycle_delete_index < registry_delete_index
-    assert not any("personal_agent_deletion_tombstones" in sql for sql in executed_sql)
+    assert "personal_agent_deletion_tombstones" not in executed_sql
+    assert "personal_agent_cloud_removed" not in executed_sql
     assert all(results.values())
 
 
@@ -614,6 +609,7 @@ def test_personal_agent_cleanup_is_a_noop_when_live_drift_tables_are_absent(monk
         "byoc_setup_jobs": True,
         "pod_lifecycle_events": True,
         "personal_agent_registry": True,
+        "personal_agent_cloud_removals": True,
         "pod_migration_jobs": True,
         "personal_agent_external_resources_absent": True,
     }

@@ -1,3 +1,4 @@
+import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 /** Server-observed software update status. Missing evidence stays unknown. */
 export type AgentUpdateStatus = {
   available: boolean | null;
@@ -114,4 +115,44 @@ export function readUpdateStatus(
       : null,
     verified: res?.updateVerified === true,
   };
+}
+
+
+// Older hubs expose only offerability; an explicit refusal always wins.
+export function canInstallUpdate(
+  status: PersonalAgentStatus | null,
+) {
+  return (status?.updateInstallable ?? status?.updateOfferable) === true;
+}
+
+export function updateCheckMessage(
+  status: PersonalAgentStatus,
+) {
+  if (status.hostingMode === "shared")
+    return "Hussh Shared updates automatically.";
+  if (status.hostingMode === "pending")
+    return "Updates become available after setup finishes.";
+  if ((status.hostingMode as string) === "unplaced")
+    return "Choose where your agent runs first.";
+  if (status.updateFailed)
+    return "Update needs attention. Its outcome has not been verified.";
+  const activity = updateActivityLabel(readUpdateStatus(status));
+  if (activity) return `${activity}.`;
+  if (canInstallUpdate(status) && status.availableRelease) {
+    return `${releaseLabel(status.availableRelease.version, status.availableRelease.releasedAt)} is ready to install.`;
+  }
+  if (status.updateAvailable && status.updateBlockedReason) {
+    const reasons = {
+      UPDATE_IN_PROGRESS: "An update is already running. Follow its progress here.",
+      RELEASE_UNVERIFIED: "The new release is still being verified. Your current agent is kept.",
+      INSTALLED_RELEASE_UNVERIFIED: "Check hosting to verify your installed version before updating.",
+      PREDECESSOR_NOT_QUALIFIED: "This version needs a verified upgrade path. Your current agent is kept; retrying will not change compatibility.",
+    };
+    if (reasons[status.updateBlockedReason]) return reasons[status.updateBlockedReason];
+  }
+  if (status.updateAvailable)
+    return "An update is available, but this pod is not ready to install it.";
+  if (status.installedReleaseVerified)
+    return "Your private agent is up to date.";
+  return "Update status checked. The running version is not yet verified.";
 }
