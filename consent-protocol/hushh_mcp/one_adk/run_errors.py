@@ -57,6 +57,8 @@ _WRAPPED_PROVIDER_STATUS = re.compile(
     r"(RESOURCE_EXHAUSTED|UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED|BAD_GATEWAY|GATEWAY_TIMEOUT)\b"
 )
 _UNAVAILABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
+# The OpenAI SDK's fixed status prefix. Never inspect or retain its response body.
+_OPENAI_STATUS = re.compile(r"^Error code: (429|500|502|503|504) - ")
 
 
 def is_authored_run_error(event: BaseEvent) -> bool:
@@ -77,7 +79,11 @@ def _for_status(code: int | None) -> RunErrorEvent | None:
 
 def _provider_status(message: object) -> int | None:
     text = str(message or "")[:1024]
-    match = _PROVIDER_STATUS.search(text) or _WRAPPED_PROVIDER_STATUS.search(text)
+    match = (
+        _PROVIDER_STATUS.search(text)
+        or _WRAPPED_PROVIDER_STATUS.search(text)
+        or _OPENAI_STATUS.match(text)
+    )
     return int(match.group(1)) if match else None
 
 
@@ -112,6 +118,14 @@ def transient_model_error_for_exception(error: BaseException) -> RunErrorEvent |
     if not isinstance(error, Exception):
         return None
     for leaf in _leaf_exceptions(error):
+        from openai import APIConnectionError, APIStatusError, APITimeoutError
+
+        if isinstance(leaf, (APIConnectionError, APITimeoutError)):
+            return MODEL_UNAVAILABLE_RUN_ERROR
+        if isinstance(leaf, APIStatusError):
+            mapped = _for_status(leaf.status_code)
+            if mapped is not None:
+                return mapped
         if isinstance(leaf, Exception) and is_retryable_vertex_error(leaf):
             code = getattr(leaf, "code", None)
             return (

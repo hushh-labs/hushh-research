@@ -1536,9 +1536,7 @@ The old PUT remains a historical personal receipt operation; it cannot choose th
 managed UAT processor. Updated clients expose read-only processing information.
 
 All UAT users use the administrator managed-text policy for One text chat
-and semantic document requests. Candidate readiness prefers Azure and selects
-Vertex when only Vertex passes; either or both complete application bundles
-satisfy provider admission. Partial text-only readiness does not certify Voice,
+and semantic document requests. One text chat requires Azure and never falls back to Gemini. Candidate readiness requires the complete Azure application bundle; Vertex Drive-only evidence cannot authorize One. Drive retains its separately bounded alternate transport. Partial text-only readiness does not certify Voice,
 media or other capabilities. `/api/one/models/preference` projects the
 central deployment as effective, with `source:administrator_policy`; old saved
 choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.

@@ -147,13 +147,7 @@ def from_entries(entries, expected, document, step_label):
         and all(type(providers[p].get("ready")) is bool for p in providers),
         "provider_flags_invalid",
     )
-    preferred = (
-        "azure_openai"
-        if providers["azure_openai"]["ready"]
-        else "vertex"
-        if providers["vertex"]["ready"]
-        else None
-    )
+    preferred = "azure_openai" if providers["azure_openai"]["ready"] else None
     require(
         preferred is not None
         and aggregate.get("ready") is True

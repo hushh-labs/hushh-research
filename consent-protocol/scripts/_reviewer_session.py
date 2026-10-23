@@ -19,9 +19,13 @@ status codes rather than response bodies so a failure cannot echo a credential.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -213,3 +217,100 @@ def authenticate_reviewer(
         vault_owner_token=vault_owner_token,
         passphrase=resolved.passphrase,
     )
+
+
+def derive_reviewer_chat_key(
+    backend_url: str, reviewer: ReviewerSession, *, http: requests.Session
+) -> str:
+    """Unlock the existing vault and derive its chat header in process memory."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+    if not reviewer.passphrase:
+        raise RuntimeError("Reviewer vault passphrase is required for chat")
+    response = http.post(
+        backend_url.rstrip("/") + "/db/vault/get",
+        headers={"Authorization": "Bearer " + reviewer.firebase_id_token},
+        json={"userId": reviewer.user_id},
+        timeout=DEFAULT_TIMEOUT,
+    )
+    if response.status_code != 200:
+        response.close()
+        raise RuntimeError(f"Reviewer vault read failed: HTTP {response.status_code}")
+    try:
+        payload = response.json()
+        wrapper = next(
+            (w for w in payload.get("wrappers", []) if w.get("method") == "passphrase"),
+            None,
+        )
+        if wrapper is None:
+            raise RuntimeError("Reviewer vault has no passphrase wrapper")
+
+        def decode(value: str) -> bytes:
+            return base64.b64decode(value, validate=True)
+
+        key = PBKDF2HMAC(
+            algorithm=hashes.SHA256(), length=32, salt=decode(wrapper["salt"]), iterations=100000
+        ).derive(reviewer.passphrase.encode("utf-8"))
+        vault_key = AESGCM(key).decrypt(
+            decode(wrapper["iv"]), decode(wrapper["encryptedVaultKey"]), None
+        )
+        if len(vault_key) != 32:
+            raise RuntimeError("Reviewer vault key has invalid bounds")
+        expected_hash = payload.get("vaultKeyHash")
+        if expected_hash and not any(
+            hmac.compare_digest(expected_hash, digest)
+            for digest in (
+                hashlib.sha256(vault_key).hexdigest(),
+                hashlib.sha256(vault_key.hex().encode("utf-8")).hexdigest(),
+            )
+        ):
+            raise RuntimeError("Reviewer vault key integrity verification failed")
+        chat_key = HKDF(
+            algorithm=hashes.SHA256(), length=32, salt=b"", info=b"hussh-one-chat-v1"
+        ).derive(vault_key)
+        return "hck1." + chat_key.hex()
+    except (KeyError, ValueError, TypeError):
+        raise RuntimeError("Reviewer vault wrapper is invalid") from None
+    finally:
+        response.close()
+
+
+REDACTED = "[redacted]"
+
+
+class Printer:
+    """Prints lines after replacing every known secret value.
+
+    Belt and braces: the driver already prints only ids and milliseconds, but
+    a scrubbed writer means a future format string cannot leak a bearer.
+    """
+
+    def __init__(self, secret_values: Iterable[str]) -> None:
+        self._secrets = sorted(
+            {s for s in secret_values if s and len(s) >= 4}, key=len, reverse=True
+        )
+
+    def add(self, *values: str) -> None:
+        self._secrets = sorted(
+            {*self._secrets, *(v for v in values if v and len(v) >= 4)}, key=len, reverse=True
+        )
+
+    def scrub(self, text: str) -> str:
+        for secret in self._secrets:
+            text = text.replace(secret, REDACTED)
+        return text
+
+    def __call__(self, text: str) -> None:
+        print(self.scrub(text))
+
+
+def secret_values_of(config: ReviewerConfig) -> list[str]:
+    values = [config.user_id, config.passphrase, config.firebase_api_key]
+    for key in ("private_key", "client_email", "private_key_id", "client_id"):
+        value = config.firebase_service_account.get(key)
+        if isinstance(value, str):
+            values.append(value)
+    return [v for v in values if v]
