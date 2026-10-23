@@ -6,7 +6,10 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import pytest
+
 from hushh_mcp.services.drive_groups.contract import FLAG
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_groups import basis, tiny_bundle
 
 VERSION = "0123456789ab"
@@ -95,7 +98,10 @@ async def test_worker_reads_a_full_content_batch_before_media_can_starve_it(monk
     assert [len(call.args[0]) for call in embedder.embed.await_args_list] == [100]
 
 
-async def test_deadline_defers_slow_content_but_commits_completed_metadata(monkeypatch):
+@pytest.mark.parametrize("include_metadata", [True, False])
+async def test_deadline_defers_slow_content_but_commits_completed_metadata(
+    monkeypatch, include_metadata
+):
     from hushh_mcp.services import drive_group_index_job as module
 
     monkeypatch.setenv(FLAG, "true")
@@ -119,9 +125,10 @@ async def test_deadline_defers_slow_content_but_commits_completed_metadata(monke
         bundle=tiny_bundle(),
         embedder=SimpleNamespace(embed=AsyncMock()),
     )
-    job._listing = AsyncMock(
-        return_value=([row, {**row, "id": "metadata-file", "mimeType": "image/png"}], True, False)
-    )
+    listing = [row]
+    if include_metadata:
+        listing.append({**row, "id": "metadata-file", "mimeType": "image/png"})
+    job._listing = AsyncMock(return_value=(listing, True, False))
     stopped = asyncio.Event()
 
     async def slow(self, row):
@@ -131,9 +138,16 @@ async def test_deadline_defers_slow_content_but_commits_completed_metadata(monke
             stopped.set()
 
     monkeypatch.setattr(module.TransportHeadSource, "head", slow)
-    entries, progress = await job._prepare(
+    work = job._prepare(
         {"user_id": "owner", "time_zone": "UTC"}, asyncio.get_running_loop().time() + 0.05
     )
-    assert [entry.file_id for entry in entries] == ["metadata-file"]
-    assert progress["more"] is True and stopped.is_set()
+    if include_metadata:
+        entries, progress = await work
+        assert [entry.file_id for entry in entries] == ["metadata-file"]
+        assert progress["more"] is True
+    else:
+        # No-progress content timeouts must not look like successful empty commits.
+        with pytest.raises(DriveReadError, match="processing_timeout"):
+            await work
+    assert stopped.is_set()
     job.embedder.embed.assert_not_awaited()

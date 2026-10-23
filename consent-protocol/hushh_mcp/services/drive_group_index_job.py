@@ -173,6 +173,13 @@ class DriveGroupIndexJob:
             listing=self.list_files,
             require_current=lambda: self.store.require_current(job),
         )
+        logger.info(
+            "drive_group_index.inventory mode=%s listed=%d complete=%d limited=%d",
+            inventory.mode,
+            len(inventory.rows),
+            inventory.complete,
+            inventory.limited,
+        )
         return inventory.rows, inventory.complete, inventory.limited
 
     async def _prepare(self, job, deadline):
