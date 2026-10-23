@@ -1,8 +1,8 @@
 # Private-pod readiness: CTO decision memo
 
-## Decision — 2026-10-22 UTC
+## Decision — 2026-10-23 UTC
 
-**Main integration is complete; onboarding/security correction is local and blocks its dev → UAT promotion.**
+**Main integration is complete; [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) awaits corrected exact-head CI and dev acceptance before UAT.**
 [PR8337](https://github.com/hushh-labs/hushh-research/pull/8337) landed as
 `0ea0f8fce3` after all 26 exact-head checks and landed smoke passed. The preserved
 infrastructure branch reconciles subsequent main through `bd0c44c79a`, preserving its Drive and Finance changes. Earlier
@@ -27,10 +27,10 @@ The 30-second cold target is an optimization goal. Economy hosting stays selecte
 Reported setup failures affect general cohorts, not a single owner: fixed-footer
 email preferences obscure controls; private AI setup cannot display its vault
 dialog; a one-shot hosting observation can leave every AI choice disabled.
-Local fixes also cover abandoned AI edits, locked saved-key recovery and deletion notices through the real API/authentication path. Candidate-wide validation and live acceptance remain pending. Known erased UIDs
+The correction also covers abandoned AI edits, locked saved-key recovery and deletion notices through the real API/authentication path. Local core stages passed; hosted validation found an import-time diagram-export defect, repaired through lazy initialization. Corrected exact-head CI and live acceptance remain pending. Known erased UIDs
 remain fenced; the shared Firebase deletion boundary cannot be bypassed.
 
-GitHub currently reports nine dependency alerts and no secret alerts. Patch
+GitHub's pre-merge inventory reports nine dependency alerts and no secret alerts. Source patches cover
 Next.js, DOMPurify (including the actual Mermaid bundle) and Nodemailer. ADK's
 supported OTEL cap excludes the patched release: ignore incoming vendor
 `tracestate` through the public propagator boundary, preserving traceparent
@@ -114,20 +114,27 @@ installation remain separate; Azure has completed its approval, while GCP has no
 | GCP configuration / inventory | Revision `00019-p6z`, unchanged predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8, min 0 / max 1 | Guarded inventory reconciliation committed locally as `02a7aec016` and applied. Storage protection enforced; all 39 objects preserved. Authenticated domain repair recovered identical keys, permits both exact dev domains and refuses unrelated origins; temporary job absence verified |
 | Browser component evidence | GCP Gemini 3.8: 20.366 s / three rounds; Azure actual `one-chat` GPT-5.6 Luna: 16.823 s / five rounds | Real frames, native continuations, 390 × 844 resize, login-observation fencing and joined Stop. Component takeover followed model completion. These are not installed-owner, cold or full-pod capacity results |
 
-### Current local implementation
+### Correction evidence
 
 The correction preserves nine unrelated peer edits and the active ADK worktree.
 Focused evidence: 278 UI cases; 154 backend cases; eight setup layouts at
 320/390/800/1440 px in light/dark. TypeScript and tracing mypy passed before the
 final candidate freeze. New tests cover real API → AuthProvider invalidation,
 verified AI readiness after Back and encrypted-key reads after unlock. Controlled
-broken implementations fail their regression checks; final core/hosted gates are
-still required. None of these fixtures proves a live owner journey.
+broken implementations fail their regression checks. Core stages on `6dd4baacd6`
+passed with environment-only resumes: 23,113 backend cases passed, 142 skipped;
+three Bash 3.2 compatibility failures resolved on modern Bash, with all 33 affected
+cases passing. Web production build/types/lint, security/governance, MCP packaging
+and integration passed. The later diagram-import repair passes all 19 existing
+PDF cases and three real Node/Chromium diagram renders. Corrected hosted CI and
+live owner acceptance remain required; fixtures alone do not establish either.
 
-Next 16.4.2, DOMPurify 3.4.17 and Nodemailer 10.0.10 are patched locally.
+Next 16.4.2, DOMPurify 3.4.17 and Nodemailer 10.0.10 are patched in source.
 The actual Mermaid browser bundle uses the patched dependency; 223/223 diagrams
 rendered. ADK's supported OTEL constraint still prevents its upstream patch.
-The incoming-tracestate guard is a mitigation, not an advisory closure.
+The incoming-tracestate guard is a mitigation, not an advisory closure. Nodemailer's
+standalone production mail service is outside this application rollout; its source
+patch does not prove a deployed mail-service upgrade.
 
 The protected worker was independently qualified as run `39861716513`.
 Read-only PR receipt consumption and exact-attempt reuse are locally verified;
@@ -176,8 +183,8 @@ paid work; spending thresholds warn without stopping service.
 
 ## Next gate and owners
 
-1. **Engineering:** freeze the onboarding/security correction, regenerate contracts,
-   run the core mirror once and obtain exact-SHA hosted validation.
+1. **Engineering:** finish corrected exact-SHA hosted validation. Reuse unchanged
+   completed core stages and the focused diagram-import regression evidence.
 2. **Release owner:** Admin SOP landing, landed smoke, governed dev acceptance,
    then promote the same accepted revision to UAT. Read back actual serving state.
 3. **Browser owner:** exact installed-image public research, review, preview,

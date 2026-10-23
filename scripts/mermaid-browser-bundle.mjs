@@ -3,9 +3,8 @@
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const requireWeb = createRequire(new URL("../hushh-webapp/package.json", import.meta.url));
-
 export async function mermaidBrowserBundle() {
+  const requireWeb = createRequire(new URL("../hushh-webapp/package.json", import.meta.url));
   const { rolldown } = await import(pathToFileURL(requireWeb.resolve("rolldown")).href);
   const bundle = await rolldown({
     input: requireWeb.resolve("mermaid/dist/mermaid.core.mjs"),

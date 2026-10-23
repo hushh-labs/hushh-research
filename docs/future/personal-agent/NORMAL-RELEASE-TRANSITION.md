@@ -1,7 +1,7 @@
 # Private agent: normal release transition
 
-**Status:** main integration landed; onboarding/security correction in local qualification,
-22 October 2026. Continue on the preserved infrastructure branch at `6fa2ace8f385`.
+**Status:** main integration landed; [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) in exact-head qualification,
+23 October 2026. Continue on the preserved infrastructure branch; main through `bd0c44c79a` is integrated.
 PR8337 landed as `0ea0f8fce3` with exact-head CI and landed smoke successful.
 Preserve nine peer edits and the independently active ADK tree. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
@@ -24,8 +24,10 @@ The current application correction repairs setup layout, reachable vault unlock,
 owner-fenced placement refresh, saved-key resumption, AI editing Back behavior and
 truthful deletion status. It completes protected security-receipt consumption,
 exact-attempt deduplication and patchable dependency updates. Dev/UAT still serve
-older source; freeze, local core, exact-SHA CI, Admin SOP landing, dev acceptance
-and UAT promotion remain required for this correction. Publishing an application
+older source. Local core stages completed; a hosted diagram-import failure has a
+focused lazy-initialization repair. Corrected exact-SHA CI, Admin SOP landing,
+dev acceptance and UAT promotion remain required. Nodemailer's source patch does
+not authorize deploying its standalone production mail service. Publishing an application
 never installs a pod image.
 
 Same-login re-registration is staged separately. Non-production currently shares
