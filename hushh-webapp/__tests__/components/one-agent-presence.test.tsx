@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiService } from "@/lib/services/api-service";
 import { __resetProactiveWakeForTests } from "@/lib/feed/use-proactive-agent-wake";
 import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 // The status read moved from a bare `apiJson` to a service method, because
 // `apiFetch` does not attach auth and `getFirebaseToken` is private to ApiService.
@@ -45,11 +46,13 @@ it("does not advertise a blocked update as Online or wake it through the status 
 });
 
 beforeEach(() => {
+  publishValidatedAuthSessionOwner("presence-owner");
   __resetProactiveWakeForTests();
   vi.mocked(ApiService.wakePod).mockResolvedValue({ state: "awake", etaMs: 0 });
 });
 
 afterEach(() => {
+  publishValidatedAuthSessionOwner(null);
   mockStatus.mockReset();
 });
 
