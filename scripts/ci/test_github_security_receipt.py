@@ -4,6 +4,9 @@
 """Verify immutable security receipts and duplicate-worker precedence."""
 
 import json
+from contextlib import redirect_stdout
+from io import StringIO
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -305,6 +308,59 @@ class SecurityReceiptTest(unittest.TestCase):
                 consumer.archive_read(70)
         self.assertEqual(len(owned), 1)
         self.assertIsNotNone(owned[0].poll())
+
+
+class SecurityRerunGateTest(unittest.TestCase):
+    def test_rerun_guidance_preserves_wait_for_the_exact_worker(self):
+        consumer, api, source, _, _, _, receipt, *_ = receipt_fixture()
+        environment = {
+            "GITHUB_REPOSITORY": consumer.REPOSITORY, "GH_TOKEN": "synthetic",
+            "GITHUB_RUN_ID": "20", "GITHUB_RUN_ATTEMPT": "2", "CI_SECURITY_HEAD_SHA": HEAD,
+        }
+        output = StringIO()
+        with (
+            patch.object(consumer, "GitHub", return_value=api),
+            patch.object(consumer, "find_receipt", side_effect=[None, receipt]),
+            patch.object(consumer.time, "monotonic", side_effect=[0, 0, 1]),
+            patch.object(consumer.time, "sleep") as sleep,
+            redirect_stdout(output),
+        ):
+            self.assertEqual(consumer.await_receipt(environment), receipt)
+        self.assertIn("-f source_run_id=20 -f source_attempt=2 -f source_sha=" + HEAD, output.getvalue())
+        sleep.assert_called_once_with(10)
+
+    def test_final_gate_rejects_previous_attempt_or_failed_current_worker(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/ci.yml").read_text().split("\n  ci-status:\n", 1)[1]
+        self.assertIn("actions: read", workflow)
+        self.assertRegex(workflow, r"if: github.run_attempt > 1\n\s+run: python3 scripts/ci/github_security_receipt.py")
+        self.assertIn("CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}", workflow)
+        worker = (root / ".github/workflows/ci-security.yml").read_text()
+        self.assertIn("types: [requested]", worker)
+        self.assertNotIn("types: [in_progress]", worker)
+        for scenario in ("valid", "old", "failed"):
+            consumer, api, source, producer, _, _, receipt, raw, responses = receipt_fixture()
+            title = f"Security alerts for 20 / {1 if scenario == 'old' else 2} / {HEAD}"
+            observed = {**producer, "display_title": title}
+            if scenario == "failed":
+                observed["conclusion"] = "failure"
+            responses[f"repos/{consumer.REPOSITORY}/actions/workflows/ci-security.yml/runs?branch=main&per_page=100"] = {"workflow_runs": [observed]}
+            responses[f"repos/{consumer.REPOSITORY}/actions/workflows/ci-security.yml"] = {"id": 50, "path": authority.WORKER_PATH}
+            environment = {
+                "GITHUB_REPOSITORY": consumer.REPOSITORY, "GH_TOKEN": "synthetic",
+                "GITHUB_RUN_ID": "20", "GITHUB_RUN_ATTEMPT": "2", "CI_SECURITY_HEAD_SHA": HEAD,
+            }
+            with (
+                self.subTest(scenario=scenario),
+                patch.dict(os.environ, environment),
+                patch.object(consumer.sys, "argv", ["github_security_receipt.py"]),
+                patch.object(consumer, "GitHub", return_value=api),
+                patch.object(consumer, "archive_read", return_value=raw),
+                patch.object(consumer.time, "monotonic", side_effect=[0, 0, 481]),
+                patch.object(consumer.time, "sleep"),
+                redirect_stdout(StringIO()),
+            ):
+                self.assertEqual(consumer.main(), 0 if scenario == "valid" else 1)
 
 
 if __name__ == "__main__":

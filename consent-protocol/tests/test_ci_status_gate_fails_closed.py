@@ -22,6 +22,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field, replace
 from functools import cache
 from pathlib import Path
@@ -67,6 +68,7 @@ PATHS_OUTPUT_RE = re.compile(r"needs\.paths\.outputs\.(\w+)")
 @dataclass(frozen=True)
 class Run:
     event: str
+    attempt: int = 1
     base_ref: str = ""
     scope: str = ""
     outputs: dict[str, str] = field(default_factory=dict)
@@ -121,6 +123,7 @@ def _resolve(text: str, run: Run) -> str:
             return run.outputs.get(output.group(1), "")
         contexts = {
             "github.event_name": run.event,
+            "github.run_attempt": str(run.attempt),
             "github.base_ref": run.base_ref,
             "github.repository": "hushh-labs/hushh-research",
             "github.sha": HEAD_SHA,
@@ -157,10 +160,12 @@ def _verdict(run: Run, tmp_path: Path) -> tuple[bool, str]:
     for step in _gate()["steps"]:
         condition = step.get("if")
         if condition is not None:
-            assert condition == "github.event_name == 'workflow_dispatch'", (
-                f"unmodelled step condition: {condition}"
-            )
-            if run.event != "workflow_dispatch":
+            conditions = {
+                "github.event_name == 'workflow_dispatch'": run.event == "workflow_dispatch",
+                "github.run_attempt > 1": run.attempt > 1,
+            }
+            assert condition in conditions, f"unmodelled step condition: {condition}"
+            if not conditions[condition]:
                 continue
         completed = _run_step(step, run, tmp_path)
         output += completed.stdout + completed.stderr
@@ -253,6 +258,29 @@ def test_negative_control_a_green_run_passes(name: str, run: Run, tmp_path: Path
     assert passed, (
         f"{name}: CI Status Gate failed a green run, so the failures above prove nothing:\n{output}"
     )
+
+
+@pytest.mark.parametrize("receipt_exit", [0, 1])
+def test_retry_requires_its_receipt_after_job_outcomes(
+    receipt_exit: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    execute = _run_step
+    calls: list[str] = []
+
+    def execute_with_receipt(step: dict, run: Run, directory: Path):
+        if step.get("uses") == "actions/checkout@v6":
+            assert step["with"]["persist-credentials"] is False
+            calls.append("checkout")
+            return subprocess.CompletedProcess([], 0, "", "")
+        if step.get("run") == "python3 scripts/ci/github_security_receipt.py":
+            calls.append("receipt")
+            return subprocess.CompletedProcess([], receipt_exit, "", "")
+        return execute(step, run, directory)
+
+    monkeypatch.setattr(sys.modules[__name__], "_run_step", execute_with_receipt)
+    passed, _ = _verdict(replace(EVERYTHING, attempt=2), tmp_path)
+    assert calls == ["checkout", "receipt"]
+    assert passed is (receipt_exit == 0)
 
 
 def test_manual_branch_verdict_cannot_satisfy_pr_protection() -> None:

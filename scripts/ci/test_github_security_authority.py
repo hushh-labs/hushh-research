@@ -4,6 +4,7 @@
 """Exercise the production security authority's origin and inventory boundary."""
 
 import importlib.util
+import base64
 import json
 from pathlib import Path
 import tempfile
@@ -214,6 +215,127 @@ class SecurityAuthorityTest(unittest.TestCase):
                 ):
                     with self.subTest(key=key), self.assertRaises(authority.Refused):
                         authority.produce({**env, key: value})
+
+
+def rerun_fixture(actor="operator"):
+    path = PATH.parents[2] / ".agents/skills/repo-operations/scripts/ci_rerun.py"
+    spec = importlib.util.spec_from_file_location("security_rerun", path)
+    retry = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(retry)
+    expected, source, _ = source_fixture()
+    repo = {"id": 10, "full_name": retry.REPOSITORY}
+    source.update(repository=repo, status="completed", conclusion="failure")
+    prefix = f"repos/{retry.REPOSITORY}"
+    policy = {"main": {"protected_pipeline_edit_users": ["operator"]}}
+    responses = {
+        "user": {"login": actor},
+        f"{prefix}/contents/config/ci-governance.json?ref=main": {
+            "encoding": "base64", "size": 100,
+            "content": base64.b64encode(json.dumps(policy).encode()).decode(),
+        },
+        prefix: repo,
+        f"{prefix}/actions/workflows/ci.yml": {"id": 30, "path": authority.CI_PATH},
+        f"{prefix}/actions/runs/20": source,
+    }
+    writes = []
+
+    def write(path, body):
+        writes.append((path, body))
+        if not path.endswith("/dispatches"):
+            source.update(run_attempt=3, status="queued")
+
+    return retry, expected, source, responses.__getitem__, write, writes
+
+
+class SecurityRerunTest(unittest.TestCase):
+    def test_one_job_retry_is_bound_to_the_exact_completed_attempt(self):
+        for mismatch in (None, "attempt", "run_id", "head_sha", "status", "name", "truncated"):
+            retry, expected, source, read, write, writes = rerun_fixture()
+            source["conclusion"] = "success"
+            job = {"id": 50, "run_id": 20, "head_sha": HEAD, "status": "completed", "name": "CI Status Gate"}
+            inventory = {"total_count": 1, "jobs": [{"id": 50}]}
+            if mismatch == "attempt":
+                inventory = {"total_count": 0, "jobs": []}
+            elif mismatch == "truncated":
+                inventory["total_count"] = 101
+            elif mismatch:
+                job[mismatch] = "wrong"
+
+            def read_job(path):
+                if "/attempts/2/jobs?" in path:
+                    return inventory
+                return job if path.endswith("/actions/jobs/50") else read(path)
+
+            if mismatch:
+                with self.subTest(mismatch=mismatch), self.assertRaises(retry.Refused):
+                    retry.rerun_validation(read_job, write, expected, job_id=50)
+                self.assertEqual(writes, [])
+            else:
+                retry.rerun_validation(read_job, write, expected, job_id=50)
+                self.assertTrue(writes[0][0].endswith("/actions/jobs/50/rerun"))
+                self.assertEqual(len(writes), 2)
+
+    def test_one_rerun_and_exact_observed_attempt_dispatch(self):
+        for all_jobs in (False, True):
+            retry, expected, _, read, write, writes = rerun_fixture()
+            result = retry.rerun_validation(read, write, expected, all_jobs=all_jobs)
+            self.assertEqual(result["attempt"], 3)
+            self.assertEqual(len(writes), 2)
+            self.assertTrue(writes[0][0].endswith("/rerun" if all_jobs else "/rerun-failed-jobs"))
+            self.assertEqual(writes[1][1], {"ref": "main", "inputs": {
+                "source_run_id": "20", "source_attempt": "3", "source_sha": HEAD,
+            }})
+
+    def test_ungoverned_stale_or_running_source_refuses_before_mutation(self):
+        for scenario in ("actor", "attempt", "running", "successful"):
+            retry, expected, source, read, write, writes = rerun_fixture(
+                "outsider" if scenario == "actor" else "operator"
+            )
+            if scenario == "attempt":
+                source["run_attempt"] = 1
+            elif scenario == "running":
+                source["status"] = "in_progress"
+            elif scenario == "successful":
+                source["conclusion"] = "success"
+            with self.subTest(scenario=scenario), self.assertRaises(retry.Refused):
+                retry.rerun_validation(read, write, expected)
+            self.assertEqual(writes, [])
+
+    def test_lost_rerun_response_reconciles_without_second_post(self):
+        retry, expected, _, read, write, writes = rerun_fixture()
+
+        def uncertain(path, body):
+            write(path, body)
+            if not path.endswith("/dispatches"):
+                raise retry.Refused("lost response")
+
+        self.assertEqual(retry.rerun_validation(read, uncertain, expected)["attempt"], 3)
+        self.assertEqual(len(writes), 2)
+
+    def test_attempt_race_or_uncertain_security_dispatch_never_replays(self):
+        for scenario in ("race", "dispatch"):
+            retry, expected, source, read, write, writes = rerun_fixture()
+
+            def uncertain(path, body):
+                write(path, body)
+                if scenario == "race":
+                    source["run_attempt"] = 4
+                elif path.endswith("/dispatches"):
+                    raise retry.Refused("lost response")
+
+            with self.subTest(scenario=scenario), self.assertRaises(retry.Refused):
+                retry.rerun_validation(read, uncertain, expected)
+            self.assertEqual(len(writes), 1 if scenario == "race" else 2)
+
+    def test_unobserved_rerun_has_a_bound_and_no_second_post(self):
+        retry, expected, _, read, _, writes = rerun_fixture()
+        ticks = iter((0, 61))
+        with self.assertRaisesRegex(retry.Refused, "unconfirmed"):
+            retry.rerun_validation(
+                read, lambda path, body: writes.append((path, body)), expected,
+                clock=lambda: next(ticks), sleep=lambda _: self.fail("deadline exceeded"),
+            )
+        self.assertEqual(len(writes), 1)
 
 
 if __name__ == "__main__":

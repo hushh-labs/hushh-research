@@ -342,6 +342,15 @@ def await_receipt(environment: dict) -> dict:
     }
     source = verify_source(api.read, REPOSITORY, expected)
     deadline = time.monotonic() + 480
+    if expected["attempt"] > 1:
+        print(
+            "GitHub reruns do not emit the initial security-worker event. "
+            "While this attempt is running, a governed operator can request its exact worker:\n"
+            f"gh workflow run ci-security.yml --ref main -f source_run_id={expected['run_id']} "
+            f"-f source_attempt={expected['attempt']} -f source_sha={expected['head_sha']}\n"
+            "For future retries use ./bin/hushh codex ci-rerun to coordinate both requests.",
+            flush=True,
+        )
     print(
         "Waiting for protected security authority for this exact run and attempt.",
         flush=True,

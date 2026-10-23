@@ -1,7 +1,8 @@
 # Private agent: normal release transition
 
-**Status:** main integration landed; [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) in exact-head qualification,
-23 October 2026. Continue on the preserved infrastructure branch; main through `4ac0a122be` is integrated, including Mail receipt availability and Azure chat/search fixes.
+**Status:** [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365)
+landed as `51a5a86675`; dev and exact-revision UAT accepted, 23 October 2026.
+Continue on the preserved infrastructure branch; main through `d552397410` is inherited, including Calendar and Copilot styling. That later source integration does not change the accepted application revision above.
 PR8337 landed as `0ea0f8fce3` with exact-head CI and landed smoke successful.
 Preserve nine peer edits and the independently active ADK tree. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
@@ -23,10 +24,16 @@ it would delay the MVP. Production remains outside this authorization.
 The current application correction repairs setup layout, reachable vault unlock,
 owner-fenced placement refresh, saved-key resumption, AI editing Back behavior and
 truthful deletion status. It completes protected security-receipt consumption,
-exact-attempt deduplication and patchable dependency updates. Dev/UAT still serve
-older source. Local core stages completed; a hosted diagram-import failure has a
-focused lazy-initialization repair. Corrected exact-SHA CI, Admin SOP landing,
-dev acceptance and UAT promotion remain required. Nodemailer's source patch does
+exact-attempt deduplication and patchable dependency updates. All 26 exact-head
+checks and landed smoke passed. Dev run `39890010863` serves both corrected
+services at 100%; normal-owner refresh, passphrase unlock and Back/Finish reached
+home without a loop. UAT run `39892483774` completed healthy; ADC readback at
+04:27 UTC confirms both services at the same exact SHA and 100% traffic.
+A CI-only follow-up removes repeated worker starts using the initial `requested`
+event plus governed exact-attempt retries. Main-owned qualification must prove
+one initial worker and a gate-only retry without repeating application suites.
+The protected consumer is qualified on main and the repository-wide credential
+is retired; original-token revocation remains unverified. Nodemailer's source patch does
 not authorize deploying its standalone production mail service. Publishing an application
 never installs a pod image.
 
@@ -87,18 +94,20 @@ The [repository organization plan](../repository-organization-plan.md) adds the
 requested canonical `.agents/` migration, bounded folder consolidation and linked
 documentation cleanup. It preserves this plan's implementation and release gates;
 neither a cleaner tree nor passing documentation checks proves pod readiness.
-The local consolidation removes copied Codex skill discovery, moves settings,
-routing cases and pinned imports into `.agents`, and checks exact native links.
+The consolidation removed copied Codex skill discovery, moved settings,
+routing cases and pinned imports into `.agents`, and added checks for exact native links.
 Peer MCP definitions and the active ADK worktree are preserved. Existing owner
 resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `6fa2ace8f385` is inherited without whole-file replacement.
+- Main through `d552397410` is inherited without whole-file replacement.
   Committed ADK lineage `914e7c044c` remains preserved. The active ADK tree has
-  five later unique commits, inspected as native Profile/editor/icon and
-  qualification documentation work; they are not imported wholesale into this
-  incident candidate. Recheck dependency-relevant changes before freeze.
+  later unique commits, last inspected at `b5342e908a` on 23 October: native
+  Profile/editor/icon and qualification work, with no overlap in the corrected
+  auth/setup owners. They remain active and are not imported wholesale into this
+  candidate. Dependency-relevant main integration passed 472 focused cases;
+  exact-head CI and landed smoke subsequently passed.
 - Preserve main's Profile/mobile, identity, consent, commerce, deletion and migration
   behavior alongside private-agent authority. Regenerate from reconciled authored
   sources; previous source stamps do not verify the next candidate.
@@ -110,7 +119,7 @@ resources, product agents and release authority are unchanged.
 
 ## 2. Consolidate the existing release path
 
-Local cleanup removes the two duplicate pod-only scheduled workflows and standardizes
+The completed cleanup removed the two duplicate pod-only scheduled workflows and standardized
 13 display names. Normal Protocol CI retains both core suites. See the
 [workflow catalog and timing review](../../reference/operations/ci.md#workflow-catalog-and-naming).
 Core gate names, deployment authority and capacity tick titles are unchanged.
@@ -134,7 +143,7 @@ Thin environment entrypoints may remain for GitHub permissions and dispatch
 compatibility. They must call the common implementation rather than carry their own
 copy. Delete obsolete references, selectors, tests and runbook commands together.
 Normal application deployment and owner-pod installation remain separate operations.
-The local predecessor-acceptance helper requires a healthy dev receipt for the
+The existing predecessor-acceptance helper requires a healthy dev receipt for the
 exact application SHA and resolved services before UAT; production requires UAT
 acceptance with its dev chain for both source builds and image promotion. Receipts
 bind successful main-owned workflow attempts, immutable artifact digests, final
@@ -165,16 +174,19 @@ A shorter YAML file or a matching elapsed time is not a verification result.
 | New user at current release | Complete onboarding without a catch-up changelog | New/unknown account dates cannot establish the returning-user audience |
 
 Use the existing choice and continuity migrations (402/404/405), their owning
-manifest and schema contracts. Verified ADC readback on 2026-10-20 found 955/958
-already applied on dev with unchanged source checksums; 405 is unapplied in dev,
-UAT and production. UAT has a ledger but no hosting-choice columns; production
-has neither the migration ledger nor pod registry. Inspect again before rollout.
+manifest and schema contracts. Historical ADC readback on 2026-10-20 found 955/958
+already applied on dev with unchanged source checksums; 405 was unapplied in dev,
+UAT and production. UAT had a ledger but no hosting-choice columns; production
+had neither the migration ledger nor pod registry. Those are historical baselines,
+not current cohort proofs. The 23 October dev and UAT rollouts passed their selected
+schema contracts; consult current guarded rollout receipts before any later migration.
 
-The local 405 correction excludes retained cloud and pod-signing fields, matching
+The 405 source correction excludes retained cloud and pod-signing fields, matching
 runtime eligibility. New dev-only 965 repairs only incompatible **inferred**
 Shared choices whose choice timestamp still matches the legacy receipt. It keeps
 the receipt and preserves explicit later choices, BYOC assignments and pending
-setups. Sixty focused PostgreSQL/manifest checks pass. No live migration ran.
+setups. Sixty focused PostgreSQL/manifest checks passed; that fixture evidence
+alone never established a live cohort migration.
 Never rewrite the applied 958 migration or infer that ledger readback proves
 every owner's placement.
 
