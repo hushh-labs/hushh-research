@@ -20,6 +20,36 @@ import zlib
 from google.genai import types
 
 
+def _synthetic_public_search_agent(root):
+    """Reuse the real search wiring with authority limited to public probe input.
+
+    A plain LlmAgent deliberately avoids the owner's ManagedTextAgent binder.
+    The managed model still checks current deployment/policy on every delta.
+    This process admits no owner context, persistence or executable product tools.
+    """
+    from google.adk.agents import LlmAgent
+
+    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
+
+    child = next(
+        tool.agent for tool in root.tools if getattr(tool, "name", None) == "google_search"
+    )
+    model = child.model
+    if isinstance(model, ManagedPrimaryTextModel):
+
+        async def public_input_only():
+            return None
+
+        model = model.model_copy(update={"require_current": public_input_only})
+    return LlmAgent(
+        name=child.name,
+        model=model,
+        instruction=child.instruction,
+        tools=child.tools,
+        generate_content_config=child.generate_content_config,
+    )
+
+
 def _png(rgb: bytes) -> bytes:
     def chunk(kind: bytes, body: bytes) -> bytes:
         return (
@@ -71,6 +101,41 @@ def _wav16(pcm24: bytes) -> bytes:
         recording.setframerate(16000)
         recording.writeframes(struct.pack(f"<{len(downsampled)}h", *downsampled))
     return buffer.getvalue()
+
+
+async def _probe_public_search():
+    from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
+    from hushh_mcp.one_adk.agent_tree import build_one_text_agent
+
+    received = []
+    # Exercise the actual One roster; a separate factory once hid a broken
+    # provider/tool pairing while this readiness probe stayed green.
+    root = build_one_text_agent()
+    agent = _synthetic_public_search_agent(root)
+
+    async def observe(callback_context, llm_response):
+        if not llm_response.partial and llm_response.grounding_metadata:
+            received.extend(
+                c.web.uri
+                for c in llm_response.grounding_metadata.grounding_chunks or []
+                if c.web and c.web.uri
+            )
+
+    agent.after_model_callback = observe
+    result = await run_specialist_adk_turn(
+        agent=agent,
+        app_name="managed_public_search_readiness",
+        user_id="synthetic-public-reader",
+        consent_token="",
+        message="Search the public web for IANA's explanation of example.com and cite the official IANA page.",
+        max_llm_calls=1,
+        total_timeout_s=60,
+        first_event_timeout_s=60,
+        between_event_timeout_s=60,
+    )
+    if not result.final_text or not received:
+        raise ValueError("The actual Search child returned no received citations")
+    return {"cited_sources": len(set(received)), "fresh_page_retrieval_claimed": False}
 
 
 async def probe_managed_capabilities(provider: str) -> dict:
@@ -199,37 +264,6 @@ async def probe_managed_capabilities(provider: str) -> dict:
         if (response.text or "").strip() != nonce:
             raise ValueError("Synthetic PDF extraction failed")
         return {"synthetic_content_verified": True}
-
-    async def public_search():
-        from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
-        from hushh_mcp.one_adk.agent_tree import build_google_search_agent
-
-        received = []
-        agent = build_google_search_agent()
-
-        async def observe(callback_context, llm_response):
-            if not llm_response.partial and llm_response.grounding_metadata:
-                received.extend(
-                    c.web.uri
-                    for c in llm_response.grounding_metadata.grounding_chunks or []
-                    if c.web and c.web.uri
-                )
-
-        agent.after_model_callback = observe
-        result = await run_specialist_adk_turn(
-            agent=agent,
-            app_name="managed_public_search_readiness",
-            user_id="synthetic-public-reader",
-            consent_token="",
-            message="Search the public web for IANA's explanation of example.com and cite the official IANA page.",
-            max_llm_calls=1,
-            total_timeout_s=60,
-            first_event_timeout_s=60,
-            between_event_timeout_s=60,
-        )
-        if not result.final_text or not received:
-            raise ValueError("The actual Search child returned no received citations")
-        return {"cited_sources": len(set(received)), "fresh_page_retrieval_claimed": False}
 
     async def public_source():
         from hushh_mcp.one_adk.public_source_fetch import retrieve_public_sources
@@ -398,7 +432,7 @@ async def probe_managed_capabilities(provider: str) -> dict:
         ("structured_text", structured),
         ("image_input", image),
         ("pdf_input", pdf),
-        ("public_search", public_search),
+        ("public_search", _probe_public_search),
         ("public_source", public_source),
         ("narration", narration),
         ("location_transcription", transcription),

@@ -544,7 +544,7 @@ def test_no_secret_value_appears_in_printed_output(
     rc = driver.main(
         ["--reps", "1", "--gap-seconds", "0", "--artifact-dir", str(tmp_path), "--label", "scrub"]
     )
-    assert rc == 0
+    assert rc == 1  # Synthetic answers fail the newly enforced semantic checks.
     out = capsys.readouterr().out
     assert out.strip()
     leak_values = [

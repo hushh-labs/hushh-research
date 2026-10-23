@@ -14,19 +14,19 @@
   },
   "conditions": [
     {
-      "displayName": "Agent stream failure rate > 0.01 turns/s sustained 5m",
+      "displayName": "Actionable agent stream failure in 5m",
       "conditionThreshold": {
         "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_agent_stream_failure_count\"",
         "aggregations": [
           {
             "alignmentPeriod": "300s",
-            "perSeriesAligner": "ALIGN_RATE",
+            "perSeriesAligner": "ALIGN_SUM",
             "crossSeriesReducer": "REDUCE_SUM"
           }
         ],
         "comparison": "COMPARISON_GT",
-        "thresholdValue": 0.01,
-        "duration": "300s",
+        "thresholdValue": 0,
+        "duration": "0s",
         "trigger": {
           "count": 1
         }

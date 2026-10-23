@@ -39,6 +39,11 @@ METRICS = (
     "obs_one_voice_client_perf_ms",
     "obs_agent_chat_first_visible_ms",
     "obs_agent_chat_first_visible_count",
+    "obs_agent_chat_first_answer_ms",
+    "obs_agent_chat_first_answer_count",
+    "obs_agent_chat_terminal_count",
+    "obs_agent_chat_no_answer_count",
+    "obs_azure_model_error_count",
 )
 VOICE_METRICS = ("obs_one_voice_latency_ms", "obs_one_voice_client_perf_ms")
 POLICIES = (

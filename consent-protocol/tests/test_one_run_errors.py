@@ -117,6 +117,21 @@ def test_a_plain_provider_exception_is_still_mapped():
     assert transient_model_error_for_exception(RuntimeError("x")) is None
 
 
+def test_non_transient_azure_leaf_does_not_hide_later_transient_failure():
+    import httpx
+    from openai import APIStatusError
+
+    def error(status):
+        return APIStatusError(
+            "private provider detail",
+            response=httpx.Response(status, request=httpx.Request("POST", "https://example.test")),
+            body=None,
+        )
+
+    group = ExceptionGroup("mixed", [error(401), error(503)])
+    assert transient_model_error_for_exception(group) == MODEL_UNAVAILABLE_RUN_ERROR
+
+
 def _timing() -> agui_turn_timing.TurnTiming:
     return agui_turn_timing.TurnTiming(head="one", run="run", started_at=time.perf_counter())
 
@@ -183,3 +198,24 @@ def test_a_logged_code_survives_the_log_redactor(caplog):
     ):
         logged = agui_turn_timing._error_code(code)
         assert redact_log_value(logged) != REDACTED, code
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_azure_sdk_transient_status_is_safe_capacity_or_unavailable(status):
+    import httpx
+    from openai import APIStatusError
+
+    from hushh_mcp.one_adk.run_errors import transient_model_error_for_exception
+
+    error = APIStatusError(
+        "untrusted private provider body",
+        response=httpx.Response(
+            status, request=httpx.Request("POST", "https://synthetic.openai.azure.com")
+        ),
+        body={},
+    )
+    expected = MODEL_CAPACITY_RUN_ERROR if status == 429 else MODEL_UNAVAILABLE_RUN_ERROR
+    assert transient_model_error_for_exception(error) == expected
+    assert transient_model_run_error(run_error(f"Error code: {status} - private body")) == expected
+    assert "private body" not in expected.message
+    assert transient_model_run_error(run_error("Error code: 401 - private body")) is None

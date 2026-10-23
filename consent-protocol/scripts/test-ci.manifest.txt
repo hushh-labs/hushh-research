@@ -98,6 +98,7 @@ tests/services/test_drive_request_package_service.py
 # Managed UAT text: primary/fallback transport, current owner authority,
 # immutable administrator policy and actual foreground/background ADK entrypoints.
 tests/services/test_azure_adk.py
+tests/services/test_one_azure_chat_contract.py
 tests/test_model_preference_resolution.py
 tests/test_one_adk_text_runtime.py
 tests/services/test_drive_bounded_search_unit.py
@@ -539,6 +540,7 @@ tests/scripts/test_eval_pkm_structure_agent.py
 tests/scripts/test_eval_pkm_latency.py
 tests/scripts/test_eval_kai_adk_synthetic.py
 tests/scripts/test_measure_agent_chat_latency.py
+tests/scripts/test_reviewer_chat_acceptance.py
 tests/test_evalsets_are_valid.py
 tests/test_conformance_harness.py
 tests/test_nav_conformance.py
