@@ -29,8 +29,9 @@ import {
   type AnalysisHistoryEntry,
   type AnalysisHistoryMap,
 } from "@/lib/services/kai-history-service";
-import { DataTable } from "@/components/app-ui/data-table";
-import { getColumns, type HistoryEntryWithVersion } from "./columns";
+import { AnalysisHistoryList } from "./analysis-history-list";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
+import type { HistoryEntryWithVersion } from "./columns";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -910,11 +911,7 @@ export function AnalysisHistoryDashboard({
     setVersionsOpen(true);
   }, []);
 
-  const columns = getColumns({
-    onDelete: handleDeleteEntry,
-    onDeleteTicker: handleDeleteTicker,
-    onViewVersions: openVersions,
-  });
+
 
   const versionsForTicker: HistoryEntryWithVersion[] = useMemo(() => {
     if (!versionsTicker) return [];
@@ -992,28 +989,8 @@ export function AnalysisHistoryDashboard({
   // ----- Populated state -----
   return (
     <div className="w-full space-y-6">
-      {/* Data Table */}
-      <DataTable
-        columns={columns}
-        data={entries}
-        onRowClick={(entry, event) => openVersions(entry.ticker, event)}
-        searchKey="ticker"
-        globalSearchKeys={["ticker", "companyName", "searchText"]}
-        searchPlaceholder="Search analysis history by ticker or company..."
-        enableSearch
-        filterKey="decision"
-        filterOptions={[
-          { label: "Buy", value: "buy" },
-          { label: "Hold / Watch", value: "hold" },
-          { label: "Reduce", value: "reduce" },
-        ]}
-        initialPageSize={10}
-        pageSizeOptions={[10, 20, 30]}
-        density="compact"
-        stickyHeader
-        tableContainerClassName="w-full"
-        tableClassName="w-full min-w-[640px]"
-      />
+      <AnalysisHistoryList entries={entries} onOpen={onViewHistory} onVersions={openVersions}
+        onDelete={handleDeleteEntry} onDeleteTicker={handleDeleteTicker} />
 
       {showDebateInputs ? (
         <DebateInputsCard
@@ -1026,7 +1003,7 @@ export function AnalysisHistoryDashboard({
 
       {isMobile ? (
         <Sheet open={versionsOpen} onOpenChange={(open) => !open && closeVersions()} modal>
-          <SheetContent side="bottom" className="rounded-t-3xl p-0 sm:mx-auto sm:max-w-md">
+          <SheetContent side="bottom" className={`${financeStyles.detail} rounded-t-3xl p-0 sm:mx-auto sm:max-w-md`}>
             <SheetHeader className="border-b border-border/60 px-5 py-4 text-left">
               <SheetTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</SheetTitle>
               <SheetDescription>Choose a saved version to review.</SheetDescription>
@@ -1034,6 +1011,7 @@ export function AnalysisHistoryDashboard({
             <div className="px-4 pb-[calc(1rem+var(--app-safe-area-bottom-effective))] pt-3">
               <VersionOptions
                 entries={versionsForTicker}
+                onDeleteAll={versionsTicker ? () => handleDeleteTicker(versionsTicker) : undefined}
                 onOpen={(entry) => {
                   onViewHistory(entry);
                   closeVersions();
@@ -1045,7 +1023,7 @@ export function AnalysisHistoryDashboard({
         </Sheet>
       ) : (
         <Dialog open={versionsOpen} onOpenChange={(open) => !open && closeVersions()}>
-          <DialogContent className="w-[min(28rem,calc(100vw-1.5rem))] p-0 sm:max-w-md">
+          <DialogContent className={`${financeStyles.detail} w-[min(28rem,calc(100vw-1.5rem))] p-0 sm:max-w-md`}>
             <DialogHeader className="border-b border-border/60 px-4 py-3 text-left">
               <DialogTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</DialogTitle>
               <DialogDescription>Choose a saved version to review.</DialogDescription>
@@ -1053,6 +1031,7 @@ export function AnalysisHistoryDashboard({
             <div className="max-h-[min(28rem,calc(100vh-10rem))] overflow-y-auto p-3">
               <VersionOptions
                 entries={versionsForTicker}
+                onDeleteAll={versionsTicker ? () => handleDeleteTicker(versionsTicker) : undefined}
                 onOpen={(entry) => {
                   onViewHistory(entry);
                   closeVersions();
