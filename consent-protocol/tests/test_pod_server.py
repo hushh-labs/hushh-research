@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from tests.pod_surface_paths import OWNER_REACHABLE_PATHS
+
 # The pod entrypoint validates HCT tokens on import paths that read the signing key.
 os.environ.setdefault("APP_SIGNING_KEY", "test_secret_key_for_ci_only_32chars_min")
 os.environ.setdefault("VAULT_DATA_KEY", "0" * 64)
@@ -416,88 +418,6 @@ def test_the_wall_sits_inside_observability_and_outside_the_routes():
 
 
 # Exact external reachability, independently pinned against ingress policy.
-OWNER_REACHABLE_PATHS = frozenset(
-    {
-        "/api/one/pod/actions/gmail/proposals",
-        "/api/one/pod/actions/{proposal_id}/confirm",
-        "/api/one/pod/actions/{proposal_id}/status",
-        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/catalog",
-        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/verify",
-        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/begin",
-        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/cancel",
-        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/complete",
-        "/api/one/pod/agent-chat/feedback",
-        "/api/one/pod/agent-chat/proposals",
-        "/api/one/pod/agent-chat/proposals/typed",
-        "/api/one/pod/agent-chat/proposals/{command_id}",
-        "/api/one/pod/agent-chat/proposals/{command_id}/settle",
-        "/api/one/pod/agent-chat/proposals/{command_id}/dispatch",
-        "/api/one/pod/agent-chat/runs/{conversation_id}/queue",
-        "/api/one/pod/agent-chat/runs/{conversation_id}/queue/{client_message_id}",
-        "/api/one/pod/agent-chat/runs/{conversation_id}/stop",
-        "/api/one/pod/browser/capability",
-        "/api/one/pod/browser/tasks",
-        "/api/one/pod/browser/tasks/{task_id}",
-        "/api/one/pod/browser/tasks/{task_id}/control",
-        "/api/one/pod/browser/tasks/{task_id}/frame",
-        "/api/one/pod/browser/tasks/{task_id}/input",
-        "/api/one/pod/browser/tasks/{task_id}/review",
-        "/api/one/pod/browser/tasks/{task_id}/session",
-        "/api/one/pod/browser/tasks/{task_id}/downloads/{download_id}",
-        "/api/one/pod/connectors/{connector_id}",
-        "/health",
-        "/health/ready",
-        # Capabilities remain private; only liveness is public. Each command/Files route
-        # enforces its scoped session; worker verifies its exact queue identity instead.
-        # Reachability grants no authority. Direct chat/history requires a current owner
-        # app session, pkm.read, owner-bound chat key and encrypted recovery fence.
-        "/api/one/pod/agent-chat",
-        "/api/one/pod/agent-chat/capabilities",
-        "/api/one/pod/agent-chat/history/{conversation_id}/information-requests",
-        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/review",
-        "/api/one/pod/agent-chat/conversations/{conversation_id}",
-        "/api/one/pod/agent-chat/conversations/{user_id}",
-        "/api/one/pod/agent-chat/history/{conversation_id}",
-        "/api/one/pod/commands/transcriptions",
-        "/api/one/pod/commands/assess",
-        "/api/one/pod/memory/proposals",
-        "/api/one/pod/files/jobs",
-        "/api/one/pod/files/repair-index",
-        "/api/one/pod/files/usage",
-        "/api/one/pod/files/settings",
-        "/api/one/pod/files/list",
-        "/api/one/pod/files/entry",
-        "/api/one/pod/files/create",
-        "/api/one/pod/files/chunk",
-        "/api/one/pod/files/complete",
-        "/api/one/pod/files/mutate",
-        "/api/one/pod/tasks",
-        "/api/one/pod/tasks/control",
-        "/api/one/pod/tasks/review",
-        "/api/one/pod/tasks/continue",
-        "/api/one/pod/status",
-        "/api/one/pod/config",
-        "/api/one/pod/turn",
-        "/api/one/pod/turn/stream",
-        "/api/one/pod/turn/cancel",
-        "/api/one/pod/puppy/models",
-        # NOT /api/one/pod/live: the Live websocket is walled on purpose, and
-        # test_a_walled_websocket_is_closed_before_accept pins the 1008 close.
-        "/api/one/puppy/relay",
-        "/api/one/pod/session/challenge",
-        "/api/one/pod/session/admit",
-        "/api/one/pod/session/renew",
-        "/api/one/pod/session/revoke",
-        # Memory and the AI selection: two-door admission; APP_SURFACE_EXACT owns reach.
-        "/api/one/pod/ai-selection",
-        "/api/one/pod/conversation/{conversation_id}/close",
-        "/api/one/pod/memory/status",
-        "/api/one/pod/memory/revoke",
-        "/api/one/pod/memory/provider-consent",
-    }
-)
-
-
 # Queue identity is checked at this exact route, never by an owner session.
 QUEUE_REACHABLE_PATHS = frozenset(
     {"/api/one/pod/files/worker", "/api/one/pod/tasks/worker", "/api/one/pod/browser/worker"}
@@ -513,6 +433,8 @@ def _concrete(path: str) -> str:
     values = {
         "task_id": "browser_" + "0" * 32,
         "download_id": "0" * 32,
+        "account_id": "0" * 32,
+        "operation": "scan",
         "command_id": "00000000-0000-4000-8000-000000000001",
         "connector_id": "gmail"
         if path.startswith("/api/one/pod/connectors/")

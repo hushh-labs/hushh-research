@@ -139,6 +139,9 @@ describe("investor-kai-action-registry", () => {
     }).map((action) => action.id);
 
     expect(gmailActions).toEqual([
+      "profile.gmail.manage_mailboxes",
+      "profile.gmail.sync_selected_mailboxes",
+      "profile.gmail.saved_receipt_report",
       "profile.gmail.visit_merchant",
       "route.profile_receipts",
       "route.one_gmail_kyc",

@@ -34,7 +34,7 @@ import {
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
 import { MailConnectionStatus } from "@/components/gmail/mail-kyc-connect-entry";
-import { MailOverview, MailConnectedAccount } from "@/components/gmail/mail-overview";
+import { MailOverviewWorkspace } from "@/components/gmail/mail-overview-workspace";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -2028,15 +2028,12 @@ export default function GmailReceiptsPage({
                 overview: (
                   <>
                     {!isConnected ? mailStatusPanel : null}
-                    {isConnected ? (
-                      <MailConnectedAccount
-                        busy={gmailActionBusy !== null || loadingStatus}
-                        onReconnect={() => void handleConnectGmail()}
-                        onDisconnect={() => setShowDisconnectConfirm(true)}
-                      />
-                    ) : null}
-                    {isConnected ? (
-                      <MailOverview
+                      <MailOverviewWorkspace connected={isConnected} busy={gmailActionBusy !== null || loadingStatus} active={workspace === "overview"}
+                        confirmTransition={confirmTransition} onAccountsChanged={() => { void refreshGmailStatus({ force: true }); }}
+                        onReconnect={() => void handleConnectGmail()} onDisconnect={() => setShowDisconnectConfirm(true)}
+                        session={user?.uid && vaultKey && vaultOwnerToken && hasSealedReceiptAccess ? { userId: user.uid, vaultKey, vaultOwnerToken } : null}
+                        account={receiptAccountKey} email={gmail.status?.google_email}
+                        receiptRevision={`${receiptDisplayScope}:${receiptSyncCompletion}:${savedReceiptSnapshot?.value.freshness ?? ""}`}
                         fetching={overviewReceiptsFetching}
                         receiptIssue={overviewReceiptIssue}
                         receiptCount={
@@ -2051,7 +2048,6 @@ export default function GmailReceiptsPage({
                         )}
                         onOpenChat={handleOpenOneChat}
                       />
-                    ) : null}
                   </>
                 ),
                 kyc: (

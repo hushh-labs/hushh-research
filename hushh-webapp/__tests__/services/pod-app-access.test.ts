@@ -254,7 +254,22 @@ it("seals an AI selection to the hub-signed key of the addressed pod, and refuse
   expect(Object.keys(wrapped).sort()).toEqual(['envelope', 'transition']);
   expect(await openAsAgent(wrapped.envelope, agent.privateKey, agentRaw, 'hussh/connector-credential/v1')).toBe(canonical(login));
   expect(String(fetch.mock.calls[0][1].body)).not.toContain(login.code);
+  fetch.mockClear();
+  const mailLogin = { ...login, mailAccount: { mode: 'add' } };
+  await ownerPodRequest('connectors/gmail', { method: 'PUT', body: JSON.stringify({ ...mailLogin, transition }) }, ports);
+  const mailWrapped = JSON.parse(String(fetch.mock.calls[0][1].body));
+  expect(await openAsAgent(mailWrapped.envelope, agent.privateKey, agentRaw, 'hussh/connector-credential/v1')).toBe(canonical(mailLogin));
+  expect(String(fetch.mock.calls[0][1].body)).not.toContain('mailAccount');
+  fetch.mockClear();
+  await ownerPodRequest('connectors/gmail/accounts', { method: 'GET' }, ports);
+  expect(fetch).toHaveBeenCalledOnce();
+  fetch.mockClear();
+  await expect(ownerPodRequest('connectors/gmail/accounts', { method: 'PUT', body: '{}' }, ports)).rejects.toThrow('POD_CONNECTOR_REQUEST_REFUSED');
+  await expect(ownerPodRequest('connectors/gmail/accounts/' + 'a'.repeat(32), { method: 'GET' }, ports)).rejects.toThrow('POD_CONNECTOR_REQUEST_REFUSED');
+  expect(fetch).not.toHaveBeenCalled();
   // Transition metadata cannot smuggle authorization material outside the seal.
+  await expect(ownerPodRequest('connectors/gmail/accounts/' + 'a'.repeat(32) + '/receipts/scan', { method: 'GET' }, ports)).rejects.toThrow('POD_CONNECTOR_REQUEST_REFUSED');
+  expect(fetch).not.toHaveBeenCalled();
   fetch.mockClear();
   await expect(ownerPodRequest('connectors/gmail', { method: 'PUT',
     body: JSON.stringify({ ...login, transition: { ...transition, code: login.code } }) }, ports)).rejects.toThrow('GOOGLE_TRANSITION_INVALID');

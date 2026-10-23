@@ -1223,6 +1223,9 @@ tests/test_pod_connector_credential_seal.py
 tests/test_pod_connector_doors.py
 tests/test_pod_connector_shared_grant.py
 tests/test_pod_connector_tokens.py
+tests/test_pod_mail_accounts.py
+tests/test_pod_mail_account_doors.py
+tests/test_pod_mail_receipts.py
 tests/test_pod_custody_mcp.py
 tests/test_pod_drive_local.py
 tests/test_pod_external_ingress_admission_strict.py

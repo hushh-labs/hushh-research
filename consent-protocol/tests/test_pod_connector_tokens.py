@@ -72,6 +72,9 @@ async def _connect(
     *,
     issued: int = 1,
     credential_id: str = "3b9f6a0e-7c2d-4e1f-9a8b-5c4d3e2f1a0b",
+    subject: str = "1234567890",
+    mail_account: dict | None = None,
+    refresh_token: str = REFRESH,
 ):
     opened = OpenedConnectorCredential(
         kind="authorization_code",
@@ -82,20 +85,60 @@ async def _connect(
         client_profile="hussh_ios",
         client_id=CLIENT,
         scopes=scopes,
+        mail_account=mail_account,
     )
     return await store.record_connector_credential(
         log,
         hushh_id=OWNER,
         opened=opened,
-        account_subject="1234567890",
+        account_subject=subject,
         granted_scopes=scopes,
-        refresh_token=REFRESH,
+        refresh_token=refresh_token,
         now_ms=1,
     )
 
 
 def _source(log, post, clock=lambda: 1000.0) -> PodGoogleTokenSource:
     return PodGoogleTokenSource(log_resolver=lambda: log, post=post, clock=clock)
+
+
+async def test_account_scoped_refresh_cache_and_late_refresh_cannot_cross_mailboxes(log):
+    work = await _connect(log, mail_account={"mode": "add"})
+    personal = await _connect(
+        log,
+        issued=2,
+        credential_id="11111111-2222-4333-8444-555555555555",
+        subject="22222222",
+        mail_account={"mode": "add"},
+        refresh_token="synthetic-personal",
+    )
+    fake = _Google(_ok("work-access"), _ok("personal-access", refresh_token="rotated-personal"))
+    source = _source(log, fake)
+    assert await source.access_token("gmail") == "work-access"
+    assert await source.access_token("gmail", account_id=personal.account_id) == "personal-access"
+    assert store.active_connector_credential("gmail") == work
+    assert (
+        store.active_connector_credential("gmail", account_id=personal.account_id).refresh_token
+        == "rotated-personal"
+    )
+    source.forget("gmail", account_id=personal.account_id)
+    started, finish = asyncio.Event(), asyncio.Event()
+
+    async def delayed(_url, _form):
+        started.set()
+        await finish.wait()
+        return _ok("must-not-escape")
+
+    source._post = delayed
+    pending = asyncio.create_task(source.access_token("gmail", account_id=personal.account_id))
+    await started.wait()
+    await store.clear_connector_credential(
+        log, hushh_id=OWNER, connector_id="gmail", account_id=personal.account_id
+    )
+    finish.set()
+    with pytest.raises(ConnectorTokenError):
+        await pending
+    assert await source.access_token("gmail") == "work-access"
 
 
 @pytest.mark.parametrize("outcome", ["revoked", "fresh", "unavailable"])
@@ -413,7 +456,7 @@ async def test_pod_connection_recovery_reason_only_names_actual_grant_failures(
     from hushh_mcp.services.pod_google_connections import PodGoogleConnections
 
     held = None if state == "absent" else SimpleNamespace(status=state, credential_id="synthetic")
-    monkeypatch.setattr(store, "active_connector_credential", lambda service: held)
+    monkeypatch.setattr(store, "active_connector_credential", lambda service, **_kwargs: held)
     source = SimpleNamespace(access_token=AsyncMock(side_effect=ConnectorTokenError(code)))
     connections = PodGoogleConnections(token_source=source, owner_user_id=OWNER)
     with pytest.raises(GoogleConnectionError) as error:

@@ -436,7 +436,7 @@ async def invalidate_pod_grants(log: Any, *, hushh_id: str, admission: dict) -> 
     for name, credential in held.items():
         account = hashlib.sha256(credential.account_subject.encode()).hexdigest()
         if (
-            name not in credentials.GOOGLE_CONNECTORS
+            credential.connector_id not in credentials.GOOGLE_CONNECTORS
             or credential.status != credentials.STATUS_CONNECTED
             or not accounts
             or (None not in accounts and account not in accounts)

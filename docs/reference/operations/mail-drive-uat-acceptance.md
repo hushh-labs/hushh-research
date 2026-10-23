@@ -18,6 +18,92 @@ Until then UAT stays on `hushh-drive-uat`. Switching a lane's client requires ex
 connections in that lane to reconnect once.
 Mail/Calendar/Firebase clients and existing grants are unchanged.
 
+## Mail account reporting work — 2026-10-23
+
+Local implementation, not a deployment or a completed multi-provider connection
+rollout: Mail Overview now attaches `MailSavedReceiptReport` through
+`MailOverviewWorkspace`. It reads the existing owner-encrypted receipt snapshots,
+with an explicit selected-mailbox or all-saved-mailboxes scope. The report shows
+paid receipts or recorded recurring charges for a calendar month in the device's
+timezone. Exact decimal currency totals, source-account coverage and receipt
+provenance come from `receipt-account-report.ts` and `receipt-report-store.ts`.
+Every selected snapshot is required and its generation/revision is checked before
+returning the result. No receipt details are written to the hub or another store.
+
+Cross-mailbox copies match only through a reviewed seller and explicit transaction
+references. A conflicting lifecycle, amount, date or reference, or multiple
+canonical rows from one mailbox in a matching cluster, excludes that cluster.
+Unidentified duplicates may remain and are disclosed. Refund amounts are not
+verified or subtracted; currencies are not converted. Recurring paid charges are
+not a subscription inventory, a prediction of future bills or a normalized monthly
+price for annual plans. Saved scan coverage is not proof of all purchases.
+
+Mail Overview also supports independent Google mailbox custody and explicit
+foreground receipt sync for one or all connected Google mailboxes. Per-account
+scan/detail routes run inside the owner pod with its selected model, durable
+source key and admitted owner session. The client merges normalized receipt facts
+into its existing encrypted snapshots. A failed account keeps its previous
+snapshot while other accounts can finish. First-time verified empty coverage is
+saved; missing or failed coverage never becomes a fabricated zero. Reset, owner,
+vault and credential changes fence late writes. Every selected report snapshot
+is required. The existing default-account tools and watches remain unchanged.
+
+The requested Hussh work mailbox is Google Workspace. It uses the Google provider;
+an address's work domain is a display identity, not another OAuth provider.
+Outlook has no configured Mail app registration for this task. Before its live
+connection can be enabled, the operator needs a Microsoft Entra app registration
+for the intended organizational/personal account audience, reviewed exact platform
+redirects and delegated mailbox-read access. Keep mail authorization independent
+of the existing Microsoft application sign-in. Register only the actual callback
+implemented by the eventual connector; do not invent a callback or reuse a Firebase
+sign-in callback. Native public-client code must not contain a client secret.
+See [Microsoft account audiences](https://learn.microsoft.com/en-us/entra/identity-platform/msal-client-application-configuration)
+and [Microsoft Graph Mail.Read](https://learn.microsoft.com/en-us/graph/permissions-reference#mailread).
+
+Remaining work: the deferred Graph adapter, automatic multi-account tracking and
+explicit account scope through negotiated receipt chat contracts. Live acceptance
+must prove two Google accounts, one-account failure, cross-account/owner cursor
+rejection, selected-account disconnect and accurate combined source coverage.
+Outlook provider acceptance is a separate later phase.
+
+### Google mailbox custody phase — local, 2026-10-23
+
+Mail Overview now composes `MailGoogleAccounts` for an unlocked private owner.
+It lists verified Google mailbox identities, supports explicit Add, same-identity
+Reconnect and individual Disconnect. Existing shared-owner flows and default
+Google permission upgrades retain their previous behavior. If an older private
+agent cannot list mailboxes, the existing default-mailbox controls remain usable
+while additional-account controls stay disabled with a refresh/update explanation.
+Web Add hands off the
+closed `hushh://one/connect/google/gmail/add` intent; the phone supplies its own
+owner, vault session and signed pod binding. Targeted reconnect stays in Mail on
+the phone; no account identity or credential is carried in the QR.
+
+The existing sealed credential body optionally carries `mailAccount` Add or
+Reconnect intent. The pod verifies Google's identity, applies uniqueness and
+expected-credential checks inside its existing log compare-and-set, and retains
+the default Gmail slot for older tools. Additional accounts have independent
+credential generations, refresh locks, caches and disconnect tombstones. A
+connector-wide replay floor remains deliberately conservative. Additional-record
+kinds are distinct so an older image ignores them rather than replacing the
+default mailbox during rollback. Transition validation and erasure inventory
+include every held account; no credentials move into the hub.
+
+This is local source, not a deployed or provider-qualified feature. The current
+native client configuration and Android development restrictions still apply.
+Existing legacy records without verified email display a generic mailbox label
+until reconnected. Tools and push watches still use the default mailbox; account
+selection for those operations and combined chat answers remain unfinished.
+Overview receipt sync is manual and scans at most the past year, up to 300
+candidates per mailbox. Older saved receipts survive a subsequent scan. Coverage,
+freshness and excluded conflicts are visible beside each combined report. Outlook
+remains unconfigured. This is not an inbox switcher or unattended tracking.
+
+Acceptance must prove two real Google accounts, duplicate add, wrong-identity
+reconnect, stale disconnect, restart, expiry/rotation and late-refresh rejection.
+Windows cannot execute the Linux pod log suites because `fcntl` is unavailable;
+Linux integration and actual native/provider acceptance remain required.
+
 ## Visual Map
 
 The ordinary connection requests explicit live Drive access. Existing limited

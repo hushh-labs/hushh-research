@@ -47,6 +47,7 @@ from hushh_mcp.services.pod_connector_tokens import (
     google_token_source,
     required_scopes,
 )
+from hushh_mcp.services.pod_google_grant_cleanup import retire_replaced as _retire_replaced
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ async def _redeem(
     opened: OpenedConnectorCredential,
     client_secret: Optional[str],
     post: Any,
-) -> tuple[str, tuple[str, ...], str]:
+) -> tuple[str, tuple[str, ...], str, str]:
     """(account subject, granted scopes kept, refresh token) or a refusal, cleaned up."""
     client_id = str(opened.client_id)
     try:
@@ -209,7 +210,12 @@ async def _redeem(
         if isinstance(exc, ConnectorTokenError):
             raise ConnectRefused(SCOPE_NOT_GRANTED, provider_revoked=revoked) from None
         raise ConnectRefused(exc.code, provider_revoked=revoked) from None
-    return subject, granted, grant.refresh_token
+    return (
+        subject,
+        granted,
+        grant.refresh_token,
+        google.id_token_email(grant.id_token, client_id=client_id),
+    )
 
 
 async def _connect_google_code(
@@ -217,6 +223,10 @@ async def _connect_google_code(
 ) -> store.ConnectorCredential:
     held, _floors = await store.read_connector_credentials(log, hushh_id=hushh_id)
     previous = held.get(opened.connector_id)
+    if opened.mail_account is not None:
+        from hushh_mcp.services.pod_mail_accounts import find_account
+
+        previous = find_account(held, opened.mail_account.get("accountId", ""))
     secret = _owner_client_secret(opened, held)
     if opened.client_profile != "owner_client":
         try:
@@ -225,7 +235,7 @@ async def _connect_google_code(
             )
         except google.GoogleOAuthError:
             raise ConnectRefused(google.CLIENT_PROFILE_UNSUPPORTED) from None
-    subject, granted, refresh_token = await _redeem(
+    subject, granted, refresh_token, email = await _redeem(
         log, hushh_id=hushh_id, opened=opened, client_secret=secret, post=post
     )
     client_id = str(opened.client_id)
@@ -237,6 +247,7 @@ async def _connect_google_code(
             account_subject=subject,
             granted_scopes=granted,
             refresh_token=refresh_token,
+            account_email=email,
         )
     except BaseException as exc:
         revoked = await _revoke_unless_shared(
@@ -254,29 +265,6 @@ async def _connect_google_code(
     google_token_source().forget(opened.connector_id)
     await _retire_replaced(log, hushh_id=hushh_id, previous=previous, kept=refresh_token, post=post)
     return recorded
-
-
-async def _retire_replaced(
-    log: Any,
-    *,
-    hushh_id: str,
-    previous: Optional[store.ConnectorCredential],
-    kept: str,
-    post: Any,
-) -> None:
-    """A replaced login's grant is revoked only when nothing here still uses it."""
-    if previous is None or previous.provider != PROVIDER_GOOGLE:
-        return
-    if not previous.refresh_token or previous.refresh_token == kept:
-        return
-    await _revoke_unless_shared(
-        log,
-        hushh_id=hushh_id,
-        token=previous.refresh_token,
-        client_id=previous.client_id,
-        subject=previous.account_subject,
-        post=post,
-    )
 
 
 async def connect(
@@ -310,7 +298,13 @@ async def connect(
 
 
 async def disconnect(
-    log: Any, *, hushh_id: str, connector_id: str, post: Any = None
+    log: Any,
+    *,
+    hushh_id: str,
+    connector_id: str,
+    post: Any = None,
+    account_id: str = "",
+    expected_credential_id: Optional[str] = None,
 ) -> Optional[bool]:
     """Clear local custody, then revoke at Google when no connector shares the grant.
 
@@ -323,9 +317,13 @@ async def disconnect(
     # Stop local use durably before awaiting a provider. Clearing after the revoke
     # could delete a new login that landed while Google was answering.
     credential = await store.clear_connector_credential(
-        log, hushh_id=hushh_id, connector_id=connector_id
+        log,
+        hushh_id=hushh_id,
+        connector_id=connector_id,
+        account_id=account_id,
+        expected_credential_id=expected_credential_id,
     )
-    google_token_source().forget(connector_id)
+    google_token_source().forget(connector_id, account_id=account_id)
     revoked: Optional[bool] = None
     if credential is not None and credential.provider == PROVIDER_GOOGLE:
         revoked = await _revoke_unless_shared(
@@ -360,7 +358,7 @@ async def revoke_fenced(
 
     def collect(record: dict[str, Any]) -> None:
         nonlocal candidates
-        if record.get("kind") not in {store.RECORD_KIND, store.CLEARED_KIND}:
+        if record.get("kind") not in store.CREDENTIAL_RECORD_KINDS | store.CREDENTIAL_CLEARED_KINDS:
             return
         payload = record.get("payload")
         if not isinstance(payload, Mapping) or payload.get("hushh_id") != hushh_id:
@@ -371,7 +369,7 @@ async def revoke_fenced(
         seen.add(name)
         if len(seen) > _MAX_ERASURE_CONNECTORS:
             raise ValueError("connector inventory exceeds its bound")
-        if record["kind"] == store.CLEARED_KIND:
+        if record["kind"] in store.CREDENTIAL_CLEARED_KINDS:
             # A failed disconnect clears local use before Google answers. Its
             # earlier sealed credential must remain in the revocation inventory.
             return

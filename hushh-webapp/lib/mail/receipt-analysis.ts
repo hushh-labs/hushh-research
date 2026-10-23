@@ -18,9 +18,9 @@ export function parseReceiptAnalysisRequest(operation: ReceiptFunction, value: u
 }
 // All current verified source currencies have two minor units. No binary float
 // participates in a sum, comparison or net calculation.
-function minor(amount: string): bigint { const [whole, fraction = ""] = amount.split("."); return BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0")); }
-function money(value: bigint): string { return `${value / 100n}.${String(value % 100n).padStart(2, "0")}`; }
-function localDay(value: string, timezone: string): string {
+export function minor(amount: string): bigint { const [whole, fraction = ""] = amount.split("."); return BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0")); }
+export function money(value: bigint): string { return `${value / 100n}.${String(value % 100n).padStart(2, "0")}`; }
+export function localDay(value: string, timezone: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const parts = new Intl.DateTimeFormat("en", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
   const part = (type: string) => parts.find(p => p.type === type)!.value;

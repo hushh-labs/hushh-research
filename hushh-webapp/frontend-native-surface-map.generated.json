@@ -3199,9 +3199,12 @@
       "voice_action_contract_ids": [
         "profile.gmail.connect",
         "profile.gmail.disconnect",
+        "profile.gmail.manage_mailboxes",
         "profile.gmail.receipt_sync_details",
         "profile.gmail.restore_saved_receipts",
+        "profile.gmail.saved_receipt_report",
         "profile.gmail.sync_now",
+        "profile.gmail.sync_selected_mailboxes",
         "profile.gmail.visit_merchant",
         "route.one_gmail_kyc",
         "route.profile_receipts"
@@ -10896,5 +10899,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "65ebd424b259e67ff0f855b745b869b1852b60fc303f1f38508e483451741fc4"
+  "content_sha256": "6fcbcfb5cbe5c55a3e66375cc2c62d35c76bd37b81fadbd75f791c306c8317e1"
 }

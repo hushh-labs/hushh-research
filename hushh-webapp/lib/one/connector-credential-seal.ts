@@ -38,7 +38,9 @@ export type AuthorizationCodePlaintext = {
   codeVerifier: string;
   redirectUri: string;
   scopes: string[];
+  mailAccount?: MailAccountIntent;
 };
+export type MailAccountIntent = { mode: 'add' } | { mode: 'reconnect'; accountId: string; credentialId: string };
 export type OwnerClientPlaintext = { kind: "owner_client"; clientId: string; clientSecret: string };
 export type McpOauthPlaintext = {
   kind: "mcp_oauth";
@@ -107,6 +109,14 @@ export function connectorTarget(connectorId: string): { provider: ConnectorProvi
 export function assertConnectorPlaintext(connectorId: string, value: ConnectorCredentialPlaintext): void {
   if (connectorTarget(connectorId).kind !== value.kind) throw new ConnectorSealError("CREDENTIAL_KIND_UNSUPPORTED");
   if (value.kind === "authorization_code") {
+    if (value.mailAccount !== undefined) {
+      const intent = value.mailAccount;
+      const validIntent = connectorId === 'gmail' && intent && (
+        (intent.mode === 'add' && Object.keys(intent).length === 1) ||
+        (intent.mode === 'reconnect' && Object.keys(intent).length === 3 &&
+          /^[a-f0-9]{32}$/.test(intent.accountId) && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(intent.credentialId)));
+      if (!validIntent) throw new ConnectorSealError('CREDENTIAL_INVALID');
+    }
     const valid = GOOGLE_CLIENT_RE.test(value.clientId) && VERIFIER_RE.test(value.codeVerifier) &&
       Boolean(value.code) && !/\s/.test(value.code) && value.scopes.length > 0;
     if (!valid) throw new ConnectorSealError("CREDENTIAL_INVALID");
