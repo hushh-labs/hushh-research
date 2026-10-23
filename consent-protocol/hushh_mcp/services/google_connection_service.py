@@ -13,20 +13,22 @@ import base64
 import hashlib
 import hmac
 import os
-import re
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 
 import httpx
-from cachetools import TTLCache
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
 from hushh_mcp.services import oauth_redirect_policy
+from hushh_mcp.services.google_calendar_account_status import (
+    calendar_accounts_status as project_calendar_accounts_status,
+)
+from hushh_mcp.services.google_calendar_profile_photo import CalendarProfilePhotos
 from hushh_mcp.services.google_oauth_attempt import (
     connection_generation,
     decode_attempt,
@@ -39,7 +41,6 @@ _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - OAuth endpoint, not a credential
 _REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 _USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
-_GOOGLE_PICTURE_HOST = re.compile(r"lh[3-6](?:-tt|-d[a-gz])?\.(?:google|googleusercontent)\.com")
 # Calendar is a first-class One agent. Keep its provider callback on the same
 # canonical One route declared by the web navigation contract; the old
 # `/profile/...` page remains only as a compatibility handler for old links.
@@ -106,40 +107,10 @@ def _clean(value: object | None) -> str:
     return str(value or "").strip()
 
 
-def _google_picture_url(value: object | None) -> str | None:
-    """Only expose Google's avatar URL family from verified userinfo."""
-    if not isinstance(value, str) or not value or len(value) > 4096:
-        return None
-    try:
-        url = urlsplit(value)
-        if (
-            url.scheme != "https"
-            or url.username
-            or url.password
-            or url.port is not None
-            or url.query
-            or url.fragment
-            or not url.hostname
-            or not _GOOGLE_PICTURE_HOST.fullmatch(url.hostname)
-            or not re.match(r"^/a(?:-)?/", url.path)
-        ):
-            return None
-    except ValueError:
-        return None
-    return value
-
-
 class GoogleConnectionService:
     def __init__(self, db: Any | None = None) -> None:
         self.db = db or get_db()
-        # Photos are presentation metadata. A bounded process cache avoids a
-        # schema migration and repeated provider calls during status polling.
-        self._calendar_picture_cache: TTLCache[tuple[str, str, str, str], str] = TTLCache(
-            maxsize=512, ttl=900
-        )
-        self._calendar_picture_failure_cache: TTLCache[tuple[str, str, str, str], bool] = TTLCache(
-            maxsize=512, ttl=60
-        )
+        self._calendar_photos = CalendarProfilePhotos(self)
 
     async def _execute_raw_async(self, sql: str, params: dict[str, Any] | None = None) -> Any:
         """Keep legacy synchronous database work off the async request loop."""
@@ -506,120 +477,17 @@ class GoogleConnectionService:
     async def _calendar_picture(
         self, *, user_id: str, account_id: str, row: dict[str, Any]
     ) -> str | None:
-        subject = _clean(row.get("provider_subject"))
-        if row.get("status") != "connected" or not subject:
-            return None
-        generation = connection_generation(row)
-        key = (user_id, account_id, subject, generation)
-        cached = self._calendar_picture_cache.get(key)
-        if cached:
-            return cached
-        if key in self._calendar_picture_failure_cache:
-            return None
-        try:
-            async with asyncio.timeout(8):
-                token = await self.access_token(
-                    user_id=user_id,
-                    service="calendar",
-                    access_level="read",
-                    account_id=account_id,
-                )
-                profile = await self._userinfo(token)
-            current = (
-                await self._connection(user_id)
-                if account_id == "default"
-                else await self._calendar_account(user_id, account_id)
-            )
-            if (
-                not current
-                or current.get("status") != "connected"
-                or connection_generation(current) != generation
-                or _clean(profile.get("sub")) != subject
-            ):
-                return None
-            picture = _google_picture_url(profile.get("picture"))
-        except Exception:
-            # A photo lookup cannot make Calendar status unavailable. Cache the
-            # fallback briefly so a provider failure does not flood polling.
-            picture = None
-        if picture:
-            self._calendar_picture_cache[key] = picture
-        else:
-            self._calendar_picture_failure_cache[key] = True
-        return picture
+        return await self._calendar_photos.lookup(user_id=user_id, account_id=account_id, row=row)
 
     async def calendar_accounts_status(self, *, user_id: str) -> dict[str, Any]:
         """List only this owner's Calendar identities; never return credentials."""
-        default = await self.status(user_id=user_id, service="calendar")
-        accounts_sql = """SELECT account_id, provider_subject, provider_email,
-                      refresh_token_ciphertext, status, scope_csv, access_level
-               FROM google_calendar_additional_accounts WHERE user_id = :user_id
-               ORDER BY connected_at, account_id"""
-        result = await self._execute_raw_async(
-            accounts_sql,
-            {"user_id": user_id},
+        return await project_calendar_accounts_status(
+            self,
+            user_id=user_id,
+            calendar_list_access=lambda value: _scopes_cover(
+                set(_clean(value).split()), {CALENDAR_LIST_READ_SCOPE}
+            ),
         )
-        primary = await self._connection(user_id) if default["connected"] else None
-        photo_rows = ([("default", primary)] if primary else []) + [
-            (row["account_id"], row) for row in result.data
-        ]
-        photos = await asyncio.gather(
-            *(
-                self._calendar_picture(user_id=user_id, account_id=account_id, row=row)
-                for account_id, row in photo_rows
-            )
-        )
-        pictures = {
-            (account_id, connection_generation(row)): photo
-            for (account_id, row), photo in zip(photo_rows, photos, strict=True)
-        }
-        # A photo lookup may refresh an expired bearer and discover revoked
-        # OAuth authority. Re-read status and account generations before reply.
-        default = await self.status(user_id=user_id, service="calendar")
-        result = await self._execute_raw_async(accounts_sql, {"user_id": user_id})
-        primary = await self._connection(user_id) if default["connected"] else None
-        accounts = []
-        if default["status"] != "disconnected":
-            accounts.append(
-                {
-                    "account_id": "default",
-                    "google_email": default["google_email"],
-                    "profile_photo_url": pictures.get(("default", connection_generation(primary)))
-                    if primary
-                    else None,
-                    "status": default["status"],
-                    "connected": default["connected"],
-                    "access_level": default["access_level"],
-                    "calendar_list_access": default.get("calendar_list_access", False),
-                }
-            )
-        for row in result.data:
-            if row["status"] == "disconnected":
-                continue
-            accounts.append(
-                {
-                    "account_id": row["account_id"],
-                    "google_email": row["provider_email"],
-                    "profile_photo_url": pictures.get(
-                        (row["account_id"], connection_generation(row))
-                    )
-                    if row["status"] == "connected"
-                    else None,
-                    "status": row["status"],
-                    "connected": row["status"] == "connected",
-                    "access_level": row["access_level"],
-                    "calendar_list_access": _scopes_cover(
-                        set(_clean(row["scope_csv"]).split()), {CALENDAR_LIST_READ_SCOPE}
-                    ),
-                }
-            )
-        return {
-            **default,
-            # Legacy top-level fields describe the default grant. One and
-            # existing connector callers cannot act through an added account.
-            "accounts": accounts,
-            "account_limit": 3,
-        }
 
     async def _mark_needs_reauth(
         self,
