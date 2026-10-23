@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 DISCLOSURE = "drive-four-group-v1"
 LEASE_SECONDS = 300
-MAX_BATCH = 200
+MAX_BATCH = 5000
 MAX_PAGE = 100
 MAX_INDEXED_FILES = 10_000
 _VECTOR = struct.Struct(f"<{EMBEDDING_DIMENSIONS}f")

@@ -29,12 +29,13 @@ test.beforeAll(async () => {
     "lib/profile/gmail-connector-store.ts": "useGmailConnectorStatus",
     "lib/profile/gmail-receipts-cache.ts":
       "getCachedGmailReceipts,cachedGmailReceiptDisplayItems,clearCachedGmailReceipts",
+    "lib/services/todo-capability-sources.ts": "readTodoCapabilities",
+    "lib/services/todo-suggestion-service.ts":
+      "todoSuggestionsAvailable,suggestTodoTasks",
     "lib/calendar/use-calendar-upcoming-events.ts": "useCalendarUpcomingEvents",
     "lib/services/personal-knowledge-model-service.ts":
       "PersonalKnowledgeModelService",
     "lib/services/pkm-write-coordinator.ts": "PkmWriteCoordinator",
-    "lib/services/todo-capability-sources.ts": "readTodoCapabilities",
-    "lib/services/todo-suggestion-service.ts": "todoSuggestionsAvailable,suggestTodoTasks",
     "lib/morphy-ux/morphy.ts": "morphyToast",
     "lib/morphy-ux/morphy.tsx": "morphyToast",
     "components/app-ui/app-page-shell.tsx":
@@ -182,7 +183,7 @@ for (const [width, dark] of [
       .getByRole("button", { name: "Simulate refresh failure" })
       .click();
     await expect(checkbox).toBeVisible();
-    await expect(page.getByRole("status").filter({ hasText: "Some agent tasks couldn’t refresh." })).toHaveText(
+    await expect(page.getByRole("status").filter({ hasText: "Some agent tasks" })).toHaveText(
       "Some agent tasks couldn’t refresh. Your other items are still here.",
     );
     expect(

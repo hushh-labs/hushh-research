@@ -142,7 +142,12 @@ On iOS, registered consent action buttons remain confirmation-only deep links. S
 Soul is the sole foreground presentation exception and must not produce both a
 native banner and the shared emergency alarm. Capacitor's Firebase Messaging
 router remains the iOS notification delegate and presents only the badge in the
-foreground, while the shared UI owns the emergency card and alarm. Its explicit
+foreground, while the shared UI owns the emergency card and the native
+notification bridge owns repeating foreground sound/vibration. Recipient
+dismissal, opening/unwatching, sender cancellation and lifecycle cleanup stop
+the cue. SOS cancellation is silent on every platform. Background notification
+sounds retain their platform limits; this is not a persistent locked-screen
+alarm implementation. Its explicit
 iOS `Open live location` safety action retains a validated direct One Location
 route. Consent request identity survives the Feed handoff so the backend can stop reminders after the
 user attends the system notification.

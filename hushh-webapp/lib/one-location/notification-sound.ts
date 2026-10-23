@@ -1,9 +1,16 @@
 let context: AudioContext | null = null;
 const activeTones = new Map<() => void, string | undefined>();
+const emergencyLoops = new Map<string | undefined, () => void>();
 let vibrationGrant: string | undefined;
 let vibrating = false;
 
 export function stopOneLocationNotificationSound(grantId?: string): void {
+  for (const [owner, stop] of emergencyLoops) {
+    if (!grantId || owner === grantId) {
+      stop();
+      emergencyLoops.delete(owner);
+    }
+  }
   for (const [stop, owner] of activeTones) {
     if (!grantId || owner === grantId) stop();
   }
@@ -51,7 +58,7 @@ export function installOneLocationNotificationSound(): () => void {
 }
 
 /** Never queue a tone in a suspended context: it could ring after Stop/unlock. */
-export function playOneLocationNotificationSound(shareKind?: string | null, grantId?: string): boolean {
+function playTone(shareKind?: string | null, grantId?: string): boolean {
   const emergency = String(shareKind || "").trim().toLowerCase() === "sos";
   // Vibration remains available even when Web Audio is absent or suspended.
   if (emergency && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
@@ -108,4 +115,28 @@ export function playOneLocationNotificationSound(shareKind?: string | null, gran
   } catch {
     return false;
   }
+}
+
+/** Repeat only a live foreground SOS; Stop owns every future pulse as well. */
+export function playOneLocationNotificationSound(
+  shareKind?: string | null,
+  grantId?: string,
+  expiresAt?: number,
+): boolean {
+  const emergency = String(shareKind || "").trim().toLowerCase() === "sos";
+  if (!emergency) return playTone(shareKind, grantId);
+  if (typeof document === "undefined" || document.visibilityState !== "visible" ||
+      (expiresAt !== undefined && (!Number.isFinite(expiresAt) || expiresAt <= Date.now()))) return false;
+  if (emergencyLoops.has(grantId)) return true;
+  const sounded = playTone(shareKind, grantId);
+  if (!sounded) return false;
+  const timer = setInterval(() => {
+    if (document.visibilityState !== "visible" ||
+        (expiresAt !== undefined && expiresAt <= Date.now()) ||
+        !playTone(shareKind, grantId)) {
+      stopOneLocationNotificationSound(grantId);
+    }
+  }, 1500);
+  emergencyLoops.set(grantId, () => clearInterval(timer));
+  return true;
 }

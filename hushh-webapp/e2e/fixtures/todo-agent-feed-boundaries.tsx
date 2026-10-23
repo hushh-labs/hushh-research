@@ -91,12 +91,15 @@ export function cachedGmailReceiptDisplayItems() {
 }
 // This isolated fixture never contains Gmail receipts, so clearing is a no-op.
 export function clearCachedGmailReceipts() {}
-// The task-persistence fixture has no connected specialist providers. Keep the
-// production reader hook/projection, while isolating external reads and models.
-export async function readTodoCapabilities() { return []; }
-export async function todoSuggestionsAvailable() { return false; }
-export async function suggestTodoTasks(): Promise<never> {
-  throw new Error("Task suggestions are disabled in this persistence fixture");
+// Only the synthetic Feed task participates in this lifecycle fixture.
+export async function readTodoCapabilities() {
+  return [];
+}
+export async function todoSuggestionsAvailable() {
+  return false;
+}
+export async function suggestTodoTasks() {
+  throw new Error("This lifecycle fixture must never request model suggestions");
 }
 export function useCalendarUpcomingEvents() {
   return { events: [], loaded: false, loading: false, error: null, refresh: () => {} };
