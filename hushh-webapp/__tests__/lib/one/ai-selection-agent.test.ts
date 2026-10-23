@@ -53,6 +53,20 @@ beforeEach(() => {
 });
 
 describe("ai-selection agent client", () => {
+  it("checks the admitted cloud default when the hub heartbeat advert is missing", async () => {
+    mocks.status.mockResolvedValue({ hostingMode: "byoc", state: "active", deploymentTarget: "user_azure", aiSelection: null });
+    mocks.pod.mockResolvedValueOnce(json({ status: "cleared", defaultProvider: "azure_openai", defaultModel: "owner-deployment", checkedAtMs: 1 }));
+    expect(await verifyAgentCloudAi()).toEqual({ ok: true, provider: "azure_openai", model: "owner-deployment", checkedAtMs: 1 });
+    mocks.pod.mockResolvedValueOnce(json({}, 404));
+    expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "PROVIDER_UNSUPPORTED" });
+    mocks.pod.mockClear();
+    mocks.status.mockResolvedValueOnce({ hostingMode: "shared", state: "active" });
+    expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
+    expect(mocks.pod).not.toHaveBeenCalled();
+    mocks.status.mockResolvedValueOnce({ hostingMode: "byoc", state: "active", deploymentTarget: "unknown" });
+    expect(await verifyAgentCloudAi()).toEqual({ ok: false, code: "AGENT_UNREACHABLE" });
+    expect(mocks.pod).not.toHaveBeenCalled();
+  });
   it("retains cloud quota refusal and refuses a provider-mismatched success", async () => {
     publishValidatedAuthSessionOwner(null);
     publishValidatedAuthSessionOwner("fixture-owner");

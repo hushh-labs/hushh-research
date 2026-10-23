@@ -686,6 +686,45 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 ---
 
+### Hosting management and update compatibility
+
+Completed owners entering cloud setup directly receive a same-route Hosting
+return target. Explicit invitation/setup origins are preserved; unfinished
+onboarding still uses the setup hub. Finish appears only after verified hosting
+and AI readiness. The changed `setup.finish_cloud` meaning retires its exact
+previous capability revision; a stale action resumes through a fresh assessment.
+
+Personal-agent status may include `updateBlockedReason`: `UPDATE_IN_PROGRESS`,
+`RELEASE_UNVERIFIED`, `INSTALLED_RELEASE_UNVERIFIED`, or
+`PREDECESSOR_NOT_QUALIFIED`. This explains an existing installation refusal; it
+does not grant upgrade authority. A verified private AI check displays its actual
+model/deployment. The hub's Shared model catalog is not an Azure pod catalog.
+
+### Owner cloud removal and inspection
+
+- `GET /api/one/personal-agent/removal`: Firebase-owner, no-store discovery.
+  Returns `{available, provider}` only for the installed schema and recorded
+  GCP/Azure home, including qualified interrupted Azure setup. No provider calls,
+  reservations or mutations; missing/old schema does not offer the control.
+- `POST /api/one/personal-agent/removal`: current vault-owner authority. Strict
+  phases `inspect`, `status`, `approve`, `execute`, `finalize`; exact operation and
+  plan digest plus explicit contents/retention confirmation are required for
+  destructive work. Uses the existing erasure executor; never calls full account
+  deletion. Successful finalization returns `{status:"cloud_removed",
+  operationId, accountRetained:true, hostingMode:"unplaced"}` only for that exact
+  released identity. A stale replacement, uncertain outcome or changed approval
+  returns a bounded 409 and retains recovery custody.
+- `GET /api/one/personal-agent/hosting/inspection`: Firebase-owner, read-only
+  control-plane observation of the recorded service and historical receipt
+  coverage. Returns `connected`, `starting`, `absent`, `ownership_unverified`,
+  `cleanup_pending` or `unverified`, plus bounded previous-home metadata. A denied
+  read is never absence. This neither wakes nor repairs/deletes the pod.
+
+These routes use the existing One proxy and personal-agent feature authority.
+Cloud removal requires dev-only migration972; native execution and broad orphan
+scanning are not qualified. See the [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account).
+
+
 ## Route Categories
 
 ### One business suggestion completion

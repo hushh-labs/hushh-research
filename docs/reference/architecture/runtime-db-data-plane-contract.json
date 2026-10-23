@@ -2200,6 +2200,21 @@
       "trust_boundary": "Separate server-key processing domain under DRIVE_DOCUMENT_KEY_V1, not client-key BYOK or zero knowledge. Drive file IDs, names, links and retained text starts/vectors are AES-256-GCM sealed with purpose, owner, source reference and connection generation as associated data. Source references are owner-keyed HMACs. Shelf/candidate/confidence/reason/model and provider revisions, deciding dates, counts, opt-in, time zone and lease state remain queryable personal metadata. Only kept entries retain text starts/vectors. Placements confer no sharing, consent, search or provider-write authority; explicit opt-in, live grant, cohort, background preference and lease revisions remain authoritative.",
       "plaintext_posture": "server_sealed_private_file_metadata_and_kept_text_vectors_with_queryable_organizing_and_workflow_metadata",
       "expected_row_growth": "One state row and at most 10000 indexed entries per owner; batches up to 200 entries, including at most 20 uploaded-content reads, with a 204800 raw-byte prefix cap per file. Inventory traversal is bounded to 400 provider pages. No age compaction. Partial refresh state is persisted; only a complete uncapped listing permits pruning."
+    },
+    {
+      "id": "personal_agent_cloud_removal",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "personal_agent_cloud_removals"
+      ],
+      "primary_access_path": "Dev-only migration972; vault-owner POST /api/one/personal-agent/removal and the existing resource-erasure executor. Owner/attempt primary-key lookups and transactional finalization; GET discovery is Firebase-owner authenticated and creates no operation.",
+      "retention_policy": "Retain pending operations and completed bounded archives while the account exists. Unconfirmed resource absence never expires retry custody. Completed archives are limited to 2 MiB and preserve exact resource/history digests; no content or credentials. No time-based pruning without a replacement recovery contract.",
+      "deletion_behavior": "Cloud-only finalization preserves account/vault and replaces the registry with a clean unplaced identity, advancing placement epoch and retaining exact prior homes. Full account erasure explicitly removes these records only under its independent full-account tombstone. Standbys, migration jobs and unresolved earlier homes block cloud removal.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "One pending or completed record per explicitly admitted removal; owner/attempt uniqueness and immutable completion prevent retry duplication. Historical removals remain until account erasure.",
+      "trust_boundary": "No OAuth tokens, vault keys, filenames or file contents. Database guards bind owner, attempt, incarnation, snapshot and exact approved review. Legacy account-cleanup authorization cannot grant cloud-only purpose. Read-only inspection covers recorded owner resources only; labels and provider DELETE acceptance do not prove ownership or absence."
     }
   ]
 }

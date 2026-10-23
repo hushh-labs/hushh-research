@@ -1,3 +1,4 @@
+import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection } from "./personal-agent-hosting";
 import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
 /**
  * Platform-aware API routing. Web hub requests use Next.js proxies; native hub
@@ -3823,14 +3824,15 @@ export class ApiService {
   }
 
   static async getPersonalAgentStatus(options?: { signal?: AbortSignal }): Promise<PersonalAgentStatus> {
-    const token = await ApiService.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
-      method: "GET",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      signal: options?.signal,
-    });
-    if (!response.ok) throw new Error(`AGENT_STATUS_UNAVAILABLE:${response.status}`);
-    return response.json();
+    return readPersonalAgentStatus(await ApiService.getFirebaseToken(), ApiService.apiFetch, options);
+  }
+
+  static async getPersonalAgentCloudRemovalAvailability(options?: { signal?: AbortSignal }) {
+    return readCloudRemovalAvailability(await ApiService.getFirebaseToken(), ApiService.apiFetch, options);
+  }
+
+  static async inspectPersonalAgentHosting() {
+    return readHostingInspection(await ApiService.getFirebaseToken(), ApiService.apiFetch);
   }
 
   static async approvePersonalAgentUpdate(input: {

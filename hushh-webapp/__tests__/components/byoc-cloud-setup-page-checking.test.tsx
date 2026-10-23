@@ -17,14 +17,17 @@ import {
   CLOUD_CHECK_TIMEOUT_MS,
 } from "@/components/connections/byoc-cloud-setup-page";
 
-const fixture = vi.hoisted(() => ({ user: { uid: "uid-returning" }, savedHosting: false, replace: vi.fn() }));
+const fixture = vi.hoisted(() => ({ user: { uid: "uid-returning" }, savedHosting: false, completed: false, search: "", replace: vi.fn() }));
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({ user: fixture.user, loading: false }),
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: fixture.replace, push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(fixture.search),
+}));
+vi.mock("@/lib/utils/browser-navigation", async (original) => ({
+  ...(await original<object>()), requestInternalAppNavigation: () => false,
 }));
 
 vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
@@ -33,7 +36,7 @@ vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
-    getCachedBootstrapState: () => fixture.savedHosting ? {} : null,
+    getCachedBootstrapState: () => fixture.savedHosting ? { setupCompleted: fixture.completed } : null,
     bootstrapState: () => new Promise(() => {}),
     hasOneCloudProject: () => fixture.savedHosting,
   },
@@ -82,6 +85,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     vi.useFakeTimers();
     fixture.user = { uid: "uid-returning" };
     fixture.savedHosting = false;
+    fixture.search = ""; fixture.completed = false;
     fixture.replace.mockReset();
     publishValidatedAuthSessionOwner(fixture.user.uid);
     mockStatus.mockReset();
@@ -94,17 +98,35 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     vi.useRealTimers();
   });
 
+  it.each(["", "?return_to=%2Fone%2Fprofile%2Fhosting"])("returns verified setup to its entry destination (%s)", async (search) => {
+    fixture.search = search;
+    fixture.savedHosting = true;
+    render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole("button", { name: "Save AI access" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish agent setup" }));
+    expect(fixture.replace).toHaveBeenCalledWith(search ? "/one/profile/hosting" : "/one/setup");
+  });
+
+  it("canonicalizes completed direct entries for shell and native Back without changing setup", async () => {
+    fixture.savedHosting = true; fixture.completed = true;
+    render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(fixture.replace).toHaveBeenCalledWith("/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting");
+    expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
+  });
+
   it("keeps AI behind verified hosting and drops both proofs on an owner switch", async () => {
     const view = render(<ByocCloudSetupPage />);
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
     expect(screen.queryByRole("button", { name: "Save AI access" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Finish agent setup" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Finish agent setup" })).toBeNull();
     fixture.savedHosting = true;
     view.unmount();
     const readyView = render(<ByocCloudSetupPage />);
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
     expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Finish agent setup" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Finish agent setup" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save AI access" }));
     expect(screen.getByRole("button", { name: "Finish agent setup" })).toBeEnabled();
     fixture.user = { uid: "different-owner" };
@@ -113,9 +135,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     mockAgentStatus.mockReturnValue(new Promise(() => {}));
     readyView.rerender(<ByocCloudSetupPage />);
     expect(screen.queryByRole("button", { name: "Save AI access" })).toBeNull();
-    const finish = screen.getByRole("button", { name: "Finish agent setup" });
-    expect(finish).toBeDisabled();
-    fireEvent.click(finish);
+    expect(screen.queryByRole("button", { name: "Finish agent setup" })).toBeNull();
     expect(fixture.replace).not.toHaveBeenCalled();
   });
 

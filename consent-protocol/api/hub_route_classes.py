@@ -344,6 +344,8 @@ POST /api/kai/gmail/webhook
 GET /api/one/agent-prompt
 POST /api/one/personal-agent/adopt
 POST /api/one/personal-agent/deprovision
+GET,POST /api/one/personal-agent/removal
+GET /api/one/personal-agent/hosting/inspection
 GET /api/one/personal-agent/endpoint
 POST /api/one/personal-agent/direct-ingress/retry
 POST /api/one/personal-agent/provision

@@ -19273,7 +19273,7 @@
         "byoc",
         "AI"
       ],
-      "meaning": "Keeps the verified hosting and saved AI choice, then returns to the One setup hub.",
+      "meaning": "Keeps the verified hosting and saved AI choice, then returns to Hosting when opened from its Settings page, or to the One setup hub during onboarding.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

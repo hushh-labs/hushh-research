@@ -1,6 +1,11 @@
 import type { SupportMessageKind } from "@/lib/services/support-service";
 
-import { ROUTES } from "@/lib/navigation/routes";
+import { ROUTES, buildOneSetupCloudRoute } from "@/lib/navigation/routes";
+
+/** Management preserves its parent for both shell and native Back. */
+export function profileHostingSetupHref(): string {
+  return `${buildOneSetupCloudRoute(ROUTES.PROFILE_HOSTING)}&${new URLSearchParams({ from: ROUTES.PROFILE_HOSTING })}`;
+}
 
 export type ProfilePanel =
   | "account"

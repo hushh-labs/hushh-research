@@ -127,6 +127,7 @@ export function useGeminiRuntimeSettingsModel({
   const router = useRouter();
   const pathname = usePathname();
   const [cloudAiVerified, setCloudAiVerified] = useOwnerPresentationState(visit, false);
+  const [cloudAiModel, setCloudAiModel] = useOwnerPresentationState<string | null>(visit, null);
   const { placement, refreshPlacement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
   const privateCloud = placement === "gcp" || placement === "azure";
   const defaultLabel = privateCloud ? "Use existing cloud" : "Use Hussh AI";
@@ -329,9 +330,6 @@ export function useGeminiRuntimeSettingsModel({
       //
       //   1. Honesty. Persisting first and probing second means a person can be
       //      told "selected" about a runtime that cannot generate.
-      //   2. This is the only moment the server learns an AI connection exists for
-      //      a managed user. Provisioning their private agent hangs off this call;
-      //      before it, choosing managed contacted no server route at all.
       if (!privateCloud && placement !== "shared")
         throw new Error("HOSTING_NOT_READY");
       let selection;
@@ -343,6 +341,7 @@ export function useGeminiRuntimeSettingsModel({
           throw new Error(outcome.code);
         }
         setCloudAiFailure(null);
+        setCloudAiModel(outcome.model);
         selection = { agentScheduled: false, agentReason: "host already connected" };
       } else selection = await ApiService.selectManagedGeminiRuntime();
       if (!selection) throw new Error("AGENT_UNREACHABLE");
@@ -764,7 +763,7 @@ export function useGeminiRuntimeSettingsModel({
     return true;
   });
   const editable = () => visit.credentialCurrent() && !selectionPendingRef.current;
-  return { userId, vaultKey, vaultOwnerToken, placement, refreshPlacement, privateCloud, defaultLabel, cloudAiVerified, cloudAiFailure,
+  return { userId, vaultKey, vaultOwnerToken, placement, refreshPlacement, privateCloud, defaultLabel, cloudAiVerified, cloudAiModel, cloudAiFailure,
     showAiAlternatives, setShowAiAlternatives, setCloudAiVerified, setCloudAiFailure, onProviderPendingChange,
     otherProvider, agentOutcome, compactDefault, managedChoiceDisabled: isSaving || isRemoving || externalAiPending || (!privateCloud && placement !== "shared"),
     onRequestVaultUnlock, onRequestVaultCreation,
@@ -896,6 +895,7 @@ export function GeminiRuntimeSettingsView({ model }: { model: GeminiRuntimeSetti
               hasExplicitSelection={hasExplicitSelection}
               otherProvider={Boolean(otherProvider)}
               cloudAiVerified={cloudAiVerified}
+              modelLabel={cloudAiVerified ? model.cloudAiModel : null}
               onSelect={() => {
                 if (!requiresExplicitSelection ||
                   (selectedOption === "hushh_managed_vertex" &&
