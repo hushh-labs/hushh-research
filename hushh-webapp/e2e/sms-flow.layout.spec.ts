@@ -192,6 +192,11 @@ test("pending recipient metadata keeps the mobile SMS composer usable without di
 });
 
 test("preset, edit, cancel, hold, live receipt and Stop work through real browser events", async ({ page, isMobile, browserName }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   await page.setViewportSize({ width: 393, height: 852 });
   await page.setContent(`<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
   await page.addScriptTag({ content: script });
@@ -206,6 +211,7 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await expect(send).toHaveText("Cancel");
   await expect(send.getByTestId("sos-send-progress")).toBeVisible();
   await expect(page.getByTestId("sos-sms-progress")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("sms-send-tap-countdown.png"), fullPage: true });
   await send.click();
   await expect(send).toHaveText("Send");
   await page.waitForTimeout(2100);
@@ -265,4 +271,5 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await expect(page.getByTestId("sos-sms-progress")).toHaveCount(0);
   await expect(page.getByText("Pick a quick message.")).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  expect(errors).toEqual([]);
 });

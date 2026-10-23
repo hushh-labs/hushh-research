@@ -49,7 +49,7 @@ import {
   isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
 import { DOCUMENT_FLOW_TEXT_SCALE, periodConflictNote } from "@/lib/consent/document-request-flow";
-import { partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
+import { documentRequestEmptyOutcomeLabel, partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
 import {
   effectiveRequesterPaymentState,
   REQUESTER_PAYMENT_TITLES,
@@ -147,7 +147,7 @@ const STATUS_LABELS: Record<string, string> = {
   expired: "Request expired",
   completed: "Sharing results",
   partial: "Review sharing and search results",
-  no_match: "No file candidates in this search",
+  no_match: "No files were shared",
   no_files_shared: "No files were shared",
   management_only: "Manage recorded access",
 };
@@ -1262,7 +1262,7 @@ function UnlockedDocumentReview({
     review?.preparationError !== "background_preparation_required";
   const durableStatus = snapshot?.status.direction === "incoming" &&
     snapshot.status.status === "no_match"
-    ? "No file candidates in this search"
+    ? documentRequestEmptyOutcomeLabel(snapshot.status.outcomeReason)
     : automaticSharing
     ? review?.preparationError === "date_range_required"
       ? "Exact dates needed"
@@ -1332,7 +1332,7 @@ function UnlockedDocumentReview({
     : outgoingStatus.status === "partial" && sentCount > 0 && requesterPayment?.autoshare === true
       ? `Files sent · ${sentCount.toLocaleString()}`
     : outgoingStatus.status === "no_files_shared" && sentCount === 0
-      ? "No matching files"
+      ? documentRequestEmptyOutcomeLabel(outgoingStatus.outcomeReason)
     // Stalled or still queued work says so; it never reads as running.
     : requesterDelayed
       ? `${queueLabel({ queuedAt: outgoingStatus.workDelayedSince, queueDelayed: true }, now)}${
@@ -1356,6 +1356,8 @@ function UnlockedDocumentReview({
             ? error
               ? "Couldn't load request"
               : ACTIVITY_LABELS.loading
+            : snapshot.status.direction === "incoming" && snapshot.status.status === "no_match"
+              ? documentRequestEmptyOutcomeLabel(snapshot.status.outcomeReason)
             : agentPackage && review?.preparationError === "background_preparation_required"
               ? "Background Drive access needed"
             : v1Package && UNDECIDED.has(snapshot.status.status)
@@ -1799,6 +1801,15 @@ function UnlockedDocumentReview({
           </SettingsGroup> : null}
         </div> : null}
       </> : null}
+
+      {snapshot?.status.direction === "incoming" && snapshot.status.outcomeReason === "matching_files_unshareable" ? (
+        <HelperText>
+          {snapshot.status.matchedFileCount ? `${snapshot.status.matchedFileCount} files found. ` : ""}
+          No matching file has confirmed sharing permission from your connected account.
+          Open Google Drive and ask the file owner or shared drive manager to check sharing permissions.
+          Payment does not change file permissions.
+        </HelperText>
+      ) : null}
 
       {review && !agentPackage && !setup && durableReview && !automaticSharing && !ownerDecision && !removal ? (
         <>
