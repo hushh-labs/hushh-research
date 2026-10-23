@@ -31,6 +31,8 @@ tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
 tests/services/test_drive_groups.py
+tests/services/test_drive_group_inventory.py
+tests/services/test_drive_group_index_job.py
 tests/services/test_drive_group_index_postgres.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py

@@ -1,0 +1,221 @@
+{
+  "kind": "synthetic_training_records_v1",
+  "families": [
+    {
+      "group": "personal_documents",
+      "family": "passport_record_1",
+      "name": "Passport {tag}",
+      "head": "PASSPORT Republic of Example. Passport number {number}. Surname Morgan. Given names {person}. Nationality Example. Date of birth 12 May 1998. Date of issue {date}. Date of expiry 12 May 2030. Place of birth Northport. Signature of holder."
+    },
+    {
+      "group": "personal_documents",
+      "family": "passport_record_2",
+      "name": "Passport {tag}",
+      "head": "Identity document: passport biographical record. Holder {person}, document no {number}, issuing authority Passport Office. Nationality and citizenship Example. Issued {date}. This passport certifies the identity of the named citizen for international travel."
+    },
+    {
+      "group": "personal_documents",
+      "family": "passport_record_3",
+      "name": "Passport {tag}",
+      "head": "Passport personal particulars. Full name {person}. Passport ID {number}. Sex F. Birthplace Westhaven. Residential address 18 Example Road. Issuing country Example. Valid until {date}. Machine readable travel document."
+    },
+    {
+      "group": "personal_documents",
+      "family": "resume_record_1",
+      "name": "Resume {tag}",
+      "head": "Resume - {person}. Contact example@example.invalid. Professional summary: software engineer with five years experience. Employment: Fabrikam Services, developer. Education: Bachelor of Engineering. Skills Python, SQL, testing. Projects and accomplishments. Updated {date}."
+    },
+    {
+      "group": "personal_documents",
+      "family": "resume_record_2",
+      "name": "Resume {tag}",
+      "head": "CURRICULUM VITAE. Candidate {person}. Employment history, professional qualifications and technical skills. Experience: software development at Contoso. Degree: Computer Science. Portfolio projects and certifications. References available on request."
+    },
+    {
+      "group": "personal_documents",
+      "family": "resume_record_3",
+      "name": "Resume {tag}",
+      "head": "Candidate profile / Resume. {person}. Career objective: engineering role. Work experience: application developer, Northwind. Academic qualifications: engineering degree. Skills: programming, teamwork, communication. Contact address 25 Example Lane. Revision {date}."
+    },
+    {
+      "group": "personal_documents",
+      "family": "certificate_record_1",
+      "name": "Personal certificate {tag}",
+      "head": "CERTIFICATE OF QUALIFICATION. This certifies that {person}, registration {number}, has successfully completed the Bachelor of Science programme. Awarded with distinction by Northport Institute on {date}. Registrar signature and official seal."
+    },
+    {
+      "group": "personal_documents",
+      "family": "certificate_record_2",
+      "name": "Personal certificate {tag}",
+      "head": "BIRTH CERTIFICATE. Registered name {person}. Registration number {number}. Date and place of birth recorded by the municipal registrar. Parent and guardian particulars verified. Extract issued {date}. Official civil registration record."
+    },
+    {
+      "group": "personal_documents",
+      "family": "certificate_record_3",
+      "name": "Personal certificate {tag}",
+      "head": "Certificate issued to {person}. Credential number {number}. Qualification awarded: Diploma in Computer Applications. The examining authority confirms successful completion and confers this certificate on {date}. Signed by Registrar."
+    },
+    {
+      "group": "personal_documents",
+      "family": "employment_record_1",
+      "name": "Employment letter {tag}",
+      "head": "EMPLOYMENT APPOINTMENT LETTER. Dear {person}, we are pleased to appoint you as Software Engineer with Fabrikam Services effective {date}. Employee reference {number}. Reporting manager and terms of employment follow. Authorized HR signature."
+    },
+    {
+      "group": "personal_documents",
+      "family": "employment_record_2",
+      "name": "Employment letter {tag}",
+      "head": "TO WHOM IT MAY CONCERN. This employment verification letter confirms that {person}, employee ID {number}, has worked as an analyst at Contoso since 2022. Issued by Human Resources on {date} at the employee request."
+    },
+    {
+      "group": "personal_documents",
+      "family": "employment_record_3",
+      "name": "Employment letter {tag}",
+      "head": "SERVICE CERTIFICATE. We certify that {person} was employed by Northwind in the role of developer. Employee number {number}. Employment commencement and end dates are verified. This experience letter is issued {date}. HR department signature."
+    },
+    {
+      "group": "personal_documents",
+      "family": "completed_form_1",
+      "name": "Completed personal form {tag}",
+      "head": "PERSONAL REGISTRATION FORM - completed record. Applicant full name {person}. Application number {number}. Date of birth 14 June 1999. Permanent address 12 Example Road. Telephone 0000000000. Emergency contact recorded. Applicant signature and date {date}."
+    },
+    {
+      "group": "personal_documents",
+      "family": "completed_form_2",
+      "name": "Completed personal form {tag}",
+      "head": "APPLICATION FORM. Personal particulars of applicant {person}. Registration reference {number}. Address and identity details completed. Nationality Example. Educational qualification Bachelor degree. Declaration: the supplied particulars are true. Signed {date}."
+    },
+    {
+      "group": "personal_documents",
+      "family": "completed_form_3",
+      "name": "Completed personal form {tag}",
+      "head": "Completed enrolment form. Person: {person}. Form reference {number}. Residential address, contact telephone, date of birth and guardian details. Attached identity proof and signature of applicant. Submission date {date}. Official receipt section."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "utility_record_1",
+      "name": "Utility usage record {tag}",
+      "head": "WATER CONSUMPTION STATEMENT. Domestic consumer {number}. Account holder {person}. Reading date {date}. Previous meter reading 312, current meter reading 340, water used 28 cubic metres. Supply address 14 Example Street. Monthly usage and charges."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "utility_record_2",
+      "name": "Utility usage record {tag}",
+      "head": "Electricity service account: {number}. Customer {person}. Billing cycle ending {date}. Energy consumption 186 kWh. Opening and closing meter readings, demand, tariff and usage history. Domestic supply statement issued by Example Power."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "utility_record_3",
+      "name": "Utility usage record {tag}",
+      "head": "Gas utility monthly usage report. Subscriber {person}, service ID {number}. Statement date {date}. Meter consumption and units supplied. Prior usage, current usage and service charges. Your household utility account record."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "telecom_record_1",
+      "name": "Telecom account record {tag}",
+      "head": "BROADBAND ACCOUNT STATEMENT. Subscriber {person}, customer number {number}. Period ending {date}. Fibre plan 100 Mbps. Data consumption 186 GB, included allowance unlimited. Service address and account usage details. Internet provider monthly record."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "telecom_record_2",
+      "name": "Telecom account record {tag}",
+      "head": "Mobile telephone usage report for {person}. Subscriber ID {number}. Billing date {date}. Calls: 120 minutes. Messages: 40. Data: 12 GB. Itemised usage with call date, destination, duration and charge. Telecommunications service statement."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "telecom_record_3",
+      "name": "Telecom account record {tag}",
+      "head": "Internet service subscriber record. Account {number}, registered customer {person}. Monthly statement {date}. Download and upload data totals, plan allowance, service availability and account charges. Fixed-line broadband usage details."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "education_record_1",
+      "name": "Academic record {tag}",
+      "head": "ACADEMIC MARKSHEET. Student {person}, roll number {number}. Examination held {date}. Subject code, subject name, maximum marks, marks obtained and result. Mathematics 82, computing 91. Semester grade point average 8.6. Controller of examinations."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "education_record_2",
+      "name": "Academic record {tag}",
+      "head": "STATEMENT OF ACADEMIC RESULTS. Registered student {person}. University record {number}. Term completed {date}. Courses attempted, credits earned, letter grades and cumulative grade point average. Official transcript issued by the examinations office."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "education_record_3",
+      "name": "Academic record {tag}",
+      "head": "EDUCATION TRANSCRIPT. Name {person}, student registration {number}. Programme of study Bachelor of Engineering. Certified semester record dated {date}. Course title, assessment score, credit value, final grade and pass status. Registrar seal."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "medical_record_1",
+      "name": "Medical record {tag}",
+      "head": "DIAGNOSTIC LABORATORY RESULTS. Patient {person}, laboratory accession {number}. Sample collected {date}. Test: complete blood count. Haemoglobin 13.2 g/dL, white cell count 6200, platelets 250000. Reference ranges and pathologist authorization."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "medical_record_2",
+      "name": "Medical record {tag}",
+      "head": "HOSPITAL DISCHARGE SUMMARY. Patient {person}, medical record {number}. Discharged {date}. Diagnosis, clinical findings, investigations, treatment provided and medicines on discharge. Follow-up appointment and consultant signature. Private patient health record."
+    },
+    {
+      "group": "non_financial_statements",
+      "family": "medical_record_3",
+      "name": "Medical record {tag}",
+      "head": "PATIENT TEST REPORT. Name {person}. Clinical specimen number {number}. Report date {date}. Biochemistry: glucose 92 mg/dL, total cholesterol 176 mg/dL. Results, units and normal ranges reviewed by the medical laboratory. Referring physician."
+    },
+    {
+      "group": "none",
+      "family": "insurance_research_1",
+      "name": "Insurance comparison notes {tag}",
+      "head": "Personal research notes: {person} is comparing health insurance providers. Questions about waiting periods, exclusions and premiums to discuss with family. No coverage has been bought and no policy is active. Draft notes updated {date}."
+    },
+    {
+      "group": "none",
+      "family": "insurance_research_2",
+      "name": "Choosing a policy {tag}",
+      "head": "Comparison worksheet for possible insurance plans. {person} lists advantages and disadvantages of life cover options. These are informal opinions and questions, not an issued contract, premium notice or claim record. Research date {date}."
+    },
+    {
+      "group": "none",
+      "family": "insurance_research_3",
+      "name": "Insurance lecture notes {tag}",
+      "head": "Insurance principles lecture handout. Topic: risk pooling, underwriting, premium calculation and policy exclusions. Student exercises compare hypothetical insurance products. Learning objectives and discussion questions. Lesson date {date}."
+    },
+    {
+      "group": "none",
+      "family": "financial_education_1",
+      "name": "Accounting course {tag}",
+      "head": "Accounting classroom lesson. Financial statements show assets, liabilities, equity, income and cash flow. Hypothetical balance sheet examples and practice questions. Prepared for students, not a customer account or transaction statement. Class {date}."
+    },
+    {
+      "group": "none",
+      "family": "financial_education_2",
+      "name": "Banking tutorial {tag}",
+      "head": "Banking and finance tutorial for {person}. Explain deposits, credit, interest rates and loan amortization. Exercises calculate an imaginary monthly repayment schedule. Course reading material and sample solutions. Chapter {number}."
+    },
+    {
+      "group": "none",
+      "family": "financial_education_3",
+      "name": "Tax study notes {tag}",
+      "head": "Study notes: taxation concepts, income tax assessment, deductions and tax compliance. These are general educational examples, not the named taxpayer annual statement or an official filing. Seminar material dated {date}."
+    },
+    {
+      "group": "none",
+      "family": "bank_notices_1",
+      "name": "Branch closure announcement {tag}",
+      "head": "Bank public notice. Branch offices will close for maintenance on {date}. Customers can use online services and ATMs. This is a general service announcement issued to all customers, without personal account activity or balances."
+    },
+    {
+      "group": "none",
+      "family": "bank_notices_2",
+      "name": "Bank holiday circular {tag}",
+      "head": "Circular to all branch employees. Public holiday timetable, office opening hours and staff roster. Issued by the bank administration on {date}. Schedule for branches and customer service desks, not an account statement."
+    },
+    {
+      "group": "none",
+      "family": "bank_notices_3",
+      "name": "Bank service bulletin {tag}",
+      "head": "Public banking service bulletin. Updated branch operating hours and website maintenance window. Message to customers from the operations team. Date {date}. No customer transactions, holdings, balance or lending record."
+    }
+  ]
+}

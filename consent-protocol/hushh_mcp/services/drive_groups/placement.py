@@ -14,14 +14,7 @@ def readings_for(evidence: FileEvidence, bundle: ModelBundle) -> tuple[SignalRea
     embedding = (
         bundle.embedding.probabilities(evidence.vector) if evidence.vector is not None else None
     )
-    metadata = bundle.metadata.probabilities(
-        metadata_features(
-            evidence.name,
-            evidence.mime_type,
-            owned_by_me=evidence.owned_by_me,
-            shared_with_me=evidence.shared_with_me,
-        )
-    )
+    metadata = bundle.metadata.probabilities(metadata_features(evidence.name, evidence.mime_type))
     return (
         SignalReading("text", text),
         SignalReading("embedding", embedding),

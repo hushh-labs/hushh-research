@@ -1,6 +1,6 @@
 # Drive four-group index: design, evidence and implementation
 
-Status: source on `feat/drive-four-group-index` includes the classifier, period helper, sealed store, worker, owner API and Data packets presentation. The worker has an independent bounded `groups` drain stage. Migration 409 preserves main's existing migration 368 and is registered with the schema/data-plane contracts. The UAT workflow has an explicit `DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED` activation variable, default false; other hosted lanes stay off. The local CSV is a separate private artifact, not a populated product store. Hosted deployment and authenticated acceptance remain unverified. PKM writing remains future work.
+Status: source on `feat/drive-four-group-index` includes the classifier, period helper, sealed store, worker, owner API and Data packets presentation. The worker has an independent bounded `groups` drain stage. Migration 410 preserves main's existing migration 368 and is registered with the schema/data-plane contracts. The UAT workflow has an explicit `DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED` activation variable, default false. The owner-authorized UAT activation has been observed with all four folders and paginated indexed files; completion and the changes below still need fresh deployed acceptance. The local CSV is a separate private artifact, not a populated product store. PKM writing remains future work.
 
 ## Data packets connector delivery
 
@@ -15,13 +15,17 @@ uncached and fenced by owner, vault epoch, connection identity and visit lifetim
 Production preparation now uses the same strict 204,800-byte raw-prefix adapter
 as the export. Without decoded text it abstains before any classifier. The
 freshness hash includes the model and evidence policy, so prior full-read results
-refresh. Each 180-second run prioritizes cheap metadata rows (at most 200 total)
-and attempts up to 20 supported uploaded documents. It bounds head reads to the
+refresh. Each 180-second run reserves slots for up to 100 supported uploaded
+documents before metadata rows, with six concurrent reads and at most 5,000 total
+entries. It bounds head reads to the
 remaining budget after reserving embedding and commit time, cancels unfinished
 reads, and commits completed entries; deferred files remain pending. A persisted
 work-remaining flag keeps partial refreshes in the indexing state even after a
-previous run completed. The inventory
-is still repeated per batch. This is bounded background preparation, not a new
+previous run completed. A bounded process-local inventory cache reuses complete
+rows and a Drive changes cursor across batches. Every access uses the current
+job's fenced read port; generation, processing and background revisions change
+the cache key. Partial or failed deltas never publish or authorize pruning. Cache
+loss or expiry bootstraps a full listing. This is bounded background preparation, not a new
 two-minute full-Drive performance claim.
 
 The UAT groups scheduler reuses the fixed private V1 worker service, OIDC identity,
@@ -68,7 +72,7 @@ flowchart LR
 | Text start | `drive_groups/text_head.py` | First 400 characters (200 to 500 allowed) of the parsed text; ligatures folded, control marks dropped; `None` when a scan has no text. |
 | Signal A, text start | `drive_groups/linear_model.py`, `features.py`, `text_model.json` | tf-idf over word 1-2 grams and character 3-5 grams, softmax-linear, weights learned. Digits fold to `0`, so no account number or date reaches a feature name. |
 | Signal B, embedding | `drive_groups/embedding_model.py`, `embedding_model.json` | Cosine of the pinned `multilingual-e5-small` vector to five class centroids and to the four written group definitions, then a small learned layer. |
-| Signal C, metadata | `drive_groups/features.py`, `metadata_model.json` | Name words and grams, extension, MIME type, shared-with-me and owner flags. Folder path and size are not in the fenced listing mask (`LIST_FIELDS`), so they are not used. |
+| Signal C, metadata | `drive_groups/features.py`, `metadata_model.json` | Name words and grams, extension and MIME type. Ownership and sharing are held unknown in both fitting and inference, matching production's listing rather than learning label-correlated fixture flags. Folder path and size are not in the fenced listing mask (`LIST_FIELDS`), so they are not used. |
 | Fusion | `drive_groups/fusion.py`, `fusion.json` | Log-domain pooling with one learned weight per signal, a Platt map to a confidence, then a policy: confidence, margin over the runner-up, and agreement of the voting signals. A signal with weight 0 neither pools nor votes. |
 | Operon | `drive_groups/indexer.py`, `adapters.py` | `index_files(rows, heads=, embedder=)`: reads heads (2 at a time by default; an explicit caller may select 1–32), embeds in batches of 100, places each file. Parser children are separately capped at two per retained parser. A kept file keeps its text start and vector; placed files discard both by default. An explicit local export may retain evidence for both. Systemic failures end the run; only a few per-file outcomes read as "no text". |
 | Fit and measure | `consent-protocol/scripts/train_drive_groups.py`, `consent-protocol/scripts/eval_drive_groups.py`, `consent-protocol/scripts/build_drive_group_fixtures.py`, `tests/fixtures/drive_groups/synthetic.jsonl` | Offline. scikit-learn and scipy are used for fitting only; both already ship as dependencies of sentence-transformers and neither is imported at runtime. No new dependency was added. |
@@ -77,24 +81,23 @@ The working group definitions, kept in `groups.json` and taken from the Drive la
 
 ## Evidence, and its limits
 
-The fit uses 276 invented files from template families. Folds hold out whole families, so the confidence it learns is not flattered by near-copies. The held-out `eval` split has 146 invented files from families the fit never saw (50 of them fit no group, including coursework with a lab and enrollment number, a statement of purpose, a bank-holiday circular, accounting lecture notes and an insurance comparison).
+The fit uses 708 invented training files, including additional document layouts and unrelated notices/research that mention financial or insurance terms. Folds hold out whole families. The original `eval` split remains byte-for-byte unchanged: 146 invented files from families excluded from fitting (50 fit no group, including coursework, a statement of purpose, a bank-holiday circular, accounting notes and an insurance comparison). This benchmark informed the repair, so it is regression evidence, not an independent prospective accuracy estimate.
 
-| Held-out result, version `629b0b04a049` | Value |
+| Synthetic regression, version `33f7631e3696` | Value |
 | --- | --- |
-| Placed / correct | 57 / 55 (precision 0.965) |
-| Group files placed correctly (recall) | 55 of 96 (0.573); 41 kept |
-| Files that fit no group but were placed | 2 of 50 (both on insurance) |
-| Calibration error on placed files | 0.067 |
+| Placed / correct | 85 / 85 (precision 1.000), previously 57 / 55 |
+| Group files placed correctly (recall) | 85 of 96 (0.885), previously 55 of 96; 11 kept |
+| Files that fit no group but were placed | 0 of 50, previously 2 |
 | Files with no text (15) | all kept, reason `no_evidence` |
-| Per group, precision / recall | financial 1.00 / 0.96, non-financial 1.00 / 0.25, insurance 0.91 / 0.88, personal 1.00 / 0.21 |
+| Per group, correct / positive | financial 24 / 24, non-financial 22 / 24, insurance 19 / 24, personal 20 / 24 |
 
 What this does and does not show:
 
 - It is a regression gate. The documents are invented by the same author as the fit, so it says nothing certain about a real Drive. Promotion needs the owner to run `eval_drive_groups.py` on authorized real labels.
-- Under unseen layouts, text alone reached 0.65 to 0.70 top-1, the embedding 0.63 to 0.64, and the file name alone 0.33 (chance is 0.30). The fit therefore gave the metadata signal weight 0, so every file without text is kept. Real names are probably more informative than invented ones; refit with real labels before relying on this.
+- The refit learns weights for all three signals. Production still requires decoded text before invoking the classifier: an informative title never substitutes for unavailable content. Ordinary photos/videos remain unsorted; native Workspace files and scanned/unreadable prefixes remain kept under the unchanged raw-byte limit.
 - The written group definitions generalised better than example centroids (out-of-fold log-loss 0.91 against 1.11), which is why the embedding signal uses both.
 - Hand-weighted keyword rules failed in the lab because words such as "lab", "cv" and "university" are not group evidence. The learned text signal alone keeps five such trap documents and places two genuine ones (`test_drive_groups.py`).
-- Recall is low for non-financial and personal documents on unseen layouts. That is the price of precision first; those files are kept, not lost.
+- Uncertain documents are kept rather than forced into a folder. The synthetic improvement must be checked against authorized real labels; it does not imply every file belongs in a document category.
 - Fits on private labels must go outside the repository: `train_drive_groups.py` refuses to write the packaged data from any other fixtures unless `--output-dir` is given.
 
 ## Run it
@@ -112,9 +115,22 @@ Needs the pinned E5 snapshot in the local Hugging Face cache (`local_files_only`
 
 ## Cost and latency, from the code
 
-- A text start costs one file download (up to 4 MiB) and one isolated parse (25 s limit). The lab measured a median of 0.44 s per PDF parse; that is a lab figure, not a repository measurement.
+- Production reads at most the first 204,800 raw downloaded bytes, never a full-download fallback, and one isolated parse (25 s limit). The raw prefix of a large PDF/ZIP may be undecodable; that outcome remains distinct from a complete-content read.
 - Embedding costs one child process per batch of up to 100 text starts; `index_files` runs the batches one after another, and the caller's lease must keep a worker to one run. A code comment in `IsolatedDocumentEmbedding.query` records about 71 s of cold start on the UAT worker's 2-CPU/4-GiB allocation, so 1,000 files is about ten batches of background work, not a request-path step.
 - Of the lab's 154 text-capable files, 139 were readable; 12 scanned PDFs and 45 images had no text, and OCR is out of scope. So a real Drive has a meaningful share of files with no text, and the metadata signal matters once real labels exist.
+
+Live UAT inspection on 2026-10-23 found Drive API limits of 12,000 requests/minute
+per project and per user, with no matching throttling failures in the six-hour
+worker log sample. The serving V1 worker had max instances 1, concurrency 1,
+2 vCPU/4 GiB for the application plus its ClamAV sidecar. Both minute-by-minute
+V1 and groups jobs target that capacity. The sampled old code committed about
+20 document attempts every two minutes. CPU/memory interval means did not show
+saturation; observed container startup samples were 135–161 seconds. These are
+dated observations, not guarantees or justification to raise resource limits.
+Count-only `drive_group_index.prepare` logs now separate listing, selection,
+actual read attempts, capture/defer counts and indexing milliseconds. A local
+PostgreSQL 16 check committed 5,000 synthetic metadata entries in 1.65 seconds;
+remote commit latency and whole-Drive completion still need deployed measurement.
 
 ## Slice 3: storage, worker and owner API
 
