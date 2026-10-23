@@ -12,6 +12,8 @@ import android.media.Ringtone
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
@@ -69,10 +71,17 @@ class HushhNotificationsPlugin : Plugin() {
     private var emergencyRingtone: Ringtone? = null
     private var emergencyGrantId: String? = null
     private var emergencyGeneration = 0
+    private var emergencyPulse: Runnable? = null
+    private var emergencyVibrator: Vibrator? = null
+    private val cancelledEmergencyGrants = linkedSetOf<String>()
 
     private fun stopEmergencyCue(grantId: String? = null) {
         if (grantId != null && grantId != emergencyGrantId) return
         emergencyGeneration += 1
+        emergencyPulse?.let { emergencyHandler.removeCallbacks(it) }
+        emergencyPulse = null
+        emergencyVibrator?.cancel()
+        emergencyVibrator = null
         emergencyRingtone?.stop()
         emergencyRingtone = null
         emergencyGrantId = null
@@ -91,7 +100,12 @@ class HushhNotificationsPlugin : Plugin() {
     @PluginMethod
     fun stopEmergencySmsCue(call: PluginCall) {
         emergencyHandler.post {
-            stopEmergencyCue(call.getString("grantId"))
+            val grantId = call.getString("grantId")
+            if (!grantId.isNullOrBlank()) {
+                cancelledEmergencyGrants.add(grantId)
+                if (cancelledEmergencyGrants.size > 128) cancelledEmergencyGrants.remove(cancelledEmergencyGrants.first())
+            }
+            stopEmergencyCue(grantId)
             call.resolve()
         }
     }
@@ -103,10 +117,17 @@ class HushhNotificationsPlugin : Plugin() {
             val userId = call.getString("userId")
             val grantId = call.getString("grantId")
             val deadline = call.getDouble("expiresAt")
+            val alarmDeadline = call.getDouble("alarmExpiresAt")
             if (!activityActive || userId.isNullOrBlank() || grantId.isNullOrBlank() ||
+                cancelledEmergencyGrants.contains(grantId) ||
                 FirebaseAuth.getInstance().currentUser?.uid != userId ||
-                deadline == null || !deadline.isFinite() || deadline <= now || deadline > now + 2000) {
+                deadline == null || !deadline.isFinite() || deadline <= now || deadline > now + 2000 ||
+                (alarmDeadline != null && (!alarmDeadline.isFinite() || alarmDeadline <= now))) {
                 call.resolve(JSObject().put("played", false))
+                return@post
+            }
+            if (emergencyGrantId == grantId) {
+                call.resolve(JSObject().put("played", emergencyRingtone?.isPlaying == true))
                 return@post
             }
             stopEmergencyCue()
@@ -118,14 +139,38 @@ class HushhNotificationsPlugin : Plugin() {
                 ringtone.audioAttributes = AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ALARM)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) ringtone.isLooping = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) ringtone.isLooping = true
                 emergencyRingtone = ringtone
                 emergencyGrantId = grantId
                 ringtone.play()
                 val generation = emergencyGeneration
-                emergencyHandler.postDelayed({
-                    if (emergencyGeneration == generation) stopEmergencyCue()
-                }, 1000)
+                emergencyVibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                val pulse = object : Runnable {
+                    override fun run() {
+                        if (emergencyGeneration != generation) return
+                        if (!activityActive || FirebaseAuth.getInstance().currentUser?.uid != userId ||
+                            (alarmDeadline != null && alarmDeadline <= System.currentTimeMillis())) {
+                            stopEmergencyCue(grantId)
+                            return
+                        }
+                        try {
+                            if (!ringtone.isPlaying) ringtone.play()
+                            val pattern = longArrayOf(0, 240, 120, 240, 120, 520)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                emergencyVibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
+                            } else {
+                                @Suppress("DEPRECATION")
+                                emergencyVibrator?.vibrate(pattern, -1)
+                            }
+                        } catch (_: Exception) {
+                            stopEmergencyCue(grantId)
+                            return
+                        }
+                        emergencyHandler.postDelayed(this, 1500)
+                    }
+                }
+                emergencyPulse = pulse
+                pulse.run()
                 call.resolve(JSObject().put("played", ringtone.isPlaying))
             } catch (_: Exception) {
                 stopEmergencyCue()

@@ -237,6 +237,7 @@ tests/services/test_connections_service.py
 tests/services/test_push_notifications.py
 tests/services/test_system_push_delivery.py
 tests/test_fcm_messages.py
+tests/test_fcm_sms_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_agent_manifests.py

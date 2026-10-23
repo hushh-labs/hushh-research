@@ -2782,6 +2782,20 @@ uses the shared red alarm card, Android routes through the dedicated
 delivery uses the matching category plus `one_location_sms_alarm.wav`. The
 profile does not authorize Do Not Disturb bypass or Apple Critical Alerts.
 
+While the recipient app is visible, the SOS cue repeats until the recipient
+dismisses the alarm or opens/unwatches the share, or the sender ends it. The
+emergency card has no automatic timeout. Web Audio owns browser cues; the
+existing native notification bridge owns foreground sound and vibration on
+iOS and Android. Cues also release on expiry, sign-out, interruption and
+foreground loss. The existing two-second sender countdown is unchanged.
+`location_share_revoked` is always silent transport, including SOS: its grant
+identity stops an active cue without triggering another sound or vibration.
+Background delivery retains the platform notification cue; indefinite closed-app
+or locked-screen alarms are outside this contract. Browser playback remains
+subject to audio/vibration support and device permissions; blocked audio is
+not queued to ring after a later unlock. A remote stop still requires delivery
+or authoritative reconciliation on the receiving device.
+
 The older KAI location route family is transitional prototype history and is
 not the product owner for live location.
 

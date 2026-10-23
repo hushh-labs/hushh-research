@@ -238,10 +238,6 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => undefined);
     };
-    if (shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh) {
-      readPreferences();
-      return cleanup;
-    }
     void (async () => {
       // Past decisions only refine research; an unreadable memory never blocks it.
       let ownerDecisions: PwmOwnerDecisions | undefined;
@@ -261,7 +257,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         publicProfileUrls: explicitRefresh ? intent.publicProfileUrls : undefined,
         // Keep read warming, but do not enroll or resume research on fixture
         // unlock. Explicit UI actions retain the rehearsal's admission guard.
-        readOnly: shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh && !explicitRetry,
+        readOnly: shouldSkipReviewerBackgroundWritesForAutomation() && !explicitRefresh,
         onProgress: (next) => {
           if (!progress || progressContent(next) !== progressContent(progress))
             lastActivityAt = Date.now();

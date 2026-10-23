@@ -172,36 +172,26 @@ afterEach(() => {
   delete (document as { hidden?: boolean }).hidden;
 });
 describe("PWM owner and request isolation", () => {
-  it("keeps restricted reviewer entry read-only while preserving explicit refresh", async () => {
-    mock.skipBackgroundWrites = true;
-    const { unmount } = render(<WorldModelProvider><Probe /></WorldModelProvider>);
-    await waitFor(() => expect(mock.preferences).toHaveBeenCalledOnce());
-    expect(mock.observe).not.toHaveBeenCalled();
-    expect(mock.load).not.toHaveBeenCalled();
-    fireEvent(document, new Event("visibilitychange"));
-    await settle();
-    expect(mock.observe).not.toHaveBeenCalled();
-    expect(mock.load).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText("Refresh"));
-    await waitFor(() => expect(mock.observe).toHaveBeenCalledOnce());
-    expect(mock.observe.mock.calls[0][0].refresh).toBe(true);
-    unmount();
-  });
-
   it.each([
     ["read_only", true], ["preparation_only", true],
     ["bounded_mutation", true], ["mutation_authorized", false],
-  ] as const)("keeps %s background research read-only without swallowing explicit refresh", async (policy, readOnly) => {
+  ] as const)("restores retained findings with %s admission without swallowing explicit refresh", async (policy, readOnly) => {
     const previous = window.__HUSHH_NATIVE_TEST__;
     window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: policy };
+    mock.observe.mockImplementation(async ({ onPartial }) => onPartial([{ id: "retained-finding" }]));
     const view = render(<WorldModelProvider><Probe /></WorldModelProvider>);
     try {
-      if (readOnly) {
-        await waitFor(() => expect(mock.preferences).toHaveBeenCalled());
-        expect(mock.observe).not.toHaveBeenCalled();
-      } else await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
+      await screen.findByText("findings 1");
+      expect(mock.observe).toHaveBeenCalledOnce();
+      expect(mock.observe.mock.calls[0][0]).toMatchObject({ readOnly, refresh: false });
+      fireEvent(document, new Event("visibilitychange"));
+      await settle();
+      expect(mock.observe).toHaveBeenCalledOnce();
+      fireEvent.click(screen.getByText("Reload"));
+      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
+      expect(mock.observe.mock.calls[1][0]).toMatchObject({ readOnly, refresh: false });
       fireEvent.click(screen.getByText("Refresh"));
-      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(readOnly ? 1 : 2));
+      await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(3));
       expect(mock.observe.mock.calls.at(-1)?.[0]).toMatchObject({ readOnly: false, refresh: true });
     } finally {
       view.unmount();
