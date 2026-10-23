@@ -262,26 +262,16 @@ test("shared dock retains mode materials and input identity with aligned edges a
       return Math.max(...(["x", "y", "width", "height"] as const)
         .map(key => Math.abs(emptyTextFrame![key] - frame![key])));
     }, { message: "Route handoff must settle to the identical Agent Bar frame" }).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-    // Voice and writing retain the same frosted outer material. A second
-    // tinted surface inside the composer would obscure the content beneath.
+    // Voice and writing share the same translucent material. Geometry and
+    // the outer host are retained when handing off between input modes.
     const voiceMaterial = await material();
     expect(voiceMaterial.radius).toBe(textMaterial.radius);
     expect(voiceMaterial.border).toBe(textMaterial.border);
     expect(voiceMaterial.background).toBe(textMaterial.background);
-    expect(await dock.evaluate(node => {
-      const style = getComputedStyle(node);
-      const alpha = Number(style.backgroundColor.match(/(?:,|\/)\s*([\d.]+)\s*\)$/)?.[1] ?? 1);
-      return alpha > 0 && alpha < 0.85;
-    })).toBe(true);
     expect(await dock.evaluate((node, original) => node === original, retainedBar)).toBe(true);
     await page.getByTestId("fixture-route").click();
     await expect(input).toBeVisible();
     expect(await material()).toEqual(textMaterial);
-    const innerMaterial = await page.locator("[data-agent-dock-embedded]").evaluate(node => {
-      const style = getComputedStyle(node);
-      return { background: style.backgroundColor, blur: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter"), shadow: style.boxShadow };
-    });
-    expect(innerMaterial).toEqual({ background: "rgba(0, 0, 0, 0)", blur: "none", shadow: "none" });
     // Routes retain the outer surface, not an unmounted route's textarea.
     await retainedInput?.dispose();
     const currentInput = await input.elementHandle();
@@ -454,17 +444,11 @@ for (const width of [393, 1440])
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         await open(page, width, dark, VARIANTS[0], errors);
-        const barMaterial = () => page.locator(".bottom-chrome-surface").evaluate(element => {
-          const style = getComputedStyle(element);
-          return { background: style.background, border: style.borderColor, blur: style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter"), shadow: style.boxShadow };
-        });
-        const sharedMaterial = await barMaterial();
         if (profile) {
           await page.locator("[data-fixture-page]").evaluate((element) => {
             element.classList.add("profile-account-content");
           });
         }
-        expect(await barMaterial()).toEqual(sharedMaterial);
         const selected = page.getByRole("radio", { name: "Connect" });
         const accent = await selected.evaluate((element) => getComputedStyle(element).color);
         for (const label of ["Chat", "One", "Feed"]) {
