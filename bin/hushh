@@ -123,6 +123,7 @@ Usage:
   ./bin/hushh codex list-workflows [--json|--text] [--verbose]
   ./bin/hushh codex pre-pr [--include-advisory] [--report-path <path>] [--json|--text]
   ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
+  ./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha> [--failed|--all|--job-id <id>] [--json|--text]
   ./bin/hushh codex data-model-audit [--database-url-env <env-name>] [--pkm-aggregates] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
   ./bin/hushh codex rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
@@ -557,6 +558,9 @@ run_codex() {
         exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_monitor.py" "${args[@]}" "$format_flag"
       fi
       exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_monitor.py" "$format_flag"
+      ;;
+    ci-rerun)
+      exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_rerun.py" "${args[@]}" "$format_flag"
       ;;
     data-model-audit)
       if [ "${#args[@]}" -gt 0 ]; then

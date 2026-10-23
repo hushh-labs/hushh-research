@@ -1456,6 +1456,9 @@ jobs:
   # cancelled run leave this check skipped, which GitHub reads as a pass.
   ci-status:
     name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || 'CI Status Gate' }}
+    permissions:
+      contents: read
+      actions: read
     needs:
       - ui-contracts
       - secret-scan
@@ -1476,7 +1479,7 @@ jobs:
       - main-freshness-gate
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Validate job outcomes
         shell: bash
@@ -1627,3 +1630,14 @@ jobs:
               ;;
           esac
           echo "Branch validation scope ${SCOPE} ran every selected lane; this is not a PR merge verdict."
+
+      - uses: actions/checkout@v6
+        if: github.run_attempt > 1
+        with:
+          persist-credentials: false
+      - name: Verify the current rerun's protected security receipt
+        if: github.run_attempt > 1
+        run: python3 scripts/ci/github_security_receipt.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

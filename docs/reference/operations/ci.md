@@ -876,20 +876,28 @@ another attempt requires a fresh inventory. Its bounded pending queue uses
 `queue: max` with cancellation disabled: GitHub's default single pending slot
 would cancel an earlier duplicate during a burst, correctly causing our
 fail-closed consumer to refuse clearance. See the [GitHub concurrency contract](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency).
-The 23 October sample contains 80 successful worker records across 25 source
-attempts. Reuse avoids redundant protected alert reads; platform-created workflow
-records and completion notifications can still appear. Missing, expired, mismatched or
+The 23 October sample contained 80 successful worker records across 25 source
+attempts. Receipt reuse alone did not eliminate those repeated workflow starts.
+The automatic trigger now uses `requested` once for each new validation run,
+instead of repeated `in_progress` transitions. Missing, expired, mismatched or
 incomplete receipts fail closed. Local checks use the same bounded cursor
 reader without writing raw alerts to disk.
 
 The replacement credential was qualified on 22 October 2026 using worker
-39861716513. Complete the consumer cutover on main and verify its exact-SHA CI
-before deleting the old repository-level secret. Until that deletion is
-read back, credential isolation remains incomplete. Removing a YAML reference
-alone cannot protect a repository-level secret from PR-controlled workflows.
+39861716513. On 23 October, PR8365 passed all 26 checks and landed as `51a5a86675`.
+Main worker `39889655505` then verified receipt reuse without another inventory
+read or artifact. The repository-level secret was deleted and its absence read
+back; no same-name organization secret is accessible to this repository. The
+main-only protected replacement remains present. Original PAT revocation is
+separately unverified: removing a stored secret does not revoke its token.
+Older PR branches must inherit the current read-only consumer and rerun gate through normal
+main synchronization; never restore the exposed repository credential to repair
+an obsolete consumer. Missing authority still refuses clearance.
 
-The worker starts when PR Validation enters `in_progress`, including reruns; it
-does not wait for the validation it must unblock. Only immutable main code reads
+The worker starts when a new PR Validation run is requested; it does not wait
+for the validation it must unblock. [GitHub does not emit `requested` for reruns](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+Use the governed operator command below to request one retry and its exact
+security worker together. Only immutable main code reads
 the protected token. It validates the repository, canonical workflow, source run,
 current attempt and exact SHA before and after bounded, complete API pagination.
 Its two-day artifact contains counts and provenance only. Repository-wide secret
@@ -898,6 +906,28 @@ backlog remains advisory. No PR code, dependencies, caches or artifacts execute
 with alert credentials. Manual main-only recovery requires the existing protected
 pipeline operator cohort and exact `source_run_id`, `source_attempt`, `source_sha`.
 A missing credential, denied read or incomplete inventory refuses clearance.
+
+```bash
+./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <current-attempt> --sha <exact-head-sha>
+```
+
+The default retries failed jobs only; `--all` explicitly retries the full run.
+`--job-id <id>` retries only the completed final gate after proving its run, SHA
+and membership in the complete attempt-scoped job inventory; use it for gate-only
+qualification instead of repeating successful suites. Other jobs use the failed
+or full-run modes.
+The command verifies main's operator policy and the completed source, requests
+one retry, observes its incremented attempt, then dispatches the protected worker
+on main. An uncertain response is reconciled without another rerun request.
+The final gate verifies that new attempt's receipt even if GitHub retained the
+previous successful Secret Scan job. PR permissions remain read-only.
+
+A raw GitHub UI rerun does not automatically launch the worker. Its consumer
+prints the exact main-only recovery command immediately and retains the bounded
+eight-minute wait. Dispatch recovery while that attempt is running. If it has
+already failed, use `ci-rerun` for the next attempt; a late receipt cannot turn a
+completed failed check green. Inspect an uncertain worker dispatch before retrying
+it. Never repeat the source request merely because the worker response was lost.
 
 ## Advisory Checks (Non-Blocking By Default)
 
