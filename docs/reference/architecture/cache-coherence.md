@@ -76,9 +76,11 @@ mapping is written to device storage. Cached send permission is always false;
 the existing authenticated history/relationship request checks it on each entry.
 
 Revisits render the matching transcript while revalidation runs. Cold entries
-retain the shell and known contact header without a blocking loading panel or
-premature empty state. Transport failures retain readable history; authoritative
-401/403/404 responses clear it. Focus, resume, polling and message signals use
+retain the shell and known contact header, with inline loading status when no
+transcript is available. Transport failures retain readable history and the
+matching owner's inbox identity; authoritative 401/403/404 responses clear both.
+Tapping the selected inbox row refreshes its history directly, so retry does not
+depend on navigation to an already open route. Focus, resume, polling and message signals use
 the existing bounded history reconciliation, including remote edits/deletions.
 Pending optimistic reactions are excluded from snapshot publication.
 

@@ -117,11 +117,13 @@ const fixture = {
   changeOwner: () => { delayInbox = true; changeOwner("second-owner"); }, releaseInbox: () => { delayInbox = false; settleInbox?.(); settleInbox = null; },
   holdRead: () => { delayRead = true; }, releaseRead: () => { delayRead = false; settleRead?.(); settleRead = null; },
   lifecycle: (state: "active" | "background") => appInteractionCoordinator.handleLifecycle(state),
-  incoming: (id = "maya") => {
+  incoming: (id = "maya", notify = true) => {
     const items = rows.get(id)!;
     const message = { id: `${id}-incoming-${items.length}`, conversationId: id, senderIsViewer: false, content: `New message ${items.length + 1}`,
       createdAt: new Date(Date.parse(items.at(-1)?.createdAt ?? "2026-10-09T12:00:00Z") + 60_000).toISOString(), readAt: null };
-    items.push(message); dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: id, messageId: message.id, source: "sse" }); return message.id;
+    items.push(message);
+    if (notify) dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: id, messageId: message.id, source: "sse" });
+    return message.id;
   },
 };
 (window as unknown as { directChatFixture: typeof fixture }).directChatFixture = fixture;
