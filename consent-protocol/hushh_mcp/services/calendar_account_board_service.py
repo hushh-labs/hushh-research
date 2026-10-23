@@ -46,6 +46,22 @@ def _window_intersection(
     return result
 
 
+def _shared_free_windows(
+    accounts: list[dict[str, Any]], duration_minutes: int
+) -> list[dict[str, Any]]:
+    shared = accounts[0]["free_windows"]
+    for account in accounts[1:]:
+        shared = _window_intersection(shared, account["free_windows"])
+    return [
+        window
+        for window in shared
+        if (
+            datetime.fromisoformat(window["end_at"]) - datetime.fromisoformat(window["start_at"])
+        ).total_seconds()
+        >= duration_minutes * 60
+    ]
+
+
 def _event_is_busy(event: dict[str, Any], account_email: str) -> bool:
     if event.get("status") == "cancelled" or event.get("transparency") == "transparent":
         return False
@@ -208,20 +224,10 @@ class CalendarAccountBoardService:
             raise GoogleConnectionError(
                 "Calendar account list changed. Refresh the board.", status_code=409
             )
+        for account, identity in zip(accounts, latest["accounts"], strict=True):
+            account["profile_photo_url"] = identity.get("profile_photo_url")
         complete = all(account["status"] == "complete" for account in accounts)
-        shared = accounts[0]["free_windows"] if complete else []
-        if complete:
-            for account in accounts[1:]:
-                shared = _window_intersection(shared, account["free_windows"])
-            shared = [
-                window
-                for window in shared
-                if (
-                    datetime.fromisoformat(window["end_at"])
-                    - datetime.fromisoformat(window["start_at"])
-                ).total_seconds()
-                >= duration_minutes * 60
-            ]
+        shared = _shared_free_windows(accounts, duration_minutes) if complete else []
         conflicts_complete = complete and not any(
             account["unreadable_calendars"] for account in accounts
         )
@@ -233,6 +239,6 @@ class CalendarAccountBoardService:
             "complete": complete,
             "conflicts_complete": conflicts_complete,
             "conflicts": _conflicts(accounts, time_zone),
-            "shared_free_windows": shared if complete else [],
+            "shared_free_windows": shared,
             "checked_at": datetime.now(UTC).isoformat(),
         }

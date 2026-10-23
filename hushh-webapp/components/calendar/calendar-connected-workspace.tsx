@@ -27,6 +27,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
+import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, calendarResponse, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
@@ -481,7 +482,7 @@ function ConnectedSchedule({ userId, status, busy, onConnect, onChat, onDisconne
           {selected.description ? <p className="whitespace-pre-wrap break-words text-sm">{selected.description}</p> : null}
           {selected.location ? <p className="text-sm">{selected.location}</p> : null}
           {selected.organizer?.email ? <p className="break-all text-sm text-muted-foreground">Organizer: {selected.organizer.email}</p> : null}
-          {safeMeetingUrl(selected.conference_url) ? <a className="inline-flex min-h-11 items-center text-[color:var(--app-accent)]" href={safeMeetingUrl(selected.conference_url)!} target="_blank" rel="noopener noreferrer">Join meeting</a> : null}
+          {isCalendarEventEnded(selected, now, zone) ? <p className="text-sm text-muted-foreground">Ended</p> : safeMeetingUrl(selected.conference_url) ? <a className="inline-flex min-h-11 items-center text-[color:var(--app-accent)]" href={safeMeetingUrl(selected.conference_url)!} target="_blank" rel="noopener noreferrer">Join meeting</a> : null}
           {selected.can_decline ? <Button variant="outline" onClick={() => { setStep("choice"); setResult(null); setReview(null); }}>Can't attend</Button> : <p className="text-sm text-muted-foreground">Attendance changes are available on invitations to your connected account.</p>}
         </div> : step === "choice" ? <div className="space-y-4">
           <fieldset disabled={submitting || busy} className="space-y-2"><legend className="text-sm font-semibold">Can't attend</legend><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={!offerTimes} onChange={() => setOfferTimes(false)} />Decline only</label><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={offerTimes} onChange={() => setOfferTimes(true)} />Decline &amp; offer another time</label></fieldset>

@@ -6,6 +6,7 @@ import type { GoogleConnectionStatus } from "@/lib/services/google-connection-se
 export type GoogleCalendarAccount = {
   account_id: string;
   google_email: string | null;
+  profile_photo_url?: string | null;
   status: "connected" | "needs_reauth" | "disconnected";
   connected: boolean;
   access_level: "read" | "manage" | null;
@@ -43,7 +44,7 @@ export type CalendarExecution = {
   };
 };
 
-export type CalendarEventTime = { dateTime?: string; date?: string } | null;
+export type CalendarEventTime = { dateTime?: string; date?: string; timeZone?: string } | null;
 
 /**
  * The RAW backend event shape (matches _event_summary() in
@@ -59,6 +60,7 @@ export type CalendarEventSummary = {
   etag?: string | null;
   calendar_id?: string;
   source_calendar_id?: string;
+  source_time_zone?: string | null;
   calendar_name?: string;
   calendar_color?: string | null;
   event_color?: string | null;
@@ -73,6 +75,7 @@ export type CalendarEventSummary = {
   start: CalendarEventTime;
   end: CalendarEventTime;
   status?: string | null;
+  event_type?: string | null;
   attendees?: { email?: string | null; response_status?: string | null; display_name?: string | null; self?: boolean }[];
   html_link?: string | null;
   conference_url?: string | null;
@@ -135,6 +138,7 @@ export type CalendarAvailability = { windows: (CalendarOpening & { duration_minu
 export type CalendarBoardAccount = {
   account_id: string;
   google_email: string;
+  profile_photo_url?: string | null;
   connection_status: string;
   status: "complete" | "incomplete" | "needs_reauth";
   events: CalendarEventSummary[];

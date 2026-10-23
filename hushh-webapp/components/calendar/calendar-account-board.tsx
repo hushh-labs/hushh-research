@@ -1,20 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, Clock, MoreHorizontal, Plus, RefreshCw } from "@/components/icons";
+import { AlertTriangle, CheckCircle, ChevronDown, Clock, MoreHorizontal, Plus, RefreshCw } from "@/components/icons";
+import { Cake, Confetti } from "@/components/icons/ui/calendar-occasion-icons";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
+import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { notifyCalendarChanged, calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
+import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
+import { boardOccasionKind, isCountedBoardEvent } from "@/lib/calendar/calendar-board-event";
+import { googleAvatarSource } from "@/lib/profile/provider-avatar";
+import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { GoogleCalendarService, type CalendarBoardAccount, type CalendarBoardConflict, type CalendarBoardDay, type CalendarEventSummary, type CalendarInvitation, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
@@ -77,10 +83,19 @@ function otherSide(pair: CalendarBoardConflict, selection: Selection) {
 }
 
 function accountLabel(email: string | null) { return email || "Google account"; }
+function accountEmailParts(email: string): [string, string] {
+  const at = email.lastIndexOf("@");
+  return at > 0 ? [email.slice(0, at), email.slice(at)] : [email, ""];
+}
+
+function JoinVideoIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 10 6-3v10l-6-3" /></svg>;
+}
 
 export function CalendarAccountBoard({ userId, status, busy, connectionRevision, connectionNotice, token, getIdToken, onAddAccount, onReconnectAccount, onDisconnectAccount, onConnect, onMailConnect, onChat }: Props) {
   const [zone, setZone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
-  const today = calendarDate(Date.now(), zone);
+  const now = Math.max(Date.now(), useCoarseClock(60_000));
+  const today = calendarDate(now, zone);
   const [date, setDate] = useState(today);
   const [tab, setTab] = useState<"board" | "invitations" | "insights">("board");
   const [invitationAccount, setInvitationAccount] = useState(status.accounts?.[0]?.account_id || "default");
@@ -98,6 +113,9 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
   const error = snapshot.key === key ? snapshot.error : null;
   const loading = snapshot.key !== key;
   const [selected, setSelected] = useState<Selection | null>(null);
+  const [occasionAccountId, setOccasionAccountId] = useState<string | null>(null);
+  const occasionAccount = board?.accounts.find(account => account.account_id === occasionAccountId);
+  const occasionEvents = occasionAccount?.events.filter(event => boardOccasionKind(event) !== null) || [];
   const [resolving, setResolving] = useState(false);
   const [conflictDraft, setConflictDraft] = useState<{ selected: string[]; notes: Record<string, string> }>({ selected: [], notes: {} });
   const selectedRef = useRef<Selection | null>(null); selectedRef.current = selected;
@@ -196,35 +214,54 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
           <div className={styles.accounts} data-count={accounts.length}>
             {accounts.map((account, index) => {
               const view = views[account.account_id] || "events";
+              const meetings = account.events.filter(isCountedBoardEvent);
+              const occasions = account.events.filter(event => boardOccasionKind(event) !== null);
+              const otherItems = account.events.filter(event => !isCountedBoardEvent(event) && boardOccasionKind(event) === null);
+              const [accountName, accountDomain] = accountEmailParts(account.google_email);
+              const photoUrl = account.profile_photo_url ?? status.accounts?.find(item => item.account_id === account.account_id)?.profile_photo_url;
+              const safePhotoUrl = photoUrl ? googleAvatarSource(photoUrl)?.href : null;
+              const renderEvent = (event: CalendarEventSummary) => {
+                const choice: Selection = { accountId: account.account_id, calendarId: event.calendar_id || "primary", eventId: event.id || "" };
+                const count = board.conflicts.filter(pair => pairIncludes(pair, choice)).length;
+                const join = safeMeetingUrl(event.conference_url);
+                const ended = isCalendarEventEnded(event, now, zone);
+                const provider = meetingProvider(event);
+                const response = calendarResponse(event, account.google_email);
+                const sourceIncluded = account.calendar_options?.find(calendar => calendar.id === (event.source_calendar_id || event.calendar_id))?.availability_default_included !== false;
+                const source = provider || (event.event_type === "birthday" ? account.google_email : event.calendar_name || "Primary calendar");
+                const eventStatus = event.status === "cancelled" ? "Cancelled"
+                  : response === "declined" ? "Declined · not busy"
+                  : event.transparency === "transparent" ? "Doesn’t block time"
+                  : !sourceIncluded ? "Not counted in free time"
+                  : response === "tentative" ? "Tentative"
+                  : response === "needsAction" ? "Awaiting your response" : null;
+                return <li key={eventIdentity(event)} className={styles.eventRow} data-ended={ended || undefined}>
+                  <button type="button" className={styles.eventMain} onClick={button => open(event, button.currentTarget)} aria-label={`Open ${event.title} in ${accountLabel(account.google_email)}`}>
+                    <span className={styles.eventCopy}><strong title={event.title}>{event.title}</strong><span>{eventTime(event, zone)}</span><small className={styles.eventSource}>{provider ? <CalendarMeetingIcon provider={provider} /> : null}<span title={source}>{source}</span></small>{eventStatus ? <small className={styles.eventStatus} data-response={response === "needsAction" ? "pending" : undefined}>{eventStatus}</small> : null}</span>
+                  </button>
+                  <div className={styles.eventActions}>
+                    {ended ? <span className={styles.eventEnded}><Clock aria-hidden className="size-3" />Ended</span> : join ? <a className={styles.eventJoin} href={join} target="_blank" rel="noopener noreferrer" aria-label={`Join meeting: ${event.title}`}><JoinVideoIcon />Join</a> : null}
+                    {count ? <button type="button" className={styles.conflictButton} aria-label={`Review ${count} overlapping meeting${count === 1 ? "" : "s"} for ${event.title} in ${accountLabel(account.google_email)}`} onClick={button => open(event, button.currentTarget)}><AlertTriangle aria-hidden className="size-4" /><span>{count}</span></button> : null}
+                  </div>
+                </li>;
+              };
               return <SurfaceCard key={account.account_id} role="group" aria-label={`Calendar account ${accountLabel(account.google_email)}`} className={styles.account} data-account-index={index}>
                 <div className={styles.accountHeader}>
-                  <span className={styles.accountMark} aria-hidden><span /></span>
-                  <div className={styles.accountIdentity}><div className={styles.accountName}>{accountLabel(account.google_email)}</div><p>{account.status === "complete" ? "Connected" : account.status === "needs_reauth" ? "Reconnect needed" : "Check incomplete"}{account.checked_at ? ` · ${new Date(account.checked_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""}</p></div>
+                  <Avatar className={styles.accountAvatar} data-photo-url={safePhotoUrl || undefined}>{safePhotoUrl ? <AvatarImage src={safePhotoUrl} alt="" referrerPolicy="no-referrer" /> : null}<AvatarFallback aria-hidden="true">{connectionAvatarInitials(accountName)}</AvatarFallback></Avatar>
+                  <div className={styles.accountIdentity} title={account.google_email}><div className={styles.accountName}>{accountName}</div>{accountDomain ? <span className={styles.accountDomain}>{accountDomain}</span> : null}</div>
                   <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={() => onDisconnectAccount(account.account_id)}>Disconnect this Calendar account</DropdownMenuItem>
                   </DropdownMenuContent></DropdownMenu>
                 </div>
+                <p className={styles.connectionState} data-status={account.status}><span aria-hidden="true" />{account.status === "complete" ? "Connected" : account.status === "needs_reauth" ? "Reconnect needed" : "Check incomplete"}{account.checked_at ? ` · ${new Date(account.checked_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""}</p>
                 <div className={styles.accountTabs}><SegmentedTabs ariaLabel={`View for ${accountLabel(account.google_email)}`} variant="filter" value={view} onValueChange={value => setViews(current => ({ ...current, [account.account_id]: value as "events" | "free" }))} options={[{ value: "events", label: `Events (${account.events.length})` }, { value: "free", label: "Free time" }]} /></div>
-                {account.status !== "complete" ? <div className={styles.accountError} role="status"><AlertTriangle aria-hidden className="size-4" /><p>{account.error || "This account could not be checked. Its time is excluded from shared availability."}</p><Button variant="outline" onClick={() => account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? account.account_id === "default" ? onConnect("read", true) : onReconnectAccount(account.account_id) : setRevision(value => value + 1)}>{account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? "Reconnect" : "Retry check"}</Button></div> : <div className={styles.accountStream} role="region" tabIndex={0} aria-label={`${view === "events" ? "Events" : "Free time"} for ${accountLabel(account.google_email)}`}>
-                  {view === "events" ? <>
-                    {account.unreadable_calendars.length ? <p className={styles.coverage}>Event details unavailable for {account.unreadable_calendars.map(calendar => calendar.name || calendar.id).join(", ")}. Busy time is still checked.</p> : null}
-                    {account.events.length ? <ul className={styles.eventList}>{account.events.map(event => {
-                      const choice: Selection = { accountId: account.account_id, calendarId: event.calendar_id || "primary", eventId: event.id || "" };
-                      const count = board.conflicts.filter(pair => pairIncludes(pair, choice)).length;
-                      const join = safeMeetingUrl(event.conference_url);
-                      const provider = meetingProvider(event);
-                      const response = calendarResponse(event, account.google_email);
-                      const sourceIncluded = account.calendar_options?.find(calendar => calendar.id === (event.source_calendar_id || event.calendar_id))?.availability_default_included !== false;
-                      return <li key={eventIdentity(event)} className={styles.eventCard}>
-                        {join ? <a className={styles.eventJoin} href={join} target="_blank" rel="noopener noreferrer" aria-label={`Join meeting: ${event.title}`}>Join</a> : null}
-                        <button type="button" className={styles.eventMain} onClick={button => open(event, button.currentTarget)} aria-label={`Open ${event.title} in ${accountLabel(account.google_email)}`}>
-                          <span className={styles.eventColor} style={{ backgroundColor: event.event_color || event.calendar_color || "var(--app-accent)" }} aria-hidden />
-                          <span className={styles.eventCopy}><strong>{event.title}</strong><span>{eventTime(event, zone)}</span><small className={styles.eventSource}>{provider ? <><CalendarMeetingIcon provider={provider} />{provider}</> : event.calendar_name || "Primary calendar"}</small>{event.status === "cancelled" ? <small>Cancelled</small> : response === "declined" ? <small>Declined · not busy</small> : event.transparency === "transparent" ? <small>Doesn’t block time</small> : !sourceIncluded ? <small>Not counted in free time</small> : response === "tentative" ? <small>Tentative</small> : response === "needsAction" ? <small>Awaiting your response</small> : null}</span>
-                        </button>
-                        {count ? <button type="button" className={styles.conflictButton} aria-label={`Review ${count} overlapping meeting${count === 1 ? "" : "s"} for ${event.title} in ${accountLabel(account.google_email)}`} onClick={button => open(event, button.currentTarget)}><AlertTriangle aria-hidden className="size-4" /><span>{count}</span></button> : null}
-                      </li>;
-                    })}</ul> : <p className={styles.empty}>No readable events on this day.</p>}
-                  </> : account.free_windows.length ? <ul className={styles.freeList}>{account.free_windows.map(window => <li key={`${window.start_at}:${window.end_at}`}><Clock aria-hidden className="size-4" /><span>{availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}</span></li>)}</ul> : <p className={styles.empty}>No free time on this day.</p>}
+                {account.status !== "complete" ? <div className={styles.accountError} role="status"><AlertTriangle aria-hidden className="size-4" /><p>{account.error || "This account could not be checked. Its time is excluded from shared availability."}</p><Button variant="outline" onClick={() => account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? account.account_id === "default" ? onConnect("read", true) : onReconnectAccount(account.account_id) : setRevision(value => value + 1)}>{account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? "Reconnect" : "Retry check"}</Button></div> : view === "events" ? <div className={styles.accountStream}>
+                  {account.unreadable_calendars.length ? <p className={styles.coverage}>Event details unavailable for {account.unreadable_calendars.map(calendar => calendar.name || calendar.id).join(", ")}. Busy time is still checked.</p> : null}
+                  <div className={styles.eventBreakdown}><span>{meetings.length} meeting{meetings.length === 1 ? "" : "s"}</span>{occasions.length ? <button type="button" onClick={() => setOccasionAccountId(account.account_id)} aria-label={`View ${occasions.length} occasion${occasions.length === 1 ? "" : "s"} for ${accountLabel(account.google_email)}`}><span className={styles.occasionIcons} aria-hidden="true">{occasions.some(event => boardOccasionKind(event) === "birthday") ? <Cake /> : null}{occasions.some(event => boardOccasionKind(event) === "holiday") ? <Confetti /> : null}</span>{occasions.length} occasion{occasions.length === 1 ? "" : "s"}</button> : null}</div>
+                  {meetings.length ? <div className={styles.meetingViewport} role="region" tabIndex={meetings.length > 3 ? 0 : undefined} aria-label={`Events for ${accountLabel(account.google_email)}`} data-scrollable={meetings.length > 3 || undefined}><ul className={styles.eventList}>{meetings.map(renderEvent)}</ul></div> : !otherItems.length && !occasions.length ? <p className={styles.empty}>No readable events on this day.</p> : null}
+                  {otherItems.length ? <div className={styles.otherViewport} role="region" tabIndex={otherItems.length > 1 ? 0 : undefined} aria-label={`Other calendar items for ${accountLabel(account.google_email)}`} data-scrollable={otherItems.length > 1 || undefined}><ul className={styles.eventList}>{otherItems.map(renderEvent)}</ul></div> : null}
+                </div> : <div className={styles.freeStream} role="region" tabIndex={0} aria-label={`Free time for ${accountLabel(account.google_email)}`}>
+                  {account.free_windows.length ? <ul className={styles.freeList}>{account.free_windows.map(window => <li key={`${window.start_at}:${window.end_at}`}><Clock aria-hidden className="size-4" /><span>{availabilityTimeRangeLabel(window.start_at, window.end_at, zone, date)}</span></li>)}</ul> : <p className={styles.empty}>No free time on this day.</p>}
                 </div>}
               </SurfaceCard>;
             })}
@@ -235,21 +272,35 @@ export function CalendarAccountBoard({ userId, status, busy, connectionRevision,
           </SurfaceCard>
         </> : null}
       </> : tab === "invitations" ? <section className={styles.secondary} aria-label="Invitations">
-        <label className={styles.accountPicker}>Calendar account<select value={invitationAccount} onChange={event => setInvitationAccount(event.target.value)}>{(status.accounts || []).map(account => <option key={account.account_id} value={account.account_id}>{accountLabel(account.google_email)}</option>)}</select></label>
+        <label className={styles.accountPicker}>Calendar account<span className={styles.accountPickerControl}><select value={invitationAccount} onChange={event => setInvitationAccount(event.target.value)}>{(status.accounts || []).map(account => <option key={account.account_id} value={account.account_id}>{accountLabel(account.google_email)}</option>)}</select><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} /></span></label>
         {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout connectedProfiles userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
-        {board ? <SurfaceCard className={styles.insightSummary}><h2>Across your connected accounts today</h2><p>{board.accounts.reduce((sum, account) => sum + account.events.length, 0)} events · {board.conflicts.length} cross-account overlaps · {board.complete ? `${board.shared_free_windows.length} shared openings` : "shared availability incomplete"}</p></SurfaceCard> : null}
+        {board ? <SurfaceCard className={styles.insightSummary}><h2>Across your connected accounts today</h2><p>{board.accounts.reduce((sum, account) => sum + account.events.filter(isCountedBoardEvent).length, 0)} events · {board.conflicts.length} cross-account overlaps · {board.complete ? `${board.shared_free_windows.length} shared openings` : "shared availability incomplete"}</p></SurfaceCard> : null}
         {defaultConnected ? <CalendarInsights key={`${userId}:default:${epoch}:${zone}`} userId={userId} accountKey={`${status.google_email}:default:${connectionRevision || 0}`} date={today} zone={zone} getIdToken={getIdToken} vaultOwnerToken={token} /> : <p>Weekly insights for the default Google account are available when that account is connected.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
+      <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>
+        <DialogContent className={styles.occasionDialog}>
+          {occasionAccount ? <>
+            <DialogHeader className={styles.occasionHeader}><DialogTitle>Occasions</DialogTitle><DialogDescription>{accountLabel(occasionAccount.google_email)}</DialogDescription></DialogHeader>
+            <ul className={styles.occasionList}>{occasionEvents.map(event => {
+              const kind = boardOccasionKind(event);
+              return <li key={eventIdentity(event)} className={styles.occasionItem} data-kind={kind || undefined}>
+                <span className={styles.occasionIcon} aria-hidden="true">{kind === "birthday" ? <Cake /> : <Confetti />}</span>
+                <div className={styles.occasionCopy}><strong>{event.title}</strong><span>{kind === "birthday" ? "Birthday" : "Holiday"} · {eventTime(event, zone)}</span>{event.location ? <span>{event.location}</span> : null}{event.description ? <p>{event.description}</p> : null}</div>
+              </li>;
+            })}</ul>
+          </> : null}
+        </DialogContent>
+      </Dialog>
       <Dialog modal open={Boolean(selected && selectedEvent)} onOpenChange={isOpen => { if (!isOpen) close(); }}>
         <DialogContent className={styles.detail} onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
           {selected && selectedEvent && selectedAccount ? <>
-            <DialogHeader className={styles.detailHeader}><DialogTitle className={styles.detailTitle}>{resolving ? "Resolve overlapping meetings" : selectedEvent.title}</DialogTitle><DialogDescription>{accountLabel(selectedAccount.google_email)} · {eventTime(selectedEvent, zone)}</DialogDescription>{!resolving && selectedOrganizer ? <p className={styles.detailSource}>Organized by {selectedOrganizer}</p> : null}</DialogHeader>
+            <DialogHeader className={styles.detailHeader}><DialogTitle className={styles.detailTitle}>{resolving ? "Resolve overlapping meetings" : selectedEvent.title}</DialogTitle><DialogDescription>{accountLabel(selectedAccount.google_email)} · {eventTime(selectedEvent, zone)}</DialogDescription>{!resolving && isCalendarEventEnded(selectedEvent, now, zone) ? <span className={styles.detailEnded}><Clock aria-hidden className="size-3" />Ended</span> : null}{!resolving && selectedOrganizer ? <p className={styles.detailSource}>Organized by {selectedOrganizer}</p> : null}</DialogHeader>
             {resolving && board ? <CalendarConflictPanel key={identity(selected)} board={board} keep={{ account_id: selected.accountId, calendar_id: selected.calendarId, event_id: selected.eventId }} token={token} getIdToken={getIdToken} initialDraft={conflictDraft} onDraftChange={setConflictDraft} onBusyChange={setActionBusy} onChooseKeep={ref => setSelected({ accountId: ref.account_id, calendarId: ref.calendar_id, eventId: ref.event_id })} onMailConnect={onMailConnect} onConfirmed={() => { refreshOnClose.current = true; }} onDone={close} /> : <>
             {selectedEvent.location ? <p className={styles.detailSource}>Location: {selectedEvent.location}</p> : null}
             {selectedEvent.description ? <p className={styles.detailDescription}>{selectedEvent.description}</p> : null}
-            {safeMeetingUrl(selectedEvent.conference_url) ? <a className={styles.join} href={safeMeetingUrl(selectedEvent.conference_url)!} target="_blank" rel="noopener noreferrer">Join meeting</a> : null}
+            {!isCalendarEventEnded(selectedEvent, now, zone) && safeMeetingUrl(selectedEvent.conference_url) ? <a className={styles.join} href={safeMeetingUrl(selectedEvent.conference_url)!} target="_blank" rel="noopener noreferrer">Join meeting</a> : null}
             {overlaps.length ? <div className={styles.overlapDetail}><h3><AlertTriangle aria-hidden className="size-4" />Overlapping meetings</h3>{overlaps.map(pair => { const other = otherSide(pair, selected); const event = findEvent({ accountId: other.account_id, calendarId: other.calendar_id, eventId: other.event_id }); const account = accounts.find(item => item.account_id === other.account_id); return <div key={identity(other)} className={styles.overlapItem}><strong>{event?.title || "Another meeting"}</strong><p>{accountLabel(account?.google_email || null)} · {event ? eventTime(event, zone) : "Time unavailable"}</p><p>Overlap: {availabilityTimeRangeLabel(pair.start_at, pair.end_at, zone, date)}</p></div>; })}{!board?.conflicts_complete || error ? <p role="alert">Refresh every account before resolving conflicts.</p> : <Button variant="outline" disabled={actionBusy || busy} onClick={() => setResolving(true)}>Resolve these overlaps</Button>}</div> : null}
             {selectedEvent.can_decline ? <CalendarInvitationActions key={eventIdentity(selectedEvent)} event={toInvitation(selectedEvent, selectedAccount)} userId={userId} accountId={selectedAccount.account_id} token={token} zone={zone} getIdToken={getIdToken} expectedAccountEmail={selectedAccount.google_email} onBusyChange={setActionBusy} onConnect={selectedAccount.account_id === "default" ? onConnect : () => onReconnectAccount(selectedAccount.account_id)} onMailConnect={onMailConnect} onResult={() => { refreshOnClose.current = true; }} /> : <p className={styles.readOnly}>This event stays on its calendar. Attendance changes are available for invitations to this account.</p>}
             </>}

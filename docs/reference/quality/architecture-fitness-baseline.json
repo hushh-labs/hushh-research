@@ -5212,7 +5212,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": "GoogleCalendarService",
-      "value": 1507
+      "value": 1508
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -19288,7 +19288,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_calendar_service.py",
       "symbol": null,
-      "value": 1689
+      "value": 1690
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28420,7 +28420,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx",
       "symbol": null,
-      "value": 1324
+      "value": 1326
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29690,7 +29690,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/calendar/calendar-connected-workspace.tsx",
       "symbol": null,
-      "value": 501
+      "value": 502
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -31568,7 +31568,7 @@
       "kind": "module_size",
       "path": "hushh-webapp/lib/services/google-calendar-service.ts",
       "detail": "module exceeds the advisory operon budget",
-      "value": 525,
+      "value": 529,
       "limit": 500,
       "symbol": null,
       "key": "module_size|hushh-webapp/lib/services/google-calendar-service.ts||module exceeds the advisory operon budget"
@@ -84965,5 +84965,46 @@
       }
     ],
     "reviewer": "mail_plan_review"
+  },
+  "calendar_board_bounded_source_review_20261023": {
+    "entries": [
+      {
+        "after": 1508,
+        "before": 1507,
+        "key": "class_size|consent-protocol/hushh_mcp/services/google_calendar_service.py|GoogleCalendarService|class exceeds the advisory operon budget",
+        "review": "The existing event summary forwards Google eventType for the board occasion classifier. No fetch, authority, or side effect was added.",
+        "source_sha256": "ec87908bfd7924a1245df2625ee92c587136e93b68d8231587fc806a80dd5e0c"
+      },
+      {
+        "after": 1690,
+        "before": 1689,
+        "key": "module_size|consent-protocol/hushh_mcp/services/google_calendar_service.py||module exceeds the advisory operon budget",
+        "review": "The only module addition forwards Google eventType through the existing summary; a focused test now lives in its own file.",
+        "source_sha256": "ec87908bfd7924a1245df2625ee92c587136e93b68d8231587fc806a80dd5e0c"
+      },
+      {
+        "after": 1326,
+        "before": 1324,
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-connected-workspace.test.tsx||module exceeds the advisory operon budget",
+        "review": "Two assertions in the existing end-instant test prove Join is visible before the meeting ends and absent at its end.",
+        "source_sha256": "1357ba1382aae43a037f80ba5d84b75e6c3d1d420ce8b1a740eccdb29848fd8e"
+      },
+      {
+        "after": 529,
+        "before": 525,
+        "key": "module_size|hushh-webapp/lib/services/google-calendar-service.ts||module exceeds the advisory operon budget",
+        "review": "Four account photo and event metadata type fields align existing backend responses with board and ended-time consumers; no runtime call was added.",
+        "source_sha256": "0b5ee72926c3c628c9b6d24f0d5e3de9fc68584ff3c64897600e42a596481865"
+      },
+      {
+        "after": 502,
+        "before": 501,
+        "key": "module_size|hushh-webapp/components/calendar/calendar-connected-workspace.tsx||module exceeds the advisory operon budget",
+        "review": "One import uses the shared end-time helper in the existing detail dialog to hide Join after an event ends.",
+        "source_sha256": "5ed4586bdb736bf8d73eaa9977f6e2e1d7014c978cf0ad69bc93c3fc46fc8d97"
+      }
+    ],
+    "reviewer": "architecture_fitness_evidence",
+    "validation": "Independent read-only source review; 60 focused Python Calendar tests and targeted Ruff checks pass. Shared ended-time helper and timeline tests passed before this source-only extraction; legacy detail-dialog branch has no direct assertion."
   }
 }
