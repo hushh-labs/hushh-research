@@ -1008,6 +1008,17 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 7. roll back only the failing changed surface
 8. publish release artifacts with revisions, reports, and final status
 
+UAT text recovery starts one exact-image execution and observes its identity to
+terminal state before removing the temporary Job. Its 420-second controller
+allowance includes provider startup and settlement; the worker retains its
+120-second task limit, zero retries and bounded batch. In run `39949039317`, the
+old 180-second waiter deleted the Job before a receipt arrived at 207 seconds.
+The provider reported cancellation, so the later worker receipt cannot qualify
+that release. Require both provider success and the exact SHA/policy-bound
+receipt. An unread or timed-out execution remains unconfirmed with its Job and
+execution references retained for reconciliation; do not replay it or delete
+active work merely because observation stopped.
+
 UAT and production revision retirement use the existing `Capacity Maintenance` workflow,
 run hourly. Releases never trigger it. Because GitHub delivered only 3-6 of its former
 cron's 24 daily runs on 2026-10-12..14, `Capacity Maintenance Clock` is now its only
