@@ -22,8 +22,13 @@ Full takeover, handback, reconnect and Stop remain unverified on the owner image
 GCP inventory/domain repair is recorded; its exact Browser activation and installed
 owner acceptance remain pending. Source implementation never grants activation.
 
-Application Hosting/AI/cleanup corrections PR #8386 and #8391 are on main.
-On 23 October 2026 dev accepted `ee77ebdb43` and UAT accepted `a68bddc8a8`.
+Application Hosting/AI/cleanup corrections PR #8386 and #8391 and the private
+model/Puppy readiness correction PR #8395 are on main. On 23 October 2026 both dev
+services accepted `713981942c`; UAT retains accepted older `4868571487` after the following
+`713981942c` promotion safely rolled back at email readiness. The request returned
+200 in 19.2 seconds beyond a 15-second verifier timeout; its bounded operator
+repair is local. This is not installed Browser acceptance. The provider-receipt collector
+repair PR #8398 has passed real UAT capture.
 These application deployments do not install a new Browser image or
 complete the owner journeys above. The readiness memo records dev/UAT serving and
 installation outcomes separately.

@@ -11,7 +11,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/services/api-service", () => ({ ApiService: api }));
 
 import { PuppyRemoteModelPicker } from "@/components/agent/puppy-remote-model-picker";
-import { PUPPY_CATALOG_TIMEOUT_MS, resetPuppyCatalogMemory, usePuppyCatalog, type PuppyCatalog } from "@/lib/agent/use-puppy-catalog";
+import { PUPPY_CATALOG_TIMEOUT_MS, PUPPY_READINESS_TIMEOUT_MS, resetPuppyCatalogMemory, usePuppyCatalog, type PuppyCatalog } from "@/lib/agent/use-puppy-catalog";
 
 beforeEach(() => {
   publishValidatedAuthSessionOwner(null);
@@ -119,7 +119,7 @@ describe("Puppy remote model picker", () => {
 
     await waitFor(() => expect(onChatModel).toHaveBeenCalledWith("local/other", "catalog-1"));
   });
-  it("never sticks on checking: a slow machine times out to the last list it shared", async () => {
+  it("keeps cached models usable while readiness continues, then bounds an unanswered connection", async () => {
     const props = {
       hushhId: "owner-1", deviceId: "device-1", vaultOwnerToken: "owner-capability",
       chatModel: null, busy: false, hasTurns: false, onChatModel: vi.fn(), onGlobalModel: vi.fn(),
@@ -138,6 +138,10 @@ describe("Puppy remote model picker", () => {
       // The remembered list shows at once while the machine is asked again.
       expect(screen.getByRole("button", { name: "local/other" })).toBeInTheDocument();
       await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_CATALOG_TIMEOUT_MS); });
+      expect(screen.getByText("Waking your private agent. The model list will update here.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "local/other" })).toBeEnabled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_READINESS_TIMEOUT_MS - PUPPY_CATALOG_TIMEOUT_MS); });
       expect(screen.getByText("Your agent is still waking up. These are the models your computer had last time.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "local/other" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
@@ -146,11 +150,17 @@ describe("Puppy remote model picker", () => {
     }
   });
 
-  it("says plainly when a machine with no remembered list does not answer", async () => {
+  it("discovers a healthy 15-second activation without requiring another menu request", async () => {
     vi.useFakeTimers();
     try {
-      api.getPuppyDirectModels.mockImplementation((_h: string, _d: string, _t: string, signal: AbortSignal) =>
-        new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true })));
+      api.getPuppyDirectModels.mockImplementation((_h: string, _d: string, _t: string, signal: AbortSignal, answered: () => void) => {
+        answered();
+        return new Promise((resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          setTimeout(() => resolve({ status: "available", defaultModel: "local/default", catalogVersion: "ready",
+            models: [{ id: "local/default" }] }), 15_000);
+        });
+      });
       render(<PuppyRemoteModelPicker
         hushhId="owner-1" deviceId="device-1" vaultOwnerToken="owner-capability"
         chatModel={null} busy={false} hasTurns={false} onChatModel={vi.fn()} onGlobalModel={vi.fn()}
@@ -159,7 +169,15 @@ describe("Puppy remote model picker", () => {
       expect(screen.getByText("Checking the models on your computer…")).toBeInTheDocument();
       await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_CATALOG_TIMEOUT_MS); });
       expect(screen.queryByText("Checking the models on your computer…")).not.toBeInTheDocument();
-      expect(screen.getByText("Waking your agent… This can take a minute after a break.")).toBeInTheDocument();
+      expect(screen.getByText("Connecting to your computer. The model list will update here.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+      // Reopening joins the existing readiness attempt rather than posting a new activation.
+      fireEvent.click(screen.getByRole("button", { name: /^Choose Puppy model/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Choose Puppy model/ }));
+      expect(api.getPuppyDirectModels).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+      expect(screen.getByRole("button", { name: /^local\/default/ })).toBeInTheDocument();
+      expect(screen.queryByText(/The model list will update here/)).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -192,11 +210,42 @@ describe("Puppy remote model picker", () => {
       expect(screen.getByText("Checking the models on your Mac…")).toBeInTheDocument();
       await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_CATALOG_TIMEOUT_MS); });
       expect(screen.queryByText("Checking the models on your Mac…")).not.toBeInTheDocument();
+      expect(screen.getByText("Waking your private agent. The model list will update here.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(PUPPY_READINESS_TIMEOUT_MS - PUPPY_CATALOG_TIMEOUT_MS); });
       expect(screen.getByText("Waking your agent… This can take a minute after a break.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it.each(["inactive", "hidden", "unmount"])("cancels readiness on %s and ignores a late catalog", async reason => {
+    let signal!: AbortSignal;
+    let release!: (value: PuppyCatalog) => void;
+    api.getPuppyDirectModels.mockImplementation((_h: string, _d: string, _t: string, readSignal: AbortSignal) => {
+      signal = readSignal;
+      return new Promise(resolve => { release = resolve; });
+    });
+    const view = renderHook(({ enabled }) => usePuppyCatalog({ ...owner, enabled }), { initialProps: { enabled: true } });
+    let pending!: Promise<void>;
+    act(() => { pending = view.result.current.load(); });
+    let restoreVisibility: (() => void) | undefined;
+    try {
+      if (reason === "inactive") view.rerender({ enabled: false });
+      else if (reason === "unmount") view.unmount();
+      else {
+        const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+        restoreVisibility = () => visibility.mockRestore();
+        fireEvent(document, new Event("visibilitychange"));
+      }
+      expect(signal.aborted).toBe(true);
+      await act(async () => {
+        release({ status: "available", defaultModel: "late", models: [{ id: "late" }], catalogVersion: "late", observedAt: null, receivedAt: null });
+        await pending;
+      });
+      if (reason !== "unmount") expect(view.result.current.catalog).toBeNull();
+    } finally { restoreVisibility?.(); view.unmount(); }
   });
 
   it("shows the list and Try again without waiting on a slow model-change read", async () => {
