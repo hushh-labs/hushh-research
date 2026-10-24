@@ -126,7 +126,7 @@ describe("Setup saved AI choice", () => {
     await waitFor(() => expect(state.acknowledgeSetupExit).toHaveBeenCalledOnce());
     expect(state.replace).toHaveBeenCalledWith("/");
   });
-  it("requires a BYOK key again after a reload loses its process-memory draft", async () => {
+  it("refuses Gemini setup markers even when a process-memory draft exists", async () => {
     state.saved = true;
     state.choice = "byok_pending_vault";
     const view = render(<OneSetupHub />);
@@ -136,7 +136,8 @@ describe("Setup saved AI choice", () => {
 
     state.stagedGeminiKey = true;
     act(() => state.listener?.({ type: "set", key: "bootstrap:owner" }));
-    await waitFor(() => expect(finish).toBeEnabled());
+    await act(async () => {});
+    expect(finish).toBeDisabled();
 
     // A stale enabled button must still re-check the volatile credential.
     state.stagedGeminiKey = false;
@@ -147,7 +148,7 @@ describe("Setup saved AI choice", () => {
     view.unmount();
   });
 
-  it.each([null, "gemini", "openai", "azure_openai"])("accepts a BYOK choice backed by its selected encrypted key (%s)", async provider => {
+  it.each(["openai", "azure_openai"])("accepts an admitted BYOK choice backed by its selected encrypted key (%s)", async provider => {
     state.saved = true;
     state.choice = "byok_pending_vault";
     state.unlocked = true;
@@ -163,7 +164,7 @@ describe("Setup saved AI choice", () => {
     expect(state.replace).toHaveBeenCalledWith("/");
   });
 
-  it.each(["openai", "azure_openai", "unknown_provider", "INVALID!", "", "unreadable"])("refuses a selected provider without its usable stored key (%s)", async provider => {
+  it.each([null, "gemini", "openai", "azure_openai", "unknown_provider", "INVALID!", "", "unreadable"])("refuses an unverified Gemini key or provider without its usable stored key (%s)", async provider => {
     state.saved = true;
     state.choice = "byok_pending_vault";
     state.unlocked = true;

@@ -189,6 +189,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     await waitFor(() =>
       expect(onCanContinueChange).toHaveBeenLastCalledWith(false),
     );
+    expect(onCanContinueChange).not.toHaveBeenCalledWith(true);
     expect(screen.getByTestId("profile-byok-runtime")).toHaveTextContent("Unavailable");
     expect(screen.queryByLabelText("Gemini API key")).toBeNull();
   });
@@ -688,6 +689,26 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     expect(managed).toHaveAttribute("aria-checked", "true");
     expect(readiness).toHaveBeenLastCalledWith(true);
     expect(screen.queryByLabelText("Gemini API key")).toBeNull();
+  });
+
+  it("blocks native key-editor actions while preserving the managed choice", async () => {
+    const privacy = await import("@/lib/capacitor/session-privacy");
+    const { useNativeRuntimeSettings } = await import("@/components/profile/use-native-runtime-settings");
+    const observation = vi.spyOn(privacy, "nativePrivacyObservation").mockReturnValue({ state: { appIsActive: true, shielded: false } } as never);
+    try {
+      const hook = renderHook(() => useNativeRuntimeSettings(useGeminiRuntimeSettingsModel({ ...ownerProps("fresh-user"),
+        vaultKey: "fixture-key", vaultOwnerToken: "fixture-token", needsVaultCreation: false }), "fresh-user", true));
+      await act(async () => undefined);
+      const rows = hook.result.current.page.sections[0].rows;
+      expect(rows.find(row => row.id === "runtime-managed")?.enabled).toBe(true);
+      expect(rows.find(row => row.id === "runtime-byok")?.enabled).toBe(false);
+      await act(async () => { await hook.result.current.rows.get("runtime-byok")?.(); await hook.result.current.rows.get("runtime-configure")?.(); });
+      expect(hook.result.current.formScene).toBeNull();
+      expect(hook.result.current.editor("fixture-destination")).toBeNull();
+      expect(ownerPodRequestMock).not.toHaveBeenCalled();
+      expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+      expect(toastErrorMock).toHaveBeenCalledWith(expect.stringContaining("processing terms have not been verified"));
+    } finally { observation.mockRestore(); }
   });
 
 });

@@ -154,7 +154,7 @@ export function useGeminiRuntimeSettingsModel({
   const validationPendingRef = visit.validating;
   const [loadFailed, setLoadFailed] = useOwnerPresentationState(visit, false);
   const [hasExplicitSelection, setHasExplicitSelection] = useOwnerPresentationState(visit,
-    !requiresExplicitSelection || initiallyConfigured,
+    !requiresExplicitSelection || (initiallyConfigured && initialSetupChoice !== "byok_pending_vault"),
   );
   const [selectedOption, setSelectedOption] = useOwnerPresentationState<string>(visit, initiallyConfigured ? (initialSetupChoice === "byok_pending_vault" ? "byok" : "hushh_managed_vertex") : "");
   const vaultReady = Boolean(userId && vaultKey && vaultOwnerToken);
