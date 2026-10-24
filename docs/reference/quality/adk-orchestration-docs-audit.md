@@ -23,6 +23,20 @@ retains its disclosed boundary.
 lifecycle follow-up is local; it has not been merged or deployed.
 Installed-pod and desktop acceptance remain separate.**
 
+The latest local checkpoints are `4752ed2688` (canonical lifecycle graduation),
+`e0deca33af` (fresh main `217007c715` reconciled by behavior) and `dd4444f1d2`
+(unified host-local settings). Main's migration 412–415 bytes, bounded recovery
+batching, mobile composer and mounted-consent changes are preserved. Final affected
+checks passed 144 auth/flow/proxy, 31 voice/outcome and 501 Back cases; three real
+PostgreSQL batch/index cases and the 127.64-second cleanup consumer passed. The
+combined canonical-415/rich-dev upgrades and actual contract reads passed in 85.89
+seconds. The observer-withdrawal rollback regression failed before its correction
+and passed afterward. TypeScript, changed-source lint, UI contracts and docs passed.
+These are local source checks; the exact frozen core/hosted candidate, installed
+Browser/Puppy and dev/UAT acceptance remain required. Native discovery contains 68
+linked skills and no regular authored files under `.claude`/`.codex`; local settings
+were preserved byte-for-byte and the unused discovery log was archived.
+
 The preserved infrastructure branch now includes observed main `163ddb96a33e`
 through merge `912592cf7d`, without dropping main content or overwriting peer edits.
 The dependency-relevant native Profile/phone/device changes from local ADK are

@@ -1,9 +1,11 @@
 # Private agent: normal release transition
 
-**Current surgical follow-up — 24 October 2026:** committed checkpoint `b2ef2c81b7` with further local schema work
+**Current surgical follow-up — 24 October 2026:** lifecycle checkpoint `4752ed2688`
+and main-integration checkpoint `e0deca33af` include fresh main `217007c715` without
+dropping its bounded erasure, mobile or consent work. Framework checkpoint
+`dd4444f1d2` preserves local host settings under `.agents`. The follow-up
 adds durable cleanup, explicit federated/email Start fresh and application-owner
-continuity; observed main `163ddb96a33e` and the relevant native ADK fixes are
-integrated. It is not pushed, frozen, merged or deployed. Admission remains off;
+continuity alongside the relevant preserved native ADK fixes. It is not pushed, frozen, merged or deployed. Admission remains off;
 forward migrations 416–419 are registered locally but remain unapplied. Corporate ADC last
 verified peer dev/UAT rollouts serving `2732b301cc9e` at 12:41 UTC. Live read-only
 catalog inspection confirms UAT lacks dev's cloud-removal authorities. New canonical 418 derives the final private-agent authority without replaying

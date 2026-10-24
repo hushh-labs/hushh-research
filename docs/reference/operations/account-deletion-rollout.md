@@ -30,6 +30,15 @@ for source versus deployed evidence.
 
 ## Surgical follow-up boundary — 24 October 2026
 
+Fresh main `217007c715` is integrated locally, retaining its immutable 412–415
+recovery-index migrations and bounded keyset erasure. Lifecycle authority now uses
+416–419. The HTTP regression follows real 202 preparation and a durable worker claim
+through finalization: 501 segments/300 revisions retain 700 ms statement limits,
+trace correlation, peer preservation and atomic rollback. A failed final erasure
+retains provider-cleanup authority; it does not delete Firebase identity or revoke
+providers after the keys are gone. Source qualification does not enable enrollment
+or certify a deployed environment.
+
 The last verified serving account erasure removes local credentials before best-effort
 provider release. A successful local deletion therefore cannot establish
 project/account-wide OAuth revocation or recover a failed release after keys are
