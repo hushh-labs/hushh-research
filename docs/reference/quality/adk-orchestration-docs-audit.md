@@ -91,6 +91,15 @@ two-cycle rehearsal passed concurrent email enrollment, old-code refusal, respon
 loss and fresh-email registration; 112 frontend/API cases passed. These results
 remain local and overlap prior focused suites.
 
+The next local owner-consumer pass uses the admitted application owner throughout
+Profile/Memory, Files, Puppy placement, initial contacts, setup settlement, vault
+methods and notifications. Firebase User remains the external identity and token
+source. Same-UID replacement cases cover Memory, contacts, Files, Puppy and push
+registration/sign-out. The focused owner suites passed 142 cases, Files/Puppy 27,
+and notification/auth 259; these overlap other evidence and are not a combined
+acceptance total. Changed-source lint and TypeScript passed. Browser UI receipts
+will be regenerated after the final main integration. Activation remains off.
+
 Cloud-only removal now has a draft forward recovery contract (414): approval,
 execution admission and unapproved cancellation serialize on the existing owner
 locks. Cancellation restores only the exact inert snapshot and retains history;
@@ -461,7 +470,8 @@ paid work; spending thresholds warn without stopping service.
    dev/UAT `e4840d1915`; complete the surgical follow-up's own candidate validation
    and acceptance before replacing that evidence.
 2. **Security owner:** the refreshed research-repository inventory has 15 open
-   records; local compatible patches cover 12, with two ADK-constrained OTEL
+   records at 12:07 UTC on 24 October (4 high, 5 medium, 6 low); local compatible
+   patches cover 12, with two ADK-constrained OTEL
    records and nested Zod remaining tracked. Earlier closed alerts are historical
    evidence, not clearance for this inventory. Original-token revocation remains
    separately unverified; the exposed repository secret is retired. The native

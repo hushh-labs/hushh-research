@@ -24,14 +24,14 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 
 export function ProfileIdentityVoiceRefresh() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const dedupeRef = useRef(new VoiceRefreshDeduper());
 
   const refresh = (tool: string | null, result: ToolResultPublic | null | undefined) => {
-    if (!user?.uid) return;
+    if (!user || !userId) return;
     if (!isOwnIdentityChange(tool, result)) return;
     if (!dedupeRef.current.shouldRefresh(result)) return;
-    AccountIdentityService.invalidateCachedIdentity(user.uid);
+    AccountIdentityService.invalidateCachedIdentity(userId);
     void AccountIdentityService.refreshCurrentUserIdentity(user, { force: true }).catch(
       () => undefined,
     );

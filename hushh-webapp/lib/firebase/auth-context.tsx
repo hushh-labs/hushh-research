@@ -1102,8 +1102,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         try {
           // Preserve notification cleanup before credential invalidation, with
           // a short budget instead of the general network-request timeout.
-          if (currentUser && !options?.skipFcmCleanup) {
-            await settleSignOutNotifications(currentUser);
+          if (currentUser && currentUid && !options?.skipFcmCleanup) {
+            await settleSignOutNotifications(currentUser, currentUid);
           }
 
           // Clear the server-owned httpOnly session independently from the

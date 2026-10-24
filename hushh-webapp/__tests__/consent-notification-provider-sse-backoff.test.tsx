@@ -50,7 +50,7 @@ vi.mock("@capacitor/core", async (importOriginal) => {
 });
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.auth.user }),
+  useAuth: () => ({ user: mocks.auth.user, userId: mocks.auth.user?.uid ?? null }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

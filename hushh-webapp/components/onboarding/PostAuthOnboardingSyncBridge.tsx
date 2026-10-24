@@ -16,10 +16,9 @@ const POST_UNLOCK_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
  * their existing encrypted stores after vault creation/unlock succeeds.
  */
 export function PostAuthOnboardingSyncBridge() {
-  const { user, loading } = useAuth();
+  const { userId, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const pathname = usePathname();
-  const userId = user?.uid ?? null;
   const activeSignatureRef = useRef<string | null>(null);
   const lastSyncedSignatureRef = useRef<string | null>(null);
   const pendingRef = useRef<{

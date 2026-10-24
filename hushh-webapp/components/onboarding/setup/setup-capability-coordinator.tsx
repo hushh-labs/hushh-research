@@ -246,8 +246,7 @@ export function useSetupCapabilityCoordinator({
   terminalPresentation = "explicit",
 }: UseSetupCapabilityCoordinatorParams): SetupCapabilityCoordinator {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  const userId = user?.uid;
+  const { userId, loading: authLoading } = useAuth();
   const [isReady, setIsReady] = useState(false);
   const [isSettling, setIsSettling] = useState(false);
   const [initialSetupKey, setInitialSetupKey] = useState<string | null>(null);

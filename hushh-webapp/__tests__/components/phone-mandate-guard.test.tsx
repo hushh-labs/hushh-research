@@ -32,6 +32,7 @@ let searchValue = "";
 let hostnameValue: string | null = "localhost";
 let authValue: {
   user: { uid: string } | null;
+  userId?: string | null;
   loading: boolean;
   phoneNumber: string | null;
   retrySessionVerification: () => Promise<void>;
@@ -55,7 +56,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => authValue,
+  useAuth: () => ({ ...authValue, userId: authValue.userId === undefined ? authValue.user?.uid ?? null : authValue.userId }),
 }));
 
 vi.mock("@/lib/hooks/use-hostname", () => ({
@@ -151,6 +152,13 @@ describe("PhoneMandateGuard", () => {
       sessionVerificationRequired: false,
       signOut: signOutMock,
     };
+  });
+
+  it("reads replacement-owner admission without using the Firebase UID for cache ownership", async () => {
+    authValue.userId = "acct_" + "a".repeat(32);
+    render(<PhoneMandateGuard exemptVaultUsers><div>profile content</div></PhoneMandateGuard>);
+    await waitFor(() => expect(bootstrapStateMock).toHaveBeenCalledWith(authValue.userId, expect.anything()));
+    expect(getCachedBootstrapStateMock).not.toHaveBeenCalledWith("user-1");
   });
 
   it("redirects no-vault users without a phone number to the phone mandate", async () => {

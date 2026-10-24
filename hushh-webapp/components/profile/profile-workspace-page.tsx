@@ -566,7 +566,7 @@ function ProfilePageContent({
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
-  const nativePortrait = useNativeProfilePortrait(user?.uid ?? null, presentation === "native-page" && nativeMenuOpen);
+  const nativePortrait = useNativeProfilePortrait(applicationOwnerId ?? null, presentation === "native-page" && nativeMenuOpen);
   const voiceGetIdToken = useMemo(() => user?.getIdToken ? () => user.getIdToken() : null, [user]);
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, getVaultOwnerToken } = useVault();
@@ -580,7 +580,7 @@ function ProfilePageContent({
   >("profile_data");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
-  useEffect(() => { setCloudCleanupRequired(false); }, [user?.uid]);
+  useEffect(() => { setCloudCleanupRequired(false); }, [applicationOwnerId]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -727,22 +727,22 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
-  const emailPreference = useMarketingPreference(activePanel === "account" ? user?.uid ?? null : null, "account");
+  const emailPreference = useMarketingPreference(activePanel === "account" ? applicationOwnerId ?? null : null, "account");
   const phoneVaultEpoch = snapshotVaultSessionEpoch();
-  const phoneVisit = useMemo(() => ({ active: false, id: Symbol("phone-visit"), userId: user?.uid, owner: snapshotValidatedAuthSessionOwner(),
+  const phoneVisit = useMemo(() => ({ active: false, id: Symbol("phone-visit"), userId: applicationOwnerId, owner: snapshotValidatedAuthSessionPrincipal(),
     vaultEpoch: phoneVaultEpoch, enabled: activePanel === "account" && activeDetail === "phone" &&
       (presentation !== "native-page" || nativeMenuOpen) }),
-  [user?.uid, phoneVaultEpoch, activePanel, activeDetail, presentation, nativeMenuOpen]);
+  [applicationOwnerId, phoneVaultEpoch, activePanel, activeDetail, presentation, nativeMenuOpen]);
   useLayoutEffect(() => { phoneVisit.active = true; return () => { phoneVisit.active = false; }; }, [phoneVisit]);
   const phoneVisitIsCurrent = () => phoneVisit.active && phoneVisit.enabled && !!phoneVisit.owner &&
-    phoneVisit.owner.userId === user?.uid && isValidatedAuthSessionOwnerCurrent(phoneVisit.owner) &&
+    phoneVisit.owner.userId === applicationOwnerId && isValidatedAuthSessionOwnerCurrent(phoneVisit.owner) &&
     phoneVisit.vaultEpoch === snapshotVaultSessionEpoch();
   const devicesActive = activePanel === "security" && activeDetail === "trusted-devices";
   const devicesParent = devicesActive ? profilePanelParentForPresentation("security", panePresentation?.history) : null;
-  const devicesModel = useTrustedDevicesModel(user?.uid ?? null, !!user && !authLoading && isVaultUnlocked &&
+  const devicesModel = useTrustedDevicesModel(applicationOwnerId ?? null, !!user && !authLoading && isVaultUnlocked &&
     devicesActive && (presentation !== "native-page" || nativeMenuOpen));
   const [nativeDevicesAvailable, setNativeDevicesAvailable] = useState(false);
-  const nativeDevices = useNativeTrustedDevices(devicesModel, JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]),
+  const nativeDevices = useNativeTrustedDevices(devicesModel, JSON.stringify([applicationOwnerId, snapshotVaultSessionEpoch()]),
     presentation === "native-page" && nativeDevicesAvailable);
   useBackLayer(pathname, devicesActive && devicesModel.confirmation ? 3 : 0, () => {
     if (!devicesActive || !devicesModel.confirmation) return false;
@@ -774,18 +774,18 @@ function ProfilePageContent({
     if (activePanel !== "account" || activeDetail) {
       setNativeAccountException(null); setEditingDisplayName(false);
     }
-  }, [activePanel, activeDetail, user?.uid]);
+  }, [activePanel, activeDetail, applicationOwnerId]);
   useEffect(() => {
     if (!editingDisplayName && nativeAccountException === "name") setNativeAccountException(null);
   }, [editingDisplayName, nativeAccountException]);
-  const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
+  const nativeDetailOwner = JSON.stringify([applicationOwnerId, snapshotVaultSessionEpoch()]);
   const memoryOperations = useMemo(() => {
     const owner = snapshotValidatedAuthSessionOwner();
     const epoch = snapshotVaultSessionEpoch();
-    return new ProfileMemoryOperations(() => !!owner && owner.userId === user?.uid &&
+    return new ProfileMemoryOperations(() => !!owner && owner.userId === applicationOwnerId &&
       JSON.stringify([owner.userId, snapshotVaultSessionEpoch()]) === nativeDetailOwner &&
       isValidatedAuthSessionOwnerCurrent(owner) && snapshotVaultSessionEpoch() === epoch);
-  }, [nativeDetailOwner, user?.uid]);
+  }, [nativeDetailOwner, applicationOwnerId]);
   useLayoutEffect(() => {
     memoryOperations.activate();
     setPendingPermissionToggles({});
@@ -832,7 +832,7 @@ function ProfilePageContent({
       ? previous : { owner: nativeDetailOwner, title });
   }, [nativeDetailOwner]);
   const preferenceChrome = {
-    owner: user?.uid ?? null,
+    owner: applicationOwnerId ?? null,
     context: JSON.stringify([pathname, isPanePresentation, activePanel, activeDetail, snapshotVaultSessionEpoch()]),
     eligible: nativeControlsEligible && !!user && !authLoading && activePanel === "preferences" && !activeDetail && (!isPanePresentation || isVaultUnlocked),
   };
@@ -940,8 +940,8 @@ function ProfilePageContent({
     [user],
   );
   const gmail = useGmailConnectorStatus({
-    userId: user?.uid || null,
-    enabled: Boolean(user?.uid) && !authLoading && activePanel === "gmail",
+    userId: applicationOwnerId || null,
+    enabled: Boolean(applicationOwnerId) && !authLoading && activePanel === "gmail",
     idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
     routeHref: gmailRouteHref,
     refreshKey: gmailRouteHref,
@@ -967,7 +967,7 @@ function ProfilePageContent({
       vaultOwnerToken,
     ],
   );
-  const vaultMethods = useProfileVaultMethodsModel({ userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
+  const vaultMethods = useProfileVaultMethodsModel({ userId: applicationOwnerId ?? null, vaultKey, vaultOwnerToken,
     hasVault, authLoading, canMutate: vaultAccess.canMutateSecureData,
     active: activePanel === "security" && activeDetail === "vault" && (presentation !== "native-page" || nativeMenuOpen),
     displayName: user?.displayName || user?.email || "Hussh User", requestUnlock: () => requestVaultUnlock("profile_data") });
@@ -1018,7 +1018,7 @@ function ProfilePageContent({
   const nativePayout = useNativePayouts(nativePayoutActive);
   const nativeReferralActive = presentation === "native-page" && nativeMenuOpen &&
     activePanel === "referrals" && isVaultUnlocked;
-  const nativeReferrals = useNativeReferrals(presentation === "native-page" && nativeMenuOpen && activePanel === "referrals", user?.uid ?? null);
+  const nativeReferrals = useNativeReferrals(presentation === "native-page" && nativeMenuOpen && activePanel === "referrals", applicationOwnerId ?? null);
   useBackLayer(pathname, nativePayoutActive && nativePayout.nested ? 3 : 0, nativePayout.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
   const [nativePricingEditorOpen, setNativePricingEditorOpen] = useState(false);
@@ -1300,14 +1300,14 @@ function ProfilePageContent({
   const nativePreferences = useNativeProfilePreferences({
     enabled: presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && !activeDetail && isVaultUnlocked,
     retainDraft: presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && isVaultUnlocked,
-    userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
+    userId: applicationOwnerId ?? null, vaultKey, vaultOwnerToken,
     onGemini: () => updateProfileView({ panel: "preferences", detail: "gemini" }, "push"),
     onVoice: () => updateProfileView({ panel: "preferences", detail: "voice" }, "push"),
   });
   const [nativeVoiceAvailable, setNativeVoiceAvailable] = useState(false);
   const voiceParent = profilePanelParentForPresentation("preferences", panePresentation?.history);
   const [nativeRuntimeAvailable, setNativeRuntimeAvailable] = useState(false);
-  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: user?.uid, vaultKey, vaultOwnerToken,
+  const runtimeSettings = useGeminiRuntimeSettingsModel({ userId: applicationOwnerId, vaultKey, vaultOwnerToken,
     needsVaultCreation: vaultAccess.needsVaultCreation, needsUnlock: vaultAccess.needsUnlock,
     onRequestVaultCreation: () => requestVaultUnlock("profile_data"), onRequestVaultUnlock: () => requestVaultUnlock("profile_data"),
     enabled: activePanel === "preferences" && activeDetail === "gemini" && (presentation !== "native-page" || nativeMenuOpen) });
@@ -1320,14 +1320,14 @@ function ProfilePageContent({
   const [nativeFinanceAvailable, setNativeFinanceAvailable] = useState(false);
   const nativeFinanceActive = nativeFinanceAvailable && voiceParent !== null && presentation === "native-page" &&
     nativeMenuOpen && activePanel === "preferences" && activeDetail === "kai-preferences" && isVaultUnlocked && vaultAccess.canMutateSecureData;
-  const financePreferences = useProfileFinancePreferences({ userId: user?.uid ?? null, vaultKey, vaultOwnerToken,
-    canEdit: Boolean(user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData), active: nativeFinanceActive });
+  const financePreferences = useProfileFinancePreferences({ userId: applicationOwnerId ?? null, vaultKey, vaultOwnerToken,
+    canEdit: Boolean(applicationOwnerId && vaultAccess.hasVault && vaultAccess.canMutateSecureData), active: nativeFinanceActive });
   const nativeFinance = projectNativeFinancePreferences(financePreferences);
   useBackLayer(pathname, nativeFinanceActive && (financePreferences.wizard.step > 0 || financePreferences.wizard.horizonDialogOpen || nativeFinance.busy) ? 3 : 0,
     nativeFinance.back, isPanePresentation ? { profile_pane: "1" } : undefined);
   const nativeVoice = useNativeVoiceProfile({
     enabled: nativeVoiceAvailable && voiceParent !== null && presentation === "native-page" && nativeMenuOpen && activePanel === "preferences" && activeDetail === "voice" && isVaultUnlocked,
-    userId: user?.uid ?? null, vaultOwnerToken, getIdToken: voiceGetIdToken,
+    userId: applicationOwnerId ?? null, vaultOwnerToken, getIdToken: voiceGetIdToken,
   });
 
   useEffect(() => {
@@ -1335,9 +1335,9 @@ function ProfilePageContent({
 
     async function loadVaultState() {
       if (authLoading) return;
-      if (!user?.uid) return;
+      if (!applicationOwnerId) return;
       try {
-        const next = await VaultService.checkVault(user.uid);
+        const next = await VaultService.checkVault(applicationOwnerId);
         if (!cancelled) {
           setHasVault(next);
           setVaultCheckFailed(false);
@@ -1355,7 +1355,7 @@ function ProfilePageContent({
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user?.uid]);
+  }, [authLoading, applicationOwnerId]);
 
 
   useEffect(() => {
@@ -1403,12 +1403,12 @@ function ProfilePageContent({
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
-      if (!user?.uid || hasVault === null || !memoryOperations.current()) return;
+      if (!user || !applicationOwnerId || hasVault === null || !memoryOperations.current()) return;
       const request = memoryOperations.beginRead("metadata");
       setLoadingPkmMetadata(true);
       try {
       const metadata = await loadProfilePkmMetadataForVaultState({
-        userId: user.uid,
+        userId: applicationOwnerId,
         hasVault,
         force,
         vaultOwnerToken,
@@ -1424,7 +1424,7 @@ function ProfilePageContent({
       return metadata;
       } finally { if (request.current()) setLoadingPkmMetadata(false); }
     },
-    [hasVault, user?.uid, vaultOwnerToken, memoryOperations],
+    [hasVault, user, applicationOwnerId, vaultOwnerToken, memoryOperations],
   );
 
   // A domain written on another route (Wallet, Kai import, chat) reaches this
@@ -1432,7 +1432,7 @@ function ProfilePageContent({
   // while it is mounted. Either way the metadata is re-read, not patched.
   const appliedPkmEpochRef = useRef(0);
   useEffect(() => {
-    const uid = user?.uid;
+    const uid = applicationOwnerId;
     if (!uid || hasVault === null || typeof window === "undefined") return;
     const epoch = currentPkmInvalidationEpoch(uid);
     if (epoch > appliedPkmEpochRef.current) {
@@ -1448,11 +1448,11 @@ function ProfilePageContent({
     window.addEventListener("pkm-domain-changed", handleDomainChanged);
     return () =>
       window.removeEventListener("pkm-domain-changed", handleDomainChanged);
-  }, [hasVault, refreshPkmMetadata, user?.uid]);
+  }, [hasVault, refreshPkmMetadata, applicationOwnerId]);
 
   const refreshDomainManifest = useCallback(
     async (domainKey: string, force = false, recoveryIsCurrent?: () => boolean) => {
-      if (!user?.uid || !vaultOwnerToken || !memoryOperations.current()) return null;
+      if (!applicationOwnerId || !vaultOwnerToken || !memoryOperations.current()) return null;
       const request = memoryOperations.beginRead(`manifest:${domainKey}`);
       setLoadingDomainManifests((current) => ({
         ...current,
@@ -1460,7 +1460,7 @@ function ProfilePageContent({
       }));
       try {
         const manifest = await PersonalKnowledgeModelService.getDomainManifest(
-          user.uid,
+          applicationOwnerId,
           domainKey,
           vaultOwnerToken,
           force,
@@ -1491,12 +1491,12 @@ function ProfilePageContent({
         }));
       }
     },
-    [user?.uid, vaultOwnerToken, memoryOperations],
+    [applicationOwnerId, vaultOwnerToken, memoryOperations],
   );
 
   const refreshVisibleDomainManifests = useCallback(
     async (force = false) => {
-      if (!user?.uid || !vaultOwnerToken) return;
+      if (!applicationOwnerId || !vaultOwnerToken) return;
       const domainKeys = (pkmMetadata?.domains || [])
         .filter(isConsumerVisiblePkmDomain)
         .map((domain) => domain.key);
@@ -1505,16 +1505,16 @@ function ProfilePageContent({
         domainKeys.map((domainKey) => refreshDomainManifest(domainKey, force)),
       );
     },
-    [pkmMetadata?.domains, refreshDomainManifest, user?.uid, vaultOwnerToken],
+    [pkmMetadata?.domains, refreshDomainManifest, applicationOwnerId, vaultOwnerToken],
   );
 
   useEffect(() => {
-    if (!user?.uid || !shouldLoadProfileWorkspaceData) return;
+    if (!applicationOwnerId || !shouldLoadProfileWorkspaceData) return;
 
     const handleUpgradeCompleted = (event: Event) => {
       const detail = (event as CustomEvent<PkmUpgradeCompletedEventDetail>)
         .detail;
-      if (detail?.userId !== user.uid) {
+      if (detail?.userId !== applicationOwnerId) {
         return;
       }
 
@@ -1561,7 +1561,7 @@ function ProfilePageContent({
     refreshPkmMetadata,
     refreshDomainManifest,
     shouldLoadProfileWorkspaceData,
-    user?.uid,
+    applicationOwnerId,
     vaultAccess.needsUnlock,
     vaultAccess.needsVaultCreation,
     vaultOwnerToken,
@@ -1569,7 +1569,7 @@ function ProfilePageContent({
 
   const refreshConsentCenter = useCallback(
     async (force = false) => {
-      if (!user?.uid || !memoryOperations.current()) return;
+      if (!user || !applicationOwnerId || !memoryOperations.current()) return;
       const request = memoryOperations.beginRead("sharing");
       setLoadingConsentCenter(true);
       try {
@@ -1577,7 +1577,7 @@ function ProfilePageContent({
       if (!request.current()) return;
       const nextCenter = await ConsentCenterService.getCenter({
         idToken,
-        userId: user.uid,
+        userId: applicationOwnerId,
         actor: "investor",
         view: "active",
         force,
@@ -1587,11 +1587,11 @@ function ProfilePageContent({
       setConsentCenterError(null);
       } finally { if (request.current()) setLoadingConsentCenter(false); }
     },
-    [user, memoryOperations],
+    [user, applicationOwnerId, memoryOperations],
   );
 
   const { handleRevoke } = useConsentActions({
-    userId: user?.uid ?? null,
+    userId: applicationOwnerId ?? null,
     onActionComplete: () => {
       void refreshConsentCenter(true);
     },
@@ -1613,7 +1613,7 @@ function ProfilePageContent({
         setInitialized(true);
       }
 
-      if (!user?.uid || hasVault === null || !memoryOperations.current()) return;
+      if (!user || !applicationOwnerId || hasVault === null || !memoryOperations.current()) return;
       const metadataRead = memoryOperations.beginRead("metadata");
       const sharingRead = memoryOperations.beginRead("sharing");
       try {
@@ -1624,14 +1624,14 @@ function ProfilePageContent({
         if (cancelled || !memoryOperations.current()) return;
         const [metadata, center] = await Promise.all([
           loadProfilePkmMetadataForVaultState({
-            userId: user.uid,
+            userId: applicationOwnerId,
             hasVault,
             force: false,
             vaultOwnerToken,
           }),
           ConsentCenterService.getCenter({
             idToken,
-            userId: user.uid,
+            userId: applicationOwnerId,
             actor: "investor",
             view: "active",
             force: false,
@@ -1669,6 +1669,7 @@ function ProfilePageContent({
     };
   }, [
     authLoading,
+    applicationOwnerId,
     completeStep,
     hasVault,
     initialized,
@@ -1684,7 +1685,7 @@ function ProfilePageContent({
     if (
       activePanel !== "my-data" ||
       authLoading ||
-      !user?.uid ||
+      !applicationOwnerId ||
       !vaultOwnerToken ||
       vaultAccess.needsVaultCreation ||
       vaultAccess.needsUnlock
@@ -1696,7 +1697,7 @@ function ProfilePageContent({
     activePanel,
     authLoading,
     refreshVisibleDomainManifests,
-    user?.uid,
+    applicationOwnerId,
     vaultAccess.needsUnlock,
     vaultAccess.needsVaultCreation,
     vaultOwnerToken,
@@ -1945,7 +1946,7 @@ function ProfilePageContent({
   const handleMarketplaceOptInToggle = async (
     target?: boolean,
   ): Promise<MarketplaceOutcome> => {
-    if (!user) return { kind: "no_user" };
+    if (!user || !applicationOwnerId) return { kind: "no_user" };
     try {
       setSavingMarketplaceOptIn(true);
       const idToken = await user.getIdToken();
@@ -1955,7 +1956,7 @@ function ProfilePageContent({
       );
       const stored = Boolean(result.investor_marketplace_opt_in);
       setMarketplaceOptIn(stored);
-      CacheSyncService.onMarketplaceVisibilityChanged(user.uid);
+      CacheSyncService.onMarketplaceVisibilityChanged(applicationOwnerId);
       await refreshPersonaState({ force: true });
       toast.success(
         stored
@@ -2013,7 +2014,7 @@ function ProfilePageContent({
   async function submitSupportMessage(
     messageOverride?: string,
   ): Promise<SupportSubmitOutcome> {
-    if (!user) return { kind: "no_user" };
+    if (!user || !applicationOwnerId) return { kind: "no_user" };
     if (sendingSupportMessage || pendingSupportSubmission.current) return { kind: "busy" };
 
     // Voice dictates the message rather than typing it into the composer, and
@@ -2057,7 +2058,7 @@ function ProfilePageContent({
         typeof window !== "undefined" ? window.location.href : ROUTES.PROFILE;
       const result = await SupportService.submitMessage({
         idToken,
-        userId: user.uid,
+        userId: applicationOwnerId,
         kind,
         subject: presentation.internalSubject,
         message: trimmedMessage,
@@ -2106,7 +2107,7 @@ function ProfilePageContent({
   }
 
   async function handleDisconnectGmail() {
-    if (!user?.uid) return;
+    if (!applicationOwnerId) return;
     try {
       setGmailActionBusy("disconnect");
       const next = await gmail.disconnectGmail();
@@ -2125,7 +2126,7 @@ function ProfilePageContent({
   }
 
   async function handleSyncGmailNow() {
-    if (!user?.uid) return;
+    if (!applicationOwnerId) return;
     try {
       setGmailActionBusy("sync");
       const payload = await gmail.syncNow();
@@ -2208,7 +2209,7 @@ function ProfilePageContent({
     isPasskeyVaultMethod(wrapper.method),
   );
   const canEditKaiPreferences = Boolean(
-    user?.uid && vaultAccess.hasVault && vaultAccess.canMutateSecureData,
+    applicationOwnerId && vaultAccess.hasVault && vaultAccess.canMutateSecureData,
   );
 
   const marketplaceStatusText = loadingMarketplaceOptIn
@@ -2231,7 +2232,7 @@ function ProfilePageContent({
   const phoneLookupPending = !phoneNumber && phoneNumberStatus !== "missing";
   const retryPhoneLookup = useCallback(async () => {
     const owner = snapshotValidatedAuthSessionOwner();
-    if (!owner || owner.userId !== user?.uid) {
+    if (!owner || owner.userId !== applicationOwnerId) {
       return { status: "blocked" as const, summary: "Sign in to check your phone number." };
     }
     try {
@@ -2240,13 +2241,13 @@ function ProfilePageContent({
         return { status: "blocked" as const, summary: "Your account changed. Try again." };
       }
       if (phone) return { status: "succeeded" as const, summary: "Your saved phone number is available." };
-      const snapshot = AccountIdentityService.peekCachedIdentity(user?.uid);
-      if (snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, user?.uid)) {
+      const snapshot = AccountIdentityService.peekCachedIdentity(applicationOwnerId);
+      if (snapshot && !snapshot.isStale && backendPhoneIsMissing(snapshot.data, applicationOwnerId)) {
         return { status: "succeeded" as const, summary: "You can add a verified phone number." };
       }
     } catch { /* Keep an unavailable lookup retryable. */ }
     return { status: "failed" as const, summary: "Couldn't load your phone number. Try again." };
-  }, [resolveVerifiedPhoneNumber, user?.uid]);
+  }, [resolveVerifiedPhoneNumber, applicationOwnerId]);
   const emailVerified = Boolean(user?.emailVerified);
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
@@ -2859,7 +2860,7 @@ function ProfilePageContent({
   ]);
 
   useEffect(() => {
-    if (authLoading || !user?.uid || !hasVault || !vaultAccess.needsUnlock) {
+    if (authLoading || !applicationOwnerId || !hasVault || !vaultAccess.needsUnlock) {
       return;
     }
     if (!profileRouteRequiresUnlockedVault(activePanel, activeDetail)) {
@@ -2902,11 +2903,11 @@ function ProfilePageContent({
     pathname,
     router,
     searchParams,
-    user?.uid,
+    applicationOwnerId,
     vaultAccess.needsUnlock,
   ]);
 
-  if (authLoading || !user) {
+  if (authLoading || !user || !applicationOwnerId) {
     return null;
   }
 
@@ -2937,7 +2938,7 @@ function ProfilePageContent({
       topLevelScopePath: string;
     },
   ) => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!applicationOwnerId || !vaultKey || !vaultOwnerToken) {
       requestVaultUnlock("profile_data");
       return;
     }
@@ -2965,7 +2966,7 @@ function ProfilePageContent({
 
     try {
       const data = await PersonalKnowledgeModelService.loadDomainData({
-        userId: user.uid,
+        userId: applicationOwnerId,
         domain: domainKey,
         vaultKey,
         vaultOwnerToken,
@@ -3027,7 +3028,7 @@ function ProfilePageContent({
     const domainKey = domainPreview.domainKey || selectedDomain?.key || null;
     const topLevelScopePath = domainPreview.topLevelScopePath;
     if (
-      !user?.uid ||
+      !applicationOwnerId ||
       !vaultKey ||
       !vaultOwnerToken ||
       !domainKey ||
@@ -3062,7 +3063,7 @@ function ProfilePageContent({
       } else {
         const parentPath = [topLevelScopePath, ...target.relativePath.slice(0, -2)].join(".");
         await PersonalKnowledgeModelService.storePreparedDomain({
-          userId: user.uid,
+          userId: applicationOwnerId,
           vaultKey,
           domain: domainKey,
           domainData: buildPkmEntityDeletionCandidate(
@@ -3089,7 +3090,7 @@ function ProfilePageContent({
         (candidate) => candidate.key === domainPreview.permissionKey,
       );
       const data = await PersonalKnowledgeModelService.loadDomainData({
-        userId: user.uid,
+        userId: applicationOwnerId,
         domain: domainKey,
         vaultKey,
         vaultOwnerToken,
@@ -3151,7 +3152,7 @@ function ProfilePageContent({
     },
     nextPosture: PkmVisibilityPosture,
   ) => {
-    if (!user?.uid || !vaultOwnerToken) {
+    if (!applicationOwnerId || !vaultOwnerToken) {
       requestVaultUnlock("profile_data");
       return;
     }
@@ -3186,7 +3187,7 @@ function ProfilePageContent({
 
     try {
       const { manifest: updatedManifest } = await applySlicePosture({
-        userId: user.uid,
+        userId: applicationOwnerId,
         domain: domainKey,
         domainTitle: selectedDomain?.title || domainKey,
         permission: {
@@ -3251,7 +3252,7 @@ function ProfilePageContent({
   };
 
   const handleSaveFinancialContext = async (): Promise<boolean> => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!applicationOwnerId || !vaultKey || !vaultOwnerToken) {
       requestVaultUnlock("profile_data");
       return false;
     }
@@ -3273,7 +3274,7 @@ function ProfilePageContent({
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
-        userId: user.uid,
+        userId: applicationOwnerId,
         domain: "financial",
         vaultKey,
         vaultOwnerToken,
@@ -3397,7 +3398,7 @@ function ProfilePageContent({
   };
 
   const handleDeleteFinancialContextEntry = async (entryId: string) => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!applicationOwnerId || !vaultKey || !vaultOwnerToken) {
       requestVaultUnlock("profile_data");
       return false;
     }
@@ -3408,7 +3409,7 @@ function ProfilePageContent({
     const updatedAt = new Date().toISOString();
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
-        userId: user.uid,
+        userId: applicationOwnerId,
         domain: "financial",
         vaultKey,
         vaultOwnerToken,
@@ -3626,7 +3627,7 @@ function ProfilePageContent({
     verifiedUser?: typeof user | null,
   ) => {
     const activeUser = verifiedUser ?? user;
-    if (!phoneVisitIsCurrent() || activeUser?.uid !== phoneVisit.owner?.userId) return;
+    if (!phoneVisitIsCurrent() || activeUser?.uid !== phoneVisit.owner?.firebaseUid) return;
     await AccountIdentityService.syncCurrentUser(activeUser);
     if (!phoneVisitIsCurrent()) return;
     updateProfileView({ panel: "account", detail: null }, "replace");
@@ -3798,7 +3799,7 @@ function ProfilePageContent({
       )}
       <CommunicationPreferencesSection
         nativeScene={presentation === "native-page"}
-        userId={user?.uid ?? null}
+        userId={applicationOwnerId ?? null}
         vaultKey={vaultKey}
         vaultOwnerToken={vaultOwnerToken}
         onRequestUnlock={() => requestVaultUnlock("profile_data")}
@@ -4031,7 +4032,7 @@ function ProfilePageContent({
   const connectedSystemsContent = (
     <div className={auxiliaryTabStyles.connectedSystems}>
       <ConnectedSystemsPanel
-        cacheUserId={user?.uid}
+        cacheUserId={applicationOwnerId}
         vaultOwnerToken={vaultOwnerToken}
         onRequestUnlock={() => requestVaultUnlock("profile_data")}
         profile={{
@@ -4082,9 +4083,9 @@ function ProfilePageContent({
               />
             ) : null}
 
-            <VaultMethodsPanel key={user?.uid}
-              wrappers={vaultMethodsOwner === user?.uid ? enrolledVaultWrappers : []}
-              primaryMethod={vaultMethodsOwner === user?.uid ? vaultMethod : null} primaryWrapperId={primaryVaultWrapperId}
+            <VaultMethodsPanel key={applicationOwnerId}
+              wrappers={vaultMethodsOwner === applicationOwnerId ? enrolledVaultWrappers : []}
+              primaryMethod={vaultMethodsOwner === applicationOwnerId ? vaultMethod : null} primaryWrapperId={primaryVaultWrapperId}
               biometricLabel={capabilityMatrix?.biometricLabel} localBiometricId={localBiometricWrapperId}
               mutable={vaultAccess.canMutateSecureData} busy={switchingVaultMethod} needsRefresh={vaultMethodsNeedRefresh}
               onSelect={(wrapper) => void vaultMethods.select(wrapper)}
@@ -4242,7 +4243,7 @@ function ProfilePageContent({
         activePanel === "hosting"
           ? "Where your private agent runs."
           : "Your version and available updates.",
-      content: <AgentSettingsPanel kind={activePanel} userId={user.uid} />,
+      content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} />,
     });
   } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
@@ -4315,7 +4316,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <PaymentsAndEarnings key={user?.uid} />
+          <PaymentsAndEarnings key={applicationOwnerId} />
         </div>
       ),
     });
@@ -4536,7 +4537,7 @@ function ProfilePageContent({
         content: (
           <ProfileKaiPreferencesPanel
             model={nativeFinanceActive ? financePreferences : undefined}
-            userId={user.uid}
+            userId={applicationOwnerId}
             vaultKey={vaultKey}
             vaultOwnerToken={vaultOwnerToken}
             canEdit={canEditKaiPreferences}
@@ -4560,7 +4561,7 @@ function ProfilePageContent({
         description: "One's voice controls.",
         content: (
           <VoicePreferencesPanel
-            userId={user.uid}
+            userId={applicationOwnerId}
             vaultOwnerToken={vaultOwnerToken}
             getIdToken={voiceGetIdToken}
           />
@@ -4913,7 +4914,7 @@ function ProfilePageContent({
             vaultCreationCompletingRef.current = true;
             setShowVaultCreation(false);
             setHasVault(true);
-            VaultService.setVaultCheckCache(user.uid, true);
+            VaultService.setVaultCheckCache(applicationOwnerId, true);
             const returnTo = vaultReturnToRef.current;
             if (returnTo) {
               vaultReturnToRef.current = null;
@@ -5127,7 +5128,7 @@ function ProfilePageContent({
       root: () => updateProfileView({ panel: null, detail: null }, "replace") } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
       root: () => updateProfileView({ panel: null, detail: null }, "replace"), formScene: nativePricingEditorOpen ? "request-price" : null,
       editor: destinationId => nativePricingEditorOpen ?
-        <NativeRequestPricingEditor userId={user.uid} model={nativePricingModel} destinationId={destinationId}
+        <NativeRequestPricingEditor userId={applicationOwnerId} model={nativePricingModel} destinationId={destinationId}
           onClose={() => setNativePricingEditorOpen(false)} onFallback={() => { setNativePricingEditorOpen(false); setNativePricingFailed(true); }} /> : null }}
     detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
       onPresentationClose={() => setNativeAccountException(null)} /> : null}{vaultOverlays}</>}
@@ -5143,7 +5144,7 @@ function ProfilePageContent({
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     support={{ active: activePanel === "support" && !showVaultUnlock, editor: (destinationId, onFallback) =>
       <NativeSupportComposer destinationId={destinationId} onFallback={onFallback} model={{
-        userId: user.uid, ready: isVaultUnlocked, draft: { kind: supportKind, message: supportMessage },
+        userId: applicationOwnerId, ready: isVaultUnlocked, draft: { kind: supportKind, message: supportMessage },
         busy: sendingSupportMessage, sent: supportComposerState.status === "sent",
         error: supportMessageError ?? (supportComposerState.status === "error" ? supportComposerState.message : null),
         replyLine: supportReplyLine, placeholder: supportPresentation.placeholder, submitLabel: supportPresentation.submitLabel,
@@ -5194,7 +5195,7 @@ function ProfilePageContent({
       ]), root: () => { if (switchingVaultMethod || nativeFinanceActive && nativeFinance.busy || nativeRuntimeActive && runtimeSettings.operationPending()) return false; vaultMethods.cancelRemove(); devicesModel.cancel(); updateProfileView({ panel: null, detail: null }, "replace"); return true; },
       editor: destinationId => <>{nativePreferences.editor(destinationId)}
         {nativeRuntimeActive ? nativeRuntime.editor(destinationId) : null}
-        {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={user.uid}
+        {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={applicationOwnerId}
           destinationId={destinationId} onFallback={() => setNativeVaultPasswordFallback(true)} /> : null}</> }}
     account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone" && !phoneLookupPending) && !nativeAccountException && !showVaultUnlock,
       page: nativeAccountPage, confirmation: accountConfirmation, formScene: editingDisplayName && activePanel === "account" && !activeDetail ? "account-name" : null,
@@ -5227,7 +5228,7 @@ function ProfilePageContent({
         <NativeDisplayNameEditor user={user} destinationId={destinationId} portalFallback webHost={nativeNameHost}
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
-    menu={{ owner: user.uid, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
+    menu={{ owner: applicationOwnerId, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
       ...(nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
         !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
@@ -5240,7 +5241,7 @@ function ProfilePageContent({
       groups: menuGroups, actions: menuActions }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
-      owner: user.uid, context: JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
+      owner: applicationOwnerId, context: JSON.stringify([applicationOwnerId, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
       onClose: closeNativeProfile, onBack: () => backProfilePane(pathname, searchParams) }}>
     {page}
   </NativeProfilePresentation>;

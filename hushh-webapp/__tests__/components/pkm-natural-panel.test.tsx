@@ -9,7 +9,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PkmExportService } from "@/lib/services/pkm-export-service";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { buildLocationMemoryPresentation } from "@/lib/profile/location-memory-presentation";
 import { financialManifest } from "../fixtures/materialized-financial-manifest";
@@ -49,7 +49,7 @@ const replace = vi.fn();
 const getIdToken = vi.fn().mockResolvedValue("id-token");
 const user = { uid: "reviewer", getIdToken };
 const otherUser = { uid: "other-reviewer", getIdToken };
-const authState = { user, loading: false, sessionVerificationRequired: false };
+const authState = { user, userId: undefined as string | null | undefined, loading: false, sessionVerificationRequired: false };
 const vaultState = {
   isVaultUnlocked: true, vaultKey: "memory-only-key",
   vaultOwnerToken: "memory-only-owner-token", tokenExpiresAt: Date.now() + 60_000,
@@ -61,7 +61,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => authState,
+  useAuth: () => ({ ...authState, userId: authState.userId === undefined ? authState.user.uid : authState.userId }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -145,6 +145,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authState.user = user;
+    authState.userId = undefined;
     authState.loading = false;
     authState.sessionVerificationRequired = false;
     vaultState.tokenExpiresAt = Date.now() + 60_000;
@@ -202,6 +203,16 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     vi.mocked(PersonalKnowledgeModelService.loadDomainData).mockResolvedValue(data);
     return metadata;
   }
+
+  it("uses application ownership for replacement-account Memory and preserves the Firebase token getter", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    authState.userId = ownerId;
+    publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId, accountGeneration: 1 });
+    render(<PkmNaturalPanel />);
+    await waitFor(() => expect(PersonalKnowledgeModelService.getMetadata).toHaveBeenCalledWith(ownerId, expect.anything(), vaultState.vaultOwnerToken));
+    expect(PersonalKnowledgeModelService.getMetadata).not.toHaveBeenCalledWith(user.uid, expect.anything(), expect.anything());
+    await waitFor(() => expect(ConsentCenterService.getCenter).toHaveBeenCalledWith(expect.objectContaining({ userId: ownerId, idToken: "id-token" })));
+  });
 
   it("opens Location through one route and shows all sub-details immediately without loading other domains", async () => {
     const address = "Synthetic full address ".repeat(20);

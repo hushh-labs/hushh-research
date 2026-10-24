@@ -47,6 +47,7 @@ export function useFilesConnection(
         current.vaultOwnerToken !== vaultOwnerToken ||
         !isVaultSessionEpochCurrent(vaultEpoch) ||
         !identity ||
+        identity.userId !== userId ||
         !isValidatedAuthSessionOwnerCurrent(identity)
       )
         throw new DOMException("Files access changed", "AbortError");
@@ -56,7 +57,10 @@ export function useFilesConnection(
     if (boundOwner.current !== nextOwner) setHosting(null);
     boundOwner.current = nextOwner;
     setConnectionError("");
-    void ApiService.getPersonalAgentStatus({ signal: controller.signal })
+    void Promise.resolve().then(() => {
+      check();
+      return ApiService.getPersonalAgentStatus({ signal: controller.signal });
+    })
       .then((status) => {
         check();
         if (

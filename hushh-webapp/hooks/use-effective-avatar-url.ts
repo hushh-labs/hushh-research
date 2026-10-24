@@ -20,8 +20,8 @@ export { providerAvatarAtSize } from "@/lib/profile/provider-avatar";
 export function useEffectiveAvatarUrl(options?: number | { fetchWhenCold?: boolean }): string | null {
   const pixels = typeof options === "number" ? options : undefined;
   const fetchWhenCold = typeof options === "object" ? options.fetchWhenCold ?? true : true;
-  const { user } = useAuth();
-  const uid = user?.uid ?? null;
+  const { user, userId } = useAuth();
+  const uid = userId;
   const firebasePhoto = user?.photoURL ?? null;
   const [effective, setEffective] = useState<{ owner: string; url: string | null } | null>(null);
 

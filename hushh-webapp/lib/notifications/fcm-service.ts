@@ -1,3 +1,4 @@
+import { snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { clearCurrentNotificationDevice, notificationDeviceId } from "@/lib/notifications/preview-keys";
 /**
  * Unified FCM Service
@@ -341,7 +342,7 @@ let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;
 let webListenerConfigured = false;
 let webServiceWorkerBridgeConfigured = false;
-let lastKnownSession: { userId: string; idToken: string; getIdToken?: () => Promise<string> } | null = null;
+let lastKnownSession: { userId: string; firebaseUid: string; idToken: string; getIdToken?: () => Promise<string> } | null = null;
 let notificationSessionGeneration = 0;
 const pushCleanupControllers = new Set<AbortController>();
 let pendingChatTaps: Array<Record<string, unknown>> = [];
@@ -672,7 +673,9 @@ export async function initializeFCM(
 ): Promise<FCMInitResult> {
   const isNative = Capacitor.isNativePlatform();
   for (const cleanup of pushCleanupControllers) cleanup.abort();
-  lastKnownSession = { userId, idToken, ...(options.getIdToken ? { getIdToken: options.getIdToken } : {}) };
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  const firebaseUid = principal?.ownerId === userId ? principal.firebaseUid : userId;
+  lastKnownSession = { userId, firebaseUid, idToken, ...(options.getIdToken ? { getIdToken: options.getIdToken } : {}) };
   notificationSessionGeneration++;
 
   if (isNative) {
@@ -1350,13 +1353,13 @@ function setupNativeListeners(): Promise<void> {
             if (session) {
               const auth = session.getIdToken ? null : (await import("@/lib/firebase/config")).auth;
               const user = auth?.currentUser;
-              if (!session.getIdToken && (!user || user.uid !== session.userId)) return;
+              if (!session.getIdToken && (!user || user.uid !== session.firebaseUid)) return;
               // A refresh callback can contain a token being deleted for the
               // previous owner. Resolve the provider's current token only once
               // the native deletion barrier has completed.
               const { token } = await nativeTokenAfterDeletion(FirebaseMessaging);
               const freshToken = await (session.getIdToken ? session.getIdToken() : user!.getIdToken());
-              const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession === session && Boolean(session.getIdToken || auth?.currentUser?.uid === session.userId);
+              const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession === session && Boolean(session.getIdToken || auth?.currentUser?.uid === session.firebaseUid);
               if (!isCurrent()) return;
               const response = await ApiService.registerPushToken(
                 session.userId,
