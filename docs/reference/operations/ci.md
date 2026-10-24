@@ -217,6 +217,13 @@ release receipts; add no monitoring workflow or scheduled test loop for this rev
 
 ## Automatic native release cadence
 
+**Surgical lifecycle release hold (2026-10-24, source candidate):**
+`config/release-cadence.json` sets `enabled: false` so this dev/UAT correction
+cannot automatically publish production or native releases. Manual governed
+deployments remain available. Retain the accounting ledger, baseline run and
+monitor improvements; resuming automatic publication is a separate release decision.
+This source setting does not prove a running controller has adopted the hold.
+
 `UAT Release Cadence` observes completed `Deploy to UAT` runs in a separate
 workflow. UAT never waits for that observer, a native build, production deployment,
 or Apple processing. The observer has its own short accounting lock; UAT and
