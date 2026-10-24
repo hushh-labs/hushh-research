@@ -1,6 +1,15 @@
+# Consent Source Inventory
+
+## Visual Context
+
+Source evidence companion to the [Consent UI contract](./consent.md), under the canonical [web package documentation map](../README.md). The JSON below quotes existing JSX and presenter expressions verbatim, including legacy runtime copy; it does not establish public documentation wording or prove browser mounting. Regenerate from the web package with `node scripts/reports/consent-presentation-inventory.mjs`.
+
+## Quoted Source
+
+```json
 {
   "sourceState": "working tree based on sourceSha; baseline roles were captured before presentation edits",
-  "sourceSha": "b2b7e9fa9cc15e3dc41afc54e7fb084d92948188",
+  "sourceSha": "e656ede04fd309cd15c16c128638536e85060121",
   "baselineSha": "163ddb96a33e05cae95d3329f396e6373590cce4",
   "evidence": "Source enumeration. Runtime computed type, x/y, focus, scroll, mount and provider/native acceptance are not inferred from JSX. See consent.md for route/host, API and cancellation ownership. Conditions are lexical enclosing expressions; early returns and caller guards require the owning source.",
   "exclusions": {
@@ -2482,3 +2491,4 @@
 {"file":"lib/payouts/review-copy.ts","line":50,"projection":"\"Update your bank\""},
 {"file":"lib/payouts/review-copy.ts","line":51,"projection":"\"Verify details\""}
 ]}
+```

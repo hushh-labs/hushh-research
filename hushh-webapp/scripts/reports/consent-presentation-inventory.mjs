@@ -5,8 +5,9 @@ import { execFileSync } from "node:child_process";
 import ts from "typescript";
 
 const root = process.cwd();
-const output = path.join(root, "docs/ui-contracts/consent-source-inventory.json");
-const previous = fs.existsSync(output) ? JSON.parse(fs.readFileSync(output, "utf8")) : null;
+const output = path.join(root, "docs/ui-contracts/consent-source-inventory.md");
+const previous = fs.existsSync(output)
+  ? JSON.parse(fs.readFileSync(output, "utf8").match(/```json\r?\n([\s\S]+?)\r?\n```/)[1]) : null;
 const baseline = new Map(previous?.elements.map(item => [item.id, item.before]) ?? []);
 const files = [];
 function collect(directory) {
@@ -106,7 +107,14 @@ const report = {
 // One record per line keeps source review practical without treating a source
 // fingerprint as behavior or visual acceptance.
 const { elements: elementRows, copySources: copyRows, ...metadata } = report;
-fs.writeFileSync(output, JSON.stringify(metadata, null, 2).slice(0, -1)
+const quotedSource = JSON.stringify(metadata, null, 2).slice(0, -1)
   + ',\n"elements":[\n' + elementRows.map(item => JSON.stringify(item)).join(',\n')
-  + '\n],\n"copySources":[\n' + copyRows.map(item => JSON.stringify(item)).join(',\n') + '\n]}\n');
+  + '\n],\n"copySources":[\n' + copyRows.map(item => JSON.stringify(item)).join(',\n') + '\n]}';
+fs.writeFileSync(output, '# Consent Source Inventory\n\n## Visual Context\n\n'
+  + 'Source evidence companion to the [Consent UI contract](./consent.md), '
+  + 'under the canonical [web package documentation map](../README.md). '
+  + 'The JSON below quotes existing JSX and presenter expressions verbatim, including legacy runtime copy; '
+  + 'it does not establish public documentation wording or prove browser mounting. '
+  + 'Regenerate from the web package with `node scripts/reports/consent-presentation-inventory.mjs`.\n\n'
+  + '## Quoted Source\n\n```json\n' + quotedSource + '\n```\n');
 console.log(JSON.stringify(report.counts));
