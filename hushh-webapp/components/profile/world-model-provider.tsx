@@ -239,7 +239,7 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         .catch(() => undefined);
     };
     void (async () => {
-      // Past decisions only refine research; an unreadable memory never blocks it.
+      // Explicit Update must use a fresh saved-context snapshot, never silently omit it.
       let ownerDecisions: PwmOwnerDecisions | undefined;
       try {
         ownerDecisions = WorldModelDecisionService.ownerDecisions(
@@ -247,12 +247,16 @@ export function WorldModelProvider({ children }: { children: ReactNode }) {
         );
       } catch {
         if (controller.signal.aborted) return;
+        if (explicitRefresh) throw new Error("Saved research context is unavailable");
       }
       await WorldModelResearchService.observe({
         ...authority,
         // One tab per owner drives research; the others only read status.
         ownerId: owner,
         ownerDecisions,
+        researchContext: explicitRefresh && ownerDecisions
+          ? { confirmed: [...ownerDecisions.confirmed], permitted_public_research: true }
+          : undefined,
         refresh: explicitRefresh,
         publicProfileUrls: explicitRefresh ? intent.publicProfileUrls : undefined,
         // Keep read warming, but do not enroll or resume research on fixture

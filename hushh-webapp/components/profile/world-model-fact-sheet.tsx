@@ -24,7 +24,7 @@ export type WorldModelDraftFact = {
 };
 export type WorldModelFactDetail =
   | WorldModelDraftFact
-  | { kind: "saved"; claim: PwmClaim };
+  | { kind: "saved"; claim: PwmClaim; edit?: boolean };
 
 export type WorldModelFactActions = {
   confirm: (fact: WorldModelDraftFact) => Promise<void>;
@@ -71,7 +71,7 @@ export function WorldModelFactSheet({
   onClose: () => void;
 }) {
   const text = fact.kind === "draft" ? fact.statement : fact.claim.text;
-  const [mode, setMode] = useState<"view" | "edit" | "remove">("view");
+  const [mode, setMode] = useState<"view" | "edit" | "remove">(fact.kind === "saved" && fact.edit ? "edit" : "view");
   const [draft, setDraft] = useState(text);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);

@@ -1057,10 +1057,15 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   opt-out. It chooses source queries, identity pivots, evidence interpretation,
   fact support, coverage gaps and plain-English summaries.
 - Owner decisions: `ensure` and `POST /jobs` accept bounded `owner_decisions`
-  (`confirmed`/`rejected`, at most 50 statements of 1 to 600 characters each),
+  (`confirmed`/`rejected`, at most 269 statements of 1 to 600 characters each),
   stored in the sealed job state under `inputs` and passed to the specialist as
   data. The authored manifest instruction tells the model not to propose those
-  claims or equivalents again and never to infer an opposite. The model decides
+  claims or equivalents again and never to infer an opposite. Explicit Update can
+  separately approve a frozen `research_context` snapshot of saved confirmed
+  statements as `owner_confirmed_research_leads` for planning and query terms.
+  The full decisions object and rejected/removed statements never enter search.
+  Leads cannot establish independent evidence or identity and are not carried
+  into fresh automatic generations. The model decides
   equivalence; host code only validates the bounds, and the client hides only
   drafts whose claim key exactly matches a decided key.
 - Host contract: verified owner/setup/vault authority; exact contact matching for

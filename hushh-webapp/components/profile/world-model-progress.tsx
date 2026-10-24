@@ -11,6 +11,8 @@ import {
   ProfileAccountNameIcon,
   ProfileAccountPhoneIcon,
 } from "@/components/profile/profile-your-account-icons";
+import { HelperText } from "@/components/app-ui/typography";
+import { Button } from "@/lib/morphy-ux/button";
 import { Badge } from "@/components/ui/badge";
 import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import type { PwmProgress } from "@/lib/services/world-model-research-service";
@@ -315,5 +317,40 @@ export function WorldModelIdentityGroup({
         trailing={masked ? <Badge variant="secondary">Verified</Badge> : undefined}
       />
     </SettingsGroup>
+  );
+}
+
+
+export function WorldModelIdentityDetails({ identity, identityLabel, canEdit, onEdit, insufficient, onOpenAccount }: {
+  identity: WorldModelIdentityInput; identityLabel: string; canEdit: boolean; onEdit: () => void;
+  insufficient: boolean; onOpenAccount?: () => void;
+}) {
+  return (
+          <section aria-label={identityLabel} className="space-y-2">
+            <WorldModelIdentityGroup {...identity} />
+            <HelperText className="profile-account-note">
+              Update uses your profile, confirmed details and approved links to guide public searches.
+            </HelperText>
+            {canEdit ? <Button type="button" size="compact" variant="none"
+              data-voice-control-id="pwm_public_sources_open" onClick={onEdit}>Edit details</Button> : null}
+            {insufficient ? (
+              <div>
+                <HelperText role="status" className="profile-account-note">
+                  Add them in your account, then come back here.
+                </HelperText>
+                {onOpenAccount ? (
+                  <Button
+                    type="button"
+                    size="compact"
+                    variant="none"
+                    effect="fade"
+                    onClick={onOpenAccount}
+                  >
+                    Open your account
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
   );
 }

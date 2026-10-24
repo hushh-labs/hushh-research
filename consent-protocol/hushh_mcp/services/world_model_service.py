@@ -30,6 +30,18 @@ from hushh_mcp.services.world_model_checkpoints import (
     carry_legacy_starts,
     prepare_discovery_start_state,
 )
+from hushh_mcp.services.world_model_job_inputs import (
+    PublicProfilesChanged as PublicProfilesChanged,
+)
+from hushh_mcp.services.world_model_job_inputs import (
+    prepare_bound_inputs as bind_research_inputs,
+)
+from hushh_mcp.services.world_model_job_inputs import (
+    prepare_inputs as prepare_research_inputs,
+)
+from hushh_mcp.services.world_model_job_inputs import (
+    prepare_start_state as prepare_start_inputs,
+)
 from hushh_mcp.services.world_model_preferences import (
     azure_bing_consented,
     checkpoint_before_write,
@@ -196,6 +208,7 @@ async def offer(
         on_progress=on_progress,
         owner_decisions=(inputs or {}).get("owner_decisions"),
         owner_public_profiles=(inputs or {}).get("public_profiles"),
+        owner_research_context=(inputs or {}).get("research_context"),
         **provider_args,
     )
     await require_access()
@@ -218,10 +231,6 @@ def _prepare_discovery_start_state(state, *, scope, stored_attempts, clock):
         provider=POLICY["provider"],
         work_version=AZURE_WORK_VERSION,
     )
-
-
-class PublicProfilesChanged(ValueError):
-    """A different public seed requires an explicit, non-overlapping discovery."""
 
 
 class WorldModelJobs(ProfileResearchJobs):
@@ -257,11 +266,9 @@ class WorldModelJobs(ProfileResearchJobs):
             f"{self.search_slots}:{self.stored_attempts - self.search_slots}"
         )
 
-    def prepare_start_state(self, state):
-        if state is None:
-            return state
-        return _prepare_discovery_start_state(
-            state, scope=self.budget_scope(), stored_attempts=self.stored_attempts, clock=self.clock
+    def prepare_start_state(self, state, *, context=None):
+        return prepare_start_inputs(
+            self, state, context=context, prepare=_prepare_discovery_start_state
         )
 
     def activity_at(self, user_id, state):
@@ -361,28 +368,12 @@ class WorldModelJobs(ProfileResearchJobs):
         }
 
     def prepare_inputs(self, state, inputs, refresh_completed):
-        from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
-
-        prior = (state or {}).get("inputs") or {}
-        carried = dict(prior if inputs is None else inputs)
-        for field in ("public_profiles", "owner_decisions"):
-            if field not in carried and field in prior:
-                carried[field] = prior[field]
-        profiles = carried.get("public_profiles")
-        if profiles is not None:
-            if POLICY["provider"] not in {"azure_openai_web_search", "azure_openai_tavily"}:
-                raise PublicProfilesChanged("Public profile discovery requires Azure consent")
-            profiles = OwnerPublicProfiles.model_validate(profiles).model_dump()
-            carried["public_profiles"] = profiles
-        same = sorted((prior.get("public_profiles") or {}).get("urls", [])) == sorted(
-            (profiles or {}).get("urls", [])
+        return prepare_research_inputs(
+            self, state, inputs, refresh_completed, provider=POLICY["provider"]
         )
-        if not same and (
-            not refresh_completed
-            or (state and state["status"] == "pending" and self.reusable(state))
-        ):
-            raise PublicProfilesChanged("Public profiles changed")
-        return carried or None, same
+
+    def prepare_bound_inputs(self, state, binding):
+        return bind_research_inputs(state, binding)
 
     async def ensure(self, user_id, consent_token, *, owner_decisions=None):
         enrolled = False

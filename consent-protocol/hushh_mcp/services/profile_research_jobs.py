@@ -360,13 +360,12 @@ class ProfileResearchJobs:
         if not one_profile_research_enabled():
             return {"status": "disabled", "pkm_written": False}
         context = await self.job_context(user_id, consent_token)
-        state = self.prepare_start_state(await self.store.get(user_id))
+        state = self.prepare_start_state(await self.store.get(user_id), context=context)
         carried, same_inputs = self.prepare_inputs(state, inputs, refresh_completed)
         same_context = all((state or {}).get(key) == value for key, value in context.items())
         fresh_discovery = bool(
             refresh_completed
             and state
-            and same_context
             and (
                 not same_inputs
                 or state["status"] in {"offered", "low_confidence"}
@@ -560,13 +559,18 @@ class ProfileResearchJobs:
     def prepare_inputs(self, state, inputs, refresh_completed):
         return ((state or {}).get("inputs") if inputs is None else inputs), True
 
-    def prepare_start_state(self, state: dict[str, Any] | None) -> dict[str, Any] | None:
+    def prepare_start_state(
+        self, state: dict[str, Any] | None, *, context=None
+    ) -> dict[str, Any] | None:
         """Allow a feature to translate an older checkpoint before budget validation.
 
         The returned state retains its revision and fence for the store's CAS.
         Generic research never changes its paid attempt ledger.
         """
         return state
+
+    def prepare_bound_inputs(self, state, binding):
+        return state.get("inputs")
 
     def committed(self):
         pass
@@ -605,6 +609,11 @@ class ProfileResearchJobs:
                     if self.progressive and state.get("resume_binding") != original_binding:
                         # Paid slots survive identity changes, private evidence does not.
                         state.pop("work", None)
+                    bound_inputs = self.prepare_bound_inputs(state, original_binding)
+                    if bound_inputs:
+                        state["inputs"] = bound_inputs
+                    else:
+                        state.pop("inputs", None)
                     if not used:
                         state["discovery_started_at"] = self.clock()
                     if refused:
