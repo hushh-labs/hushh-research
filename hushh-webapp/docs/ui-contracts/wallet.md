@@ -11,6 +11,12 @@ This contract records the presentation change in the isolated
 service, consent and PKM contracts remain with their existing owners. Browser
 and device evidence is distinguished from source inspection below.
 
+## Visual Context
+
+[Product UI contracts](./README.md) owns the cross-surface visual map. The
+route and state ledger below expands Wallet's mounted presentation and its
+handoffs to Connect, Profile, Feed, Messages, and One.
+
 ## Mounted route, state and host ledger
 
 | Route or host | Mounted state and visible controls | Source owner | Authority and close behavior |
