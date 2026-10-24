@@ -1,5 +1,7 @@
 """Explicit synthetic checkout inputs for deployment capability contracts."""
 
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -110,6 +112,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
     return [
         *old_paths,
         "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/release_acceptance_provenance.py",
         "scripts/ci/resolve-deploy-scope.py",
         "scripts/ops/runtime_config_retention.py",
         "scripts/ops/scope_commerce_runtime_policy.py",
@@ -120,6 +123,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/process_group.py",
+        "scripts/ci/runtime_capacity_inventory.py",
         "scripts/ci/account-deletion-fence-decision.py",
         "scripts/ci/managed_provider_readiness.py",
         "scripts/ci/managed_capability_proof.py",
@@ -138,3 +142,25 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
             )
         ),
     ]
+
+
+def executable_manifest() -> tuple[str, str]:
+    manifest = json.dumps(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "digest": "sha256:" + "1" * 64,
+                "size": 100,
+            },
+            "layers": [
+                {
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                    "digest": "sha256:" + "2" * 64,
+                    "size": 200,
+                }
+            ],
+        }
+    )
+    return manifest, "sha256:" + hashlib.sha256(manifest.encode()).hexdigest()
