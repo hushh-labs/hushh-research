@@ -90,7 +90,7 @@ Equivalent quiet commands use one transparent outer wrapper and a single 44px ro
 
 No browser or device state is claimed exercised by this pre-edit inventory. Dynamic names, field labels, reasons, prices, dates, expiry and errors project server information through the cited owners; they must be checked as templates with synthetic fixtures. Current documentation that describes a Shield inbox or first-five popup is stale and must be reconciled against the mounted `top-app-bar.tsx` source.
 
-Related owners: [Connect](connect.md), [Profile](profile.md), [Person Profile](person-profile.md), [Drive](drive.md), [Mail](mail.md), [Location](location.md), [Finance](finance.md), [Navigation](navigation.md).
+Related owners: [Connect](./connect.md), [Profile](./profile.md), [Person Profile](./person-profile.md), [Drive](./drive.md), [Mail](./mail.md), [Location](./location.md), [Finance](./finance.md), [Navigation](./navigation.md).
 
 ## Implemented presentation and exact-copy supplement
 
