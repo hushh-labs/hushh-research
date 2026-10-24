@@ -50,6 +50,23 @@ creates no deployment record, builds, traffic changes, or release tag updates.
 Unknown deployment state and unavailable or failed gates still block selection.
 An explicit SHA continues through the existing exact-SHA deployment validator.
 
+UAT defaults `backend_image_source=auto`. When the exact accepted Dev backend
+attempt records a verified executable image, UAT revalidates that same
+run/attempt/artifact pin and copies its immutable digest into UAT's registry.
+The canonical image resolver checks the copied manifest and requires its
+executable digest to equal Dev's accepted digest. Frontend images continue to
+build with UAT configuration.
+
+Historical Dev receipts without image metadata use the existing source build.
+Present but invalid image metadata, missing source images, copy permission
+failures and digest mismatches stop the run; they cannot silently trigger a
+source build. An operator may explicitly select `build-from-source`, or require
+proof with `promote-from-dev`. All UAT migration, provider, candidate, semantic,
+worker, traffic, provenance and rollback gates still run. Image reuse removes a
+duplicate build; actual deployment duration still requires hosted measurement.
+See [the repository-scoped IAM plan](iam/README.md#uat-image-promotion) before
+enabling cross-project image reads. IAM grants require separate authorization.
+
 UAT keeps the backend's maximum concurrency at 20 and sets
 `_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20`. The default 60% target seeks about
 12 concurrent requests per instance, while one Feed worker admits only six
@@ -180,6 +197,14 @@ persists and reports the extra names if it times out. Missing profiled jobs,
 authentication and query errors, and malformed reports fail immediately. Once
 admitted, the deployment rechecks the exact SHA,
 actor, scope, and connection budget under the mutation lock before any writes.
+
+UAT inventory reads use at most three concurrent service collections, followed
+by at most three job describes. Each service still reads its revision inventory
+after its description and verifies every reachable non-database revision. Every
+read must complete successfully before budget evaluation. The two fresh admission
+snapshots and the independent under-lock check remain sequential; no inventory is
+cached between them. Production retains serial collection. Query subprocesses
+inherit the existing admission process group and five-minute deadline.
 
 The UAT deploy request promptly wakes a verified Capacity Maintenance first pass;
 later short scheduled passes can free old revisions after drainage. If no eligible source

@@ -9,7 +9,6 @@ remains the default until the founder grants the IAM and flips it.
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import os
@@ -20,6 +19,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+
+from tests.helpers.deployment_cli import executable_manifest as _direct_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy-production.yml"
@@ -38,28 +39,6 @@ def _verifier():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def _direct_manifest() -> tuple[str, str]:
-    manifest = json.dumps(
-        {
-            "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.manifest.v1+json",
-            "config": {
-                "mediaType": "application/vnd.oci.image.config.v1+json",
-                "digest": "sha256:" + "1" * 64,
-                "size": 100,
-            },
-            "layers": [
-                {
-                    "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
-                    "digest": "sha256:" + "2" * 64,
-                    "size": 200,
-                }
-            ],
-        }
-    )
-    return manifest, "sha256:" + hashlib.sha256(manifest.encode()).hexdigest()
 
 
 def _revision(sha: str, name: str = "consent-protocol-00500-abc", **overrides) -> dict:

@@ -197,6 +197,7 @@ def test_candidate_checks_image_readiness_identity_and_tag_before_promotion(tmp_
         broken["status"][field] = value
         _write_json(revision_path, broken)
         assert MODULE.verify(args)["ok"] is False
+
     for key in ("deploy-sha", "github-run-id", "serving.knative.dev/service"):
         broken = deepcopy(revision)
         broken["metadata"]["labels"][key] = "wrong"
@@ -212,3 +213,46 @@ def test_candidate_checks_image_readiness_identity_and_tag_before_promotion(tmp_
         broken["status"]["traffic"][1] = tag_entry
         _write_json(service_path, broken)
         assert MODULE.verify(args)["ok"] is False
+
+
+def test_live_provenance_records_only_the_expected_serving_image(tmp_path):
+    name = "consent-protocol-002"
+    digest = "sha256:" + "a" * 64
+    service, revision, report = (
+        tmp_path / filename for filename in ("service.json", "revision.json", "report.json")
+    )
+    _write_json(service, _service_payload(name))
+    payload = _revision_payload(name, deploy_env="dev", deploy_source="deploy-dev")
+    payload["status"] = {"imageDigest": "gcr.io/hushh-pda-dev/consent-protocol@" + digest}
+    _write_json(revision, payload)
+    arguments = [
+        "--project",
+        "hushh-pda-dev",
+        "--region",
+        "us-central1",
+        "--service",
+        "consent-protocol",
+        "--expected-env",
+        "dev",
+        "--expected-source",
+        "deploy-dev",
+        "--expected-sha",
+        "abc123",
+        "--expected-run-id",
+        "99",
+        "--service-json",
+        str(service),
+        "--revision-json",
+        str(revision),
+        "--report-path",
+        str(report),
+        "--expected-image-reference",
+        "gcr.io/hushh-pda-dev/consent-protocol@" + digest,
+    ]
+    assert MODULE.main(arguments) == 0
+    observed = json.loads(report.read_text())["checked_revisions"][0]
+    assert observed["image_verified"] is True and observed["image_digest"] == digest
+    payload["status"]["imageDigest"] = "sha256:" + "b" * 64
+    _write_json(revision, payload)
+    assert MODULE.main(arguments) == 1
+    assert json.loads(report.read_text())["checked_revisions"][0]["image_verified"] is False
