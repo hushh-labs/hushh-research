@@ -44,7 +44,10 @@ def _schema(value: Any, *, strict: bool) -> dict:
             return {"anyOf": [result, {"type": "null"}]}
         return result
 
-    return visit(value)
+    converted = visit(value)
+    if not isinstance(converted, dict):
+        raise ValueError("Azure structured schema must remain an object")
+    return converted
 
 
 def _has_open_map(node: Any) -> bool:
