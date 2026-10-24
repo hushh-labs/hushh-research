@@ -1172,5 +1172,5 @@ No semantic keyword classifier, cloud assessor, second router or new index is
 introduced. Compatible exact-source owner corrections retain precedence. Labels
 never become content verification, sharing permission or a purchase decision.
 
-See [the owning packet contract](drive-continuous-packets.md#fixed-financial-period-packets)
+See [the owning packet contract](./drive-continuous-packets.md)
 for enrollment, migration, recovery and privacy boundaries.
