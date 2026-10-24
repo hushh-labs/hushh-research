@@ -133,7 +133,7 @@ def test_selected_sha_compiler_preserves_flag_compatibility(
     command = (
         "set -euo pipefail\n"
         + rendered_guard
-        + '\n"$COMPAT_PYTHON" scripts/ops/sync_backend_runtime_secrets.py "${drive_group_args[@]}"\n'
+        + '\n"$COMPAT_PYTHON" scripts/ops/sync_backend_runtime_secrets.py ${drive_group_args[@]+"${drive_group_args[@]}"}\n'
     )
     import os
 
