@@ -589,7 +589,7 @@ async def test_private_approval_postgres_replay_revoke_and_generation_fence(monk
 async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(
     monkeypatch, provider, label
 ):
-    from hushh_mcp.runtime_providers.managed_text import managed_text_binding
+    from hushh_mcp.runtime_providers.managed_text import managed_text_binding as binding
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
@@ -601,9 +601,7 @@ async def test_uat_effective_model_is_managed_for_saved_and_missing_choices(
 
         monkeypatch.setattr(prefs, "_stored_choice", stored)
         payload = await prefs.get_preference(user_id="arbitrary-owner")
-        assert (
-            payload["effective_model"] == managed_text_binding(scope="one_text_chat")["deployment"]
-        )
+        assert payload["effective_model"] == binding(scope="one_text_chat")["deployment"]
         assert payload["source"] == "administrator_policy"
         assert payload["selected_model"] == selected
         assert len(payload["choices"]) == 1
