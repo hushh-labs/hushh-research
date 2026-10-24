@@ -215,6 +215,24 @@ def test_negated_patterns_use_the_exclusion_aware_quantifier() -> None:
         )
 
 
+def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
+    backend = _filters()["backend"]
+    reference = "consent-protocol/docs/reference/private-browser-runtime.md"
+    runtime = "consent-protocol/hushh_mcp/services/pod_binding_service.py"
+    assert not backend.match_file(reference)
+    for path in (
+        "consent-protocol/docs/reference/env-vars.md",
+        "consent-protocol/docs/reference/future-document.md",
+        "consent-protocol/docs/example.py",
+        "consent-protocol/docs/schema.json",
+        runtime,
+        "scripts/ci/protocol-check.sh",
+        ".github/workflows/ci.yml",
+    ):
+        assert backend.match_file(path), path
+    assert any(backend.match_file(path) for path in (reference, runtime))
+
+
 def test_lane_discovery_finds_every_path_filtered_lane() -> None:
     jobs = _lane_jobs()
     for job, lanes in EXPECTED_JOBS.items():

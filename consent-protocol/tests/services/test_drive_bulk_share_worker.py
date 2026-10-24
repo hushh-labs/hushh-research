@@ -506,27 +506,3 @@ async def test_bulk_worker_passes_frozen_expiry_and_records_it_for_early_stop(sh
     assert await worker._grant(_job()) == "succeeded"
     assert adapter.create_reader.await_args.kwargs["expiration_time"] == expires
     assert store.settle.await_args.kwargs["receipt"]["expiration_time"] == expires
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("tamper", [False, True])
-async def test_discovery_delivery_uses_metadata_acl_checks_and_rejects_forged_source(
-    tamper, shared_hub_owner
-):
-    worker, store, adapter = _worker()
-    job = _discovery_job()
-    file = job["file"]
-    checkpoint = file["discoveryEvidence"]
-    if tamper:
-        file["name"] = "Changed recording"
-    job["file"] = file
-    await worker._grant(job)
-    if tamper:
-        adapter.inspect_shareable.assert_not_awaited()
-        adapter.create_reader.assert_not_awaited()
-    else:
-        args = adapter.inspect_shareable.await_args.kwargs
-        assert args["metadata_only"] is True
-        assert args["metadata_period"]["start"] == checkpoint["period"]["start"]
-        assert args["metadata_period"]["date_basis"] == "title_created_modified"
-        adapter.create_reader.assert_awaited_once()

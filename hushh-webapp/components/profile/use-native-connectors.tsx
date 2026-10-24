@@ -7,7 +7,8 @@ import { nativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import { NativeConnectorEditor, NativeConnectorForm } from "./native-connector-editor";
 import { nativeMemoryText } from "./use-native-memory";
 import { ownerPacketSections } from "@/components/consent/drive-packet-catalog";
-import { ownerPacketTitle, ownerStatusLine } from "@/components/consent/packets/packet-copy";
+import { PACKET_CATEGORY_NAMES, categoryPeriods, packetCategories, ownerPacketTitle, ownerStatusLine, packetPeriod, periodLabel } from "@/components/consent/packets/packet-copy";
+import type { DrivePacket, DrivePacketCategory } from "@/lib/services/drive-packet-service";
 import { connectorArtworkId } from "@/lib/profile/connector-artwork";
 import { DRIVE_GROUP_DISCLOSURE } from "@/components/agent/drive-data-packets";
 
@@ -26,8 +27,8 @@ class ConnectorVisit {
   retire() { this.live = false; this.handles.clear(); this.presentation = undefined; this.editor = null; }
 }
 type Local = { custom: string | null; drive: "files" | "packets" | "preparation" | "trust" | "groups" | null; revoke: string | null;
-  rule: string | null; link: { network: "instagram" | "linkedin"; baseline: string } | null; page: Record<string, number>; failedEditor: boolean };
-const initial = (): Local => ({ custom: null, drive: null, revoke: null, rule: null, link: null, page: {}, failedEditor: false });
+  packetCategory: DrivePacketCategory | null; rule: string | null; link: { network: "instagram" | "linkedin"; baseline: string } | null; page: Record<string, number>; failedEditor: boolean };
+const initial = (): Local => ({ custom: null, drive: null, revoke: null, packetCategory: null, rule: null, link: null, page: {}, failedEditor: false });
 const title = (value: string) => nativeMemoryText(value, 256)[0] || "Connector";
 const body = (value: string) => nativeMemoryText(value, 4096)[0] || "Details";
 
@@ -122,8 +123,8 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
       ...(detail.background ? [read("drive-background-state", "Background Drive access", detail.background.description),
         ...(detail.background.enabled === null ? [] : [toggle("drive-background", "Background Drive access", detail.background.enabled, !detail.background.busy, detail.background.change)]),
         ...action("drive-background-retry", detail.background.retry)] : []),
-      ...(detail.collection ? [bind("drive-preparation", "Prepare packets", () => change(value => ({ ...value, drive: "preparation" })), { detail: detail.collection.caption, chevron: true }),
-        ...(detail.collection.status ? [bind("drive-packets", "Packets", () => change(value => ({ ...value, drive: "packets" })), { chevron: true })] : [])] : []),
+      ...(detail.collection ? [bind("drive-preparation", "Prepare packets", () => change(value => ({ ...value, drive: "preparation" })), { detail: detail.collection.caption, chevron: true })] : []),
+      ...(detail.packets.enabled || detail.collection?.status ? [bind("drive-packets", "Packets", () => change(value => ({ ...value, drive: "packets" })), { chevron: true })] : []),
       bind("drive-trust", "Trusted documents", () => change(value => ({ ...value, drive: "trust" })), { chevron: true }),
       ...(detail.groups ? [read("drive-groups-heading", "Data packets", detail.groups.caption),
         ...(detail.groups.overview?.groups.map(group => bind(`drive-group:${group.shelf}`, group.name,
@@ -179,16 +180,25 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
   ] }] });
   if (drive && local.drive === "packets") {
     const catalog = drive.packets;
-    pages.push({ id: "connector-packets", title: "Packets", sections: [{ id: "packet-list-content", rows: [
-      ...pageRows("packets", catalog.packets, packet => [bind(`packet:${packet.packetId}:${packet.version}:${packet.listingRevision}`, ownerPacketTitle(packet), () => catalog.open(packet), { detail: ownerStatusLine(packet), chevron: true })]),
-      ...(catalog.loaded && !catalog.packets.length && !catalog.error ? [read("packets-empty", catalog.preparationPaused ? "Preparation paused" : "Agent One is preparing your packets.")] : []),
+    const category = local.packetCategory;
+    const packets: DrivePacket[] = category ? categoryPeriods(catalog.packets, category) : catalog.packets.filter(packet => packet.kind !== "provider_discovery");
+    pages.push({ id: "connector-packets", title: category ? PACKET_CATEGORY_NAMES[category] : "Packets", sections: [{ id: "packet-list-content", rows: [
+      ...(category ? [bind("packet-categories", "All categories", () => change(value => ({ ...value, packetCategory: null })))] :
+        packetCategories(catalog.packets, catalog.periodPackets).map(key => bind(`packet-category:${key}`, PACKET_CATEGORY_NAMES[key],
+          () => change(value => ({ ...value, packetCategory: key })), { chevron: true }))),
+      ...pageRows(`packets:${category ?? "legacy"}`, packets, packet => [bind(`packet:${packet.packetId}:${packet.version}:${packet.listingRevision}`,
+        category ? periodLabel(packetPeriod(packet)) ?? ownerPacketTitle(packet) : ownerPacketTitle(packet),
+        () => catalog.open(packet), { detail: ownerStatusLine(packet), chevron: true })]),
+      ...(catalog.loaded && !catalog.error && (category ? !packets.length : !catalog.periodPackets && !catalog.packets.length) ?
+        [read("packets-empty", category ? "No packets yet" : catalog.preparationPaused ? "Preparation paused" : "Agent One is preparing your packets.")] : []),
       ...(catalog.error ? [read("packets-error", "Couldn’t load packets."), bind("packets-retry", "Retry", () => catalog.load(), { enabled: !catalog.busy })] : []),
       ...(catalog.busy && !catalog.loaded ? [read("packets-loading", "Loading packets…")] : []),
       ...(catalog.cursor ? [bind("packets-more", "Load more", () => catalog.load(catalog.cursor), { enabled: !catalog.busy })] : []),
     ] }] });
     if (drive.packet.packet) pages.push({ id: "connector-packet", title: title(ownerPacketTitle(drive.packet.packet)), sections: [
-      ...ownerPacketSections(drive.packet.packet, drive.packet.amount).map(section => ({ id: `packet:${section.id}`, title: section.title,
-        rows: (section.rows ?? []).flatMap(row => [read(`packet:${section.id}:${row.id}`, row.title, [row.description, row.value].filter(Boolean).join("\n") || undefined)]) })),
+      ...ownerPacketSections(drive.packet.packet, drive.packet.amount, drive.packet.current).map(section => ({ id: `packet:${section.id}`, title: section.title,
+        rows: (section.rows ?? []).map(row => row.onOpen ? bind(`packet:${section.id}:${row.id}`, row.title, row.onOpen, { chevron: true, detail: row.description }) :
+          read(`packet:${section.id}:${row.id}`, row.title, [row.description, row.value].filter(Boolean).join("\n") || undefined)) })),
       { id: "packet-actions", rows: [...drive.packet.actions.map(value => bind(`packet-action:${value.id}`, value.label, () => value.onSelect?.(), { enabled: !value.disabled })), ...text("packet-message", drive.packet.message)] },
     ] });
   }
@@ -255,6 +265,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     if (local.revoke) { change(value => ({ ...value, revoke: null })); return true; }
     if (local.rule) { change(value => ({ ...value, rule: null })); return true; }
     if (drive?.packets.opened) { drive.packets.close(); return true; }
+    if (local.packetCategory) { change(value => ({ ...value, packetCategory: null })); return true; }
     if (drive?.groups?.selected) { drive.groups.close(); change(value => ({ ...value, drive: null })); return true; }
     if (local.drive) { change(value => ({ ...value, drive: null })); return true; }
     if (current?.custom?.editing) { current.custom.nativeEditor.cancelEditor(); return true; }
@@ -266,7 +277,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     if (choice.rowId === "connectors") {
       custom?.nativeEditor.cancelEditor(); custom?.cancelRemove(); model?.confirmation?.cancel(); model?.catalog.show(); change(() => initial());
     } else if (choice.rowId === "connector-detail") {
-      model?.confirmation?.cancel(); drive?.packets.close(); drive?.groups?.close(); change(value => ({ ...value, drive: null, rule: null, revoke: null }));
+      model?.confirmation?.cancel(); drive?.packets.close(); drive?.groups?.close(); change(value => ({ ...value, drive: null, packetCategory: null, rule: null, revoke: null }));
     } else if (choice.rowId === "connector-trust") change(value => ({ ...value, rule: null, revoke: null }));
     else if (choice.rowId === "connector-packets") drive?.packets.close();
     else if (choice.rowId === "connector-files") model?.confirmation?.cancel();

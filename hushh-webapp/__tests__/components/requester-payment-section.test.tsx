@@ -123,6 +123,17 @@ afterEach(() => {
 });
 
 describe("RequesterPaymentSection", () => {
+  it("shows search-only terms without calling unknown content coverage a search failure", () => {
+    const disclosure: DrivePackageDisclosure = { schemaVersion: 1, packageDigest: "b".repeat(64), packageRevision: 1,
+      selectedCount: 2, confidenceBasis: "provider_search", coverageStatus: "unknown", periods: [],
+      limitations: ["Files matched a Drive search. Their contents were not read."] };
+    render(<RequesterPaymentSection requestId={requestId} revision={3} payment={payment({ packageDisclosureRequired: true })}
+      packageDisclosure={disclosure} onChanged={vi.fn()} />);
+    expect(screen.getByText("Drive search matches")).toBeVisible();
+    expect(screen.queryByText("Unable to verify documents")).toBeNull();
+    expect(screen.queryByText("Date coverage could not be verified.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Pay $25" })).toBeEnabled();
+  });
   it("shows the exact approved coverage and limitations before enabling Pay", async () => {
     const disclosure: DrivePackageDisclosure = { schemaVersion: 1, packageDigest: "b".repeat(64), packageRevision: 2,
       selectedCount: 2, coverageStatus: "partial", periods: [{ start: "2026-09-01", end: "2026-09-30" }],

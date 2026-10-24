@@ -42,6 +42,7 @@ def test_connection_and_read_only_chat_available_without_rollout_flags():
     assert not features["google_drive_live"]
     assert not features["drive_document_indexing"]
     assert not features["drive_four_group_index"]
+    assert not features["drive_period_packets"]
     assert not features["drive_document_sharing"]
     assert not connector_feature_enabled("google_drive_chat_writes", "owner")
     assert not connector_feature_enabled("google_drive_downloads", "owner")
@@ -104,6 +105,21 @@ def test_owner_membership_and_flags_are_independent(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     assert connector_feature_enabled("google_drive_connection", "owner")
     assert not connector_feature_enabled("google_drive_connection", "")
+
+
+def test_period_packets_require_their_own_uat_flag_and_owner_admission(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("CONNECTOR_UAT_ALL_USERS", "true")
+    assert not connector_features("owner")["drive_period_packets"]
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
+    assert connector_features("owner")["drive_period_packets"]
+    assert not connector_features("")["drive_period_packets"]
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "false")
+    assert not connector_features("owner")["drive_period_packets"]
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("CONNECTOR_PRODUCTION_ALL_USERS", "true")
+    assert not connector_features("owner")["drive_period_packets"]
 
 
 def test_legacy_all_users_mode_does_not_control_owner_initiated_connection(monkeypatch):

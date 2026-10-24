@@ -1629,60 +1629,23 @@ class DriveSharingStore(DriveDocumentStore):
                     # The Google account files go to, as sealed in the request.
                     "recipientEmail": sealed["recipient"]["email"],
                 }
-            if _new_requests_use_legacy_flow():
-                if reusable_packet is not None:
-                    raise DriveSharingError("packet_unavailable")
+            if _new_requests_use_legacy_flow() and reusable_packet is None:
                 if access_days is not None or requester_profile is not None or reason:
                     raise DriveSharingError("invalid_argument")
-            packet_manifest = None
-            if reusable_packet is not None:
-                from hushh_mcp.services.drive_packet_store import DrivePacketStore
+            from hushh_mcp.services.drive_packet_purchase_authority import packet_purchase
 
-                packet_manifest = DrivePacketStore(
-                    db=self.db, cipher=self.cipher
-                )._current_packet_manifest(
-                    connection,
-                    owner_user_id=owner_user_id,
-                    packet_id=reusable_packet["packetId"],
-                    version=reusable_packet["version"],
-                    viewer_user_id=recipient.user_id,
-                )
-                if (
-                    owner_initiated
-                    or packet_manifest["state"] != "ready"
-                    or packet_manifest["digest"] != reusable_packet["manifestDigest"]
-                    or packet_manifest["listing_revision"] != reusable_packet["listingRevision"]
-                    or packet_manifest["price_cents"] != reusable_packet["priceCents"]
-                    or reusable_packet["ownerUserId"] != owner_user_id
-                ):
-                    raise DriveSharingError("packet_changed")
-                # The participant graph locks serialize different client UUIDs.
-                # An equivalent purchase resumes its existing exact-version request.
-                previous = self._row(
-                    connection,
-                    """SELECT * FROM drive_share_requests
-                       WHERE user_id=:owner AND recipient_user_id=:recipient
-                         AND recipient_binding=:binding
-                         AND reusable_packet_id=:packet AND reusable_packet_version=:version
-                         AND access_stop_requested_at IS NULL
-                         AND status IN ('pending','preparing','review_ready','approved','completed','partial')
-                         AND (expires_at>clock_timestamp() OR status IN ('approved','completed','partial'))
-                       ORDER BY created_at DESC LIMIT 1 FOR UPDATE""",
-                    {
-                        "owner": owner_user_id,
-                        "recipient": recipient.user_id,
-                        "binding": binding,
-                        "packet": reusable_packet["packetId"],
-                        "version": reusable_packet["version"],
-                    },
-                )
-                if previous:
-                    return {
-                        **self._summary(previous, recipient=True),
-                        **self._request_setup(connection, previous, self._open_request(previous)),
-                        "recipientEmail": recipient.email,
-                        "existingAccess": previous["status"] == "completed",
-                    }
+            packet_manifest, previous_purchase = packet_purchase(
+                self,
+                connection,
+                owner_user_id=owner_user_id,
+                recipient=recipient,
+                binding=binding,
+                reusable_packet=reusable_packet,
+                owner_initiated=owner_initiated,
+                legacy_flow=_new_requests_use_legacy_flow(),
+            )
+            if previous_purchase is not None:
+                return previous_purchase
             # Only newly created requests receive this authority marker. An
             # old pending request must not turn into an automatic grant after
             # a deploy, and owner-initiated sharing keeps its own review path.
@@ -1703,7 +1666,12 @@ class DriveSharingStore(DriveDocumentStore):
                 and drive["status"] == "connected"
                 and drive["validation_state"] == "verified"
                 and drive["verified_policy_hash"] == LIVE_POLICY_HASH
-                and not _new_requests_use_legacy_flow()
+                and (
+                    not _new_requests_use_legacy_flow()
+                    or packet_manifest is not None
+                    and packet_manifest.get("kind") == "provider_discovery"
+                    and os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() == "true"
+                )
             )
             if reusable_packet is not None and not agent_package:
                 raise DriveSharingError("packet_unavailable")
@@ -1787,7 +1755,9 @@ class DriveSharingStore(DriveDocumentStore):
                     **({"v1_live_request": True} if v1_live_request else {}),
                     **(
                         {"legacy_request_policy": LEGACY_REQUEST_POLICY}
-                        if _new_requests_use_legacy_flow() and not owner_initiated
+                        if _new_requests_use_legacy_flow()
+                        and not owner_initiated
+                        and not agent_package
                         else {}
                     ),
                     # Trusted or allowed: every in-period match after payment,
@@ -3325,13 +3295,11 @@ class DriveSharingStore(DriveDocumentStore):
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if not self._owner_may_decide(connection, row, private, now):
                 raise DriveSharingError("request_already_decided")
-            package = None
-            if private.get("agent_package_required") is True:
-                from hushh_mcp.services.drive_request_package_store import DriveRequestPackageStore
+            from hushh_mcp.services.drive_packet_purchase_authority import reviewed_package
 
-                package = DriveRequestPackageStore(
-                    db=self.db, cipher=self.sharing_cipher, sharing=self
-                ).validate_ready_package(connection, row, private, package_revision, package_digest)
+            package = reviewed_package(
+                self, connection, row, private, package_revision, package_digest, amount_cents
+            )
             # A paid request needs the owner's price; a free one takes none.
             if (row["payment_required"] is True) != (amount_cents is not None):
                 raise DriveSharingError("invalid_payment_amount")

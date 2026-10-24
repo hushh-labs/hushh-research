@@ -242,6 +242,9 @@ jobs:
               - 'scripts/ci/resolve-ui-contract-base.py'
             backend:
               - 'consent-protocol/**'
+              # Human Browser evidence is covered by unconditional docs governance.
+              # Keep other docs in Protocol: env-vars.md has semantic assertions.
+              - '!consent-protocol/docs/reference/private-browser-runtime.md'
               - 'deploy/plg/**'
               - 'packages/hushh-mcp/**'
               - 'deploy/backend.cloudbuild.yaml'
