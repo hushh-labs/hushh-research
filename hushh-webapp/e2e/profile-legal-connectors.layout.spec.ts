@@ -1,4 +1,5 @@
 import { expectProfileHeaderControl } from "./helpers/header-control-geometry";
+import { assertReaderGeometry, readerGeometry } from "./helpers/legal-reader-geometry";
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
@@ -115,9 +116,9 @@ test.beforeAll(async () => {
 
 async function mount(
   page: Page,
-  options: { width?: number; theme?: "light" | "dark"; at?: string; regions?: { top: number; bottom: number; fullWindow?: boolean } } = {},
+  options: { width?: number; theme?: "light" | "dark"; at?: string; nativeIos?: boolean; regions?: { top: number; bottom: number; fullWindow?: boolean } } = {},
 ) {
-  const { width = 393, theme = "light", at = "/", regions } = options;
+  const { width = 393, theme = "light", at = "/", nativeIos = false, regions } = options;
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
@@ -133,7 +134,7 @@ async function mount(
   await page.route(/^http:\/\/localhost\/(?!api\/|icons\/)/, (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""} ${regions ? "native-reserved-chrome" : ""} ${regions?.fullWindow ? "native-full-window-overlays" : ""}" ${regions ? `style="--native-overlay-top:${regions.fullWindow ? 0 : regions.top}px;--native-overlay-bottom:${regions.fullWindow ? 0 : regions.bottom}px"` : ""} ${regions?.fullWindow ? "data-native-full-window-covered" : ""}><head><title>Profile Legal and Connectors</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""} ${nativeIos ? "native-ios" : ""} ${regions ? "native-reserved-chrome" : ""} ${regions?.fullWindow ? "native-full-window-overlays" : ""}" style="${nativeIos ? "--app-native-safe-area-top:59px;" : ""}${regions ? `--native-overlay-top:${regions.fullWindow ? 0 : regions.top}px;--native-overlay-bottom:${regions.fullWindow ? 0 : regions.bottom}px` : ""}" ${regions?.fullWindow ? "data-native-full-window-covered" : ""}><head><title>Profile Legal and Connectors</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: theme });
@@ -516,6 +517,23 @@ test("Connector pane text uses the Profile account scale", async ({ page }) => {
   expect(await size('[data-connector-detail="calendar"] p.text-muted-foreground')).toBe("12px");
 });
 
+for (const regions of [undefined, { top: 120, bottom: 149, fullWindow: true }, { top: 120, bottom: 149 }]) {
+  test(`Connectors header clears the iOS status bar with ${regions?.fullWindow ? "full-window" : regions ? "reserved" : "web"} chrome`, async ({ page }) => {
+    await mount(page, { at: "/?profile_pane=1&profile_panel=connectors", nativeIos: true, regions });
+    await expect(paneTitle(page)).toHaveText("Connectors");
+    const headerControls = [
+      paneTitle(page),
+      pane(page).getByRole("button", { name: "Back in Profile" }),
+      pane(page).getByRole("button", { name: "Close Profile" }),
+    ];
+    for (const control of headerControls) {
+      const frame = await control.boundingBox();
+      expect(frame, "The header control must be rendered").not.toBeNull();
+      expect(frame!.y, "The header control must clear the published 59px status area").toBeGreaterThanOrEqual(59);
+    }
+  });
+}
+
 test("Back from Connectors opened in chat returns to the chat", async ({ page }) => {
   await mount(page, { at: "/" });
   await page.getByTestId("chat-open-connectors").click();
@@ -532,44 +550,6 @@ for (const at of ["/?profile_pane=1&profile_panel=connectors", "/one?profile_pan
     await expect(paneTitle(page)).toHaveText("Connectors");
     await expect(pane(page).locator("[data-surface='profile']")).toBeVisible();
   });
-}
-
-type ReaderGeometry = {
-  left: number;
-  right: number;
-  overflow: number;
-  articleGap: string;
-  sectionGap: string;
-  minRowHeight: number;
-};
-
-async function readerGeometry(page: Page): Promise<ReaderGeometry> {
-  return page.evaluate(() => {
-    const root = document.querySelector<HTMLElement>("[data-profile-pane-scroll-root='true']")!;
-    const article = root.querySelector<HTMLElement>("[data-legal-document]")!;
-    const r = root.getBoundingClientRect();
-    const a = article.getBoundingClientRect();
-    const innerLeft = r.left + root.clientLeft;
-    const innerRight = innerLeft + root.clientWidth;
-    const rows = [...article.querySelectorAll<HTMLElement>("[data-testid^='legal-reader-contents-'] button")];
-    return {
-      left: a.left - innerLeft,
-      right: innerRight - a.right,
-      overflow: root.scrollWidth - root.clientWidth,
-      articleGap: getComputedStyle(article).rowGap,
-      sectionGap: getComputedStyle(article.querySelector("[data-testid='legal-reader-body'] > section")!).rowGap,
-      minRowHeight: Math.min(...rows.map((row) => row.getBoundingClientRect().height)),
-    };
-  });
-}
-
-function assertReaderGeometry(geometry: ReaderGeometry, label: string) {
-  expect(Math.abs(geometry.left - geometry.right), `${label}: equal side insets`).toBeLessThanOrEqual(0.5);
-  expect(geometry.left % 4, `${label}: inset on the 4pt grid`).toBeLessThanOrEqual(0.5);
-  expect(geometry.overflow, `${label}: no sideways scroll`).toBeLessThanOrEqual(0);
-  expect(geometry.articleGap, `${label}: 32px between reader blocks`).toBe("32px");
-  expect(geometry.sectionGap, `${label}: 12px inside a section`).toBe("12px");
-  expect(geometry.minRowHeight, `${label}: contents rows are 44px targets`).toBeGreaterThanOrEqual(44);
 }
 
 for (const width of [320, 393, 1440]) {

@@ -4,7 +4,39 @@ import Capacitor
 import WebKit
 @testable import App
 
+private final class ZeroSafeAreaView: UIView {
+    override var safeAreaInsets: UIEdgeInsets { .zero }
+}
+
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testFullWindowWebViewPublishesStatusBarClearance() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let root = UIViewController()
+        root.view = ZeroSafeAreaView()
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousKeyWindow?.makeKeyAndVisible()
+        }
+
+        root.view.layoutIfNeeded()
+        let statusBarClearance = window.safeAreaInsets.top
+        XCTAssertGreaterThan(statusBarClearance, 0)
+        XCTAssertEqual(root.view.safeAreaInsets.top, 0)
+        let webView = WKWebView(frame: root.view.bounds)
+        root.view.addSubview(webView)
+        XCTAssertEqual(NativeWebSafeArea.topInset(for: webView, in: window), statusBarClearance, accuracy: 1)
+
+        webView.frame.origin.y = statusBarClearance
+        XCTAssertEqual(NativeWebSafeArea.topInset(for: webView, in: window), 0, accuracy: 1,
+            "A WebView already below the status bar must not receive a second inset")
+    }
+
     func testSandboxConnectorReturnNeedsDebugIdentityAndExactBuildPin() {
         let pin = "https://scope-commerce-preview-123.us-central1.run.app"
         let callback = pin + "/one/profile/connectors/oauth/return?code=synthetic&state=synthetic"
