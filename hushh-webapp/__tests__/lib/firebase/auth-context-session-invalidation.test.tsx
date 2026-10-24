@@ -1076,7 +1076,7 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.replaceDocument).not.toHaveBeenCalledWith("/login?auth_notice=account_not_found");
   });
 
-  it("does not let a delayed deletion fallback replace or repeat the completed terminal navigation", async () => {
+  it.each(["account_deleted", "account_deletion_identity_retained"] as const)("does not let delayed cleanup replace terminal navigation: %s", async code => {
     render(
       <AuthProvider>
         <ScopedSignOutRaceProbe />
@@ -1092,7 +1092,7 @@ describe("AuthProvider terminal session invalidation", () => {
           AUTH_SESSION_INVALIDATED_EVENT,
           {
             detail: {
-              code: "account_deleted",
+              code,
               path: "account_delete_confirmed",
               userId: "account-owner",
             },
@@ -1102,7 +1102,7 @@ describe("AuthProvider terminal session invalidation", () => {
     });
     await waitFor(() => {
       expect(mocks.replaceDocument).toHaveBeenCalledWith(
-        "/login?auth_notice=account_deleted",
+        `/login?auth_notice=${code}`,
       );
     });
 
@@ -1220,7 +1220,7 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.clearDeviceSecretsForDeletedAccount).not.toHaveBeenCalled();
   });
 
-  it("clears device key material for a confirmed deletion even after an earlier teardown", async () => {
+  it.each(["account_deleted", "account_deletion_identity_retained"] as const)("clears device secrets for confirmed erasure after teardown: %s", async code => {
     renderProvider();
     await screen.findByText("Vault content for account-owner");
 
@@ -1233,7 +1233,7 @@ describe("AuthProvider terminal session invalidation", () => {
     );
     act(() =>
       dispatchInvalidation({
-        code: "account_deleted",
+        code,
         path: "account_delete_confirmed",
         userId: "account-owner",
       }),

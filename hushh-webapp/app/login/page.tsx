@@ -18,7 +18,8 @@ function LoginContent() {
   const [deletionNotice] = useState(() => {
     const notice = readAuthSessionLandingNotice(searchParams);
     return notice?.code === "account_deleted" || notice?.code === "account_deleted_ready_to_start_fresh" ||
-      notice?.code === "account_deletion_finishing"
+      notice?.code === "account_deletion_finishing" || notice?.code === "account_deletion_identity_retained" ||
+      notice?.code === "account_deletion_uncertain"
       ? notice
       : null;
   });

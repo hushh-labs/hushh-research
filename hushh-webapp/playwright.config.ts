@@ -131,6 +131,7 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        /lost-vault-delete\.layout\.spec\.ts/,
         // Puppy shares One composer geometry and touch machine controls.
         /puppy-chat-controls\.layout\.spec\.ts/,
         /one-location-duration-dialog\.layout\.spec\.ts/,

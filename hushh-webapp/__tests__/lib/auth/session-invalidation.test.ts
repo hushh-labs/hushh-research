@@ -333,4 +333,12 @@ describe("auth session invalidation contract", () => {
       }),
     ).toBeNull();
   });
+  it("round-trips deliberately retained identity without inferring it from a tombstone", () => {
+    const route = buildLoginRouteWithAuthSessionNotice("account_deletion_identity_retained");
+    expect(readAuthSessionLandingNotice(new URL(route, "https://one.test").searchParams)).toMatchObject({
+      code: "account_deletion_identity_retained", message: expect.stringContaining("will not be removed automatically"),
+    });
+    expect(authSessionLandingCodeFromBackendPayload({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted" } })).toBe("account_deleted");
+  });
+
 });
