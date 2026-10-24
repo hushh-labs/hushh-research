@@ -172,7 +172,10 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
     root.push(...read("identity-title", model.identityLabel), ...read("identity-name", `Name\n${model.identity.name || "Not added"}`),
       ...read("identity-email", `Email\n${model.identity.email ? maskEmail(model.identity.email) : "Not added"}${model.identity.email ? model.identity.emailVerified ? " · Verified" : " · Not verified" : ""}`),
       ...read("identity-phone", `Phone\n${model.identity.phone ? formatMaskedPhoneNumber(model.identity.phone) : "Not added"}`));
-    if (model.status.kind === "insufficient") root.push(action("account", "Open your account", onAccount, { chevron: true, artworkId: "account" }));
+    root.push(action("account", "Edit account details", onAccount, { chevron: true, artworkId: "account" }));
+    if (model.canFindMore) root.push(
+      ...read("update-context", "Update uses your profile, confirmed details and approved links. Relevant confirmed details may be included in public search queries."),
+      action("update", "Update my model", () => model.refresh()));
     if (model.drafts.length) root.push(...read("to-review-heading", "To review"));
     for (const fact of model.drafts) root.push(action(`draft-${fact.key}`, fact.statement, () => model.setDetail(fact),
       { chevron: true, detail: fact.matchStatus === "matched" && fact.confidence === "supported" ? "Review before saving" : "Possible match · check the sources", pending: model.pending.has(fact.key), enabled: !model.pending.has(fact.key) }));
@@ -214,6 +217,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
   } else if (local.panel === "research") {
     const p = model.preferences, content: NativeDrawerRow[] = [];
     if (p) {
+      content.push(...read("refresh-context", "Update uses your profile, confirmed details and approved links. Relevant confirmed details may be included in public search queries."));
       content.push(...read("research-disclosure", usesAzurePwm(p.research_provider) ? pwmProviderDisclosure(p.research_provider) : "Uses your name and verified email or phone to find pages about you with Google Search through Vertex AI."));
       const toggle = (key: "enabled" | "email_enabled", label: string) => {
         const on = bind(`research-${key}-on`, () => run(() => model.updatePreferences({ enabled: p.enabled, email_enabled: p.email_enabled, [key]: true })));
@@ -222,7 +226,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
           options: [{ id: on, label: "On", selected: p[key] }, { id: off, label: "Off", selected: !p[key] }] };
       };
       content.push(toggle("enabled", "Research public pages"), toggle("email_enabled", "Email me when it’s ready"));
-      if (p.enabled && model.result?.status !== "pending" && model.result?.status !== "paused" && (!model.spent || model.status.kind === "exhausted")) content.push(action("refresh", "Check for updates", () => { model.refresh(); choosePanel(null); }));
+      if (p.enabled && model.result?.status !== "pending" && model.result?.status !== "paused" && (!model.spent || model.status.kind === "exhausted")) content.push(action("refresh", "Update my model", () => { model.refresh(); choosePanel(null); }));
     } else content.push(...read("research-loading", "Checking your settings…"));
     if (model.preferenceFailed) content.push(...read("research-error", "Couldn’t save. Try again."));
     page("world-model-research", "Research and email", content);
@@ -232,7 +236,7 @@ export function useNativeWorldModel({ active, owner, model, onAccount, onMemory 
         { chevron: true, enabled: !sourceReview.busy && !sourceReview.saveStarted })];
     if (publicProfilesSupported && usesAzurePwm(model.preferences?.research_provider) && model.preferences.enabled &&
       model.canResearchPublicProfiles) {
-      content.push(...read("public-profile-disclosure", "Use these profiles as starting links for GPT-5 mini research. Azure and the search provider shown in Research and email receive the public links. You review findings before saving."),
+      content.push(...read("public-profile-disclosure", "Use these profiles as starting links for GPT-5 mini research. Azure and the search provider shown in Research and email receive these links and relevant confirmed details as search leads. You review new findings before saving."),
         action("public-profile-research", "Research your profiles", () => openForm({ scene: "world-model-public-profiles", draft: { urls: source.urls, permitted: source.permitted } }), { chevron: true }));
     }
     if (source.message) content.push(...read("sources-error", source.message));

@@ -308,8 +308,8 @@
     },
     {
       "action_id": "profile.world_model.refresh",
-      "label": "Check for updates",
-      "meaning": "Start a fresh research pass when research is on and none is running.",
+      "label": "Update my model",
+      "meaning": "Use the current saved confirmed details, verified profile and approved public links to start the next bounded research pass. Relevant confirmed details may become public search query terms.",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -560,8 +560,8 @@
     },
     {
       "action_id": "profile.world_model.public_profiles",
-      "label": "Research your public profiles",
-      "meaning": "Explicitly choose public profile links for Azure and Bing research. Links are owner assertions, not identity verification; review findings before saving.",
+      "label": "Edit details and optional links",
+      "meaning": "Review prefilled account and confirmed details, edit them with existing editors, and optionally approve new public links for the next update.",
       "aliases": [],
       "search_keywords": [
         "personal world model"
@@ -592,7 +592,8 @@
       },
       "control_ids": [
         "pwm_public_sources_open",
-        "pwm_public_profiles_research"
+        "pwm_public_profiles_research",
+        "pwm_optional_links_toggle"
       ],
       "state_exposure": [],
       "docs_references": [

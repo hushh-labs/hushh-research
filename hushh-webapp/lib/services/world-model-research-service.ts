@@ -396,6 +396,7 @@ type Observation = PwmAuthority & {
   /** A read or stream failed; the service keeps retrying on its own. */
   onInterrupted?: () => void;
   ownerDecisions?: PwmOwnerDecisions;
+  researchContext?: { confirmed: readonly string[]; permitted_public_research: true };
   publicProfileUrls?: readonly string[];
 };
 type Session = {
@@ -567,6 +568,7 @@ async function step(
         method === "POST" && (input.ownerDecisions || path === "jobs")
           ? { ...(input.ownerDecisions ? { owner_decisions: input.ownerDecisions } : {}),
               ...(path === "jobs" ? { refresh: true,
+                ...(input.researchContext ? { research_context: input.researchContext } : {}),
                 ...(input.publicProfileUrls ? { public_profiles: {
                   urls: input.publicProfileUrls, permitted_public_sources: true,
                 } } : {}) } : {}) }

@@ -613,9 +613,17 @@ subagents:
       again. A rejection is never evidence for the opposite: do not infer or
       propose the opposite because of it. owner_decisions.confirmed lists
       statements the owner already saved. Do not propose them again as new
-      findings, and do not cite them as source evidence. Never put
-      owner_decisions text, or any detail known only from it, into a
-      research_question or any other search; it is never a query input.
+      findings, and do not cite them as source evidence. owner_decisions itself
+      is never a search input. Never put rejected/removed statements or details
+      known only from them into a research_question or any other search.
+      Separately, owner_confirmed_research_leads is a frozen snapshot of confirmed
+      statements the owner explicitly approved for public research with Update.
+      Use relevant declarations to plan useful discovery questions and search
+      terms. They are hints, not received evidence, identity links, verified
+      contacts or citation support. Never treat a source repeating a query as
+      independent corroboration. Establish every proposed new finding from
+      received public sources and keep namesakes separate. Without this separate
+      approved snapshot, confirmed decisions remain repeat-suppression only.
 
       COVERAGE: TWENTY TOPICS
       After identity assessment, use the remaining budget to investigate material

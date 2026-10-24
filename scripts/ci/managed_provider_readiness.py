@@ -139,12 +139,11 @@ def valid_core(core, provider, expected, document):
 
 
 def valid_pwm_proof(proof, document):
+    counts = ("production_contracts", "attribution_cases", "confirmed_guidance")
     return (
         isinstance(proof, dict)
-        and proof.get("azure_pwm_production_contracts") == 4
-        and proof.get("azure_pwm_attribution_cases") == 6
-        and proof.get("deployment")
-        == document["pwm_research_uat"]["azure"]["primary_deployment"]
+        and [proof.get("azure_pwm_" + key) for key in counts] == [4, 8, 2]
+        and proof.get("deployment") == document["pwm_research_uat"]["azure"]["primary_deployment"]
         and bool(re.fullmatch(r"[0-9a-f]{64}", str(proof.get("policy_sha256", ""))))
     )
 

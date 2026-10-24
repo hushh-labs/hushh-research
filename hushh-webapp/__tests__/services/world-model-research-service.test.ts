@@ -269,6 +269,16 @@ describe("PWM service authority and request recovery", () => {
     expect(api.mock.calls[1][0]).toBe("/api/one/world-model/ensure");
     expect(api.mock.calls[1][1].body).toBeUndefined();
   });
+  it("sends approved context only to an explicit jobs refresh", async () => {
+    api.mockResolvedValue({ status: "saved", pkm_written: false });
+    const researchContext = { confirmed: ["Public project"], permitted_public_research: true as const };
+    for (const refresh of [true, false]) await WorldModelResearchService.observe({
+      ...session, signal: new AbortController().signal, refresh, researchContext, onResult: vi.fn(),
+    });
+    expect(JSON.parse(api.mock.calls[0][1].body)).toEqual({ refresh: true, research_context: researchContext });
+    expect(api.mock.calls[1][0]).toBe("/api/one/world-model/ensure");
+    expect(api.mock.calls[1][1].body).toBeUndefined();
+  });
   it("sends owner decisions only when starting research", async () => {
     const ownerDecisions = { confirmed: ["Saved."], rejected: ["Declined."] };
     api

@@ -17,13 +17,13 @@ import { source, offered, memoryOf, claim, pending, provisionalFact } from "../f
     const submit = vi.fn();
     mock.research.researchPublicProfiles = submit;
     const view = render(<PersonalWorldModelPage embedded />);
-    fireEvent.click(await screen.findByRole("button", { name: "Find more about me" }));
-    const chooser = await screen.findByRole("dialog", { name: "Find more about me" });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details" }));
+    const chooser = await screen.findByRole("dialog", { name: "Your details" });
     expect(submit).not.toHaveBeenCalled();
     expect(mock.research.refresh).not.toHaveBeenCalled();
     expect(within(chooser).getByTestId("public-leads").textContent).toBe(source.url);
     expect(within(chooser).queryByText(no)).toBeNull();
-    fireEvent.click(within(chooser).getByRole("button", { name: "Find more about me" }));
+    fireEvent.click(within(chooser).getByRole("button", { name: "Research optional public links" }));
     expect(submit).toHaveBeenCalledExactlyOnceWith([source.url]);
     const next = { ...provisionalFact, statement: "Maintains a public robotics project" };
     research(pending, undefined, { validatedFacts: [next, { ...next, statement: yes.text }, { ...next, statement: no }] });
@@ -31,7 +31,7 @@ import { source, offered, memoryOf, claim, pending, provisionalFact } from "../f
     expect(await screen.findByRole("button", { name: `Yes, this is right: ${next.statement}` })).toBeInTheDocument();
     expect(screen.getByText(yes.text)).toBeInTheDocument();
     expect(screen.queryByText(no)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Find more about me" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Update my model" })).toBeNull();
     view.unmount();
     render(<PersonalWorldModelPage embedded />);
     expect(await screen.findByText(yes.text)).toBeInTheDocument();
@@ -61,3 +61,14 @@ import { source, offered, memoryOf, claim, pending, provisionalFact } from "../f
     expect(result.current.canFindMore).toBe(false);
   });
 
+
+  it("updates directly from saved details without opening the optional links chooser", async () => {
+    const yes = await claim("Works at Hushh");
+    mock.load.mockResolvedValue(memoryOf([yes]));
+    research(offered([{ statement: yes.text, kind: "career" }]));
+    mock.research.preferences = { enabled: true, email_enabled: false, research_provider: "azure_openai_tavily" };
+    render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByRole("button", { name: "Update my model" }));
+    expect(mock.research.refresh).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });

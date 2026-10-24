@@ -18,6 +18,9 @@ import { WorldModelSources } from "@/components/profile/world-model-sources";
 import { pwmProviderDisclosure, usesAzurePwm } from "@/components/onboarding/setup/pwm-research-disclosure";
 import type { PwmPreferences } from "@/lib/services/world-model-research-service";
 
+import type { WorldModelIdentityInput } from "./world-model-progress";
+import type { PwmClaim } from "@/lib/services/world-model-decision-service";
+
 type Sheet = "invite" | "sources" | "research";
 
 /** Secondary Personal World Model actions, each in its own sheet. */
@@ -32,6 +35,10 @@ export function WorldModelOptions({
   sourcesRequest,
   findMoreRequest = 0,
   publicSourceCandidates = [],
+  identity,
+  confirmedDetails = [],
+  onEditAccount,
+  onEditConfirmed,
   canCheckForUpdates,
   canResearchPublicProfiles,
   pathname,
@@ -56,6 +63,10 @@ export function WorldModelOptions({
   sourcesRequest: number;
   findMoreRequest?: number;
   publicSourceCandidates?: readonly string[];
+  identity?: WorldModelIdentityInput;
+  confirmedDetails?: readonly PwmClaim[];
+  onEditAccount?: () => void;
+  onEditConfirmed?: (claim: PwmClaim) => void;
   canCheckForUpdates: boolean;
   canResearchPublicProfiles: boolean;
   pathname: string;
@@ -151,7 +162,7 @@ export function WorldModelOptions({
       <SettingsDetailPanel
         open={open && sheet === "sources"}
         onOpenChange={(next) => void (!next && close())}
-        title={findingMore ? "Find more about me" : "Add a public source"}
+        title={findingMore ? "Your details" : "Add a public source"}
       >
         <WorldModelSources
           key={`${ownerId}:${vaultOwnerToken}:${sourcesRequest}:${findingMore}:${findMoreRequest}`}
@@ -164,6 +175,10 @@ export function WorldModelOptions({
           backQuery={backQuery}
           onSaved={onSourcesSaved}
           discovery={findingMore}
+          identity={findingMore ? identity : undefined}
+          confirmedDetails={findingMore ? confirmedDetails : undefined}
+          onEditAccount={findingMore && onEditAccount ? () => { close(); onEditAccount(); } : undefined}
+          onEditConfirmed={findingMore && onEditConfirmed ? claim => { close(); onEditConfirmed(claim); } : undefined}
           initialUrls={findingMore ? publicSourceCandidates : undefined}
           onRefresh={findingMore && canCheckForUpdates && preferences?.enabled ? () => {
             if (!present) return;
@@ -228,8 +243,8 @@ export function WorldModelOptions({
             />
             {preferences.enabled && canCheckForUpdates ? (
               <SettingsRow
-                title="Check for updates"
-                description="Look at public pages again now."
+                title="Update my model"
+                description="Use your confirmed details to guide public searches."
                 disabled={busy}
                 chevron
                 voiceControlId="pwm_refresh"

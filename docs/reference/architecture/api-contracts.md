@@ -1508,7 +1508,7 @@ other person-to-person catalog, and are refused again at request creation.
 
 ### Personal World Model research
 
-Explicit “Check for updates” sends `refresh:true` only to
+Explicit “Update my model” sends `refresh:true` only to
 `POST /api/one/world-model/jobs`. It starts a new discovery from a completed,
 same-identity draft, with new evidence/usage budgets while retaining the three
 starts-per-hour limit, consent checks, provider breaker and atomic claim.
@@ -1521,14 +1521,24 @@ with one to three owner-chosen public HTTPS profile URLs. The same public-page
 validator rejects credentials, queries, fragments, IP addresses and private host
 suffixes. This requires current Azure/Bing consent and never verifies identity.
 Azure retrieves these leads through its normal charged web tool and assesses
-received citations before presenting candidate findings. Private owner decisions
-and Memory never become search seeds. Omitted profiles carry through resumes;
+received citations before presenting candidate findings. The full private decisions object and unrestricted Memory never become search seeds. Omitted profiles carry through resumes;
 reordered URLs reuse the same scope. A changed set requires explicit refresh,
 returns 409 while a pending lease is live, and starts a new work generation while
 retaining hourly starts and the CAS fence. Automatic `/ensure` rejects this field.
 The existing Pages you choose form offers a separate Azure research action; its
 Gemini page-review action retains its meaning. No research occurs on typing or
 opening the form, and every save still requires owner review.
+
+Explicit Update may also include `research_context:{confirmed:[...],permitted_public_research:true}`.
+Its strict permission flag and bounded statements are validated, with each statement
+required to be in the request's confirmed `owner_decisions`. The client builds this
+snapshot from saved accepted/edited declarations. `/ensure` rejects this field.
+Only the distinct `owner_confirmed_research_leads` projection enters planning and
+search queries; it does not replace public citations or identity evidence. Rejected
+and removed statements remain suppression-only. A newly approved Update starts
+fresh bounded work outside a live idempotent pending lease. The frozen snapshot
+can resume the same discovery but cannot enter a fresh automatic generation after
+consent, identity/policy, completion or retention changes. New links remain optional.
 
 `POST /api/one/world-model/ensure` starts/resumes the existing owner-bound research
 job after setup and unlock. The backend resolves fresh authenticated name,
