@@ -7,8 +7,8 @@
   background: var(--app-card-surface-default-solid);
   font-family: var(--font-app-body);
   color: var(--foreground);
-  font-size: var(--app-side-pane-row-title-size, 13px);
-  line-height: 1.3;
+  font-size: 14px;
+  line-height: 21px;
   display: grid;
   gap: 20px;
   container-type: inline-size;
@@ -17,29 +17,29 @@
 .photo { width: 64px; height: 64px; flex-shrink: 0; border-radius: 50%; }
 .heading { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
 .name { margin: 0; font-family: inherit; font-size: 20px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; }
-.headline, .summary { margin: 0; font-size: 12px; line-height: 1.3; overflow-wrap: anywhere; }
+.headline, .summary { margin: 0; font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
 .headline { color: var(--muted-foreground); }
-.meta { display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 0; font-size: 12px; line-height: 1.3; }
+.meta { display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 0; font-size: 12px; line-height: 18px; }
 .meta > span { min-width: 0; overflow-wrap: anywhere; }
 .section { display: grid; gap: 12px; min-width: 0; border-top: 1px solid var(--app-card-border-standard); padding-top: 16px; }
-.sectionLabel { margin: 0; color: var(--muted-foreground); font-size: 11px; font-weight: 600; line-height: 1.3; }
+.sectionLabel { margin: 0; color: var(--app-secondary-label); font-size: 12px; font-weight: 600; line-height: 18px; }
 .skills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .skills li { min-width: 0; max-width: 100%; }
-.skill { white-space: normal; overflow-wrap: anywhere; padding: 6px 10px; font-size: 12px; line-height: 1.3; font-weight: 400; border-radius: 8px; }
+.skill { white-space: normal; overflow-wrap: anywhere; padding: 6px 10px; font-size: 12px; line-height: 18px; font-weight: 400; border-radius: 8px; }
 .contacts { min-width: 0; }
-.contactLink { display: flex; align-items: center; gap: 12px; min-height: 44px; padding-block: 12px; color: var(--foreground); font-size: var(--app-side-pane-row-title-size, 13px); font-weight: 400; line-height: 1.2; text-decoration: none; }
+.contactLink { display: flex; align-items: center; gap: 12px; min-height: 44px; padding-block: 12px; color: var(--app-primary-label); font-size: 14px; font-weight: 550; line-height: 21px; text-decoration: none; }
 .contactLink + .contactLink { border-top: 1px solid var(--app-card-border-standard); }
 .contactLink > svg:first-child { width: 18px; height: 18px; }
 .contactLink:hover { color: var(--app-accent); }
 .contactLink:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; border-radius: 4px; }
 .qr { display: flex; align-items: center; gap: 16px; margin: 0; padding-top: 16px; border-top: 1px solid var(--app-card-border-standard); min-width: 0; }
 .qrImage { width: 96px; flex: 0 0 96px; }
-.qr figcaption { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 400; line-height: 1.2; }
-.qr figcaption p { margin: 6px 0 0; color: var(--muted-foreground); font-size: 12px; font-weight: 400; line-height: 1.3; }
+.qr figcaption { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 400; line-height: 18px; }
+.qr figcaption p { margin: 6px 0 0; color: var(--app-secondary-label); font-size: 12px; font-weight: 400; line-height: 18px; }
 @container (max-width: 18rem) { .identity { gap: 12px; } .photo { width: 48px; height: 48px; } }
 
 /* Scope Profile's reading hierarchy over the app shell's generic h1/h2 scale. */
 @layer base {
   .card .name { font-family: var(--font-app-body) !important; font-size: 20px !important; font-weight: 600 !important; line-height: 1.2 !important; letter-spacing: -.02em !important; }
-  .card .sectionLabel { font-family: var(--font-app-body) !important; font-size: 11px !important; font-weight: 600 !important; line-height: 1.3 !important; letter-spacing: normal !important; }
+  .card .sectionLabel { font-family: var(--font-app-body) !important; font-size: 12px !important; font-weight: 600 !important; line-height: 18px !important; letter-spacing: normal !important; }
 }

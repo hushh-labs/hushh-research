@@ -67,6 +67,8 @@ is never recorded as a pass.
 
 ## Production image promotion
 
+For Dev to UAT, use the separate [UAT image promotion plan](#uat-image-promotion).
+
 `deploy-production.yml` can deploy the exact backend image UAT verified for a
 SHA instead of rebuilding it (`backend_image_source=promote-from-uat`). The
 default stays `build-from-source` until these bindings exist and the founder
@@ -93,3 +95,32 @@ promotion run stops with a message naming it: read access is checked before the
 secret sync, backup gate, fence and migrations; write access fails at the copy,
 still before the fence. Re-dispatch with `backend_image_source=build-from-source`
 to ship without promotion.
+
+## UAT image promotion
+
+UAT's existing deployer is
+`github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com`, matching the
+UAT environment's `GCP_DEPLOY_SERVICE_ACCOUNT` variable. Accepted Dev image
+provenance travels in the existing exact-attempt acceptance receipt, so no Dev
+Cloud Run read permission is needed.
+
+| Role | Resource | Purpose |
+|---|---|---|
+| `roles/artifactregistry.reader` | `projects/hushh-pda-dev/locations/us/repositories/gcr.io` | read the accepted Dev image |
+| `roles/artifactregistry.writer` | `projects/hushh-pda-uat/locations/us/repositories/gcr.io` | copy the digest into UAT, if effective write access is absent |
+
+These standard roles cover every image in the named repository. Inspect
+effective access, including inherited bindings, before adding roles: an absent
+direct binding alone does not prove denial. No Dev write, secret, impersonation,
+runtime identity or production access is granted.
+
+`bash deploy/iam/grant_uat_image_promotion.sh` prints the fixed-resource plan
+without cloud calls. Its `--apply` option adds only the Dev reader binding;
+`--include-uat-writer` additionally selects the destination writer binding.
+Each grant requires separate authorization after reviewing existing access. Remove the same
+member/role from the same repository to revoke a newly added binding. Merge or
+deployment approval alone does not authorize these grants.
+
+The workflow stops on copy or permission failure before the migration fence.
+An explicit `backend_image_source=build-from-source` retains the ordinary build
+path while preserving exact-SHA Dev acceptance and all UAT release gates.

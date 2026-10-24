@@ -98,7 +98,7 @@ export function DocumentRequestButton({
     {showTrigger && (["files", "query"] as const).map((action) => <Button key={action} size="standard" variant="none" onClick={() => { setIntent(action); setUnlockOpen(true); }}>
       {renderTrigger?.(action === "files" ? "Request files" : "Ask about files") ?? (action === "files" ? "Request files" : "Ask about files")}
     </Button>)}
-    <VaultUnlockDialog user={user} open={unlockOpen} onOpenChange={setUnlockOpen} onSuccess={() => setUnlockOpen(false)} title="Unlock to request" description="Unlock your vault to continue this request." />
+    <VaultUnlockDialog user={user} open={unlockOpen} onOpenChange={setUnlockOpen} onSuccess={() => setUnlockOpen(false)} title="Unlock to request" description="Unlock your vault to continue this request." presentationClassName="consent-presentation-surface" />
   </>;
   return (
     <UnlockedRequestButton
@@ -428,7 +428,7 @@ function UnlockedRequestButton({
         }}
       >
         <IllustratedRequestContent
-          intent="drive"
+          intent="drive" className="consent-presentation-surface"
           title={created ? "Question sent" : "Ask about files"}
           description={`To ${personName}`}
           success={Boolean(created)}

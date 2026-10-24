@@ -353,7 +353,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     allow_web_search: bool = False
     # Managed conversational heads may reduce LOW/default effort. Explicit
     # MEDIUM/HIGH specialist requests retain their authored reasoning budget.
-    default_reasoning_effort: Literal["minimal", "low"] | None = None
+    default_reasoning_effort: Literal["none", "minimal", "low"] | None = None
     text_verbosity: Literal["low", "medium", "high"] | None = None
     web_search_context_size: Literal["low", "medium", "high"] | None = None
 

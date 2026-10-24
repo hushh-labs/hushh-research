@@ -398,7 +398,7 @@ export function RequestFilesButton({
           <Button size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
         </DialogTrigger> : null}
         <IllustratedRequestContent
-          intent="files"
+          intent="files" className="consent-presentation-surface"
           title={created ? "Request sent" : "Request files"}
           description={`To ${personName}`}
           success={Boolean(created)}
@@ -468,11 +468,11 @@ export function RequestFilesButton({
               <IllustratedRequestBody>
               {availabilityNotice}
               <div className="space-y-2">
-                <Label htmlFor="document-request-purpose">
+                <Label htmlFor="document-request-purpose" data-consent-role="form-label">
                   Which files do you need?
                 </Label>
                 <Textarea
-                  id="document-request-purpose"
+                  id="document-request-purpose" data-consent-input="true"
                   value={purpose}
                   onChange={(event) => setPurpose(event.target.value)}
                   maxLength={2000}
@@ -483,8 +483,8 @@ export function RequestFilesButton({
               </div>
               {agentPackagesEnabled && <>
                 <div className="space-y-2">
-                  <Label htmlFor="document-request-role">Requesting as</Label>
-                  <select id="document-request-role" value={requesterActorType}
+                  <Label htmlFor="document-request-role" data-consent-role="form-label">Requesting as</Label>
+                  <select id="document-request-role" data-consent-input="true" value={requesterActorType}
                     onChange={event => setRequesterActorType(event.target.value as "person" | "ria")}
                     disabled={busy}
                     className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal">
@@ -493,15 +493,15 @@ export function RequestFilesButton({
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="document-request-reason">Reason{requesterActorType === "ria" ? "" : " (optional)"}</Label>
-                  <Textarea id="document-request-reason" value={reason}
+                  <Label htmlFor="document-request-reason" data-consent-role="form-label">Reason{requesterActorType === "ria" ? "" : " (optional)"}</Label>
+                  <Textarea id="document-request-reason" data-consent-input="true" value={reason}
                     onChange={event => setReason(event.target.value)} maxLength={500}
                     required={requesterActorType === "ria"} disabled={busy}
                     placeholder="Why do you need these documents?" />
                 </div>
               </>}
               <fieldset className="min-w-0" disabled={busy} aria-describedby="document-period-help">
-                <legend className="mb-2">Dates covered</legend>
+                <legend data-consent-role="form-label" className="mb-2">Dates covered</legend>
                 <span id="document-period-help" className="sr-only">Start and end dates are required.</span>
                 <MobileDocumentDateRange
                   start={start}
@@ -511,9 +511,9 @@ export function RequestFilesButton({
                 />
                 <div className="hidden min-w-0 gap-3 sm:grid sm:grid-cols-2">
                   <div className="min-w-0 space-y-2">
-                    <Label htmlFor="document-period-start">Start date</Label>
+                    <Label htmlFor="document-period-start" data-consent-role="form-label">Start date</Label>
                     <Input
-                      id="document-period-start"
+                      id="document-period-start" data-consent-input="true"
                       type="date"
                       value={start}
                       onChange={(event) => setStart(event.target.value)}
@@ -521,9 +521,9 @@ export function RequestFilesButton({
                     />
                   </div>
                   <div className="min-w-0 space-y-2">
-                    <Label htmlFor="document-period-end">End date</Label>
+                    <Label htmlFor="document-period-end" data-consent-role="form-label">End date</Label>
                     <Input
-                      id="document-period-end"
+                      id="document-period-end" data-consent-input="true"
                       type="date"
                       value={end}
                       onChange={(event) => setEnd(event.target.value)}
@@ -533,8 +533,8 @@ export function RequestFilesButton({
                 </div>
               </fieldset>
               {agentPackagesEnabled && <div className="space-y-2">
-                <Label htmlFor="document-access-days">Access period</Label>
-                <select id="document-access-days" value={accessDays}
+                <Label htmlFor="document-access-days" data-consent-role="form-label">Access period</Label>
+                <select id="document-access-days" data-consent-input="true" value={accessDays}
                   onChange={event => setAccessDays(Number(event.target.value))}
                   disabled={busy}
                   className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal">

@@ -131,6 +131,55 @@ def _revision_payload(
     )
 
 
+def _candidate_checks(
+    args: argparse.Namespace,
+    service_payload: dict[str, Any],
+    revision_payload: dict[str, Any],
+    candidate: str,
+    image_matches: bool,
+) -> tuple[str | None, list[dict[str, Any]]]:
+    candidate_url = None
+    labels = (revision_payload.get("metadata") or {}).get("labels") or {}
+    metadata = revision_payload.get("metadata") or {}
+    status = revision_payload.get("status") or {}
+    checks = {
+        "revision_name": metadata.get("name") == candidate,
+        "service_identity": labels.get("serving.knative.dev/service") == args.service,
+        "ready": any(
+            c.get("type") == "Ready" and str(c.get("status")).lower() == "true"
+            for c in status.get("conditions", [])
+            if isinstance(c, dict)
+        ),
+        "immutable_image": image_matches,
+    }
+    for label, value in {
+        "deploy-env": args.expected_env,
+        "deploy-source": args.expected_source,
+        "deploy-sha": args.expected_sha,
+        "github-run-id": args.expected_run_id,
+    }.items():
+        checks[label] = bool(value) and labels.get(label) == value
+    candidate_tag = str(getattr(args, "candidate_tag", "") or "")
+    if candidate_tag:
+        tagged = [
+            entry
+            for entry in (service_payload.get("status") or {}).get("traffic", [])
+            if isinstance(entry, dict) and entry.get("tag") == candidate_tag
+        ]
+        checks["candidate_tag"] = (
+            len(tagged) == 1
+            and tagged[0].get("revisionName") == candidate
+            and str(tagged[0].get("url") or "").startswith("https://")
+        )
+        if checks["candidate_tag"]:
+            candidate_url = tagged[0]["url"]
+    return candidate_url, [
+        {"key": key, "expected": True, "actual": False}
+        for key, passed in checks.items()
+        if not passed
+    ]
+
+
 def verify(args: argparse.Namespace) -> dict[str, Any]:
     service_payload = _load_json_file(args.service_json) or _run_gcloud_json(
         [
@@ -171,6 +220,17 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
         )
         env = _revision_env(revision_payload)
         labels = (revision_payload.get("metadata") or {}).get("labels") or {}
+        expected_image = str(getattr(args, "expected_image_reference", "") or "")
+        actual_digest = str(
+            (revision_payload.get("status") or {}).get("imageDigest") or ""
+        ).rsplit("@", 1)[-1]
+        image_matches = (
+            "@" in expected_image
+            and bool(
+                re.fullmatch(r"sha256:[0-9a-f]{64}", expected_image.rsplit("@", 1)[-1])
+            )
+            and actual_digest == expected_image.rsplit("@", 1)[-1]
+        )
         mismatches = []
         for key, expected_value in expected.items():
             actual_value = env.get(key)
@@ -183,51 +243,13 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
                     }
                 )
         if candidate:
-            metadata = revision_payload.get("metadata") or {}
-            status = revision_payload.get("status") or {}
-            expected_image = str(getattr(args, "expected_image_reference", "") or "")
-            expected_digest = expected_image.rsplit("@", 1)[-1]
-            actual_digest = str(status.get("imageDigest") or "").rsplit("@", 1)[-1]
-            checks = {
-                "revision_name": metadata.get("name") == candidate,
-                "service_identity": labels.get("serving.knative.dev/service")
-                == args.service,
-                "ready": any(
-                    c.get("type") == "Ready" and str(c.get("status")).lower() == "true"
-                    for c in status.get("conditions", [])
-                    if isinstance(c, dict)
-                ),
-                "immutable_image": "@" in expected_image
-                and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", expected_digest))
-                and actual_digest == expected_digest,
-            }
-            for label, value in {
-                "deploy-env": args.expected_env,
-                "deploy-source": args.expected_source,
-                "deploy-sha": args.expected_sha,
-                "github-run-id": args.expected_run_id,
-            }.items():
-                checks[label] = bool(value) and labels.get(label) == value
-            candidate_tag = str(getattr(args, "candidate_tag", "") or "")
-            if candidate_tag:
-                tagged = [
-                    entry
-                    for entry in (service_payload.get("status") or {}).get(
-                        "traffic", []
-                    )
-                    if isinstance(entry, dict) and entry.get("tag") == candidate_tag
-                ]
-                checks["candidate_tag"] = (
-                    len(tagged) == 1
-                    and tagged[0].get("revisionName") == candidate
-                    and str(tagged[0].get("url") or "").startswith("https://")
-                )
-                if checks["candidate_tag"]:
-                    candidate_url = tagged[0]["url"]
-            mismatches.extend(
-                {"key": key, "expected": True, "actual": False}
-                for key, passed in checks.items()
-                if not passed
+            candidate_url, candidate_failures = _candidate_checks(
+                args, service_payload, revision_payload, candidate, image_matches
+            )
+            mismatches.extend(candidate_failures)
+        elif expected_image and not image_matches:
+            mismatches.append(
+                {"key": "immutable_image", "expected": True, "actual": False}
             )
         checked.append(
             {
@@ -246,6 +268,15 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
                 },
                 "ok": not mismatches,
                 "mismatches": mismatches,
+                **(
+                    {
+                        "image_reference": expected_image,
+                        "image_digest": actual_digest,
+                        "image_verified": image_matches,
+                    }
+                    if expected_image
+                    else {}
+                ),
             }
         )
         if mismatches:
@@ -290,10 +321,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.candidate_revision and not args.expected_image_reference:
         parser.error("candidate verification requires --expected-image-reference")
-    if not args.candidate_revision and (
-        args.expected_image_reference or args.candidate_tag
-    ):
-        parser.error("candidate image/tag checks require --candidate-revision")
+    if not args.candidate_revision and args.candidate_tag:
+        parser.error("candidate tag checks require --candidate-revision")
 
     report = verify(args)
     report_path = Path(args.report_path)

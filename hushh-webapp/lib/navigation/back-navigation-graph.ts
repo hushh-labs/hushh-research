@@ -305,7 +305,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         width: "content",
         align: "center",
         suppressFallbackTitle: true,
-        items: [{ label: "One", href: ROUTES.ONE_HOME }],
+        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Wallet" }],
       };
     },
   },
@@ -716,8 +716,10 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref,
         width: "profile",
         align: "center",
-        suppressFallbackTitle: true,
-        items: [{ label: "One", href: ROUTES.ONE_HOME }],
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Consent Center" },
+        ],
       };
     },
   },
@@ -953,7 +955,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         width: "profile",
         align: "center",
         suppressFallbackTitle: true,
-        items: [{ label: "One", href: ROUTES.ONE_HOME }],
+        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Memory" }],
       };
     },
   },

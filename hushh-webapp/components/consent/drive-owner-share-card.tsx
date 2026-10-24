@@ -236,7 +236,7 @@ function UnlockedDriveOwnerShareCard({
   return (
     <section
       aria-label="Share Drive files"
-      className="min-w-0 space-y-4 break-words"
+      className="consent-presentation-surface min-w-0 space-y-4 break-words"
       data-testid="drive-owner-share"
     >
       <div ref={statusTarget} tabIndex={-1} role={view?.status === "shared" ? undefined : "status"}
@@ -270,7 +270,7 @@ function UnlockedDriveOwnerShareCard({
             <MediumRowLabel as="span">Files to share with {personName}</MediumRowLabel>
           </legend>
           {found.length > 1 ? (
-            <label className="flex min-h-11 items-center gap-3 text-sm">
+            <label data-consent-role="form-label" className="flex min-h-11 items-center gap-3 text-sm">
               <input
                 type="checkbox"
                 disabled={!!reservedRefs}
@@ -285,7 +285,7 @@ function UnlockedDriveOwnerShareCard({
           <ul aria-label="Files you can share" className="min-w-0 space-y-1">
             {found.map((file) => (
               <li key={file.ref}>
-                <label className="flex min-h-11 min-w-0 items-center gap-3">
+                <label data-consent-role="form-label" className="flex min-h-11 min-w-0 items-center gap-3">
                   <input
                     type="checkbox"
                     disabled={!!reservedRefs}

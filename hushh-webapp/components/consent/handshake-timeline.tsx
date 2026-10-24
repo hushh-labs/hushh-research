@@ -166,15 +166,15 @@ export function HandshakeTimeline({
 
   if (entries.length === 0) {
     return (
-      <div className={cn("px-4 py-6 text-center text-sm text-muted-foreground", className)}>
+      <div data-consent-role="body" className={cn("consent-presentation-surface px-4 py-6 text-center text-sm text-muted-foreground", className)}>
         No consent history with {counterpartLabel || "this connection"}.
       </div>
     );
   }
 
   return (
-    <div className={cn("space-y-0", className)}>
-      <h3 className="mb-3 text-sm font-medium text-foreground">
+    <div className={cn("consent-presentation-surface space-y-0", className)}>
+      <h3 data-consent-role="secondary-heading" className="mb-3 text-sm font-medium text-foreground">
         Consent history{counterpartLabel ? ` with ${counterpartLabel}` : ""}
       </h3>
       <ol className="relative border-l border-border ml-3">
@@ -192,16 +192,16 @@ export function HandshakeTimeline({
             <div className="flex items-start gap-2">
               {actionIcon(entry.action)}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground leading-snug">
+                <p data-consent-role="row-title" className="text-sm font-medium text-foreground leading-snug">
                   {actionLabel(entry.action)}
                 </p>
                 {entry.scope && (
-                  <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                  <p data-consent-role="helper" className="mt-0.5 text-xs text-muted-foreground truncate">
                     {entry.scope_description || humanizeConsentScope(entry.scope)}
                   </p>
                 )}
                 {entry.issued_at && (
-                  <p className="mt-0.5 text-xs text-muted-foreground/70">
+                  <p data-consent-role="helper" className="mt-0.5 text-xs text-muted-foreground/70">
                     {formatTimelineDate(entry.issued_at)}
                   </p>
                 )}

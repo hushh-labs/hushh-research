@@ -9,8 +9,10 @@ flowchart LR
   index --> profile["Profile and nested management"]
   index --> feed["Feed and decisions"]
   index --> location["Location: onboarding, Now, People, Links and maps"]
+  index --> consent["Consent: requests, grants and reviews"]
   index --> mail["Mail: setup, Overview, KYC and Receipts"]
   index --> calendar["Calendar: setup, Schedule, Invitations and Insights"]
+  index --> wallet["Wallet: Cards, Add, Sharing and readers"]
   index --> nav["Shared navigation and typography"]
   connect --> person["Person profile and requests"]
   profile --> memory["Memory and World Model"]
@@ -31,6 +33,7 @@ owning implementation.
 | Finance | [Portfolio and Stocks](./finance.md): value/history charts, holdings, allocation, performance, sources, stock facts and saved analysis |
 | Connect | [Connections and Circles](./connect.md): people discovery, contact sync, invitations, nearby directories, circle setup/join, members, chat, and immediate shared-feature handoffs |
 | Messages | [People and Circles](./messages.md): first entry, inbox and directory, selected chats, composer, media, actions, Wallet handoffs, portals and native boundaries |
+| Consent | [Consent Center and embedded reviews](./consent.md): Requests, Active, History, Connections, selected reviews, vault/revoke ceremonies and connected commerce/host handoffs |
 | Person profile | [Person profile and requests](./person-profile.md): another person's identity, phone/desktop geometry, fonts, relationship, grants, catalog, every request dialog, verbatim English copy/CTAs, packets and history |
 | Profile | [Profile](./profile.md): home, account, phone, payouts/receipts, pricing, preferences, security/devices, support, invitations, Legal and compatibility entries |
 | Profile Memory | [Memory and World Model](./profile-memory.md): categories, live memory, sharing, received information, Secrets, memory workspace, research facts and invitations |
@@ -40,6 +43,7 @@ owning implementation.
 | Location | [Location](./location.md): actual mounted onboarding, Now/People/Links, sharing/Ask/review, SOS, Circles, maps, nearby/private check-in, public routes, every text/CTA and effective typography |
 | Mail | [Mail subagent](./mail.md): setup and OAuth, Overview/KYC/Receipts, exact copy and every CTA branch, private drafts and reviewed Send, mailbox/voice handoffs, API and response-field provenance, encrypted device snapshots, phone/desktop geometry and typography |
 | Calendar | [Calendar subagent](./calendar.md): onboarding and OAuth, Schedule/Invitations/Insights, every authored CTA and response branch, API fields and authority, conversation and recipient handoffs, phone/desktop geometry and fonts |
+| Wallet | [Wallet](./wallet.md): mounted Cards/Add/Sharing, Profile/NWS/referral, temporary grants, requests, public/anonymous readers and One chat widgets, with presentation and authority boundaries |
 | Drive | [Drive connector and private-agent tools](./drive.md): first connection and OAuth, every mounted connector/nested page and CTA, selected files, preparation, packets, trust, conversations, sharing and payment handoffs, exact copy, API fields, phone/desktop geometry and fonts |
 | Navigation | [Shared navigation](./navigation.md): top bar, bottom tabs, contextual rails, Profile entry, Back and native admission |
 | Font schema | [Typography](./typography.md): when to use each semantic role, Profile home/detail scale, nav and Feed differences, CSS precedence and native limits |

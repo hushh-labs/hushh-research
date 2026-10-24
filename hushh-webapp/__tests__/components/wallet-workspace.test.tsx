@@ -752,7 +752,7 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByTestId("one-wallet-empty-art").querySelector("img")).toBe(art);
     const continueButton = await screen.findByRole("button", { name: "Continue" });
     await act(async () => { fireEvent.click(continueButton); });
-    expect(screen.getByRole("heading", { name: "Wallet" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Wallet" })).toBeNull();
     expect(screen.getByTestId("wallet-card-browser")).toBeTruthy();
   });
 

@@ -31,6 +31,7 @@ import {
   subscribeVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
 import { cardNetworkLabel } from "./card-network-mark";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 
 const STATUS_COPY = {
   fulfilled: "Card sent",
@@ -269,7 +270,7 @@ export function WalletCardRequestReview({
       }}
     >
       <DialogContent
-        className="max-h-[85dvh] overflow-y-auto sm:max-w-lg"
+        className={`${presentationStyles.walletDialog} max-h-[85dvh] overflow-y-auto sm:max-w-lg`}
         onInteractOutside={(event) => {
           if (busy) event.preventDefault();
         }}
@@ -294,6 +295,8 @@ export function WalletCardRequestReview({
             <p>This request is unavailable.</p>
             <Button
               variant="secondary"
+              size="compact"
+              className={presentationStyles.quietAction}
               onClick={() => setReload((value) => value + 1)}
             >
               Retry
@@ -304,16 +307,16 @@ export function WalletCardRequestReview({
           <p role="status">{STATUS_COPY[request.status]}</p>
         ) : null}
         {request?.role === "requester" && request.status === "pending" ? (
-          <p role="status" className="text-sm text-muted-foreground">
+          <p role="status" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
             Waiting for them to choose a card.
           </p>
         ) : null}
         {pendingOwner ? (
           <>
             <fieldset disabled={busy} className="space-y-3">
-              <legend className="mb-2 text-sm font-medium">Card</legend>
+              <legend className="mb-2 text-[15px] leading-[22px] font-[550]">Card</legend>
               {profileId ? (
-                <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border p-3">
+                <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm leading-[21px] font-[550]">
                   <input
                     type="radio"
                     name="response-card"
@@ -327,7 +330,7 @@ export function WalletCardRequestReview({
               {cards.map((card) => (
                 <label
                   key={card.cardId}
-                  className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border p-3"
+                  className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm leading-[21px] font-[550]"
                 >
                   <input
                     type="radio"
@@ -343,7 +346,7 @@ export function WalletCardRequestReview({
                 </label>
               ))}
               {profileState === "loading" ? (
-                <p role="status" className="text-sm text-muted-foreground">
+                <p role="status" className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
                   Checking your Profile Card…
                 </p>
               ) : null}
@@ -352,6 +355,8 @@ export function WalletCardRequestReview({
                   <p>Could not load your Profile Card.</p>
                   <Button
                     variant="secondary"
+                    size="compact"
+                    className={presentationStyles.quietAction}
                     onClick={() => setReload((value) => value + 1)}
                   >
                     Retry Profile Card
@@ -359,14 +364,14 @@ export function WalletCardRequestReview({
                 </div>
               ) : null}
               {profileState === "ready" && !profileId && !cards.length ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
                   Add a card to Wallet, then reopen this request to share it.
                 </p>
               ) : null}
-              <label className="flex flex-col gap-2 text-sm font-medium">
+              <label className="flex flex-col gap-2 text-[15px] leading-[22px] font-[550]">
                 Access duration
                 <select
-                  className="min-h-11 rounded-[var(--app-input-radius)] border bg-background px-3 text-sm"
+                  className="min-h-11 rounded-[var(--app-input-radius)] border bg-background px-3 text-base leading-[22px] sm:text-sm"
                   value={duration}
                   onChange={(event) =>
                     setDuration(Number(event.target.value) as 15 | 60 | 120)
@@ -378,13 +383,13 @@ export function WalletCardRequestReview({
                 </select>
               </label>
             </fieldset>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
               Only {request.requesterName} will receive this card.
             </p>
           </>
         ) : null}
         {error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-[13px] leading-[18px] text-destructive">
             {error}
           </p>
         ) : null}
@@ -395,7 +400,7 @@ export function WalletCardRequestReview({
                 {busy ? "Sharing…" : "Share card"}
               </Button>
             ) : (
-              <Button onClick={onClose} disabled={busy}>
+              <Button variant="secondary" size="compact" className={`${presentationStyles.quietAction} ${presentationStyles.modalAction}`} onClick={onClose} disabled={busy}>
                 Done
               </Button>
             )
@@ -404,6 +409,8 @@ export function WalletCardRequestReview({
             request?.status === "pending" ? (
               <Button
                 variant="ghost"
+                size="compact"
+                className={presentationStyles.modalAction}
                 disabled={busy}
                 onClick={() => void decline()}
               >

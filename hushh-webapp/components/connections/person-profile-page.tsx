@@ -1204,7 +1204,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
       </div>
       <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
         <DialogContent
-          className="w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
+          className="consent-presentation-surface w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
         >
           <DialogHeader className="shrink-0 pr-8 text-left">
             <DialogTitle>Request information from {profile.displayName}</DialogTitle>
@@ -1217,11 +1217,11 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
             {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
             {!viewerProfile ? <div role="status" className="text-sm text-muted-foreground">
-              {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
+              {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" data-consent-quiet-action="true" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
             </div> : null}
           </div>
           <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
-            <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
+            <Button type="button" variant="none" effect="fade" data-consent-quiet-action="true" data-consent-action-context="task" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
               Cancel
             </Button>
             <Button
@@ -1244,7 +1244,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           onOpenChange={setShowUnlockDialog}
           onSuccess={() => setShowUnlockDialog(false)}
           title="Unlock your vault"
-          description="Unlock your private agent to reveal information shared with you."
+          description="Unlock your private agent to reveal information shared with you." presentationClassName="consent-presentation-surface"
         />
       ) : null}
     </AppPageShell>

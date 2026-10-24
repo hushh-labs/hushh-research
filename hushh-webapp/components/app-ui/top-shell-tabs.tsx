@@ -104,7 +104,7 @@ export function TopShellTabs({
     tabSet.id === "consent" ||
     tabSet.id === "finance" ||
     tabSet.id === "ria";
-  const usesCompactLabels = usesModuleSegmentedTabs && tabSet.tabs.length > 3;
+  const usesCompactLabels = usesModuleSegmentedTabs && tabSet.tabs.length > 3 && tabSet.id !== "consent";
   const shouldResetScrollOnSelection = tabSet.id === "finance";
 
   const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
@@ -254,6 +254,7 @@ export function TopShellTabs({
               // side by side.
               "h-9 w-full max-w-[calc(var(--app-shell-agent)-2*var(--page-inline-gutter-standard))] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
             : "h-full w-full",
+          tabSet.id === "consent" && "h-12",
         )}
         role="tablist"
       >
@@ -268,6 +269,7 @@ export function TopShellTabs({
               id={topShellTabDomId(tabSet, "tab", tab.value)}
               type="button"
               role="tab"
+              aria-label={tabSet.id === "consent" ? tab.label : undefined}
               disabled={disabled}
               data-ui-role="agent-tab"
               data-voice-control-id={
@@ -280,6 +282,7 @@ export function TopShellTabs({
               className={cn(
                 "relative z-10 flex h-full flex-1 items-center justify-center px-3 outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-inset",
                 usesCompactLabels && "min-w-0 px-0.5 sm:px-3",
+                tabSet.id === "consent" && "min-w-0 px-0.5 sm:px-3",
                 tabSet.id === "calendar" && "min-w-0 px-1 sm:px-3",
               )}
               onClick={() => selectIndex(index, false)}
@@ -306,7 +309,8 @@ export function TopShellTabs({
                 }}
                 data-ui-role="agent-tab-label"
                 className={cn(
-                  "ui-text-agent-tab-label relative truncate transition-colors duration-150",
+                  "ui-text-agent-tab-label relative transition-colors duration-150",
+                  tabSet.id === "consent" ? "whitespace-normal overflow-visible text-center" : "truncate",
                   usesCompactLabels &&
                     "[--type-agent-tab-label-size:11px] min-[360px]:[--type-agent-tab-label-size:12px] min-[400px]:[--type-agent-tab-label-size:14px] sm:[--type-agent-tab-label-size:15px]",
                   usesModuleSegmentedTabs
@@ -318,7 +322,7 @@ export function TopShellTabs({
                       : "text-[color:var(--app-label)] hover:text-current",
                 )}
               >
-                {tab.label}
+                {tabSet.id === "consent" && tab.label === "Connections" ? <>Connec<wbr />tions</> : tab.label}
               </span>
             </button>
           );

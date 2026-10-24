@@ -11,12 +11,25 @@ candidate. Both phases include retained revisions, jobs and administrative reser
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Literal
+
+# Existing observability and worker callers import this entrypoint by file path.
+# Resolve the companion from this exact checkout, without ambient PYTHONPATH or
+# a process-wide sys.path change.
+_INVENTORY_SPEC = importlib.util.spec_from_file_location(
+    "runtime_capacity_inventory", Path(__file__).with_name("runtime_capacity_inventory.py")
+)
+assert _INVENTORY_SPEC and _INVENTORY_SPEC.loader
+_inventory = importlib.util.module_from_spec(_INVENTORY_SPEC)
+_INVENTORY_SPEC.loader.exec_module(_inventory)
+BudgetError = _inventory.BudgetError
+positive_int = _inventory.positive_int
 
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
 CAPACITY_PHASES = ("pre-deploy", "post-release")
@@ -41,19 +54,6 @@ FRONTEND_ALLOWED_PROJECT_ROLES = frozenset(
         "roles/cloudtrace.agent",
     }
 )
-
-
-class BudgetError(ValueError):
-    """Inventory or policy is incomplete, so admission cannot be proved."""
-
-
-def positive_int(value: Any, label: str, *, zero_ok: bool = False) -> int:
-    if isinstance(value, bool) or not str(value).isdigit():
-        raise BudgetError(f"{label}: expected a non-negative integer, got {value!r}")
-    number = int(value)
-    if not zero_ok and number == 0:
-        raise BudgetError(f"{label}: expected a positive integer")
-    return number
 
 
 def gcloud_json(*args: str) -> Any:
@@ -591,12 +591,12 @@ def evaluate(
     config = profile["environments"][environment]
     maintenance = None
     if maintenance_profile is not None:
-        bootstrap_recovery = maintenance_profile == "serving_backend_clone_v2"
+        bootstrap_recovery = maintenance_profile in {"serving_backend_clone_v2", "serving_backend_clone_v3"}
         expected = {"service": "consent-protocol", "candidate": {
             "max_instances": 1, "workers_per_instance": 1 if bootstrap_recovery else 2, "asyncpg_pool_max": 4 if bootstrap_recovery else 2,
             "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}}
         if (environment != "production" or phase != "pre-deploy"
-                or maintenance_profile not in {"serving_backend_clone_v1", "serving_backend_clone_v2"}
+                or maintenance_profile not in {"serving_backend_clone_v1", "serving_backend_clone_v2", "serving_backend_clone_v3"}
                 or inherited_candidate_services
                 or config.get("maintenance_candidates", {}).get(maintenance_profile) != expected):
             raise BudgetError("unreviewed maintenance capacity profile")
@@ -695,101 +695,12 @@ def evaluate(
 
 
 def collect(profile: dict[str, Any], environment: str) -> dict[str, Any]:
-    config = profile["environments"][environment]
-    project, region = config["project"], profile["region"]
-    sql = gcloud_json(
-        "sql",
-        "instances",
-        "describe",
-        config["database_instance"],
-        f"--project={project}",
+    return _inventory.collect_inventory(
+        profile["environments"][environment],
+        profile["region"],
+        gcloud_json,
+        parallel=environment == "uat",
     )
-    if sql.get("state") != "RUNNABLE":
-        raise BudgetError(f"Cloud SQL instance is not RUNNABLE: {sql.get('state')}")
-    flags = (sql.get("settings") or {}).get("databaseFlags") or []
-    if not any(
-        flag.get("name") == "cloudsql.iam_authentication" and flag.get("value") == "on"
-        for flag in flags
-    ):
-        raise BudgetError("Cloud SQL IAM authentication flag is not on")
-    values = [
-        flag.get("value") for flag in flags if flag.get("name") == "max_connections"
-    ]
-    if len(values) != 1:
-        raise BudgetError(
-            "Cloud SQL max_connections must be explicitly configured and readable"
-        )
-    maximum = positive_int(values[0], "Cloud SQL max_connections")
-    opts = (f"--project={project}", f"--region={region}")
-    listed_services = gcloud_json("run", "services", "list", *opts)
-    if not isinstance(listed_services, list):
-        raise BudgetError("Cloud Run services inventory unavailable")
-    service_names = {
-        (service.get("metadata") or {}).get("name") for service in listed_services
-    }
-    profiled = set(config["services"])
-    non_database = set(config["non_database_services"])
-    if None in service_names:
-        raise BudgetError("Cloud Run service inventory contains an unnamed service")
-    if service_names - profiled != non_database:
-        raise BudgetError(
-            f"Cloud Run service inventory drift: unprofiled={sorted((service_names - profiled) - non_database)}, "
-            f"missing declared non-DB={sorted(non_database - service_names)}"
-        )
-    required = {
-        name
-        for name, settings in config["services"].items()
-        if not settings.get("optional_existing")
-    }
-    if required - service_names:
-        raise BudgetError(
-            f"required database services missing: {sorted(required - service_names)}"
-        )
-    services: dict[str, Any] = {}
-    for name in service_names:
-        opts = (f"--project={project}", f"--region={region}")
-        service = gcloud_json("run", "services", "describe", name, *opts)
-        revisions = gcloud_json("run", "revisions", "list", f"--service={name}", *opts)
-        if not isinstance(revisions, list):
-            raise BudgetError(f"{name}: revision inventory unavailable")
-        if name in non_database:
-            connection_name = f"{project}:{region}:{config['database_instance']}"
-            traffic = (service.get("status") or {}).get("traffic")
-            if not isinstance(traffic, list):
-                raise BudgetError(f"{name}: traffic unavailable")
-            referenced = {
-                target.get("revisionName")
-                for target in traffic
-                if target.get("tag") or target.get("percent", 0)
-            }
-            latest = (service.get("status") or {}).get("latestReadyRevisionName")
-            if latest:
-                referenced.add(latest)
-            by_name = {
-                (rev.get("metadata") or {}).get("name"): rev for rev in revisions
-            }
-            if None in referenced or referenced - by_name.keys():
-                raise BudgetError(f"{name}: referenced revision unavailable")
-            for revision in (by_name[revision_name] for revision_name in referenced):
-                annotations = (revision.get("metadata") or {}).get("annotations") or {}
-                if connection_name in annotations.get(
-                    "run.googleapis.com/cloudsql-instances", ""
-                ).split(","):
-                    raise BudgetError(
-                        f"{name}: reachable revision attaches to budgeted Cloud SQL"
-                    )
-        else:
-            services[name] = {"service": service, "revisions": revisions}
-    listed = gcloud_json("run", "jobs", "list", *opts)
-    if not isinstance(listed, list):
-        raise BudgetError("Cloud Run jobs inventory unavailable")
-    names = [(job.get("metadata") or {}).get("name") for job in listed]
-    if any(not isinstance(name, str) for name in names) or len(names) != len(
-        set(names)
-    ):
-        raise BudgetError("Cloud Run jobs inventory malformed")
-    jobs = {name: gcloud_json("run", "jobs", "describe", name, *opts) for name in names}
-    return {"database_max_connections": maximum, "services": services, "jobs": jobs}
 
 
 def main() -> int:

@@ -21,12 +21,13 @@
 .accessCard { padding: 20px; border-radius: 18px; color: #fff; background: var(--app-card-surface-default-solid); }
 .accessCard p { margin: 16px 0 7px; font-size: 20px; font-weight: 600; letter-spacing: -.03em; }
 .accessCard span { font-size: 9px; letter-spacing: .18em; color: #cbd1e4; }
-.facts { display: grid; gap: 14px; font-size: 13px; }
+.facts { display: grid; gap: 14px; font-family: var(--font-app-body); }
 .facts div { border-bottom: 1px solid var(--border); padding-bottom: 12px; }
-.facts dt { color: var(--muted-foreground); font-size: 11px; margin-bottom: 5px; }
-.facts dd { line-height: 1.6; overflow-wrap: anywhere; }
-.duration { display: block; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); color: var(--foreground); }
-.warning { display: flex; gap: 9px; align-items: flex-start; padding: 12px; border-radius: 12px; background: var(--muted); color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+.facts dt { color: var(--app-secondary-label); font-size: 12px; line-height: 18px; font-weight: 600; margin-bottom: 5px; }
+.facts dd { font-size: 14px; line-height: 21px; font-weight: 550; overflow-wrap: anywhere; }
+.duration { display: block; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--app-card-border-standard); border-radius: 12px; background: var(--app-card-surface-default-solid); color: var(--app-primary-label); font-family: var(--font-app-body); font-size: 14px; line-height: 22px; }
+.warning { display: flex; gap: 9px; align-items: flex-start; padding: 12px; border-radius: 12px; background: var(--muted); color: var(--app-secondary-label); font-size: 13px; line-height: 18px; }
+@media (max-width: 620px) { .duration { font-size: 16px; } }
 @media (prefers-reduced-motion: reduce) { .row { transition: none; } .row:hover { transform: none; } }
 
 .guide { overflow: hidden; border: 1px solid var(--border); border-radius: 20px; background: var(--card); }
@@ -74,51 +75,50 @@
 .content { font-family: var(--font-app-body); }
 .hero { --type-card-title-size: 18px; --type-card-title-line: 24px; }
 .hero > p { font-family: var(--font-app-body); font-size: 12px; line-height: 1.4; }
-.content > section > h3 { --type-card-title-size: 13px; --type-card-title-line: 18px; }
+.content > section > h3 { --type-card-title-size: 14px; --type-card-title-line: 22px; }
 .content > section > h3 span { font-family: var(--font-app-body); font-size: 12px; }
-.row p:first-child { font-size: 13px; line-height: 1.4; }
-.row p:nth-child(2), .empty p, .content > p { font-size: 12px; line-height: 1.4; }
+.row p:first-child { font-size: 14px; line-height: 21px; font-weight: 550; }
+.row p:nth-child(2), .empty p, .content > p { font-size: 12px; line-height: 18px; }
 .row button { --type-button-label-size: 12px; --type-compact-button-label-size: 12px; font-family: var(--font-app-body); }
 @layer base {
   .content .hero h2 { font-family: var(--font-app-display) !important; font-size: 18px !important; line-height: 24px !important; }
-  .content > section > h3 { font-family: var(--font-app-body) !important; font-size: 13px !important; line-height: 18px !important; }
+  .content > section > h3 { font-family: var(--font-app-body) !important; font-size: 14px !important; line-height: 22px !important; font-weight: 600 !important; }
   .content > section > h3 span,
   .content .hero > p,
   .content .empty p,
   .content > p,
-  .content .row p:nth-child(2) { font-family: var(--font-app-body) !important; font-size: 12px !important; line-height: 1.4 !important; }
-  .content .row p:first-child { font-family: var(--font-app-body) !important; font-size: 13px !important; line-height: 1.4 !important; }
+  .content .row p:nth-child(2) { font-family: var(--font-app-body) !important; font-size: 12px !important; line-height: 18px !important; }
+  .content .row p:first-child { font-family: var(--font-app-body) !important; font-size: 14px !important; line-height: 21px !important; font-weight: 550 !important; }
 }
 
 /* Use Profile's reference scale in the shared compact-row cascade too. */
 .history {
   font-family: var(--font-app-body);
-  --type-section-label-compact-size: 13px;
-  --type-section-label-compact-weight: 400;
-  --type-section-label-compact-line: 18px;
-  --type-row-label-compact-size: 13px;
-  --type-row-label-compact-weight: 400;
-  --type-row-label-compact-line: 1.2;
+  --type-section-label-compact-size: 14px;
+  --type-section-label-compact-weight: 600;
+  --type-section-label-compact-line: 22px;
+  --type-row-label-compact-size: 14px;
+  --type-row-label-compact-weight: 550;
+  --type-row-label-compact-line: 21px;
 }
 @layer base {
   .history [data-slot="settings-group-heading"] {
     font-family: var(--font-app-body) !important;
-    font-size: 13px !important;
-    font-weight: 400 !important;
-    line-height: 18px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    line-height: 22px !important;
   }
   .history [data-slot="settings-row-title"] {
     font-family: var(--font-app-body) !important;
-    font-size: 13px !important;
-    font-weight: 400 !important;
-    line-height: 1.2 !important;
+    font-size: 14px !important;
+    font-weight: 550 !important;
+    line-height: 21px !important;
   }
   .history [data-slot="settings-row-description"],
-  .history [data-slot="settings-row-description"] :is(p, time, summary, li),
-  .history button {
+  .history [data-slot="settings-row-description"] :is(p, time, summary, li) {
     font-family: var(--font-app-body) !important;
     font-size: 12px !important;
-    line-height: 17px !important;
+    line-height: 18px !important;
   }
 }
 
@@ -146,17 +146,17 @@
 @layer base {
   .historyDetail :global([data-slot$="-header"]) :global(.ui-text-navigation-title) {
     font-family: var(--font-app-body) !important;
-    font-size: 13px !important;
-    font-weight: 550 !important;
-    line-height: 1.22 !important;
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    line-height: 28px !important;
     letter-spacing: 0 !important;
   }
   .historyDetail :global([data-slot$="-header"]) :global(.ui-text-section-label),
   .historyDetail :global([data-slot$="-header"]) :global(.ui-text-row-description) {
     font-family: var(--font-app-body) !important;
-    font-size: 12px !important;
+    font-size: 14px !important;
     font-weight: 400 !important;
-    line-height: 1.3 !important;
+    line-height: 20px !important;
     letter-spacing: 0 !important;
   }
 }

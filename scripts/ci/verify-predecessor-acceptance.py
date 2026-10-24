@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 from io import BytesIO
 import json
 import os
@@ -27,18 +28,21 @@ SERVICES = {"backend": "consent-protocol", "frontend": "hushh-webapp"}
 MAX_BYTES = 1024 * 1024
 
 
-class Refused(ValueError):
-    pass
+# Receipts are also executed from a preserved main-owned tooling directory.
+# Load the companion beside this exact file without ambient import paths.
+_PROVENANCE_SPEC = importlib.util.spec_from_file_location(
+    "release_acceptance_provenance",
+    Path(__file__).with_name("release_acceptance_provenance.py"),
+)
+assert _PROVENANCE_SPEC and _PROVENANCE_SPEC.loader
+_provenance = importlib.util.module_from_spec(_PROVENANCE_SPEC)
+_PROVENANCE_SPEC.loader.exec_module(_provenance)
+Refused = _provenance.Refused
+require = _provenance.require
 
 
 class MissingAcceptance(Refused):
     """No retained healthy receipts cover the requested services yet."""
-
-
-
-def require(condition: bool, message: str) -> None:
-    if not condition:
-        raise Refused(message)
 
 
 def selected(scope: str) -> set[str]:
@@ -48,7 +52,7 @@ def selected(scope: str) -> set[str]:
     return set(SERVICES) if scope == "all" else {scope}
 
 
-def validate(receipt: dict, *, environment: str, sha: str, service: str) -> None:
+def validate(receipt: dict, *, environment: str, sha: str, service: str) -> str | None:
     """Validate one service without treating another scoped service as accepted."""
     require(
         re.fullmatch(r"[a-f0-9]{40}", sha) is not None,
@@ -111,42 +115,22 @@ def validate(receipt: dict, *, environment: str, sha: str, service: str) -> None
             and (not check["required"] or check.get("outcome") == "success"),
             "A required preservation or reviewer check did not pass",
         )
-    _validate_serving_provenance(
+    return _validate_serving_provenance(
         receipt, environment=environment, sha=sha, service=service, revision=revision
     )
 
 
 def _validate_serving_provenance(
     receipt: dict, *, environment: str, sha: str, service: str, revision: str
-) -> None:
-    evidence = receipt.get("provenance", {}).get(service, {})
-    expected = {
-        "HUSHH_DEPLOY_ENV": environment,
-        "HUSHH_DEPLOY_SOURCE": f"deploy-{environment}",
-        "HUSHH_DEPLOY_SHA": sha,
-        "HUSHH_DEPLOY_RUN_ID": str(receipt.get("run_id")),
-    }
-    revisions = evidence.get("checked_revisions", [])
-    require(
-        evidence.get("status") == "healthy"
-        and evidence.get("ok") is True
-        and evidence.get("mode") == "live_traffic"
-        and evidence.get("project") == LANES[environment]
-        and evidence.get("region") == "us-central1"
-        and evidence.get("service") == SERVICES[service]
-        and evidence.get("expected") == expected
-        and evidence.get("failures") == []
-        and len(revisions) == 1,
-        "Live serving provenance is missing or inconsistent",
-    )
-    observed = revisions[0]
-    require(
-        observed.get("revision") == revision
-        and observed.get("traffic_percent") == 100
-        and observed.get("ok") is True
-        and observed.get("mismatches") == []
-        and observed.get("env") == expected,
-        "The accepted revision did not serve all traffic",
+) -> str | None:
+    return _provenance.validate_serving_provenance(
+        receipt,
+        environment=environment,
+        sha=sha,
+        service=service,
+        revision=revision,
+        project=LANES[environment],
+        service_name=SERVICES[service],
     )
 
 
@@ -210,21 +194,7 @@ class GitHub:
             "Acceptance did not come from a successful governed attempt",
         )
         artifact = self.read(f"artifacts/{artifact_id}")
-        require(
-            artifact.get("id") == artifact_id
-            and artifact.get("expired") is False
-            and artifact.get("name")
-            == f"release-acceptance-{environment}-{run_id}-{attempt}"
-            and artifact.get("workflow_run", {}).get("id") == run_id
-            and 0 < artifact.get("size_in_bytes", 0) <= MAX_BYTES
-            and re.fullmatch(r"sha256:[a-f0-9]{64}", artifact.get("digest", ""))
-            is not None
-            and (
-                not pin.get("artifact_digest")
-                or pin["artifact_digest"] == artifact["digest"]
-            ),
-            "Acceptance artifact identity or retention is invalid",
-        )
+        _provenance.validate_artifact(artifact, pin, environment, MAX_BYTES)
         receipt = unpack(
             self.read(f"artifacts/{artifact_id}/zip", binary=True), artifact["digest"]
         )
@@ -232,7 +202,14 @@ class GitHub:
             receipt.get("run_id") == run_id and receipt.get("run_attempt") == attempt,
             "Receipt belongs to another attempt",
         )
-        validate(receipt, environment=environment, sha=sha, service=service)
+        image_reference = validate(
+            receipt, environment=environment, sha=sha, service=service
+        )
+        if "image_reference" in pin:
+            require(
+                pin["image_reference"] == image_reference,
+                "Acceptance image pin differs from its receipt",
+            )
         if environment == "uat":
             predecessor = receipt.get("predecessor", {})
             require(
@@ -253,6 +230,11 @@ class GitHub:
             "artifact_digest": artifact["digest"],
             "workflow": run["path"],
             "repository": REPOSITORY,
+            **(
+                {"image_reference": image_reference}
+                if image_reference is not None
+                else {}
+            ),
         }
 
     def find(self, environment: str, sha: str, scope: str) -> dict:
@@ -268,7 +250,9 @@ class GitHub:
                 for pin in self.attempt_pins(environment, run.get("id")):
                     for service in sorted(needed - accepted.keys()):
                         try:
-                            accepted[service] = self.accept(pin, environment, sha, service)
+                            accepted[service] = self.accept(
+                                pin, environment, sha, service
+                            )
                         except Refused:
                             # Qualification belongs to this immutable attempt,
                             # not to the latest rerun's status or service scope.
@@ -289,7 +273,9 @@ class GitHub:
     def attempt_pins(self, environment: str, run_id: int) -> list[dict]:
         require(type(run_id) is int and run_id > 0, "Invalid acceptance run")
         inventory = self.read(f"runs/{run_id}/artifacts?per_page=100")
-        require(inventory.get("total_count", 0) <= 100, "Artifact inventory is incomplete")
+        require(
+            inventory.get("total_count", 0) <= 100, "Artifact inventory is incomplete"
+        )
         pins = {}
         pattern = rf"release-acceptance-{re.escape(environment)}-{run_id}-([1-9][0-9]*)"
         for item in inventory.get("artifacts", []):
@@ -358,8 +344,7 @@ def _required_checks(release: dict, environment: str) -> dict:
     )
     reviewer_required = source.get("reviewer_byok_required")
     require(
-        pkm_required in {"true", "false"}
-        and reviewer_required in {"true", "false"},
+        pkm_required in {"true", "false"} and reviewer_required in {"true", "false"},
         "Required verification declarations are missing",
     )
     return {
@@ -437,9 +422,26 @@ def create(args) -> None:
     args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
 
 
+def pinned_backend_image(args) -> dict:
+    require(
+        args.environment == "dev" and args.predecessor is not None,
+        "Backend image promotion requires the accepted Dev predecessor",
+    )
+    predecessor = json.loads(args.predecessor.read_text())
+    require(
+        predecessor.get("status") == "accepted"
+        and predecessor.get("environment") == "dev"
+        and predecessor.get("sha") == args.sha,
+        "Backend image predecessor identity is invalid",
+    )
+    pin = predecessor.get("services", {}).get("backend")
+    require(isinstance(pin, dict), "Backend acceptance pin is missing")
+    return GitHub().accept(pin, "dev", args.sha, "backend")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "require"))
+    parser.add_argument("command", choices=("create", "require", "backend-image"))
     parser.add_argument("--environment", choices=tuple(LANES), required=True)
     parser.add_argument("--sha")
     parser.add_argument("--scope")
@@ -457,7 +459,11 @@ def main() -> int:
                 and re.fullmatch(r"[a-f0-9]{40}", args.sha) is not None,
                 "Full SHA is required",
             )
-            receipt = GitHub().find(args.environment, args.sha, args.scope)
+            receipt = (
+                pinned_backend_image(args)
+                if args.command == "backend-image"
+                else GitHub().find(args.environment, args.sha, args.scope)
+            )
             args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
     except (
         Refused,

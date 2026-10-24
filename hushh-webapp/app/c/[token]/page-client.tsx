@@ -22,6 +22,7 @@ import { useParams } from "next/navigation";
 import { AlertTriangle, RefreshCw } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import {
   normalizePublicWalletCard,
   PublicWalletCardSkeleton,
@@ -115,18 +116,19 @@ function CardMessage({
       >
         <AlertTriangle className="size-5" />
       </div>
-      <h1 className="text-[22px] font-medium leading-[1.2] tracking-tight sm:text-[24px]">
+      <h1 className="font-[family-name:var(--font-app-display)] text-[28px] font-semibold leading-[36px] tracking-tight">
         {title}
       </h1>
       {body ? (
-        <p className="text-sm leading-6 text-muted-foreground">{body}</p>
+        <p className="text-sm leading-5 text-[color:var(--app-secondary-label)]">{body}</p>
       ) : null}
       {onRetry ? (
         <Button
           type="button"
           variant="outline"
+          size="compact"
           onClick={onRetry}
-          className="h-11 px-5"
+          className={presentationStyles.quietAction}
         >
           <RefreshCw className="size-4" aria-hidden="true" />
           Try again

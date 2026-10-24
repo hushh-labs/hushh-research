@@ -127,7 +127,7 @@ export function DrivePacketCatalogView({ model, ownerModel }: { model: DrivePack
   const open = (packet: DrivePacket) => { opener.remember(); model.open(packet); };
   const close = () => model.close();
   if (!session.token) return null;
-  return <section aria-label={ownerPersonRef ? "Available document packets" : "Your document packets"} onClickCapture={opener.capture}>
+  return <section aria-label={ownerPersonRef ? "Available document packets" : "Your document packets"} className="consent-presentation-surface" onClickCapture={opener.capture}>
     <SettingsGroup density="compact" title={ownerPersonRef ? "Available packets" : "Packets"}>
     <CategoryPacketRows packets={packets} buyer={!!ownerPersonRef} defaults={periodPackets} onOpen={open} requestFor={requests.result} />
     {ownerPersonRef ? <BuyerPacketRows packets={packets.filter(packet => packet.kind !== "provider_discovery")} requests={requests} ownerName={ownerName} onOpen={open} />

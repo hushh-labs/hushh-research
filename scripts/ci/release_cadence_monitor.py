@@ -95,6 +95,10 @@ def record_release_interval(intervals: dict, run: dict) -> None:
 
 def observe_controller_health(observed: dict, healthy: bool, enabled: bool, note, notices: list[str]) -> None:
     seen = observed["seen"]
+    # Configuration and verified accounting are independent. A failed baseline
+    # must not leave an old disabled-policy label in the durable journal.
+    observed["automation_enabled"] = enabled
+    observed["accounting_verified"] = healthy
     if not healthy:
         note("controller-health", "failure", "Cadence accounting or checkpoint publication failed. Inspect the controller run before recovery.")
     else:
@@ -105,7 +109,6 @@ def observe_controller_health(observed: dict, healthy: bool, enabled: bool, note
             note("automation-status", "disabled", "Automatic releases are disabled. Monitoring retains the last certified accounting; no releases are admitted.")
         elif seen.get("automation-status") == "disabled":
             note("automation-status", "enabled", "Automatic releases resumed with verified accounting: TestFlight every 2 and production every 4 successful UAT source commits.")
-        observed["automation_enabled"] = enabled
 
 
 def observations(repository: str, state: dict | None, event: dict, previous: dict, healthy: bool,
@@ -234,18 +237,27 @@ def find_issue(repository: str) -> dict | None:
     raise UnsafeRelease("Release monitor issue inventory is truncated")
 
 
-def issue_body(state: dict | None, journal: dict, controller: int) -> str:
+def issue_body(state: dict | None, journal: dict, controller: int, *, display: dict | None = None) -> str:
     encoded = base64.urlsafe_b64encode(json.dumps(journal, sort_keys=True).encode()).decode()
     require(len(encoded) < 55000, "Release monitor journal needs archival before GitHub's body limit")
+    display = journal if display is None else display
+    state = state if display.get("accounting_verified", True) else None
     count = str(state["count"]) if state else "unavailable"
     lines = [MARKER, "# Automatic UAT release monitoring", "",
              f"Verified UAT count: {count}. TestFlight every 2; production every 4.",
              "Completion events and the existing hourly fallback run in GitHub; no laptop is needed.",
              "UAT has separate dependencies and locks. Shared runner capacity is best effort.", "",
              f"Last controller: {controller}. Run links and verified milestones appear in comments."]
-    if journal.get("automation_enabled") is False:
+    if display.get("automation_enabled") is False:
+        checkpoint = display.get("checkpoint_at", "unavailable") if state else "unavailable"
         lines[3] = (f"Automatic releases disabled. Last certified UAT count: {count}; "
-                    f"checkpoint {journal['checkpoint_at']}. TestFlight every 2; production every 4 when enabled.")
+                    f"checkpoint {checkpoint}. TestFlight every 2; production every 4 when enabled.")
+    elif display.get("accounting_verified") is False:
+        lines[3] = ("Automatic releases configured enabled; admission blocked pending verified accounting. "
+                    "Current verified UAT count: unavailable. TestFlight every 2; production every 4.")
+        baseline = display.get("production_baseline_run_id")
+        if baseline:
+            lines.append(f"Production-first prerequisite: run {baseline}. Inspect the last controller for the blocking check.")
     if state:
         if state.get("production_baseline"):
             baseline = state["production_baseline"]
@@ -270,7 +282,7 @@ def publish(repository: str, issue: dict | None, state: dict | None, journal: di
             controller: int, assignee: str) -> None:
     base = f"repos/{repository}/issues"
     if issue is None:
-        issue = api(base, {"title": TITLE, "body": issue_body(state, {}, controller), "assignees": [assignee]})
+        issue = api(base, {"title": TITLE, "body": issue_body(state, journal, controller), "assignees": [assignee]})
     path = f"{base}/{issue['number']}"
     old = read_journal(issue.get("body") or "")
     # A persisted outbox makes an accepted-but-lost comment recoverable without
@@ -290,14 +302,14 @@ def publish(repository: str, issue: dict | None, state: dict | None, journal: di
             api(f"{path}/comments", {"body": pending["body"]})
         # Acknowledge the prior alert, then still report this event. No alert
         # transport operation ever changes the certified release ledger.
-        api(path, {"body": issue_body(state, pending["journal"], controller)}, method="PATCH")
+        api(path, {"body": issue_body(state, pending["journal"], controller, display=journal)}, method="PATCH")
         old = pending["journal"]
     if notices:
         text = "\n\n".join(notices)
         marker = "<!-- uat-release-notice:" + hashlib.sha256(text.encode()).hexdigest() + " -->"
         comment = marker + "\n\n" + text + f"\n\n[Controller run](https://github.com/{repository}/actions/runs/{controller})"
         pending = {"marker": marker, "journal": journal, "body": comment}
-        api(path, {"body": issue_body(state, {**old, "pending_notice": pending}, controller), "state": "open"}, method="PATCH")
+        api(path, {"body": issue_body(state, {**old, "pending_notice": pending}, controller, display=journal), "state": "open"}, method="PATCH")
         api(f"{path}/comments", {"body": comment})
     body = issue_body(state, journal, controller)
     if body != issue.get("body"):
@@ -332,7 +344,8 @@ def main() -> int:
     healthy = state is not None and os.environ.get("CHECKPOINT_OUTCOME") == "success"
     if disabled:
         healthy = healthy and os.environ.get("ACCOUNTING_OUTCOME") == "success"
-    journal, notices = observations(repository, state, event, previous, healthy, enabled=not disabled)
+    journal, notices = observations(repository, state, event, previous, healthy, enabled=policy["enabled"])
+    journal["production_baseline_run_id"] = policy.get("production_baseline_run_id")
     if disabled and healthy:
         journal["checkpoint_at"] = snapshot["checkpoint"]["checkpoint_at"]
     publish(repository, issue, state, journal, notices, controller, assignee)

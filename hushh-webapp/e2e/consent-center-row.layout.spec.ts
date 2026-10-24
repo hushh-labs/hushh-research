@@ -14,8 +14,9 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
  */
 let script: string;
 let css: string;
+let outDir: string;
 
-const WIDTHS = [320, 393, 1440] as const;
+const WIDTHS = [320, 350, 360, 390, 430, 620, 639, 640, 767, 768, 1024, 1440] as const;
 const DECIDING_ROWS = 3;
 
 test.beforeAll(async () => {
@@ -24,7 +25,7 @@ test.beforeAll(async () => {
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "consent-center-row-"));
+  outDir = fs.mkdtempSync(path.join(os.tmpdir(), "consent-center-row-"));
   await build({
     configFile: false,
     logLevel: "error",
@@ -57,8 +58,13 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  const { optimize } = await import("@tailwindcss/node");
+  const modules = fs.readdirSync(outDir).filter((name) => name.endsWith(".css"))
+    .map((name) => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  css = stripAppFontFaces(optimize(compiler.build([...candidates]) + modules, { minify: true }).code) + productFontStyle();
 });
+
+test.afterAll(() => { if (outDir) fs.rmSync(outDir, { recursive: true, force: true }); });
 
 async function open(page: Page, width: number, dark: boolean) {
   await page.setViewportSize({ width, height: 900 });
@@ -138,6 +144,33 @@ for (const dark of [false, true])
       const label = `${width}px ${dark ? "dark" : "light"}`;
 
       assertGeometry(await measure(page), label);
+      const typography = await page.locator("[data-testid='consent-entry-row']").first().evaluate((row) => {
+        const title = getComputedStyle(row.querySelector("[data-slot='settings-row-title']")!);
+        const support = getComputedStyle(row.querySelector("[data-slot='settings-row-description']")!);
+        return {
+          title: [title.fontSize, title.lineHeight, title.fontWeight, title.fontFamily],
+          support: [support.fontSize, support.lineHeight, support.fontWeight, support.fontFamily],
+        };
+      });
+      expect(typography.title.slice(0, 3), `${label}: title role`).toEqual(["14px", "21px", "550"]);
+      expect(typography.support.slice(0, 3), `${label}: support role`).toEqual(["12px", "18px", "400"]);
+      expect(typography.title[3]).toContain("Plus Jakarta Sans");
+      expect(typography.support[3]).toContain("Plus Jakarta Sans");
+      const quiet = await page.getByTestId("consent-quiet-action").evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        const outer = getComputedStyle(button);
+        const inner = getComputedStyle(button, "::before");
+        return { width: box.width, height: box.height, outerBackground: outer.backgroundColor,
+          innerBorder: inner.borderTopWidth, innerRadius: inner.borderTopLeftRadius,
+          innerBackground: inner.backgroundColor, font: [outer.fontSize, outer.lineHeight, outer.fontWeight] };
+      });
+      expect(quiet.width).toBeGreaterThanOrEqual(88);
+      expect(quiet.height).toBeGreaterThanOrEqual(44);
+      expect(quiet.outerBackground).toBe("rgba(0, 0, 0, 0)");
+      expect(quiet.innerBorder).toBe("1px");
+      expect(quiet.innerRadius).toBe("999px");
+      expect(quiet.innerBackground).not.toBe("rgba(0, 0, 0, 0)");
+      expect(quiet.font).toEqual(["12px", "18px", "550"]);
       await expect(page.locator("button button, button a, a button")).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 
@@ -153,6 +186,30 @@ for (const dark of [false, true])
       assertGeometry(await measure(page), `${label} widened`);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
       expect(errors).toEqual([]);
+    });
+
+for (const dark of [false, true])
+  for (const width of [390, 1440])
+    test(`Profile-hosted Consent roles win the pane cascade at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      await open(page, width, dark);
+      const roles = await page.getByTestId("consent-profile-composition").evaluate((host) => {
+        const read = (selector: string) => {
+          const style = getComputedStyle(host.querySelector(selector)!);
+          return [style.fontSize, style.lineHeight, style.fontWeight];
+        };
+        return {
+          heading: read('[data-slot="settings-group-heading"]'),
+          title: read('[data-slot="settings-row-title"]'),
+          description: read('[data-slot="settings-row-description"]'),
+          inlineAction: read('.profile-account-inline-action'),
+        };
+      });
+      expect(roles).toEqual({
+        heading: ["14px", "22px", "600"],
+        title: ["14px", "21px", "550"],
+        description: ["12px", "18px", "400"],
+        inlineAction: ["12px", "19px", "550"],
+      });
     });
 
 // R5: the sheet lists a grouped request's items one per row, all chosen, and
@@ -218,4 +275,46 @@ test("the row opens on tap, Enter and Space, and ✗ / ✓ never open it", async
   await page.getByRole("button", { name: "A member, Professional detail 3 and 9 more, review" }).click();
   await expect(body).toHaveAttribute("data-opened", "bundle:professional");
   await expect(page.getByText("Review", { exact: true })).toHaveCount(0);
+});
+
+test("a quiet command keeps hover, keyboard focus, accent, long copy and disabled behavior", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await open(page, 320, false);
+  const command = page.getByTestId("consent-quiet-action");
+  await page.evaluate(() => document.documentElement.style.setProperty("--app-accent", "#9a4270"));
+  const resting = await command.evaluate((button) => ({
+    ink: getComputedStyle(button).color,
+    pill: getComputedStyle(button, "::before").backgroundColor,
+  }));
+  expect(resting.ink).toBe("rgb(154, 66, 112)");
+  await command.hover();
+  const hoveredPill = await command.evaluate((button) => getComputedStyle(button, "::before").backgroundColor);
+  expect(hoveredPill).not.toBe(resting.pill);
+
+  await page.keyboard.press("Tab");
+  await command.focus();
+  expect(await command.evaluate((button) => button.matches(":focus-visible"))).toBe(true);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("body")).toHaveAttribute("data-opened", "payment");
+
+  await command.evaluate((button) => {
+    button.querySelector("span")!.textContent = "Review encrypted information and payment status";
+  });
+  const long = await command.boundingBox();
+  expect(long!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+
+  await page.evaluate(() => { delete document.body.dataset.opened; });
+  await command.evaluate((button: HTMLButtonElement) => { button.disabled = true; });
+  const disabled = await command.evaluate((button) => ({
+    opacity: Number(getComputedStyle(button).opacity),
+    height: button.getBoundingClientRect().height,
+    pill: getComputedStyle(button, "::before").backgroundColor,
+  }));
+  expect(disabled.opacity).toBeLessThan(1);
+  expect(disabled.height).toBeGreaterThanOrEqual(44);
+  expect(disabled.pill).toBe(resting.pill);
+  const center = (await command.boundingBox())!;
+  await page.mouse.click(center.x + center.width / 2, center.y + center.height / 2);
+  expect(await page.locator("body").getAttribute("data-opened")).toBeNull();
 });

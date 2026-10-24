@@ -25,7 +25,7 @@ export function LocationMemoryView({ presentation, loading, error, onRetry, onOp
         <SearchClearButton visible={query.length > 0} label="Clear Location memory search" onClear={() => setQuery("")} />
       </div>
       {loading ? <SurfaceInset className="p-4 text-sm text-muted-foreground" role="status">Opening Location memory…</SurfaceInset>
-        : error ? <SurfaceInset className="space-y-3 p-4"><p>Location memory couldn’t be opened.</p><Button variant="muted" size="sm" onClick={onRetry}>Try again</Button></SurfaceInset>
+        : error ? <SurfaceInset className="space-y-3 p-4"><p>Location memory couldn’t be opened.</p><Button variant="none" effect="fade" size="compact" data-pkm-action="compact" onClick={onRetry}>Try again</Button></SurfaceInset>
         : sections.length === 0 ? <p className="px-1 text-sm text-muted-foreground">{search ? "No location details match your search." : "No location details saved yet."}</p>
         : sections.map((section) => (
           <SettingsGroup key={section.key} title={section.title} separatorInset testId={`location-memory-${section.key}`}>

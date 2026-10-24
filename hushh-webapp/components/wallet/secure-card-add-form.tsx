@@ -33,6 +33,7 @@ import { walletOperationId } from "@/lib/wallet/wallet-operation-id";
 import { formatCardNumberInput, formatCardExpiryInput } from "@/lib/wallet/wallet-card-presentation";
 
 import { WalletCardFace } from "./wallet-card-face";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 import type { CardScanDraft } from "@/lib/services/wallet-card-scan";
 import { WalletCardScanner } from "./wallet-card-scanner";
 import styles from "./secure-card-add-form.module.css";
@@ -344,7 +345,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
               <SelectTrigger id={`${id}-network`} aria-required="true" className={styles.selectTrigger} data-testid="secure-card-network-select" {...fieldErrors("brand_invalid", "brand_required")}>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className={styles.selectMenu}>
+              <SelectContent className={cn(styles.selectMenu, presentationStyles.walletPortal)}>
                 <SelectItem value="auto">{brand !== "other" ? `Auto-detect · ${cardNetworkLabel(brand)}` : "Auto-detect"}</SelectItem>
                 {(supportedNetworks.length ? supportedNetworks : ["other"]).map((value) => <SelectItem key={value} value={value}>{value === "other" ? "Other" : cardNetworkLabel(value)}</SelectItem>)}
               </SelectContent>
@@ -353,7 +354,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
         </div>
         {catalogFailed ? <div role="status" className={styles.scanHint}>
           <p>Network options could not load. Auto-detect is still available.</p>
-          <Button type="button" variant="ghost" size="compact" disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
+          <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={submitting || scanning || !active} onClick={() => setCatalogRevision(value => value + 1)}>Retry network options</Button>
         </div> : null}
         <div className={styles.row}>
           <div className={styles.field}>
@@ -362,7 +363,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
               <SelectTrigger id={`${id}-region`} className={styles.selectTrigger} data-testid="secure-card-region-select" {...fieldErrors("issuing_region_invalid", "brand_region_mismatch")}>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className={styles.selectMenu}>
+              <SelectContent className={cn(styles.selectMenu, presentationStyles.walletPortal)}>
                 <SelectItem value="none">Select region…</SelectItem>
                 {COUNTRY_PHONE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
               </SelectContent>

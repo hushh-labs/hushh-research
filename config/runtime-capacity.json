@@ -52,6 +52,10 @@
           "service": "consent-protocol",
           "candidate": {"max_instances": 1, "workers_per_instance": 2, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}
         },
+        "serving_backend_clone_v3": {
+          "service": "consent-protocol",
+          "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}
+        },
         "serving_backend_clone_v2": {
           "service": "consent-protocol",
           "candidate": {"max_instances": 1, "workers_per_instance": 1, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}

@@ -58,7 +58,7 @@ function InStripeSheet({ balance, open, onOpenChange }: {
       : `Available ${availableDay(nextAvailableOn)}`;
   return <AdaptiveDetailSurface open={open} onOpenChange={onOpenChange} title="In Stripe"
     description={`Updated ${updatedAt(balance.asOf)}`} mobilePresentation="sheet"
-    desktopMaxWidthClassName="sm:!max-w-[520px]" surfaceClassName={accountStyles.walletContent}>
+    desktopMaxWidthClassName="sm:!max-w-[520px]" surfaceClassName={`${accountStyles.walletContent} consent-presentation-surface`}>
     <SettingsPresentationProvider density="compact" separatorInset>
       {/* Every non-zero part is shown, a negative one too, so the parts add up to the total. */}
       <SettingsGroup description="Stripe sends it to your bank on your payout schedule.">

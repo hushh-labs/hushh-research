@@ -87,13 +87,10 @@ The microphone now enters the Location command runtime. Ordinary typed Kai text 
    - `Open Dashboard` blue gradient fill
    - `Refresh` fade style
 
-## 3a) Consent Inbox + Manager
-1. From the signed-in shell, confirm the shield badge matches the active persona pending summary.
-2. Open the shield inbox and confirm:
-   - at most 5 rows are shown,
-   - internal scroll appears only when needed,
-   - `Open consent manager` opens `/one/consent` for the active persona.
-3. Confirm empty pending state does not show pagination chrome in either the inbox or `/one/consent`.
+## 3a) Consent Center
+1. From the signed-in shell, open Consent and confirm it reaches `/one/consent` with the shared Back and Profile controls.
+2. Confirm Requests, Active, History and Connections keep their current query, pager and selected-detail behavior.
+3. Confirm an empty Requests list does not show pagination chrome; a service failure retains its recovery state rather than appearing empty.
 
 ## 4) Debate Output Reliability
 1. Run stock analysis from dashboard/portfolio flow.

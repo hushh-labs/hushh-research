@@ -18,14 +18,14 @@ function ActivityEntry({ item }: { item: CommerceActivityItem }) {
   useCommerceAccountBackLayer(expanded ? 2 : 0, () => { setExpanded(false); return true; });
   return <li className="space-y-3 border-b py-4 last:border-b-0">
     <div className="flex flex-wrap items-start justify-between gap-2">
-      <div><p className="font-medium">{item.scope_label || item.kind.replaceAll("_", " ")}</p>
-        {item.counterpart ? <p className="text-sm text-muted-foreground">{item.counterpart.label}</p> : null}</div>
-      <p className="text-sm font-medium">{item.direction === "incoming" ? "Incoming" : item.direction === "outgoing" ? "Outgoing" : "Amount"}: {money(item.amount_cents)}</p>
+      <div><p data-consent-role="row-title" className="font-medium">{item.scope_label || item.kind.replaceAll("_", " ")}</p>
+        {item.counterpart ? <p data-consent-role="helper" className="text-sm text-muted-foreground">{item.counterpart.label}</p> : null}</div>
+      <p data-consent-role="body" className="text-sm font-medium tabular-nums">{item.direction === "incoming" ? "Incoming" : item.direction === "outgoing" ? "Outgoing" : "Amount"}: {money(item.amount_cents)}</p>
     </div>
     <p role="status" className="text-sm">{commerceActivityStatusCopy(item.kind, item.status)}</p>
     {item.next_action ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={item.next_action.href}>{item.next_action.label}</Link> : null}
-    <Button variant="ghost" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Hide receipt" : "View receipt"}</Button>
-    {expanded ? <dl className="grid gap-3 text-sm sm:grid-cols-2">
+    <Button variant="ghost" data-consent-quiet-action="true" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Hide receipt" : "View receipt"}</Button>
+    {expanded ? <dl data-consent-facts className="grid gap-3 text-sm sm:grid-cols-2">
       {item.purchase_id ? <div><dt className="text-muted-foreground">Gross agreed price</dt><dd>{money(item.gross_cents)}</dd></div> : null}
       {item.processing_fee_micro_usd !== null ? <div><dt className="text-muted-foreground">Attributed processing costs</dt><dd>{formatCommerceMicroUsd(item.processing_fee_micro_usd)}</dd></div> : null}
       {item.net_earnings_micro_usd !== null ? <div><dt className="text-muted-foreground">Net earnings</dt><dd>{formatCommerceMicroUsd(item.net_earnings_micro_usd)}</dd></div> : null}
@@ -71,7 +71,7 @@ export function ScopeCommerceActivity() {
     } catch { if (current()) setMoreError("More payment history could not be checked. Try again."); }
     finally { inFlight.current = false; if (currentView()) setLoadingMore(false); }
   }
-  return <div className="space-y-3 border-t pt-4">
+  return <div className="consent-presentation-surface space-y-3 border-t pt-4">
     <Tabs value={view} onValueChange={value => {
       if (VIEWS.some(tab => tab.value === value)) { setView(value as CommerceActivityView); setMoreError(null); setLoadingMore(false); }
     }}>
@@ -79,12 +79,12 @@ export function ScopeCommerceActivity() {
     <TabsContent value={view} aria-label={`${VIEWS.find(tab => tab.value === view)?.label} history`} aria-busy={loading || loadingMore}>
       {error || moreError ? <p role="status" className="text-sm">{error || moreError}</p> : null}
       {!data && loading ? <p role="status" className="text-sm">Checking payment history…</p> : null}
-      {data && items.length === 0 ? <p className="text-sm text-muted-foreground">No {view} yet.</p> : null}
-      {extra ? <p className="text-xs text-muted-foreground">Showing older entries. Refresh returns to the latest activity.</p> : null}
+      {data && items.length === 0 ? <p data-consent-role="body" className="text-sm text-muted-foreground">No {view} yet.</p> : null}
+      {extra ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Showing older entries. Refresh returns to the latest activity.</p> : null}
       {items.length ? <ul>{items.map(item => <ActivityEntry key={item.id} item={item} />)}</ul> : null}
       <div className="flex flex-wrap gap-2">
-        {nextCursor ? <Button variant="outline" disabled={loading || loadingMore} onClick={() => void loadMore()}>Load more {view}</Button> : null}
-        <Button variant="ghost" disabled={loading || loadingMore} onClick={() => void refresh()}>Refresh {view}</Button>
+        {nextCursor ? <Button variant="outline" data-consent-quiet-action="true" disabled={loading || loadingMore} onClick={() => void loadMore()}>Load more {view}</Button> : null}
+        <Button variant="ghost" data-consent-quiet-action="true" disabled={loading || loadingMore} onClick={() => void refresh()}>Refresh {view}</Button>
       </div>
     </TabsContent>
     </Tabs>

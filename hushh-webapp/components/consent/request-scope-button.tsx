@@ -193,6 +193,7 @@ export function RequestScopeButton({
       </DialogTrigger> : null}
       <IllustratedRequestContent
         intent="question"
+        className="consent-presentation-surface"
         title={created ? "Question sent" : "Ask a question"}
         description={`To ${personName}`}
         success={Boolean(created)}

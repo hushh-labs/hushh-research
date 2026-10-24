@@ -413,7 +413,7 @@ function UnlockedDriveQueryCard({
   return (
     <section
       aria-label="Drive question"
-      className="min-w-0 space-y-4 break-words"
+      className="consent-presentation-surface min-w-0 space-y-4 break-words"
       data-testid="drive-query-request"
       aria-busy={phase !== "idle"}
     >
@@ -567,12 +567,12 @@ function UnlockedDriveQueryCard({
       {showRefresh || canCancel ? (
         <div className="flex flex-wrap gap-2">
           {showRefresh ? (
-            <Button size="standard" variant="none" onClick={refresh}>
+            <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={refresh}>
               Refresh
             </Button>
           ) : null}
           {canCancel ? (
-            <Button size="standard" variant="none" onClick={() => decide("cancel")}>
+            <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => decide("cancel")}>
               Cancel question
             </Button>
           ) : null}
