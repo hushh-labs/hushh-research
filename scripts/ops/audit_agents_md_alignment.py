@@ -181,7 +181,7 @@ def classification_findings(root: Path) -> list[str]:
     for key, path in canonical.items():
         if not path.with_name("skill.json").is_file() and key not in practices:
             findings.append(f"{key}: missing governed manifest or explicit practice classification")
-    for path in (root / ".agents/adapters").glob("*/*/SKILL.md"):
+    for path in (root / ".agents/routing").glob("SKILL.md"):
         if path.relative_to(root).as_posix() not in sources:
             findings.append(f"{path.relative_to(root)}: unclassified host adapter source")
     adapters = {entry["target"] for entry in inventory.get("host_adapters", {}).values()}
@@ -206,7 +206,7 @@ def classification_findings(root: Path) -> list[str]:
     nested = {p.relative_to(root).as_posix(): p for host in (".claude", ".codex")
               for p in (root / host / "skills").glob("**/agents/*.toml")}
     nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/skills").glob("*/agents/*.toml")})
-    nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/adapters").glob("**/agents/*.toml")})
+    nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/routing").glob("**/agents/*.toml")})
     nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/imports").glob("**/agents/*.toml")})
     canonical_nested = {}
     for path in nested.values():
@@ -383,13 +383,13 @@ def self_test() -> int:
         inventory.write_text(json.dumps({"practice_sources": {
             source.relative_to(root).as_posix(): {"classification": "portable_practice"}
         }}))
-        native = {".agents/adapters/codex/config.toml": "", ".agents/adapters/claude/settings.json": "{}"}
+        native = {".agents/config.toml": "", ".agents/startup.json": "{}"}
         for name, value in native.items():
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(value)
         (root / ".agents/subagents").mkdir()
-        (root / ".agents/adapters/claude/agents").mkdir()
+        (root / ".agents/generated/subagents").mkdir()
         import runpy
         runpy.run_path(str(generator))["write_links"](root)
         claude = root / ".claude/skills/example"

@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   browserPlan: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: null }) }));
 vi.mock("@/lib/utils/browser-navigation", async (original) => ({
   ...(await original<object>()),
   assignWindowLocation: mocks.assign,
@@ -36,6 +38,7 @@ vi.mock("@/lib/feed/use-agent-deployment-follow", async (original) => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getPersonalAgentStatus: mocks.getStatus,
+    getPersonalAgentCloudRemovalAvailability: vi.fn().mockResolvedValue({ available: false, provider: null }),
     approvePersonalAgentUpdate: mocks.approve,
     deferPersonalAgentUpdate: mocks.defer,
     reconnectOwnerPod: mocks.reconnect,
@@ -217,7 +220,7 @@ describe("owner hosting and software settings", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Bring your own cloud/ }),
     );
-    expect(mocks.push).toHaveBeenCalledWith("/one/setup/cloud");
+    expect(mocks.push).toHaveBeenCalledWith("/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting");
   });
 
   it("shows automatic Shared updates without pod install controls or duplicate build fields", () => {

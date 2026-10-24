@@ -24,6 +24,106 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
 )
 
 
+@pytest.mark.parametrize("observation", ["connected", "absent", "denied", "changed"])
+async def test_hosting_inspection_is_read_only_and_never_turns_a_denied_read_into_absence(
+    monkeypatch, observation
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import personal_agent_hosting_inspection as inspection
+
+    backend = SimpleNamespace(
+        backend_id="user_gcp",
+        get=AsyncMock(
+            side_effect=PermissionError() if observation == "denied" else None,
+            return_value=SimpleNamespace(
+                status="gone" if observation == "absent" else "live", healthy=True
+            ),
+        ),
+        observe_erasure_target=AsyncMock(
+            return_value={
+                "serviceUid": "changed" if observation == "changed" else "uid-1",
+                "podUrl": "https://agent.example",
+            }
+        ),
+    )
+    service = SimpleNamespace(_backend_for=lambda _spec: backend)
+    row = {
+        "backend": "user_gcp",
+        "deployment_target": "user_gcp",
+        "user_cloud_project": "owner-project",
+        "user_cloud_region": "us-central1",
+        "user_id": "owner",
+        "external_agent_id": "recorded-service",
+        "backend_metadata": {"serviceUid": "uid-1", "url": "https://agent.example"},
+    }
+    result = await inspection.inspect_recorded_hosting(service, owner="owner", row=row)
+    expected = {
+        "connected": "connected",
+        "absent": "absent",
+        "denied": "unverified",
+        "changed": "ownership_unverified",
+    }
+    assert result["status"] == expected[observation]
+    backend.get.assert_awaited_once_with("recorded-service")
+    backend.get.reset_mock()
+    assert (await inspection.inspect_recorded_hosting(service, owner="different-owner", row=row))[
+        "status"
+    ] == "unverified"
+    backend.get.assert_not_called()
+
+
+@pytest.mark.parametrize("changed", [False, True])
+async def test_gcp_cloud_removal_preflight_uses_direct_erasure_backend_before_reservation(
+    monkeypatch, changed
+):
+    from unittest.mock import AsyncMock, Mock
+
+    from hushh_mcp.services import pod_migration_transport
+    from hushh_mcp.services.azure_teardown_inventory import AzureTeardownRefused
+    from hushh_mcp.services.personal_agent_cloud_removal import inspect_gcp
+
+    backend = SimpleNamespace(
+        backend_id="user_gcp",
+        observe_erasure_target=AsyncMock(
+            return_value={
+                "service": "recorded-service",
+                "serviceUid": "changed" if changed else "uid-1",
+                "revision": "revision-1",
+                "podUrl": "https://agent.example",
+            }
+        ),
+    )  # Intentionally has no Azure access-revocation protocol.
+    monkeypatch.setattr(PersonalAgentProvisioningService, "_backend_for", lambda *_: backend)
+    compatibility = Mock()
+    monkeypatch.setattr(pod_migration_transport, "verify_erasure_compatibility", compatibility)
+    store = SimpleNamespace(
+        registry=object(),
+        candidate_digest=AsyncMock(return_value="digest"),
+        reserve=AsyncMock(),
+        view=AsyncMock(return_value={"planDigest": "plan", "resources": [{"id": "resource"}]}),
+    )
+    row = {
+        "user_id": "owner",
+        "hushh_id": "identity",
+        "backend": "user_gcp",
+        "deployment_target": "user_gcp",
+        "status": "provisioned",
+        "external_agent_id": "recorded-service",
+        "user_cloud_project": "owner-project",
+        "backend_metadata": {"serviceUid": "uid-1", "url": "https://agent.example"},
+    }
+    if changed:
+        with pytest.raises(AzureTeardownRefused, match="CLOUD_REMOVAL_PLACEMENT_CHANGED"):
+            await inspect_gcp(store, "owner", row)
+        store.reserve.assert_not_awaited()
+        compatibility.assert_not_called()
+    else:
+        assert (await inspect_gcp(store, "owner", row))["status"] == "cleanup_review_required"
+        compatibility.assert_called_once()
+        store.reserve.assert_awaited_once_with("owner", "digest")
+
+
 class _FakeRegistry:
     def __init__(self, row):
         self._row = dict(row) if row else None

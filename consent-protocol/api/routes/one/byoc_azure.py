@@ -27,13 +27,27 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes.one.byoc_azure_contract import (
+    AzureAuthorizeBeginRequest as AzureAuthorizeBeginRequest,
+)
+from api.routes.one.byoc_azure_contract import (
+    AzureAuthorizeBeginResponse as AzureAuthorizeBeginResponse,
+)
+from api.routes.one.byoc_azure_contract import (
+    AzureAuthorizeCompleteRequest as AzureAuthorizeCompleteRequest,
+)
+from api.routes.one.byoc_azure_contract import (
+    AzureAuthorizeCompleteResponse as AzureAuthorizeCompleteResponse,
+)
+from api.routes.one.byoc_azure_contract import (
+    AzureSubscription as AzureSubscription,
+)
 from hushh_mcp.services import azure_entra_authorizer as entra
 
 logger = logging.getLogger(__name__)
@@ -47,48 +61,6 @@ _SUBSCRIPTIONS_API = "2022-12-01"
 
 #: Strong references to in-flight jobs: asyncio keeps only weak refs to tasks.
 _AZURE_TASKS: set = set()
-
-
-class AzureAuthorizeBeginRequest(BaseModel):
-    subscriptionId: Optional[str] = Field(default=None, max_length=64)
-    filesEnabled: bool = Field(default=False, strict=True)
-
-
-class AzureAuthorizeBeginResponse(BaseModel):
-    authorizationUrl: str
-
-
-class AzureAuthorizeCompleteRequest(BaseModel):
-    code: str = Field(min_length=1, max_length=8192)
-    state: str = Field(min_length=1, max_length=4096)
-
-
-class AzureSubscription(BaseModel):
-    subscriptionId: str
-    displayName: str
-    state: str
-
-
-class AzureAuthorizeCompleteResponse(BaseModel):
-    #: ``continue``: the account was identified; sign in again at ``authorizationUrl``
-    #: (its own directory) for Azure. Microsoft usually completes that without asking.
-    status: Literal[
-        "setup_started",
-        "needs_subscription",
-        "upgrade_started",
-        "continue",
-        "cleanup_pending",
-        "cleanup_review_required",
-    ]
-    jobId: Optional[str] = None
-    operationId: Optional[str] = None
-    releaseId: Optional[str] = None
-    authorizationUrl: Optional[str] = None
-    subscriptions: Optional[list[AzureSubscription]] = None
-    #: Only with needs_subscription: choose_subscription | no_enabled_subscription |
-    #: personal_account (a personal Microsoft account must name its subscription id).
-    reason: Optional[str] = None
-    filesEnabled: Optional[bool] = None
 
 
 def _refuse(status: int, code: str, message: str) -> HTTPException:

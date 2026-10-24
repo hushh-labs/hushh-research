@@ -301,7 +301,7 @@ were confirmed. Owner-information execution and a private bridge remain unproved
 - **§5C timeouts.** "The agreed 120-second deadline" was not the binding bound; the
   browser aborted at 60 s below ADK's 90 s. The ladder is now Hermes 60 s per read and
   110 s per request, broker 120 s with cancel, specialist 60 s on Puppy, ADK Puppy
-  70/70/150 s, pod route 155 s, hub and Next proxies 160/165 s, app 170 s on the direct
+  100/100/150 s (event waits cover the broker’s 95-second prefill), pod route 155 s, hub and Next proxies 160/165 s, app 170 s on the direct
   turn, Cloud Run 3600 s on direct ingress; `tests/test_timeout_ladder.py` pins the order.
 - **§5E rollback.** Older images that ignore memory tombstones are not valid rollback
   targets either; `consent-protocol/scripts/ops/pod_upgrade.py` refuses them.

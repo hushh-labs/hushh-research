@@ -16,8 +16,11 @@ Nothing here reads owner content. Lifecycle logs carry codes and counts only;
 the sealed job state (draft, sources, identity) is only readable with the
 owner's request-scoped chat key and never appears in logs.
 
-UAT uses Azure GPT-5 mini for planning, Bing research and structured reporting after
-explicit Azure/Bing consent. Production remains on Vertex. The Google-specific
+UAT uses Azure GPT-5 mini for planning and structured reporting, with Tavily
+Search after explicit Azure/Tavily consent. The keyless UAT search trial has a
+shared rate limit; a 429 must fail visibly rather than trigger a paid fallback.
+Findings remain in the owner-key encrypted review inbox until explicit discard
+or account deletion. Legacy Google/Bing checkpoints keep 24-hour cleanup. Production remains on Vertex. The Google-specific
 provider refusal and project checks below apply to Vertex; first identify the
 serving provider when investigating UAT.
 
@@ -232,3 +235,14 @@ gcloud alpha monitoring policies create --project hushh-pda-uat --policy-from-fi
 Find the channel id with
 `gcloud alpha monitoring channels list --project hushh-pda-uat --format='value(name,displayName)'`.
 For production, swap the project and the display name.
+
+
+### Context-driven Update
+
+Update reads a fresh saved-confirmations snapshot and submits `research_context`
+only to an explicit jobs refresh. New links are optional. The planner/query model
+may use approved declarations as leads, while received source and identity rules
+remain mandatory. Rejected decisions stay suppression-only. Missing saved context
+fails Update visibly. A changed consent/identity binding cannot reuse an old
+snapshot. Candidate readiness additionally runs fictional planner/query guidance
+and attribution cases, without owner credentials or personal searches.

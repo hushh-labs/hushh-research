@@ -757,7 +757,7 @@ def test_only_the_chat_stores_touch_chat_ciphertext_columns() -> None:
 
     allowed = {
         "hushh_mcp/one_adk/adk_session_repository.py",
-        "hushh_mcp/one_adk/encrypted_session_service.py",
+        "hushh_mcp/one_adk/encrypted_checkpoint_store.py",
         "hushh_mcp/services/agent_chat_service.py",
         "hushh_mcp/services/command_checkpoints.py",
     }

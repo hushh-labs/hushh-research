@@ -1,12 +1,41 @@
 # Private agent: normal release transition
 
-**Status:** [onboarding/security PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365)
-landed as `51a5a86675`; dev and exact-revision UAT accepted, 23 October 2026.
-Continue on the preserved infrastructure branch; main through `d552397410` is inherited, including Calendar and Copilot styling. That later source integration does not change the accepted application revision above.
-PR8337 landed as `0ea0f8fce3` with exact-head CI and landed smoke successful.
-Preserve nine peer edits and the independently active ADK tree. The
-[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
-owns dated source, serving and installed-owner evidence.
+**Current delivery — 24 October 2026:**
+[PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as
+`ca83c0bf5a` after exact-head CI and authorized Admin preflight. Landed-SHA smoke
+passed. [Dev run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106)
+accepted both services, schema, provenance and semantic checks, and built the
+new dev-only pod image. Existing pods are unchanged.
+
+UAT accepted the preceding `713981942c` application through
+[run 40035573169](https://github.com/hushh-labs/hushh-research/actions/runs/40035573169).
+[Promotion 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175)
+accepted exact dev-verified `ca83c0bf5a`; corporate ADC confirms both services
+at 100% traffic, with schema, provenance, semantic and worker-attestation receipts. Its workflow definition may come from newer main;
+that does not change the selected application. The
+[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
+revision evidence and retained journey boundaries.
+
+PR #8395 supplies the provider-correct Chat picker, owner-safe foreground wake,
+bounded Puppy model-list refresh and timeout correction. Owner dev acceptance
+proved preserved AI selection through Back/re-entry, Finish returning to Hosting,
+the cloud-removal review and a synthetic One answer. It did not install a new pod
+image or qualify fresh hidden-tab Puppy inference.
+
+Peer main changes through `9af321d2a9`, including Profile/calendar polish and UAT
+parallelism, are integrated normally without whole-file replacement. PR #8398
+corrects the strict managed-provider receipt consumer to match the actual build
+graph; live UAT capture passed. Duplicate PR #8399 was closed and its CI cancelled.
+Checkpoint `050687dac1` exactly preserved main's committed tree; subsequent
+PR #8401 corrections passed exact validation and landed through Admin SOP. Nine peer
+paths and the active ADK tree remain preserved. No production deployment, stable
+publication, owner installation or destructive cloud cleanup is implied.
+
+The current application correction includes Hosting return/Finish, explicit
+verification of admitted cloud AI, truthful cleanup progress, reviewed cloud-only
+removal and recorded-home inspection. Dev-only migration 972 passed schema gates;
+UAT graduation and real provider removal remain separate. Missing schema keeps
+removal unavailable. Earlier PR #8365/8377 receipts remain historical evidence.
 
 One and Browser share the owner's image, container, non-root identity and
 lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
@@ -21,26 +50,30 @@ rehearsal or a new capacity study. Preserve those designs and keep unqualified
 execution unavailable. This supersedes the broader acceptance gate below wherever
 it would delay the MVP. Production remains outside this authorization.
 
-The current application correction repairs setup layout, reachable vault unlock,
-owner-fenced placement refresh, saved-key resumption, AI editing Back behavior and
-truthful deletion status. It completes protected security-receipt consumption,
-exact-attempt deduplication and patchable dependency updates. All 26 exact-head
-checks and landed smoke passed. Dev run `39890010863` serves both corrected
-services at 100%; normal-owner refresh, passphrase unlock and Back/Finish reached
-home without a loop. UAT run `39892483774` completed healthy; ADC readback at
-04:27 UTC confirms both services at the same exact SHA and 100% traffic.
-A CI-only follow-up removes repeated worker starts using the initial `requested`
-event plus governed exact-attempt retries. Main-owned qualification must prove
-one initial worker and a gate-only retry without repeating application suites.
-The protected consumer is qualified on main and the repository-wide credential
-is retired; original-token revocation remains unverified. Nodemailer's source patch does
-not authorize deploying its standalone production mail service. Publishing an application
-never installs a pod image.
+The current correction has completed local verification, exact-head validation,
+Admin landing, landed smoke and dev acceptance. The selected UAT promotion and corporate-ADC serving
+readback are complete. The earlier 15-second email-readiness
+refusal is historical; the bounded operator correction is merged and preserves
+strict capability admission. A workflow head alone is insufficient.
+The source recovery controller observes one exact execution; provider cancellation
+cannot qualify from a later worker receipt, and uncertain work is never replayed.
+
+The protected security consumer runs immutable main code with exact-attempt
+binding. Initial requested events avoid repeated trigger starts; verified pending
+concurrency states are supported. Governed reruns still require fresh clearance.
+The repository-wide credential is retired; original-token revocation remains
+unverified. Dependency advisories retain their separate tracked mitigation.
+Publishing an application never installs a pod image or deploys the standalone
+production mail service. The
+[canonical task](https://github.com/hushh-labs/hushh-research/issues/5507) tracks
+current delivery without replacing the readiness memo's evidence.
 
 Same-login re-registration is staged separately. Non-production currently shares
 production Firebase identity authority, whose destructive mutation guard must
-remain enforced. Qualify isolated non-production authentication and a reviewed
-UID-preserving migration before advertising re-registration. Never reattach owners
+remain enforced. Shared Firebase identifiers may remain; same-UID re-registration
+requires environment-scoped account generations across sessions, grants, jobs
+and database writes. Isolated identity projects remain an alternative. Qualify
+that lifecycle before advertising re-registration. Never reattach owners
 by email, clear full-account tombstones or use account reset to revive deletion.
 
 Azure installed Dev28; its startup/resize repair still needs a new qualified image
@@ -101,13 +134,10 @@ resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `d552397410` is inherited without whole-file replacement.
-  Committed ADK lineage `914e7c044c` remains preserved. The active ADK tree has
-  later unique commits, last inspected at `b5342e908a` on 23 October: native
-  Profile/editor/icon and qualification work, with no overlap in the corrected
-  auth/setup owners. They remain active and are not imported wholesale into this
-  candidate. Dependency-relevant main integration passed 472 focused cases;
-  exact-head CI and landed smoke subsequently passed.
+- Main through `6a84c73e18` was inherited without whole-file replacement; the
+  final source passed exact-head CI and landed as `7671c6ca6d`. Committed ADK
+  lineage `914e7c044c` remains preserved. The active ADK tree at `48140fcd70`
+  retains its unique work and is not imported wholesale into this correction.
 - Preserve main's Profile/mobile, identity, consent, commerce, deletion and migration
   behavior alongside private-agent authority. Regenerate from reconciled authored
   sources; previous source stamps do not verify the next candidate.

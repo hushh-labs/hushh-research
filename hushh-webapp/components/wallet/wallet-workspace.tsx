@@ -45,7 +45,6 @@ import { WalletSavedCardDetails } from "./wallet-saved-card-details";
 import { WalletSavedCardSharing } from "./wallet-saved-card-sharing";
 import { WalletCardAccessService } from "@/lib/services/wallet-card-access-service";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   PageTitle,
   TYPOGRAPHY_CLASSNAMES,
@@ -75,6 +74,7 @@ import { isAgentWalletCard, type WalletDemoProfile } from "@/components/wallet/w
 import { useBackLayer } from "@/lib/navigation/back-layers";
 
 import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
 import { prefersReducedMotion } from "@/lib/morphy-ux/gsap";
@@ -208,8 +208,9 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
       </PageTitle>
       <div className="mx-auto mt-5 w-full max-w-[244px]">
         <Button
-          size="prominent"
-          className="w-full"
+          variant="secondary"
+          size="compact"
+          className={cn("w-full", presentationStyles.quietAction)}
           onClick={onConnect}
           disabled={loading}
           data-testid="one-wallet-empty-action"
@@ -959,6 +960,7 @@ export function WalletWorkspace() {
     <Button
       variant="secondary"
       size="compact"
+      className={presentationStyles.quietAction}
       onClick={() => dispatch({ type: "unfocus" })}
       data-testid="one-wallet-done"
     >
@@ -1016,28 +1018,13 @@ export function WalletWorkspace() {
     >
       <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-clip">
         <div
-          className={WALLET_COLUMN}
+          className={cn(WALLET_COLUMN, presentationStyles.walletSurface)}
           data-wallet-hub
           data-testid="one-wallet-workspace"
           data-view={view.kind}
           onKeyDown={onKeyDown}
         >
-          {!introductionOpen ? <PageHeader
-            title={
-              <span className="block" data-slot="wallet-heading-line">
-                Wallet
-              </span>
-            }
-            actionsInlineMobile
-            titleRole="agent"
-            className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-            actions={
-              <span className="flex h-11 items-center sm:h-[53px]" data-slot="wallet-header-action">
-                {headerAction}
-              </span>
-            }
-          />
-          : null}
+          {headerAction ? <div className="flex min-h-11 justify-end" data-slot="wallet-header-action">{headerAction}</div> : null}
           <NativeTestBeacon
             routeId="/one/wallet"
             marker="native-route-one-wallet"
@@ -1116,7 +1103,7 @@ export function WalletWorkspace() {
           {view.kind === "error" ? (
             <div className="flex flex-col items-center gap-4" data-testid="one-wallet-error">
               <StateMessage title="Your cards did not open" body={view.message} />
-              <Button variant="secondary" size="standard" onClick={() => void refresh()}>
+              <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => void refresh()}>
                 Try again
               </Button>
             </div>
@@ -1278,7 +1265,7 @@ export function WalletWorkspace() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <AlertDialogContent className={cn(profileStyles.accountDialog, profileStyles.dangerDialog)} data-testid="one-wallet-remove-confirm">
+          <AlertDialogContent className={cn(profileStyles.accountDialog, profileStyles.dangerDialog, presentationStyles.walletDialog)} data-testid="one-wallet-remove-confirm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {removeTitle}?</AlertDialogTitle>
               <AlertDialogDescription>

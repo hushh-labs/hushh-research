@@ -185,6 +185,62 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: One public-search final answer
+
+- Owner: One; `hushh_mcp/agents/one/agent.yaml` authors when the existing isolated
+  `google_search` child may complete the entire public request unchanged.
+- Output: the tool declaration exposes `request: string` and optional
+  `finish_turn: boolean`. Only explicit `true` requests delegation; omission,
+  false and unsupported search transports retain ordinary root synthesis.
+  The declared short-answer choice uses compact LOW native search context on a
+  local child/model copy. An administrator-declared `compact_public_search`
+  descriptor may select the separately qualified Azure deployment and its NONE
+  reasoning budget for that copy. The same selector is exercised by required
+  pre-promotion capability qualification; citation or public-fact failure blocks
+  admission. Ordinary/deeper research, the root and concurrent calls keep their
+  original configuration. The host never guesses research depth.
+- Validators in `one_adk/search_answer.py` admit only fresh grounded completed
+  output, the invocation's sole tool call, no earlier visible answer or pending
+  review, current managed owner authority and an atomic empty-input finish.
+  They never classify the request, rewrite the child's answer or authorize an
+  action. Stop, revocation, failures and competing input prevent publication.
+- The exact answer and grounding become one ordinary One assistant event;
+  `one_delegated_search_answer_v1` and content-free saved-call telemetry expose
+  the removed synthesis stage. No transcript is placed in handoff state.
+- Live eval: before promotion, measure public-only synthetic Azure calls against
+  the serving model; after UAT promotion, require authenticated HTTP search,
+  citations and same-chat continuation, joined to the serving revision's logs.
+  Offline AG-UI regression and negative controls protect history, authority,
+  queued-input and completion accounting. No browser or vault fixture mutation
+  is required. Rollback selects the prior application revision.
+
+### Declared: One task suggestions
+
+- Owner: One's internal `one_todo_suggestions` child in
+  `hushh_mcp/agents/one/agent.yaml`; the existing single-turn ADK builder executes
+  it with no tools/history. No separate router or copied provider prompt.
+- Output: `TaskSuggestions` in `hushh_mcp/services/one_todo_suggestions.py`.
+  The gene decides whether a supplied summary supports a useful next step and
+  authors `source_ref`, `title`, and `reason`, or returns an empty list.
+- Validators enforce strict types, input/output lengths, at most 100 inputs and
+  12 outputs, unique offered source references, explicit processing approval,
+  current self-owner authority, Shared placement and the default-off kill switch.
+  They never infer semantic tasks, rewrite model text or substitute a fallback.
+  Source inventories project explicit pending work under existing service
+  contracts; summary selection by the model does not prove provider completeness.
+- Persistence remains the existing owner-confirmed encrypted `one_todos` Add
+  action. Suggestions are ephemeral; no provider action is executed. Client
+  owner/session fences suppress late results. Private placement refuses Shared
+  processing. Failures emit status-only stage telemetry and return a retryable
+  unavailable response, with no semantic substitution.
+- Live eval before promotion: run the authored gene on synthetic summaries for
+  each visible capability, no actionable evidence, already-pending items,
+  untrusted instructions, ambiguous evidence and forbidden financial advice.
+  Require valid grounding, no duplicate/newly invented obligations, no sensitive
+  output, no unsafe advice, meaningful abstention and bounded latency across
+  repeated runs. Unit tests prove validators/authority only; the default-off
+  rollout is not qualified until live model and real-provider rehearsals pass.
+
 ### Declared: Drive request package assessment
 
 - Owner: the existing Documents `agent_documents_suggestions` gene, with explicit
@@ -271,12 +327,16 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   refuses to run (`GroupIndexDisabled`) and nothing is placed.
 - Live eval before promotion: `consent-protocol/scripts/eval_drive_groups.py`.
   On the 146 held-out synthetic files (template families the fit never saw) the
-  aid placed 57, 55 of them correctly (precision 0.965), placed 2 of 50 unrelated
-  files and kept 41 of 96 group files. Those are invented documents: a regression
-  gate, not accuracy on a real Drive. Promotion needs the same script run by the
+  refit `33f7631e3696` placed 85, all correctly, placed none of 50 unrelated
+  files and kept 11 of 96 group files (previously 55 correct and 2 unrelated
+  placements). The original evaluation rows are unchanged; the repair used this
+  benchmark diagnostically. Those are invented documents: a regression
+  gate, not accuracy on a real Drive. Accuracy evaluation needs the same script run by the
   owner on authorized real labels (`--fixtures` with a private file, counts only),
-  meeting the precision target, reported with per-class counts. Until then the aid
-  stays dark.
+  meeting the precision target, reported with per-class counts. The owner has
+  separately authorized the UAT organizing-aid rollout; that authorization does
+  not turn synthetic precision into measured real-file accuracy. Unreadable
+  prefixes and ordinary media remain kept; metadata never replaces content.
 
 ### Declared: request-local semantic Drive search
 
@@ -1001,10 +1061,15 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   opt-out. It chooses source queries, identity pivots, evidence interpretation,
   fact support, coverage gaps and plain-English summaries.
 - Owner decisions: `ensure` and `POST /jobs` accept bounded `owner_decisions`
-  (`confirmed`/`rejected`, at most 50 statements of 1 to 600 characters each),
+  (`confirmed`/`rejected`, at most 269 statements of 1 to 600 characters each),
   stored in the sealed job state under `inputs` and passed to the specialist as
   data. The authored manifest instruction tells the model not to propose those
-  claims or equivalents again and never to infer an opposite. The model decides
+  claims or equivalents again and never to infer an opposite. Explicit Update can
+  separately approve a frozen `research_context` snapshot of saved confirmed
+  statements as `owner_confirmed_research_leads` for planning and query terms.
+  The full decisions object and rejected/removed statements never enter search.
+  Leads cannot establish independent evidence or identity and are not carried
+  into fresh automatic generations. The model decides
   equivalence; host code only validates the bounds, and the client hides only
   drafts whose claim key exactly matches a decided key.
 - Host contract: verified owner/setup/vault authority; exact contact matching for

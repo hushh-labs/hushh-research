@@ -14,6 +14,7 @@ import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-
 import { AzureFreeTrialNote, SetupStageChecklist } from "@/components/connections/byoc-setup-stage-checklist";
 import { HostingChoiceCards, type HostingChoice } from "@/components/connections/hosting-choice-cards";
 import {
+  azureConnected,
   AttachBlockedCard,
   ConnectingToAgentCard,
   ConsentPendingCard,
@@ -59,8 +60,10 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { buildOneSetupRoute, resolveOneSetupReturnTo, ROUTES } from "@/lib/navigation/routes";
+import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { useCloudSetupManagementReturn } from "./use-cloud-setup-management-return";
 
 /**
  * `/one/setup/cloud` — where a person's private agent gets somewhere to live.
@@ -73,16 +76,6 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-
  * Microsoft for an Azure subscription. The server creates or verifies the home,
  * proves authorization, and only then records the cloud assignment.
  */
-
-/** The revisit state for an agent whose home is the person's Azure subscription. */
-function azureConnected(location: string | null | undefined) {
-  return {
-    projectId: "Microsoft Azure",
-    rationale: location
-      ? `Your private agent runs in ${location}, in your own Azure subscription.`
-      : "Your private agent runs in your own Azure subscription.",
-  };
-}
 
 /** How long "Checking your cloud..." may stay on screen before the form shows. */
 export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
@@ -100,6 +93,7 @@ function OwnerCloudSetupPage({ user, owner }: {
   const router = useRouter();
   const searchParams = useSearchParams();
   const ownerCurrent = useCallback(() => Boolean(owner && owner.userId === user?.uid && isValidatedAuthSessionOwnerCurrent(owner)), [owner, user?.uid]);
+  useCloudSetupManagementReturn(user?.uid, ownerCurrent);
   const [saving, setSaving] = useState(false);
   const [aiReady, setAiReady] = useState(false);
   const authorizationStarting = useRef(false);
@@ -494,9 +488,12 @@ function OwnerCloudSetupPage({ user, owner }: {
     if (!ownerCurrent() || !authorized || !aiReady || hostingSaving) {
       return { status: "blocked" as const, summary: "Finish your hosting and AI selection first." };
     }
-    const href = buildOneSetupRoute({
-      returnTo: resolveOneSetupReturnTo(searchParams.get("return_to")),
-    });
+    const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
+    const completed = !!user?.uid && (OneSetupCompletionHintService.isResolved(user.uid) ||
+      PreVaultUserStateService.getCachedBootstrapState(user.uid)?.setupCompleted === true);
+    const href = returnTo === ROUTES.PROFILE_HOSTING || (!returnTo && completed)
+      ? ROUTES.PROFILE_HOSTING
+      : buildOneSetupRoute({ returnTo });
     const requested = requestInternalAppNavigation({
       href,
       replace: true,
@@ -506,7 +503,7 @@ function OwnerCloudSetupPage({ user, owner }: {
     });
     if (!requested) router.replace(href);
     return { status: "started" as const, summary: "Your agent setup is saved.", routeAfter: href };
-  }, [aiReady, authorized, hostingSaving, ownerCurrent, router, searchParams]);
+  }, [aiReady, authorized, hostingSaving, ownerCurrent, router, searchParams, user?.uid]);
   useLocalOnboardingActionHandler("setup.finish_cloud", finish);
 
   return (
@@ -795,7 +792,7 @@ function OwnerCloudSetupPage({ user, owner }: {
           />
         ) : null}
       </AppPageContentRegion>
-      <SetupCompletionFooter
+      {authorized && aiReady ? <SetupCompletionFooter
         label="Finish agent setup"
         onComplete={finish}
         busy={hostingSaving}
@@ -805,7 +802,7 @@ function OwnerCloudSetupPage({ user, owner }: {
         controlId="one-setup-cloud-terminal"
         actionId="setup.finish_cloud"
         purpose="Keep the verified hosting and AI choice, then return to setup."
-      />
+      /> : null}
     </AppPageShell>
   );
 }

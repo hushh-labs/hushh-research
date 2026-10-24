@@ -2936,27 +2936,17 @@ async def _get_market_insights_payload(
         sparkline_symbol_set = sorted(
             {symbol for symbol in mover_symbols if not symbol.startswith("^")}
         )
-        # Movers itself is cached (key "movers:v2:us"), so this symbol set is
-        # stable for the lifetime of that cache entry. Cache the batch series
-        # fetch the same way instead of hitting FMP on every request - this is
-        # the single highest-volume call site on this page (up to ~26 symbols)
-        # and must not bypass the shared L1/L2 cache like the rest of the file.
-        sparkline_cache_key = f"sparklines:{','.join(sparkline_symbol_set)}"
         (
             symbol_series_raw,
-            _sparklines_stale,
+            sparklines_stale,
             _sparklines_age,
             sparklines_tier,
             sparklines_cache_hit,
-        ) = await _get_or_refresh_public_module(
-            key=sparkline_cache_key,
-            fresh_ttl_seconds=SPARKLINES_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=SPARKLINES_STALE_TTL_SECONDS,
-            fetcher=lambda: _fetch_symbol_series_batch(sparkline_symbol_set),
-            warm_source=warm_source,
-            serve_stale_while_revalidate=True,
-        )
+        ) = await _load_mover_sparklines(sparkline_symbol_set, warm_source=warm_source)
         symbol_series = symbol_series_raw if isinstance(symbol_series_raw, dict) else {}
+        if sparkline_symbol_set:
+            provider_status["sparklines"] = "ok" if symbol_series else "unavailable"
+        stale = stale or sparklines_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, sparklines_tier)
         aggregated_cache_hit = aggregated_cache_hit and sparklines_cache_hit
         if symbol_series:
@@ -3587,6 +3577,30 @@ async def _fetch_symbol_price_series(symbol: str):
 
     return await fetch_with_market_provider(
         MarketDataRequest("intraday", (symbol,)), lambda: _legacy_fetch_symbol_price_series(symbol)
+    )
+
+
+async def _load_mover_sparklines(
+    symbols: list[str], *, warm_source: str
+) -> tuple[Any, bool, int, str, bool]:
+    if not symbols:
+        # No optional module participates in the aggregate cache result.
+        return {}, False, 0, "memory", True
+    # Optional history must not discard usable quotes, movers or news when
+    # a closed session has no saved series (or its provider fails while open).
+    return await resolve_public_module(
+        "sparklines",
+        _get_or_refresh_public_module(
+            key=f"sparklines:{','.join(symbols)}",
+            fresh_ttl_seconds=SPARKLINES_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=SPARKLINES_STALE_TTL_SECONDS,
+            fetcher=lambda: _fetch_symbol_series_batch(symbols),
+            warm_source=warm_source,
+            serve_stale_while_revalidate=True,
+        ),
+        lambda _status: {},
+        _provider_status_from_exception,
+        logger,
     )
 
 

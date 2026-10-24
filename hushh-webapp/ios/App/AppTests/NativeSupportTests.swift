@@ -614,7 +614,8 @@ final class NativeSupportTests: XCTestCase {
         let accentedArtwork: Set<String> = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model",
             "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms", "sign-out",
             "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "vault-methods", "vault-password", "appearance", "accent", "voice",
-            "payout-receipt", "payout-warning", "payout-progress", "payout-review"]
+            "payout-receipt", "payout-warning", "payout-progress", "payout-review",
+            "style-name", "style-tone", "style-length", "style-language", "style-punctuation"]
         for id in NativeProfileArtwork.ids {
             let artwork = try XCTUnwrap(NativeProfileArtwork.resolve(id), "Missing shared Profile artwork")
             let glyphSize: CGFloat = id == "gemini" ? 32 : 28
@@ -626,8 +627,6 @@ final class NativeSupportTests: XCTestCase {
             XCTAssertNil(NativeProfileArtwork.resolve(id)?.colorHex,
                 "Shared Profile outlines use the same semantic foreground as the web, not capability colors: \(id)")
         }
-        XCTAssertEqual(NativeProfileArtwork.resolve("style-name")?.colorHex, "#2563EB",
-            "Unrelated capability artwork keeps its authored treatment")
         XCTAssertEqual(NativeProfileArtwork.resolve("vault-password")?.accentColorHex?.lowercased(), "#007aff")
         XCTAssertNil(NativeProfileArtwork.resolve("account")?.accentColorHex, "Ordinary accent details follow the selected app accent")
         XCTAssertNotNil(NativeProfileArtwork.resolve("gemini"))

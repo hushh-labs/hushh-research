@@ -1,3 +1,6 @@
+import { LANDING_NOTICES } from "./session-landing-notices";
+export { ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE } from "./session-landing-notices";
+
 /** Enumerated terminal-session notices; raw provider errors never enter login URLs or UI. */
 export const AUTH_SESSION_INVALIDATED_EVENT =
   "auth-session-invalidated" as const;
@@ -20,14 +23,12 @@ const TOMBSTONED_ACCOUNT = "TOMBSTONED_ACCOUNT" as const;
 export const AUTH_ACCOUNT_DELETION_IN_PROGRESS_BACKEND_CODE =
   "AUTH_ACCOUNT_DELETION_IN_PROGRESS" as const;
 
-export const ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE =
-  "We couldn't confirm whether account deletion finished. For your security, we signed you out and won't retry it automatically. Please check your connection before signing in again.";
-
 export const AUTH_SESSION_INVALIDATION_CODES = [
   "account_not_found",
   "account_deleted",
   "account_deleted_ready_to_start_fresh",
   "account_deletion_finishing",
+  "account_deletion_identity_retained",
   "account_deletion_uncertain",
   "session_invalid",
 ] as const;
@@ -38,7 +39,7 @@ export type AuthSessionInvalidationCode =
 /** Codes that can be inferred from a credential/backend response alone. */
 export type AuthCredentialInvalidationCode = Exclude<
   AuthSessionInvalidationCode,
-  "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_uncertain"
+  "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_identity_retained" | "account_deletion_uncertain"
 >;
 
 type BackendAccountLifecycleCode =
@@ -113,41 +114,6 @@ const FIREBASE_INVALID_SESSION_MARKERS = [
   "credential-is-no-longer-valid",
 ] as const;
 
-const LANDING_NOTICES: Record<
-  AuthSessionInvalidationCode,
-  AuthSessionLandingNotice
-> = {
-  account_not_found: {
-    code: "account_not_found",
-    message: "Account not found. Redirecting you to login screen.",
-    toastId: "auth-session-account-not-found",
-  },
-  account_deleted: {
-    code: "account_deleted",
-    message: "This account’s information was deleted. Contact support if you cannot start again.",
-    toastId: "auth-session-account-deleted",
-  },
-  account_deleted_ready_to_start_fresh: {
-    code: "account_deleted_ready_to_start_fresh",
-    message: "Your old account is deleted. Continue below to start fresh.",
-    toastId: "auth-session-account-deleted-ready",
-  },
-  account_deletion_finishing: {
-    code: "account_deletion_finishing",
-    message: "Your information is deleted. Account removal still needs attention. Contact support before signing up again.",
-    toastId: "auth-session-account-deletion-finishing",
-  },
-  account_deletion_uncertain: {
-    code: "account_deletion_uncertain",
-    message: ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE,
-    toastId: "auth-session-account-deletion-uncertain",
-  },
-  session_invalid: {
-    code: "session_invalid",
-    message: "Your session is no longer valid. Please sign in again.",
-    toastId: "auth-session-invalid",
-  },
-};
 
 export function isAuthSessionInvalidationCode(
   value: unknown,

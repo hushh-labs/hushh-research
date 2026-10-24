@@ -94,12 +94,12 @@ Never rename required job/check contexts for cosmetic consistency.
 | Dependency cache | `ios-swift-package-cache.yml` | Daily main-owned cache preparation and bounded cold-fetch verification |
 | Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
 
-The local candidate removes the separate weekly offline pod drill and weekday
-completion-judge workflows. Both core test suites remain in Protocol CI's manifest;
+The separate weekly offline pod drill and weekday completion-judge workflow
+files are removed from main. Both core test suites remain in Protocol CI's manifest;
 the judge CLI and live completion receipts remain in the existing
 [readiness workflow](./pod-completion-judge.md). No scheduled failure is needed to
-announce an unchanged external prerequisite. These removals take effect on GitHub
-only after the source lands on the default branch.
+announce an unchanged external prerequisite. Historical workflow entries do not
+represent active source on the default branch.
 
 Capacity tick run titles are protocol inputs for checkpoint reconciliation. They
 retain their exact names independently of the workflow's display name. Dispatchers
@@ -111,6 +111,39 @@ and may retain entries for deleted workflow files. Those entries are not proof o
 an active source workflow or a duplicate test. Reconcile old entries with main and
 recent runs before disabling anything. Required security coverage must remain.
 No remote disable, cancellation or schedule change is authorized by this local edit.
+
+## Release-chain review — 2026-10-23
+
+One measured correction release, not a performance SLA:
+
+| Stage | Elapsed | Evidence |
+| --- | --- | --- |
+| Full PR validation | 35m02s | [39981561301](https://github.com/hushh-labs/hushh-research/actions/runs/39981561301) |
+| Landed-SHA smoke | 3m10s | [39986627702](https://github.com/hushh-labs/hushh-research/actions/runs/39986627702) |
+| Dev, both services | 24m09s | [39987252665](https://github.com/hushh-labs/hushh-research/actions/runs/39987252665) |
+| Sequential total before UAT | 62m21s | Includes gates, runner waits and cloud control-plane time |
+
+Dev's backend wrapper took 10m20s, including a 6m19s native Gemini readiness
+stage; migrations/schema took 3m08s and frontend rollout 2m30s. Images were
+pinned before migrations; the frontend image built in parallel. These measurements
+do not establish a redundant build or justify removing an authority gate.
+
+The PR's 23 Ubuntu notices announced the `ubuntu-latest` migration to Ubuntu 26;
+they were not download failures. Its successful hosted image was Ubuntu 24.04.5,
+runner 2.338.0. Core PR/queue/security/smoke and dev/UAT/production workflows pin
+`ubuntu-24.04` to retain that measured OS. Cache actions use v5's Node.js 24 runtime
+with unchanged keys, paths and PR restore-only/main-save boundaries. This addresses
+the observed seven Node.js 20 deprecation warnings; hosted verification is still
+required. A material latency reduction is not established. [Runner announcement](https://github.com/actions/runner-images/issues/14748),
+[cache runtime requirements](https://github.com/actions/cache#whats-new).
+
+The latest five protected security workers each bound a distinct source
+run/attempt. Their presence is credential isolation, not five new vulnerabilities.
+The long run title participates in exact receipt discovery; renaming the producer
+alone strands older PR consumers. Any title migration must preserve old/new
+consumer compatibility, chronological newer-failure refusal and source/artifact
+binding. macOS capacity notices are provider observations, not demonstrated code
+failures. Unchanged historical evidence remains reusable where its inputs match.
 
 ## Run-history review — 2026-10-18
 
@@ -203,6 +236,24 @@ frontend-only healthy receipt counts even when it inherits an older backend.
 The receipt's `sha` is authoritative; a dispatch's workflow HEAD is not its
 deployed source.
 
+A production-first restart may pin `production_baseline_run_id` to one successful
+governed manual production deployment. Its healthy, complete exact-source receipt
+must match an already counted UAT source on a fourth-deployment boundary. After
+accounting the held history, the controller certifies that source, ordinal, run,
+attempt and receipt digest once. It supersedes only strictly never-started
+historical release groups through that boundary, with an explicit cutover reason;
+it preserves counts, sources, started releases and recovery evidence. For example,
+a verified cutover at count 24 makes 26 the next TestFlight milestone and 28 the
+next production pair. A changed baseline, partial production receipt or started
+historical bundle refuses adoption. Checkpoint recovery revalidates the pinned
+attempt and receipt. The GitHub monitor shows the cutover alongside the count.
+
+Deployment reruns retain identically named receipts. Their duplicate-name reader
+uses the existing release-artifact owner to select only the current attempt's
+successful upload window, repository/source identity and immutable archive digest.
+It never selects by greatest artifact ID or deletes old evidence. Truncated,
+ambiguous or ungoverned evidence blocks accounting.
+
 Each milestone pins one green `main` SHA. Production deploy and archive are
 dispatched together. Before upload, the iOS job joins the exact recorded production
 run, requires its healthy same-SHA receipt, then rechecks live production backend
@@ -212,6 +263,11 @@ automatic publication after approval. Existing manual dispatches keep their
 prepare-only defaults. Automatic submission requires the existing privacy/export
 compliance attestations and configured production App Review contact/sign-in
 information; missing prerequisites block submission rather than weakening gates.
+Under the production mutation lock, automatic deployment additionally requires
+both currently serving service SHAs to equal or precede its pinned source. The
+scope resolver is preserved from current main before any historical checkout;
+an older or incomparable automatic source cannot roll production back. Manual
+operator deployment and rollback authority remains explicit.
 
 Only macOS build/upload jobs share `ios-build-and-upload`, preventing build-number
 races across TestFlight and App Store. Apple processing, group assignment and
@@ -280,6 +336,17 @@ events cannot request full replay or checkpoint recovery. Unresolved recorded
 child failures are rechecked for governed retries without replaying settled
 release artifacts. More than 20 unresolved failures stops reconciliation for
 operator recovery rather than silently dropping history or growing polling work.
+TestFlight completion requires successful processing and distribution steps plus
+active internal distribution evidence. Its optional skipped hardware gate must
+not skip the distribution job. A green upload with missing delivery proof remains
+a recoverable failure with the certified count available, and defers new bundles.
+`resume-ios-testflight.yml` reuses the exact uploaded build without archiving or
+uploading again. Its receipt binds the original run and attempt, source, bundle,
+version and build to the governed recovery run and attempt. The observer reads at
+most 20 recovery candidates; missing, mismatched or truncated proof never clears
+the failure. Recovery completion wakes the existing observer, and verification
+failures remain pending until proven or explicitly retired. UAT has no dependency
+on this recovery or observer.
 The monitor uses only standard-library code and the existing
 repository token, with `issues: write` added for one bot-owned `UAT release monitor`
 issue assigned to `monitor_issue_assignee` in the policy. Notification delivery
@@ -879,7 +946,9 @@ fail-closed consumer to refuse clearance. See the [GitHub concurrency contract](
 The 23 October sample contained 80 successful worker records across 25 source
 attempts. Receipt reuse alone did not eliminate those repeated workflow starts.
 The automatic trigger now uses `requested` once for each new validation run,
-instead of repeated `in_progress` transitions. Missing, expired, mismatched or
+instead of repeated `in_progress` transitions. This landed through
+[PR #8371](https://github.com/hushh-labs/hushh-research/pull/8371), after all 26
+exact-head checks passed; the canonical task carries live initial/retry receipts. Missing, expired, mismatched or
 incomplete receipts fail closed. Local checks use the same bounded cursor
 reader without writing raw alerts to disk.
 
@@ -900,6 +969,8 @@ Use the governed operator command below to request one retry and its exact
 security worker together. Only immutable main code reads
 the protected token. It validates the repository, canonical workflow, source run,
 current attempt and exact SHA before and after bounded, complete API pagination.
+GitHub's verified `pending` concurrency state is accepted alongside queued,
+running and completed sources; this does not replace successful PR validation.
 Its two-day artifact contains counts and provenance only. Repository-wide secret
 clearance intentionally replaces the old PR-created-date filter; dependency
 backlog remains advisory. No PR code, dependencies, caches or artifacts execute
@@ -921,6 +992,12 @@ one retry, observes its incremented attempt, then dispatches the protected worke
 on main. An uncertain response is reconciled without another rerun request.
 The final gate verifies that new attempt's receipt even if GitHub retained the
 previous successful Secret Scan job. PR permissions remain read-only.
+
+When changing final-gate outcomes or conditions, run the nearest actual gate
+harness alongside the existing security authority/receipt suites before pushing:
+`cd consent-protocol && uv run pytest tests/test_ci_status_gate_fails_closed.py -q`.
+Its scenarios execute the outcome bash; retry cases isolate only checkout and
+receipt I/O. Unknown conditions still refuse verification.
 
 A raw GitHub UI rerun does not automatically launch the worker. Its consumer
 prints the exact main-only recovery command immediately and retains the bounded
@@ -999,6 +1076,17 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 6. retry once on transient readiness
 7. roll back only the failing changed surface
 8. publish release artifacts with revisions, reports, and final status
+
+UAT text recovery starts one exact-image execution and observes its identity to
+terminal state before removing the temporary Job. Its 420-second controller
+allowance includes provider startup and settlement; the worker retains its
+120-second task limit, zero retries and bounded batch. In run `39949039317`, the
+old 180-second waiter deleted the Job before a receipt arrived at 207 seconds.
+The provider reported cancellation, so the later worker receipt cannot qualify
+that release. Require both provider success and the exact SHA/policy-bound
+receipt. An unread or timed-out execution remains unconfirmed with its Job and
+execution references retained for reconciliation; do not replay it or delete
+active work merely because observation stopped.
 
 UAT and production revision retirement use the existing `Capacity Maintenance` workflow,
 run hourly. Releases never trigger it. Because GitHub delivered only 3-6 of its former
@@ -1496,6 +1584,16 @@ runner's `azure.archive.ubuntu.com` mirror preference and retains its existing
 official archive/security entries and signed package checks. Chromium, WebKit,
 matched packs, workers and timeout remain unchanged. A faster install is a
 hosted measurement to verify, not a guaranteed mirror characteristic.
+
+UAT uses the same mirror preference removal and prepares locked npm dependencies,
+Chromium and its system libraries once for the union of frontend analytics and
+selected protected browser checks. Setup retries at most twice within eight
+minutes and remains blocking. Its Chromium cache has a separate key from CI's
+Chromium/WebKit cache; restored binaries still pass the normal installer.
+Both backend provider probes run independently after image and IAM verification.
+The required provider aggregate waits for both results and the deployed candidate
+before selection; dev and production retain their predeployment Vertex gate.
+
 ## Combined UI Contracts gate
 
 Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core and the full Vitest suite, which retain behavior coverage.

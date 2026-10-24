@@ -5,11 +5,41 @@ from __future__ import annotations
 import asyncio
 from threading import Event
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from hushh_mcp.services import azure_owner_cleanup as cleanup
 from hushh_mcp.services import azure_teardown_observation as observation
+from hushh_mcp.services.azure_teardown_inventory import AzureTeardownRefused
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        (
+            AzureTeardownRefused("AZURE_CLEANUP_UNRELATED_RESOURCES"),
+            "AZURE_CLEANUP_UNRELATED_RESOURCES",
+        ),
+        (AzureTeardownRefused("AZURE_UNREVIEWED_PROVIDER_BODY"), "RETRY_REQUIRED"),
+        (RuntimeError("private provider body"), "RETRY_REQUIRED"),
+    ],
+)
+async def test_cleanup_preserves_reviewed_recovery_reason_without_retaining_provider_body(
+    monkeypatch, failure, code, caplog
+):
+    authorize, complete, mark = (
+        AsyncMock(return_value={}),
+        AsyncMock(side_effect=failure),
+        AsyncMock(),
+    )
+    monkeypatch.setattr(cleanup, "bound_authorization", authorize)
+    monkeypatch.setattr(cleanup, "complete", complete)
+    store, selection, token = SimpleNamespace(mark_authorization=mark), object(), object()
+    await cleanup.run_cleanup(store, "owner", selection, token)
+    mark.assert_awaited_once_with("owner", selection, "execute", "attention_required", code)
+    assert "private provider body" not in caplog.text
+    assert "AZURE_UNREVIEWED_PROVIDER_BODY" not in caplog.text
 
 
 @pytest.mark.parametrize("cancel", [False, True])

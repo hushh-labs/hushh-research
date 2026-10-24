@@ -214,6 +214,34 @@ Consent AgentTool child use supported `chat` roots because ADK 2.9 Runner reject
 `single_turn` roots; this does not introduce shared owner history. One's intro
 and search instructions are authored in One's manifest subagent entries.
 
+Managed UAT One text keeps ordinary Azure-native search on LOW reasoning and
+requests low text verbosity for its answer. In managed chat, One may explicitly
+set `google_search.finish_turn=true` when that isolated child's complete cited
+answer fulfills the entire public request unchanged. This is One's semantic
+decision, authored in its manifest; the host never classifies intent. Ordinary,
+compound, private-information and action requests retain root synthesis.
+The explicit short-answer choice uses compact LOW search context on a local
+child/model copy. When the administrator policy declares `compact_public_search`,
+that copy uses the admitted Azure GPT-5.4 mini deployment with NONE reasoning and
+low verbosity. The root and ordinary/deeper searches keep their existing model
+and reasoning budget. A matching required capability qualifies the exact compact
+deployment with native citation receipts and synthetic public facts before UAT
+promotion; the descriptor participates in policy generation and stale-binding
+rejection. Receipt validation and native-call budgets remain unchanged.
+
+The host admits the handoff only for the invocation's sole tool call, with fresh
+grounding, current managed owner authority, no preceding answer, no pending
+review, and an atomically empty queued-input inbox. Accepted queued input still
+gets a model step; later input returns for the next turn. Stop and revocation
+prevent publication. A separate One model-content event preserves the exact
+answer and grounding in durable history and live AG-UI without duplication.
+`one_delegated_search_answer_v1` identifies that event; content-free
+`one.search_answer_delegated` telemetry records the saved synthesis call. This
+explicit delegation removes a stage; it is never reported as a root model answer.
+Task, native, standalone profile-research and non-managed search defaults stay
+with their existing contracts. Rollback is the preceding application revision;
+no alternate provider or factual-answer cache is introduced.
+
 ## Wiring Modes
 
 The current tree uses distinct mechanisms for local ADK children, process-local

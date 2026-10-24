@@ -409,21 +409,7 @@ async def _call(method, *, owner, factory=None, **kwargs):
 async def _owner_target(owner: Owner, body: CreateRequest | QueryCreateRequest) -> str:
     if body.ownerPersonRef is None:
         return cast(str, body.ownerUserId)
-    await owner.require_current()
-    try:
-        async with asyncio.timeout(6):
-            owner_user_id, _ = await asyncio.to_thread(
-                PersonProfileService().get_relationship_target,
-                viewer_user_id=owner.user_id,
-                public_person_ref=str(body.ownerPersonRef),
-            )
-    except PersonProfileNotFoundError:
-        raise _error(DriveSharingError("request_unavailable")) from None
-    except Exception:
-        raise _error(DriveSharingError("identity_verification_unavailable")) from None
-    # The domain store separately rechecks the active A/B relationship
-    # under locks. A public profile reference is never sharing authority.
-    return str(owner_user_id)
+    return await _person_target(owner, body.ownerPersonRef)
 
 
 async def _person_target(owner: Owner, person_ref: UUID) -> str:
@@ -453,6 +439,20 @@ def _packet_service():
     return DrivePacketCatalogService()
 
 
+async def _require_packet_commerce(owner: Owner, packet_id: UUID, version: int):
+    if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() == "true":
+        return
+    if os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() != "true":
+        raise _error(DriveSharingError("packet_unavailable"))
+    await _call(
+        "require_period_packet",
+        owner=owner,
+        factory=_packet_service,
+        packet_id=str(packet_id),
+        version=version,
+    )
+
+
 @router.get("/packets")
 async def list_packets(
     ownerPersonRef: UUID | None = None,
@@ -474,11 +474,8 @@ async def set_packet_listing(
     packet_id: UUID, body: PacketListingRequest, owner: Owner = Depends(_owner)
 ):
     # Existing listings can still be withdrawn while new packet commerce is off.
-    if (
-        body.decision == "allow"
-        and os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
-    ):
-        raise _error(DriveSharingError("packet_unavailable"))
+    if body.decision == "allow":
+        await _require_packet_commerce(owner, packet_id, body.version)
     return await _call(
         "set_listing",
         owner=owner,
@@ -499,8 +496,7 @@ async def request_packet(
     recipient=Depends(_recipient),
     owner: Owner = Depends(_owner),
 ):
-    if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true":
-        raise _error(DriveSharingError("packet_unavailable"))
+    await _require_packet_commerce(owner, packet_id, body.version)
     return await _call(
         "request_packet",
         owner=owner,

@@ -7,7 +7,7 @@ This folder owns the shared consent center experience and all consent launchers.
 - `consent-sheet-controller.tsx`: compatibility launcher that redirects older sheet entrypoints into the page route.
 - `consent-center-page.tsx`: canonical standalone consent center page surface.
 - `notification-provider.tsx`: push/toast delivery and one-time pending hydration; not the primary source of truth for consent counts.
-- `consent-dialog.tsx`: grant/revoke consent dialog using `DOMAIN_EMOJI` mapping and `resolveScopeDisplay` helpers.
+- `consent-sharing-revoke-dialog.tsx`: the mounted active-detail Stop sharing confirmation; the selected detail and specialized owners keep their existing decision paths.
 - `consent-pending-row.tsx`: one Requests row. The row is one button that opens the sheet; a request the shared path can decide carries ✗ (Don't allow) and ✓ (Allow) beside it.
 - `packets/`: Drive packets read like Payouts history. `PacketRows` is one row per packet (icon, name, one status line, price) and the whole row opens `PacketPage`, a local sheet that takes sections and actions as props. Actions live on the page, never on rows. Plain words live in `packet-copy.ts`. The owner's own file names show only in the owner's "What's inside", never in what buyers see. `buyer-packets.tsx` is a connection's view on someone's profile: "Buy for $X" is the existing packet request (nothing is charged until the seller approves and the buyer pays from the request), with one retry key per packet version.
 - `information-request-review-fields.tsx`: shared field, purpose and duration review for Profile's compact dialog and inline Chat. Both submit through `lib/consent/use-person-information-request.ts`; mounting or restoring a card never sends a request.
@@ -16,11 +16,11 @@ This folder owns the shared consent center experience and all consent launchers.
 
 1. There is one consent center experience.
 2. `/one/consent` is the canonical route for that experience; `/consents` redirects while preserving its query.
-3. The shield is the consent inbox. The bell stays dedicated to background tasks and push notifications.
+3. The mounted top app bar links to the Consent Center. Notification ingress updates resources and opens review links; it does not mount a Shield inbox or decide on notification tap.
 4. `/one/consent` is One-owned by default. Missing actor, `actor=one`, and legacy `actor=investor` all resolve to the same One user access view.
 5. RIA advisor workflows opt in explicitly with `actor=ria&view=outgoing`.
 6. The canonical page uses `/api/consent/center/summary` + `/api/consent/center/list` for pending, active, and history tabs. The monolithic `/api/consent/center` payload is compatibility-only outside the Connections tab (formerly "relationships"; the legacy tab param is still accepted).
-7. The shield inbox reuses the shared pending page-1 consent list cache and renders the first 5 rows from that payload.
+7. The canonical manager's summary and pending page-1 list use memory-only cache. Retained preview service helpers do not establish a mounted top-bar preview.
 8. Dense consent review happens in a detail panel, not as a permanent inline split layout on the root page.
    A Requests row never expands in place: tapping it opens the sheet, and a grouped request is one row ("Food preferences and 2 more"). ✓ allows for the requested duration through `use-owner-consent-decision.ts`, unlocking the vault first. ✗ declines behind a five-second Undo toast (`lib/consent/deferred-consent-decline.ts`); leaving the screen inside that window sends the decline rather than dropping it. The Feed's Don't allow uses the same helper.
 9. History renders one row per requester/system/advisor identifier for the current One user. Separate scope and request chains live inside that row as activity trails connected by event timing.

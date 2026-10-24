@@ -79,6 +79,19 @@
     text-transform: none !important;
   }
 
+  /* A hosted Consent group keeps its own section role in the Wallet and
+     Profile account shells; the compact account heading above stays local. */
+  :is(:global(.profile-pane-scroll-root .app-page-shell)
+    .paneAccountContent:global(.profile-account-content), .walletContent)
+    :global(
+      .consent-presentation-surface
+        [data-slot="settings-group-heading"][role="heading"][aria-level="2"]
+    ) {
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 600 !important;
+  }
+
   :is(:global(.profile-pane-scroll-root)
     .paneAccountContent, .walletContent)
     :global([data-slot="settings-group-shell"]) {

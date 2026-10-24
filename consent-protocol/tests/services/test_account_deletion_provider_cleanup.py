@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -17,6 +19,7 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     release_provider_grants_after_erasure,
     snapshot_provider_credentials_in_transaction,
 )
+from hushh_mcp.services.account_service import AccountService
 from hushh_mcp.services.gmail_receipts_service import GmailReceiptsService
 from hushh_mcp.services.google_connection_service import GoogleConnectionService
 
@@ -371,3 +374,86 @@ async def test_a_failure_log_names_the_provider_and_class_but_not_the_detail(not
         await _release(_notion_row())
     assert "provider=notion" in caplog.text and "RuntimeError" in caplog.text
     assert "PRIVATE_DECRYPT_DETAIL" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_blocked_erasure_keeps_event_loop_responsive_and_rolls_back(monkeypatch):
+    entered = Event()
+    release = Event()
+    starved = Event()
+    provider_release = AsyncMock()
+
+    @contextmanager
+    def blocked_transaction():
+        entered.set()
+        # A bounded wait makes the broken, event-loop-blocking implementation
+        # fail this test instead of hanging the suite.
+        if not release.wait(2):
+            starved.set()
+            raise RuntimeError("event loop could not release the DB worker")
+        raise RuntimeError("simulated database rollback")
+        yield  # pragma: no cover - this transaction always rolls back
+
+    monkeypatch.setattr("hushh_mcp.services.account_service.get_db_connection", blocked_transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure",
+        provider_release,
+    )
+    task = asyncio.create_task(
+        AccountService()._settle_full_account_transaction("departing", requested_target="both")
+    )
+    try:
+        for _ in range(100):
+            if entered.is_set():
+                break
+            await asyncio.sleep(0.005)
+        assert entered.is_set()
+        assert not starved.is_set(), "blocked SQL starved the heartbeat coroutine"
+        assert not task.done(), "blocked SQL must not block the server heartbeat"
+    finally:
+        release.set()
+        result = await task
+
+    assert result["success"] is False
+    assert result["account_deleted"] is False
+    provider_release.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_delete_settles_transaction_and_releases_provider_grants(monkeypatch):
+    from hushh_mcp.services.account_deletion_provider_cleanup import ProviderCredentialSnapshot
+
+    service = AccountService()
+    entered = Event()
+    release = Event()
+    snapshot = ProviderCredentialSnapshot(user_id="departing")
+    provider_release = AsyncMock(return_value={"status": "released"})
+
+    def committed_rows(*_args, **_kwargs):
+        entered.set()
+        assert release.wait(2)
+        return {"success": True, "account_deleted": True, "details": {}}, snapshot
+
+    monkeypatch.setattr(service, "_delete_full_account_transaction", committed_rows)
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure",
+        provider_release,
+    )
+    task = asyncio.create_task(
+        service._settle_full_account_transaction("departing", requested_target="both")
+    )
+    try:
+        for _ in range(100):
+            if entered.is_set():
+                break
+            await asyncio.sleep(0.005)
+        assert entered.is_set()
+        for _ in range(2):
+            task.cancel()
+            await asyncio.sleep(0)
+        assert not task.done(), "cancellation must not abandon the transaction"
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    provider_release.assert_awaited_once_with(snapshot)

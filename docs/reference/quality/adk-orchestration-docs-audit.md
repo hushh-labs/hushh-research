@@ -1,51 +1,50 @@
 # Private-pod readiness: CTO decision memo
 
-## Decision — 2026-10-23 UTC
+## Current decision — 24 October 2026
 
-**The onboarding/security correction is accepted on dev and UAT. The workflow-trigger follow-up is in verification.**
-[PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) landed as `51a5a86675`
-after all 26 exact-head checks and landed smoke passed. Dev run `39890010863`
-passed provenance, environment, schema and semantic checks. UAT run `39892483774`
-passed the same gates, private-worker attestation and text recovery. ADC readback
-at 04:27 UTC confirms both services on `51a5a86675`, at 100% in both environments. Normal Google-owner
-navigation passed refresh, Azure setup, passphrase unlock, Back/Finish and home
-with an enabled composer. Fresh Shared/GCP enrollment and deleted-user
-re-registration are not established by that owner rehearsal.
-[PR8337](https://github.com/hushh-labs/hushh-research/pull/8337) landed as
-`0ea0f8fce3` after all 26 exact-head checks and landed smoke passed. The preserved
-infrastructure branch inherits main through `d552397410`, including Drive, Finance,
-Mail, Azure chat/search, Calendar and Copilot styling without whole-file replacement. Earlier
-MVP receipts remain history; they do not verify the current correction candidate.
-Production, stable-channel publication and automatic owner upgrades remain held.
+**The application correction is on main and accepted on dev and UAT.
+Installed-pod and desktop acceptance remain separate.**
 
-Azure Dev 28 retains its approved image and economy configuration. Browser review
-and takeover reached the pod, but early takeover exposed `BROWSER_NOT_INITIALIZED`.
-Its startup/resize repair is integrated in source; no new pod image was installed.
-GCP inventory and old-domain repair preserved image, keys and identity. Browser
-remains unqualified on installed owner images. Advanced private context, remembered
-logins, broad capacity studies and retained synthetic erasure remain follow-ups.
+| Surface | Verified state |
+| --- | --- |
+| Main | [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as `ca83c0bf5a` through authorized Admin queue bypass; [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/40037466640) and [landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40040728656) passed |
+| Dev | [Run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106) accepted `ca83c0bf5a`, both services; schema, provenance and semantic checks passed. Accepted revisions: backend `00214-nn5`, frontend `00181-mpz`, both 100% |
+| UAT | [Run 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175) accepted `ca83c0bf5a`; schema, provenance, semantics and Drive-worker attestation passed. Corporate ADC confirms backend `02497-zic` / frontend `02054-lkq`, both 100% |
+| Pod image | Genuine Dev29 image `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by dev run `40041198106`; no eligible existing-owner upgrades or Browser qualification pins |
+| Current dev | Corporate ADC at 00:49 UTC confirms peer run `40043378889` advanced both services to `e4840d1915`, containing these fixes; backend `00216-ssx` / frontend `00183-tg9`, both 100% |
+| Desktop | [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23): approved CI review and passing Nix checks; broader Python failures prevent merge. Five introduced failures have a focused local correction; seven affected checks pass and the old keychain fixture fails four negative controls |
 
-The [public-research MVP](../../future/personal-agent/browser-completion-plan.md#immediate-mvp--critical-path-first)
-is P0: ask One, review, browse, take control, resume, reconnect and stop. Login,
-remembered sessions, private-context disclosure and transfers follow that proof.
-The 30-second cold target is an optimization goal. Economy hosting stays selected.
+The current release preserves earlier Hosting/AI/cleanup and provider-correct
+model routing. It fixes the Puppy picker’s 12-second presentation deadline versus
+the desktop’s 15-second activation poll: cached choices remain usable while one
+bounded foreground readiness request continues. Owner/view changes cancel stale
+observation; no inference, new grant or artificial keepalive is added.
 
-## Onboarding correction — 23 October 2026
+UAT’s earlier failed promotion returned HTTP 200 after 19.2 seconds, beyond the
+operator’s 15-second deadline. The merged repair permits two bounded 30-second
+read-only attempts; disabled or malformed capabilities still refuse promotion.
+A later peer rollout accepted the prior application; the original failure remains
+historical evidence. Workflow head, selected application and installed pod are
+separate identities. Peer main through `dcc4f611e3`, including Azure-search, public-source research
+and lost-vault changes, is inherited on the preserved branch. Those later changes
+are not claimed as part of UAT’s `ca83c0bf5a` acceptance. The active ADK tree remains
+preserved.
 
-Reported setup failures affected general cohorts, not a single owner: fixed-footer
-email preferences obscure controls; private AI setup cannot display its vault
-dialog; a one-shot hosting observation can leave every AI choice disabled.
-The correction also covers abandoned AI edits, locked saved-key recovery and deletion notices through the real API/authentication path. Local core and exact-head CI passed. The deployed normal-owner rehearsal reached home without a setup loop; optional preferences remained clear of the fixed Finish control at 1464 × 929, with zero horizontal overflow. The inherited diagram-import and Mail-test failures were repaired without excluding checks. Known erased UIDs
-remain fenced; the shared Firebase deletion boundary cannot be bypassed.
+The combined local core passed in 783 seconds: 25,018 backend tests, 143 skips,
+and frontend/security/governance/MCP/integration checks. Exact-head hosted
+Protocol completed in 28m15s. The accepted dev rollout took 20m20s, including
+497 seconds for backend/image construction and 114 seconds for frontend build.
+These are individual observations, not completion-time guarantees.
 
-GitHub still reports nine dependency alerts and no secret alerts after merge; its
-dependency graph already contains the seven patched versions. Alert closure is
-pending provider refresh, not a manual dismissal. Source patches cover
-Next.js, DOMPurify (including the actual Mermaid bundle) and Nodemailer. ADK's
-supported OTEL cap excludes the patched release: ignore incoming vendor
-`tracestate` through the public propagator boundary, preserving traceparent
-and outbound context. This is an application mitigation, not an upstream alert
-closure. The dev-only unpatched `braces` tooling advisory remains tracked.
+Synthetic recovery from predecessor `8b846022…68ac07` to Dev29 passed on both
+clouds, preserving identity, records, Files and 15 encrypted objects. Disposable
+services/resource groups, vault and temporary images were removed and read back;
+GCP’s seven-day object soft-delete retention is reported separately. These are
+format-recovery receipts, not normal startup, active-work drain or Browser proof.
+Other predecessors remain unqualified. An approved offer and normal owner
+installation are still required. Installed Browser and full Puppy inference
+are not established by application deployment. Production, stable publication
+and automatic owner upgrades remain held.
 
 ## Visual Context
 
@@ -63,6 +62,130 @@ consent, placement and updates. Puppy runs inference on the granted machine
 through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
+
+### Current account-specific findings
+
+- Both named Azure placements must use their pod's actual connection; the Chat
+  picker previously read Shared's Gemini catalog. The merged, dev-serving repair uses admitted
+  pod selection metadata, refuses Shared writes/fallback for private placement,
+  and does not invent a default-model catalog when an older image omits it.
+- Account 54's Azure resource, incarnation, user-assigned identity, image and
+  registry coordinates match. Its Azure deployment is `gpt-5-mini`; compute was
+  healthy and scaled to zero. This inventory is not live app-admission evidence.
+- Account 1711's normal owner API confirmed BYOC placement and a linked but offline
+  Puppy. Hermes alone did not start the separate dev relay. Restoring the existing
+  `dev-puppy` identity produced authenticated admission in 2,063 ms and a sealed
+  connection in 428 ms, without inference or a new grant. The same model menu then
+  received the machine's local catalog. These are single observations, not latency
+  guarantees.
+- A synthetic owner turn subsequently reached the local Gemma 12B service
+  (HTTP 200 headers in 34 ms), but timed out before an answer. An isolated
+  eight-token local probe returned model data in 454 ms. Installed source permits
+  95-second broker prefill but cancels the outer ADK wait at 70 seconds. The
+  merged correction gives ADK 100-second event waits while retaining the 150-second total
+  turn and existing inner deadlines. The timeout-ladder negative control catches
+  the old inversion. It still requires a new, owner-approved pod image and live
+  answer acceptance; a healthy socket alone does not prove inference.
+- The merged, dev-serving frontend repair adds a coalesced foreground Chat wake and a bounded
+  readiness read on entering/returning to Puppy. Hidden tabs do not wake compute;
+  readiness never requests inference or enables a new grant. Owner-generation
+  fences retire cached device/model responses and prevent late model writes.
+- A second Puppy regression is reproduced: a 12-second model-list UI deadline
+  could expire before the desktop's 15-second activation poll. The merged source keeps
+  one bounded foreground connection attempt running after the presentation timer,
+  retains cached choices and updates the same menu when readiness arrives.
+  Hiding the view or changing owner cancels observation, not a previously
+  persisted activation. This does not start inference or preserve cloud uptime.
+- [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23) adds
+  profile-owned, opt-in relay startup through its existing gateway supervisor.
+  Focused tests cover separate-process contention and cancellation during a
+  blocked admission request, including repeated cancellation and delayed cleanup.
+  The existing dev profile and relay remain running; no live startup handoff is
+  claimed from source tests or a heartbeat.
+- Normal owner acceptance on dev proved Hosting → unsaved AI edit → Back →
+  re-entry preserves the verified cloud selection, and Finish returns to Hosting
+  with the vault unlocked. The cloud-removal review fits the viewport; no removal
+  was started. One returned the exact synthetic `private-ready` answer. Puppy's
+  last-known Gemma label is visible, but fresh model-list and inference acceptance
+  are unclaimed: the background tab correctly suppresses foreground-only reads.
+- Real provider removal, broader orphan discovery, account re-registration and
+  installed Browser journeys remain the explicit boundaries below.
+
+## Corrected journeys
+
+- Existing owners return from Hosting setup to Hosting through shell/native Back
+  and Finish. First-run onboarding keeps its own destination. Finish appears only
+  after hosting and AI are verified; abandoned AI edits retain the working choice.
+- The explicit cloud-default action verifies the admitted current pod even when
+  hub capability discovery is stale. Owner, placement, provider, incarnation and
+  configuration checks remain mandatory. The AI card retains the actual verified
+  model/deployment; it does not invent a multi-deployment catalog.
+- **Remove cloud, keep account** reuses exact reviewed erasure authority. It retains
+  the account, vault and PKM; the review explicitly covers cloud-only Files/history
+  loss. Progress, provider delays and repairable uncertainty are shown honestly.
+  Inspection pauses admission; closing its dialog does not cancel the operation.
+- **Check hosting** reads the recorded cloud home without waking or modifying the
+  pod. Broad historical orphan discovery and automatic subscription-wide deletion
+  are not implemented.
+- UAT recovery tracks one exact execution and requires provider success plus its
+  bound receipt. Run 39949039317 exposed an 180-second controller cancellation before
+  a 207-second worker receipt. The correction preserves task/batch limits, refuses
+  retained-job replay and keeps unconfirmed work available for reconciliation.
+
+## Verification and remaining boundaries
+
+The combined PR #8395 candidate passed its local core in 12m58s: 25,003 backend
+cases passed with 143 skips, alongside frontend build/type/lint, security,
+governance, MCP and integration. Its [exact-head hosted run 40017478921](https://github.com/hushh-labs/hushh-research/actions/runs/40017478921)
+passed all 26 jobs, followed by landed-SHA smoke. The collector correction passed
+152 focused cases, an original-refused/corrected-verified check against the real
+immutable Cloud Build, and a local core in 12m56s with 25,005 backend passes and
+143 skips. Peer PR #8398 landed the equivalent correction with stronger missing-
+dependency negatives; 185 combined cases passed after reconciliation. These layers
+do not substitute for deployed owner acceptance.
+
+Dev migration 972 passed the pre/post-deploy schema gates with no violations.
+Each provider's real standalone removal journey still requires separate evidence. UAT graduation remains separate; missing schema must
+keep the control unavailable. The historical account-deletion HTTP 500 was on older
+source and its underlying exception was not captured. No personal cloud has been
+deleted to qualify this UI.
+
+Browser startup/viewport repair is in source, but the installed Dev28 owner journey
+remains unqualified. Research, preview, takeover, handback, reconnect and Stop must
+pass on each exact installed image. Login, remembered sessions, selected PKM and
+Files transfers retain separate acceptance. The 30-second cold target is an
+optimization goal; economy hosting and owner-selected configurations remain.
+
+Same-login re-registration remains staged: shared Firebase identifiers do not
+authorize clearing terminal account tombstones or mutating production identity
+from dev/UAT. Preserve the existing UID/vault/device/pod bindings and qualify the
+explicit lifecycle before promising a fresh start.
+
+## Security
+
+GitHub's refreshed inventory has **three open dependency alerts**: two
+OpenTelemetry records and Zod alert #507. Seven patched alerts are closed, with
+none manually dismissed. The pinned ADK cap excludes the
+fixed version. Incoming vendor `tracestate` is ignored at the public propagator
+boundary while preserving traceparent/outbound context. This is mitigation, not
+upstream remediation. The protected worker accepts verified pending concurrency
+states without weakening exact repository/workflow/run/attempt/SHA binding. Its
+receipt cannot replace successful PR validation. Repository-secret removal is
+verified; original-token revocation remains separately unverified.
+
+AG-UI's nested Zod 3 remains affected even though root Zod 4 is patched. A forced
+major override is incompatible with the current SDK contracts. No compatible
+published dependency-only fix was found; pre-parser frame bounding remains a
+mitigation follow-up, not an implemented patch or a reason to dismiss the alert.
+
+Earlier accepted application receipts remain historical evidence:
+[PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) and
+[PR #8377](https://github.com/hushh-labs/hushh-research/pull/8377). The
+[normal-release plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md)
+and [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account)
+own the operating procedures and retained acceptance gates.
+
+
 ## What works / what must change
 
 | Journey | Recorded outcome | Remaining acceptance |
@@ -71,7 +194,7 @@ retains its disclosed boundary.
 | Files | Dedicated specialist/explorer; personal and fresh Shared Move, exact download and Undo; earlier interrupted 4,195,328-byte transfer and selected analysis passed | Current-image organization, fresh setup and retained Shared erasure |
 | Updates | Azure Dev 28: normal Browser setup approval and Microsoft handoff, one verified operation and exact installed digest; both predecessor recovery fixtures pass | Active-work overlap remains unproven; finish GCP installation and current-image continuity/Feed checks |
 | Puppy | Existing Hermes identity, signed binding, sealed WSS and streamed Gemma 12B; prior Stop, withdrawal/refusal and re-enable passed | Repeat affected paths only. Phone testing waived; independent-network acceptance is unclaimed |
-| Browser | Immutable-image native research passes on both clouds. The deployed 971/replay repair clears Azure's initial review failure; a fresh task accepted screen-processing consent and active takeover, then failed Phone resize before initialization | Release the locally verified startup/resize repair, then finish the installed journey. Hidden owner tabs intentionally do not paint frames. Additional interactive policy and GCP acceptance remain unverified |
+| Browser | Immutable-image native research passes on both clouds. The deployed 971/replay repair clears Azure's initial review failure; a fresh task accepted screen-processing consent and active takeover, then failed Phone resize before initialization | The repair is in the published Dev29 image; finish exact execution qualification, the approved offer and the installed journey. Hidden owner tabs intentionally do not paint frames. Additional interactive policy and GCP acceptance remain unverified |
 | Scheduled tasks / connectors | Local One occurrence/review/checkpoint continuity and authenticated HTTP have controlled proof; active worker registration remains Files-only | Preserve existing schedules; all-family expansion is deferred. Current-image connector refresh/review and supported continuation still need acceptance |
 | Voice | App selects GCP recorded commands; Azure capture disabled. Stronger private-pod guards are source-qualified | Fresh image and owner approval; GCP recorded audio remains live-unverified. Live needs compatible native transport, never a shared key |
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence; retained fixture gets safe 409 on deployed source | Reconcile the uncertain write through the product path before erasure; cloud/external-grant cleanup and hosting transfers need their own receipts |
@@ -108,9 +231,12 @@ blind retry is permitted. Its earlier
 ordinary Google/CAPTCHA/SMS onboarding. The old RAM-only passphrase is gone;
 subsequent cleanup must not be described as normal unlocked-UI vault recovery.
 
-## Source and serving evidence
+<a id="source-and-serving-evidence"></a>
 
-The corrected application and immutable Dev 28 offer are deployed. Publishing and owner
+## Historical source and serving evidence — PR #8365
+
+The earlier correction `51a5a86675` and immutable Dev 28 offer were deployed.
+These receipts describe PR #8365, not the current PR #8386 rollout. Publishing and owner
 installation remain separate; Azure has completed its approval, while GCP has not.
 
 | Surface | Exact receipt | Boundary |
@@ -118,13 +244,13 @@ installation remain separate; Azure has completed its approval, while GCP has no
 | Dev app | ADC, 23 October 04:27 UTC: both `51a5a86675`; backend `00199-cvk`, web `00168-2xq`, both 100% | Governed run `39890010863`; immutable digests, schema, parity, semantics and normal-owner setup/Back/Finish accepted |
 | UAT app | ADC, 23 October 04:27 UTC: both `51a5a86675`; backend `02469-vej`, web `02026-9j2`, both 100% | Governed run `39892483774`: healthy; exact-SHA dev predecessor, schema, parity, provenance, semantics, worker and text recovery passed |
 | Azure owner pod | Dev 28; digest `8b846022…68ac07`; revision `ca-hussh-one-pod--u31257e45d565` | Normal approval `op_13e165d0d1bf4a6788ae230cc7e2a93f`, verified 02:22:22 UTC. Same service identity, 1 vCPU / 2 GiB, min 0 / max 1. Active-work drain overlap is not established |
-| Schema / rollback | Dev `39890010863` and UAT `39892483774` passed pre/post-deploy schema guards with no violations; this correction adds no SQL | Rollback targets: dev `00198-bps` / `00167-7zr`; UAT `02466-rec` / `02022-wwl`. Earlier 69-checksum/private-review replay evidence remains historical; it does not establish every current owner's placement. History cleanup stays separate |
-| Integration | Correction `51a5a86675` preserves reconciled ADK lineage and main through `4ac0a122be`, including Drive, Finance, Mail and Azure chat/search | PR8365 passed 26 exact-head checks; original branch fast-forwarded without force-push. Nine unrelated peer edits and the active ADK tree remain excluded |
+| Schema / rollback | Dev `39890010863` and UAT `39892483774` passed pre/post-deploy schema guards with no violations; that earlier correction added no SQL | Rollback targets: dev `00198-bps` / `00167-7zr`; UAT `02466-rec` / `02022-wwl`. Earlier 69-checksum/private-review replay evidence remains historical; it does not establish every current owner's placement. History cleanup stays separate |
+| Integration | Correction `51a5a86675` preserves reconciled ADK lineage and main through `4ac0a122be`, including Drive, Finance, Mail and Azure chat/search | PR #8365 passed 26 exact-head checks; original branch fast-forwarded without force-push. Nine unrelated peer edits and the active ADK tree remain excluded |
 | Published pod offer | Dev 28 reuses image `sha256:8b846022947bca939fba48cddf1101f3c26dddfb043ab41e20bd7407e068ac07`, source `67a64533ac6a` | Both exact personal predecessors recovered identity, six sealed records, consent/PKM state and 245,763 exact file bytes. Temporary resources cleaned; GCP seven-day soft-delete retention preserved |
 | GCP configuration / inventory | Revision `00019-p6z`, unchanged predecessor `26bab163…61809`, 1 vCPU / 2 GiB / concurrency 8, min 0 / max 1 | Guarded inventory reconciliation committed locally as `02a7aec016` and applied. Storage protection enforced; all 39 objects preserved. Authenticated domain repair recovered identical keys, permits both exact dev domains and refuses unrelated origins; temporary job absence verified |
 | Browser component evidence | GCP Gemini 3.8: 20.366 s / three rounds; Azure actual `one-chat` GPT-5.6 Luna: 16.823 s / five rounds | Real frames, native continuations, 390 × 844 resize, login-observation fencing and joined Stop. Component takeover followed model completion. These are not installed-owner, cold or full-pod capacity results |
 
-### Correction evidence
+### Historical correction evidence — PR #8365
 
 The correction preserves nine unrelated peer edits and the active ADK worktree.
 Focused evidence: 278 UI cases; 154 backend cases; eight setup layouts at
@@ -158,17 +284,25 @@ Main cutover run `39889655505` verified exact-source receipt reuse and skipped
 repeat inventory reads/artifact upload. The old repository secret is deleted,
 absence is verified, and no same-name organization secret is accessible to this
 repository. The main-only protected replacement remains present. The trigger
-follow-up uses one initial `requested` event, a governed rerun command and exact
-receipt verification in the final rerun gate; 21 security and eight existing gate
-cases pass. Its post-main qualification must use the new workflow revision. Original PAT
+repair landed in [PR #8371](https://github.com/hushh-labs/hushh-research/pull/8371)
+as `04081d3c46`, after all 26 exact-head checks passed in run `39903975455`.
+It uses one initial `requested` event and governed retries with fresh exact-attempt
+clearance in the final gate. All 21 security, 74 real gate-harness and eight UI-gate
+cases pass. The harness correction retains unknown-condition refusal and proves
+receipt failure propagation. Live initial/retry receipts are maintained on
+[the canonical task](https://github.com/hushh-labs/hushh-research/issues/5507);
+qualification must use the new workflow revision. Original PAT
 revocation is separately unverified; deleting a stored secret is not revocation.
 Duplicate release monitor #8353 is archived with its journal preserved and active
 marker removed; canonical #8304 reconciliation passed in run `39871154431`.
 Automatic production/native releases remain disabled.
 
-A deleted UID cannot safely re-enrol under the shared Firebase authority.
-This release distinguishes deletion, missing records and transient failures;
-isolated dev/UAT authentication and preserved-user migration are staged separately.
+A deleted application account cannot currently re-enrol under the same Firebase UID.
+Shared Firebase remains supported; environment-scoped account generations must
+fence retired sessions, grants, jobs and writes before same-UID re-enrollment.
+The bounded follow-up preserves shared identity, stops prohibited automatic cleanup
+retries and keeps the hashed tombstone; it does not yet implement re-registration.
+Isolated dev/UAT identity projects remain an alternative, not a mandatory provider prerequisite.
 Never clear terminal tombstones, claim cleanup from key destruction, or delete a
 production Firebase identity from non-production.
 
@@ -190,7 +324,8 @@ not re-enable catch-up. Manual release authority remains unchanged.
 
 | Measurement | Result | Decision |
 | --- | --- | --- |
-| Current delivery cycle | Exact-head CI: 29m18s including one failed-jobs-only retry; dev: 19m50s; UAT: 76m15s | UAT includes 33m48s initial queue; deployment job 39m51s. CI initial queue 1m44s; dev 5s. Measure from dispatch to last job completion; never sum parallel jobs or call queue time test execution |
+| Earlier PR #8365 delivery cycle | Exact-head CI: 29m18s including one failed-jobs-only retry; dev: 19m50s; UAT: 76m15s | UAT includes 33m48s initial queue; deployment job 39m51s. CI initial queue 1m44s; dev 5s. Measure from dispatch to last job completion; never sum parallel jobs or call queue time test execution |
+| CI trigger repair | Exact-head run `39903975455`: 26 checks passed; backend 27m40s; iOS 23m56s | Parallel backend tests 12m10s; isolated serial database tests 11m57s. The earlier failing run stopped before serial checks, so it is not a full-run timing baseline. No limits or isolation weakened |
 | Matched cloud chat | 20 cold / 20 warm per cloud: GCP p95 71.721 / 7.700 s; Azure 71.304 / 13.389 s | Retain this historical baseline. Thirty seconds is an optimization goal; fix measured startup work and recovery, without a permanent warm floor |
 | Personal chat | Latest zero-instance sample: first content 44.837 s, complete 46.040 s; capabilities 40.304 s | Wake/readiness dominates this sample; not a percentile or physical paint measurement |
 | Puppy Dev 25 | First text 35.257 s, complete 35.509 s; device first content 25.308 s | Nonempty Gemma 12B response received in an occluded browser; not cold-model or foreground-paint acceptance |
@@ -208,12 +343,14 @@ paid work; spending thresholds warn without stopping service.
 
 ## Next gate and owners
 
-1. **CI/security owner:** finish exact-head verification and main-owned qualification
-   of the requested-only trigger and governed rerun. The final gate checks a fresh
-   exact-attempt receipt; partial retries retain successful application suites.
-   The application correction, dev owner acceptance and UAT promotion are complete.
-2. **Security owner:** retain the two ADK-constrained OTEL records and verify
-   GitHub's closure of the seven patched records. Original-token revocation
+1. **CI/security owner:** preserve one initial worker and fresh exact-attempt retry
+   clearance through the governed command. Keep current receipts on the canonical
+   task; successful application suites remain retained during a gate-only retry.
+   PR #8395 is on main and dev acceptance includes owner Back/Finish, removal
+   review and an actual One answer. Complete the corrected exact-application UAT
+   promotion, read back serving state, then reconcile board and Wiki evidence.
+2. **Security owner:** retain the two ADK-constrained OTEL records and Zod #507;
+   seven patched records are closed. Original-token revocation
    remains separately unverified; the exposed repository secret is retired.
 3. **Browser owner:** exact installed-image public research, review, preview,
    takeover, resume, reconnect and Stop remain separate acceptance on each cloud.
@@ -223,8 +360,11 @@ Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
-Main integration and this correction have verified dev and UAT receipts. The
-CI trigger follow-up does not require another application rollout. Production, stable publication,
+Main integration and landed-SHA smoke are verified through `9af321d2a9`.
+The current application correction has healthy dev provenance/schema/semantic
+receipts and real owner Back/Finish acceptance. Exact-SHA UAT acceptance
+requires the corrected candidate after rollback; earlier receipts do not replace
+its successful terminal result. Production, stable publication,
 automatic owner upgrades, managed Hussh provisioning and unqualified hosting moves
 remain unavailable. Broader Files/connector/voice/update/erasure lifecycle evidence,
 general schedules and economic qualification stay tracked in the

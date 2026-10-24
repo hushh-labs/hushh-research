@@ -54,7 +54,7 @@ export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange
   if (!valid) return null;
   if (!sections.length) return <p role="status" className="text-sm text-muted-foreground">Sharing choices are unavailable for this area.</p>;
   return <section className="space-y-3" aria-label={`Sharing and price for ${title}`}>
-    <p className="text-sm text-muted-foreground">Choose what people can request. Every recipient still needs your approval.</p>
+    <p data-pkm-body="true" className="text-sm text-muted-foreground">Choose what people can request. Every recipient still needs your approval.</p>
     <SettingsGroup title={heading} separatorInset>
       {sections.length > 1 ? <SettingsRow title={`${title} bundle`} description={available ? "All sections available to request" : "Some sections are private"}
         trailingInteractive stackTrailingOnMobile trailing={<Switch checked={available} disabled={Boolean(pendingKey)}
@@ -72,7 +72,7 @@ export function PkmDomainSharing({ userId, title, manifest, pendingKey, onChange
           </div>} />;
       })}
     </SettingsGroup>
-    {failed ? <div role="status" className="text-sm text-muted-foreground">Whole-bundle availability could not be checked. <Button variant="link" onClick={() => setRetry(value => value + 1)}>Retry bundle availability</Button></div> : !checking && !whole ?
-      <p className="text-xs text-muted-foreground">Set section prices above. A whole-bundle price appears when that bundle is available to request.</p> : null}
+    {failed ? <div role="status" className="text-sm text-muted-foreground">Whole-bundle availability could not be checked. <Button data-pkm-utility="true" variant="link" onClick={() => setRetry(value => value + 1)}>Retry bundle availability</Button></div> : !checking && !whole ?
+      <p data-pkm-helper="true" className="text-xs text-muted-foreground">Set section prices above. A whole-bundle price appears when that bundle is available to request.</p> : null}
   </section>;
 }

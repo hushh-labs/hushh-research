@@ -13,6 +13,13 @@ import styles from "./calendar-schedule.module.css";
 export { GoogleCalendarMark } from "./google-calendar-mark";
 export { styles as calendarScheduleStyles };
 
+export const MAIN_TABS = [
+  { value: "schedule", label: "Schedule", href: "/one/calendar" },
+  { value: "invitations", label: "Invitations", href: "/one/calendar" },
+  { value: "insights", label: "Insights", href: "/one/calendar" },
+];
+export const SCHEDULE_TABS = [{ value: "today", label: "Today" }, { value: "free", label: "Free time" }];
+
 export function CalendarProviderIcon({ className }: { className?: string }) {
   return <svg aria-hidden="true" focusable="false" viewBox="0 0 28 28" className={[styles.providerIcon, className].filter(Boolean).join(" ")}>
     <rect x="3" y="5" width="22" height="21" rx="3" fill="currentColor" />
@@ -145,7 +152,6 @@ export function CalendarTimelineRow({ event, accountEmail, zone, active, ongoing
       {provider || event.location ? <span className={styles.eventSource}>{provider ? <CalendarMeetingIcon provider={provider} /> : <MapPin aria-hidden weight="fill" className={styles.meetingIcon} />}<span className={styles.sourceLabel} title={provider || event.location || undefined}>{provider || event.location}</span></span> : event.calendar_name ? <span className={styles.eventSource}><span className={styles.sourceLabel} title={event.calendar_name}>{event.calendar_name}</span></span> : null}
       {provider && event.location && event.location !== join ? <span className={styles.eventSource}><MapPin aria-hidden weight="fill" className={styles.meetingIcon} /><span className={styles.sourceLabel} title={event.location}>{event.location}</span></span> : null}
       {ended ? <span className={styles.endedLabel}>Ended</span> : null}
-      {calendarResponse(event, accountEmail) === "needsAction" ? <span className={styles.eventSource}>Awaiting your response · See Invitations</span> : null}
       {calendarResponse(event, accountEmail) === "declined" ? <span className={styles.declined}>Declined</span> : null}
     </div>
     <div className={styles.rowActions}>

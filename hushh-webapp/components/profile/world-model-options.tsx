@@ -15,7 +15,11 @@ import { Switch } from "@/components/ui/switch";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { WorldModelInvitations } from "@/components/profile/world-model-invitations";
 import { WorldModelSources } from "@/components/profile/world-model-sources";
+import { pwmProviderDisclosure, usesAzurePwm } from "@/components/onboarding/setup/pwm-research-disclosure";
 import type { PwmPreferences } from "@/lib/services/world-model-research-service";
+
+import type { WorldModelIdentityInput } from "./world-model-progress";
+import type { PwmClaim } from "@/lib/services/world-model-decision-service";
 
 type Sheet = "invite" | "sources" | "research";
 
@@ -29,6 +33,12 @@ export function WorldModelOptions({
   failed,
   preferences,
   sourcesRequest,
+  findMoreRequest = 0,
+  publicSourceCandidates = [],
+  identity,
+  confirmedDetails = [],
+  onEditAccount,
+  onEditConfirmed,
   canCheckForUpdates,
   canResearchPublicProfiles,
   pathname,
@@ -51,6 +61,12 @@ export function WorldModelOptions({
   preferences: PwmPreferences | null;
   /** Bumped after a claim moves the inviter's preview into these sources. */
   sourcesRequest: number;
+  findMoreRequest?: number;
+  publicSourceCandidates?: readonly string[];
+  identity?: WorldModelIdentityInput;
+  confirmedDetails?: readonly PwmClaim[];
+  onEditAccount?: () => void;
+  onEditConfirmed?: (claim: PwmClaim) => void;
   canCheckForUpdates: boolean;
   canResearchPublicProfiles: boolean;
   pathname: string;
@@ -65,10 +81,12 @@ export function WorldModelOptions({
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [busy, setBusy] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
-  const azureResearch = preferences?.research_provider === "azure_openai_web_search";
+  const [findingMore, setFindingMore] = useState(false);
+  const azureResearch = usesAzurePwm(preferences?.research_provider);
   const open = sheet !== null && (sheet !== "invite" || usable);
   const close = useCallback(() => {
     setSheet(null);
+    setFindingMore(false);
     setSaveFailed(false);
     return true;
   }, []);
@@ -81,6 +99,14 @@ export function WorldModelOptions({
     setSaveFailed(false);
     setSheet("sources");
   }, [sourcesRequest]);
+  const shownFindMore = useRef(findMoreRequest);
+  useEffect(() => {
+    if (shownFindMore.current === findMoreRequest) return;
+    shownFindMore.current = findMoreRequest;
+    if (!present || !preferences?.enabled || !canCheckForUpdates || !azureResearch) return;
+    setFindingMore(true);
+    setSheet("sources");
+  }, [findMoreRequest, present, preferences?.enabled, canCheckForUpdates, azureResearch]);
 
   async function update(value: Pick<PwmPreferences, "enabled" | "email_enabled">) {
     if (busy) return;
@@ -136,10 +162,10 @@ export function WorldModelOptions({
       <SettingsDetailPanel
         open={open && sheet === "sources"}
         onOpenChange={(next) => void (!next && close())}
-        title="Add a public source"
+        title={findingMore ? "Your details" : "Add a public source"}
       >
         <WorldModelSources
-          key={`${ownerId}:${vaultOwnerToken}:${sourcesRequest}`}
+          key={`${ownerId}:${vaultOwnerToken}:${sourcesRequest}:${findingMore}:${findMoreRequest}`}
           ownerId={ownerId}
           vaultKey={vaultKey}
           vaultOwnerToken={vaultOwnerToken}
@@ -148,6 +174,17 @@ export function WorldModelOptions({
           present={present && open && sheet === "sources"}
           backQuery={backQuery}
           onSaved={onSourcesSaved}
+          discovery={findingMore}
+          identity={findingMore ? identity : undefined}
+          confirmedDetails={findingMore ? confirmedDetails : undefined}
+          onEditAccount={findingMore && onEditAccount ? () => { close(); onEditAccount(); } : undefined}
+          onEditConfirmed={findingMore && onEditConfirmed ? claim => { close(); onEditConfirmed(claim); } : undefined}
+          initialUrls={findingMore ? publicSourceCandidates : undefined}
+          onRefresh={findingMore && canCheckForUpdates && preferences?.enabled ? () => {
+            if (!present) return;
+            onCheckForUpdates();
+            close();
+          } : undefined}
           onResearchPublicProfiles={azureResearch && preferences?.enabled && canResearchPublicProfiles ? urls => {
             if (!present) return;
             onResearchPublicProfiles(urls);
@@ -166,7 +203,7 @@ export function WorldModelOptions({
             <SettingsRow
               title="Research public pages"
               description={azureResearch
-                ? "Turning this on lets GPT-5 mini on Microsoft Azure AI plan searches and prepare your draft from public pages. Bing may receive your name and verified email or phone in search terms outside Azure's compliance and data residency boundary. You review findings before saving."
+                ? pwmProviderDisclosure(preferences.research_provider)
                 : "Uses your name and verified email or phone to find pages about you with Google Search through Vertex AI."}
               trailing={
                 <span className="inline-flex h-11 items-center">
@@ -206,8 +243,8 @@ export function WorldModelOptions({
             />
             {preferences.enabled && canCheckForUpdates ? (
               <SettingsRow
-                title="Check for updates"
-                description="Look at public pages again now."
+                title="Update my model"
+                description="Use your confirmed details to guide public searches."
                 disabled={busy}
                 chevron
                 voiceControlId="pwm_refresh"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sourced after the backend defines append_optional_secret. Values stay in Secret Manager.
+# Sourced after append_optional_secret is defined. Values remain in Secret Manager.
 # The exporter stays unavailable unless its production runtime flag is enabled.
 if [[ "${1:-}" == "production" ]]; then
   plg_project="${2:-}"

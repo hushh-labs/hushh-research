@@ -70,11 +70,8 @@ def _is_one_location_sms_emergency(data: dict[str, str]) -> bool:
 
 def _is_one_location_feed_only_transport(
     normalized_type: str,
-    *,
-    data: dict[str, str],
 ) -> bool:
-    if normalized_type == "location_share_revoked" and _is_one_location_sms_emergency(data):
-        return False
+    # Ending an SOS stops the recipient alarm; it must never sound a new one.
     return normalized_type in ONE_LOCATION_FEED_ONLY_TRANSPORT_TYPES
 
 
@@ -121,7 +118,6 @@ def build_push_message(
 
     force_feed_only_transport = _is_one_location_feed_only_transport(
         normalized_type,
-        data=data,
     )
     show_alert = bool(show_alert) and not force_feed_only_transport and not sms_expired
     if force_feed_only_transport:

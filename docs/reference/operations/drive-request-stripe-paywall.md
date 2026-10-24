@@ -632,3 +632,25 @@ Acceptance includes earning with no bank, both consent paths, replayed credits,
 parallel redemption attempts, erased owners, actual-fee and partial-delivery
 settlement, dispute holds, sandbox bank changes, and provider timeouts. No test
 transfer or test payout establishes that real funds reached a bank.
+
+
+### Terminal search presentation and protected diagnostics
+
+The compatible lifecycle states `no_match` (owner) and `no_files_shared`
+(requester) do not by themselves prove that Drive returned zero candidates.
+Participant-scoped request status and live Feed hydration project a closed
+`outcomeReason` from the associated completed, non-incomplete search:
+`no_matching_files` for zero retained matches, or `matching_files_unshareable`
+when every retained match lacks confirmed sharing eligibility. The latter says
+“Matching files could not be shared”; only the owner receives bounded matched
+and unavailable counts. Missing or ambiguous evidence says “No files were
+shared.” This is presentation of retained results, not fresh permission evidence,
+request authority, or a reason to start another payment or grant. Historical
+Feed events are hydrated without rewriting transactions or sharing receipts.
+
+New encrypted result metadata also retains versioned `shareabilityEvidence`:
+nullable boolean `canShare`, a bounded encryption classification, and the closed
+reason `allowed`, `capability_denied`, `encryption_restricted`, or
+`capability_unverified`. Eligibility and worker revalidation remain unchanged.
+Older records keep their original evidence; absent provider facts are never
+backfilled or described as a proven Google-side failure.

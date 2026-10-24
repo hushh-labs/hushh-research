@@ -218,6 +218,17 @@ async def request_card(body: CardRequestBody, owner: str = Depends(owner_identit
     )
 
 
+@router.get("/requests")
+async def pending_card_requests(
+    cursor: UUID | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=100),
+    owner: str = Depends(owner_identity),
+):
+    return await run_in_threadpool(
+        card_request_service().list_pending, owner, str(cursor) if cursor else None, limit
+    )
+
+
 @router.get("/requests/{request_id}")
 async def card_request(request_id: UUID, owner: str = Depends(owner_identity)):
     return await run_in_threadpool(card_request_service().get, owner, str(request_id))

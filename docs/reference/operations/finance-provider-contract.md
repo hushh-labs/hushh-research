@@ -139,6 +139,13 @@ closing cannot overwrite the previous complete snapshot. News and filings run
 outside that scope. A missing stock-preview quote time is displayed as
 unavailable rather than replaced with the current time.
 
+Optional mover sparklines degrade independently from the assembled Market home.
+An empty mover symbol set skips the series lookup. A missing closed-session
+series or failed series provider preserves already loaded news, indices and
+movers, with unavailable history recorded in provider status. A cold price
+cache still remains unavailable until trading resumes; this fallback does not
+permit a closed-session price-provider request.
+
 Focused offline tests pass 135 cases. Six negative controls reproduce the old
 closed-session calls, extra quote/profile send and partial-snapshot overwrite by
 loading committed code only inside the test process. No live provider call,
@@ -215,3 +222,31 @@ unspecified; the real legal name must be supplied by the owner.
 longer creates a second table. No current caller reads or writes the old table.
 Existing database tables were not dropped: contents must be inspected before an
 operator-approved retirement. No shared database mutation is part of this change.
+
+
+## Portfolio and Stocks presentation
+
+Portfolio and its Holdings, Allocation, Performance, source and import views use
+Finance's scoped Connect typography and shared surfaces. The overview aligns its
+two desktop columns at the top and stacks them on phones without equal-height
+stretching. Stock browsing keeps History beside search; saved rows open the latest
+analysis directly and retain separate version and deletion actions.
+
+Balance change is a period balance movement including cash flows, not investment
+return. Missing cash, cost basis, balance change and price timestamps remain
+unavailable. Sync time does not substitute for quote time. Invested is the sum of
+known noncash positions; it does not imply account reconciliation. Allocation rows
+and the stacked chart use the same total-portfolio denominator.
+
+The report action previews the current source and period before the existing PDF
+export. Its transient export context preserves unavailable balance change; reports
+use only observed history. No public-link publication is introduced. Company news
+in stock details uses exact-symbol matches from the existing Market news resource
+and adds no provider requests. Provider selection and closed-session refresh rules
+remain under the existing Market resource owner.
+
+Market index mini charts and detail charts render the supplied intraday series as
+linear areas with a fading fill. Color follows the daily change, including small
+or cached moves; freshness remains in the quote status. The dotted guide is the
+explicitly labeled first observed level, not previous close. Index axes and
+tooltips use points. No timestamps, history points or provider calls are added.

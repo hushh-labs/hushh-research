@@ -69,15 +69,14 @@ OneTextEventKind = Literal[
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
 _TOTAL_TURN_TIMEOUT_SECONDS = 90.0
-# The Puppy budgets, one rung of the timeout ladder (innermost first, each outer
-# bound above the inner one plus a margin): Hermes local model 110 s per request,
-# the pod broker 120 s per request, a specialist model call 60 s, then these three,
-# then the pod route at 155 s, the hub proxy at 160 s. A local model's cold first
-# token measured 32.9 s and a specialist call may take its full 60 s between two
-# events One sees, so the between-event budget is the one that had to grow.
-# Gemini keeps 20 / 30 / 90 untouched; `tests/test_timeout_ladder.py` pins the order.
-_PUPPY_FIRST_EVENT_TIMEOUT_SECONDS = 70.0
-_PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS = 70.0
+# One must allow the broker's bounded 95-second prefill plus settlement margin,
+# including a new model request after a tool event. The previous 70-second outer
+# waits cancelled requests before that inner first-frame budget expired.
+# Keep the absolute Puppy turn bound at 150 seconds, route at 155 and proxy at
+# 160; this adds neither retries nor keepalive. Gemini stays at 20 / 30 / 90.
+# `tests/test_timeout_ladder.py` verifies the cross-layer ordering.
+_PUPPY_FIRST_EVENT_TIMEOUT_SECONDS = 100.0
+_PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS = 100.0
 _PUPPY_TOTAL_TURN_TIMEOUT_SECONDS = 150.0
 
 
@@ -706,10 +705,9 @@ async def _stream_one_text_turn_once(
     total_timeout = _TOTAL_TURN_TIMEOUT_SECONDS
     if str(runtime_provider or "").strip().lower() == "puppy":
         # A local Puppy model receives One's full instruction and tool schema.
-        # Its measured cold first-token time is longer than the generic cloud
-        # provider budget, and a specialist call in the middle of a turn may take
-        # its full 60 s between two events One sees; all three Puppy budgets sit
-        # inside the pod broker's 120 s request deadline and the route's 155 s.
+        # Its broker permits bounded prefill on every model request. Event waits
+        # must cover that prefill; the independent total turn remains bounded
+        # above the broker's per-request deadline and below the route's 155 s.
         first_event_timeout = _PUPPY_FIRST_EVENT_TIMEOUT_SECONDS
         between_event_timeout = _PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS
         total_timeout = _PUPPY_TOTAL_TURN_TIMEOUT_SECONDS

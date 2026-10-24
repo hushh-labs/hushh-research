@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.middlewares.chat_key import require_vault_owner_chat_key
 from api.middlewares.rate_limit import limiter
@@ -17,6 +17,7 @@ from api.routes.one.profile_research import (
 )
 from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
+from hushh_mcp.one_adk.research_context import OwnerResearchContext
 from hushh_mcp.one_adk.world_model import OwnerDecisions
 from hushh_mcp.one_adk.world_model_usage import public_result
 from hushh_mcp.services import world_model_invitations as invitations
@@ -52,6 +53,16 @@ class RefreshPreparationInput(PreparationInput):
 
     refresh: bool = Field(default=False, strict=True)
     public_profiles: OwnerPublicProfiles | None = None
+    research_context: OwnerResearchContext | None = None
+
+    @model_validator(mode="after")
+    def approved_context(self):
+        if self.research_context is not None:
+            if not self.refresh or self.owner_decisions is None:
+                raise ValueError("Confirmed research context requires an explicit owner update")
+            if not set(self.research_context.confirmed) <= set(self.owner_decisions.confirmed):
+                raise ValueError("Research context must use currently confirmed details")
+        return self
 
 
 def decisions(body: PreparationInput | None):
@@ -64,7 +75,9 @@ def research_response(result, status_code):
     return JSONResponse(payload, status_code=status_code, headers=headers)
 
 
-async def operation(token, start, owner_decisions=None, refresh=False, public_profiles=None):
+async def operation(
+    token, start, owner_decisions=None, refresh=False, public_profiles=None, research_context=None
+):
     try:
         if start:
             kwargs = (
@@ -76,6 +89,8 @@ async def operation(token, start, owner_decisions=None, refresh=False, public_pr
                 kwargs["refresh_completed"] = True
             if public_profiles is not None:
                 kwargs.setdefault("inputs", {})["public_profiles"] = public_profiles
+            if research_context is not None:
+                kwargs.setdefault("inputs", {})["research_context"] = research_context
             result = await world_model_jobs.start(*owner(token), **kwargs)
         else:
             result = await world_model_jobs.status(*owner(token))
@@ -86,7 +101,7 @@ async def operation(token, start, owner_decisions=None, refresh=False, public_pr
         raise
     except PublicProfilesChanged:
         raise HTTPException(
-            409, "Wait for current research, then explicitly research these profiles."
+            409, "Wait for current research, then update your research details."
         ) from None
     except Exception:
         raise HTTPException(
@@ -108,6 +123,9 @@ async def start(
         refresh=bool(body and body.refresh),
         public_profiles=body.public_profiles.model_dump()
         if body and body.public_profiles
+        else None,
+        research_context=body.research_context.model_dump()
+        if body and body.research_context
         else None,
     )
 
@@ -133,7 +151,7 @@ class ResearchPreferencesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
     email_enabled: bool
-    consent_version: Literal["pwm-native-v1", "pwm-azure-bing-v1"]
+    consent_version: Literal["pwm-native-v1", "pwm-azure-bing-v1", "pwm-azure-tavily-v1"]
 
 
 @router.get("/preferences")
@@ -220,7 +238,10 @@ async def complete(
     user_id, consent_token = owner(token)
     try:
         draft = await world_model_jobs.status(user_id, consent_token)
-        if draft.get("research", {}).get("source_use") != "owner_supplied":
+        if draft.get("research", {}).get("source_use") not in {
+            "owner_supplied",
+            "tavily_review_retained",
+        }:
             raise HTTPException(
                 409,
                 "This search response is for viewing. Add your own details or a permitted source to save knowledge.",
@@ -307,7 +328,10 @@ async def revoke_invitation(
 async def claim_invitation(
     request: Request, body: ClaimInput, token: dict = Depends(require_vault_owner_chat_key)
 ):
-    if body.research_consent and load_pwm_policy()["provider"] == "azure_openai_web_search":
+    if body.research_consent and load_pwm_policy()["provider"] in {
+        "azure_openai_web_search",
+        "azure_openai_tavily",
+    }:
         raise HTTPException(422, "Turn on Azure public research in Personal World Model settings.")
     try:
         result = await invitations.claim(*owner(token), body.token)

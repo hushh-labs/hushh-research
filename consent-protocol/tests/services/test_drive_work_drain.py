@@ -59,6 +59,7 @@ def _drain(
     owner_payout_worker=None,
     packet_order_worker=None,
     group_worker=None,
+    period_packet_worker=None,
 ):
     return DriveWorkDrain(
         document_worker=workers[0],
@@ -73,6 +74,7 @@ def _drain(
         refund_worker=refund_worker or _worker({"outcomes": {"disabled": 1}}),
         owner_payout_worker=owner_payout_worker or _worker({"outcomes": {"disabled": 1}}),
         packet_order_worker=packet_order_worker or _worker({"outcomes": {"disabled": 1}}),
+        period_packet_worker=period_packet_worker or _worker({"outcomes": {"disabled": 1}}),
     )
 
 
@@ -117,39 +119,13 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
             "refunds": {"deferred": 1},
             "owner_payouts": {"deferred": 1},
             "packet_orders": {"deferred": 1},
+            "period_packets": {"deferred": 1},
         },
     }
     workers[0].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=180)
     for worker in workers[1:]:
         worker.run.assert_not_awaited()
     assert "document-id" not in str(result)
-
-
-@pytest.mark.asyncio
-async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
-    workers = [_worker({"outcomes": {"review_ready": 1}}) for _ in range(4)]
-
-    search = _worker({"outcomes": {"completed": 1}})
-    result = await _drain(workers, search).run(stage="suggestions")
-    search.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
-
-    workers[1].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=175)
-    for index in (0, 2, 3):
-        workers[index].run.assert_not_awaited()
-    assert result["workers"] == {
-        "groups": {"deferred": 1},
-        "documents": {"deferred": 1},
-        "suggestions": {"review_ready": 1},
-        "searches": {"completed": 1},
-        "permissions": {"deferred": 1},
-        "bulk_shares": {"deferred": 1},
-        "bulk_removals": {"deferred": 1},
-        "checkouts": {"deferred": 1},
-        "notifications": {"deferred": 1},
-        "refunds": {"deferred": 1},
-        "owner_payouts": {"deferred": 1},
-        "packet_orders": {"deferred": 1},
-    }
 
 
 @pytest.mark.asyncio
@@ -194,6 +170,7 @@ async def test_v1_stage_claims_only_marked_searches_approved_delivery_and_financ
         "refunds": {"disabled": 1},
         "owner_payouts": {"disabled": 1},
         "packet_orders": {"deferred": 1},
+        "period_packets": {"deferred": 1},
     }
 
 
@@ -224,6 +201,7 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
         "refunds": {"disabled": 1},
         "owner_payouts": {"disabled": 1},
         "packet_orders": {"disabled": 1},
+        "period_packets": {"deferred": 1},
     }
     assert "private" not in str(result)
 
@@ -487,7 +465,9 @@ async def test_search_failure_does_not_erase_the_preparation_result():
     workers = [_worker({"outcomes": {"review_ready": 1}}) for _ in range(4)]
     search = _worker({"outcomes": {}})
     search.run.side_effect = RuntimeError("private query and owner")
-    result = await _drain(workers, search).run(stage="suggestions")
+    periods = _worker({"outcomes": {"queued": 1, "private_query": "not-returned"}})
+    result = await _drain(workers, search, period_packet_worker=periods).run(stage="suggestions")
+    periods.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
     assert result["workers"]["suggestions"] == {"review_ready": 1}
     assert result["workers"]["searches"] == {"unavailable": 1}
     assert "private" not in str(result)

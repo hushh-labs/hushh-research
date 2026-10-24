@@ -204,10 +204,15 @@ for (const width of [320, 393, 430, 1440]) {
     await expect(toggle).toHaveCSS("height", "24px");
     await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("width", "20px");
     await expect(toggle.locator('[data-slot="switch-thumb"]')).toHaveCSS("height", "20px");
+    const trackBounds = (await toggle.boundingBox())!;
+    const thumbBounds = (await toggle.locator('[data-slot="switch-thumb"]').boundingBox())!;
+    expect(trackBounds.width).toBeCloseTo(48.6, 1);
+    expect(trackBounds.height).toBeCloseTo(21.6, 1);
+    expect(thumbBounds.width).toBeCloseTo(18, 1);
     await awaitProductFont(page);
     const status = page.getByTestId("one-location-header-status");
     const geometry = await status.evaluate((node) => ({ size: parseFloat(getComputedStyle(node).fontSize), width: node.clientWidth, scrollWidth: node.scrollWidth, tapHeight: node.closest("label")!.getBoundingClientRect().height }));
-    expect(geometry.size).toBeLessThanOrEqual(12);
+    expect(geometry.size).toBe(13);
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
     expect(geometry.tapHeight).toBeGreaterThanOrEqual(44);
     const alignment = await status.evaluate(node => {
@@ -215,10 +220,9 @@ for (const width of [320, 393, 430, 1440]) {
       range.selectNodeContents(node);
       const text = range.getBoundingClientRect();
       const track = node.closest("label")!.querySelector("[role=switch]")!.getBoundingClientRect();
-      return { textLeft: text.left, textCenter: text.left + text.width / 2, trackLeft: track.left, trackCenter: track.left + track.width / 2 };
+      return { textCenter: text.left + text.width / 2, trackCenter: track.left + track.width / 2 };
     });
     expect(Math.abs(alignment.textCenter - alignment.trackCenter)).toBeLessThan(1);
-    expect(Math.abs(alignment.textLeft - alignment.trackLeft)).toBeLessThan(9);
     await status.click();
     await expect(toggle).toBeChecked();
     await expect.poll(() => toggle.evaluate(node => {

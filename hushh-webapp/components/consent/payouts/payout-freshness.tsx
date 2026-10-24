@@ -80,6 +80,7 @@ export function PayoutFreshness({ className }: { className?: string }) {
       {notice === "Couldn't update" ? (
         <button
           type="button"
+          data-consent-role="utility"
           onClick={() => invalidatePayoutResources(PAYOUT_KINDS, "manual")}
           className="relative ml-2 rounded-sm font-semibold text-[color:var(--app-accent)] after:absolute after:-inset-x-3 after:-inset-y-[13px] after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
         >

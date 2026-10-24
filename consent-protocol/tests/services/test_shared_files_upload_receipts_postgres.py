@@ -42,6 +42,11 @@ async def _reserve_receipt():
     return row, epoch, lease, operation, reserved
 
 
+async def _pending_receipt(operation):
+    pending = (await registry.resource("alice"))["writes"]
+    return (json.loads(pending) if isinstance(pending, str) else pending)[operation]
+
+
 @pytest.mark.parametrize("race", ["late_initializer", "erasure", "recovery_wins", "live_wins"])
 async def test_resumable_receipt_cas_fences_late_dispatch_and_settlement(shared_storage, race):
     row, epoch, lease, operation, reserved = await _reserve_receipt()
@@ -252,3 +257,85 @@ async def test_uncertain_create_only_session_requires_terminal_cancellation_and_
     assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1
     if outcome == "unconfirmed" or erasing:
         store.get_bounded_with_generation.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "case", ["expired", "early", "legacy", "changed_bucket", "conflict", "invalid_clock"]
+)
+async def test_expired_session_requires_bound_age_missing_status_and_current_bucket(
+    shared_storage, monkeypatch, case
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.shared_files import writes
+
+    row, epoch, lease, operation, reserved = await _reserve_receipt()
+    now = 2_000_000_000
+    receipt = {
+        **reserved,
+        "state": "uncertain",
+        "session": {"opaque": "encrypted-fixture"},
+    }
+    if case != "legacy":
+        receipt["sessionObservedBy"] = (
+            now - writes._SESSION_EXPIRY_SECONDS + (1 if case == "early" else -1)
+        )
+    if case == "invalid_clock":
+        receipt["sessionObservedBy"] = True
+    assert await write_receipts.transition(row, operation, reserved, receipt, mode="recovery")
+    with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
+        await registry.fence("alice")
+    row = await registry.resource("alice")
+    monkeypatch.setattr(writes, "time", SimpleNamespace(time=lambda: now))
+    monkeypatch.setattr(write_receipts, "restore", lambda *_: "synthetic")
+    monkeypatch.setattr(
+        bucket_admission,
+        "observe",
+        AsyncMock(
+            return_value={**BUCKET, "generation": "2"} if case == "changed_bucket" else BUCKET
+        ),
+    )
+    store = SimpleNamespace(
+        status=AsyncMock(return_value="uncertain" if case == "conflict" else "missing"),
+        cancel=AsyncMock(return_value=False),
+        get_bounded_with_generation=AsyncMock(side_effect=AssertionError("erasure owns inventory")),
+    )
+    if case == "invalid_clock":
+        with pytest.raises(FilesRefused, match="FILES_UPLOAD_CUSTODY_UNVERIFIED"):
+            await writes.reconcile(store, row, operation, receipt)
+        assert await _pending_receipt(operation) == receipt
+        store.status.assert_not_awaited()
+        return
+    if case == "changed_bucket":
+        with pytest.raises(FilesRefused, match="FILES_STORAGE_IDENTITY_CHANGED"):
+            await writes.reconcile(store, row, operation, receipt)
+    else:
+        await writes.reconcile(store, row, operation, receipt)
+    if case == "expired":
+        assert (await registry.fence("alice"))["state"] == "erasing"
+        store.cancel.assert_not_awaited()
+    else:
+        with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
+            await registry.fence("alice")
+        row = await registry.resource("alice")
+        retained = await _pending_receipt(operation)
+        observed = retained["sessionObservedBy"]
+        if case == "changed_bucket":
+            assert retained["providerTerminal"] == "expired"
+            store.status.side_effect = AssertionError("reuse the durable expiry receipt")
+            store.cancel.side_effect = AssertionError("do not repeat terminal cancellation")
+            bucket_admission.observe.return_value = BUCKET
+            await writes.reconcile(store, row, operation, retained)
+            assert (await registry.fence("alice"))["state"] == "erasing"
+            return
+        if case == "legacy":
+            assert observed == now  # Never age from a reservation before session creation.
+        # Restart/retry keeps the same bound. A provider conflict stays fenced
+        # even after the clock passes the session deadline.
+        store.status.return_value = "uncertain"
+        bucket_admission.observe.return_value = BUCKET
+        monkeypatch.setattr(writes, "time", SimpleNamespace(time=lambda: now + 30))
+        await writes.reconcile(store, row, operation, retained)
+        assert (await _pending_receipt(operation))["sessionObservedBy"] == observed
+    assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1

@@ -42,6 +42,7 @@ export function OwnerConsentUnlockPrompt({
       title={prompt.title}
       description={prompt.description}
       allowVaultCreation={false}
+      presentationClassName="consent-presentation-surface"
     />
   );
 }

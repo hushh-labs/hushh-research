@@ -18,7 +18,7 @@
     {
       "action_id": "setup.finish_cloud",
       "label": "Finish agent setup",
-      "meaning": "Keeps the verified hosting and saved AI choice, then returns to the One setup hub.",
+      "meaning": "Keeps the verified hosting and saved AI choice, then returns to Hosting when opened from its Settings page, or to the One setup hub during onboarding.",
       "aliases": [
         "finish cloud setup",
         "finish my cloud",

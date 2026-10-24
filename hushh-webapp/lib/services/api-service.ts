@@ -1,3 +1,4 @@
+import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection } from "./personal-agent-hosting";
 import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
 /**
  * Platform-aware API routing. Web hub requests use Next.js proxies; native hub
@@ -3823,14 +3824,15 @@ export class ApiService {
   }
 
   static async getPersonalAgentStatus(options?: { signal?: AbortSignal }): Promise<PersonalAgentStatus> {
-    const token = await ApiService.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
-      method: "GET",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      signal: options?.signal,
-    });
-    if (!response.ok) throw new Error(`AGENT_STATUS_UNAVAILABLE:${response.status}`);
-    return response.json();
+    return readPersonalAgentStatus(await ApiService.getFirebaseToken(), ApiService.apiFetch, options);
+  }
+
+  static async getPersonalAgentCloudRemovalAvailability(options?: { signal?: AbortSignal }) {
+    return readCloudRemovalAvailability(await ApiService.getFirebaseToken(), ApiService.apiFetch, options);
+  }
+
+  static async inspectPersonalAgentHosting() {
+    return readHostingInspection(await ApiService.getFirebaseToken(), ApiService.apiFetch);
   }
 
   static async approvePersonalAgentUpdate(input: {
@@ -3911,11 +3913,14 @@ export class ApiService {
     return response.json();
   }
 
-  static async wakePod(): Promise<{ state: "awake" | "waking" | "gone"; etaMs: number; needsFreshSetup?: boolean }> {
+  static async wakePod(options?: { isEffectCurrent?: () => boolean }): Promise<{ state: "awake" | "waking" | "gone"; etaMs: number; needsFreshSetup?: boolean }> {
     const token = await ApiService.getFirebaseToken();
+    if (options?.isEffectCurrent && !options.isEffectCurrent())
+      throw new DOMException("The connection session changed.", "AbortError");
     const response = await ApiService.apiFetch("/api/one/pod/wake", {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      isEffectCurrent: options?.isEffectCurrent,
     });
     if (!response.ok) throw new Error(`pod wake failed: HTTP ${response.status}`);
     return response.json();

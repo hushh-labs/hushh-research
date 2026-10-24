@@ -18119,12 +18119,12 @@
     {
       "action_id": "profile.world_model.refresh",
       "surface_id": "profile_world_model",
-      "label": "Check for updates",
+      "label": "Update my model",
       "aliases": [],
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Start a fresh research pass when research is on and none is running.",
+      "meaning": "Use the current saved confirmed details, verified profile and approved public links to start the next bounded research pass. Relevant confirmed details may become public search query terms.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -18191,7 +18191,7 @@
           {
             "type": "action",
             "action_id": "profile.world_model.refresh",
-            "label": "Check for updates",
+            "label": "Update my model",
             "failure_behavior": "stop"
           }
         ],
@@ -18719,12 +18719,12 @@
     {
       "action_id": "profile.world_model.public_profiles",
       "surface_id": "profile_world_model",
-      "label": "Research your public profiles",
+      "label": "Edit details and optional links",
       "aliases": [],
       "search_keywords": [
         "personal world model"
       ],
-      "meaning": "Explicitly choose public profile links for Azure and Bing research. Links are owner assertions, not identity verification; review findings before saving.",
+      "meaning": "Review prefilled account and confirmed details, edit them with existing editors, and optionally approve new public links for the next update.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -18759,7 +18759,8 @@
       },
       "control_ids": [
         "pwm_public_sources_open",
-        "pwm_public_profiles_research"
+        "pwm_public_profiles_research",
+        "pwm_optional_links_toggle"
       ],
       "state_exposure": [],
       "docs_references": [
@@ -18793,7 +18794,7 @@
           {
             "type": "action",
             "action_id": "profile.world_model.public_profiles",
-            "label": "Research your public profiles",
+            "label": "Edit details and optional links",
             "failure_behavior": "stop"
           }
         ],
@@ -19273,7 +19274,7 @@
         "byoc",
         "AI"
       ],
-      "meaning": "Keeps the verified hosting and saved AI choice, then returns to the One setup hub.",
+      "meaning": "Keeps the verified hosting and saved AI choice, then returns to Hosting when opened from its Settings page, or to the One setup hub during onboarding.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

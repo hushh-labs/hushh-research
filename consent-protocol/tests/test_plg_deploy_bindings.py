@@ -9,7 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "deploy/plg/bind_secrets.sh"
-BACKEND_SECRET_PORT = ROOT / "scripts/deploy/commerce-preview-bindings.sh"
+BACKEND_BINDINGS = ROOT / "scripts/deploy/commerce-preview-bindings.sh"
 
 
 @pytest.mark.parametrize(
@@ -41,10 +41,11 @@ def test_binding_requires_enabled_versions_in_production(
     script = r"""
 set -euo pipefail
 PROJECT_ID=test-project
-_SECRET_PREFIX=''
-secrets=''
+_SECRET_PREFIX=""
+secrets=""
 gcloud() {
   [[ "$*" == *'--project=test-project'* ]] || return 17
+  if [[ "$1 $2" == "secrets describe" ]]; then return 0; fi
   if [[ "$*" == *'--secret=ONE_PLG_EXPORT_ACCOUNT_IDS'* ]]; then
     [[ "$PLG_TEST_SECOND_STATE" != error ]] || return 1
     printf '%s\n' "$PLG_TEST_SECOND_STATE"
@@ -59,12 +60,9 @@ gcloud() {
     printf '%s\n' ENABLED
   fi
 }
-source "$3"
-source "$1" "$2" test-project
-IFS=',' read -r -a bindings <<< "$secrets"
-for binding in "${bindings[@]}"; do
-  [[ -z "$binding" ]] || printf '%s\n' "$binding"
-done
+source "$1"
+source "$2" "$3" test-project
+printf '%s\n' "$secrets"
 """
     result = subprocess.run(  # noqa: S603 -- fixed helper and synthetic CLI, no cloud access
         [
@@ -72,9 +70,9 @@ done
             "-c",
             script,
             "plg-bindings",
+            BACKEND_BINDINGS.as_posix(),
             HELPER.as_posix(),
             profile,
-            BACKEND_SECRET_PORT.as_posix(),
         ],
         env={
             **os.environ,
@@ -88,21 +86,20 @@ done
         timeout=10,
         check=True,
     )
-    assert len(result.stdout.splitlines()) == expected + int(
-        profile == "production" and subscription == "ENABLED"
-    )
+    actual = [value for value in result.stdout.strip().split(",") if value]
+    assert len(actual) == expected + int(profile == "production" and subscription == "ENABLED")
     bindings = []
     if profile == "production":
-        bindings += ["ONE_PLG_EXPORT_SECRET=ONE_PLG_EXPORT_SECRET:latest"]
+        bindings += ["ONE_PLG_EXPORT_SECRET:ONE_PLG_EXPORT_SECRET"]
         if state == "ENABLED":
-            bindings += ["ONE_PLG_EXPORT_ACCOUNT_IDS=ONE_PLG_EXPORT_ACCOUNT_IDS:latest"]
+            bindings += ["ONE_PLG_EXPORT_ACCOUNT_IDS:ONE_PLG_EXPORT_ACCOUNT_IDS"]
         if subscription == "ENABLED":
-            bindings += ["ONE_PLG_SUBSCRIPTION_SECRET=ONE_PLG_SUBSCRIPTION_SECRET:latest"]
+            bindings += ["ONE_PLG_SUBSCRIPTION_SECRET:ONE_PLG_SUBSCRIPTION_SECRET"]
     if profile == "production" and audience == "ENABLED":
-        bindings += ["ONE_PLG_AUDIENCE_SECRET=ONE_PLG_AUDIENCE_SECRET:latest"]
+        bindings += ["ONE_PLG_AUDIENCE_SECRET:ONE_PLG_AUDIENCE_SECRET"]
     if profile == "production" and policy == "ENABLED":
-        bindings += ["ONE_PLG_REPORTING_POLICY_JSON=ONE_PLG_REPORTING_POLICY_JSON:latest"]
-    assert result.stdout.splitlines() == bindings
+        bindings += ["ONE_PLG_REPORTING_POLICY_JSON:ONE_PLG_REPORTING_POLICY_JSON"]
+    assert actual == [value.replace(":", "=", 1) + ":latest" for value in bindings]
 
 
 def test_observation_projection_follows_split_literals_and_rejects_expressions():

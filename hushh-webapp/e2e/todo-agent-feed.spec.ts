@@ -28,7 +28,10 @@ test.beforeAll(async () => {
       "useCalendarConnectionStatus",
     "lib/profile/gmail-connector-store.ts": "useGmailConnectorStatus",
     "lib/profile/gmail-receipts-cache.ts":
-      "getCachedGmailReceipts,cachedGmailReceiptDisplayItems",
+      "getCachedGmailReceipts,cachedGmailReceiptDisplayItems,clearCachedGmailReceipts",
+    "lib/services/todo-capability-sources.ts": "readTodoCapabilities",
+    "lib/services/todo-suggestion-service.ts":
+      "todoSuggestionsAvailable,suggestTodoTasks",
     "lib/calendar/use-calendar-upcoming-events.ts": "useCalendarUpcomingEvents",
     "lib/services/personal-knowledge-model-service.ts":
       "PersonalKnowledgeModelService",
@@ -53,7 +56,7 @@ test.beforeAll(async () => {
         enforce: "pre",
         load(id) {
           const clean = id.split("?")[0];
-          const relative = path.relative(root, clean);
+          const relative = path.relative(root, clean).split(path.sep).join("/");
           if (overrides[relative])
             return `export {${overrides[relative]}} from ${JSON.stringify(boundary)};`;
           if (clean.endsWith("/node_modules/next/link.js"))
@@ -180,7 +183,7 @@ for (const [width, dark] of [
       .getByRole("button", { name: "Simulate refresh failure" })
       .click();
     await expect(checkbox).toBeVisible();
-    await expect(page.getByRole("status")).toHaveText(
+    await expect(page.getByRole("status").filter({ hasText: "Some agent tasks" })).toHaveText(
       "Some agent tasks couldn’t refresh. Your other items are still here.",
     );
     expect(

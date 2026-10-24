@@ -101,9 +101,7 @@ Consent-manager surface rules:
 4. The canonical page flow is `summary + one paginated list surface + detail panel`.
 5. Normal `/one/consent` tabs use `GET /api/consent/center/summary` and `GET /api/consent/center/list`. `GET /api/consent/center` is reserved for compatibility and the relationships surface until that surface is paginated.
 6. `/one/consent` keeps the canonical consent-manager URL, but the shared shell treats it as the `Profile > Privacy` workspace for breadcrumbs and bottom-nav context.
-7. The top-shell shield is the consent inbox:
-   - badge source: `summary.counts.pending`
-   - preview rows: first `5` items from the cached actorless `center/list?surface=pending&page=1&limit=20` payload for the One lane
+7. The mounted top app bar links to the Consent Center; it does not mount a Shield inbox or first-five preview. Consent pending counts remain sourced from the manager summary and notification/resource owners, not a top-bar popup.
 8. Internal consent-review links must stay on SPA-native app routing; full document redirects are reserved for true external URLs only.
 9. Long consent lists must use backend-backed pagination metadata and must not rely on a load-all-then-slice page contract.
 10. Investor consent reads expand the authenticated Firebase UID to the account-owned identifier set before filtering `consent_audit`: Firebase UID, verified Firebase-auth email/phone, and verified non-revoked email aliases including Apple relay emails.

@@ -366,7 +366,7 @@ export function DocumentRequestRequesterPanel({
   const free = !status.payment || status.payment.state === "none";
 
   return (
-    <div className="min-w-0 space-y-4" data-testid="document-request-requester-panel">
+    <div className="consent-presentation-surface min-w-0 space-y-4" data-testid="document-request-requester-panel">
       {context || prices.length || access ? (
         <div role="group" aria-label="Your request" className="space-y-2">
           {context ? (

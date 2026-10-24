@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { IllustratedRequestContent, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 
 export function RequestCardsButton({
@@ -214,6 +215,7 @@ export function RequestCardsButton({
       >
         <IllustratedRequestContent
           intent="card"
+          className={presentationStyles.walletDialog}
           title="Request a card"
           description={`Ask ${personName} to choose a card to share with you.`}
           showCloseButton={!busy}

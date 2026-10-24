@@ -80,7 +80,11 @@ def check_build(build, expected):
     )
     require(
         steps[0][1].get("waitFor")
-        == ["verify-azure-pwm-runtime", "verify-managed-vertex-runtime"],
+        == [
+            "deploy-backend",
+            "verify-azure-pwm-runtime",
+            "verify-managed-vertex-runtime",
+        ],
         "aggregate_dependencies_mismatch",
     )
     for key in ("startTime", "finishTime"):

@@ -153,6 +153,7 @@ from hushh_mcp.one_adk.registered_mcp_toolset import (
     probe_private_connector,
 )
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.one_adk.search_answer import one_text_agent
 from hushh_mcp.one_adk.selected_drive_status import inspect_selected_drive_files
 from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
@@ -174,7 +175,7 @@ from hushh_mcp.runtime_providers import (
     live_compatibility,
     thinking_config_for,
 )
-from hushh_mcp.runtime_providers.managed_text import managed_text_agent
+from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel, managed_text_agent
 from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
 from hushh_mcp.services.action_gateway import (
@@ -2791,13 +2792,15 @@ def build_one_text_agent(
     for its native tool; other specialists continue to inherit the text model.
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
-    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
-
     if isinstance(text_model, ManagedPrimaryTextModel) and google_search_model is None:
         # Search keeps the same Azure-only processor and invocation authority.
         # Native search requires LOW/default rather than minimal reasoning.
         google_search_model = text_model.model_copy(
-            update={"allow_web_search": True, "default_reasoning_effort": "low"}
+            update={
+                "allow_web_search": True,
+                "default_reasoning_effort": "low",
+                "text_verbosity": "low",
+            }
         )
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
@@ -2806,7 +2809,7 @@ def build_one_text_agent(
             callback_context, lookup=consent_bundle_lookup or _requester_bundle
         )
 
-    return managed_text_agent(
+    return one_text_agent(
         name="one",
         mode=execution_mode,
         output_schema=output_schema,

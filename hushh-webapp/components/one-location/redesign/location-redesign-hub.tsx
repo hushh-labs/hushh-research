@@ -81,6 +81,7 @@ import {
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import {
   Dialog,
@@ -145,7 +146,10 @@ import {
   ShareLanesDisclosure,
   useExpandedShareLanes,
 } from "./share-lanes";
-import { LOCATION_COMPACT_ACTION_SHAPE } from "./location-action-styles";
+import {
+  LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
+  LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
+} from "./location-action-styles";
 import {
   ShareReplacementConfirmDialog,
   ShareReplacementNotice,
@@ -3561,53 +3565,42 @@ export function PersonRow({
           aria-label={`Actions for ${name}`}
         >
           {onShare ? (
-            <Button
+            <MorphyButton
               type="button"
-              variant="link"
+              variant="none"
+              effect="fade"
               size="compact"
               onClick={shareReady ? onShare : onShareUnavailable}
               disabled={!shareReady && !onShareUnavailable}
               aria-haspopup={!shareReady && onShareUnavailable ? "dialog" : undefined}
-              className={cn(
-                "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent hover:no-underline",
-                LOCATION_COMPACT_ACTION_SHAPE,
-              )}
+              className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
               aria-label={`Share your location with ${name}`}
             >
-              {/* A compact fill inside the unchanged 44px touch target. */}
               <span data-location-type-role="compact-action"
                 data-location-action-surface
-                className={cn(
-                  "inline-flex h-10 w-full items-center justify-center bg-[color:var(--app-accent)] px-3",
-                  LOCATION_COMPACT_ACTION_SHAPE,
-                )}
+                className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}
               >
                 Share
               </span>
-            </Button>
+            </MorphyButton>
           ) : null}
           {onAsk ? (
-            <Button
+            <MorphyButton
               type="button"
-              variant="secondary"
+              variant="none"
+              effect="fade"
               size="compact"
               onClick={onAsk}
-              className={cn(
-                "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-[color:var(--app-accent)] shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent",
-                LOCATION_COMPACT_ACTION_SHAPE,
-              )}
+              className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
               aria-label={`Ask ${name} for their location`}
             >
               <span data-location-type-role="compact-action"
                 data-location-action-surface
-                className={cn(
-                  "inline-flex h-10 w-full items-center justify-center bg-[#F2F2F7] px-3",
-                  LOCATION_COMPACT_ACTION_SHAPE,
-                )}
+                className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}
               >
                 Ask
               </span>
-            </Button>
+            </MorphyButton>
           ) : null}
         </div>
       ) : null}
@@ -3935,20 +3928,22 @@ function CircleInvitationsDialog({
                     </p>
                   </div>
                   <div className="col-span-2 flex items-center justify-end gap-2 sm:col-span-1">
-                    <Button data-location-type-role="compact-action"
+                    <Button data-location-type-role="utility-action"
                       type="button"
                       variant="ghost"
+                      size="compact"
                       disabled={responding || inviteBusy}
                       onClick={() => void respondToInvite(invite.id, "decline")}
                       className="h-11 rounded-full px-3 text-[15px] text-[color:var(--app-secondary-label)] hover:bg-transparent"
                     >
                       {responding && inviteBusy ? "Declining…" : "Decline"}
                     </Button>
-                    <Button data-location-type-role="compact-action"
+                    <Button data-location-type-role="primary-action"
                       type="button"
+                      size="prominent"
                       disabled={responding || inviteBusy}
                       onClick={() => void respondToInvite(invite.id, "accept")}
-                      className="h-11 rounded-full bg-[color:var(--app-accent)] px-4 text-[15px] text-[color:var(--app-accent-fg)]"
+                      className="rounded-full bg-[color:var(--app-accent)] px-4 text-[color:var(--app-accent-fg)]"
                     >
                       {responding && inviteBusy ? "Joining…" : "Join"}
                     </Button>
@@ -4234,19 +4229,21 @@ export function PeopleHub({
   }, [onLoadMoreRecipients, vm.recipientPageHasMore, vm.recipientPageLoading]);
 
   const addPeopleEmptyAction = hasSearch ? (
-    <Link
-      href={peopleConnectRecoveryHref(vm.recipientSearch)}
-      data-testid="one-location-people-find-or-invite"
-      className="inline-flex h-11 min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-6 text-[16px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
-    >
-      Find or invite someone
-    </Link>
+    <Button asChild size="standard" className="h-11 min-h-11 rounded-full px-6">
+      <Link
+        href={peopleConnectRecoveryHref(vm.recipientSearch)}
+        data-testid="one-location-people-find-or-invite"
+      >
+        Find or invite someone
+      </Link>
+    </Button>
   ) : (
     <Button
       type="button"
+      size="standard"
       onClick={onAddConnections}
       data-voice-control-id="one-location-add-connections"
-      className="h-11 min-h-11 rounded-full bg-[color:var(--app-accent)] px-6 text-[16px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
+      className="h-11 min-h-11 rounded-full px-6"
     >
       Find or invite someone
     </Button>
@@ -4561,25 +4558,34 @@ export function PublicLinkActionRows({
   return (
     <div className="space-y-2.5 px-4 pb-4 pt-1.5">
       <div className="flex flex-wrap items-center gap-2" data-testid="public-link-actions">
-        <Button data-location-type-role="compact-action"
+        <MorphyButton
+          type="button"
+          variant="none"
+          effect="fade"
           onClick={onShare}
           size="compact"
-          className="ui-text-button-label h-11 min-w-0 gap-1.5 rounded-full px-3 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
         >
-          <Share2 onAccent className="h-4 w-4" />
-          Share
-        </Button>
-        <Button data-location-type-role="compact-action"
-          variant="outline"
+          <span data-location-type-role="compact-action" className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}>
+            <Share2 className="h-4 w-4" />
+            Share
+          </span>
+        </MorphyButton>
+        <MorphyButton
+          type="button"
+          variant="none"
+          effect="fade"
           onClick={handleCopy}
           disabled={copyBusy}
           aria-busy={copyBusy || undefined}
           size="compact"
-          className="ui-text-button-label h-11 min-w-0 gap-1.5 rounded-full px-3"
+          className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
         >
-          <Copy className="h-4 w-4" />
-          {copyBusy ? "Copying…" : copyLabel}
-        </Button>
+          <span data-location-type-role="compact-action" className={cn(LOCATION_CONNECT_ACTION_PILL_CLASSNAME, "w-[116px]")}>
+            {copyBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Copy className="h-4 w-4" />}
+            {copyBusy ? "Copying…" : copyLabel}
+          </span>
+        </MorphyButton>
       </div>
       <div className="pt-1">
         <button data-location-type-role="compact-action"
@@ -4614,14 +4620,16 @@ function ActiveLinkRow({
       title={title}
       description={subtitle}
       trailing={
-        <Button data-location-type-role="compact-action"
-          variant="outline"
+        <MorphyButton
+          type="button"
+          variant="none"
+          effect="fade"
           onClick={onCopy}
-          size="sm"
-          className="shrink-0 border-[color:var(--app-accent)] px-4 text-[color:var(--app-accent)]"
+          size="compact"
+          className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "shrink-0")}
         >
-          Copy
-        </Button>
+          <span data-location-type-role="compact-action" className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}>Copy</span>
+        </MorphyButton>
       }
     />
   );
@@ -6563,22 +6571,31 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
           </div>
         </SectionCard>
         <div className="grid grid-cols-2 gap-2.5" data-testid="circle-invite-actions">
-          <Button
-            size="standard"
-            className="min-w-0 gap-1.5 px-2"
+          <MorphyButton
+            type="button"
+            variant="none"
+            effect="fade"
+            size="compact"
+            className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onShareCircleInvite}
           >
-            <Send className="h-4 w-4" />
-            Share invite
-          </Button>
-          <Button
-            size="standard"
-            variant="outline"
-            className="min-w-0 px-2"
+            <span data-location-type-role="compact-action" className={cn(LOCATION_CONNECT_ACTION_PILL_CLASSNAME, "w-full min-w-0 px-2")}>
+              <Send className="h-4 w-4" />
+              Share invite
+            </span>
+          </MorphyButton>
+          <MorphyButton
+            type="button"
+            variant="none"
+            effect="fade"
+            size="compact"
+            className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "w-full min-w-0")}
             onClick={vm.onCopyCircleInvite}
           >
-            Copy link
-          </Button>
+            <span data-location-type-role="compact-action" className={cn(LOCATION_CONNECT_ACTION_PILL_CLASSNAME, "w-full min-w-0 px-2")}>
+              Copy link
+            </span>
+          </MorphyButton>
         </div>
         {invite ? (
           <Button

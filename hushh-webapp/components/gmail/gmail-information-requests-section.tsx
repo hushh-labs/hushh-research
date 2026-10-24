@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import mailStyles from "./mail-workspace.module.css";
 import { MailActionButton as Button } from "./mail-action-button";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
@@ -217,7 +218,7 @@ function WorkflowCard({
     <div className="space-y-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <p className="text-sm font-semibold text-foreground">
+          <p className={`${mailStyles.rowName} text-foreground`}>
             Information requested
           </p>
           <p className="truncate text-xs text-muted-foreground">
@@ -245,7 +246,7 @@ function WorkflowCard({
                   type="button"
                   variant="muted"
                   size="sm"
-                  className="min-h-8 text-[11px]"
+                  className={mailStyles.choiceAction}
                   aria-pressed={selectedScopes.includes(scope.scope)}
                   onClick={() => onToggleScope(scope.scope)}
                 >
@@ -265,17 +266,16 @@ function WorkflowCard({
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {workflow.gmail_thread_id ? (
-            <Button
+            <MorphyButton
               type="button"
-              variant="muted"
-              size="sm"
-              className="min-h-11"
-              onClick={() =>
-                openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))
-              }
+              variant="none"
+              effect="fade"
+              size="compact"
+              className={mailStyles.utilityAction}
+              onClick={() => openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))}
             >
               Open mail
-            </Button>
+            </MorphyButton>
           ) : null}
           <Button
             type="button"
@@ -308,7 +308,7 @@ function WorkflowCard({
           <textarea
             value={draft.body}
             onChange={(event) => onDraftChange(event.target.value)}
-            className="min-h-36 w-full rounded-lg border border-border bg-background p-3 text-sm text-foreground"
+            className="ui-text-input-value min-h-36 w-full rounded-lg border border-border bg-background p-3 text-foreground"
             aria-label="Private information reply draft"
           />
           {draft.preview ? (
@@ -375,20 +375,20 @@ function WorkflowQueueCard({
   onDraftWithOne: () => void;
 }) {
   return (
-    <div className="rounded-[var(--app-card-radius-md)] border border-[color:var(--app-card-border-standard)] bg-background/60 px-4 py-4 transition-colors hover:border-primary/25 hover:bg-primary/[0.025]">
+    <div className="consent-presentation-surface rounded-[var(--app-card-radius-md)] border border-[color:var(--app-card-border-standard)] bg-background/60 px-4 py-4 transition-colors hover:border-primary/25 hover:bg-primary/[0.025]">
       <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
             <MailCheck className="h-[18px] w-[18px]" aria-hidden="true" />
           </div>
           <div className="min-w-0 space-y-1">
-            <p className="text-sm font-semibold text-foreground">
+            <p data-consent-role="row-title" className={`${mailStyles.rowName} text-foreground`}>
               Information requested
             </p>
-            <p className="line-clamp-2 text-xs leading-5 text-muted-foreground sm:truncate sm:leading-normal">
+            <p data-consent-role="helper" className="line-clamp-2 text-xs leading-5 text-muted-foreground sm:truncate sm:leading-normal">
               {fieldLabels(workflow)}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p data-consent-role="helper" className="text-xs text-muted-foreground">
               {workflow.received_at
                 ? `Received ${new Intl.DateTimeFormat(undefined, {
                     dateStyle: "medium",
@@ -414,6 +414,7 @@ function WorkflowQueueCard({
             variant="muted"
             size="sm"
             className="min-h-11 min-w-0 justify-center"
+            data-consent-quiet-action="true"
             onClick={onReview}
           >
             Review
@@ -441,14 +442,14 @@ function ActivityCard({
     workflow.updated_at || workflow.received_at || workflow.created_at;
 
   return (
-    <div className="flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
+    <div className="consent-presentation-surface flex items-start justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3">
       <div className="min-w-0 space-y-1">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="truncate text-xs text-muted-foreground">
+        <p data-consent-role="row-title" className={`${mailStyles.rowName} text-foreground`}>{label}</p>
+        <p data-consent-role="helper" className="truncate text-xs text-muted-foreground">
           {fieldLabels(workflow)}
         </p>
         {timestamp ? (
-          <p className="text-xs text-muted-foreground">
+          <p data-consent-role="helper" className="text-xs text-muted-foreground">
             {new Intl.DateTimeFormat(undefined, {
               dateStyle: "medium",
               timeStyle: "short",
@@ -457,17 +458,16 @@ function ActivityCard({
         ) : null}
       </div>
       {workflow.gmail_thread_id ? (
-        <Button
+        <MorphyButton
           type="button"
-          variant="muted"
-          size="sm"
-          className="shrink-0"
-          onClick={() =>
-            openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))
-          }
+          variant="none"
+          effect="fade"
+          size="compact"
+          className={`${mailStyles.utilityAction} shrink-0`}
+          onClick={() => openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))}
         >
           Open Mail
-        </Button>
+        </MorphyButton>
       ) : null}
     </div>
   );
@@ -1125,7 +1125,7 @@ function GmailInformationRequestsWorkspace({
       <Button
         type="button"
         size="sm"
-        className="min-h-11 w-full sm:w-auto"
+        className={`${mailStyles.wideAction} min-h-11 w-full sm:w-auto`}
         variant="muted"
         disabled={loading || scanningInbox}
         aria-busy={loading || scanningInbox}
@@ -1143,7 +1143,7 @@ function GmailInformationRequestsWorkspace({
       <Button
         type="button"
         size="sm"
-        className="min-h-11 w-full text-muted-foreground hover:text-destructive sm:w-auto"
+        className={`${mailStyles.wideAction} ${mailStyles.quietDanger} min-h-11 w-full sm:w-auto`}
         variant="muted"
         disabled={updating || loading || scanningInbox || preference === null}
         onClick={() => setShowDisableConfirm(true)}
@@ -1155,7 +1155,7 @@ function GmailInformationRequestsWorkspace({
     <Button
       type="button"
       size="prominent"
-      className="w-full justify-center"
+      className={`${mailStyles.wideAction} w-full justify-center`}
       variant="blue-gradient"
       disabled={updating || loading || scanningInbox || preference === null}
       onClick={() => {
@@ -1175,7 +1175,7 @@ function GmailInformationRequestsWorkspace({
     </Button>
   );
   return (
-    <SurfaceInset className="space-y-4 !border-0 !bg-transparent !p-0 text-sm !shadow-none">
+    <SurfaceInset className="consent-presentation-surface space-y-4 !border-0 !bg-transparent !p-0 text-sm !shadow-none">
       <div className={enabled ? "flex items-start justify-between gap-3" : "mx-auto max-w-md pt-8 text-center"}>
         <div className="space-y-1">
           <h2 className={enabled ? "text-lg font-semibold tracking-tight text-foreground" : "text-2xl font-semibold tracking-tight text-foreground"}>KYC requests</h2>
@@ -1211,7 +1211,7 @@ function GmailInformationRequestsWorkspace({
               )}
             </div>
             <div className="min-w-0" aria-live="polite">
-              <p className="font-medium text-foreground">
+              <p className={`${mailStyles.status} text-foreground`}>
                 {scanningInbox
                   ? `Scanning emails: ${scannedCount ?? 0}`
                   : "Gmail monitoring is on"}
@@ -1237,10 +1237,10 @@ function GmailInformationRequestsWorkspace({
       {error ? (
         <p role="alert" className="text-xs text-red-600">
           {error}{" "}
-          <button type="button" className="min-h-11 px-2 text-[color:var(--app-accent)]" onClick={() => void load(true)} disabled={loading}>Try again</button>{" "}
+          <button type="button" className={`${mailStyles.utilityAction} px-2`} onClick={() => void load(true)} disabled={loading}>Try again</button>{" "}
           {needsGmailSend && onEnableGmailSend ? (
             <button
-              className="font-medium underline"
+              className={`${mailStyles.utilityAction} underline`}
               onClick={onEnableGmailSend}
               type="button"
             >
@@ -1373,7 +1373,7 @@ function GmailInformationRequestsWorkspace({
       )}
 
       <AdaptiveDetailSurface
-        surfaceClassName={`${mailStyles.typography} ${mailStyles.portal}`}
+        surfaceClassName={`${mailStyles.typography} ${mailStyles.portal} ${mailStyles.detailPortal} consent-presentation-surface`}
         open={active && Boolean(selectedWorkflow)}
         onOpenChange={(open) => {
           if (!open) setSelectedWorkflowId(null);
@@ -1410,7 +1410,7 @@ function GmailInformationRequestsWorkspace({
         open={active && showEnableConfirm}
         onOpenChange={(open) => setShowEnableConfirm(open)}
       >
-        <AlertDialogContent className={`${mailStyles.typography} ${mailStyles.portal} w-[calc(100%-1rem)] sm:max-w-md`}>
+        <AlertDialogContent className={`${mailStyles.typography} ${mailStyles.portal} consent-presentation-surface w-[calc(100%-1rem)] sm:max-w-md`}>
           <AlertDialogHeader>
             <AlertDialogTitle>Start monitoring?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1441,7 +1441,7 @@ function GmailInformationRequestsWorkspace({
         open={active && showDisableConfirm}
         onOpenChange={(open) => setShowDisableConfirm(open)}
       >
-        <AlertDialogContent className={`${mailStyles.typography} ${mailStyles.portal} w-[calc(100%-1rem)] sm:max-w-md`}>
+        <AlertDialogContent className={`${mailStyles.typography} ${mailStyles.portal} consent-presentation-surface w-[calc(100%-1rem)] sm:max-w-md`}>
           <AlertDialogHeader>
             <AlertDialogTitle>Turn off monitoring?</AlertDialogTitle>
             <AlertDialogDescription>

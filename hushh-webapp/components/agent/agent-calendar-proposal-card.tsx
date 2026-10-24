@@ -11,6 +11,7 @@ import {
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
 
 export type CalendarProposalAction = "create" | "reschedule" | "cancel";
 
@@ -127,10 +128,11 @@ export function AgentCalendarProposalCard({
   return (
     <div
       data-testid="agent-calendar-proposal-card"
+      data-calendar-presentation
       className={
         isCancel
-          ? "w-full rounded-[var(--app-card-radius-compact)] bg-destructive/5 p-4 sm:p-5"
-          : "w-full rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-compact)] p-4 sm:p-5"
+          ? `${calendarPresentation.chatCard} w-full rounded-[var(--app-card-radius-compact)] bg-destructive/5 p-4 sm:p-5`
+          : `${calendarPresentation.chatCard} w-full rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-compact)] p-4 sm:p-5`
       }
     >
       <div className="flex items-start gap-3">
@@ -148,21 +150,21 @@ export function AgentCalendarProposalCard({
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <p className={`${calendarPresentation.chatStatus} text-muted-foreground`}>
             {isCancel
               ? "Ready to cancel"
               : `Ready to ${VERB_LABEL[action].toLowerCase()}`}
           </p>
-          <p className="mt-1 break-words text-base font-semibold text-foreground">
+          <p className={`${calendarPresentation.chatPrimary} mt-1 break-words text-foreground`}>
             {title || "Untitled event"}
           </p>
           {range ? (
-            <p className="mt-1 text-sm text-foreground/75">{range}</p>
+            <p className={`${calendarPresentation.chatSupporting} mt-1 text-foreground/75`}>{range}</p>
           ) : null}
         </div>
       </div>
 
-      <div className="mt-4 space-y-2 border-t border-[color:var(--app-separator)] pt-3 text-sm">
+      <div className={`${calendarPresentation.chatBody} mt-4 space-y-2 border-t border-[color:var(--app-separator)] pt-3`}>
         {googleMeet ? (
           <div className="flex items-start gap-2.5 text-foreground">
             <CameraIcon className="mt-0.5 size-4 shrink-0 text-[color:var(--app-accent)]" />
@@ -229,21 +231,21 @@ export function AgentCalendarProposalCard({
       {changingTime && onChangeTime ? <div className="mt-4">
         {timeOptions.length ? <Select onValueChange={value => { setChangingTime(false); onChangeTime(value); }}>
           <SelectTrigger aria-label="Choose a start inside your free window" className="w-full"><SelectValue placeholder="Choose a time" /></SelectTrigger>
-          <SelectContent>{timeOptions.map(start => <SelectItem key={start} value={start}>{formatDateTime(start, displayZone)}</SelectItem>)}</SelectContent>
+          <SelectContent className={calendarPresentation.portal}>{timeOptions.map(start => <SelectItem key={start} value={start}>{formatDateTime(start, displayZone)}</SelectItem>)}</SelectContent>
         </Select> : <p className="text-sm text-muted-foreground">This window has passed. Ask One to find a new available time.</p>}
       </div> : null}
       <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button
           data-testid="agent-calendar-proposal-cancel"
-          size="standard"
-          variant="secondary"
+          size="compact"
+          variant="ghost"
           disabled={busy}
-          className="w-full sm:w-auto"
+          className={`${calendarPresentation.utility} w-full sm:w-auto`}
           onClick={onCancel}
         >
           Not now
         </Button>
-        {onChangeTime && !isCancel ? <Button size="standard" variant="secondary" disabled={busy} className="w-full sm:w-auto" onClick={() => setChangingTime(value => !value)}>Change time</Button> : null}
+        {onChangeTime && !isCancel ? <Button size="compact" variant="ghost" disabled={busy} className={`${calendarPresentation.utility} w-full sm:w-auto`} onClick={() => setChangingTime(value => !value)}>Change time</Button> : null}
         <Button
           data-testid="agent-calendar-proposal-confirm"
           size="standard"

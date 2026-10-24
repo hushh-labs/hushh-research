@@ -55,7 +55,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
           <p className="text-sm text-muted-foreground">
             memory.md couldn’t be opened.
           </p>
-          <Button variant="muted" onClick={model.retryLoad}>
+          <Button variant="none" effect="fade" size="compact" data-pkm-action="compact" onClick={model.retryLoad}>
             Try again
           </Button>
         </div>
@@ -83,11 +83,14 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
           </p>
           {editing ? (
             <div className="flex flex-wrap gap-2">
-              <Button variant="muted" className="min-h-11" disabled={saving} onClick={cancelEdit}>
+              <Button variant="none" effect="fade" size="compact" data-pkm-action="utility" disabled={saving} onClick={cancelEdit}>
                 Cancel
               </Button>
               <Button
-                className="min-h-11"
+                variant="none"
+                effect="fade"
+                size="compact"
+                data-pkm-action="compact"
                 disabled={
                   saving ||
                   current.draft === current.document.markdown ||
@@ -100,8 +103,11 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
             </div>
           ) : (
             <Button
-              variant="muted"
-              className="min-h-11 shrink-0"
+              variant="none"
+              effect="fade"
+              size="compact"
+              data-pkm-action="compact"
+              className="shrink-0"
               disabled={loading}
               onClick={model.beginEdit}
             >
@@ -119,7 +125,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
             <p>
               Your latest memories are available here but haven’t synced yet.
             </p>
-            <Button variant="muted" onClick={() => void model.retrySync()}>
+            <Button variant="none" effect="fade" size="compact" data-pkm-action="compact" onClick={() => void model.retrySync()}>
               Retry sync
             </Button>
           </div>
@@ -130,8 +136,8 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
               className="space-y-[var(--app-form-field-gap)]"
               disabled={saving}
             >
-              <legend className="text-sm font-medium">Identity details</legend>
-              <p className="text-xs text-muted-foreground">
+              <legend data-pkm-form-label="true" className="text-sm font-medium">Identity details</legend>
+              <p data-pkm-helper="true" className="text-xs text-muted-foreground">
                 Optional. Edit or clear a field to remove it. Your account name
                 and photo already work for approved questions; no KYC is needed.
               </p>
@@ -140,7 +146,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
                 { label: "Date of birth", key: "date of birth", type: "date" },
                 { label: "Sex", key: "sex", type: "text" },
               ].map((field) => (
-                <label key={field.key} className="block space-y-2 text-sm">
+                <label key={field.key} data-pkm-form-label="true" className="block space-y-2 text-sm">
                   <span>{field.label}</span>
                   <Input
                     aria-label={field.label}
@@ -162,7 +168,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
                   />
                 </label>
               ))}
-              <p className="text-xs text-muted-foreground">
+              <p data-pkm-helper="true" className="text-xs text-muted-foreground">
                 Age is calculated from your birth date. Sharing age does not
                 share that date. Sex is used only when you provide it.
               </p>
@@ -178,7 +184,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
               className="soul-memory-editor min-h-80"
               onChange={(event) => model.changeDraft(event.target.value)}
             />
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <div data-pkm-helper="true" className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>
                 Use Markdown headings, lists, and links. Passwords are omitted
                 when saving.
@@ -190,7 +196,10 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
             </div>
             {conflict ? (
               <Button
-                variant="muted"
+                variant="none"
+                effect="fade"
+                size="compact"
+                data-pkm-action="compact"
                 disabled={saving}
                 onClick={model.reloadLatest}
               >

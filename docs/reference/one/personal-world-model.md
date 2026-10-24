@@ -8,7 +8,7 @@ Canonical owner: [One Index](./README.md).
 flowchart LR
   Setup[Verified setup, vault and research policy] --> Ensure[Automatic ensure and resume]
   Ensure --> Research[Resumable native research]
-  Research --> Draft[View-only Google research]
+  Research --> Draft[Encrypted review inbox]
   Research --> Feed[Feed and optional email]
   Profile[Profile] --> Page[Personal World Model page]
   Draft --> Page
@@ -31,26 +31,28 @@ Hub content execution is available only in Shared. Private owners require a qual
 
 The Vertex lane enables research by default after setup disclosure. Once setup
 is resolved, `ensure` can create a missing preference row with readiness email
-enabled. Azure UAT instead requires the separate Azure/Bing opt-in described
+enabled. Azure UAT instead requires the separate Azure/search-provider opt-in described
 below. An existing disabled row is never turned back on; no migration rewrites
 existing rows. The owner keeps an off switch for research and readiness email.
 
-Research controls live in **Research and email**; the main journey does not require a manual URL. After vault unlock on any non-setup route, the app-wide world-model provider calls `ensure`: eligible new-owner research starts in the background, an existing owner without a model can start preparation, and interrupted work resumes through the existing consent and budget gates. Research only progresses while an authenticated client keeps calling `ensure` or `/jobs`; the server keeps the derived chat key for at most 300 seconds. Drafts are purged after 24 hours, and a model is prepared again automatically after seven days without research activity. A purged recent completion retains that cadence; **Check for updates** explicitly requests research through normal budgets. Automatic messages remain outside chat.
+Research controls live in **Research and email**; the main journey does not require a manual URL. After vault unlock on any non-setup route, the app-wide world-model provider calls `ensure`: eligible new-owner research starts in the background, an existing owner without a model can start preparation, and interrupted work resumes through the existing consent and budget gates. Research only progresses while an authenticated client keeps calling `ensure` or `/jobs`; the server keeps the derived chat key for at most 300 seconds. Legacy Google/Bing drafts are purged after 24 hours. The UAT Tavily review inbox remains encrypted until explicit discard or account deletion, independently of sign-out. A model is prepared again automatically after seven days without research activity. A purged recent completion retains that cadence; **Check for updates** explicitly requests research through normal budgets. Automatic messages remain outside chat.
 
 Profile has one compact **Personal World Model** row immediately below Memory. It opens the Personal World Model panel in Profile, using the existing icons, typography, cards, Back navigation and vault authority. The panel distinguishes preparation, reviewable findings, saved state and retryable failure.
 
-Findings are grouped into seven display sections: About, Work, Education, Projects, Interests, Preferences and Public presence. Empty sections are hidden. Each finding is a short fact row with its source and visible **Yes** and **No**. One tap saves the decision to the owner's memory; there is no second Save step, and the row only shows success after the encrypted memory write commits. Tapping a row opens its sources, why it may be about the owner, its uncertainty, and **Edit** and **Remove**.
+The panel has two groups: **To review** contains cited streamed and final findings with **✓** and **✕**; **Confirmed by you** contains the owner's committed declarations. Each row uses the existing Profile font, layout, detail sheet and pending feedback. Findings appear as validated cumulative batches arrive; the page does not wait for the final report. An empty authoritative batch revokes earlier provisional findings.
 
-- **Yes** saves the exact statement.
-- **No** remembers the rejection so the statement does not come back. It never saves an opposite fact: rejecting “likes blue” does not save “dislikes blue”.
+- **✓** commits the exact statement to encrypted owner memory before moving it to Confirmed by you. Source-derived uncertainty is not an identity verification.
+- **✕** commits a rejection before hiding the row. Normalized statement hashes suppress the same statement across later batches, final reports and sign-in sessions; the model also receives a bounded list of prior decisions to avoid equivalent claims. Host code does not promise deterministic paraphrase matching.
 - **Edit** saves only the owner's corrected wording.
-- **Remove** deletes the saved statement and keeps it removed after sign-out and sign-in.
+- **Remove** deletes the saved statement and records its removal after sign-out/sign-in.
+
+Pending or failed writes never look successful. Rejected/removed decision records are not silently pruned at 512 entries; encrypted write size limits still apply. Owner declarations remain distinct from the retained research and do not independently certify its sources.
 
 Native Google search suggestions stay displayed with the grounded findings they belong to. **Invite someone** is a later, separate action shown only once the model is usable, never while preparing or empty. The invitation claim block stays reachable on the page in every state. The inviter enters a name and an email, phone, or both; no public profile URL is required. Either supplied contact may be used to claim after verification. Full research starts under the recipient's own account and remains under their control. Older invitation links may still carry selected, cited public professional preview facts. Claiming never grants the inviter access to the recipient’s model.
 
 ### Easy user stories
 
-1. **Find my public work.** Alex finishes setup and unlocks the vault; preparation starts without a button. A public company page and project repository support career and project facts under Work and Projects. Alex taps Yes on the ones that are right. Separately supplied permitted sources produce facts Alex can review and save.
+1. **Find my public work.** Alex finishes setup and unlocks the vault; preparation starts when the configured provider's consent is active. Public company and project pages support cited findings under **To review** as batches arrive. Alex taps **✓** on a correct finding; it moves to **Confirmed by you** only after its encrypted save succeeds.
 2. **Separate namesakes.** Two people share Alex's name. A school or location match alone is insufficient. The draft stays uncertain rather than mixing their biographies.
 3. **Find preferences.** Alex explicitly says “blue is my favorite color” in an attributed public interview. That can be proposed with its citation. Wearing blue, buying a gift, or requesting fewer ads does not prove a durable preference or dislike.
 4. **Find little information.** Public search finds no reliably linked sources. The page explains that limitation. It does not fill empty sections with guesses.
@@ -66,7 +68,7 @@ The specialist's `gemini-default` currently resolves to **Gemini `gemini-3.8-fla
 All managed text/chat, PWM, Live Voice, and embedding clients read [managed-ai-runtime.json](../../../consent-protocol/config/managed-ai-runtime.json).
 
 UAT's PWM override selects **Azure GPT-5 mini** (`pwm-gpt-5-mini-eval`) for
-planning, native Bing discovery and strict-schema report compilation. It shares
+planning and strict-schema report compilation. UAT now uses Tavily Search for discovery with a fresh `pwm-azure-tavily-v1` opt-in. The old Bing opt-in does not authorize Tavily. It shares
 the same authored specialist instruction. Only fresh authenticated owner fields
 are admitted: name plus verified email and canonical verified phone when present,
 with at least one verified contact required. A name alone cannot start research.
@@ -361,7 +363,7 @@ the owner’s encrypted Memory save remain unchanged.
 
 Each list holds at most 269 statements of 1 to 600 characters. The server stores them in the sealed, chat-key-encrypted job state under `inputs`, carries them across resumes, and passes them to the specialist as data. The client separately hides any draft statement whose claim key is already decided; that is an exact-key match only.
 
-A pending result uses HTTP 202. An offered result includes `draft_id`, `report`, `research.identity`, `research.checked_topics`, `research.gaps`, `research.searches_used`, and `pkm_written: false`. Missing configuration or failure before any successful search yields unavailable, not proof that no information exists. Pending, paused, and unavailable results may also carry `validated_facts`: provisional, cited, candidate-bound findings from the encrypted checkpoint. The owner-only SSE stream sends a cumulative `partial` frame when that list changes; an empty list revokes earlier provisional findings. These findings are read-only until the complete report passes its evidence checks. The UI shows observed search/source counts instead of a synthetic completion percentage, and retains the latest checkpoint summary during a retry.
+A pending result uses HTTP 202. An offered result includes `draft_id`, `report`, `research.identity`, `research.checked_topics`, `research.gaps`, `research.searches_used`, and `pkm_written: false`. Missing configuration or failure before any successful search yields unavailable, not proof that no information exists. Pending, paused, and unavailable results may also carry `validated_facts`: provisional, cited, candidate-bound findings from the encrypted checkpoint. The owner-only SSE stream sends a cumulative `partial` frame when that list changes; an empty list revokes earlier provisional findings. These findings can be reviewed immediately. Accepting one records an owner declaration; it does not bypass final-report evidence validation or promote omitted findings back into the model report. The UI shows observed search/source counts instead of a synthetic completion percentage, and retains the latest checkpoint summary during a retry.
 
 The specialist deadline is 240 seconds; the job deadline is 270 seconds. The existing derived key's lifetime remains bounded to 300 seconds. Search calls currently execute serially. Attempt slots are charged durably before dispatch and survive retries and identity edits within the checkpoint budget window. Native search receipts, assessed candidates and topic attempts are checkpointed before the next dependent step. A slice ends before the existing 300-second key authority expires; the app-wide provider's next `ensure` or `/jobs` call from an active owner session resumes the same generation. No key is persisted to run indefinitely after sign-out. An interrupted closed app resumes after the next vault unlock. Full unattended processing after key expiry would require a separately designed processing grant; this release does not claim it.
 
@@ -452,3 +454,46 @@ codes and counts only (`status`, `provider_code`, `searches_used`,
   `gcloud logging read` queries, how to read 403 / 429 / long pending, what
   the owner sees for each backend state, the frontend-only deploy path during
   a provider outage, and the log-based alert to create.
+
+### Retained UAT review inbox
+
+The `azure_openai_tavily` policy reuses Azure GPT-5 mini assessment, candidate separation, source validation, compilation and fact review. A charged model query stage produces one bounded Tavily query; the native Search response supplies actual result URLs/snippets and credit usage. It never fabricates Azure web-search calls or citation spans. Basic search uses documented keyless access with a shared provider cap, eight invocations per generation, a 25-second HTTP timeout, bounded response size and no transport retry or paid fallback. A quota or dependency failure is reported as unavailable while already received work remains reviewable.
+
+Tavily receives only admitted public-search context, never owner tokens, vault keys or unrestricted private memory. Explicit Update may include relevant owner-confirmed declarations as search leads; the visible Update disclosure explains this use. The opt-in names Tavily and its input reuse policy. Its API terms permit integration and do not impose the Bing Grounding output-cache prohibition; third-party source rights still apply. See [Tavily terms](https://www.tavily.com/terms) and [official keyless transport](https://github.com/tavily-ai/tavily-js/blob/main/src/utils.ts). This is the shared-rate UAT trial, not a dedicated search quota or SLA.
+
+Retained research uses the existing owner-key encrypted `one_adk_sessions` store in `one.personal_world_model.v1/tavily-profile-v1`. Google/Bing `profile` rows keep their 24-hour cleanup and never migrate their contents into the durable inbox. Recent legacy start timestamps alone carry into initial rollout; each provider lineage retains its charged slots and work together. Operator rollback to an older binary is not a cross-provider budget proof. Explicit refresh replaces the current research generation through the existing budget gates; explicit discard tombstones its contents. Owner identity, consent-generation, key lifetime and ciphertext-CAS fences remain mandatory, including after restart. An `attention` completion is not successful preparation and cannot suppress missing research for seven days.
+
+The no-traffic candidate probe additionally performs one non-personal Tavily search and requires real returned sources. Azure model readiness alone is insufficient to claim search readiness.
+
+### Update from saved details
+
+**Update my model** beside **Up to date** starts the next bounded discovery
+without a links dialog. It uses the verified account identity, previously approved
+public links and a fresh snapshot of saved, accepted or edited PWM statements.
+**Edit details** opens the prefilled account and confirmed-details view; the
+existing account and fact editors save corrections before Update reads them.
+New public links are optional, collapsed initially, and require separate approval.
+Suggested citations are never silently promoted to approved links.
+
+The explicit jobs refresh supplies `research_context` with `confirmed` statements
+and strict `permitted_public_research: true`. The server requires these statements
+to be a subset of the same request's confirmed owner decisions. The approved
+snapshot is frozen for that discovery and its resumptions. It is not exported
+into fresh automatic work after expiry, completion, consent or identity/policy
+changes. An explicit new Update obtains a fresh snapshot; a live identical POST
+remains an idempotent retry. An unreadable saved-context snapshot fails Update
+visibly rather than starting a context-free search.
+
+Planner and query stages receive only `owner_confirmed_research_leads`, not the
+full private decision context. Relevant details may appear in public search query
+terms, as disclosed beside Update. Rejected and removed statements remain private
+suppression inputs. A declaration is neither independent public evidence nor an
+identity bridge; sources, identity assessment and new findings retain their
+received-evidence validation and owner review requirements.
+
+Both page refresh entrypoints refuse an unreviewed queue, an in-flight review
+save, or pending/paused research. Accepted statements stay in **Confirmed by
+you** and normalized rejected statements stay hidden as new batches arrive.
+The existing owner, token, consent, budgets and checkpoint CAS still apply.
+This page guard does not introduce a cross-tab expected-draft precondition;
+concurrent API refresh semantics are unchanged.

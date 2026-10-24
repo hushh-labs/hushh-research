@@ -15,7 +15,7 @@ import pathspec
 import pytest
 import yaml
 
-from tests.helpers.deployment_cli import DRIVE_PRODUCTION_TOOLS
+from tests.helpers.deployment_cli import production_release_tools
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -438,36 +438,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     git("commit", "-qm", "Old application target")
     old_sha = git("rev-parse", "HEAD")
     old_upload_policy = git("show", f"{old_sha}:.gcloudignore")
-    current_paths = [
-        *old_paths,
-        "scripts/ci/verify-predecessor-acceptance.py",
-        "scripts/ops/runtime_config_retention.py",
-        "scripts/ops/scope_commerce_runtime_policy.py",
-        "scripts/ops/shared_files_runtime_policy.py",
-        "scripts/ops/passkey_domain_policy.py",
-        "scripts/ops/upsert_gcp_secret.py",
-        "deploy/email-auth/bind_secrets.sh",
-        "deploy/plg/bind_secrets.sh",
-        "scripts/ci/verify-prod-places-readiness.py",
-        "scripts/ci/cloudrun-retention.py",
-        "scripts/ci/process_group.py",
-        "scripts/ci/account-deletion-fence-decision.py",
-        "scripts/ci/managed_provider_readiness.py",
-        "scripts/ops/verify-env-secrets-parity.py",
-        *(f"deploy/drive/{name}" for name in DRIVE_PRODUCTION_TOOLS),
-        *(
-            f"scripts/deploy/{name}"
-            for name in (
-                "backend-deploy.sh",
-                "verify-managed-vertex-runtime.sh",
-                *(path.name for path in (ROOT / "scripts/deploy").glob("backend-*-settings.sh")),
-                "commerce-preview-bindings.sh",
-                "scope-commerce-secrets.sh",
-                "pod-release-env.sh",
-                "preserve-pod-release.py",
-            )
-        ),
-    ]
+    current_paths = production_release_tools(ROOT, old_paths)
     for path in current_paths:
         write(path, (ROOT / path).read_text())
     registry = "consent-protocol/hushh_mcp/services/drive_prod_registry_provisioning.py"
@@ -490,21 +461,23 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     subprocess.run(  # noqa: S603 - execute the repo-authored release steps in an isolated fixture
         ["bash", "-c", checkout], cwd=repo, env=env, capture_output=True, text=True, check=True
     )
+    scope_tool = runner / "release-tools/resolve-deploy-scope.py"
+    assert scope_tool.read_text() == (ROOT / "scripts/ci/resolve-deploy-scope.py").read_text()
     for path in current_paths:
-        # These two existing helpers are consumed directly from RUNNER_TEMP.
+        # Main-owned helpers are consumed directly from RUNNER_TEMP.
         if path.endswith(
             (
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",
                 "verify-predecessor-acceptance.py",
+                "resolve-deploy-scope.py",
                 "verify-prod-places-readiness.py",
                 "passkey-domain-aliases.json",
             )
         ):
             continue
         assert (repo / path).read_text() == (ROOT / path).read_text()
-    # Exercise the file-relative policy imports in the restored old checkout.
-    # No cloud command or credential read is admitted by this probe.
+    # Import the restored policies without cloud access.
     subprocess.run(  # noqa: S603 - pure restored policy helpers, synthetic checkout
         [
             sys.executable,
@@ -553,8 +526,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     assert upload_filter.match_file(".env"), "Keep secret-file upload exclusion intact"
 
-    # The current Cloud Build gate sources this helper even for an older app SHA.
-    # Production must remain a no-op: preserving tooling cannot enable email OTP.
+    # Current tooling on an older app SHA must keep production email OTP disabled.
     subprocess.run(  # noqa: S603 - fixed authored shell helper in the synthetic checkout
         [
             "bash",

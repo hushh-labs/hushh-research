@@ -6,9 +6,9 @@ import {
   useId,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import Link from "next/link";
+import { DocumentPackageDetails, DocumentPackageActions, PackageFact as Fact } from "@/components/consent/document-package-review";
 import {
   documentRequestSetupState,
   documentRequestSetupHref,
@@ -49,7 +49,7 @@ import {
   isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
 import { DOCUMENT_FLOW_TEXT_SCALE, periodConflictNote } from "@/lib/consent/document-request-flow";
-import { partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
+import { documentRequestEmptyOutcomeLabel, partialDocumentDeliveryState } from "@/lib/consent/document-request-delivery-state";
 import {
   effectiveRequesterPaymentState,
   REQUESTER_PAYMENT_TITLES,
@@ -147,7 +147,7 @@ const STATUS_LABELS: Record<string, string> = {
   expired: "Request expired",
   completed: "Sharing results",
   partial: "Review sharing and search results",
-  no_match: "No file candidates in this search",
+  no_match: "No files were shared",
   no_files_shared: "No files were shared",
   management_only: "Manage recorded access",
 };
@@ -414,19 +414,6 @@ function isFinding(snapshot: Snapshot | null): boolean {
     snapshot?.status.direction === "incoming" &&
     (review.status === "pending" || review.status === "preparing") &&
     !review.preparationError
-  );
-}
-
-function Fact({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex min-h-11 items-start justify-between gap-4 py-2.5">
-      <HelperText as="dt" className="shrink-0">
-        {label}
-      </HelperText>
-      <BodyText as="dd" className="min-w-0 text-right [overflow-wrap:anywhere]">
-        {value}
-      </BodyText>
-    </div>
   );
 }
 
@@ -1262,7 +1249,7 @@ function UnlockedDocumentReview({
     review?.preparationError !== "background_preparation_required";
   const durableStatus = snapshot?.status.direction === "incoming" &&
     snapshot.status.status === "no_match"
-    ? "No file candidates in this search"
+    ? documentRequestEmptyOutcomeLabel(snapshot.status.outcomeReason)
     : automaticSharing
     ? review?.preparationError === "date_range_required"
       ? "Exact dates needed"
@@ -1332,7 +1319,7 @@ function UnlockedDocumentReview({
     : outgoingStatus.status === "partial" && sentCount > 0 && requesterPayment?.autoshare === true
       ? `Files sent · ${sentCount.toLocaleString()}`
     : outgoingStatus.status === "no_files_shared" && sentCount === 0
-      ? "No matching files"
+      ? documentRequestEmptyOutcomeLabel(outgoingStatus.outcomeReason)
     // Stalled or still queued work says so; it never reads as running.
     : requesterDelayed
       ? `${queueLabel({ queuedAt: outgoingStatus.workDelayedSince, queueDelayed: true }, now)}${
@@ -1356,12 +1343,17 @@ function UnlockedDocumentReview({
             ? error
               ? "Couldn't load request"
               : ACTIVITY_LABELS.loading
+            : snapshot.status.direction === "incoming" && snapshot.status.status === "no_match"
+              ? documentRequestEmptyOutcomeLabel(snapshot.status.outcomeReason)
             : agentPackage && review?.preparationError === "background_preparation_required"
               ? "Background Drive access needed"
             : v1Package && UNDECIDED.has(snapshot.status.status)
               ? ({ preparing: "Finding files", ready: "Request prepared",
                   no_match: "No matching files", unavailable: "Couldn't check this request",
                   stale: "Checking request", allowed: "Request prepared" } as const)[agentPackage.status]
+            : agentPackage?.confidenceBasis === "provider_search" && UNDECIDED.has(snapshot.status.status)
+              ? ({ preparing: "Finding files", ready: "Files ready", no_match: "No matching files",
+                  unavailable: "Couldn’t check files", stale: "Files changed", allowed: "Sharing allowed" } as const)[agentPackage.status]
             : agentPackage && UNDECIDED.has(snapshot.status.status)
               ? ({ preparing: "Preparing your file package", ready: agentPackage.coverageStatus === "partial" ? "Incomplete package"
                   : agentPackage.coverageStatus === "unknown" ? "Unable to verify"
@@ -1457,7 +1449,7 @@ function UnlockedDocumentReview({
   return (
     <section
       aria-label="Document sharing review"
-      className={cn("min-w-0 space-y-4 break-words", DOCUMENT_FLOW_TEXT_SCALE)}
+      className={cn("consent-presentation-surface min-w-0 space-y-4 break-words", DOCUMENT_FLOW_TEXT_SCALE)}
       data-testid="document-share-review"
     >
       {/* The one status node: fixed position, never keyed, so focus survives. */}
@@ -1560,7 +1552,7 @@ function UnlockedDocumentReview({
           <Fact label="Share with" value={review.recipientEmail} />
           {review.requesterProfile?.type === "ria" ? <Fact label="Requester"
             value={`${review.requesterProfile.legalName ?? review.requesterProfile.displayName ?? "Advisor"} · Verified RIA`} /> : null}
-          {review.purpose.periodStart ? <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
+          {review.purpose.periodStart ? <Fact label={agentPackage.confidenceBasis === "provider_search" ? "Search period" : "Period"} value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
           <Fact label="Access" value={review.requestedAccessDays != null
             ? `Viewer for ${review.approvedAccessDays ?? review.requestedAccessDays} days`
             : "Viewer, until removed"} />
@@ -1596,41 +1588,7 @@ function UnlockedDocumentReview({
       </> : null}
 
       {review && agentPackage && !v1Package && !removal ? <>
-        <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
-        <dl className={HAIRLINES}>
-          <Fact label="Share with" value={review.recipientEmail} />
-          {review.purpose.periodStart ? <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} /> : null}
-          <Fact label="Access" value="Viewer, until removed" />
-          <Fact label="Package" value={`${agentPackage.selectedCount.toLocaleString()} ${agentPackage.selectedCount === 1 ? "file" : "files"}`} />
-          <Fact label="Coverage" value={{ complete: "Complete", partial: "Partial", unknown: "Not established" }[agentPackage.coverageStatus]} />
-          {agentPackage.suggestedPriceCents !== null ? <Fact label="Suggested price" value={formatDocumentRequestPrice(agentPackage.suggestedPriceCents)} /> : null}
-          {agentPackage.status === "allowed" && review.priceCents != null ? <Fact label="Agreed price" value={formatDocumentRequestPrice(review.priceCents)} /> : null}
-        </dl>
-        <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
-          <dl className={HAIRLINES}>
-          <Fact label="Evaluated" value={`${agentPackage.evaluatedCount.toLocaleString()} of ${agentPackage.candidateCount.toLocaleString()} candidates`} />
-          {agentPackage.confidenceScore !== null ? <Fact label="Agent assessment" value={`${agentPackage.confidenceScore}/100`} /> : null}
-          {agentPackage.importanceScore !== null ? <Fact label="Importance" value={`${agentPackage.importanceScore}/500`} /> : null}
-          </dl>
-        {agentPackage.confidenceScore !== null ? <HelperText>Agent One&apos;s assessment is not a measured probability of correctness.</HelperText> : null}
-        {agentPackage.priceReason ? <HelperText className="[overflow-wrap:anywhere]">{agentPackage.priceReason}</HelperText> : null}
-        {agentPackage.selectedFiles?.length ? <div className="mt-3">
-          <MediumRowLabel as="span">Included files</MediumRowLabel>
-          <ul className="divide-y divide-border/60" aria-label="Included files">
-            {agentPackage.selectedFiles.map(file => <li key={file.position} className="py-2">
-              <HelperText className="[overflow-wrap:anywhere]">{file.name}</HelperText>
-              <HelperText>Weightage {file.weightageOutOf10}/10 · Model assessment {file.confidenceScore}/100</HelperText>
-            </li>)}
-          </ul>
-          {agentPackage.selectedCount > agentPackage.selectedFiles.length ? <HelperText>
-            Showing {agentPackage.selectedFiles.length} of {agentPackage.selectedCount} files.
-          </HelperText> : null}
-        </div> : null}
-        </details>
-        {agentPackage.summary ? <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">{agentPackage.summary}</BodyText> : null}
-        {agentPackage.gaps.length ? <ul aria-label="Package coverage gaps" className="divide-y divide-border/60">
-          {agentPackage.gaps.map((gap, index) => <li key={index} className="py-2"><HelperText className="[overflow-wrap:anywhere]">{gap}</HelperText></li>)}
-        </ul> : null}
+        <DocumentPackageDetails review={review} agentPackage={agentPackage} hairlines={HAIRLINES} />
         {review.preparationError === "package_existing_access_requires_review" ?
           <BodyText>The requester already has access to part of this packet. Checkout is paused.</BodyText>
         : review.preparationError === "payment_not_ready" ?
@@ -1642,6 +1600,8 @@ function UnlockedDocumentReview({
           ? "Agent One is preparing this packet."
           : agentPackage.status === "allowed"
             ? review.paymentRequired ? "The requester pays before this approved package is shared." : "Your approved package is being shared."
+          : agentPackage.confidenceBasis === "provider_search" && agentPackage.status === "ready"
+            ? "Files matched the Drive search. Their contents were not read."
           : agentPackage.status === "ready"
             ? agentPackage.canAllow ? "Allow this packet at the suggested price, or edit it."
               : agentPackage.coverageStatus === "partial" ? "Coverage is incomplete."
@@ -1652,14 +1612,10 @@ function UnlockedDocumentReview({
           : agentPackage.status === "stale"
             ? "This packet needs a fresh assessment."
             : "Agent One couldn’t finish checking this request."}</HelperText>}
-        {snapshot && UNDECIDED.has(snapshot.status.status) && agentPackage.status !== "allowed" ? <FlowActionGroup
-          primary={<Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked || !ownerDecision} onClick={() => allow(review.paymentRequired ? agentPackage.suggestedPriceCents ?? review.priceCents ?? null : null)}>Allow</Button>}
-          secondary={<Button size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
-            className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
-            disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
-            onClick={() => denyConfirm.activate(() => decide("decline"))}>{denyConfirm.label("Deny")}</Button>}
-        /> : null}
-        {ownerDecision && review.paymentRequired ? <Button size="standard" variant="none" disabled={locked} onClick={openPriceSheet}>Edit price</Button> : null}
+        <DocumentPackageActions review={review} agentPackage={agentPackage}
+          undecided={!!snapshot && UNDECIDED.has(snapshot.status.status)} locked={locked}
+          ownerDecision={ownerDecision} denyConfirm={denyConfirm} allowClass={ALLOW_CLASS}
+          onAllow={allow} onDecline={() => decide("decline")} onEditPrice={openPriceSheet} />
         {allowError && !priceOpen ? <HelperText role="alert">{allowError}</HelperText> : null}
         <DocumentRequestPriceSheet
           moneyPolicy="drive_cents"
@@ -1799,6 +1755,15 @@ function UnlockedDocumentReview({
           </SettingsGroup> : null}
         </div> : null}
       </> : null}
+
+      {snapshot?.status.direction === "incoming" && snapshot.status.outcomeReason === "matching_files_unshareable" ? (
+        <HelperText>
+          {snapshot.status.matchedFileCount ? `${snapshot.status.matchedFileCount} files found. ` : ""}
+          No matching file has confirmed sharing permission from your connected account.
+          Open Google Drive and ask the file owner or shared drive manager to check sharing permissions.
+          Payment does not change file permissions.
+        </HelperText>
+      ) : null}
 
       {review && !agentPackage && !setup && durableReview && !automaticSharing && !ownerDecision && !removal ? (
         <>
@@ -1954,14 +1919,14 @@ function UnlockedDocumentReview({
               </div>}
               {searchPageLoading ? <HelperText>Loading files…</HelperText> : null}
               {searchPageError ? <div><HelperText role="alert">Couldn&apos;t load files.</HelperText>
-                <Button size="standard" variant="none" onClick={() => setSearchPageRetry(value => value + 1)}>Try again</Button></div> : null}
+                <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => setSearchPageRetry(value => value + 1)}>Try again</Button></div> : null}
               {searchPrevious.length || searchPage?.nextCursor ? (
                 <div className="flex flex-wrap gap-2">
-                  <Button size="standard" variant="none" disabled={searchPageLoading || !searchPrevious.length}
+                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={searchPageLoading || !searchPrevious.length}
                     onClick={() => { setSearchCursor(searchPrevious.at(-1) ?? null); setSearchPrevious(items => items.slice(0, -1)); }}>
                     Previous
                   </Button>
-                  <Button size="standard" variant="none" disabled={searchPageLoading || !searchPage?.nextCursor}
+                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={searchPageLoading || !searchPage?.nextCursor}
                     onClick={() => { setSearchPrevious(items => [...items, searchCursor]); setSearchCursor(searchPage?.nextCursor ?? null); }}>
                     Next 25
                   </Button>
@@ -2045,8 +2010,8 @@ function UnlockedDocumentReview({
               {bulkShare.status === "review_ready" && ownerReviewRequired && review.paymentRequired === true ?
                 <HelperText>The requester pays after you approve these files.</HelperText> : null}
               {bulkShare.status === "review_ready" && v1ManualReview && review.requestedAccessDays != null ? <div className="space-y-2">
-                <label htmlFor="owner-access-days" className="block text-sm">Access period</label>
-                <select id="owner-access-days" value={selectedAccessDays}
+                <label htmlFor="owner-access-days" data-consent-role="form-label" className="block text-sm">Access period</label>
+                <select id="owner-access-days" data-consent-input="true" value={selectedAccessDays}
                   onChange={event => setOwnerAccessDays(Number(event.target.value))}
                   disabled={locked}
                   className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal">
@@ -2062,12 +2027,12 @@ function UnlockedDocumentReview({
               </div>
               {bulkPageLoading ? <HelperText>Loading files…</HelperText> : null}
               {bulkPageError ? <div><HelperText role="alert">Couldn&apos;t load files.</HelperText>
-                <Button size="standard" variant="none" onClick={() => setBulkPageRetry(value => value + 1)}>Try again</Button></div> : null}
+                <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => setBulkPageRetry(value => value + 1)}>Try again</Button></div> : null}
               {bulkPrevious.length || bulkPage?.nextCursor ? (
                 <div className="flex flex-wrap gap-2">
-                  <Button size="standard" variant="none" disabled={bulkPageLoading || !bulkPrevious.length}
+                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={bulkPageLoading || !bulkPrevious.length}
                     onClick={() => { setBulkCursor(bulkPrevious.at(-1) ?? null); setBulkPrevious(items => items.slice(0, -1)); }}>Previous</Button>
-                  <Button size="standard" variant="none" disabled={bulkPageLoading || !bulkPage?.nextCursor}
+                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={bulkPageLoading || !bulkPage?.nextCursor}
                     onClick={() => { setBulkPrevious(items => [...items, bulkCursor]); setBulkCursor(bulkPage?.nextCursor ?? null); }}>Next 25</Button>
                 </div>
               ) : null}

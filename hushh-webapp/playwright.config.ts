@@ -122,6 +122,8 @@ export default defineConfig({
       // nested checkbox beside it are tapped on an iPhone first.
       // `consent-center-row.layout` is opted in because the Requests row's
       // ✗ / ✓ targets and its row button are tapped on an iPhone.
+      // `consent-tab-strip.layout` covers complete labels, focus and 44px
+      // targets in the four-tab workspace the iPhone WebView ships.
       // `shared-with-you-card.layout` is opted in because the secure card is
       // read on an iPhone first: its Hide and Copy targets, and the ask rows'
       // keyboard and 44px targets, are measured in the engine the app ships in.
@@ -131,6 +133,7 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        /lost-vault-delete\.layout\.spec\.ts/,
         // Puppy shares One composer geometry and touch machine controls.
         /puppy-chat-controls\.layout\.spec\.ts/,
         /one-location-duration-dialog\.layout\.spec\.ts/,
@@ -172,6 +175,7 @@ export default defineConfig({
         /wallet-card-scan\.layout\.spec\.ts/,
         /wallet-intelligent-card-add\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
+        /consent-tab-strip\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,
         // Paid photos need WebKit's native image loader and browser recipient
         // crypto; a synthetic Image in JSDOM cannot prove decoding.

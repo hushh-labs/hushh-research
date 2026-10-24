@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/messages-navigation-proof";
+import { registerMessagesPresentationCases } from "./fixtures/messages-presentation-cases";
 
 // Production components/styles with synthetic auth/navigation/service ports.
 // Device keyboards, signed-in routes and push delivery have separate proofs.
@@ -143,7 +144,7 @@ for (const width of [393, 768, 960, 1920]) {
       const listBox = (await pane.getByRole("complementary", { name: "Circles" }).boundingBox())!;
       const threadBox = (await thread.boundingBox())!;
       const dockBox = (await dock.boundingBox())!;
-      expect(Math.abs(listBox.width - width * 0.3)).toBeLessThanOrEqual(1);
+      expect(Math.abs(listBox.width - (width < 1024 ? Math.max(width * 0.3, 272) : width * 0.3))).toBeLessThanOrEqual(1);
       const header = pane.getByRole("complementary", { name: "Circles" }).locator("header");
       const heading = (await header.getByRole("heading", { name: "Messages" }).boundingBox())!;
       const actions = (await header.locator('[class*="inboxHeaderActions"]').boundingBox())!;
@@ -506,7 +507,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [767, 852], [
     if (split) {
       expect(layout.aside).not.toBeNull();
       expect(Math.abs(layout.aside!.x - layout.canvas.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(layout.aside!.width - width! * 0.3)).toBeLessThanOrEqual(1);
+      expect(Math.abs(layout.aside!.width - (width! < 1024 ? Math.max(width! * 0.3, 272) : width! * 0.3))).toBeLessThanOrEqual(1);
       const inboxHeader = page.getByRole("complementary", { name: "Conversations" }).locator("header");
       const inboxHeaderBox = (await inboxHeader.boundingBox())!;
       expect(Math.abs(inboxHeaderBox.y + inboxHeaderBox.height - layout.threadHeader.y - layout.threadHeader.height)).toBeLessThanOrEqual(1);
@@ -673,73 +674,7 @@ test("a late send cannot redirect another conversation or erase its draft", asyn
   expect(await page.evaluate(() => history.state.directMessageSelection.token)).toBe("dm1.arjun");
   await expect(page.locator('[data-chat-message]').filter({ hasText: "Message for Maya" })).toHaveCount(0);
 });
-test("hover actions do not shift messages or the centered composer", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
-  const touchActions = await touchMessageActions(page);
-  const bubble = page.locator('[data-message-role="user"]').last();
-  const before = await bubble.boundingBox();
-  await bubble.hover();
-  await expect(bubble.getByRole("button", { name: "Message options" })).toBeVisible();
-  const other = page.locator('[data-message-role="user"]').first();
-  await other.hover();
-  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(touchActions ? 0 : 1);
-  if (!touchActions) await expect(other).toHaveAttribute("data-actions-visible", "true");
-  await bubble.hover();
-  const after = await bubble.boundingBox();
-  expect(Math.abs(after!.height - before!.height)).toBeLessThanOrEqual(1);
-  expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
-  await expectSharedDockFrame(page);
-  for (const role of ["user", "peer"]) {
-    const row = page.locator(`[data-message-role="${role}"]`).last();
-    await row.hover();
-    const emoji = row.getByRole("button", { name: "React to message" });
-    const iconBox = (await emoji.boundingBox())!;
-    const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
-    await expect(row.getByRole("button", { name: "Message options" })).toHaveCSS("background-image", /12px,.*12\.5px/);
-    expect(menuBox.width).toBeGreaterThanOrEqual(44);
-    expect(menuBox.height).toBeGreaterThanOrEqual(44);
-    expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
-    const bubbleBox = (await row.locator('[data-chat-bubble]').boundingBox())!;
-    if (touchActions) {
-      await expect(emoji.locator("..")).toHaveCSS("opacity", "0");
-      for (const button of [emoji, row.getByRole("button", { name: "Message options" })]) {
-        await expect(button).toHaveCSS("pointer-events", "none");
-        const box = (await button.boundingBox())!;
-        expect(box.width).toBeGreaterThanOrEqual(44);
-        expect(box.height).toBeGreaterThanOrEqual(44);
-        expect(box.x).toBeGreaterThanOrEqual(0);
-        expect(box.x + box.width).toBeLessThanOrEqual(1440);
-      }
-    } else {
-      expect(menuBox.x).toBeGreaterThanOrEqual(bubbleBox.x);
-      expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(bubbleBox.x + bubbleBox.width + 1);
-      if (role === "user") expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(bubbleBox.x);
-      else expect(iconBox.x).toBeGreaterThanOrEqual(bubbleBox.x + bubbleBox.width);
-    }
-  }
-  await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
-  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
-  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS("opacity", "0");
-  await bubble.getByRole("button", { name: "Message options" }).focus();
-  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS("opacity", "1");
-  await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
-  await expect(bubble).toHaveAttribute("data-actions-visible", "true");
-  await page.locator("main > header").getByRole("link", { name: "View Maya Rao's profile", exact: true }).focus();
-  await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
-  const title = page.getByRole("heading", { name: "Messages", exact: true });
-  const contact = page.getByRole("heading", { name: "Maya Rao", exact: true });
-  const typography = (node: HTMLElement | SVGElement) => {
-    const style = getComputedStyle(node);
-    return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
-  };
-  const screenTitle = await title.evaluate(typography);
-  const threadTitle = await contact.evaluate(typography);
-  expect(screenTitle.family).toBe(threadTitle.family);
-  expect(screenTitle.size).toBe("20px");
-  expect(screenTitle.weight).toBe("600");
-  expect(threadTitle.size).toBe("16px");
-  expect(threadTitle.weight).toBe("600");
-});
+registerMessagesPresentationCases({ mount, touchMessageActions, expectSharedDockFrame });
 
 test.describe("compact message layout", () => {
   test.use({ timezoneId: "UTC", locale: "en-US" });

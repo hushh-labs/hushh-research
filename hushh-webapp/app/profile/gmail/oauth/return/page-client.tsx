@@ -10,6 +10,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import mailStyles from "@/components/gmail/mail-workspace.module.css";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -577,12 +578,15 @@ export default function ProfileGmailOAuthReturnPageClient({
     user,
   ]);
 
+  const isCloudReturn = (searchParams.get("state") || initialState || "").startsWith("byoc.");
+  const mailPresentation = isCloudReturn ? "" : `${mailStyles.typography} ${mailStyles.callback}`;
+
   if (stage !== "error") {
     return (
       <AppPageShell
         as="div"
         width="reading"
-        className="flex min-h-[60vh] items-center justify-center"
+        className={`${mailPresentation} flex min-h-[60vh] items-center justify-center`}
         nativeTest={{
           routeId: "/one/profile/gmail/oauth/return",
           marker: "native-route-profile-gmail-return",
@@ -595,8 +599,9 @@ export default function ProfileGmailOAuthReturnPageClient({
       >
         <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
           <HushhLoader
+            className={isCloudReturn ? undefined : mailStyles.callbackStatus}
             label={
-              (searchParams.get("state") || initialState || "").startsWith("byoc.")
+              isCloudReturn
                 ? "Setting up your cloud. This can take a few minutes…"
                 : stage === "redirecting"
                   ? "Opening Gmail…"
@@ -612,7 +617,7 @@ export default function ProfileGmailOAuthReturnPageClient({
     <AppPageShell
       as="div"
       width="reading"
-      className="flex min-h-[60vh] items-center justify-center"
+      className={`${mailPresentation} flex min-h-[60vh] items-center justify-center`}
       nativeTest={{
         routeId: "/one/profile/gmail/oauth/return",
         marker: "native-route-profile-gmail-return",
@@ -628,20 +633,12 @@ export default function ProfileGmailOAuthReturnPageClient({
             Mail connection needs attention
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
-          <div className="mt-4 flex flex-col gap-2">
-            <Button
-              onClick={() =>
-                router.replace(
-                  returnToSetup
-                    ? ROUTES.ONE_SETUP
-                    : buildProfileGmailReturnPath(),
-                )
-              }
-              className="w-full"
-            >
-              {returnToSetup ? "Back to setup" : "Back to Mail"}
-            </Button>
-          </div>
+          <Button
+            onClick={() => router.replace(returnToSetup ? ROUTES.ONE_SETUP : buildProfileGmailReturnPath())}
+            className="mt-4 w-full"
+          >
+            {returnToSetup ? "Back to setup" : "Back to Mail"}
+          </Button>
         </div>
       </AppPageContentRegion>
     </AppPageShell>

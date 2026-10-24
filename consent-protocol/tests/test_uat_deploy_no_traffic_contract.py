@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import importlib.util
 import json
 import os
@@ -9,7 +8,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -20,12 +18,14 @@ from tests._deploy_contract import (
     managed_vertex_probe_script,
     managed_vertex_probe_surface,
 )
+from tests.test_pwm_runtime_probe import pwm_proof_fixture
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _BACKEND_RELEASE_TOOL_FIXTURES = (
     "deploy/backend.cloudbuild.yaml",
     "scripts/ci/managed_provider_readiness.py",
+    "scripts/ci/managed_capability_proof.py",
     "scripts/deploy/backend-deploy.sh",
     "scripts/deploy/backend-capacity-settings.sh",
     "scripts/deploy/verify-managed-vertex-runtime.sh",
@@ -377,8 +377,9 @@ def test_candidate_pkm_evaluator_inherits_exact_revision_resources(
     assert calls[-1][:4] == ["run", "jobs", "delete", "uat-pkm-eval-123-1"]
 
 
+@pytest.mark.parametrize("pwm_provider", ["azure_openai_web_search", "azure_openai_tavily"])
 def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
-    tmp_path: Path,
+    tmp_path: Path, pwm_provider: str
 ) -> None:
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     steps = build["steps"]
@@ -392,17 +393,16 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         < deploy_index
         < probe_index
     )
-    assert steps[probe_index]["waitFor"] == ["deploy-backend"]
+    assert set(steps[probe_index]["waitFor"]) == {"build-backend-image", "verify-runtime-iam"}
     probe = steps[probe_index]["args"][-1]
     assert "execution_name" in probe and "--set-secrets" in probe
-
     config_path = tmp_path / "consent-protocol/config/managed-ai-runtime.json"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
         json.dumps(
             {
                 "pwm_research": {"provider": "vertex_google_search"},
-                "pwm_research_uat": {"provider": "azure_openai_web_search"},
+                "pwm_research_uat": {"provider": pwm_provider},
             }
         ),
         encoding="utf-8",
@@ -541,96 +541,6 @@ def test_azure_pwm_probe_loads_production_contracts_without_application_secrets(
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
-
-
-@pytest.mark.parametrize(
-    "defect",
-    [
-        None,
-        "wording",
-        "wrong_attribution",
-        "reject_supported_attribution",
-        "missing_case",
-        "wrong_contract",
-        "invented_attempt",
-        "wrong_finding",
-        "unknown_case",
-    ],
-)
-def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypatch, capsys, defect):
-    from unittest.mock import AsyncMock
-
-    from hushh_mcp.one_adk import world_model_azure
-
-    script = REPO_ROOT / "consent-protocol/scripts/verify_azure_pwm_runtime.py"
-    spec = importlib.util.spec_from_file_location("azure_pwm_runtime_probe", script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    rows = [
-        {"case_id": key, "supported": expected} for key, _, _, expected in module._ATTRIBUTION_CASES
-    ]
-    if defect == "wrong_attribution":
-        rows[0]["supported"] = True
-    elif defect == "reject_supported_attribution":
-        for row in rows:
-            if row["case_id"] in {"metric", "authorship"}:
-                row["supported"] = False
-    elif defect == "missing_case":
-        rows.pop()
-    elif defect == "unknown_case":
-        rows[-1]["case_id"] = "untrusted-model-identifier"
-    examples, _schemas = module._production_contract_examples()
-    if defect == "wording":
-        examples["report"]["summary"] = "No search was performed in this fictional evaluation."
-    elif defect == "wrong_contract":
-        examples["planner"]["action"] = "search"
-    elif defect == "invented_attempt":
-        examples["report"]["coverage"][0]["attempt_ids"] = [1]
-    elif defect == "wrong_finding":
-        examples["finding"] = {"skip": False}
-    structured = AsyncMock(return_value={"decisions": rows, **examples})
-    monkeypatch.setattr(
-        world_model_azure,
-        "AzurePwmGateway",
-        lambda **kwargs: SimpleNamespace(structured=structured),
-    )
-    config = {
-        "primary_endpoint": "https://synthetic.openai.azure.com/openai/v1/",
-        "primary_deployment": "synthetic-primary",
-    }
-    if defect not in {None, "wording"}:
-        with pytest.raises(RuntimeError, match="evaluation failed"):
-            asyncio.run(module._probe_primary(config, lambda: "synthetic"))
-        diagnostic = json.loads(capsys.readouterr().out)
-        assert set(diagnostic["failed_fields"]) <= {
-            "repository",
-            "degree",
-            "merge",
-            "namesake",
-            "metric",
-            "authorship",
-            "assessment",
-            "finding",
-            "planner",
-            "report",
-        }
-        assert "untrusted-model-identifier" not in json.dumps(diagnostic)
-        if defect == "reject_supported_attribution":
-            assert diagnostic == {
-                "azure_pwm_probe_failure": "source attribution",
-                "failed_fields": ["metric", "authorship"],
-            }
-    else:
-        asyncio.run(module._probe_primary(config, lambda: "synthetic"))
-        event = json.loads(capsys.readouterr().out)
-        assert event["azure_pwm_attribution_cases"] == 6
-        assert event["azure_pwm_production_contracts"] == 4
-        assert len(event["policy_sha256"]) == 64
-    structured.assert_awaited_once()
-    request = structured.call_args.kwargs
-    assert request["purpose"] == "source_attribution_evaluation"
-    assert len(request["payload"]["cases"]) == 6
-    assert all("supported" not in case for case in request["payload"]["cases"])
 
 
 def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
@@ -1995,6 +1905,35 @@ def _managed_provider_gate():
     return module
 
 
+def _capability_results_fixture(policy):
+    capabilities = {
+        name: {"ready": True, "elapsed_ms": 1} for name in policy["required_capabilities"]
+    }
+    for name in ("structured_text", "image_input", "pdf_input"):
+        capabilities[name]["synthetic_content_verified"] = True
+    capabilities["structured_text"]["streaming_observed"] = True
+    capabilities["public_search"].update(cited_sources=1, fresh_page_retrieval_claimed=False)
+    if "compact_public_search" in capabilities:
+        capabilities["compact_public_search"].update(
+            cited_sources=1,
+            fresh_page_retrieval_claimed=False,
+            synthetic_content_verified=True,
+        )
+    capabilities["public_source"]["http_receipts"] = 1
+    capabilities["location_transcription"]["synthetic_phrase_verified"] = True
+    capabilities["location_semantics"]["steps"] = 1
+    capabilities["narration"].update(audio_bytes=4800, sample_rate=24000, chunks=2)
+    capabilities["live_audio"].update(
+        function_round_trip=True,
+        audio_bytes=4800,
+        sample_rate=24000,
+        input_sample_rate=16000,
+        input_transcription_verified=True,
+    )
+    capabilities["embeddings"]["dimensions"] = 768
+    return capabilities
+
+
 def _provider_fixture(module, provider):
     from uuid import UUID, uuid5
 
@@ -2054,25 +1993,7 @@ def _provider_fixture(module, provider):
     }
     policy = document["managed_runtime_uat"]
     digest = module.fingerprint({"policy": policy, "azure": document["pwm_research_uat"]["azure"]})
-    capabilities = {
-        name: {"ready": True, "elapsed_ms": 1} for name in policy["required_capabilities"]
-    }
-    for name in ("structured_text", "image_input", "pdf_input"):
-        capabilities[name]["synthetic_content_verified"] = True
-    capabilities["structured_text"]["streaming_observed"] = True
-    capabilities["public_search"].update(cited_sources=1, fresh_page_retrieval_claimed=False)
-    capabilities["public_source"]["http_receipts"] = 1
-    capabilities["location_transcription"]["synthetic_phrase_verified"] = True
-    capabilities["location_semantics"]["steps"] = 1
-    capabilities["narration"].update(audio_bytes=4800, sample_rate=24000, chunks=2)
-    capabilities["live_audio"].update(
-        function_round_trip=True,
-        audio_bytes=4800,
-        sample_rate=24000,
-        input_sample_rate=16000,
-        input_transcription_verified=True,
-    )
-    capabilities["embeddings"]["dimensions"] = 768
+    capabilities = _capability_results_fixture(policy)
     receipt["capability_proof"] = {
         "schema": "managed_capabilities_probe.v1",
         "provider": provider,
@@ -2088,12 +2009,7 @@ def _provider_fixture(module, provider):
     if provider == "azure_openai":
         receipt.update(
             pwm_trust="passed",
-            pwm_proof={
-                "azure_pwm_production_contracts": 4,
-                "azure_pwm_attribution_cases": 6,
-                "deployment": document["pwm_research_uat"]["azure"]["primary_deployment"],
-                "policy_sha256": "c" * 64,
-            },
+            pwm_proof=pwm_proof_fixture(document),
         )
         receipt["capabilities"]["pwm_model_contract"] = True
     return expected, receipt
@@ -2121,7 +2037,20 @@ def test_provider_release_admission_requires_azure(azure, vertex, selected):
 
 @pytest.mark.parametrize("provider", ["azure_openai", "vertex"])
 @pytest.mark.parametrize(
-    "defect", ["missing", "failed", "generation", "stream", "extra_body", "bool_count"]
+    "defect",
+    [
+        "missing",
+        "failed",
+        "generation",
+        "stream",
+        "extra_body",
+        "bool_count",
+        "compact_missing",
+        "compact_failed",
+        "compact_uncited",
+        "compact_fact",
+        "compact_page_claim",
+    ],
 )
 def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(provider, defect):
     module = _managed_provider_gate()
@@ -2137,6 +2066,16 @@ def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(pro
         proof["capabilities"]["structured_text"]["streaming_observed"] = False
     elif defect == "extra_body":
         proof["capabilities"]["structured_text"]["response_body"] = "not admissible"
+    elif defect == "compact_missing":
+        proof["capabilities"].pop("compact_public_search")
+    elif defect == "compact_failed":
+        proof["capabilities"]["compact_public_search"]["ready"] = False
+    elif defect == "compact_uncited":
+        proof["capabilities"]["compact_public_search"]["cited_sources"] = 0
+    elif defect == "compact_fact":
+        proof["capabilities"]["compact_public_search"]["synthetic_content_verified"] = False
+    elif defect == "compact_page_claim":
+        proof["capabilities"]["compact_public_search"]["fresh_page_retrieval_claimed"] = True
     else:
         proof["capabilities"]["public_source"]["http_receipts"] = True
     assert module.evaluate({provider: receipt}, expected)["ready"] is False
@@ -2329,6 +2268,7 @@ def test_required_provider_aggregate_cannot_be_allowed_to_fail():
     aggregate = steps["verify-managed-provider-readiness"]
     assert aggregate.get("allowFailure", False) is False
     assert set(aggregate["waitFor"]) == {
+        "deploy-backend",
         "verify-azure-pwm-runtime",
         "verify-managed-vertex-runtime",
     }
@@ -2339,7 +2279,7 @@ def test_required_provider_aggregate_cannot_be_allowed_to_fail():
             assert 'if [[ "${_DEPLOY_ENV}" == "uat" ]]; then exit 0; fi' in shell
             assert 'exit "${probe_status}"' in shell
         else:
-            assert steps[provider]["waitFor"] == ["deploy-backend"]
+            assert set(steps[provider]["waitFor"]) == {"build-backend-image", "verify-runtime-iam"}
             shell = steps[provider]["args"][-1]
         assert "trap finish_provider_probe EXIT" in shell
         assert shell.index("managed_provider_readiness.py record") < shell.index(
@@ -2474,30 +2414,31 @@ def test_complete_azure_bundle_does_not_require_a_working_alternate(classificati
 
 def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
     monkeypatch.syspath_prepend(str(REPO_ROOT / "scripts/ci"))
-    spec = importlib.util.spec_from_file_location(
-        "provider_receipt_capture", REPO_ROOT / "scripts/ci/capture_managed_provider_receipt.py"
-    )
-    collector = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(collector)
+    collector = importlib.import_module("capture_managed_provider_receipt")
     gate = _managed_provider_gate()
     expected, a = _provider_fixture(gate, "azure_openai")
     _, v = _provider_fixture(gate, "vertex")
     aggregate = gate.evaluate(
         {"azure_openai": a if azure else None, "vertex": v if vertex else None}, expected
     )
-    chosen = aggregate["selected_provider"]
     document = json.loads(_read("consent-protocol/config/managed-ai-runtime.json"))
     selection = {
         "context": expected,
         "managed_provider_selection": {
-            "provider": chosen,
+            "provider": aggregate["selected_provider"],
             "status": "verified",
             "revision": "consent-protocol-test-rev",
             "image": expected["image"],
             "traffic_percent": 0,
         },
     }
-    label = 'Step #5 - "verify-managed-provider-readiness"'
+    build_steps = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))["steps"]
+    aggregate_index, aggregate_step = next(
+        (index, step)
+        for index, step in enumerate(build_steps)
+        if step.get("id") == "verify-managed-provider-readiness"
+    )
+    label = f'Step #{aggregate_index} - "verify-managed-provider-readiness"'
 
     def entry(value, number):
         return {
@@ -2522,31 +2463,19 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False):
         "status": "SUCCESS",
         "startTime": "2026-10-21T12:00:00Z",
         "finishTime": "2026-10-21T12:01:00Z",
-        "substitutions": {
-            key: expected[value]
-            for key, value in {
-                "_DEPLOY_SHA": "source_sha",
-                "_GITHUB_RUN_ID": "github_run",
-                "_IMAGE_REFERENCE": "image",
-                "_RUNTIME_SERVICE_ACCOUNT": "runtime_account",
-                "_DEPLOY_ENV": "environment",
-                "_REGION": "region",
-            }.items()
-        },
-        "steps": [{}] * 5
-        + [
-            {
-                "id": "verify-managed-provider-readiness",
-                "status": "SUCCESS",
-                "waitFor": ["verify-azure-pwm-runtime", "verify-managed-vertex-runtime"],
-            }
-        ],
+        "substitutions": dict(
+            _DEPLOY_SHA=expected["source_sha"],
+            _GITHUB_RUN_ID=expected["github_run"],
+            _IMAGE_REFERENCE=expected["image"],
+            _RUNTIME_SERVICE_ACCOUNT=expected["runtime_account"],
+            _DEPLOY_ENV=expected["environment"],
+            _REGION=expected["region"],
+            _BACKEND_SERVICE="consent-protocol",
+            _CLOUD_RUN_TAG="account-deletion-" + expected["github_run"],
+            _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE="false",
+        ),
+        "steps": [{}] * aggregate_index + [{**aggregate_step, "status": "SUCCESS"}],
     }
-    build["substitutions"].update(
-        _BACKEND_SERVICE="consent-protocol",
-        _CLOUD_RUN_TAG="account-deletion-" + expected["github_run"],
-        _SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE="false",
-    )
     return collector, expected, document, label, entries, build
 
 
@@ -2590,6 +2519,10 @@ def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
         "build",
         "failed_build",
         "failed_step",
+        "dependency_deploy-backend",
+        "dependency_verify-azure-pwm-runtime",
+        "dependency_verify-managed-vertex-runtime",
+        "dependency_unexpected",
         "run",
         "image",
         "log_build",
@@ -2609,6 +2542,13 @@ def test_uploaded_provider_receipt_refuses_unbound_or_ambiguous_evidence(monkeyp
         build["status"] = "FAILURE"
     elif defect == "failed_step":
         build["steps"][-1]["status"] = "FAILURE"
+    elif defect.startswith("dependency_"):
+        dependency = defect.removeprefix("dependency_")
+        parents = build["steps"][-1]["waitFor"]
+        if dependency == "unexpected":
+            parents.append(dependency)
+        else:
+            parents.remove(dependency)
     elif defect == "run":
         build["substitutions"]["_GITHUB_RUN_ID"] = "wrong-run"
     elif defect == "image":
@@ -2712,6 +2652,9 @@ def test_provider_receipt_workflow_pins_collector_and_exact_build_identity():
     for name in ("Preserve current release tooling", "Checkout deployment SHA"):
         command = next(s["run"] for s in steps if s.get("name") == name)
         assert command.index("capture_managed_provider_receipt.py") < command.index(
+            'if [[ "${{ inputs.skip_managed_vertex_probe_once }}"'
+        )
+        assert command.index("run_uat_text_recovery_job.py") < command.index(
             'if [[ "${{ inputs.skip_managed_vertex_probe_once }}"'
         )
 

@@ -6,8 +6,6 @@ import { useGoogleConnectorTransitionReview } from '@/components/connections/goo
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
-import type { CalendarInvitationHandoff, CalendarAttendanceHandoff } from "@/lib/calendar/calendar-invitation-handoff";
-import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
@@ -38,6 +36,8 @@ import {
   CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "@/components/calendar/calendar-agent-page-layout";
 import { CalendarConnectHero } from "@/components/calendar/calendar-connect-hero";
+import { CalendarCompactAction } from "@/components/calendar/calendar-compact-action";
+import presentationStyles from "@/components/calendar/calendar-presentation.module.css";
 
 import { useAuth } from "@/hooks/use-auth";
 import { HushhAuth } from "@/lib/capacitor";
@@ -50,9 +50,8 @@ import {
   type GoogleCalendarStatus,
 } from "@/lib/services/google-calendar-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
-import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { trackEvent } from "@/lib/observability/client";
+import { openCalendarChat } from "@/lib/calendar/calendar-chat-handoff";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   createGoogleOAuthPopupAttempt,
@@ -369,7 +368,7 @@ export function CalendarAgentPage({
         if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
         const outcome = await connectGoogleConnector('calendar', {
           vaultOwnerCapability: vaultOwnerToken,
-          confirmLegacyTransition: confirmTransition,
+          confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
           isCurrent: () => activeOwnerIdRef.current === operationOwnerId,
         });
         if (activeOwnerIdRef.current !== operationOwnerId) return;
@@ -618,31 +617,12 @@ export function CalendarAgentPage({
     </div>
   ) : null;
 
-  const openChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff, calendarInvitation?: CalendarInvitationHandoff, calendarAttendance?: CalendarAttendanceHandoff) => {
-    trackEvent("one_calendar_action", { route_id: "one_calendar", action: "chat_opened", result: "success" });
-    if (!prompt && !calendarSlot && !calendarInvitation && !calendarAttendance) {
-      navigateToAgentChat();
-      return;
-    }
-    const createdAtMs = Date.now();
-    useOneConversationSession.getState().createHandoff({
-      id: `calendar-prompt-${createdAtMs}`,
-      reason: "user_requested",
-      transcript: prompt,
-      calendarSlot,
-      calendarInvitation,
-      calendarAttendance,
-      createdAtMs,
-    });
-    navigateToAgentChat();
-  };
-
   const disconnectDialog = (
       <AlertDialog
         open={disconnectConfirmOpen}
         onOpenChange={setDisconnectConfirmOpen}
       >
-        <AlertDialogContent size="sm" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
+        <AlertDialogContent size="sm" className={presentationStyles.portal} onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
           <AlertDialogHeader className="text-center">
             <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -697,7 +677,7 @@ export function CalendarAgentPage({
         onAddAccount={() => { void connect("manage", true, true); }}
         onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
-        onChat={(prompt, slot, invitation, attendance) => openChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
+        onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
@@ -724,23 +704,22 @@ export function CalendarAgentPage({
                 : "empty-valid",
       }}
     >
-      <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
+      <AppPageContentRegion className={`${CALENDAR_SETUP_REGION_CLASSNAME} ${presentationStyles.setup}`} data-calendar-presentation>
         {transitionDialog}
         {checkingConnection && !connected ? (
-          <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <div role="status" aria-live="polite" className={`${presentationStyles.status} flex items-center justify-center gap-2 text-muted-foreground`}>
             <Loader2 className="size-4 animate-spin" aria-hidden />
             {connectionPending ? "Finishing Calendar connection…" : "Checking Calendar connection…"}
           </div>
         ) : !status && statusError ? (
           <div className="flex flex-col items-center gap-4 text-center">
-            <p role="status" className="text-sm text-muted-foreground">{statusError}</p>
-            <Button
+            <p role="status" className={`${presentationStyles.support} text-muted-foreground`}>{statusError}</p>
+            <CalendarCompactAction
               type="button"
-              size="compact"
               onClick={() => void refresh().catch(() => toast.error("Calendar connection couldn’t load. Try again."))}
             >
               Try again
-            </Button>
+            </CalendarCompactAction>
           </div>
         ) : showConnectHero ? (
           <CalendarConnectHero
@@ -758,11 +737,11 @@ export function CalendarAgentPage({
             </div>
 
             <div className="space-y-[var(--page-header-copy-gap)]">
-              <h2 className="text-2xl sm:text-[26px] font-semibold tracking-tight text-foreground">
+              <h2 className={`${presentationStyles.flowTitle} tracking-tight text-foreground`}>
                 {connected ? "Google Calendar" : "Connect Google Calendar"}
               </h2>
 
-              <p className="text-base text-muted-foreground/80 max-w-xs leading-normal">
+              <p className={`${presentationStyles.flowDescription} text-muted-foreground/80 max-w-xs`}>
                 {detail}
               </p>
             </div>
@@ -780,7 +759,7 @@ export function CalendarAgentPage({
                   {/* Connection Status & Permission */}
                   <div className="flex flex-col items-center gap-1.5 text-center px-2">
                     <div
-                      className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                      className={`inline-flex items-center gap-1.5 ${presentationStyles.status} ${
                         connected
                           ? "text-emerald-600 dark:text-emerald-400"
                           : "text-muted-foreground"
@@ -792,7 +771,7 @@ export function CalendarAgentPage({
                       <span>{connectionLabel}</span>
                     </div>
                     {connected ? (
-                      <p className="text-xs text-muted-foreground max-w-sm leading-normal">
+                      <p className={`${presentationStyles.support} text-muted-foreground max-w-sm`}>
                         {permissionLabel}
                       </p>
                     ) : null}
@@ -803,7 +782,7 @@ export function CalendarAgentPage({
                     {connected && status?.calendar_list_access === false && !Capacitor.isNativePlatform() ? (
                       <button
                         type="button"
-                        className="min-h-11 text-sm font-medium text-[color:var(--app-tint)] underline-offset-4 hover:underline"
+                        className={`${presentationStyles.utility} text-[color:var(--app-tint)] underline-offset-4 hover:underline`}
                         disabled={busy}
                         onClick={() => void connect("read")}
                       >
@@ -815,14 +794,14 @@ export function CalendarAgentPage({
                         <AskOneButton
                           disabled={busy}
                           showIcon={false}
-                          onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
+                          onClick={() => openCalendarChat("Summarize my calendar events and help me plan meetings")}
                           className="w-full rounded-full"
                         >
                           Try Calendar Agent with One
                         </AskOneButton>
                         <button
                           type="button"
-                          className="min-h-11 text-xs font-medium text-[color:var(--app-destructive)] underline-offset-4 hover:underline focus-visible:underline"
+                          className={`${presentationStyles.utility} text-[color:var(--app-destructive)] underline-offset-4 hover:underline focus-visible:underline`}
                           disabled={busy}
                           onClick={() => setDisconnectConfirmOpen(true)}
                         >

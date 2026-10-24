@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -32,6 +33,8 @@ function devices(rows: unknown[]) {
 }
 
 beforeEach(() => {
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("owner-1");
   vi.useFakeTimers();
   resetPuppyLinkStoreForTests();
   mocks.listTrustedDevices.mockResolvedValue(devices([]));
@@ -44,6 +47,28 @@ afterEach(() => {
 });
 
 describe("the shared Puppy One link store", () => {
+  it.each(["owner-2", "owner-1"])("retires pending device discovery across reauthentication as %s", async nextOwner => {
+    let release!: (value: Response) => void;
+    mocks.listTrustedDevices.mockReturnValueOnce(new Promise<Response>(resolve => { release = resolve; }));
+    const heard = vi.fn();
+    const unsubscribe = subscribePuppyLink(heard);
+    const previous = refreshPuppyLink();
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner(nextOwner);
+    expect(getPuppyLinkSnapshot()).toBeNull();
+    let finishCurrent!: (value: Response) => void;
+    mocks.listTrustedDevices.mockReturnValueOnce(new Promise<Response>(resolve => { finishCurrent = resolve; }));
+    const current = refreshPuppyLink();
+    release(devices([{ device_id: "retired", status: "active", last_heartbeat_at: Date.now(), heartbeat: {} }]));
+    expect((await previous).device).toBeNull();
+    expect(heard).not.toHaveBeenCalled();
+    expect(refreshPuppyLink()).toBe(current);
+    finishCurrent(devices([]));
+    expect((await current).state).toBe("unlinked");
+    expect(heard).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
   it("releases a stalled read so a later refresh can recover", async () => {
     mocks.listTrustedDevices.mockReturnValueOnce(new Promise(() => {}));
     const stalled = refreshPuppyLink();

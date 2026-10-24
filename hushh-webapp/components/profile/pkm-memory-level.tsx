@@ -70,6 +70,7 @@ export function PkmMemoryLevel({
     <div className="space-y-7" data-pkm-detail-panel="true" data-pkm-memory-level="true">
       <button
         type="button"
+        data-pkm-utility="true"
         onClick={onBack}
         className="-ml-1 inline-flex min-h-11 items-center gap-1 text-[15px] font-normal text-muted-foreground transition-colors hover:text-foreground"
       >
@@ -80,13 +81,14 @@ export function PkmMemoryLevel({
       <div className="space-y-1">
         {!atRoot ? (
           <p
+            data-pkm-helper="true"
             className="text-[13px] font-medium uppercase tracking-wide text-muted-foreground"
             data-pkm-level-breadcrumb="true"
           >
             {level.crumbs.slice(0, -1).join(" › ")}
           </p>
         ) : null}
-        <h2 className="text-[26px] font-semibold leading-tight tracking-tight text-foreground">
+        <h2 data-pkm-content-title="true" className="text-[26px] font-semibold leading-tight tracking-tight text-foreground">
           {level.title}
         </h2>
       </div>
@@ -114,7 +116,7 @@ export function PkmMemoryLevel({
                 ariaLabel={`Open ${entry.label}`}
                 testId={`memory-group-${entry.key}`}
                 trailing={
-                  <span className="text-[15px] tabular-nums text-muted-foreground">
+                  <span data-pkm-helper="true" className="text-[15px] tabular-nums text-muted-foreground">
                     {entry.childCount}
                   </span>
                 }

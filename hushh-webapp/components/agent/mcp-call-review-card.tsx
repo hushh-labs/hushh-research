@@ -220,12 +220,12 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
 
   const visible = preview && review.isCurrent() ? preview : null;
   return (
-    <SurfaceCard data-testid="mcp-call-review-card">
+    <SurfaceCard data-testid="mcp-call-review-card" className="consent-presentation-surface">
       <SurfaceCardHeader>
         <SurfaceCardTitle>Review connector call</SurfaceCardTitle>
       </SurfaceCardHeader>
       <SurfaceCardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
+        <p data-consent-role="body" className="text-sm text-muted-foreground">
           {phase === "unknown" ? "We could not verify the outcome. Check the connector before trying again. This call will not be retried automatically."
             : phase === "unavailable" && gone === "expired" ? "This review expired. Ask One to prepare it again."
             : phase === "unavailable" && gone === "replaced" ? "This review was replaced. Ask One again."
@@ -238,20 +238,21 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
           <p
             role="timer"
             className={`text-xs tabular-nums ${countdown.urgent ? "font-medium text-foreground" : "text-muted-foreground"}`}
+            data-consent-role="utility"
           >
             Expires in {countdown.label}
           </p>
         ) : null}
         {visible ? <>
-          <p className="break-words text-sm font-medium">{visible.connectorLabel} · {visible.toolLabel.replaceAll("_", " ")}</p>
+          <p data-consent-role="row-title" className="break-words text-sm font-medium">{visible.connectorLabel} · {visible.toolLabel.replaceAll("_", " ")}</p>
           <ReviewArguments args={visible.arguments} />
           {Object.keys(visible.arguments).length === 0 ? <p className="text-sm">No additional inputs.</p> : null}
         </> : null}
         {phase === "unavailable" || phase === "unknown" ? (
-          <Button size="standard" variant="none" effect="fade" onClick={onDismiss}>Close review</Button>
+          <Button size="standard" variant="none" effect="fade" data-consent-quiet-action="true" onClick={onDismiss}>Close review</Button>
         ) : <FlowActionGroup
           primary={<Button size="standard" effect="fade" disabled={!visible || phase !== "ready"} onClick={() => void decide(true)}>Allow once</Button>}
-          secondary={<Button size="standard" variant="none" effect="fade" disabled={!visible || phase !== "ready"} onClick={() => void decide(false)}>Cancel</Button>}
+          secondary={<Button size="standard" variant="none" effect="fade" data-consent-quiet-action="true" disabled={!visible || phase !== "ready"} onClick={() => void decide(false)}>Cancel</Button>}
         />}
       </SurfaceCardContent>
     </SurfaceCard>

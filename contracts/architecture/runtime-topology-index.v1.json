@@ -990,7 +990,7 @@
       "id": "drive_continuous_document_evidence",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences."
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences."
     },
     {
       "data_class": "personal_encrypted",
@@ -1696,6 +1696,16 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Vault-owner session bootstrap ensures a missing Wallet Profile from account basics, and owner controls edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "personal_agent_cloud_removals"
+      ],
+      "id": "personal_agent_cloud_removal",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Dev-only migration972; vault-owner POST /api/one/personal-agent/removal and the existing resource-erasure executor. Owner/attempt primary-key lookups and transactional finalization; GET discovery is Firebase-owner authenticated and creates no operation."
     },
     {
       "data_class": "workflow_state",
@@ -6996,10 +7006,10 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "02448310d7910681448b55864231b81a20f60908470fc49539ee6f482450dc8d",
-    "agent_registry": "f01c98dc8f7d45c7c1240d2178ff561712b9d13471665456a64d04187dc1ca8c",
+    "action_gateway": "5cbf2c42876c25839568b1a5ea1c9f6323a85f4c36ea5d89ebe86d365d1d09cf",
+    "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "8dbd3b9ea314314d2280430fa134ccfb7ed791249763e243b66402b601ed17e3",
-    "data_plane": "f43d1cc77258c5d429da702044c6b08724d577caf9cb63cebf8942a9fe3971f3",
+    "data_plane": "761f75b0100a6fa0945eeed768e03ea33e7f0076bed6f98b453f84816fce7d58",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",
@@ -7018,6 +7028,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 160,
     "semantic_routes": 17,
-    "table_families": 126
+    "table_families": 127
   }
 }

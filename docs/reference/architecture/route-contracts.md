@@ -130,6 +130,8 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/calendar`
 - `/one/files` — encrypted BYOC Files; direct admitted pod transport, initially web-only
 - `/one/todos` — encrypted owner items plus Calendar, owner-confirmed Gmail follow-ups, and explicit pending-work projections from the existing Feed publishers (including KYC review requests). Calendar remains the event source of truth; Gmail message identifiers never enter the To-do record. Source workspaces remain authoritative; historical imports, running work, and safety alerts are not copied. Completion or dismissal stays private and never executes a source action.
+  One profile's To-do tab uses the same live-task projection and encrypted completion state. Partial source failures offer retry instead of an empty success; reads and mutation settlements are fenced to the current owner and vault session.
+  Coverage follows the nine visible One capabilities: Messages, Finance, Wallet, Location, Advisor, Mail, Calendar, Memory and Consent. Read-only metadata inventories augment existing Feed task projections; unavailable or capped sources remain explicitly incomplete. Opt-in One suggestions process at most 100 loaded summaries, remain ephemeral, and enter encrypted `one_todos` only through Add task. The shared-runtime suggestion gene is default-off; private placement refuses shared processing.
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/wallet-card` (Wallet Profile management; also composed inside Profile/NWS card details in Wallet, with automatic owner-session provisioning)
 - `/one/pkm/recent`

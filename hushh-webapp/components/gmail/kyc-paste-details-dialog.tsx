@@ -11,14 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import mailStyles from "./mail-workspace.module.css";
 import { MailActionButton as Button } from "./mail-action-button";
 import { cn } from "@/lib/utils";
-
-/**
- * A quiet text action. It deliberately has no hover or press wash: the shared
- * Button's state layer drew a grey pill behind these two links, which read as
- * a second, unrelated control.
- */
-const TEXT_ACTION_CLASSNAME =
-  "inline-flex min-h-11 items-center bg-transparent px-0 text-[14.45px] font-medium leading-[18.7px] text-[color:var(--app-accent)] outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] active:opacity-60 disabled:pointer-events-none disabled:opacity-50";
+import type { RefObject } from "react";
 
 /**
  * The paste form behind the KYC intro card. It owns layout only: the draft,
@@ -34,6 +27,7 @@ export function KycPasteDetailsDialog({
   onCopyPrompt,
   onSave,
   onSkip,
+  returnFocusRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -44,17 +38,24 @@ export function KycPasteDetailsDialog({
   onCopyPrompt: () => void;
   onSave: () => void;
   onSkip: () => void;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         srDescription="Paste your profile details so One can prepare future KYC replies."
+        onCloseAutoFocus={(event) => {
+          if (returnFocusRef?.current) {
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }
+        }}
         className={`${mailStyles.typography} ${mailStyles.portal} gap-0 p-6 text-center sm:max-w-xl sm:p-8`}
       >
-        <DialogTitle className="px-8 text-2xl font-bold leading-tight tracking-tight text-foreground">
+        <DialogTitle className="ui-text-navigation-title px-8 text-foreground">
           Paste your profile details
         </DialogTitle>
-        <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+        <p className="mx-auto mt-2 max-w-md text-sm leading-5 text-muted-foreground">
           Provide your information so One can securely parse and automate your
           KYC documents.
         </p>
@@ -62,7 +63,7 @@ export function KycPasteDetailsDialog({
           value={details}
           onChange={(event) => onDetailsChange(event.target.value)}
           placeholder="Paste your profile details here…"
-          className="mt-6 min-h-36 resize-none rounded-2xl border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-4 text-left shadow-none"
+          className="ui-text-input-value mt-6 min-h-36 resize-none rounded-2xl border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-4 text-left shadow-none"
           aria-label="KYC details"
           disabled={saving}
         />
@@ -72,7 +73,7 @@ export function KycPasteDetailsDialog({
               type="button"
               onClick={onCopyPrompt}
               aria-label="Copy prompt to clipboard"
-              className={TEXT_ACTION_CLASSNAME}
+              className={mailStyles.utilityAction}
             >
               <Copy aria-hidden="true" className="mr-2 size-[17px] shrink-0" />
               {copied ? "Copied" : "Copy AI prompt"}
@@ -90,7 +91,7 @@ export function KycPasteDetailsDialog({
             onClick={onSave}
             disabled={saving || !details.trim()}
             aria-busy={saving}
-            className="w-full justify-center"
+            className={cn(mailStyles.wideAction, "w-full justify-center")}
           >
             Save profile
           </Button>
@@ -98,7 +99,7 @@ export function KycPasteDetailsDialog({
             type="button"
             onClick={onSkip}
             disabled={saving}
-            className={cn(TEXT_ACTION_CLASSNAME, "px-4 text-[15px] font-normal")}
+            className={cn(mailStyles.utilityAction, "px-4")}
           >
             Skip for now
           </button>

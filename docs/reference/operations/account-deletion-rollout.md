@@ -19,6 +19,30 @@ necessary, but it is not sufficient on its own: a full deletion that was
 already in flight before the DDL committed can finish without crossing either
 root trigger, and a legacy account can lack one of the two root rows.
 
+## Database erasure runtime boundary
+
+Full account erasure runs its complete synchronous SQL transaction on one worker
+thread, including connection acquisition, lifecycle locks and commit or rollback.
+The server event loop remains available for heartbeats and unrelated requests.
+Before taking any domain or lifecycle lock, the transaction sets local lock and
+statement timeouts to 3 and 20 seconds respectively. These limits cancel SQL in
+PostgreSQL; an HTTP or coroutine timeout alone cannot stop a database thread.
+They bound individual statements, rather than the total erasure duration.
+
+A failed statement rolls back the tombstone and erasure together and releases
+the account barriers before returning the existing `ACCOUNT_DELETION_FAILED`
+response. Provider grant release and Firebase cleanup remain post-commit only.
+Clients must still confirm active status before retaining the session after a
+reported rollback; an untyped transport failure remains an uncertain outcome.
+Failed optional-table deletes log only the table name and elapsed time for
+diagnosis, without record contents or credentials.
+
+The regression rehearsal uses an empty disposable PostgreSQL database: it holds
+a row lock during erasure, proves bounded rollback without a tombstone or lost
+account rows, and then reads active account status while the row lock is still
+held. The event-loop regression separately proves a blocked database worker does
+not prevent the server heartbeat from running.
+
 ## Owner-cloud erasure boundary
 
 Account deletion also requires its owner's cloud inventory to settle. Preserve
@@ -79,6 +103,50 @@ finalization transaction passes. The new flow is source-qualified only: 962 is s
 for governed rehearsal, together with 963’s complete archive projection.
 Destructive admission remains unavailable until both contracts are installed;
 selection does not establish disposable live acceptance. See [Azure lifecycle](../architecture/byoc-azure.md#erasure-heal-and-update-recovery-as-implemented).
+
+## Remove cloud while keeping the account
+
+The local follow-up adds **Remove cloud** to onboarding’s account menu and Hosting.
+Discovery is read-only; the action is offered only when the installed schema
+supports it. It opens a distinct **Remove cloud, keep account?** review. It does
+not invoke account deletion. Vault unlock, exact resource/retention terms and
+provider authority remain required. Opening the menu starts no inspection or
+mutation. Native clients currently direct this operation to the website.
+
+Dev-only migration972 binds this purpose to the existing erasure attempt and
+resource journal. Azure execution rechecks that separate approval before OAuth
+redemption and every worker admission. GCP reuses the recorded direct resource
+erasure backend; it does not borrow Azure’s access-only capability. Approval
+expires after ten minutes; a reviewed retry resumes the same retained operation.
+Progress reads stop while hidden, on terminal/attention states, at their bounded
+deadline and on closing. A running worker offers status refresh, not another
+execution. Unknown progress is not rendered as verified resource counts.
+
+Finalization requires qualified absence/retention evidence and reconciled setup
+history. It atomically archives that proof, clears live cloud coordinates and
+keys, advances the placement epoch, and retains the stable Hussh identity and
+prior-home snapshots. The account, Firebase identity, vault and PKM stay. The
+person chooses hosting again; Shared is never silently selected. A lost final
+response is recoverable only while that exact released identity remains current.
+An old response cannot remove or relabel a replacement pod. Unresolved historical
+resources block completion; pending saves or provider timeouts do not release
+custody. Eventual full account deletion removes this operation through its
+existing independent transaction.
+
+**Check hosting** observes only recorded owner resources through cloud control
+APIs, without waking the pod. Confirmed absence, unreadable resources, a changed
+incarnation and a running cleanup are distinct outcomes. Existing **Link existing
+pod**, **Reconnect** and owner-approved Azure rebuild retain their own authority.
+Reconnect repairs transport; it cannot recreate missing compute. Earlier cloud
+homes remain visible when their cleanup cannot be proven. There is no
+subscription-wide automatic reaper, label-only adoption or unattended deletion
+of discovered resources.
+
+This follow-up is locally verified source, not installed-cloud acceptance.
+Migration972 remains dev-only; UAT/production do not acquire deletion authority
+from a frontend deployment. Governed dev rehearsal must verify the exact schema,
+owner review, cancellation/retry and resulting provider absence before availability
+is claimed.
 
 ## GCP runtime quota grants
 
@@ -358,8 +426,9 @@ durability path for pending Firebase deletion/quarantine work.
 
 ### Shared identity and repeat sign-in
 
-A non-production environment cannot delete a shared production Firebase
-principal. Backend erasure still fences its UID permanently; signing in again
+A shared Firebase identifier is supported across environments. A non-production
+environment cannot delete that shared production principal. Backend erasure
+still fences the environment's current application account permanently; signing in again
 with that UID cannot restore the erased account. Normal and lost-vault deletion
 report `ready_to_start_fresh` only after Firebase removal is confirmed. A
 terminal tombstone preserves the installed-client `AUTH_ACCOUNT_NOT_FOUND` code
@@ -369,9 +438,22 @@ does not establish provider cleanup or authorize re-enrollment.
 
 For repeat onboarding before terminal erasure, use the authorized account-reset
 flow. A genuinely new Firebase UID is independent of the previous tombstone.
-Already erased shared identities require an isolated identity authority or a
-separately reviewed account-generation contract; never clear the tombstone or
-mutate a production identity as an incident workaround.
+Same-UID re-registration requires an environment-scoped account-generation
+contract across authentication, consent, devices, pod admission, background jobs
+and database writes. Existing owners remain unchanged; retired authority must
+never reach a replacement generation. Separate Firebase projects are an alternative,
+not a prerequisite. Never clear a tombstone, reconnect by email or mutate a
+production identity as an incident workaround.
+
+Full-account cleanup now records `identity_retained` when validated nonproduction
+authority deliberately preserves the shared identity. The hashed tombstone stays;
+its raw cleanup UID and next-attempt timestamp are cleared, and the existing
+`quarantined` bookkeeping state stops automatic retries. This does not mean that
+Firebase was disabled, deleted or remotely logged out. Exact claim matching and
+the non-null-UID guard refuse late settlements. Genuine provider/configuration
+failures and provisional phone-orphan cleanup remain retryable. The response
+continues to report `ready_to_start_fresh: false` until safe re-enrollment is
+implemented or identity removal is independently confirmed.
 
 ## Maintainer UAT backend-only erasure
 

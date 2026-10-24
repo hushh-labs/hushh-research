@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import { cardCameraCaptureBox } from "@/lib/wallet/card-scan-image";
 
@@ -30,7 +31,7 @@ export function WalletLiveCardCapture({ onPhoto, onCancel, onChoosePhoto }: { on
       <span aria-hidden="true" className="pointer-events-none absolute inset-[8%] rounded-2xl border-2 border-white/90" />
     </div>
     <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText}>{failed ? "Camera unavailable. Choose a photo or enter your card details." : "Place your card inside the frame."}</p>
-    <div className="flex flex-wrap justify-center gap-2"><Button type="button" size="compact" disabled={!ready || failed || busy} onClick={() => {
+    <div className="flex flex-wrap justify-center gap-2"><Button type="button" variant="outline" size="compact" className={presentationStyles.quietAction} disabled={!ready || failed || busy} onClick={() => {
       const element = video.current; if (!element?.videoWidth || !element.videoHeight || element.readyState < 2 || busy) return;
       const rect = element.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
@@ -45,6 +46,6 @@ export function WalletLiveCardCapture({ onPhoto, onCancel, onChoosePhoto }: { on
       } catch {
         canvas.width = canvas.height = 0; setFailed(true); setBusy(false);
       }
-    }}>Take photo</Button>{onChoosePhoto ? <Button type="button" variant="ghost" size="compact" disabled={busy} onClick={() => { stopCapture(); onChoosePhoto(); }}>Choose from photos</Button> : null}<Button type="button" variant="ghost" size="compact" onClick={() => { stopCapture(); onCancel(); }}>Cancel</Button></div>
+    }}>Take photo</Button>{onChoosePhoto ? <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={busy} onClick={() => { stopCapture(); onChoosePhoto(); }}>Choose from photos</Button> : null}<Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} onClick={() => { stopCapture(); onCancel(); }}>Cancel</Button></div>
   </section>;
 }

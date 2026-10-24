@@ -360,13 +360,13 @@ const RESULT_CHART_COLORS = {
 } as const;
 
 const DETAIL_PANEL_CLASSNAME =
-  "rounded-2xl border border-border/60 bg-[color:var(--app-card-surface-default-solid)] p-4";
+  "border-t border-border py-4";
 const DETAIL_PANEL_COMPACT_CLASSNAME =
-  "rounded-xl border border-border/50 bg-[color:var(--app-card-surface-default-solid)] p-3";
+  "border-t border-border py-3";
 const DETAIL_PANEL_EMPHASIS_CLASSNAME =
-  "rounded-2xl border border-border/60 bg-[color:var(--app-card-surface-compact)] p-5";
+  "border-t border-border py-4";
 const DETAIL_LABEL_CLASSNAME =
-  "text-[10px] font-semibold uppercase tracking-widest text-foreground/72 dark:text-foreground/76";
+  "text-xs font-medium leading-[18px] text-muted-foreground";
 
 const voteChartConfig = {
   bullish: {
@@ -822,7 +822,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
           </div>
           <Badge
             variant="outline"
-            className="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-500 border-emerald-500/30"
+            className="border-transparent bg-transparent text-xs font-medium text-muted-foreground"
           >
             {degraded ? "Limited analysis" : "Complete"}
           </Badge>
@@ -848,12 +848,12 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {/* Main Decision Pill */}
             <div
                 className={cn(
-                "px-4 py-2 rounded-xl border text-lg font-semibold uppercase tracking-normal",
+                "text-lg font-semibold tracking-normal",
                 isBuy
-                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 shadow-emerald-500/10"
+                    ? "text-emerald-700 dark:text-emerald-400"
                     : isReduce
-                    ? "bg-red-500/10 border-red-500/20 text-red-500 shadow-red-500/10"
-                    : "bg-blue-500/10 border-blue-500/20 text-blue-500 shadow-blue-500/10"
+                    ? "text-red-700 dark:text-red-400"
+                    : "text-foreground"
                 )}
             >
                 {safeDecision}
@@ -868,7 +868,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
         <Separator className="bg-primary/10" />
 
         {pickSourceDisplayLabel ? (
-          <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-border/60 bg-[color:var(--app-card-surface-default-solid)] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border pb-4">
             <Badge variant="outline" className="border-accent-border bg-transparent text-accent-strong">
               Debate source
             </Badge>

@@ -223,7 +223,7 @@ async def test_shared_upload_refuses_unbound_session_destination_without_request
 
 
 @pytest.mark.parametrize(
-    "status, expected", [(410, "invalidated"), (404, "uncertain"), (412, "uncertain")]
+    "status, expected", [(410, "invalidated"), (404, "missing"), (412, "uncertain")]
 )
 async def test_shared_upload_only_provider_expiry_proves_session_invalidation(
     monkeypatch, status, expected

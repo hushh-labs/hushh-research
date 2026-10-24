@@ -9,6 +9,12 @@ describe("approved buyer packet disclosure", () => {
   it("retains only the approved DTO fields", () => {
     expect(parseDrivePackageDisclosure({ ...disclosure, excludedFile: "private.pdf", narrative: "secret" })).toEqual(disclosure);
   });
+  it("retains a search-only disclosure without claiming document coverage", () => {
+    const searched = { ...disclosure, confidenceBasis: "provider_search", coverageStatus: "unknown", periods: [],
+      limitations: ["Files matched a Drive search. Their contents were not read."] };
+    expect(parseDrivePackageDisclosure(searched)).toEqual(searched);
+    expect(parseDrivePackageDisclosure({ ...searched, confidenceBasis: "verified_content" })).toBeNull();
+  });
   it.each([
     { schemaVersion: 2 }, { packageDigest: "invalid" }, { packageRevision: 0 }, { selectedCount: 121 },
     { periods: [{ start: "2026-02-30", end: "2026-03-01" }] },

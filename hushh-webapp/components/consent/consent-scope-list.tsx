@@ -128,6 +128,7 @@ export function ConsentScopeList({
         placeholder="Search"
         aria-label="Search this list"
         className="pl-9"
+        data-consent-input="true"
         data-testid={`${testIdPrefix}-search`}
       />
     </div>
@@ -165,7 +166,7 @@ export function ConsentScopeList({
 
   if (!filtered.length) {
     return (
-      <SettingsGroup title={title} description={description} toolbar={searchField}>
+      <SettingsGroup title={title} description={description} toolbar={searchField} className="consent-presentation-surface">
         <p className="px-1 py-3 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-empty`}>
           {query ? "Nothing matches that." : emptyText}
         </p>
@@ -174,7 +175,7 @@ export function ConsentScopeList({
   }
 
   return (
-    <div className={cn("space-y-4", className)} data-testid={testIdPrefix}>
+    <div className={cn("consent-presentation-surface space-y-4", className)} data-testid={testIdPrefix}>
       {showSearch ? (
         <p className="px-1 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-count`}>
           {filtered.length} of {items.length}

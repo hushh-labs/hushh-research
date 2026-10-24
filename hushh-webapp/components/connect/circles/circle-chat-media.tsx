@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { Download, FileText, ImageIcon, Loader2, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { CircleChatService, type CircleChatSession } from "@/lib/services/circle-chat-service";
 import { chatThumbnailBlob, type ChatImageThumbnail, type ChatMessage } from "@/lib/circle-chat/crypto";
@@ -31,9 +32,10 @@ async function imageSlot(signal: AbortSignal): Promise<() => void> {
 const foreground = () => document.visibilityState === "visible" &&
   appInteractionCoordinator.getLifecycleSnapshot().state === "active";
 
-export function ChatImage({ session, message, type, localImage, thumbnail, visible, layoutBlocked, scrollRoot, onError, onViewerChange }: {
+export function ChatImage({ session, message, type, localImage, thumbnail, visible, layoutBlocked, scrollRoot, messagesLane = false, onError, onViewerChange }: {
   session: CircleChatSession; message?: ChatMessage; type: string; visible: boolean;
   localImage?: File; thumbnail?: ChatImageThumbnail;
+  messagesLane?: boolean;
   layoutBlocked: boolean; scrollRoot: RefObject<HTMLDivElement | null>; onError: (error: unknown) => void;
   onViewerChange: (open: boolean) => void;
 }) {
@@ -131,12 +133,12 @@ export function ChatImage({ session, message, type, localImage, thumbnail, visib
       {error || decodingFailed ? <>
         <ImageIcon aria-hidden="true" className="size-6" />
         <p className="text-xs">Image couldn’t load</p>
-        <Button variant="ghost" size="sm" className="min-h-11" onClick={retryImage}>Retry image</Button>
+        <Button variant="ghost" size="sm" className={`min-h-11 ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry image</Button>
       </> : <><Loader2 aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" /><span role="status" className="text-xs">Loading image…</span></>}
     </div>}
-    {displayUrl && (error || decodingFailed) ? <Button variant="ghost" size="sm" className="min-h-11 w-full" onClick={retryImage}>Retry full image</Button> : null}
+    {displayUrl && (error || decodingFailed) ? <Button variant="ghost" size="sm" className={`min-h-11 w-full ${messagesLane ? quietStyles.action : ""}`} onClick={retryImage}>Retry full image</Button> : null}
     {displayUrl ? <Dialog modal open={expanded} onOpenChange={setExpanded}>
-      <DialogContent showCloseButton={false} className="sm:max-w-3xl" srDescription="Image shared in this circle">
+      <DialogContent showCloseButton={false} className="sm:max-w-3xl" data-messages-type-scale={messagesLane || undefined} srDescription="Image shared in this circle">
         <div className="flex min-w-0 items-center justify-between gap-3">
           <DialogTitle className="text-base">Shared image</DialogTitle>
           <ShellActionSurface className="size-11 shrink-0" aria-label="Close" onClick={() => setExpanded(false)}><X aria-hidden="true" className="size-5" /></ShellActionSurface>

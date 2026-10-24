@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RefreshCw } from "@/components/icons";
 import { MailActionButton as Button } from "./mail-action-button";
+import mailStyles from "./mail-workspace.module.css";
 import type { GmailStatusSummary } from "@/lib/profile/mail-flow";
 
 /** The same Mail connection card in Overview, KYC, Receipts, and setup. */
@@ -57,7 +58,7 @@ export function MailConnectionStatus({
           className="space-y-3"
         >
           <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            <p className={`${mailStyles.sourceGroup} text-muted-foreground`}>
               Gmail
             </p>
             <h2 className="text-lg font-semibold tracking-tight text-foreground">
@@ -65,7 +66,7 @@ export function MailConnectionStatus({
                 ? "Finishing Gmail connection"
                 : "Checking your Gmail status"}
             </h2>
-            <p className="text-sm text-muted-foreground">
+            <p className={`${mailStyles.support} text-muted-foreground`}>
               {oauthCompletionPending
                 ? "Your Mail connection is being verified."
                 : "Your Mail connection details will appear here when ready."}
@@ -84,12 +85,12 @@ export function MailConnectionStatus({
             </h2>
             {statusSummary.detail &&
             (!isConnected || !statusSummary.detail.startsWith("Connected to")) ? (
-              <p className="break-words text-sm text-muted-foreground">
+              <p className={`${mailStyles.support} break-words text-muted-foreground`}>
                 {statusSummary.detail}
               </p>
             ) : null}
             {statusSummary.helper ? (
-              <p className="break-words text-xs text-muted-foreground">
+              <p className={`${mailStyles.support} break-words text-muted-foreground`}>
                 {statusSummary.helper}
               </p>
             ) : null}
@@ -103,13 +104,13 @@ export function MailConnectionStatus({
       )}
 
       {receiptSyncInProgress && !isPassiveBackfillState ? (
-        <p className="text-xs text-muted-foreground">
+        <p className={`${mailStyles.support} text-muted-foreground`}>
           Scanning Mail for receipts. Your list will refresh here when it
           finishes.
         </p>
       ) : null}
       {hasStaleBackgroundSync ? (
-        <p className="text-xs text-amber-600">
+        <p className={`${mailStyles.support} text-amber-600`}>
           Mail is still running in the background. This status may lag behind for
           a bit.
         </p>
@@ -119,7 +120,7 @@ export function MailConnectionStatus({
           <Button
             onClick={onConnect}
             disabled={busy}
-            className="h-12 w-full max-w-[244px] justify-center px-8 text-center text-base shadow-lg"
+            className={`${mailStyles.wideAction} w-full max-w-[244px] justify-center text-center`}
             data-voice-control-id="open_gmail_connector"
             data-voice-action-id={
               connectActionId
@@ -135,7 +136,7 @@ export function MailConnectionStatus({
               effect="fade"
               onClick={onRetry}
               disabled={busy || loadingStatus}
-              className="h-12 w-full max-w-[244px] justify-center px-8 text-center text-base"
+              className={`${mailStyles.wideAction} w-full max-w-[244px] justify-center text-center`}
               data-voice-control-id="retry_gmail_status"
               data-voice-label="Retry Mail status"
               data-voice-purpose="rechecks the Mail connection without opening Google consent."

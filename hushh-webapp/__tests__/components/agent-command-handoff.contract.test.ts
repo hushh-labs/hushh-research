@@ -22,8 +22,11 @@ describe("Agent command handoff contract", () => {
     expect(userRequestedBranch).toContain("handleCreateNewChat()");
     expect(userRequestedBranch).toContain("setQueuedHandoffPrompt(transcript)");
     expect(source).toContain("const restoreEpoch = historyRestoreEpochRef.current");
+    // Restoration now shares a positive authority guard across both cached
+    // publication and background refresh; handoff still invalidates its epoch.
+    expect(source).toContain("const authorityCurrent = () => !cancelled");
     expect(source).toContain(
-      "cancelled || restoreEpoch !== historyRestoreEpochRef.current",
+      "const restoreCurrent = () => authorityCurrent() && restoreEpoch === historyRestoreEpochRef.current",
     );
   });
 

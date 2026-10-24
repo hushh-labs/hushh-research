@@ -686,6 +686,45 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 ---
 
+### Hosting management and update compatibility
+
+Completed owners entering cloud setup directly receive a same-route Hosting
+return target. Explicit invitation/setup origins are preserved; unfinished
+onboarding still uses the setup hub. Finish appears only after verified hosting
+and AI readiness. The changed `setup.finish_cloud` meaning retires its exact
+previous capability revision; a stale action resumes through a fresh assessment.
+
+Personal-agent status may include `updateBlockedReason`: `UPDATE_IN_PROGRESS`,
+`RELEASE_UNVERIFIED`, `INSTALLED_RELEASE_UNVERIFIED`, or
+`PREDECESSOR_NOT_QUALIFIED`. This explains an existing installation refusal; it
+does not grant upgrade authority. A verified private AI check displays its actual
+model/deployment. The hub's Shared model catalog is not an Azure pod catalog.
+
+### Owner cloud removal and inspection
+
+- `GET /api/one/personal-agent/removal`: Firebase-owner, no-store discovery.
+  Returns `{available, provider}` only for the installed schema and recorded
+  GCP/Azure home, including qualified interrupted Azure setup. No provider calls,
+  reservations or mutations; missing/old schema does not offer the control.
+- `POST /api/one/personal-agent/removal`: current vault-owner authority. Strict
+  phases `inspect`, `status`, `approve`, `execute`, `finalize`; exact operation and
+  plan digest plus explicit contents/retention confirmation are required for
+  destructive work. Uses the existing erasure executor; never calls full account
+  deletion. Successful finalization returns `{status:"cloud_removed",
+  operationId, accountRetained:true, hostingMode:"unplaced"}` only for that exact
+  released identity. A stale replacement, uncertain outcome or changed approval
+  returns a bounded 409 and retains recovery custody.
+- `GET /api/one/personal-agent/hosting/inspection`: Firebase-owner, read-only
+  control-plane observation of the recorded service and historical receipt
+  coverage. Returns `connected`, `starting`, `absent`, `ownership_unverified`,
+  `cleanup_pending` or `unverified`, plus bounded previous-home metadata. A denied
+  read is never absence. This neither wakes nor repairs/deletes the pod.
+
+These routes use the existing One proxy and personal-agent feature authority.
+Cloud removal requires dev-only migration972; native execution and broad orphan
+scanning are not qualified. See the [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account).
+
+
 ## Route Categories
 
 ### One business suggestion completion
@@ -869,6 +908,7 @@ The `/api/one/wallet/card-access` endpoints are:
 | POST | `/artwork/validate` | Same owner authority. At most 24 explicit catalog/issuer/product/variant/digest references under the private 16 KB cap. `purpose=selection` (default) requires current catalog version, selectable asset and complete provider snapshot. `purpose=saved` validates an immutable saved reference independently of unrelated catalog versions. Both require current approval, grant and rights. No stored owner image or card ID is disclosed. See [provider contract](../one/wallet-artwork-providers.md). |
 | POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
 | GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status, newest first in pages of 20. Optional `cursor` is the last grant ID; `nextCursor` and `hasMore` describe the next page, and each grant includes ISO `createdAt`. Cursors resolve only within the authenticated owner and card. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
+| GET | `/requests` | Matching Firebase and vault-owner identity; pending incoming Wallet requests only. Optional owner-bound UUID `cursor`, `limit=1..100`; returns metadata-only `items` (`id`, `createdAt`, `expiresAt`), `hasMore`, `nextCursor`. Requires current connection, no blocks, recipient-visible message and unexpired request. Pure read; never expires or mutates requests. |
 | GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
 | GET | `/profile` | Matching identity and vault-owner consent; current canonical Profile Card eligibility and server-issued card ID, without profile contents. |
 | GET | `/history` | Participant-only unified ledger. `direction=outgoing\|received`, optional `cardType=payment\|profile`, `limit=1..100` (default 20), and participant/filter-bound `cursor`. Returns `items`, `hasMore`, `nextCursor`, `serverNow`. |
@@ -1468,7 +1508,7 @@ other person-to-person catalog, and are refused again at request creation.
 
 ### Personal World Model research
 
-Explicit “Check for updates” sends `refresh:true` only to
+Explicit “Update my model” sends `refresh:true` only to
 `POST /api/one/world-model/jobs`. It starts a new discovery from a completed,
 same-identity draft, with new evidence/usage budgets while retaining the three
 starts-per-hour limit, consent checks, provider breaker and atomic claim.
@@ -1481,14 +1521,24 @@ with one to three owner-chosen public HTTPS profile URLs. The same public-page
 validator rejects credentials, queries, fragments, IP addresses and private host
 suffixes. This requires current Azure/Bing consent and never verifies identity.
 Azure retrieves these leads through its normal charged web tool and assesses
-received citations before presenting candidate findings. Private owner decisions
-and Memory never become search seeds. Omitted profiles carry through resumes;
+received citations before presenting candidate findings. The full private decisions object and unrestricted Memory never become search seeds. Omitted profiles carry through resumes;
 reordered URLs reuse the same scope. A changed set requires explicit refresh,
 returns 409 while a pending lease is live, and starts a new work generation while
 retaining hourly starts and the CAS fence. Automatic `/ensure` rejects this field.
 The existing Pages you choose form offers a separate Azure research action; its
 Gemini page-review action retains its meaning. No research occurs on typing or
 opening the form, and every save still requires owner review.
+
+Explicit Update may also include `research_context:{confirmed:[...],permitted_public_research:true}`.
+Its strict permission flag and bounded statements are validated, with each statement
+required to be in the request's confirmed `owner_decisions`. The client builds this
+snapshot from saved accepted/edited declarations. `/ensure` rejects this field.
+Only the distinct `owner_confirmed_research_leads` projection enters planning and
+search queries; it does not replace public citations or identity evidence. Rejected
+and removed statements remain suppression-only. A newly approved Update starts
+fresh bounded work outside a live idempotent pending lease. The frozen snapshot
+can resume the same discovery but cannot enter a fresh automatic generation after
+consent, identity/policy, completion or retention changes. New links remain optional.
 
 `POST /api/one/world-model/ensure` starts/resumes the existing owner-bound research
 job after setup and unlock. The backend resolves fresh authenticated name,
@@ -1547,6 +1597,10 @@ An explicit Azure `incomplete/content_filter` response or structured SDK
 `content_filter` error (HTTP 400 or statusless SSE) emits `TEXT_CONTENT_FILTERED`
 with a fixed rephrasing notice and `retryable:false`. It remains a terminal error
 classified as a refusal; partial output never becomes a completed answer.
+An explicit Azure SSE `rate_limit_exceeded` error without an HTTP error status
+emits the existing retryable `RESOURCE_EXHAUSTED` capacity notice. Telemetry
+records `quota` while preserving the unknown HTTP status as zero; no automatic
+replay or alternate provider is introduced.
 Managed UAT fleet aliases resolve through the selected Azure compatibility port;
 responses and telemetry retain the actual model/provider. BYOK remains explicit.
 
@@ -2270,6 +2324,51 @@ At the encrypted writer, an existing semantic entity can only be updated by the
 same business UID. A different or unidentified origin fails closed rather than
 merging two businesses merely because their names or contact details overlap.
 
+### One task inventory and reviewed suggestions
+
+One profile To-do and `/one/todos` share live pending-work projection and encrypted
+completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
+Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
+services. This is a bounded foreground inventory, not a background sweep of all
+connected information. Calendar agenda covers the next 168 hours plus bounded
+invitations; Mail inspects at most 50 recent nudges and reports limited coverage;
+Advisor reads existing advisor-persona attention items (other personas report
+unavailable coverage, not disconnected relationships); Memory inspects only the
+current session's verified Live Memory mirror metadata, never its contents.
+A cold or stale mirror is unavailable/incomplete. Consent and Wallet page at
+most 5,000 rows each and preserve incomplete coverage when capped. Source failures
+remain independent, never becoming a disconnected status or an empty success.
+
+`GET /api/one/todos/suggestions/status` requires vault-owner authentication and
+returns private/no-store `{available}` from `ONE_TODO_SUGGESTIONS_ENABLED`.
+`POST /api/one/todos/suggestions` additionally requires current self-owner
+authority and Shared placement, checked before processing and before release.
+The bounded input rotates across represented capabilities so one large queue
+cannot crowd out every other source. It is rate limited to three requests per
+minute and accepts only
+`{allow_model_processing: true, sources}`: 1-100 strict records containing
+`ref` (`s` followed by 1-4 digits), one of the nine capability IDs, a 1-240
+character summary, and `already_pending`. The client requires explicit processing
+approval and excludes message bodies, card details and Memory contents. Owner
+IDs, tokens, provider IDs and URLs are not included in the prompt.
+
+One's manifest-owned `one_todo_suggestions` single-turn gene has no tools or
+conversation history. Its strict response is `{items: [{source_ref,title,reason}]}`,
+at most 12 rows with title length 1-160 and reason length 1-240. Unknown or
+duplicate source references, invalid output, timeouts and changed authority fail
+closed. The host does not rewrite semantic output or create replacement tasks.
+Only opaque-count/status telemetry is emitted; no summaries or model text are logged.
+No source mutation or persistence occurs. A reviewed Add task uses the existing
+encrypted `one_todos` writer, with source links resolved locally. Completion and
+dismissal never execute the source action.
+
+The rollout defaults off and is rechecked before returning suggestions. Private
+placement refuses this Shared processing path; a qualified owner-direct version
+of the same gene is separate acceptance work. Web and native use the existing
+One API proxy/ApiService transport. Mock/schema tests do not qualify live model
+behavior or real-provider completeness. See the
+[semantic declaration](../../../consent-protocol/docs/reference/backend-semantic-boundary.md#declared-one-task-suggestions).
+
 ### One Google Calendar
 
 Private-pod Calendar reads use the existing owner-bound
@@ -2692,6 +2791,20 @@ uses the shared red alarm card, Android routes through the dedicated
 `one_location_sms_emergency_v1` high-importance channel, and iOS background
 delivery uses the matching category plus `one_location_sms_alarm.wav`. The
 profile does not authorize Do Not Disturb bypass or Apple Critical Alerts.
+
+While the recipient app is visible, the SOS cue repeats until the recipient
+dismisses the alarm or opens/unwatches the share, or the sender ends it. The
+emergency card has no automatic timeout. Web Audio owns browser cues; the
+existing native notification bridge owns foreground sound and vibration on
+iOS and Android. Cues also release on expiry, sign-out, interruption and
+foreground loss. The existing two-second sender countdown is unchanged.
+`location_share_revoked` is always silent transport, including SOS: its grant
+identity stops an active cue without triggering another sound or vibration.
+Background delivery retains the platform notification cue; indefinite closed-app
+or locked-screen alarms are outside this contract. Browser playback remains
+subject to audio/vibration support and device permissions; blocked audio is
+not queued to ring after a later unlock. A remote stop still requires delivery
+or authoritative reconciliation on the receiving device.
 
 The older KAI location route family is transitional prototype history and is
 not the product owner for live location.
@@ -3254,7 +3367,8 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | POST   | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake                                                                                                                                          |
 | DELETE | `/api/account/delete`                             | Delete the account, user-owned Vault/profile/application records, and the authenticated Firebase UID. Required append-only or regulated evidence follows its approved retention/redaction policy rather than an incidental cascade. Returns `409 ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING` without deleting anything when parked personal-agent/BYOC state may still own an external resource. A settled bounded Shared Files batch returns `409 FILES_ERASURE_IN_PROGRESS` while versions remain; keys are retained and completion requires subsequent qualified absence. The owner may retry deliberately after active-account confirmation; uncertain delivery is never replayed automatically. |
 | GET | `/api/account/delete-lost-vault/options` | Firebase-authenticated, no-store discovery for a signed-in person with an inaccessible vault. Returns whether a verified linked phone is required, a masked hint, and enrolled Google/Apple provider IDs. It grants no deletion or vault authority. |
-| POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must show a pending cleanup state. |
+| POST | `/api/account/delete-lost-vault/phone` | Read-only preflight after fresh same-owner Google/Apple reauthentication. Accepts `{phone_number:"+..."}` with an explicit country code, normalizes through the canonical phone utility, and compares the complete number with the same authoritative existing binding used by deletion. Returns only `{valid:true}`, with `private, no-store`; mismatch, invalid number, binding conflict, or unavailable identity cannot issue SMS through the normal UI. It changes no binding and grants no deletion or vault authority. Final deletion rereads the binding and checks fresh phone proof independently. |
+| POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must withhold fresh signup. `details.firebase_auth_user: "identity_retained"` means deliberate preservation, not automatically completing cleanup; the central sign-out/login notice preserves this distinction. |
 
 Every Firebase bearer dependency verifies signature, issuer, audience, and
 expiry, preserves revoked/disabled-token enforcement, and always enforces the
@@ -4254,6 +4368,52 @@ Google's resource-key header for metadata and permission operations; keys remain
 inside encrypted operational metadata. Only documented rate-limit reason codes on
 a bounded 403 response are treated as transient. An uncertain permission POST is
 reconciled with reads rather than automatically repeated.
+
+### Two-month Drive packets (UAT)
+
+`features.drive_period_packets` admits the separate `DRIVE_PERIOD_PACKETS_ENABLED`
+capability in UAT. It does not enable the retired content collection, extraction,
+four-group classifier or legacy package builder. Current authorized owners receive
+Financial statements, Account statements, Brokerage and Insurance categories.
+Each category has an independent calendar-pair packet: January–February through
+November–December. Enrollment is bounded to elapsed/current pairs of the current
+year; current pairs are Building and cannot be listed or purchased before closure.
+Heads record an explicit UTC calendar boundary; the period window is displayed
+with each packet rather than inferred from the viewer's timezone.
+Explicit background OFF, connector revocation, owner placement and account erasure
+remain execution fences. Default enrollment records a product policy, not an owner
+acceptance or permission grant.
+
+The existing Azure planner authors the search expression. The existing discovery
+compiler, Drive pagination and owner-search leases collect metadata without reading
+document bodies or running another content assessor. Only a complete closed search
+can freeze a packet; incomplete, failed and over-limit results remain unavailable.
+Frozen membership and query provenance live encrypted in the existing packet
+version store, independently of temporary search results. A selected metadata date
+window is not a claim about statement reporting coverage.
+
+`GET /api/connectors/google_drive/sharing/packets` retains its legacy packet shape
+and adds a discriminated `kind: "provider_discovery"` item with `category`,
+`periodStart`, `periodEnd`, `timezone`, server lifecycle state, fixed `priceCents:500`,
+and recipient-bound `requestId`/`purchaseState`. Unfrozen heads have version zero;
+frozen heads have version one. Owner-only contents contain bounded original links.
+Visitors receive only explicitly listed summaries under the existing connection
+audience, never unpurchased filenames or links.
+
+Listing and purchase use the existing `/sharing/packets/{id}/listing` and
+`/sharing/packets/{id}/requests` endpoints. The new admission cannot reactivate a
+legacy content packet. Every purchase binds the exact packet version, manifest
+digest, listing revision, 500-cent price and verified recipient. The normal exact
+owner Allow, one-time checkout, recipient-access preflight and permission worker
+remain authoritative. Repeat purchases resume their existing request. All-existing
+access completes without a charge; mixed and unknown access retain their existing
+review/refusal behavior. Disabling payments blocks new period listings and purchases
+while retaining owner previews; it never silently makes advertised paid packets free.
+There is no recurring charge or automatic addition of the
+next period's files. Provider-search package summaries use
+`confidenceBasis:"provider_search"`, null model scores and zero assessed documents;
+buyer disclosures report unknown content coverage and an explicit search-only
+limitation. A provider-search disclosure cannot claim verified content periods.
 
 ### Exact-file Drive sharing (default-off)
 

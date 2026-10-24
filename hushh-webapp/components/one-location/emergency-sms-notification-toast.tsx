@@ -8,6 +8,7 @@ export function EmergencySmsNotificationToast({
   title,
   description,
   onOpen,
+  onDismiss,
   address,
   addressLoading,
   coordinatesFallback,
@@ -15,6 +16,7 @@ export function EmergencySmsNotificationToast({
   title: string;
   description: string;
   onOpen: () => void;
+  onDismiss?: () => void;
   /** Reverse-geocoded last-known address of the sender, if resolved. */
   address?: string | null;
   /** True while the last-known address is being resolved. */
@@ -90,6 +92,15 @@ export function EmergencySmsNotificationToast({
         </span>
         <Icon icon={ChevronRight} size="sm" aria-hidden="true" />
       </button>
+      {onDismiss ? (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="press-scale min-h-11 rounded-[var(--app-radius-pill)] border border-white/50 px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+        >
+          Dismiss alarm
+        </button>
+      ) : null}
     </div>
   );
 }

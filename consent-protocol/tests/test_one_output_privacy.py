@@ -264,14 +264,23 @@ async def test_connected_revocation_is_a_refusal_but_missing_authority_still_ale
 
 
 @pytest.mark.parametrize("bridged", [False, True])
-@pytest.mark.parametrize("filtered", [False, True])
-async def test_explicit_provider_filter_is_visible_but_does_not_page_as_an_outage(
-    monkeypatch, caplog, bridged, filtered
+@pytest.mark.parametrize("kind", ["other", "filtered", "quota"])
+async def test_explicit_provider_signals_preserve_partial_text_and_failure_class(
+    monkeypatch, caplog, bridged, kind
 ):
     from hushh_mcp.one_adk import agui_turn_timing
-    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureContentFilteredError
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+        AzureContentFilteredError,
+        AzureRateLimitedError,
+    )
 
-    error = AzureContentFilteredError() if filtered else ValueError("Provider stream failed")
+    error = (
+        AzureContentFilteredError()
+        if kind == "filtered"
+        else AzureRateLimitedError()
+        if kind == "quota"
+        else ValueError("Provider stream failed")
+    )
 
     async def run(self, input):
         yield TextMessageContentEvent(message_id="a", delta="Partial answer")
@@ -285,8 +294,15 @@ async def test_explicit_provider_filter_is_visible_but_does_not_page_as_an_outag
     events = [event async for event in _agent().run(_input())]
     assert events[0].delta == "Partial answer"
     terminal = events[-1]
-    assert terminal.code == ("TEXT_CONTENT_FILTERED" if filtered else "AGENT_ERROR")
-    if filtered:
+    assert (
+        terminal.code
+        == {
+            "filtered": "TEXT_CONTENT_FILTERED",
+            "quota": "RESOURCE_EXHAUSTED",
+            "other": "AGENT_ERROR",
+        }[kind]
+    )
+    if kind == "filtered":
         assert terminal.metadata == {"retryable": False}
         assert terminal.message == "This response was filtered. Try rephrasing your message."
     timing = next(
@@ -295,9 +311,14 @@ async def test_explicit_provider_filter_is_visible_but_does_not_page_as_an_outag
         if r.message.startswith("one_agent_chat_turn_complete ")
     )
     assert "outcome=error" in timing
-    assert ("error_class=refusal" in timing) is filtered
-    if filtered:
+    assert ("error_class=refusal" in timing) is (kind == "filtered")
+    if kind == "filtered":
         assert "error_code=text.content.filtered" in timing
+    if kind == "quota":
+        assert terminal.metadata == {"retryable": True}
+        expected_class = "model" if bridged else "escaped_exception"
+        assert f"error_class={expected_class}" in timing
+        assert "error_code=resource.exhausted" in timing
 
 
 def test_filter_like_text_and_mixed_failures_stay_actionable():

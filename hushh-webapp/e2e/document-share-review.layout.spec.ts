@@ -3,6 +3,7 @@ import type { DriveRequestQuote } from "../lib/services/drive-request-pricing-se
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { expectConsentTypography } from "./fixtures/consent-typography";
 import {
   awaitProductFont,
   productFontStyle,
@@ -242,10 +243,10 @@ for (const width of [320, 390, 768, 1440])
     const draft = page.getByRole("textbox", { name: "Chat draft" });
     await draft.fill("Keep this chat draft");
     const original = await draft.elementHandle();
-    await page
-      .getByRole("button", { name: "Request files", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Request files", exact: true }).click();
     const panel = page.locator('[data-request-dialog="files"]');
+    await expectConsentTypography(panel.getByRole("heading", { name: "Request files" }), "20px", "28px", "600");
+    await expectConsentTypography(panel.getByLabel("Which files do you need?"), width <= 390 ? "16px" : "14px", "22px");
     if (width === 320) {
       await page.evaluate(() => {
         document.documentElement.style.setProperty("--kb-height", "240px");
@@ -638,11 +639,10 @@ for (const width of [320, 390, 768, 1440])
     await page.getByRole("button", { name: "Review document request" }).click();
     const panel = page.getByRole("dialog", { name: "Document request" });
     await expect(panel.getByText("February–June missing")).toBeVisible();
+    await expectConsentTypography(panel.locator('.ui-text-helper-text:not([role="alert"]):not([role="status"])').first(), "13px", "18px", "400");
     expect(approvals).toBe(0);
     // A ready review has one refresh action, not two.
-    await expect(
-      panel.getByRole("button", { name: "Refresh status" }),
-    ).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: "Refresh status" })).toHaveCount(0);
     const controls = ["Share files", "Decline", "Refresh suggestions"];
     for (const name of controls) {
       const button = panel.getByRole("button", { name, exact: true });

@@ -260,9 +260,9 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     pre_insert_sql = "\n".join(
         str(call.args[0]) for call in conn.execute.call_args_list[:first_insert_offset]
     )
-    assert first_insert_offset == 3
+    assert first_insert_offset == 4
     assert pre_insert_sql.count("pg_advisory_xact_lock") == 3
-    assert conn.execute.call_args_list[0].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
+    assert conn.execute.call_args_list[1].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
     first_delete_offset = executed_sql.index("DELETE FROM")
     assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
@@ -553,17 +553,12 @@ def test_personal_agent_cleanup_erases_only_demonstrably_unprovisioned_state(mon
         results=results,
     )
 
-    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
-    lifecycle_delete_index = next(
-        index for index, sql in enumerate(executed_sql) if "DELETE FROM pod_lifecycle_events" in sql
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert executed_sql.index("DELETE FROM pod_lifecycle_events") < executed_sql.index(
+        "DELETE FROM personal_agent_registry"
     )
-    registry_delete_index = next(
-        index
-        for index, sql in enumerate(executed_sql)
-        if "DELETE FROM personal_agent_registry" in sql
-    )
-    assert lifecycle_delete_index < registry_delete_index
-    assert not any("personal_agent_deletion_tombstones" in sql for sql in executed_sql)
+    assert "personal_agent_deletion_tombstones" not in executed_sql
+    assert "personal_agent_cloud_removed" not in executed_sql
     assert all(results.values())
 
 
@@ -614,6 +609,7 @@ def test_personal_agent_cleanup_is_a_noop_when_live_drift_tables_are_absent(monk
         "byoc_setup_jobs": True,
         "pod_lifecycle_events": True,
         "personal_agent_registry": True,
+        "personal_agent_cloud_removals": True,
         "pod_migration_jobs": True,
         "personal_agent_external_resources_absent": True,
     }
@@ -730,7 +726,7 @@ async def test_full_account_delete_returns_stable_external_resource_block_withou
     )
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account_transaction("user-123", requested_target="both")
+        result = await service._settle_full_account_transaction("user-123", requested_target="both")
 
     assert result["success"] is False
     assert result["account_deleted"] is False
@@ -1550,7 +1546,7 @@ async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
         cleanup.side_effect = PersonalAgentDeprovisioningRequiredError("pending")
     elif outcome == "exception":
         cleanup.side_effect = RuntimeError("synthetic failure")
-    monkeypatch.setattr(service, "_delete_full_account_transaction", transaction)
+    monkeypatch.setattr(service, "_settle_full_account_transaction", transaction)
     monkeypatch.setattr(
         "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
         lambda *, registry, backend: SimpleNamespace(deprovision=cleanup),  # the real signature
@@ -1696,7 +1692,7 @@ async def test_uat_backend_erasure_preserves_external_authorities(monkeypatch):
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
         wrong_database = await service.erase_uat_backend_account("user_delete_123")
     assert wrong_database["success"] is False
-    assert conn.execute.call_count == 1
+    assert conn.execute.call_count == 2
     pending.assert_not_called()
     snapshot.assert_not_called()
     release.assert_not_awaited()

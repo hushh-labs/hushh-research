@@ -3035,6 +3035,17 @@ async def test_request_folder_children_need_topic_and_search_carries_shareabilit
         "encrypted": False,
         "unknown": False,
     }
+    facts = {item["id"]: item["shareabilityEvidence"] for item in files}
+    assert {key: value["reason"] for key, value in facts.items()} == {
+        "wanted": "capability_denied",
+        "allowed": "allowed",
+        "encrypted": "encryption_restricted",
+        "unknown": "capability_unverified",
+    }
+    assert facts["wanted"]["canShare"] is False
+    assert facts["encrypted"]["canShare"] is True
+    assert facts["encrypted"]["encryptionState"] == "not_unencrypted"
+    assert facts["unknown"]["canShare"] is None
     assert checkpoint["coverage_counts"]["excludedByTopicCount"] == 1
     assert checkpoint["coverage_counts"]["excludedByKindCount"] == 1
     assert {item["unavailableReason"] for item in files if item["shareable"] is False} == {

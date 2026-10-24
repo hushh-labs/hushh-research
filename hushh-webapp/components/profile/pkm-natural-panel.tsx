@@ -64,6 +64,7 @@ function CaptureCardDescription({
     <>
       <span
         className="block font-medium text-foreground"
+        data-pkm-proposal-destination="true"
         data-testid="memory-capture-destination"
         data-destination-kind={destination.kind}
       >
@@ -263,7 +264,7 @@ export function PkmNaturalPanelBody({
             <ShieldAlert className="h-4 w-4" aria-hidden />
             Sign in to open Memory
           </div>
-          <p>Your saved details stay connected to your account.</p>
+          <p data-pkm-body="true">Your saved details stay connected to your account.</p>
         </SurfaceInset>
       </>
     );
@@ -278,7 +279,7 @@ export function PkmNaturalPanelBody({
             <Lock className="h-4 w-4" aria-hidden />
             Unlock your vault to open Memory
           </div>
-          <p>
+          <p data-pkm-body="true">
             Your saved details are decrypted only for this unlocked session.
           </p>
         </SurfaceInset>
@@ -299,8 +300,10 @@ export function PkmNaturalPanelBody({
           <SurfaceInset className="space-y-3 p-4" data-pkm-location-view="true">
             <p>This detail is no longer available.</p>
             <Button
-              variant="muted"
-              size="sm"
+              variant="none"
+              effect="fade"
+              size="compact"
+              data-pkm-action="compact"
               onClick={() => replaceRoute(ROUTES.PKM_LOCATION)}
             >
               Open Location memory
@@ -406,7 +409,7 @@ export function PkmNaturalPanelBody({
             userId={ownerId} title={selectedMetadataDomain.displayName} manifest={sharingManifests[selectedMetadataDomain.key]!}
             pendingKey={sharingActionKey} onChange={updateSharingBundles} /> : <SurfaceInset className="space-y-2 p-4 text-sm text-muted-foreground">
               <p>{sharingManifestsLoading ? "Checking sharing and prices…" : "Sharing and prices could not be checked."}</p>
-              {!sharingManifestsLoading ? <Button variant="muted" size="sm" onClick={() => setRefreshNonce(value => value + 1)}>Retry sharing settings</Button> : null}
+              {!sharingManifestsLoading ? <Button variant="none" effect="fade" size="compact" data-pkm-action="compact" onClick={() => setRefreshNonce(value => value + 1)}>Retry sharing settings</Button> : null}
             </SurfaceInset>}
 
         />
@@ -495,8 +498,10 @@ export function PkmNaturalPanelBody({
               <SurfaceInset className="space-y-3 p-4 text-sm text-muted-foreground">
                 <p>Some saved details couldn’t be opened.</p>
                 <Button
-                  size="sm"
-                  variant="muted"
+                  size="compact"
+                  variant="none"
+                  effect="fade"
+                  data-pkm-action="compact"
                   onClick={() => setMemoryCardsNonce((current) => current + 1)}
                 >
                   Try again
@@ -581,8 +586,10 @@ export function PkmNaturalPanelBody({
                   <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
                     <p>Some saved details couldn’t be loaded.</p>
                     <Button
-                      size="sm"
-                      variant="muted"
+                      size="compact"
+                      variant="none"
+                      effect="fade"
+                      data-pkm-action="compact"
                       onClick={() => setRefreshNonce((current) => current + 1)}
                     >
                       Try again
@@ -596,8 +603,10 @@ export function PkmNaturalPanelBody({
                       details are still here.
                     </p>
                     <Button
-                      size="sm"
-                      variant="muted"
+                      size="compact"
+                      variant="none"
+                      effect="fade"
+                      data-pkm-action="compact"
                       onClick={() =>
                         setMemoryCardsNonce((current) => current + 1)
                       }
@@ -651,8 +660,11 @@ export function PkmNaturalPanelBody({
               <Button
                 className="w-full justify-center"
                 type="button"
-                variant="muted"
+                variant="none"
                 effect="fade"
+                size="compact"
+                data-pkm-action="compact"
+                data-pkm-action-layout="full"
                 disabled={
                   captureLoading || captureSaving || !captureText.trim()
                 }
@@ -720,8 +732,10 @@ export function PkmNaturalPanelBody({
                           section.retryable ? (
                             <Button
                               type="button"
-                              variant="muted"
+                              variant="none"
                               effect="fade"
+                              size="compact"
+                              data-pkm-action="compact"
                               aria-label={`Retry this section: ${section.label}`}
                               disabled={
                                 captureLoading ||
@@ -776,9 +790,11 @@ export function PkmNaturalPanelBody({
               {captureCards.length > 0 ? (
                 <Button
                   data-testid="memory-save-capture"
+                  data-pkm-action="primary"
                   className="w-full justify-center"
                   type="button"
-                  effect="fade"
+                  effect="fill"
+                  size="prominent"
                   disabled={
                     captureSaving ||
                     captureSaveableCards.length === 0 ||

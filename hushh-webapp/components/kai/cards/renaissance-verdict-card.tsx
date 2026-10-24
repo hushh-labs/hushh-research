@@ -9,7 +9,7 @@ export function RenaissanceVerdictCard({ row }: { row: KaiHomeRenaissanceItem })
   const listSummary = row.investment_thesis?.trim();
   return (
     <section className="space-y-2 border-t border-[color:var(--app-card-border-standard)] pt-4">
-      <SectionLabel role="heading" aria-level={3}>Summary</SectionLabel>
+      <SectionLabel role="heading" aria-level={3}>Company summary</SectionLabel>
       <p className="text-sm leading-6 text-foreground/80">
         {businessSummary || listSummary || "A company summary is unavailable right now."}
       </p>

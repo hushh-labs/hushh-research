@@ -346,7 +346,8 @@
     "407_plg_memory_revision_index.sql",
     "408_validate_plg_memory_revision_index.sql",
     "409_mcp_oauth_client_registration.sql",
-    "410_drive_group_index.sql"
+    "410_drive_group_index.sql",
+    "411_drive_period_packets.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -735,6 +736,7 @@
     "407_plg_memory_revision_index.sql": "rollback/407_plg_memory_revision_index.rollback.sql",
     "408_validate_plg_memory_revision_index.sql": "rollback/408_validate_plg_memory_revision_index.rollback.sql",
     "409_mcp_oauth_client_registration.sql": "rollback/409_mcp_oauth_client_registration.rollback.sql",
-    "410_drive_group_index.sql": "rollback/410_drive_group_index.rollback.sql"
+    "410_drive_group_index.sql": "rollback/410_drive_group_index.rollback.sql",
+    "411_drive_period_packets.sql": "rollback/411_drive_period_packets.rollback.sql"
   }
 }

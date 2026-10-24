@@ -40,18 +40,34 @@ report["http_health"]={"status_code":sys.argv[2],"attempts":int(sys.argv[3]),"au
 if sys.argv[2] != "200": report.update(ok=False,status="blocked")
 p.write_text(json.dumps(report,indent=2,sort_keys=True))' "$report" "$code" "$attempt" "$authentication"
 }
-for attempt in 1 2 3 4 5; do
+# No-traffic revisions may scale to zero after their deployment startup probe.
+# Keep the external observation inside the same 240-second startup allowance.
+# A healthy candidate took 118 seconds to cold-start while five short requests
+# previously exhausted their entire observation window after 87 seconds.
+health_deadline=$(( $(date +%s) + 240 ))
+attempt=0
+code=000
+while true; do
+  remaining=$(( health_deadline - $(date +%s) ))
+  if (( remaining <= 0 )); then break; fi
+  request_timeout=15
+  if (( remaining < request_timeout )); then request_timeout=$remaining; fi
+  attempt=$(( attempt + 1 ))
   # A redirect is not proof of candidate health. Do not follow it to the live service.
   # Pass the token through stdin, never command arguments, traces or receipts.
   code="$(if [[ "$authentication" == workload_identity ]]; then
     printf 'header = "X-Serverless-Authorization: Bearer %s"\n' "$CANDIDATE_ID_TOKEN"
-  fi | curl --config - --silent --show-error --max-time 15 --output /dev/null --write-out '%{http_code}' \
+  fi | curl --config - --silent --show-error --max-time "$request_timeout" --output /dev/null --write-out '%{http_code}' \
     "${candidate_url%/}${probe_path}" || true)"
   if [[ "$code" == 200 ]]; then
     record_health
     exit 0
   fi
-  if [[ "$attempt" != 5 ]]; then sleep 3; fi
+  remaining=$(( health_deadline - $(date +%s) ))
+  if (( remaining <= 0 )); then break; fi
+  retry_delay=3
+  if (( remaining < retry_delay )); then retry_delay=$remaining; fi
+  sleep "$retry_delay"
 done
 record_health
 echo "Candidate HTTP health failed for ${service}." >&2

@@ -12,6 +12,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import styles from "./wallet-sharing.module.css";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import type { WalletDemoProfile } from "./wallet-demo-cards";
 import { CONSENT_ACTION_COMPLETE_EVENT, CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
@@ -135,7 +136,7 @@ export function WalletSharing({ cardDetails = false, active = true, getHistoryCo
               <p className="text-sm">{details ? "Card details" : "Card summary"}</p>
               {cardDetails ? <p className="text-xs text-muted-foreground">{expiryLabel(entry.expires_at).replace("Check access duration in Manage", "Access duration unavailable")}</p> : null}
             </div>
-            {!cardDetails ? <Button variant="ghost" size="compact" className="shrink-0" onClick={(event) => {
+            {!cardDetails ? <Button variant="ghost" size="compact" className={`${presentationStyles.quietAction} shrink-0`} onClick={(event) => {
               reviewTrigger.current = event.currentTarget;
               open(entry, active);
             }}>{active ? "Manage" : "Review"}<ArrowUpRight aria-hidden="true" className="size-4" /></Button> : null}
@@ -146,33 +147,33 @@ export function WalletSharing({ cardDetails = false, active = true, getHistoryCo
     </section>
   );
 
-  return <div className={`${styles.content} mx-auto w-full max-w-[820px] space-y-6 pb-4`} data-testid="wallet-sharing-content">
+  return <div className={`${styles.content} ${presentationStyles.walletSurface} mx-auto w-full max-w-[820px] space-y-6 pb-4`} data-testid="wallet-sharing-content">
     {cardDetails ? <p className="text-xs text-muted-foreground">These recipients have Wallet-wide access, including this card.</p> : null}
-    {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Shared with", current.grants, true)}
+    {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Shared with", current.grants, true)}
     {!cardDetails && owner && getHistoryContext ? <>
       <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} />
       <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} direction="received" />
     </> : null}
     <Dialog modal open={Boolean(selection && current && !current.error)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[420px]" onCloseAutoFocus={event => { event.preventDefault(); reviewTrigger.current?.focus({ preventScroll: true }); }}>
+      <DialogContent className={`${presentationStyles.walletDialog} max-h-[85dvh] overflow-y-auto sm:max-w-[420px]`} onCloseAutoFocus={event => { event.preventDefault(); reviewTrigger.current?.focus({ preventScroll: true }); }}>
         <DialogHeader><DialogTitle>{selection?.active ? "Manage access" : "Review request"}</DialogTitle><DialogDescription>{selection?.active ? "See what is shared and stay in control." : "Check every detail before sharing."}</DialogDescription></DialogHeader>
         {selection ? <div className="space-y-5">
           <div className={styles.accessCard}><ShieldCheck aria-hidden="true" className="size-6" /><p>{walletSharingKind(selection.entry) === "details" ? "Full card details" : "Card summary"}</p><span>WALLET ACCESS</span></div>
           <dl className={styles.facts}>
             <div><dt>{selection.active ? "Shared with" : "Requested by"}</dt><dd>{selection.entry.counterpart_label || "Requester"}</dd></div>
-            <div><dt>What is included</dt><dd>{walletSharingKind(selection.entry) === "details" ? "Full card information, including card numbers and saved security details." : "Network, last four digits, expiry, nickname and issuing region."}</dd></div>
+            <div><dt>What is included</dt><dd>{walletSharingKind(selection.entry) === "details" ? "Card numbers and cardholder names. Saved security codes are not shared." : "Network, last four digits, expiry, nickname and issuing region."}</dd></div>
             <div><dt>Which cards</dt><dd>Wallet-wide access. This permission is not limited to one card.</dd></div>
             {selection.entry.reason ? <div><dt>Reason</dt><dd>{selection.entry.reason}</dd></div> : null}
             {selection.active ? <><div><dt>Status</dt><dd>{selection.entry.status}</dd></div><div><dt>Access expires</dt><dd>{expiryLabel(selection.entry.expires_at)}</dd></div></> : null}
           </dl>
-          {!selection.active ? <label className="block space-y-2 text-sm font-medium">Access duration<select className={styles.duration} value={duration} disabled={busy} onChange={event => setDuration(Number(event.target.value))}><option value={1}>1 hour</option><option value={24}>24 hours</option><option value={168}>7 days</option></select></label> : null}
+          {!selection.active ? <label className="block space-y-2 text-[15px] leading-[22px] font-[550]">Access duration<select className={styles.duration} value={duration} disabled={busy} onChange={event => setDuration(Number(event.target.value))}><option value={1}>1 hour</option><option value={24}>24 hours</option><option value={168}>7 days</option></select></label> : null}
           {walletSharingKind(selection.entry) === "details" ? <p className={styles.warning}><Lock aria-hidden="true" className="size-4 shrink-0" />Full card details are sensitive. Approve only if you trust this requester.</p> : null}
-          {!vaultKey ? <p role="status" className="text-sm">Unlock your Wallet before changing access.</p> : null}
-          {actionError ? <p role="alert" className="text-sm text-destructive">{actionError}</p> : null}
-          {selection.active ? <Button variant="destructive" className="w-full" disabled={busy || !vaultKey || !selection.entry.request_id || !selection.entry.scope} onClick={() => setConfirmRevoke(true)}>Revoke access</Button> : <div className="grid grid-cols-2 gap-3"><Button variant="secondary" disabled={busy || !vaultKey || !isInlineDecidableConsentEntry(selection.entry)} onClick={() => void mutate("decline")}>Decline</Button><Button disabled={busy || !vaultKey || !isInlineDecidableConsentEntry(selection.entry)} onClick={() => void mutate("approve")}>{busy ? "Updating…" : "Approve"}</Button></div>}
+          {!vaultKey ? <p role="status" className="text-[13px] leading-[18px]">Unlock your Wallet before changing access.</p> : null}
+          {actionError ? <p role="alert" className="text-[13px] leading-[18px] text-destructive">{actionError}</p> : null}
+          {selection.active ? <Button variant="destructive" size="compact" className={`w-full ${presentationStyles.modalAction}`} disabled={busy || !vaultKey || !selection.entry.request_id || !selection.entry.scope} onClick={() => setConfirmRevoke(true)}>Revoke access</Button> : <div className="grid grid-cols-2 gap-3"><Button variant="secondary" size="compact" className={presentationStyles.modalAction} disabled={busy || !vaultKey || !isInlineDecidableConsentEntry(selection.entry)} onClick={() => void mutate("decline")}>Decline</Button><Button size="compact" className={presentationStyles.modalAction} disabled={busy || !vaultKey || !isInlineDecidableConsentEntry(selection.entry)} onClick={() => void mutate("approve")}>{busy ? "Updating…" : "Approve"}</Button></div>}
         </div> : null}
       </DialogContent>
     </Dialog>
-    <AlertDialog open={confirmRevoke && Boolean(selection)} onOpenChange={value => { if (!busy) setConfirmRevoke(value); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Stop sharing Wallet access?</AlertDialogTitle><AlertDialogDescription>This revokes this recipient’s selected permission. Information they previously received cannot be taken back.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>Keep sharing</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void mutate("revoke"); }}>Revoke access</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={confirmRevoke && Boolean(selection)} onOpenChange={value => { if (!busy) setConfirmRevoke(value); }}><AlertDialogContent className={presentationStyles.walletDialog}><AlertDialogHeader><AlertDialogTitle>Stop sharing Wallet access?</AlertDialogTitle><AlertDialogDescription>This revokes this recipient’s selected permission. Information they previously received cannot be taken back.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>Keep sharing</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); void mutate("revoke"); }}>Revoke access</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </div>;
 }

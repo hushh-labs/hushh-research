@@ -42,8 +42,8 @@ def test_timeout_ladder_is_monotonic() -> None:
 
 
 def test_the_puppy_budgets_are_the_ladders_values() -> None:
-    assert text_runtime._PUPPY_FIRST_EVENT_TIMEOUT_SECONDS == 70.0
-    assert text_runtime._PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS == 70.0
+    assert text_runtime._PUPPY_FIRST_EVENT_TIMEOUT_SECONDS == 100.0
+    assert text_runtime._PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS == 100.0
     assert text_runtime._PUPPY_TOTAL_TURN_TIMEOUT_SECONDS == 150.0
     assert pod_turn.POD_TURN_ROUTE_TIMEOUT_SECONDS == 155.0
     assert pod_relay._TURN_TIMEOUT_SECONDS == 160.0
@@ -69,6 +69,17 @@ def test_the_first_event_budget_covers_the_measured_cold_first_token() -> None:
     measured_cold_first_token_seconds = 32.9
     assert text_runtime._PUPPY_FIRST_EVENT_TIMEOUT_SECONDS > measured_cold_first_token_seconds
     assert text_runtime._PUPPY_FIRST_EVENT_TIMEOUT_SECONDS < puppy_broker.REQUEST_DEADLINE_SECONDS
+
+
+def test_adk_event_waits_cover_broker_prefill_before_and_after_tools() -> None:
+    # A tool result can start another model request with a fresh prefill wait.
+    # The outer turn limit still bounds the sum of those requests.
+    for outer in (
+        text_runtime._PUPPY_FIRST_EVENT_TIMEOUT_SECONDS,
+        text_runtime._PUPPY_BETWEEN_EVENT_TIMEOUT_SECONDS,
+    ):
+        assert outer >= puppy_broker.FIRST_FRAME_TIMEOUT_SECONDS + 5.0
+        assert outer < text_runtime._PUPPY_TOTAL_TURN_TIMEOUT_SECONDS
 
 
 def test_the_route_maps_a_timeout_to_a_typed_504() -> None:

@@ -10,20 +10,22 @@ Read [`.agents/instructions.md`](.agents/instructions.md) before routing, planni
 delegating, or changing this repository. Its complete operating contract is binding
 for this repository and inherited by every development subagent.
 
-Package-local instructions refine that contract within their scope. Host settings
-and discovery files are adapters; they do not create a second operating policy.
+Package-local instructions refine that contract within their scope. Native
+discovery links expose this framework without creating another operating policy.
 
 All development sources belong in **`.agents/`**:
 
 - [skills](.agents/skills/): reusable procedures and their supporting tools.
 - [workflows](.agents/workflows/): ownership, routing and verification.
 - [subagents](.agents/subagents/): the unified read-only engineering fleet.
-- [adapters](.agents/adapters/): native host configuration and generated projections.
+- [evals](.agents/evals/): routing and engineering evaluations.
+- [configuration](.agents/config.toml): bounded execution and tool connections.
+- [generated projections](.agents/generated/subagents/): derived host discovery.
 
 Create or evolve these through the existing governance workflow. Do not create
 another host-specific skill or subagent fleet. Native `.claude` and `.codex`
 entrypoints are checked compatibility links; they contain no authored policy.
-Claude startup loads this entrypoint through a small checked hook; there is no
+Startup loads this entrypoint through a small checked hook; there is no
 separate `CLAUDE.md` policy. Other AI tools inherit this same contract.
 
 Run independent work in bounded parallel lanes under the canonical

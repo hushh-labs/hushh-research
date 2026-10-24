@@ -6,6 +6,7 @@ import select
 import subprocess
 import sys
 from pathlib import Path
+from typing import TextIO
 
 import pytest
 from mcp.shared.version import LATEST_PROTOCOL_VERSION
@@ -19,26 +20,36 @@ EXPECTED_TOOLS = [
 ]
 
 
-def _stderr_after_exit(process: subprocess.Popen[str]) -> str:
-    # Reading a live process's stderr pipe blocks until it closes, which hung the
-    # whole parallel suite whenever the server was slow to answer. Stop the
-    # server first, so the read ends at EOF.
+def _stderr_after_exit(process: subprocess.Popen[str], stderr_log: TextIO) -> str:
     if process.poll() is None:
         process.kill()
         process.wait(timeout=5)
-    return process.stderr.read(2000) if process.stderr else ""
+    stderr_log.seek(0)
+    return stderr_log.read(2000)
 
 
-def _read_json_line(process: subprocess.Popen[str], timeout: float = 30.0) -> dict:
+def _read_json_line(
+    process: subprocess.Popen[str], stderr_log: TextIO, timeout: float = 30.0
+) -> dict:
     # A cold server start imports the whole runtime; under a parallel suite on a
     # busy machine that can take well over 10s, so allow for that cold start.
     ready, _, _ = select.select([process.stdout], [], [], timeout)
     if not ready or process.stdout is None:
-        raise AssertionError(f"MCP server did not respond: {_stderr_after_exit(process)}")
+        raise AssertionError(
+            f"MCP server did not respond: {_stderr_after_exit(process, stderr_log)}"
+        )
     line = process.stdout.readline()
     if not line:
-        raise AssertionError(f"MCP server closed stdout: {_stderr_after_exit(process)}")
+        raise AssertionError(f"MCP server closed stdout: {_stderr_after_exit(process, stderr_log)}")
     return json.loads(line)
+
+
+@pytest.fixture
+def stderr_log(tmp_path):
+    # An undrained PIPE blocked real MCP handshakes in write() on macOS, even
+    # during the startup banner. Retain diagnostics without blocking stdout.
+    with (tmp_path / "mcp-stderr.log").open("w+") as log:
+        yield log
 
 
 @pytest.mark.parametrize(
@@ -46,7 +57,7 @@ def _read_json_line(process: subprocess.Popen[str], timeout: float = 30.0) -> di
     ["2024-11-05", "2025-06-18", LATEST_PROTOCOL_VERSION],
 )
 def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
-    protocol_version: str,
+    protocol_version: str, stderr_log: TextIO
 ) -> None:
     root = Path(__file__).resolve().parents[1]
     env = {
@@ -65,7 +76,7 @@ def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
         env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=stderr_log,
         text=True,
         bufsize=1,
     )
@@ -87,7 +98,7 @@ def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
             + "\n"
         )
         process.stdin.flush()
-        initialized = _read_json_line(process)
+        initialized = _read_json_line(process, stderr_log)
         assert initialized["result"]["protocolVersion"] == protocol_version
         assert initialized["result"]["serverInfo"]["version"] == "0.4.0"
 
@@ -98,7 +109,7 @@ def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
             json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}) + "\n"
         )
         process.stdin.flush()
-        listed = _read_json_line(process)
+        listed = _read_json_line(process, stderr_log)
         assert [tool["name"] for tool in listed["result"]["tools"]] == EXPECTED_TOOLS
         assert all(
             tool["inputSchema"]["additionalProperties"] is False
@@ -124,7 +135,7 @@ def test_live_stdio_negotiates_supported_versions_and_lists_exact_tools(
             + "\n"
         )
         process.stdin.flush()
-        failed_call = _read_json_line(process)
+        failed_call = _read_json_line(process, stderr_log)
         assert failed_call["result"]["isError"] is True
         assert "structuredContent" not in failed_call["result"]
         assert (

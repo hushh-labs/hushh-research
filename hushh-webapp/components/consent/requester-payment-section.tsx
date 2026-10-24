@@ -93,7 +93,7 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
   const description = [presented.line, presented.remaining].filter(Boolean).join(" · ");
   return (
     <>
-      <SettingsGroup embedded title="Payment" testId="requester-payment-section">
+      <SettingsGroup embedded title="Payment" testId="requester-payment-section" className="consent-presentation-surface">
         <SettingsRow
           title={presented.title}
           description={
@@ -210,11 +210,12 @@ export function RequesterPaymentSection({ requestId, revision, payment, packageD
   return (
     <>
       {disclosure ? <section aria-label="Approved documents" className="space-y-2 px-1 pb-3">
-        <BodyText className="font-medium">{{ complete: "Documents ready", partial: "Incomplete documents", unknown: "Unable to verify documents" }[disclosure.coverageStatus]}</BodyText>
-        <HelperText>{disclosure.selectedCount} {disclosure.selectedCount === 1 ? "document" : "documents"} · {{ complete: "Complete coverage", partial: "Partial coverage", unknown: "Coverage not verified" }[disclosure.coverageStatus]}</HelperText>
+        <BodyText className="font-medium">{disclosure.confidenceBasis === "provider_search" ? "Drive search matches" :
+          { complete: "Documents ready", partial: "Incomplete documents", unknown: "Unable to verify documents" }[disclosure.coverageStatus]}</BodyText>
+        <HelperText>{disclosure.selectedCount} {disclosure.selectedCount === 1 ? "document" : "documents"}{disclosure.confidenceBasis !== "provider_search" ? ` · ${{ complete: "Complete coverage", partial: "Partial coverage", unknown: "Coverage not verified" }[disclosure.coverageStatus]}` : ""}</HelperText>
         {disclosure.periods.length ? <ul aria-label="Document periods" className="space-y-1">
           {disclosure.periods.map((period, index) => <li key={index}><HelperText>{period.start} – {period.end}</HelperText></li>)}
-        </ul> : <HelperText>Date coverage could not be verified.</HelperText>}
+        </ul> : disclosure.confidenceBasis !== "provider_search" ? <HelperText>Date coverage could not be verified.</HelperText> : null}
         {disclosure.limitations.length ? <ul aria-label="Document limitations" className="space-y-1">
           {disclosure.limitations.map((limitation, index) => <li key={index}><BodyText className="[overflow-wrap:anywhere]">{limitation}</BodyText></li>)}
         </ul> : null}

@@ -23,6 +23,9 @@ import {
 
 import { AgentDockPortal, useAgentDockFrame } from "@/components/agent/agent-dock";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { OpenProfileAction } from "@/components/app-ui/open-profile-action";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { navigateDirectMessage, resolveDirectMessageHref } from "@/lib/direct-messages/navigate-direct-message";
 import { MessagesBackButton } from "./messages-back-button";
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
@@ -107,6 +110,7 @@ import { useChatAlertVisibility } from "@/lib/notifications/chat-alert-visibilit
 import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 import styles from "./direct-messages-page.module.css";
+import quietStyles from "./messages-quiet-action.module.css";
 import { WalletSharedCardMessage } from "@/components/wallet/wallet-shared-card-message";
 import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-message";
 import { cardAccessReference } from "@/lib/services/wallet-card-access-service";
@@ -304,7 +308,7 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, a
         ) : opening ? <Loader2 className="h-6 w-6 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <ImageIcon className="h-6 w-6" aria-hidden="true" />}
       </button>
       <Dialog modal open={photoOpen && isCurrent()} onOpenChange={setPhotoOpen}>
-        <DialogContent className={styles.photoDialog} srDescription="Photo shared in this conversation.">
+        <DialogContent className={styles.photoDialog} data-messages-type-scale srDescription="Photo shared in this conversation.">
           <DialogTitle className="sr-only">Photo</DialogTitle>
           {/* Encrypted bytes remain in the current conversation's blob URL. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -415,6 +419,9 @@ function threadFromConversation(
 
 export function DirectMessagesPage({ selection, resolvingSelection = false, restoredSelection = null }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean; restoredSelection?: LastMessagesSelection | null } = {}) {
   const { user, loading: authLoading } = useAuth();
+  // The top shell already hydrates current-owner identity; this route-owned
+  // header reads that cache and the Firebase fallback without a second fetch.
+  const profileAvatarUrl = useEffectiveAvatarUrl({ fetchWhenCold: false });
   const ownerId = user?.uid;
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
@@ -1697,6 +1704,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
       {isDark ? <SunIcon className="h-5 w-5" aria-hidden="true" /> : <MoonIcon className="h-5 w-5" aria-hidden="true" />}
     </button>
   );
+  const profileAction = user ? <OpenProfileAction avatarUrl={profileAvatarUrl} displayName={user.displayName} /> : null;
 
   return (
     <AppPageShell width="expanded" fitContent={false} nativeTest={nativeTest} className={styles.shell}>
@@ -1730,6 +1738,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 <RefreshCw className={cn("h-4 w-4", loadingInbox && "animate-spin motion-reduce:animate-none")}
                   aria-hidden="true" />
               </button>
+              {profileAction}
             </div>
           </header>
           <div className={styles.inboxSearch}>
@@ -1757,6 +1766,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                   type="button"
                   variant="none"
                   effect="fade"
+                  className={quietStyles.action}
                   onClick={() => void loadInbox()}
                 >
                   Try again
@@ -1768,9 +1778,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 <MessageCircle className="h-7 w-7" aria-hidden="true" />
                 <h2>{inboxSearch ? "No matching chats" : "No chats yet"}</h2>
                 <p>{inboxSearch ? "Try another name or message." : "Choose a connection to start chatting."}</p>
-                {!inboxSearch ? <button type="button" className={styles.newChatAction} onClick={() => {
+                {!inboxSearch ? <Button type="button" variant="none" effect="fade" className={cn(styles.newChatAction, quietStyles.action)} onClick={() => {
                   setNewChatQuery(""); setNewChatPage(1); setNewChatPeople([]); setNewChatHasMore(false); setNewChatOpen(true);
-                }}>New chat</button> : null}
+                }}>New chat</Button> : null}
               </div>
             ) : null}
             {visibleConversations.map((conversation) => {
@@ -1839,14 +1849,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
             <>
               <header className={styles.threadHeader} data-search-open={messageSearchOpen || undefined}>
                 <div className={styles.threadHeaderContent}>
-                  <button
-                    type="button"
-                    className={styles.backButton}
+                  <ShellActionSurface
+                    className={cn(styles.backButton, "!size-11")}
                     aria-label="Back to messages"
                     onClick={backToConnections}
                   >
                     <ArrowLeft className="h-6 w-6" aria-hidden="true" />
-                  </button>
+                  </ShellActionSurface>
                   <PeerProfileLink href={pendingSelection ? null : peerProfileHref} label={selectedLabel} className={styles.threadIdentity}>
                     <span className={styles.peerProfileLink}>
                     <ConnectionPersonAvatar
@@ -1916,6 +1925,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     >
                       <Search className="h-5 w-5" aria-hidden="true" />
                     </button>
+                    {profileAction}
                   </div>
                 </div>
               </header>
@@ -1949,6 +1959,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       type="button"
                       variant="none"
                       effect="fade"
+                      className={quietStyles.action}
                       onClick={() => void loadThread()}
                     >
                       Try again
@@ -1960,7 +1971,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     type="button"
                     variant="none"
                     effect="fade"
-                    className={styles.loadOlder}
+                    className={cn(styles.loadOlder, quietStyles.action)}
                     disabled={loadingOlder}
                     onClick={() => void loadOlderMessages()}
                   >
@@ -2125,6 +2136,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                               <div className={styles.messageActions} aria-label="Message actions">
                                 {!message.deletedForEveryoneAt ? (
                                   <DirectMessageEmojiPicker
+                                    messagesLane
                                     label="React to message"
                                     triggerIcon={<Smile className="h-5 w-5" />}
                                     triggerClassName={styles.messageActionButton}
@@ -2157,6 +2169,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     </button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent
+                                    data-messages-type-scale
                                     key={opening?.sequence ?? 0}
                                     side="top"
                                     align={message.senderIsViewer ? "end" : "start"}
@@ -2259,15 +2272,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 <div ref={bottomRef} className={styles.bottomMarker} />
               </div>
 
-                {!atBottom && messages.length > 0 ? <button type="button" className={styles.latestControl} onClick={() => {
+                {!atBottom && messages.length > 0 ? <Button type="button" variant="none" effect="fade" className={cn(styles.latestControl, quietStyles.action)} onClick={() => {
                   atBottomRef.current = true; setAtBottom(true); if (messageListRef.current) messageListRef.current.scrollTop = messageListRef.current.scrollHeight; setReadRevision((value) => value + 1);
-                }}>Go to latest messages</button> : null}
+                }}>Go to latest messages</Button> : null}
             </>
           ) : null}
                   {lane === "people" ? <AgentDockPortal enabled visible={hasRouteSelection}
                     suppressed={!hasRouteSelection}>
                   <form
                     className={styles.composer}
+                    data-messages-type-scale
                     data-direct-message-inbox-composer={!hasRouteSelection || undefined}
                     onSubmit={(event) => void sendDraft(event)}
                   >
@@ -2315,7 +2329,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                           <Plus className="h-5 w-5" aria-hidden="true" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" side="top" className={styles.attachmentMenu}>
+                      <DropdownMenuContent align="start" side="top" className={styles.attachmentMenu} data-messages-type-scale>
                         <DropdownMenuItem onSelect={() => photoInputRef.current?.click()}>
                           <ImageIcon className="h-4 w-4" aria-hidden="true" /> Photo
                         </DropdownMenuItem>
@@ -2363,6 +2377,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       }}
                     />
                     <DirectMessageEmojiPicker
+                      messagesLane
                       key={draftScope}
                       triggerIcon={<Smile className="h-5 w-5" />}
                       restoreTriggerFocusOnSelect={false}
@@ -2412,7 +2427,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               <Dialog modal open={Boolean(editingMessage)} onOpenChange={(open) => {
                 if (!open) { editDraftGeneration.current += 1; setEditingMessage(null); setEditingContent(""); }
               }}>
-                <DialogContent className={styles.editDialog} srDescription="Update the text of your message."
+                <DialogContent className={styles.editDialog} data-messages-type-scale srDescription="Update the text of your message."
                   onOpenAutoFocus={(event) => {
                     event.preventDefault();
                     const input = editingInputRef.current;
@@ -2446,7 +2461,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                   if (!open) setDeleteRequest(null);
                 }}
               >
-                <AlertDialogContent size="sm">
+                <AlertDialogContent size="sm" data-messages-type-scale>
                   <AlertDialogHeader>
                     <AlertDialogTitle>
                       {deleteRequest?.scope === "everyone"
@@ -2471,11 +2486,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         <CircleMessagesPane active={lane === "circles"} theme={isDark ? "dark" : "light"}
           onThreadOpenChange={setCircleThreadOpen} onCircleCountChange={setCircleCount}
           initialCircleId={restoredSelection?.lane === "circles" ? restoredSelection.circleId : null}
-          laneSwitcher={laneSwitcher} headerActions={themeToggle} />
+          laneSwitcher={laneSwitcher} headerActions={themeToggle} profileAction={profileAction} />
       </section>
       <AlertDialog open={Boolean(chatDeleteRequest && chatDeleteRequest.ownerId === user?.uid)}
         onOpenChange={open => { if (!open && !deletingChat) setChatDeleteRequest(null); }}>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent size="sm" data-messages-type-scale>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete chat with {chatDeleteRequest ? conversationLabel(chatDeleteRequest.conversation) : "this person"} for you only?</AlertDialogTitle>
             <AlertDialogDescription className="sr-only">Deletes this chat for you only.</AlertDialogDescription>
@@ -2489,7 +2504,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         </AlertDialogContent>
       </AlertDialog>
       <Dialog modal open={newChatOpen} onOpenChange={setNewChatOpen}>
-        <DialogContent aria-modal="true" className={styles.newChatDialog} srDescription="Choose a connection to message.">
+        <DialogContent aria-modal="true" className={styles.newChatDialog} data-messages-type-scale srDescription="Choose a connection to message.">
           <DialogHeader><DialogTitle>New chat</DialogTitle></DialogHeader>
           <input type="search" aria-label="Search connections" placeholder="Search connections"
             className={styles.newChatSearch} value={newChatQuery} onChange={(event) => {
@@ -2509,8 +2524,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               <ConnectionPersonAvatar label={person.displayName || "Connection"} photoUrl={person.photoUrl} size="list" />
               <span>{person.displayName || "Connection"}</span>
             </button>)}
-            {newChatHasMore ? <button type="button" className={styles.newChatMore} disabled={newChatLoading}
-              onClick={() => setNewChatPage((page) => page + 1)}>Load more</button> : null}
+            {newChatHasMore ? <Button type="button" variant="none" effect="fade" className={cn(styles.newChatMore, quietStyles.action)} disabled={newChatLoading}
+              onClick={() => setNewChatPage((page) => page + 1)}>Load more</Button> : null}
           </div>
         </DialogContent>
       </Dialog>

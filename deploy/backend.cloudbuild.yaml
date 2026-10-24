@@ -514,8 +514,8 @@ steps:
     waitFor:
       ["resolve-pod-image-digest", "publish-azure-pod-release", "verify-managed-vertex-runtime"]
 
-  # UAT Azure PWM must prove federation, strict schema and attribution from the
-  # exact no-traffic candidate image and runtime identity before promotion.
+  # Both provider jobs probe the pinned image and runtime identity independently.
+  # Run Azure alongside Vertex; the aggregate joins the deployed candidate below.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
@@ -542,7 +542,7 @@ steps:
         print(config.get("pwm_research_uat", config["pwm_research"])["provider"])
         PY
         )"
-        if [[ "${pwm_provider}" != "azure_openai_web_search" ]]; then
+        if [[ "${pwm_provider}" != "azure_openai_web_search" && "${pwm_provider}" != "azure_openai_tavily" ]]; then
           exit 0
         fi
         if [[ "$PROJECT_ID" != "hushh-pda-uat" || "${_REGION}" != "us-central1" ||
@@ -638,7 +638,7 @@ steps:
         PY
         echo "Azure PWM UAT runtime probe passed."
     allowFailure: true
-    waitFor: ["deploy-backend"]
+    waitFor: ["build-backend-image", "verify-runtime-iam"]
     env:
       - "READINESS_BUILD_ID=${BUILD_ID}"
       - "READINESS_SOURCE_SHA=${_DEPLOY_SHA}"
@@ -665,7 +665,7 @@ steps:
         if [[ "${_DEPLOY_ENV}" == "uat" ]]; then
           python3 scripts/ci/managed_provider_readiness.py select
         fi
-    waitFor: ["verify-azure-pwm-runtime", "verify-managed-vertex-runtime"]
+    waitFor: ["deploy-backend", "verify-azure-pwm-runtime", "verify-managed-vertex-runtime"]
     env:
       - "READINESS_BUILD_ID=${BUILD_ID}"
       - "READINESS_SOURCE_SHA=${_DEPLOY_SHA}"

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
+from functools import cache
 from pathlib import Path
-from urllib.parse import urlsplit
 from uuid import UUID, uuid5
 
 PROFILE_PATH = Path(__file__).resolve().parents[1] / "config" / "managed-ai-runtime.json"
@@ -106,6 +107,47 @@ def selected_managed_provider() -> str:
     return selected
 
 
+def _validate_managed_azure_bindings(azure: dict, required: list[str]) -> None:
+    legacy_bindings = {
+        "realtime",
+        "transcription",
+        "speech",
+        "embedding",
+        "embedding_dimensions",
+        "voice",
+    }
+    if not isinstance(azure, dict) or set(azure) not in (
+        legacy_bindings,
+        legacy_bindings | {"compact_public_search"},
+    ):
+        raise ValueError("Invalid managed Azure capability bindings")
+    compact = "compact_public_search" in azure
+    if compact != ("compact_public_search" in required):
+        raise ValueError("Compact public search requires matching capability qualification")
+    kinds = ("realtime", "transcription", "speech", "embedding")
+    for kind in (*kinds, *(("compact_public_search",) if compact else ())):
+        binding = azure[kind]
+        fields = {"deployment", "model", "version"}
+        if kind == "compact_public_search":
+            fields |= {"reasoning_effort", "text_verbosity"}
+        if not isinstance(binding, dict) or set(binding) != fields:
+            raise ValueError("Invalid managed Azure deployment descriptor")
+        if any(
+            not isinstance(binding[key], str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", binding[key])
+            for key in ("deployment", "model", "version")
+        ):
+            raise ValueError("Invalid managed Azure deployment descriptor")
+        if kind == "compact_public_search" and (
+            binding["reasoning_effort"] != "none" or binding["text_verbosity"] != "low"
+        ):
+            raise ValueError("Invalid compact public search generation budget")
+    if type(azure["embedding_dimensions"]) is not int or azure["embedding_dimensions"] != 768:
+        raise ValueError("Managed Location embeddings require 768 dimensions")
+    if azure["voice"] not in {"coral"}:
+        raise ValueError("Unsupported managed Azure voice")
+
+
 def load_managed_runtime_policy(
     path: Path = PROFILE_PATH, *, environment: str | None = None
 ) -> dict | None:
@@ -143,29 +185,7 @@ def load_managed_runtime_policy(
         or len(set(required)) != len(required)
     ):
         raise ValueError("Invalid managed capability inventory")
-    azure = value["azure"]
-    if not isinstance(azure, dict) or set(azure) != {
-        "realtime",
-        "transcription",
-        "speech",
-        "embedding",
-        "embedding_dimensions",
-        "voice",
-    }:
-        raise ValueError("Invalid managed Azure capability bindings")
-    for kind in ("realtime", "transcription", "speech", "embedding"):
-        binding = azure[kind]
-        if not isinstance(binding, dict) or set(binding) != {"deployment", "model", "version"}:
-            raise ValueError("Invalid managed Azure deployment descriptor")
-        if any(
-            not isinstance(v, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", v)
-            for v in binding.values()
-        ):
-            raise ValueError("Invalid managed Azure deployment descriptor")
-    if type(azure["embedding_dimensions"]) is not int or azure["embedding_dimensions"] != 768:
-        raise ValueError("Managed Location embeddings require 768 dimensions")
-    if azure["voice"] not in {"coral"}:
-        raise ValueError("Unsupported managed Azure voice")
+    _validate_managed_azure_bindings(value["azure"], required)
     selected = selected_managed_provider()
     digest = profile_hash(
         {
@@ -179,6 +199,16 @@ def load_managed_runtime_policy(
         "config_fingerprint": digest,
         "generation": str(uuid5(UUID(value["policy_id"]), value["version"] + digest + selected)),
     }
+
+
+@cache
+def _azure_config_validator():
+    # Deployment tools load this stdlib-only contract without package startup.
+    path = Path(__file__).with_name("pwm_provider_policy.py")
+    spec = importlib.util.spec_from_file_location("pwm_provider_policy", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.validate_azure_config
 
 
 def load_pwm_policy(
@@ -210,7 +240,7 @@ def load_pwm_policy(
     if runtime_environment == "uat":
         value["owner_source_provider"] = "public_https"
     provider = value.get("provider")
-    azure = provider == "azure_openai_web_search"
+    azure = provider in {"azure_openai_web_search", "azure_openai_tavily"}
     if (
         set(value)
         != (
@@ -228,52 +258,14 @@ def load_pwm_policy(
             }
             | ({"azure"} if azure else set())
         )
-        or provider not in {"vertex_google_search", "azure_openai_web_search"}
+        or provider
+        not in {"vertex_google_search", "azure_openai_web_search", "azure_openai_tavily"}
         or value["owner_source_provider"]
         != ("public_https" if runtime_environment == "uat" else "vertex_url_context")
     ):
         raise ValueError("PWM requires declared research and source-review providers")
     if azure:
-        config = value["azure"]
-        if not isinstance(config, dict) or set(config) != {
-            "tenant_id",
-            "client_id",
-            "primary_endpoint",
-            "primary_deployment",
-            "phi_endpoint",
-            "phi_deployment",
-        }:
-            raise ValueError("PWM Azure runtime fields do not match the contract")
-        for key in ("tenant_id", "client_id"):
-            try:
-                if str(UUID(config[key])) != config[key]:
-                    raise ValueError
-            except (TypeError, ValueError, AttributeError) as error:
-                raise ValueError(f"Invalid PWM Azure {key}") from error
-        for key, suffix in (
-            ("primary_endpoint", ".openai.azure.com"),
-            ("phi_endpoint", ".services.ai.azure.com"),
-        ):
-            endpoint = config[key]
-            if not isinstance(endpoint, str):
-                raise ValueError(f"Invalid PWM Azure {key}")
-            parsed = urlsplit(endpoint)
-            if (
-                parsed.scheme != "https"
-                or not (parsed.hostname or "").endswith(suffix)
-                or parsed.path.rstrip("/") != "/openai/v1"
-                or parsed.username
-                or parsed.password
-                or parsed.port is not None
-                or parsed.query
-                or parsed.fragment
-            ):
-                raise ValueError(f"Invalid PWM Azure {key}")
-        for key in ("primary_deployment", "phi_deployment"):
-            if not isinstance(config[key], str) or not re.fullmatch(
-                r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", config[key]
-            ):
-                raise ValueError(f"Invalid PWM Azure {key}")
+        _azure_config_validator()(value["azure"])
     limits = {
         "search_invocations": 32,
         "model_calls": 128,

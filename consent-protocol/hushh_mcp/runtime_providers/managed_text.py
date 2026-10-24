@@ -26,6 +26,7 @@ from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 
 logger = logging.getLogger(__name__)
 TEXT_SCOPES = frozenset({"one_text_chat", "drive_document_requests"})
+ONE_TOOL_FIRST_OUTPUT_SECONDS = 30.0
 ManagedProvider = Literal["azure_openai", "vertex"]
 
 
@@ -100,6 +101,29 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
     primary_seconds: float = Field(default=30, gt=0, le=40)
     fallback_seconds: float = Field(default=20, gt=0, le=30)
 
+    def _primary_timeout(self, request) -> float:
+        if self.processing_scope != "one_text_chat":
+            return self.primary_seconds
+        latest = request.contents[-1] if request.contents else None
+        continuation = (
+            latest is not None
+            and latest.role == "user"
+            and any(part.function_response is not None for part in latest.parts or [])
+        )
+        native_search = (
+            self.allow_web_search
+            and request.config is not None
+            and any(
+                getattr(tool, "google_search", None) is not None
+                for tool in request.config.tools or []
+            )
+        )
+        # Native search can be silent while searching. A tool response starts a
+        # new model call, but is already inside the user's bounded active turn.
+        return (
+            ONE_TOOL_FIRST_OUTPUT_SECONDS if continuation or native_search else self.primary_seconds
+        )
+
     async def _require_current(self):
         if self.runtime_binding is not None:
             try:
@@ -147,7 +171,7 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
             if provider == "azure_openai":
                 primary = self.model_copy(update={"require_current": current})
                 source = AzureOpenAIAdkModel.generate_content_async(primary, request, stream=stream)
-                seconds = self.primary_seconds
+                seconds = self._primary_timeout(request)
             else:
                 vertex = self.fallback_model
                 if vertex is None:
@@ -170,11 +194,12 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                 location = ManagedGeminiRuntimeBinding.from_environment().primary_location
                 seconds = self.fallback_seconds
             logger.info(
-                "managed_text.selection scope=%s policy=%s provider=%s attempt=%s",
+                "managed_text.selection scope=%s policy=%s provider=%s attempt=%s first_output_budget_ms=%s",
                 self.processing_scope,
                 self.policy_generation,
                 provider,
                 index + 1,
+                int(seconds * 1000),
             )
             try:
                 if index:

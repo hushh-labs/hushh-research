@@ -7,6 +7,7 @@ import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
 import { createWalletCardImageFile, type WalletCardImageKind } from "@/lib/wallet/wallet-card-image";
 import type { WalletDemoProfile } from "./wallet-demo-cards";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 
 export function WalletCardImageShareButton({ cardId, profile, disabled = false }: {
   cardId: string; profile: WalletDemoProfile; disabled?: boolean;
@@ -47,7 +48,7 @@ export function WalletCardImageShareButton({ cardId, profile, disabled = false }
       if (!isShareCancellationError(error)) morphyToast.error("Could not share the card. Try again.");
     } finally { setSharing(false); }
   };
-  return <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" loading={sharing || (!disabled && !ready && !failed)} disabled={disabled || sharing || (!ready && !failed)} onClick={() => void share()}>
+  return <Button type="button" size="compact" className={presentationStyles.quietAction} variant="none" effect="fade" loading={sharing || (!disabled && !ready && !failed)} disabled={disabled || sharing || (!ready && !failed)} onClick={() => void share()}>
     <ProfilePaneShareIcon className="mr-2 h-4 w-4" aria-hidden />{failed ? "Retry card image" : "Share card"}
   </Button>;
 }

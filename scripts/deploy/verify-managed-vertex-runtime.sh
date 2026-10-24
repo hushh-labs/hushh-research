@@ -136,7 +136,7 @@ config = json.loads(Path("consent-protocol/config/managed-ai-runtime.json").read
 print(config.get("pwm_research_uat", config["pwm_research"])["provider"])
 PYCONFIG
   )"
-  if [[ "${pwm_provider}" == "azure_openai_web_search" ]]; then
+  if [[ "${pwm_provider}" == "azure_openai_web_search" || "${pwm_provider}" == "azure_openai_tavily" ]]; then
     disposition="$(DEPLOY_ENV="${_DEPLOY_ENV}" PROBE_LINE="${probe_line}" EXPECTED_CONFIG_HASH="${_MANAGED_AI_CONFIG_HASH}" \
       EXPECTED_CHAT_PROJECT="${genai_project_id}" VOICE_ENABLED="${_ONE_VOICE_LIVE_ENABLED}" \
       EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}" EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}" \

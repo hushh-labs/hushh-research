@@ -1,113 +1,14 @@
+import { mock, clock, research, advance } from "../fixtures/world-model-page-harness";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
-import { useSyncExternalStore } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PwmClaim, PwmMemory } from "@/lib/services/world-model-decision-service";
-import type { PwmProgress, PwmValidatedFact } from "@/lib/services/world-model-research-service";
-
-const mock = vi.hoisted(() => ({
-  research: {} as Record<string, unknown>,
-  /** The signed-in account, as the Account pane sees it. */
-  auth: {
-    user: { uid: "owner-a", displayName: "Alice" } as Record<string, unknown>,
-    phoneNumber: null as string | null,
-  },
-  claimable: false,
-  load: vi.fn(),
-  confirm: vi.fn(),
-  reject: vi.fn(),
-  edit: vi.fn(),
-  remove: vi.fn(),
-  push: vi.fn(),
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mock.push, replace: vi.fn(), refresh: vi.fn() }),
-  usePathname: () => "/one/profile/world-model",
-  useSearchParams: () => new URLSearchParams(),
-}));
-vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({
-    user: mock.auth.user,
-    phoneNumber: mock.auth.phoneNumber,
-    loading: false,
-    sessionVerificationRequired: false,
-  }),
-}));
-// The shared idle clock, driven by hand: the test moves Date and wakes readers.
-const clock = vi.hoisted(() => ({
-  intervals: [] as number[],
-  listeners: new Set<() => void>(),
-  tick() {
-    for (const listener of this.listeners) listener();
-  },
-}));
-vi.mock("@/lib/perf/use-periodic-task", () => ({
-  useCoarseClock: (intervalMs: number) => {
-    clock.intervals.push(intervalMs);
-    return useSyncExternalStore(
-      (listener) => {
-        clock.listeners.add(listener);
-        return () => clock.listeners.delete(listener);
-      },
-      () => Date.now(),
-      () => Date.now(),
-    );
-  },
-}));
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({
-    vaultKey: "key-a",
-    vaultOwnerToken: "token-a",
-    isVaultUnlocked: true,
-    tokenExpiresAt: null,
-  }),
-}));
-vi.mock("@/components/profile/world-model-provider", () => ({
-  useWorldModelResearch: () => mock.research,
-}));
-vi.mock("@/lib/agent/agent-pkm-capture-runtime", () => ({
-  createAgentPkmCaptureGuard: ({ isEnabled }: { isEnabled: () => boolean }) => ({
-    isCurrent: () => isEnabled(),
-    assertCurrent: async () => {
-      if (!isEnabled()) throw new Error("stale");
-    },
-  }),
-}));
-vi.mock("@/lib/pkm/use-pkm-domain-change-revision", () => ({
-  usePkmDomainChangeRevision: () => 0,
-}));
-vi.mock("@/lib/pkm/markdown-memory", () => ({ MARKDOWN_MEMORY_DOMAIN: "one_memory" }));
-vi.mock("@/components/agent/profile-research-card", () => ({
-  ProfileResearchCard: () => null,
-}));
-vi.mock("@/components/profile/world-model-claim-invitation", () => ({
-  WorldModelClaimInvitation: ({ onClaimed }: { onClaimed?: () => void }) =>
-    mock.claimable ? <button onClick={onClaimed}>Claim invitation</button> : null,
-}));
-vi.mock("@/components/profile/world-model-sources", () => ({
-  WorldModelSources: ({ onResearchPublicProfiles }: { onResearchPublicProfiles?: (urls: readonly string[]) => void }) => <>
-    <p>Claimed preview</p>
-    {onResearchPublicProfiles ? <button onClick={() => onResearchPublicProfiles(["https://github.com/example-owner"])}>Research these profiles</button> : null}
-  </>,
-}));
-vi.mock("@/lib/services/world-model-decision-service", async (importActual) => ({
-  ...(await importActual<typeof import("@/lib/services/world-model-decision-service")>()),
-  WorldModelDecisionService: {
-    load: mock.load,
-    confirm: mock.confirm,
-    reject: mock.reject,
-    edit: mock.edit,
-    remove: mock.remove,
-  },
-}));
+import { describe, expect, it, vi } from "vitest";
+import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
 import { pwmClaimKey } from "@/lib/services/world-model-decision-service";
 import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/profile/world-model-fact-sheet";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
-const DRAFT_ID = "00000000-0000-4000-8000-000000000001";
-const source = { title: "Hushh team page", url: "https://hushh.ai/team" };
+import { source, offered, memoryOf, claim, pending, progressOf, provisionalFact } from "../fixtures/world-model-review";
 
 it("does not let a retained World Model detail consume another Profile page’s Back", () => {
   const close = vi.fn();
@@ -122,137 +23,6 @@ it("does not let a retained World Model detail consume another Profile page’s 
   expect(close).toHaveBeenCalledOnce();
   view.rerender(<WorldModelFactSheet {...props} present={false} />);
   act(() => { expect(unwindBackLayer("/one", new URLSearchParams("profile_pane=1&profile_panel=world-model"))).toBe(false); });
-});
-
-function offered(
-  facts: { statement: string; kind: string; confidence?: string }[],
-  matchStatus: "matched" | "uncertain" | "no_match" = "matched",
-) {
-  return {
-    status: "offered",
-    pkm_written: false,
-    draft_id: DRAFT_ID,
-    report: {
-      match_status: matchStatus,
-      name: "Alice",
-      summary: "Alice works on private agents.",
-      sections: facts.map((fact) => ({
-        kind: fact.kind,
-        facts: [
-          {
-            statement: fact.statement,
-            confidence: fact.confidence ?? "supported",
-            sources: [source],
-          },
-        ],
-      })),
-    },
-    grounded_answers: [{ answer: "RAW GROUNDED ANSWER", sources: [], search_suggestions: [] }],
-    search_suggestions: [],
-    research: {
-      identity: { reason: "Same verified email on the team page." },
-      candidates: [] as { id: string; label: string }[],
-    },
-  };
-}
-
-function memoryOf(saved: PwmClaim[] = [], decided: string[] = []): PwmMemory {
-  return {
-    claims: Object.fromEntries(saved.map((claim) => [claim.key, claim])),
-    saved,
-    decidedKeys: new Set([...saved.map((claim) => claim.key), ...decided]),
-  };
-}
-
-async function claim(text: string, topic: PwmClaim["topic"] = "career"): Promise<PwmClaim> {
-  return {
-    key: await pwmClaimKey(text),
-    decision: "accepted",
-    text,
-    topic,
-    decided_at: "2026-10-15T10:00:00.000Z",
-    basis: "owner_declaration",
-  };
-}
-
-function research(
-  result: unknown,
-  preferences = { enabled: true, email_enabled: true },
-  live: Partial<{
-    progress: PwmProgress | null;
-    validatedFacts: PwmValidatedFact[];
-    retrying: boolean;
-    live: boolean;
-    lastActivityAt: number | null;
-    /** When a named wait ends, anchored by the store when the answer arrived. */
-    retryAt: number | null;
-  }> = {},
-) {
-  mock.research = {
-    mounted: true,
-    result,
-    preferences: { ...preferences, consent_version: "pwm-native-v1", research_provider: "vertex_google_search" },
-    failed: false,
-    progress: null,
-    validatedFacts: [],
-    retrying: false,
-    live: true,
-    lastActivityAt: null,
-    retryAt: null,
-    reload: vi.fn(),
-    refresh: vi.fn(),
-    ...live,
-  };
-}
-
-const pending = { status: "pending", pkm_written: false, restart_required: false };
-const progressOf = (over: Partial<PwmProgress> = {}): PwmProgress => ({
-  stage: "coverage",
-  searches_used: 9,
-  searches_total: 32,
-  model_calls_used: 20,
-  model_calls_total: 128,
-  topics_checked: ["career", "education", "public_roles", "interests"],
-  sources_found: 5,
-  recent_sources: [
-    { title: "Acme Corp – Team", url: "https://acme.example/team" },
-    { title: "Example Uni – Alumni", url: "https://uni.example/alumni" },
-  ],
-  identity_state: "owner_linked",
-  candidates: 1,
-  started_at: "2026-10-15T10:00:00.000Z",
-  last_activity_at: "2026-10-15T10:00:30.000Z",
-  slice: 1,
-  ...over,
-});
-const provisionalFact: PwmValidatedFact = {
-  id: "candidate-a:career:fact-1",
-  topic: "career",
-  statement: "Works at Acme Corp",
-  confidence: "supported",
-  sources: [{ title: "Acme team page", url: "https://acme.example/team" }],
-  identity_state: "owner_linked",
-};
-
-/** Moves the clock forward and wakes every reader of it. */
-function advance(ms: number) {
-  vi.setSystemTime(Date.now() + ms);
-  act(() => clock.tick());
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date("2026-10-15T10:00:00.000Z"));
-  mock.claimable = false;
-  mock.auth.user = { uid: "owner-a", displayName: "Alice" };
-  mock.auth.phoneNumber = null;
-  clock.intervals.length = 0;
-  mock.load.mockResolvedValue(memoryOf());
-});
-
-afterEach(() => {
-  vi.useRealTimers();
 });
 
 describe("Personal World Model page", () => {
@@ -342,7 +112,7 @@ describe("Personal World Model page", () => {
     expect(screen.queryByText("Confirmed by you")).not.toBeInTheDocument();
 
     finish(memoryOf([saved]));
-    expect(await screen.findByText("Confirmed by you")).toBeInTheDocument();
+    expect((await screen.findAllByText("Confirmed by you")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Yes, this is right/ })).not.toBeInTheDocument();
     expect(screen.getByText("Up to date")).toBeInTheDocument();
   });
@@ -537,7 +307,7 @@ describe("Personal World Model page", () => {
     expect(directOptIn).toHaveTextContent("outside Azure's compliance and data residency boundary");
     expect(screen.getByRole("button", { name: "Turn on" })).toBeInTheDocument();
     fireEvent.click(await screen.findByText("Research and email"));
-    expect(screen.getByText(/Bing may receive your name and verified email or phone/)).toHaveTextContent(
+    expect(screen.getAllByText(/Bing receives search terms that can include your name and verified email or phone/)[0]).toHaveTextContent(
       "outside Azure's compliance and data residency boundary",
     );
   });
@@ -599,23 +369,70 @@ describe("Personal World Model page", () => {
     expect(screen.getByTestId("pwm-sources-row")).toHaveTextContent("Sources in last checkpoint");
     expect(screen.queryByTestId("pwm-progress-bar")).toBeNull();
     expect(screen.queryByText("Nothing was saved.")).toBeNull();
-    const provisional = screen.getByTestId("pwm-provisional-fact");
-    expect(provisional).toHaveTextContent("Works at Acme Corp");
-    expect(within(provisional).getByRole("link", { name: "Acme team page" })).toHaveAttribute("href", "https://acme.example/team");
-    expect(within(provisional).queryByRole("button")).toBeNull();
-    expect(screen.getByText("These cited findings are awaiting the full review. They are not saved details yet.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Yes, this is right: Works at Acme Corp" })).toBeEnabled();
+    expect(screen.getByText("To review")).toBeInTheDocument();
+    expect(screen.getAllByText("Confirmed by you").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
   });
 
-  it("shows partial research while running without memory actions", async () => {
+  it("reviews a streamed finding and shows confirmation only after a committed save", async () => {
     research(pending, undefined, {
       validatedFacts: [{ ...provisionalFact, identity_state: "candidate_for_review", confidence: "uncertain" }],
     });
-    render(<PersonalWorldModelPage embedded />);
-    const provisional = await screen.findByTestId("pwm-provisional-fact");
-    expect(provisional).toHaveTextContent("Possible match · check the cited pages");
+    const saved = await claim(provisionalFact.statement);
+    let finish!: (value: PwmMemory) => void;
+    mock.confirm.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const view = render(<PersonalWorldModelPage embedded />);
+    const yes = await screen.findByRole("button", { name: `Yes, this is right: ${provisionalFact.statement}` });
+    expect(screen.getByText("To review")).toBeInTheDocument();
+    expect(screen.getByText("Possible match")).toBeInTheDocument();
+    fireEvent.click(yes);
+    expect(await screen.findByText("Saving…")).toBeInTheDocument();
+    expect(screen.queryByText("Confirmed by you")).not.toBeInTheDocument();
+    await act(async () => { finish(memoryOf([saved])); });
+    expect(screen.getAllByText("Confirmed by you").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Yes, this is right/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /No, this is not right/ })).toBeNull();
+    // The final model may omit a provisional finding; the owner's declaration remains.
+    research(offered([]));
+    view.rerender(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText(provisionalFact.statement)).toBeInTheDocument();
+    view.unmount();
+    mock.load.mockResolvedValue(memoryOf([saved]));
+    render(<PersonalWorldModelPage embedded />);
+    expect(await screen.findByText(provisionalFact.statement)).toBeInTheDocument();
+  });
+
+  it("withdraws an open streamed detail when its current batch revokes the finding", async () => {
+    research(pending, undefined, { validatedFacts: [provisionalFact] });
+    const view = render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByText(provisionalFact.statement));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    research(pending, undefined, { validatedFacts: [] });
+    view.rerender(<PersonalWorldModelPage embedded />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(mock.confirm).not.toHaveBeenCalled();
+    expect(mock.edit).not.toHaveBeenCalled();
+  });
+
+  it("keeps a rejected stream finding hidden through later batches, final report and remount", async () => {
+    const key = await pwmClaimKey(provisionalFact.statement);
+    const rejected = memoryOf([], [key]);
+    mock.reject.mockResolvedValue(rejected);
+    research(pending, undefined, { validatedFacts: [provisionalFact] });
+    const view = render(<PersonalWorldModelPage embedded />);
+    fireEvent.click(await screen.findByRole("button", { name: `No, this isn’t right: ${provisionalFact.statement}` }));
+    await waitFor(() => expect(screen.queryByText(provisionalFact.statement)).toBeNull());
+    research(pending, undefined, { validatedFacts: [{ ...provisionalFact, statement: "  WORKS  at Acme Corp! " }] });
+    view.rerender(<PersonalWorldModelPage embedded />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Yes, this is right/ })).toBeNull());
+    research(offered([{ statement: provisionalFact.statement, kind: "career" }]));
+    view.rerender(<PersonalWorldModelPage embedded />);
+    await waitFor(() => expect(screen.queryByText(provisionalFact.statement)).toBeNull());
+    view.unmount();
+    mock.load.mockResolvedValue(rejected);
+    render(<PersonalWorldModelPage embedded />);
+    await waitFor(() => expect(mock.load).toHaveBeenCalled());
+    expect(screen.queryByText(provisionalFact.statement)).toBeNull();
   });
 
   it("shows an immediate retry state while preserving the stopped checkpoint", async () => {
@@ -1136,7 +953,7 @@ describe("Personal World Model page", () => {
     expect(await screen.findByText("Email me when it’s ready")).toBeInTheDocument();
     expect(mock.research.refresh).not.toHaveBeenCalled();
     expect(mock.research.reload).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText("Check for updates"));
+    fireEvent.click(screen.getByText("Update my model"));
     expect(mock.research.refresh).toHaveBeenCalledTimes(1);
     expect(mock.research.reload).not.toHaveBeenCalled();
   });

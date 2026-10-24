@@ -7,7 +7,7 @@ export function CommerceTime({ label, value }: { label: string; value?: string |
 
 export function ScopeCommerceTimeline({ request }: { request: ScopeCommerceRequest }) {
   const purchase = request.purchase;
-  return <dl className="grid gap-3 text-sm sm:grid-cols-2">
+  return <dl data-consent-facts className="grid gap-3 text-sm sm:grid-cols-2">
     <CommerceTime label="Request deadline" value={request.request_deadline} />
     <CommerceTime label="Prepare by" value={purchase?.fulfillment_deadline} />
     <CommerceTime label="Scheduled access starts" value={purchase?.activation_at} />

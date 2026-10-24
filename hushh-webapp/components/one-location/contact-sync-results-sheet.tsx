@@ -14,6 +14,11 @@ import {
   TAKEOVER_SURFACE_Z_CLASSNAME,
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { Button } from "@/components/ui/button";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import {
+  LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
+  LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
+} from "@/components/one-location/redesign/location-action-styles";
 import {
   Sheet,
   SheetContent as UnscopedSheetContent,
@@ -334,11 +339,14 @@ export function ContactSyncResultsSheet({
                       </p>
                     </div>
                     {match.outcome === "request_required" && !requested ? (
-                      <Button data-location-type-role="compact-action"
+                      <MorphyButton
                         type="button"
-                        size="sm"
-                        variant="outline"
+                        size="compact"
+                        variant="none"
+                        effect="fade"
+                        className={LOCATION_CONNECT_ACTION_TARGET_CLASSNAME}
                         disabled={requestingUserId === match.userId}
+                        aria-busy={requestingUserId === match.userId || undefined}
                         aria-label={`Send a connection request to ${name}`}
                         onClick={() => {
                           setRequestingUserId(match.userId);
@@ -360,12 +368,14 @@ export function ContactSyncResultsSheet({
                             .finally(() => setRequestingUserId(null));
                         }}
                       >
-                        {requestingUserId === match.userId ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          "Request"
-                        )}
-                      </Button>
+                        <span data-location-type-role="compact-action" className={LOCATION_CONNECT_ACTION_PILL_CLASSNAME}>
+                          {requestingUserId === match.userId ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          ) : (
+                            "Request"
+                          )}
+                        </span>
+                      </MorphyButton>
                     ) : null}
                     {requested ? (
                       <Check className="h-4 w-4 text-emerald-600" aria-hidden />
