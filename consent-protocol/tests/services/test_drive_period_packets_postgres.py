@@ -385,13 +385,22 @@ async def test_period_packets_never_become_free_when_payments_are_disabled(
         )
 
 
+@pytest.mark.parametrize("preference", ["recorded", "missing", "off"])
 async def test_financial_enrollment_is_current_year_idempotent_and_financial_only(
-    reusable, monkeypatch
+    reusable, monkeypatch, preference
 ):
     from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
 
     monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
     store = DrivePeriodPacketStore(db=reusable.collection.db, cipher=reusable.collection.cipher)
+    if preference == "missing":
+        with store.db.engine.begin() as connection:
+            connection.execute(text("DELETE FROM drive_live_preferences WHERE user_id='owner'"))
+    if preference == "off":
+        await store.set_background(user_id="owner", enabled=False, confirmed=True)
+        with pytest.raises(DriveReadError, match="background_preparation_required"):
+            await store.ensure_owner(user_id="owner", now=datetime(2026, 10, 24, tzinfo=UTC))
+        return
     instant = datetime(2026, 10, 24, tzinfo=UTC)
     assert await store.ensure_owner(user_id="owner", now=instant) == 5
     assert await store.ensure_owner(user_id="owner", now=instant) == 5

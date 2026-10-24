@@ -471,3 +471,77 @@ async def test_financial_provenance_cannot_authorize_an_arbitrary_checkpoint(
         assert current["status"] == "running" and current["matched"] == 0
         assert service.search.store._checkpoint(current) == claimed["checkpoint"]
     planner.assert_not_awaited()
+
+
+async def test_retention_advances_past_pinned_current_and_previous_previews(reusable, monkeypatch):
+    from hushh_mcp.services import drive_period_packet_retention as retention
+    from hushh_mcp.services.drive_period_packet_preview import snapshot_search
+
+    service, head, _, _ = await preview_runtime(reusable, monkeypatch)
+    identity = str(head["packet_id"])
+    first = await service.prepare_preview(user_id="owner", packet_id=identity)
+    assert first["complete"]
+    with service.store.db.engine.connect() as connection:
+        row = dict(
+            connection.execute(
+                text("SELECT * FROM drive_packet_heads WHERE packet_id=:id"), {"id": identity}
+            )
+            .mappings()
+            .one()
+        )
+        old_id = service.store._build(row)["search_job_id"]
+    await service.store.request_preview(user_id="owner", packet_id=identity, refresh=True)
+    job = await service.store.claim_build(user_id="owner", packet_id=identity)
+    plan, binding = await service._plan(job, AsyncMock())
+    state = await service._search_job(job, plan, binding)
+    build = await snapshot_search(service.store, job, job["build"], state["jobId"])
+    await service.store.save_build(job, build)
+    unused = str(uuid4())
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_owner_search_jobs
+          SELECT (jsonb_populate_record(NULL::drive_owner_search_jobs, to_jsonb(j) ||
+            jsonb_build_object('job_id',:id,'client_request_id',:client,'status','stopped',
+              'expires_at',clock_timestamp()-INTERVAL '1 day'))).* FROM drive_owner_search_jobs j WHERE job_id=:old"""),
+            {"id": unused, "client": str(uuid4()), "old": old_id},
+        )
+        connection.execute(
+            text(
+                "UPDATE drive_owner_search_jobs SET expires_at=clock_timestamp()-INTERVAL '3 days' WHERE job_id=:id"
+            ),
+            {"id": old_id},
+        )
+        connection.execute(
+            text(
+                "UPDATE drive_owner_search_jobs SET expires_at=clock_timestamp()-INTERVAL '2 days' WHERE job_id=:id"
+            ),
+            {"id": state["jobId"]},
+        )
+    monkeypatch.setattr(retention, "BATCH", 2)
+    await service.search.store.purge()
+    with service.store.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_jobs WHERE job_id=:id"),
+                {"id": unused},
+            ).scalar_one()
+            == 1
+        )
+    await service.search.store.purge()
+    with service.store.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_owner_search_jobs WHERE job_id=:id"),
+                {"id": unused},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM drive_owner_search_jobs WHERE job_id IN (:first,:second)"
+                ),
+                {"first": old_id, "second": state["jobId"]},
+            ).scalar_one()
+            == 2
+        )

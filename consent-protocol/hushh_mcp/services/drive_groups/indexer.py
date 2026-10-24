@@ -3,8 +3,8 @@
 Reads each file's text start through a ``HeadSource``, embeds the heads in
 batches through a ``HeadEmbedder`` (the child's model load is the cost, so a
 batch is one call), then places every file. Both are ports, so this module
-holds no transport, credential or model. The flag is checked first: with it off
-the aid refuses to run. A file the aid will not place is kept, and keeps its
+holds no transport, credential or model. The whole-Drive wrapper checks its flag
+first; admitted candidate-only callers reuse the classifier under their own policy. A file the aid will not place is kept, and keeps its
 text start and embedding for future indexing; a placed file keeps neither.
 An explicit derived-export caller may retain both files' evidence in memory
 until it seals or exports it; that option does not alter worker-store retention.
