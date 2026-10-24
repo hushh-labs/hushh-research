@@ -141,16 +141,19 @@ owner status and retains previous send, compose and modify grants, including
 reauthentication records with false capability flags. Provider readback still
 owns upgrade success. This is source evidence, not a production deployment.
 
-Production remains at `904fbd215c661dd376a57ff712b11f12b9eec23c`. The live
-24 October Console read showed only homepage and branding complete, with the
-other five sections in progress. This supersedes the 12 October checkpoint.
-Seven entries remain identity, selected-file Drive, full Drive, Contacts read-only
-and Gmail read-only. Gmail writes and Calendar require separate submission
-alignment; a read-first connection does not verify those additional scope requests.
+The production release inspected in this audit was
+`904fbd215c661dd376a57ff712b11f12b9eec23c`. The initial 24 October Console
+read showed seven scope entries. Ankit subsequently approved the complete
+fifteen-scope union. All fifteen entries and the sensitive, Drive and Gmail
+purpose explanations were saved in Google Cloud and independently verified
+after reloading Data Access. The save confirmation updates the existing
+verification request and may require prior information to be reviewed again.
+This is submission alignment, not Google approval or a production deployment.
+The dedicated reviewer rehearsal and replacement recording remain pending.
 
 Across separate candidate connection purposes and transports, the authorization
-union is fifteen scope URIs, not one authorization request. Eight are absent from
-that Console inventory: `gmail.send`, `gmail.compose`, `gmail.modify`,
+union is fifteen scope URIs, not one authorization request. Eight additions to
+the original Console inventory are: `gmail.send`, `gmail.compose`, `gmail.modify`,
 `drive.readonly`, `calendar.events.readonly`, `calendar.freebusy`,
 `calendar.calendarlist.readonly` and `calendar.events`, each prefixed with
 `https://www.googleapis.com/auth/`. Private Drive requests the distinct
@@ -159,9 +162,10 @@ Private native Calendar initially requests event management and free/busy;
 management is not universally an incremental upgrade. Shared Calendar retains
 read/manage purposes with calendar-list access varying by transport. Existing
 exact-owner Drive switches do not provide a general
-verification staging gate for Calendar or optional Gmail writes. Expanding the
-submission versus staging the additional flows remains an owner decision;
-neither source changes nor a proposed inventory establish Google approval.
+verification staging gate for Calendar or optional Gmail writes. The expanded
+submission does not authorize public rollout of unverified permissions. Use an
+authorized staged reviewer environment for consent and source-account proof;
+neither source changes nor the saved inventory establish Google approval.
 
 Authenticated 24 October reads of managed Vertex project `hushh-gemini-bridge`
 returned `retentionConfig.retentionType=DURABLE`. Publisher configuration for
