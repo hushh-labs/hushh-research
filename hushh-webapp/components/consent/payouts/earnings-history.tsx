@@ -60,10 +60,10 @@ export function DocumentEarningsHistory() {
                 ["Your earnings", item.netAmountCents],
                 ...(item.reversedAmountCents ? [["Reversed", item.reversedAmountCents]] : []),
               ] as Array<[string, number | null]>).map(([label, cents]) => (
-                <div key={label} className="flex justify-between gap-3"><dt className="text-muted-foreground">{label}</dt><dd className="tabular-nums">{money(cents)}</dd></div>
+                <div key={label} className="flex justify-between gap-3"><dt data-consent-role="fact-label" className="text-muted-foreground">{label}</dt><dd data-consent-role="fact-value" className="tabular-nums">{money(cents)}</dd></div>
               ))}
               {item.expectedFiles !== null && item.confirmedFiles !== null ?
-                <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Files delivered</dt><dd>{item.confirmedFiles} of {item.expectedFiles}</dd></div> : null}
+                <div className="flex justify-between gap-3"><dt data-consent-role="fact-label" className="text-muted-foreground">Files delivered</dt><dd data-consent-role="fact-value">{item.confirmedFiles} of {item.expectedFiles}</dd></div> : null}
             </dl>
           </details>
         ))}
@@ -71,8 +71,8 @@ export function DocumentEarningsHistory() {
         {history?.transactions.length === 0 ? <HelperText className="p-4">No earnings yet.</HelperText> : null}
       </SettingsGroup>
       {resource.failed ? <div><HelperText role="alert">Couldn't load transactions.</HelperText>
-        <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
-      {history?.nextCursor ? <Button type="button" size="sm" effect="fade" variant="none" disabled={moreBusy} onClick={() => void more()}>{moreBusy ? "Loading…" : "More transactions"}</Button> : null}
+        <Button data-consent-quiet-action="true" data-consent-role="compact-action" type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
+      {history?.nextCursor ? <Button data-consent-role="compact-action" type="button" size="sm" effect="fade" variant="none" disabled={moreBusy} onClick={() => void more()}>{moreBusy ? "Loading…" : "More transactions"}</Button> : null}
       {moreError ? <HelperText role="alert">Couldn't load more. Try again.</HelperText> : null}
       <HelperText className="profile-account-note">Stripe transfers and bank deposits update separately.</HelperText>
     </section>

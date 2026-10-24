@@ -247,7 +247,7 @@ function UnlockedDriveOwnerShareCard({
       <BodyText className="whitespace-pre-wrap break-words">“{filesRequest}”</BodyText>
       {notice ? <HelperText role="alert">{notice}</HelperText> : null}
       {notice && /Reconnect Google Drive/.test(notice) ? (
-        <Button asChild size="standard">
+        <Button data-consent-role="compact-action" asChild size="standard">
           <ProfileConnectorsLink connectorId="google_drive">Reconnect Google Drive</ProfileConnectorsLink>
         </Button>
       ) : null}
@@ -259,7 +259,7 @@ function UnlockedDriveOwnerShareCard({
           <HelperText>
             Review the files, then tap Share.
           </HelperText>
-          <Button size="prominent" disabled={phase !== "idle"} onClick={find}>
+          <Button data-consent-role="primary-action" size="prominent" disabled={phase !== "idle"} onClick={find}>
             {phase === "searching" ? "Searching…" : view ? "Search again" : "Find files"}
           </Button>
         </>
@@ -311,7 +311,7 @@ function UnlockedDriveOwnerShareCard({
           <HelperText>
             {personName} gets Viewer access. Google emails new access links. You can remove access anytime.
           </HelperText>
-          <Button size="prominent" disabled={phase !== "idle" || selectionExpired || selected.length === 0} onClick={share}>
+          <Button data-consent-role="primary-action" size="prominent" disabled={phase !== "idle" || selectionExpired || selected.length === 0} onClick={share}>
             {phase === "sharing"
               ? "Sharing…"
               : selected.length === 1

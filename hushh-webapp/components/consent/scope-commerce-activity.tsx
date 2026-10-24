@@ -22,14 +22,14 @@ function ActivityEntry({ item }: { item: CommerceActivityItem }) {
         {item.counterpart ? <p data-consent-role="helper" className="text-sm text-muted-foreground">{item.counterpart.label}</p> : null}</div>
       <p data-consent-role="body" className="text-sm font-medium tabular-nums">{item.direction === "incoming" ? "Incoming" : item.direction === "outgoing" ? "Outgoing" : "Amount"}: {money(item.amount_cents)}</p>
     </div>
-    <p role="status" className="text-sm">{commerceActivityStatusCopy(item.kind, item.status)}</p>
+    <p data-consent-role="status" role="status" className="text-sm">{commerceActivityStatusCopy(item.kind, item.status)}</p>
     {item.next_action ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={item.next_action.href}>{item.next_action.label}</Link> : null}
-    <Button variant="ghost" data-consent-quiet-action="true" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Hide receipt" : "View receipt"}</Button>
+    <Button data-consent-role="compact-action" variant="ghost" data-consent-quiet-action="true" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Hide receipt" : "View receipt"}</Button>
     {expanded ? <dl data-consent-facts className="grid gap-3 text-sm sm:grid-cols-2">
-      {item.purchase_id ? <div><dt className="text-muted-foreground">Gross agreed price</dt><dd>{money(item.gross_cents)}</dd></div> : null}
-      {item.processing_fee_micro_usd !== null ? <div><dt className="text-muted-foreground">Attributed processing costs</dt><dd>{formatCommerceMicroUsd(item.processing_fee_micro_usd)}</dd></div> : null}
-      {item.net_earnings_micro_usd !== null ? <div><dt className="text-muted-foreground">Net earnings</dt><dd>{formatCommerceMicroUsd(item.net_earnings_micro_usd)}</dd></div> : null}
-      {item.refunded_cents !== null ? <div><dt className="text-muted-foreground">Refunded</dt><dd>{money(item.refunded_cents)}</dd></div> : null}
+      {item.purchase_id ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Gross agreed price</dt><dd data-consent-role="fact-value">{money(item.gross_cents)}</dd></div> : null}
+      {item.processing_fee_micro_usd !== null ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Attributed processing costs</dt><dd data-consent-role="fact-value">{formatCommerceMicroUsd(item.processing_fee_micro_usd)}</dd></div> : null}
+      {item.net_earnings_micro_usd !== null ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Net earnings</dt><dd data-consent-role="fact-value">{formatCommerceMicroUsd(item.net_earnings_micro_usd)}</dd></div> : null}
+      {item.refunded_cents !== null ? <div><dt data-consent-role="fact-label" className="text-muted-foreground">Refunded</dt><dd data-consent-role="fact-value">{money(item.refunded_cents)}</dd></div> : null}
       <CommerceTime label="Created" value={item.created_at} />
       <CommerceTime label="Prepare by" value={item.fulfillment_deadline} />
       <CommerceTime label="Access starts" value={item.activation_at} />
@@ -77,14 +77,14 @@ export function ScopeCommerceActivity() {
     }}>
       <TabsList className="w-full" aria-label="Payment history">{VIEWS.map(tab => <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>)}</TabsList>
     <TabsContent value={view} aria-label={`${VIEWS.find(tab => tab.value === view)?.label} history`} aria-busy={loading || loadingMore}>
-      {error || moreError ? <p role="status" className="text-sm">{error || moreError}</p> : null}
-      {!data && loading ? <p role="status" className="text-sm">Checking payment history…</p> : null}
+      {error || moreError ? <p data-consent-role="status" role="status" className="text-sm">{error || moreError}</p> : null}
+      {!data && loading ? <p data-consent-role="status" role="status" className="text-sm">Checking payment history…</p> : null}
       {data && items.length === 0 ? <p data-consent-role="body" className="text-sm text-muted-foreground">No {view} yet.</p> : null}
       {extra ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Showing older entries. Refresh returns to the latest activity.</p> : null}
       {items.length ? <ul>{items.map(item => <ActivityEntry key={item.id} item={item} />)}</ul> : null}
       <div className="flex flex-wrap gap-2">
-        {nextCursor ? <Button variant="outline" data-consent-quiet-action="true" disabled={loading || loadingMore} onClick={() => void loadMore()}>Load more {view}</Button> : null}
-        <Button variant="ghost" data-consent-quiet-action="true" disabled={loading || loadingMore} onClick={() => void refresh()}>Refresh {view}</Button>
+        {nextCursor ? <Button data-consent-role="compact-action" variant="outline" data-consent-quiet-action="true" disabled={loading || loadingMore} onClick={() => void loadMore()}>Load more {view}</Button> : null}
+        <Button data-consent-role="compact-action" variant="ghost" data-consent-quiet-action="true" disabled={loading || loadingMore} onClick={() => void refresh()}>Refresh {view}</Button>
       </div>
     </TabsContent>
     </Tabs>

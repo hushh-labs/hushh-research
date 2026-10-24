@@ -155,10 +155,10 @@ function ValueRows({ rows, hidden, itemLabel, itemSensitive, modelProcessingAllo
             data-sensitive-field={fieldMark ? "true" : undefined}>
             <div className="min-w-0 flex-1">
               {row.label || fieldMark ? (
-                <dt className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs leading-5 text-muted-foreground">
+                <dt data-consent-role="fact-label" className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs leading-5 text-muted-foreground">
                   {row.label ? <span className="min-w-0">{row.label}</span> : null}
                   {fieldMark ? (
-                    <span data-testid="shared-with-you-sensitive-field"
+                    <span data-consent-role="status" data-testid="shared-with-you-sensitive-field"
                       className="inline-flex shrink-0 items-center gap-1 font-medium">
                       <ShieldCheck className="size-3 shrink-0" aria-hidden="true" />
                       Sensitive
@@ -167,7 +167,7 @@ function ValueRows({ rows, hidden, itemLabel, itemSensitive, modelProcessingAllo
                   ) : null}
                 </dt>
               ) : null}
-              <dd className="text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
+              <dd data-consent-role="fact-value" className="text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
                 {masked
                   ? <span aria-label="Hidden" className="select-none tracking-[0.2em] text-muted-foreground">••••••</span>
                   : row.value}
@@ -190,9 +190,9 @@ function OutlineRows({ names, mode }: { names: string[]; mode: "locked" | "loadi
         <div key={`${name ?? "field"}:${index}`} className={ROW}>
           <div className="min-w-0 flex-1">
             {name
-              ? <dt className="text-xs leading-5 text-muted-foreground">{displayFieldLabel(name)}</dt>
+              ? <dt data-consent-role="fact-label" className="text-xs leading-5 text-muted-foreground">{displayFieldLabel(name)}</dt>
               : <Skeleton className="mb-1 h-3 w-20 rounded-full" />}
-            <dd className="flex h-6 items-center">
+            <dd data-consent-role="fact-value" className="flex h-[21px] items-center">
               {mode === "loading"
                 ? <Skeleton className="h-3.5 rounded-full" style={{ width: `${[62, 44, 54, 38, 58, 48][index % 6]}%` }} />
                 : <span aria-hidden="true" className="h-2.5 w-24 rounded-full bg-muted" />}
@@ -203,7 +203,7 @@ function OutlineRows({ names, mode }: { names: string[]; mode: "locked" | "loadi
       ))}
       {mode === "locked" ? <span className="sr-only">Values are locked. Unlock to view.</span> : null}
       {mode === "unopenable" ? (
-        <p className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs leading-5 text-muted-foreground">
+        <p data-consent-role="helper" className="flex items-center gap-1.5 px-3.5 py-2.5 text-xs leading-5 text-muted-foreground">
           <Lock className="size-3.5 shrink-0" aria-hidden="true" />
           Can’t be opened on this device.
         </p>
@@ -232,11 +232,11 @@ function SharedItem({ item, personName, status, onRetry }: {
       data-sensitive={item.sensitive ? "true" : "false"} className="px-4 py-4 sm:px-5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h4 id={headingId} className="text-[15px] font-semibold leading-6 tracking-[-0.01em] text-foreground">{item.label}</h4>
-          {dates ? <p className="text-xs leading-5 text-muted-foreground">{dates}</p> : null}
+          <h4 data-consent-role="row-title" id={headingId} className="text-[15px] font-semibold leading-6 tracking-[-0.01em] text-foreground">{item.label}</h4>
+          {dates ? <p data-consent-role="helper" className="text-xs leading-5 text-muted-foreground">{dates}</p> : null}
         </div>
         {canHide ? (
-          <button type="button" aria-pressed={hidden} onClick={() => setHidden((current) => !current)}
+          <button data-consent-role="utility" type="button" aria-pressed={hidden} onClick={() => setHidden((current) => !current)}
             aria-label={hidden ? `Show ${item.label}` : `Hide ${item.label}`}
             className="-mr-2 -mt-1.5 inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {hidden ? <Eye className="size-4" aria-hidden="true" /> : <EyeOff className="size-4" aria-hidden="true" />}
@@ -247,13 +247,13 @@ function SharedItem({ item, personName, status, onRetry }: {
 
       {item.sensitive && item.state !== "ended" ? (
         <p data-testid="shared-with-you-sensitive"
-          className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium leading-4 text-muted-foreground">
+          data-consent-role="disclosure" className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium leading-4 text-muted-foreground">
           <ShieldCheck className="size-3.5 shrink-0" aria-hidden="true" />
           <span className="min-w-0">{item.modelProcessingAllowed ? "Sensitive · identifier model use approved; credentials stay private" : "Sensitive · not shared with One’s model"}</span>
         </p>
       ) : null}
       {item.purpose && item.state !== "ended" ? (
-        <p className="mt-2 text-sm leading-6 text-foreground/80 [overflow-wrap:anywhere]">{item.purpose}</p>
+        <p data-consent-role="body" className="mt-2 text-sm leading-6 text-foreground/80 [overflow-wrap:anywhere]">{item.purpose}</p>
       ) : null}
 
       <div className="mt-3">
@@ -266,9 +266,9 @@ function SharedItem({ item, personName, status, onRetry }: {
           </div>
         ) : item.state === "unavailable" ? (
           <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--app-card-radius-compact)] bg-muted/50 px-3.5 py-2.5">
-            <p className="text-sm leading-6 text-muted-foreground">This couldn’t be opened right now.</p>
+            <p data-consent-role="body" className="text-sm leading-6 text-muted-foreground">This couldn’t be opened right now.</p>
             {onRetry ? (
-              <MorphyButton type="button" variant="muted" size="compact" onClick={onRetry}>Try again</MorphyButton>
+              <MorphyButton data-consent-quiet-action="true" data-consent-role="compact-action" type="button" variant="muted" size="compact" onClick={onRetry}>Try again</MorphyButton>
             ) : null}
           </div>
         ) : (
@@ -276,7 +276,7 @@ function SharedItem({ item, personName, status, onRetry }: {
             {item.state === "ready" && rows.length ? (
               <ValueRows rows={rows} hidden={hidden} itemLabel={item.label} itemSensitive={item.sensitive} modelProcessingAllowed={item.modelProcessingAllowed} />
             ) : item.state === "ready" ? (
-              <p className={cn(ROW, "text-sm text-muted-foreground")}>Nothing readable was shared.</p>
+              <p data-consent-role="body" className={cn(ROW, "text-sm text-muted-foreground")}>Nothing readable was shared.</p>
             ) : (
               <OutlineRows names={item.fieldOutline} mode={status === "locked" || item.state === "locked" ? "locked" : "loading"} />
             )}
@@ -327,11 +327,11 @@ export function SharedWithYouCardView({
 
       {status === "error" ? (
         <div role="alert" className="flex flex-col items-start gap-3 px-4 py-4 sm:px-5">
-          <p className="text-sm leading-6 text-muted-foreground">
+          <p data-consent-role="body" className="text-sm leading-6 text-muted-foreground">
             What {firstName(name)} shared couldn’t be opened. Check your connection and try again.
           </p>
           {onRetry ? (
-            <MorphyButton type="button" variant="muted" size="compact" onClick={onRetry}>
+            <MorphyButton data-consent-role="compact-action" data-consent-quiet-action="true" type="button" variant="muted" size="compact" onClick={onRetry}>
               <RefreshCw className="mr-1.5 size-4" aria-hidden="true" />
               Try again
             </MorphyButton>
@@ -347,7 +347,7 @@ export function SharedWithYouCardView({
 
       {status === "locked" ? (
         <footer className="border-t border-border/50 px-4 py-3.5 sm:px-5">
-          <MorphyButton type="button" size="default" className="w-full sm:w-auto" onClick={onUnlock} disabled={!onUnlock}>
+          <MorphyButton data-consent-role="primary-action" type="button" size="default" className="w-full sm:w-auto" onClick={onUnlock} disabled={!onUnlock}>
             <LockKeyhole className="mr-1.5 size-4" aria-hidden="true" />
             Unlock to view
           </MorphyButton>

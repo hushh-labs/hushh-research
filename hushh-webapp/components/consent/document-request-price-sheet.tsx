@@ -233,7 +233,7 @@ function PriceSheet({
       footer={
         <FlowActionGroup
           primary={
-            <Button
+            <Button data-consent-role="primary-action"
               size="prominent"
               loading={busy}
               disabled={busy || !ready}
@@ -247,7 +247,7 @@ function PriceSheet({
             </Button>
           }
           secondary={
-            <Button
+            <Button data-consent-role="compact-action"
               size="standard"
               variant="none"
               data-consent-quiet-action="true"

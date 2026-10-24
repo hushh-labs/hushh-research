@@ -182,7 +182,7 @@ export function RequestScopeButton({
       }}
     >
       {showTrigger ? <DialogTrigger asChild>
-        <Button
+        <Button data-consent-role="compact-action"
           size="standard"
           variant="none"
           className={className}
@@ -213,7 +213,7 @@ export function RequestScopeButton({
               Request sent. {personName} reviews the question and the exact
               information it would use, then sets a price.
             </BodyText>
-            <Button asChild size="prominent">
+            <Button data-consent-role="primary-action" asChild size="prominent">
               <Link
                 href={buildConsentCenterHref("pending", {
                   requestId: `answer_request:${created}`,
@@ -223,7 +223,7 @@ export function RequestScopeButton({
                 View request
               </Link>
             </Button>
-            <Button
+            <Button data-consent-quiet-action="true" data-consent-role="compact-action"
               type="button"
               size="standard"
               variant="none"
@@ -247,7 +247,7 @@ export function RequestScopeButton({
               Requests are not switched on here yet, so this question cannot
               be sent. Nothing has been sent to {personName}.
             </BodyText>
-            <Button type="button" size="standard" variant="none" onClick={close}>
+            <Button data-consent-quiet-action="true" data-consent-role="compact-action" type="button" size="standard" variant="none" onClick={close}>
               Close
             </Button>
           </IllustratedRequestBody>
@@ -258,14 +258,14 @@ export function RequestScopeButton({
             <BodyText role="status">
               {gate.message} Nothing has been sent to {personName}.
             </BodyText>
-            <Button
+            <Button data-consent-quiet-action="true" data-consent-role="primary-action"
               type="button"
               size="prominent"
               onClick={() => setRecheck((value) => value + 1)}
             >
               Try again
             </Button>
-            <Button type="button" size="standard" variant="none" onClick={close}>
+            <Button data-consent-quiet-action="true" data-consent-role="compact-action" type="button" size="standard" variant="none" onClick={close}>
               Close
             </Button>
           </IllustratedRequestBody>
@@ -278,8 +278,8 @@ export function RequestScopeButton({
           >
             <IllustratedRequestBody>
             <div className="space-y-[var(--app-form-field-gap)]">
-              <Label htmlFor="answer-request-question">Your question</Label>
-              <Textarea
+              <Label data-consent-role="form-label" htmlFor="answer-request-question">Your question</Label>
+              <Textarea data-consent-input="true"
                 id="answer-request-question"
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
@@ -295,14 +295,14 @@ export function RequestScopeButton({
                 {error}
               </HelperText>
             ) : null}
-            {uncertain && attempt.current ? <Button asChild size="standard" variant="none">
+            {uncertain && attempt.current ? <Button data-consent-role="compact-action" asChild size="standard" variant="none">
               <Link href={buildConsentCenterHref("pending", { requestId: `answer_request:${attempt.current.id}`, requestView: "sent" })}>Check request status</Link>
             </Button> : null}
             </IllustratedRequestBody>
             <IllustratedRequestActions>
             <FlowActionGroup
               primary={
-                <Button
+                <Button data-consent-role="primary-action"
                   type="submit"
                   size="prominent"
                   disabled={!canRequest || !valid || busy}
@@ -311,7 +311,7 @@ export function RequestScopeButton({
                 </Button>
               }
               secondary={
-                <Button
+                <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                   type="button"
                   size="standard"
                   variant="none"

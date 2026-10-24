@@ -27,7 +27,7 @@ export function PayoutSandbox({ wallet, redeem, "data-voice-control-id": voiceCo
         description={data ? coins(available) : "Loading…"}
         trailing={available > 0 ? <span className="tabular-nums">{money(available)}</span> : undefined} />
     </SettingsGroup>
-    {shown ? <Button type="button" size="compact" effect="fade" variant="none" data-voice-control-id={voiceControlId}
+    {shown ? <Button data-consent-role="compact-action" type="button" size="compact" effect="fade" variant="none" data-voice-control-id={voiceControlId}
       disabled={busy || refreshing || wallet.failed || !data || data.sandbox.held || (!retryIntent && !unsettled && data.sandbox.availableCoins < 1) || Boolean(unsettled && !unsettled.clientRequestId && !retryIntent)}
       onClick={() => void redeem.redeem()}>
       {busy ? "Checking…" : refreshing ? "Updating balance…" : retryIntent || unsettled ? "Check test redemption" : `Test redeem ${money(redeemAmount)}`}

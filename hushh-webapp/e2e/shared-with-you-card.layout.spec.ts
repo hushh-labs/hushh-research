@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { expectConsentTypography } from "./fixtures/consent-typography";
 
 /**
  * The secure "Shared with you" card (CONTRACT-2 decisions 1 and 2) and the
@@ -14,6 +15,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
  */
 let script: string;
 let css: string;
+let outDir: string;
 
 const STATES = ["chat", "decrypted", "loading", "locked", "ended", "error", "unopenable", "profile", "legal", "ask"];
 
@@ -23,7 +25,7 @@ test.beforeAll(async () => {
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-with-you-card-"));
+  outDir = fs.mkdtempSync(path.join(os.tmpdir(), "shared-with-you-card-"));
   await build({
     configFile: false,
     logLevel: "error",
@@ -64,8 +66,11 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  const { optimize } = await import("@tailwindcss/node");
+  css = stripAppFontFaces(optimize(compiler.build([...candidates]), { minify: true }).code) + productFontStyle();
 });
+
+test.afterAll(() => { if (outDir) fs.rmSync(outDir, { recursive: true, force: true }); });
 
 async function open(page: Page, theme: "light" | "dark") {
   await page.route("http://localhost/shared-with-you-card", (route) => route.fulfill({
@@ -90,6 +95,10 @@ for (const theme of ["light", "dark"] as const)
       await expect(decrypted.getByTestId("shared-with-you-secure")).toHaveText("Decrypted on this device");
       await expect(decrypted.getByText("Shared Sep 28 · Access until Oct 5").first()).toBeVisible();
       await expect(decrypted.getByTestId("shared-with-you-sensitive")).toHaveText("Sensitive · not shared with One’s model");
+      // Identifiers and the model-use disclosure must remain readable in the
+      // actual Chat/Profile card, including production CSS slot precedence.
+      await expectConsentTypography(decrypted.getByTestId("shared-with-you-sensitive"), "14px", "20px", "400");
+      await expectConsentTypography(decrypted.locator("[data-testid='shared-with-you-row'] dd").first(), "14px", "21px", "400");
       await expect(decrypted).toContainText("C-Corporation");
       await expect(decrypted).toContainText("Neapolitan pizza");
       // Human words only: never a machine label, a raw sub-heading, JSON or grant wording.
