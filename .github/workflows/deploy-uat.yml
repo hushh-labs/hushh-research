@@ -305,6 +305,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
           cp scripts/ci/capture_managed_provider_receipt.py \
             "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py"
+          cp scripts/ci/uat_backend_build_config.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ops/run_uat_text_recovery_job.py \
             "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py"
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
@@ -339,6 +340,7 @@ jobs:
             scripts/ops/verify_uat_release.py
           cp "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py" \
             scripts/ci/capture_managed_provider_receipt.py
+          cp "${RUNNER_TEMP}/release-tools/uat_backend_build_config.py" scripts/ci/
           # The launcher is current release tooling; the approved target image
           # and its processing policy remain bound by the launcher itself.
           cp "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py" \
@@ -1380,9 +1382,14 @@ jobs:
           # RIA claim-by-phone: identity resolver + the UAT demo passcode
           # allowlist (fixed code, no SMS to real firm lines). UAT-only.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RIA_IDENTITY_BASE_URL_SECRET=RIA_IDENTITY_BASE_URL##_RIA_IDENTITY_API_KEY_SECRET=RIA_IDENTITY_API_KEY##_RIA_CLAIM_TEST_NUMBERS_SECRET=RIA_CLAIM_TEST_NUMBERS##_RIA_CLAIM_TEST_CODE_SECRET=RIA_CLAIM_TEST_CODE##_RIA_CLAIM_TEST_EMAILS_SECRET=RIA_CLAIM_TEST_EMAILS##_INTELLIGENCE_API_BASE_URL_SECRET=INTELLIGENCE_API_BASE_URL##_INTELLIGENCE_API_KEY_SECRET=INTELLIGENCE_API_KEY##_SUPPORT_EMAIL_TEST_TO_SECRET=SUPPORT_EMAIL_TEST_TO##_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE##_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER##_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM##_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=GOOGLE_SERVICE_ACCOUNT_EMAIL##_GOOGLE_PRIVATE_KEY_SECRET=GOOGLE_PRIVATE_KEY"
+          # Migrations have passed. The private candidate can now warm alongside
+          # both probes; the same build's required aggregate still joins all
+          # three before this step or any later promotion can succeed.
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ci/uat_backend_build_config.py \
+            --output /tmp/uat-backend-parallel.cloudbuild.json
           build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
-            --config=deploy/backend.cloudbuild.yaml \
+            --config=/tmp/uat-backend-parallel.cloudbuild.json \
             --suppress-logs --format='value(id)' \
             "--substitutions=^##^${SUBSTITUTIONS}")"
           if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
