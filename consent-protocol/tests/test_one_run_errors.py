@@ -33,6 +33,17 @@ def test_filter_bridge_mapping_requires_exact_authored_signal():
     assert content_filtered_error(run_error(message + " untrusted suffix")) is None
 
 
+def test_rejected_search_receipt_is_unavailable_without_loosening_admission():
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureProtocolError
+
+    error = AzureProtocolError("search.invalid_citation")
+    assert transient_model_error_for_exception(error) == MODEL_UNAVAILABLE_RUN_ERROR
+    assert transient_model_error_for_exception(ValueError(str(error))) is None
+    assert transient_model_run_error(run_error(str(error))) == MODEL_UNAVAILABLE_RUN_ERROR
+    assert transient_model_run_error(run_error(str(error) + " untrusted suffix")) is None
+    assert transient_model_run_error(run_error(str(error), "AGENT_ERROR")) is None
+
+
 def test_statusless_azure_quota_requires_a_typed_or_exact_bridge_signal():
     from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureRateLimitedError
 

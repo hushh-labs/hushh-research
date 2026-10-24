@@ -38,14 +38,36 @@ _ANSWER: contextvars.ContextVar[_Answer | None] = contextvars.ContextVar(
 )
 
 
+def _sole_search(invocation: Any, name: str) -> bool:
+    events = [
+        event
+        for event in invocation.session.events
+        if event.invocation_id == invocation.invocation_id
+    ]
+    calls = [
+        call for event in events if not event.partial for call in event.get_function_calls() or []
+    ]
+    return (
+        len(calls) == 1
+        and calls[0].name == name
+        and not any(
+            part.text and not part.thought
+            for event in events
+            if event.author == "one"
+            for part in (event.content.parts if event.content else [])
+        )
+    )
+
+
 class SearchAnswerTool(AgentTool):
     """An explicit model-owned finish decision, with ordinary continuation by default."""
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         declaration = super()._get_declaration()
         description = (
-            "True only when this public search answers the entire request, with no "
-            "private information, further tools, actions, or follow-up work needed. "
+            "True selects compact search context for a short, complete public answer. "
+            "Use false for deeper research or when the entire request needs "
+            "private information, further tools, actions, or follow-up work. "
             "The child's complete cited answer becomes your final answer unchanged."
         )
         if declaration.parameters_json_schema is not None:
@@ -66,42 +88,47 @@ class SearchAnswerTool(AgentTool):
         from hushh_mcp.one_adk import queued_input
 
         finish = args.get("finish_turn") is True
+        invocation = tool_context._invocation_context
+        handoff = _ANSWER.get()
+        search_agent = self.agent
+        if (
+            finish
+            and handoff is not None
+            and handoff.invocation_id == invocation.invocation_id
+            and isinstance(search_agent, ManagedTextAgent)
+            and isinstance(search_agent.model, ManagedPrimaryTextModel)
+            and _sole_search(invocation, self.name)
+            and queued_input.clubbing_admitted(tool_context.state, resuming=False)
+        ):
+            # Invocation-local configuration; ordinary/deeper searches keep their budget.
+            search_agent = search_agent.model_copy(
+                update={
+                    "model": search_agent.model.model_copy(
+                        update={"web_search_context_size": "low"}
+                    )
+                }
+            )
         tool_context.state["temp:_adk_grounding_metadata"] = None
         # Keep control metadata out of the isolated child's public request.
-        result = await super().run_async(
+        dispatch = AgentTool(agent=search_agent, propagate_grounding_metadata=True)
+        result = await dispatch.run_async(
             args={key: value for key, value in args.items() if key != "finish_turn"},
             tool_context=tool_context,
         )
-        handoff = _ANSWER.get()
-        invocation = tool_context._invocation_context
         grounding = tool_context.state.get("temp:_adk_grounding_metadata")
-        search_agent = self.agent
         if not isinstance(search_agent, ManagedTextAgent):
             return result
-        calls = [
-            call
-            for event in invocation.session.events
-            if event.invocation_id == invocation.invocation_id and not event.partial
-            for call in event.get_function_calls() or []
-        ]
         if not (
             finish
             and isinstance(search_agent.model, ManagedPrimaryTextModel)
             and handoff is not None
             and handoff.invocation_id == invocation.invocation_id
-            and len(calls) == 1
-            and calls[0].name == self.name
+            and _sole_search(invocation, self.name)
             and isinstance(result, str)
             and result.strip()
             and grounding is not None
             and grounding.grounding_chunks
             and queued_input.clubbing_admitted(tool_context.state, resuming=False)
-            and not any(
-                part.text and not part.thought
-                for event in invocation.session.events
-                if event.invocation_id == invocation.invocation_id and event.author == "one"
-                for part in (event.content.parts if event.content else [])
-            )
         ):
             return result
         bound = await search_agent.canonical_model_async(tool_context)

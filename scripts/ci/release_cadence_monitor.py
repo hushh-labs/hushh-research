@@ -47,6 +47,12 @@ def evidence(repository: str, state: dict, ordinal: str, lane: str, child: dict,
     request, actual_lane = verify_child(state, run, repository, ordinal, str(state["requests"][ordinal]["origin_run_id"]))
     require(actual_lane == lane, "Monitor child lane differs")
     sha, identity = request["sha"], child["run_id"]
+    if lane == "testflight":
+        from release_cadence_native import completion
+        recovery = completion(repository, run, sha)
+        resumed = (f" Recovered by [run {recovery['recovery_run_id']}](https://github.com/{repository}/actions/runs/{recovery['recovery_run_id']})."
+                   if recovery else "")
+        return "TestFlight upload and internal distribution verified; external Beta App Review may remain pending." + resumed
     require(run["status"] == "completed" and run["conclusion"] == "success", "Monitor child is not successful")
     if lane == "deploy":
         value = receipt(repository, identity, "prod")
@@ -54,12 +60,6 @@ def evidence(repository: str, state: dict, ordinal: str, lane: str, child: dict,
                 value.get("verification", {}).get("backend_provenance") == "success" and
                 value.get("verification", {}).get("backend_health") == "success", "Production receipt mismatch")
         return "Production deployment is healthy for the pinned source."
-    if lane == "testflight":
-        upload = artifact_json(repository, identity, "testflight-upload-receipt", "testflight-upload-receipt.json")
-        require(upload.get("source_sha") == sha and upload.get("build_number"), "TestFlight upload source mismatch")
-        distribution = artifact_json(repository, identity, f"one-voice-testflight-evidence-{sha}", "testflight-distribution.json")
-        require(distribution.get("internal") == "active", "TestFlight internal distribution is not active")
-        return "TestFlight upload and internal distribution verified; external Beta App Review may remain pending."
     deferred = artifact_json(repository, identity, "ios-appstore-deferred", "ios-appstore-deferred.json", optional=True)
     if deferred:
         require(deferred.get("sha") == sha and deferred.get("reason") == "apple_review_pending",
@@ -164,6 +164,8 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
                     record_release_interval(intervals, run)
                     if seen.get(key) != signature:
                         message = f"Milestone {ordinal}, {lane}, source {request['sha']}: {child['state']}. [Exact run](https://github.com/{repository}/actions/runs/{identity})."
+                        if child.get("completion_error"):
+                            message += " TestFlight processing/distribution is unverified; inspect the upload and recover it without rebuilding."
                         if child["state"] in {"success", "deferred"}:
                             try:
                                 message += " " + evidence(repository, state, ordinal, lane, child, run)
@@ -175,7 +177,8 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
                                            [int(ordinal) for ordinal in state["requests"]])
         observed["pending_releases"] = [f"release:{ordinal}:{lane}" for ordinal, request in state["requests"].items()
                                        for lane, child in request["lanes"].items()
-                                       if child["state"] in {"pending", "running", "dispatching", "deferred"} | FAILURES]
+                                       if child["state"] in {"pending", "running", "dispatching", "deferred"} | FAILURES
+                                       or seen.get(f"release:{ordinal}:{lane}", "").endswith(":verification-failed")]
     recent = sorted(intervals.values(), key=lambda item: item["created_at"], reverse=True)
     observed["release_intervals"] = {str(item["id"]): item for index, item in enumerate(recent)
                                      if index < 40 or not item["completed_at"]}
@@ -244,6 +247,10 @@ def issue_body(state: dict | None, journal: dict, controller: int) -> str:
         lines[3] = (f"Automatic releases disabled. Last certified UAT count: {count}; "
                     f"checkpoint {journal['checkpoint_at']}. TestFlight every 2; production every 4 when enabled.")
     if state:
+        if state.get("production_baseline"):
+            baseline = state["production_baseline"]
+            lines.append(f"Production-first cutover: run {baseline['run_id']}, source {baseline['sha']}, "
+                         f"verified UAT count {baseline['ordinal']}. Unstarted historical releases were superseded.")
         retained = sorted(state["requests"], key=int)
         visible = set(retained[-12:]) | {ordinal for ordinal in retained
                   if any(child["state"] in {"pending", "running", "dispatching", "deferred"}

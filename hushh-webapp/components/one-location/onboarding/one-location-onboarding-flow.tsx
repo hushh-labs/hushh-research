@@ -21,6 +21,11 @@ import {
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { Button } from "@/components/ui/button";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import {
+  LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
+  LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
+} from "@/components/one-location/redesign/location-action-styles";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
@@ -1018,19 +1023,28 @@ function ContactsScreen({
                       {connected ? <ContactSourceBadge /> : null}
                     </span>
                     {requestRequired ? (
-                      <button data-location-type-role="compact-action"
+                      <MorphyButton
                         type="button"
+                        variant="none"
+                        effect="fade"
+                        size="compact"
                         onClick={() => onAdd(match.userId)}
                         disabled={added || adding || leaving}
-                        className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                        aria-busy={adding || undefined}
+                        className={cn(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME, "shrink-0")}
                       >
-                        {adding ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : added ? (
-                          <Check className="h-4 w-4" strokeWidth={2.5} />
-                        ) : null}
-                        {added ? "Requested" : adding ? "Sending" : "Request"}
-                      </button>
+                        <span data-location-type-role="compact-action" className={cn(
+                          LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
+                          added && "!border-[color:var(--app-card-border-standard)] !text-[color:var(--app-secondary-label)]",
+                        )}>
+                          {adding ? (
+                            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                          ) : added ? (
+                            <Check className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                          ) : null}
+                          {added ? "Requested" : adding ? "Sending" : "Request"}
+                        </span>
+                      </MorphyButton>
                     ) : (
                       <span data-location-type-role="helper" className="inline-flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#5c626c] dark:text-[#aeb8c7]">
                         {connected ? (
