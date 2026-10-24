@@ -2,7 +2,7 @@ import type { ScopeCommerceRequest } from "@/lib/services/scope-commerce-service
 
 export function CommerceTime({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
-  return <div><dt className="text-muted-foreground">{label}</dt><dd><time dateTime={value}>{new Date(value).toLocaleString()}</time></dd></div>;
+  return <div><dt data-consent-role="fact-label" className="text-muted-foreground">{label}</dt><dd data-consent-role="fact-value"><time dateTime={value}>{new Date(value).toLocaleString()}</time></dd></div>;
 }
 
 export function ScopeCommerceTimeline({ request }: { request: ScopeCommerceRequest }) {

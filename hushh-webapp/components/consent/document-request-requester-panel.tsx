@@ -131,7 +131,7 @@ function OriginalLink({ url, googleEmail }: { url: string; googleEmail: string |
   // Viewer access went to this Google account; open the original as it.
   if (googleEmail) target.searchParams.set("authuser", googleEmail);
   return (
-    <Button asChild size="sm" variant="none" effect="fade" className="min-h-11">
+    <Button data-consent-role="compact-action" asChild size="sm" variant="none" effect="fade" className="min-h-11">
       <a
         href={target.href}
         target="_blank"
@@ -464,14 +464,14 @@ export function DocumentRequestRequesterPanel({
           {pageError ? (
             <div>
               <HelperText role="alert">Couldn&apos;t load shared files.</HelperText>
-              <Button size="standard" variant="none" onClick={() => setPageRetry((value) => value + 1)}>
+              <Button data-consent-quiet-action="true" data-consent-role="compact-action" size="standard" variant="none" onClick={() => setPageRetry((value) => value + 1)}>
                 Try again
               </Button>
             </div>
           ) : null}
           {previous.length || page?.nextCursor ? (
             <div className="flex flex-wrap gap-2">
-              <Button
+              <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                 size="standard"
                 variant="none"
                 disabled={pageLoading || !previous.length}
@@ -482,7 +482,7 @@ export function DocumentRequestRequesterPanel({
               >
                 Previous
               </Button>
-              <Button
+              <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                 size="standard"
                 variant="none"
                 disabled={pageLoading || !page?.nextCursor}
@@ -508,7 +508,7 @@ export function DocumentRequestRequesterPanel({
               trailingInteractive={presented.action === "request_review"}
               trailing={
                 presented.action === "request_review" ? (
-                  <Button
+                  <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                     size="standard"
                     variant="none"
                     disabled={locked || asking}

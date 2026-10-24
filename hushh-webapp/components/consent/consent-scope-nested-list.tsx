@@ -160,7 +160,7 @@ export function ConsentScopeNestedList({
           ) : selection ? (
             <span className="flex items-center gap-2">
               {isGranted ? (
-                <span
+                <span data-consent-role="row-title"
                   className="rounded-full bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground"
                   data-testid={`${testIdPrefix}-badge-granted-${item.id}`}
                 >
@@ -181,7 +181,7 @@ export function ConsentScopeNestedList({
               />
             </span>
           ) : item.badge ? (
-            <span className="text-xs text-muted-foreground">{item.badge}</span>
+            <span data-consent-role="helper" className="text-xs text-muted-foreground">{item.badge}</span>
           ) : undefined
         }
         testId={`${testIdPrefix}-row-${item.id}`}
@@ -253,7 +253,7 @@ export function ConsentScopeNestedList({
         {showDomainFilter ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="none" effect="fade" aria-label="Filter categories" className="h-11 w-11 shrink-0 border border-border p-0">
+              <Button data-consent-role="compact-action" type="button" variant="none" effect="fade" aria-label="Filter categories" className="h-11 w-11 shrink-0 border border-border p-0">
                 <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
                 {domainFilter !== "__all" ? <span className="sr-only">Filter active</span> : null}
               </Button>
@@ -275,7 +275,7 @@ export function ConsentScopeNestedList({
             {matches.map((item) => renderLeafRow(item, `match-${item.id}`))}
           </SettingsGroup>
         ) : (
-          <p
+          <p data-consent-role="body"
             className="px-1 py-3 text-sm text-muted-foreground"
             data-testid={`${testIdPrefix}-no-match`}
           >
@@ -284,8 +284,8 @@ export function ConsentScopeNestedList({
         )
       ) : level.notFound ? (
         <SurfaceInset className="space-y-1 p-4 text-sm text-muted-foreground">
-          <p className="font-semibold text-foreground">This is no longer here</p>
-          <p>Go back and open it again.</p>
+          <p data-consent-role="row-title" className="font-semibold text-foreground">This is no longer here</p>
+          <p data-consent-role="body">Go back and open it again.</p>
         </SurfaceInset>
       ) : level.entries.length ? (
         <SettingsGroup density="compact" separatorInset testId={`${testIdPrefix}-level`}>
@@ -311,7 +311,7 @@ export function ConsentScopeNestedList({
                 testId={`${testIdPrefix}-group-${entry.key}`}
                 trailing={
                   <span className="flex items-center gap-3">
-                    <span className="text-[15px] tabular-nums text-muted-foreground">
+                    <span data-consent-role="body" className="text-[15px] tabular-nums text-muted-foreground">
                       {selection && chosen ? `${chosen}/${entry.childCount}` : entry.childCount}
                     </span>
                     {selection && !(categorySelectionInDetail && atRoot) ? (
@@ -345,7 +345,7 @@ export function ConsentScopeNestedList({
           })}
         </SettingsGroup>
       ) : (
-        <p className="px-1 py-3 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-empty`}>
+        <p data-consent-role="body" className="px-1 py-3 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-empty`}>
           {emptyText}
         </p>
       )}

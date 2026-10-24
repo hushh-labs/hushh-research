@@ -133,9 +133,9 @@ export function DrivePacketCatalogView({ model, ownerModel }: { model: DrivePack
     {ownerPersonRef ? <BuyerPacketRows packets={packets.filter(packet => packet.kind !== "provider_discovery")} requests={requests} ownerName={ownerName} onOpen={open} />
       : <OwnerPacketRows packets={packets.filter(packet => packet.kind !== "provider_discovery")} onOpen={open} />}
     {loaded && !packets.length && !error && (!periodPackets || ownerPersonRef) && <SettingsRow title={ownerPersonRef ? "No packets yet" : preparationPaused ? "Preparation paused" : "Agent One is preparing your packets."} />}
-    {error && <SettingsRow title="Couldn’t load packets." trailing={<Button variant="ghost" size="compact" disabled={busy} onClick={() => void load()}>Retry</Button>} />}
+    {error && <SettingsRow title="Couldn’t load packets." trailing={<Button data-consent-quiet-action="true" data-consent-role="compact-action" variant="ghost" size="compact" disabled={busy} onClick={() => void load()}>Retry</Button>} />}
     {busy && !loaded && <SettingsRow title="Loading packets…" />}
-    {cursor && <Button variant="outline" size="compact" disabled={busy} onClick={() => void load(cursor)}>Load more</Button>}
+    {cursor && <Button data-consent-quiet-action="true" data-consent-role="compact-action" variant="outline" size="compact" disabled={busy} onClick={() => void load(cursor)}>Load more</Button>}
     </SettingsGroup>
     {!ownerPersonRef && opened && (live || cursor) && (ownerModel ? <OwnerPacketPageView model={ownerModel} onClose={close} /> :
       <OwnerPacketPage key={opened.packetId} packet={live ?? opened} token={session.token} guard={session.guard} onChanged={() => void load()} onClose={close} />)}
@@ -265,9 +265,9 @@ export function OwnerPacketPageView({ model, onClose }: { model: OwnerPacketPage
   if (!packet) return null;
   const sections = ownerPacketSections(packet, amount, model.current).map(section => section.id !== "price" || !editingPrice ? section : ({ ...section,
     children: <div className="space-y-1.5 px-4 pb-3 pt-1">
-      <label htmlFor={fieldId} className="block text-xs font-semibold text-muted-foreground">New price</label>
+      <label data-consent-role="form-label" htmlFor={fieldId} className="block text-xs font-semibold text-muted-foreground">New price</label>
       <div className="flex items-center gap-2"><span aria-hidden="true">$</span>
-        <Input id={fieldId} inputMode="decimal" value={price} onChange={event => model.changePrice(event.target.value)} disabled={busy}
+        <Input data-consent-input="true" id={fieldId} inputMode="decimal" value={price} onChange={event => model.changePrice(event.target.value)} disabled={busy}
           aria-invalid={amount === null || undefined} aria-describedby={amount === null ? hintId : undefined} className="min-h-11 max-w-40" /></div>
       {amount === null && <HelperText id={hintId}>Enter $0.50–$500, up to two decimal places.</HelperText>}
     </div> }));

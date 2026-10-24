@@ -272,12 +272,12 @@ export function DocumentPayoutAccountCard({
             onClick={() => void bank.start()} />
         ) : null}
       </SettingsGroup>
-      {bankCheckUnavailable && !resource.failed ? <Button type="button" size="sm" effect="fade" variant="none"
+      {bankCheckUnavailable && !resource.failed ? <Button data-consent-role="compact-action" type="button" size="sm" effect="fade" variant="none"
         data-consent-quiet-action="true"
         disabled={busy || disabled} onClick={resource.retry}>Retry</Button> : null}
       {canManage && !compact ? <HelperText className="profile-account-note">Change your bank in Stripe. Deposits go to the bank shown here.</HelperText> : null}
       {resource.failed ? <div><HelperText role="alert" className="profile-account-note">{payoutErrorCopy(resource.error, "Couldn't check your bank. Try again.")}</HelperText>
-        {canManage ? <Button type="button" size="sm" effect="fade" variant="none" data-consent-quiet-action="true" onClick={resource.retry}>Retry</Button> : null}</div> : null}
+        {canManage ? <Button data-consent-role="compact-action" type="button" size="sm" effect="fade" variant="none" data-consent-quiet-action="true" onClick={resource.retry}>Retry</Button> : null}</div> : null}
       {bank.actionError ? <HelperText role="alert" className="profile-account-note">{bank.actionError.text}</HelperText> : null}
       {!compact && showHistory ? <DocumentEarningsHistory /> : null}
     </section>
@@ -346,14 +346,14 @@ export function PayoutBankRows({ handleReturn = false, onAccountChange, actionsR
       onClick={openBank}
       trailingInteractive={retryBeside}
       trailing={retryBeside ? <>{alert}
-        <Button type="button" size="compact" variant="none" effect="fade" className="profile-account-inline-action"
+        <Button data-consent-quiet-action="true" data-consent-role="compact-action" type="button" size="compact" variant="none" effect="fade" className="profile-account-inline-action"
           aria-label="Retry bank check" disabled={busy} onClick={resource.retry}>Retry</Button></>
         : <span className="profile-account-inline-action" role={resource.loading ? "status" : undefined}>
           {alert}{resource.loading ? "Checking…" : bank.busyAction === "bank" ? "Opening…" : retryBankCheck ? "Retry"
             : canManage ? "Manage" : label}
         </span>} />
     {verify ? <SettingsRow testId="payout-verify-row" icon={ProfileInnerReviewIcon} iconTone="capability"
-      title="Verify details" description={failure("verify") ? <span role="alert">{failure("verify")}</span> : verificationCopy(verify)}
+      title="Verify details" description={failure("verify") ? <span data-consent-role="status" role="alert">{failure("verify")}</span> : verificationCopy(verify)}
       chevron={canVerify} disabled={canVerify && (busy || resource.failed)}
       onClick={canVerify ? openVerify : undefined}
       trailing={bank.busyAction === "verify"

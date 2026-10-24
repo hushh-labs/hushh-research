@@ -350,7 +350,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
               : `Request ${state.requestStatus}.`}
         </HelperText>
         {["approved", "answering"].includes(state.requestStatus) ? (
-          <Button
+          <Button data-consent-role="compact-action"
             disabled={busy || !isVaultUnlocked}
             onClick={() => void prepare()}
           >
@@ -401,7 +401,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
                   Their answer is prepared. One payment buys this answer to
                   the approved question. It is released after payment confirmation.
                 </HelperText>
-                <Button
+                <Button data-consent-role="primary-action"
                   type="button"
                   size="prominent"
                   disabled={busy}
@@ -456,7 +456,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
               <AgentMarkdown text={answer.value} />
             </div>
           ) : (
-            <Button
+            <Button data-consent-role="primary-action"
               type="button"
               size="prominent"
               disabled={busy}
@@ -481,7 +481,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
 
         {payment.requestStatus !== "answered" &&
         payment.requestStatus !== "cancelled" ? (
-          <Button
+          <Button data-consent-role="compact-action"
             type="button"
             size="standard"
             variant="none"
@@ -499,7 +499,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
             {error}
           </HelperText>
         ) : null}
-        <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={busy} onClick={() => void load()}>Refresh question</Button>
+        <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" disabled={busy} onClick={() => void load()}>Refresh question</Button>
         {user ? <VaultUnlockDialog user={user} open={unlockOpen}
           onOpenChange={(open) => { setUnlockOpen(open); if (!open) setPendingOpen(null); }}
           onSuccess={() => undefined} title="Unlock to read your answer"
@@ -511,7 +511,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
 
   return (
     <div className="consent-presentation-surface"><SettingsRow title="Request unavailable" description={error || "Open this question from the list again."} />
-      <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => void load()}>Refresh question</Button>
+      <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" onClick={() => void load()}>Refresh question</Button>
     </div>
   );
 }

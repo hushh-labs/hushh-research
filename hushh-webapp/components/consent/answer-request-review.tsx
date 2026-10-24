@@ -199,7 +199,7 @@ export function AnswerRequestReview({
               {/* Consent is captured here, bound to the exact question and
                   matched scopes, before a price is ever chosen. The price
                   sheet that follows asks only for the price. */}
-              <Label className="flex items-start gap-2">
+              <Label data-consent-role="disclosure" className="flex min-h-11 items-start gap-2 py-2">
                 <input
                   type="checkbox"
                   checked={consented}
@@ -212,7 +212,7 @@ export function AnswerRequestReview({
           ) : (
             <div role="status" className="space-y-2">
               <HelperText as="p">{request.resolutionMode === null ? "Matching this question to your memory…" : "We couldn’t match this question to your memory."}</HelperText>
-              {request.resolutionMode !== null && <Button type="button" disabled={busy} onClick={() => void run(token => AnswerRequestService.retryResolution(token, request.requestId))}>Retry matching</Button>}
+              {request.resolutionMode !== null && <Button data-consent-role="compact-action" data-consent-quiet-action="true" type="button" disabled={busy} onClick={() => void run(token => AnswerRequestService.retryResolution(token, request.requestId))}>Retry matching</Button>}
             </div>
           )}
 
@@ -224,7 +224,7 @@ export function AnswerRequestReview({
 
           <FlowActionGroup
             primary={
-              <Button
+              <Button data-consent-role="primary-action"
                 type="button"
                 size="prominent"
                 disabled={busy || !matched || !consented || chosen.length === 0}
@@ -237,7 +237,7 @@ export function AnswerRequestReview({
               </Button>
             }
             secondary={
-              <Button
+              <Button data-consent-role="compact-action"
                 type="button"
                 size="standard"
                 variant="none"

@@ -129,7 +129,7 @@ function ActivitySheetBody({ initialFilter, initialTestActivity, onAction }: {
         </SettingsGroup>
         {activity.hasMore ? (
           <div className="flex flex-col items-center gap-1 pt-3">
-            <Button type="button" size="standard" variant="none" effect="fade" disabled={activity.loadingMore}
+            <Button data-consent-role="compact-action" type="button" size="standard" variant="none" effect="fade" disabled={activity.loadingMore}
               onClick={activity.loadMore}>
               {activity.loadingMore ? "Loading…" : "Load more"}
             </Button>

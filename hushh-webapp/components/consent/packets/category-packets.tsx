@@ -24,7 +24,7 @@ export function CategoryPacketRows({ packets, buyer, defaults, onOpen, requestFo
     ariaLabel={`Open ${PACKET_CATEGORY_NAMES[category]}`} chevron onClick={() => setSelected(category)} />)}</>;
   const periods = categoryPeriods(packets, selected);
   return <>
-    <SettingsRow title={PACKET_CATEGORY_NAMES[selected]} trailing={<Button variant="ghost" size="compact" onClick={close}>All categories</Button>} />
+    <SettingsRow title={PACKET_CATEGORY_NAMES[selected]} trailing={<Button data-consent-quiet-action="true" data-consent-role="compact-action" variant="ghost" size="compact" onClick={close}>All categories</Button>} />
     <PacketRows items={periods.map(packet => {
       const request = savedPacketRequest(packet) ?? requestFor(packet);
       const status = buyer ? buyerPacketStatus(packet, request, "the owner") : ownerPacketStatus(packet);

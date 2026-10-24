@@ -319,7 +319,7 @@ function UnlockedDriveCircleShareCard({
         <HelperText role="alert">These attempts use different files. Ask One to start a new share.</HelperText>
       ) : null}
       {needsRefresh ? (
-        <Button size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
+        <Button data-consent-role="primary-action" size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
           Review remaining shares
         </Button>
       ) : null}
@@ -331,7 +331,7 @@ function UnlockedDriveCircleShareCard({
               ? "See why below. Connect by request or ask them to verify their email."
               : "Connect with someone by request, then check again."}
           </HelperText>
-          <Button size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
+          <Button data-consent-role="primary-action" size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
             {phase === "searching" ? "Checking…" : "Check people again"}
           </Button>
         </>
@@ -341,7 +341,7 @@ function UnlockedDriveCircleShareCard({
           <HelperText>
             Review the matches and recipients. Nothing is shared until you tap Share.
           </HelperText>
-          <Button size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
+          <Button data-consent-role="primary-action" size="prominent" disabled={phase !== "idle"} onClick={() => void find()}>
             {phase === "searching" ? "Searching…" : view ? "Search again" : "Find files"}
           </Button>
         </>
@@ -354,7 +354,7 @@ function UnlockedDriveCircleShareCard({
           <ul aria-label="Files you can share" className="min-w-0 space-y-1">
             {files.map((file) => (
               <li key={file.ref}>
-                <label className="flex min-h-11 min-w-0 items-center gap-3">
+                <label data-consent-role="form-label" className="flex min-h-11 min-w-0 items-center gap-3">
                   <input type="checkbox" checked={selectedFiles.includes(file.ref)}
                     onChange={(event) => setUnsharedFiles(event.target.checked
                       ? unsharedFiles.filter((ref) => ref !== file.ref)
@@ -379,7 +379,7 @@ function UnlockedDriveCircleShareCard({
               const shareRequestId = result?.shareRequestId ?? person.shareRequestId;
               return (
                 <li key={person.requestId}>
-                  <label className="flex min-h-11 min-w-0 items-center gap-3">
+                  <label data-consent-role="form-label" className="flex min-h-11 min-w-0 items-center gap-3">
                     <input type="checkbox" disabled={done || expired || conflictingSelections}
                       checked={done || (!expired && !skipped.includes(person.requestId))}
                       onChange={(event) => setSkipped(event.target.checked
@@ -414,7 +414,7 @@ function UnlockedDriveCircleShareCard({
           <HelperText>Not included:</HelperText>
           <ul aria-label="Not included" className="min-w-0 list-inside list-disc space-y-1">
             {view.excluded.map((person, index) => (
-              <li key={index} className="break-words text-sm">
+              <li data-consent-role="body" key={index} className="break-words text-sm">
                 {person.name ?? "Someone"} — {EXCLUSION_COPY[person.reason]}
               </li>
             ))}
@@ -426,7 +426,7 @@ function UnlockedDriveCircleShareCard({
           <HelperText>
             Each person gets Viewer access. Google emails new access links. You can remove access anytime.
           </HelperText>
-          <Button size="prominent" disabled={phase !== "idle" || needsRefresh || conflictingSelections || !selectedFiles.length || !chosen.length}
+          <Button data-consent-role="primary-action" size="prominent" disabled={phase !== "idle" || needsRefresh || conflictingSelections || !selectedFiles.length || !chosen.length}
             onClick={() => void share()}>
             {phase === "sharing"
               ? "Sharing…"

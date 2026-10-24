@@ -820,7 +820,7 @@ function ConsentEntryRow({
       }
       trailing={
         entry.kind === "connection" ? null : (
-          <Badge
+          <Badge data-consent-role="status"
             variant="outline"
             className={cn("shrink-0 lowercase", badgeClassName(entry.status))}
           >
@@ -884,7 +884,7 @@ function ConsentActiveRequestRow({
           </span>
         }
         trailing={
-          <Badge
+          <Badge data-consent-role="status"
             className={cn("shrink-0 capitalize", badgeClassName(head.status))}
           >
             {formatStatus(head.status)}
@@ -970,11 +970,11 @@ function ConsentHistoryLifecycleDetails({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                  <Badge className={cn("capitalize", badgeClassName(status))}>
+                  <Badge data-consent-role="status" className={cn("capitalize", badgeClassName(status))}>
                     {formatStatus(status)}
                   </Badge>
                   {canRevoke ? (
-                    <Button
+                    <Button data-consent-role="compact-action"
                       type="button"
                       variant="none"
                       effect="fade"
@@ -1110,7 +1110,7 @@ function ConsentSharePreviewRow({
                     </span>
                   ) : null}
                   {group.names?.length ? (
-                    <span className="block text-xs text-muted-foreground">
+                    <span data-consent-role="helper" className="block text-xs text-muted-foreground">
                       {group.names.join(", ")}
                     </span>
                   ) : null}
@@ -1681,7 +1681,7 @@ function ConsentEntryDetail({
               </Select>
             </div>
           ) : null}
-          <Button
+          <Button data-consent-role="task-action"
             variant="blue-gradient"
             effect="fill"
             size="sm"
@@ -1725,7 +1725,7 @@ function ConsentEntryDetail({
                   ? bundleAllowLabel(bundleChoiceItems.length, chosenCount)
                   : "Allow"}
           </Button>
-          <Button
+          <Button data-consent-role="task-action"
             variant="none"
             effect="fade"
             size="sm"
@@ -1761,7 +1761,7 @@ function ConsentEntryDetail({
         // row, button) around two blurbs. The confirmation below carries the
         // consequence, so the sheet only needs the action.
         <SettingsGroup embedded>
-          <Button
+          <Button data-consent-role="task-action"
             variant="none"
             effect="fade"
             size="sm"
@@ -1779,7 +1779,7 @@ function ConsentEntryDetail({
       {entry.metadata?.commercial_required === true && (entry.request_id || entry.metadata?.request_id) ? (
         <SettingsGroup embedded title="Paid sharing" description="Review payment and prepare approved encrypted information.">
           <SettingsRow title="Sharing payment" description="Payment and export preparation have separate statuses." trailing={
-            <Button asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(entry.metadata?.request_id || entry.request_id))}`}>Review payment</Link></Button>
+            <Button data-consent-role="compact-action" asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(entry.metadata?.request_id || entry.request_id))}`}>Review payment</Link></Button>
           } />
         </SettingsGroup>
       ) : null}
@@ -1794,7 +1794,7 @@ function ConsentEntryDetail({
             title={relatedWorkspace.title}
             description={relatedWorkspace.description}
             trailing={
-              <Button asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true">
+              <Button data-consent-role="compact-action" asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true">
                 <Link
                   href={relatedWorkspace.href}
                   data-voice-control-id="consent_open_request"
@@ -3772,7 +3772,7 @@ export function ConsentCenterPage() {
                       />
                     </div>
                   ) : null}
-                  <Button
+                  <Button data-consent-role="compact-action"
                     type="button"
                     variant="none"
                     effect="fade"
@@ -3857,7 +3857,7 @@ export function ConsentCenterPage() {
                           aria-label="Request direction"
                           className="mb-3 flex flex-wrap gap-2 px-3"
                         >
-                          <Button
+                          <Button data-consent-role="row-title"
                             size="standard"
                             variant="none"
                             aria-pressed={!sentDocumentRequests}
@@ -3873,7 +3873,7 @@ export function ConsentCenterPage() {
                           >
                             Received
                           </Button>
-                          <Button
+                          <Button data-consent-role="row-title"
                             size="standard"
                             variant="none"
                             aria-pressed={sentDocumentRequests}
@@ -4139,7 +4139,7 @@ export function ConsentCenterPage() {
                   title="Request not found"
                   description="This request may already be approved, denied, expired, or belong to a different consent lane. Use the tabs to check Active Access or History."
                   trailing={
-                    <Button
+                    <Button data-consent-role="compact-action"
                       type="button"
                       variant="none"
                       effect="fade"
@@ -4157,7 +4157,7 @@ export function ConsentCenterPage() {
                   title="Nothing to review here"
                   description="This was already handled. History shows what happened."
                   trailing={
-                    <Button
+                    <Button data-consent-role="compact-action"
                       type="button"
                       variant="none"
                       effect="fade"

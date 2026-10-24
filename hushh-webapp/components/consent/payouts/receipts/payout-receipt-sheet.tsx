@@ -188,7 +188,7 @@ function ReceiptSheet({ itemId, onOpenChange, test = false, onAction, ancestors 
           {!receipt && failed && !missing ? (
             <div className="space-y-2 px-1 py-3">
               <HelperText role="alert">Couldn't load this receipt.</HelperText>
-              <Button type="button" size="compact" variant="none" effect="fade" data-consent-quiet-action="true" onClick={retry}>Retry</Button>
+              <Button data-consent-role="compact-action" type="button" size="compact" variant="none" effect="fade" data-consent-quiet-action="true" onClick={retry}>Retry</Button>
             </div>
           ) : null}
           {receipt?.kind === "earning" ? <EarningReceiptSections receipt={receipt} openItem={openItem} onAction={takeStep} /> : null}

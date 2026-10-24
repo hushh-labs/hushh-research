@@ -95,7 +95,7 @@ export function DocumentRequestButton({
   const [intent, setIntent] = useState<"files" | "query" | null>(null);
   if (!user) return null;
   if (!isVaultUnlocked) return draft ? null : <>
-    {showTrigger && (["files", "query"] as const).map((action) => <Button key={action} size="standard" variant="none" onClick={() => { setIntent(action); setUnlockOpen(true); }}>
+    {showTrigger && (["files", "query"] as const).map((action) => <Button data-consent-role="compact-action" key={action} size="standard" variant="none" onClick={() => { setIntent(action); setUnlockOpen(true); }}>
       {renderTrigger?.(action === "files" ? "Request files" : "Ask about files") ?? (action === "files" ? "Request files" : "Ask about files")}
     </Button>)}
     <VaultUnlockDialog user={user} open={unlockOpen} onOpenChange={setUnlockOpen} onSuccess={() => setUnlockOpen(false)} title="Unlock to request" description="Unlock your vault to continue this request." presentationClassName="consent-presentation-surface" />
@@ -345,7 +345,7 @@ function UnlockedRequestButton({
       : availability?.status === "error" || featureError ? "Availability could not be checked. Your details are kept."
       : availability?.status === "ready" || featureChecked ? "File requests are unavailable for this connection."
       : "Checking availability…"}</HelperText>
-    {availability?.status === "error" || featureError ? <Button type="button" size="compact" variant="none" onClick={() => { if (onAvailabilityRetry) void onAvailabilityRetry(); else setFeatureRetry((value) => value + 1); }}>Try again</Button> : null}
+    {availability?.status === "error" || featureError ? <Button data-consent-quiet-action="true" data-consent-role="compact-action" type="button" size="compact" variant="none" onClick={() => { if (onAvailabilityRetry) void onAvailabilityRetry(); else setFeatureRetry((value) => value + 1); }}>Try again</Button> : null}
   </div> : null;
   if (!enabled && draft && !created)
     return draft ? (
@@ -380,7 +380,7 @@ function UnlockedRequestButton({
         {error ? <HelperText role="alert">{error}</HelperText> : null}
         <FlowActionGroup
           primary={
-            <Button
+            <Button data-consent-role="primary-action"
               size="prominent"
               disabled={!draftTerms || !validFileRequest(draftTerms) || !fileQuote.quote || busy}
               onClick={() => void requestDraftFiles()}
@@ -389,7 +389,7 @@ function UnlockedRequestButton({
             </Button>
           }
           secondary={
-            <Button
+            <Button data-consent-role="compact-action"
               size="standard"
               variant="none"
               disabled={!valid || busy || draftNeedsDates}
@@ -416,7 +416,7 @@ function UnlockedRequestButton({
         showTrigger={showTrigger}
         returnFocusRef={returnFocusRef}
       />
-      {showTrigger ? <Button ref={questionTriggerRef} size="standard" variant="none" onClick={() => setOpen(true)}>
+      {showTrigger ? <Button data-consent-role="compact-action" ref={questionTriggerRef} size="standard" variant="none" onClick={() => setOpen(true)}>
         {renderTrigger?.("Ask about files") ?? "Ask about files"}
       </Button> : null}
       <Dialog
@@ -448,7 +448,7 @@ function UnlockedRequestButton({
                 direction="outgoing"
                 initial={created}
               />
-              <Button asChild size="prominent">
+              <Button data-consent-role="primary-action" asChild size="prominent">
                 <Link
                   href={buildConsentCenterHref("pending", {
                     requestId: driveQuerySelection(created.requestId),
@@ -458,7 +458,7 @@ function UnlockedRequestButton({
                   View question
                 </Link>
               </Button>
-              <Button
+              <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                 type="button"
                 size="standard"
                 variant="none"
@@ -480,8 +480,8 @@ function UnlockedRequestButton({
               <IllustratedRequestBody>
               {availabilityNotice}
               <div className="space-y-2">
-                <Label htmlFor="drive-query-text">Your question</Label>
-                <Textarea
+                <Label data-consent-role="form-label" htmlFor="drive-query-text">Your question</Label>
+                <Textarea data-consent-input="true"
                   id="drive-query-text"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -504,7 +504,7 @@ function UnlockedRequestButton({
               <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
-                  <Button
+                  <Button data-consent-role="primary-action"
                     type="submit"
                     size="prominent"
                     disabled={!allowed || !valid || phase !== "idle"}
@@ -513,7 +513,7 @@ function UnlockedRequestButton({
                   </Button>
                 }
                 secondary={
-                  <Button
+                  <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                     type="button"
                     size="standard"
                     variant="none"

@@ -8,15 +8,15 @@ export function ScopeCommerceBuyerReview({ quote, balance, expired, busy, enable
 }) {
   const shortfall = quote && balance !== undefined ? Math.max(0, quote.amount_cents - balance) : null;
   return <div className="space-y-3">
-    {balance !== undefined ? <p data-consent-role="body" className="text-sm tabular-nums">Available funded balance: {money(balance)}.</p> : <p role="status" className="text-sm">Refresh to check your balance before confirming.</p>}
-    {!quote ? <Button disabled={busy || !enabled} variant="outline" data-consent-quiet-action="true" onClick={() => void reviewPrice()}>Review exact price</Button> : null}
+    {balance !== undefined ? <p data-consent-role="body" className="text-sm tabular-nums">Available funded balance: {money(balance)}.</p> : <p data-consent-role="status" role="status" className="text-sm">Refresh to check your balance before confirming.</p>}
+    {!quote ? <Button data-consent-role="compact-action" disabled={busy || !enabled} variant="outline" data-consent-quiet-action="true" onClick={() => void reviewPrice()}>Review exact price</Button> : null}
     {quote ? <div className="space-y-3">
       <p data-consent-role="row-title" className="text-sm font-semibold tabular-nums">Total buyer price: {money(quote.amount_cents)}</p>
       <p data-consent-role="body" className="text-sm tabular-nums">Approved access: {quote.duration_seconds / 3600} hours. Quote valid until <time dateTime={quote.expires_at}>{new Date(quote.expires_at).toLocaleString()}</time>.</p>
-      {expired ? <p role="status" className="text-sm">Quote expired. Request access again so the owner can approve new terms.</p> : null}
-      {shortfall !== null && shortfall > 0 ? <p role="status" className="text-sm">You need {money(shortfall)} more in your funded balance. Adding funds does not purchase this information.</p> : null}
+      {expired ? <p data-consent-role="status" role="status" className="text-sm">Quote expired. Request access again so the owner can approve new terms.</p> : null}
+      {shortfall !== null && shortfall > 0 ? <p data-consent-role="status" role="status" className="text-sm">You need {money(shortfall)} more in your funded balance. Adding funds does not purchase this information.</p> : null}
       <p data-consent-role="disclosure" className="text-xs text-muted-foreground">Confirming reserves this amount from your funded balance. An agent cannot spend it for you. Access starts only after the owner prepares the information. Earlier owner revocation refunds unused calendar time; nonuse does not.</p>
-      <Button disabled={busy || !enabled || expired || shortfall === null || shortfall > 0} onClick={() => void purchase()}>Confirm {quote.amount_cents === 0 ? "free access" : `${money(quote.amount_cents)} from balance`}</Button>
+      <Button data-consent-role="primary-action" disabled={busy || !enabled || expired || shortfall === null || shortfall > 0} onClick={() => void purchase()}>Confirm {quote.amount_cents === 0 ? "free access" : `${money(quote.amount_cents)} from balance`}</Button>
     </div> : null}
     {enabled && (balance === undefined || (shortfall !== null && shortfall > 0)) ? <ProfilePaymentsLink className="inline-flex min-h-11 items-center text-sm underline">Add funds or manage payments in Payments and earnings</ProfilePaymentsLink> : null}
   </div>;

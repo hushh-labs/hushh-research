@@ -85,7 +85,7 @@ export function DocumentRequestQuoteNotice({
   if (error) return (
     <div className="space-y-1">
       <HelperText role="alert">{error}</HelperText>
-      <Button type="button" size="standard" variant="none" onClick={onRetry}>Retry</Button>
+      <Button data-consent-quiet-action="true" data-consent-role="compact-action" type="button" size="standard" variant="none" onClick={onRetry}>Retry</Button>
     </div>
   );
   if (!quote) return null;

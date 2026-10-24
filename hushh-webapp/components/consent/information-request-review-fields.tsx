@@ -26,13 +26,13 @@ export function InformationRequestReviewFields({
         {scopes.map(scope => <div key={scope.scopeRef} className="flex items-start justify-between gap-3 text-sm">
           <span>
             <span className="block">{scope.label || "Selected information"}</span>
-            {scope.wildcard ? <span className="block text-xs text-muted-foreground">This includes all available information in this area, not just one detail.</span> : null}
+            {scope.wildcard ? <span data-consent-role="helper" className="block text-xs text-muted-foreground">This includes all available information in this area, not just one detail.</span> : null}
           </span>
           <StatusPill tone="neutral">{scope.sensitivity || "Standard"}</StatusPill>
         </div>)}
       </div>
     </SectionCard>
-    {scopes.length > 50 ? <p role="alert" className="text-sm text-destructive">Choose up to 50 fields for one request.</p> : null}
+    {scopes.length > 50 ? <p data-consent-role="status" role="alert" className="text-sm text-destructive">Choose up to 50 fields for one request.</p> : null}
     <p data-consent-role="body" className="text-sm text-muted-foreground">The owner reviews this request. If sharing has a paid price, you will separately review and confirm the exact amount before access starts. Sending this request does not spend your balance.</p>
     <label data-consent-role="form-label" className="block space-y-2 text-sm font-medium">
       Access duration

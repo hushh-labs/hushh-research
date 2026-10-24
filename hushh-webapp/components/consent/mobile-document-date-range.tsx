@@ -104,10 +104,10 @@ export function MobileDocumentDateRange({
                 : "border-[color:var(--app-separator)]",
             )}
           >
-            <span className="block text-xs text-[color:var(--app-secondary-label)]">
+            <span data-consent-role="helper" className="block text-xs text-[color:var(--app-secondary-label)]">
               {field === "start" ? "Start date" : "End date"}
             </span>
-            <span className="block truncate text-sm font-medium text-[color:var(--app-label)]">
+            <span data-consent-role="row-title" className="block truncate text-sm font-medium text-[color:var(--app-label)]">
               {displayDate(field === "start" ? start : end)}
             </span>
           </button>
@@ -127,7 +127,7 @@ export function MobileDocumentDateRange({
             >
               ‹
             </button>
-            <select
+            <select data-consent-input="true"
               aria-label="Month"
               value={month.getMonth()}
               onChange={(event) =>
@@ -139,7 +139,7 @@ export function MobileDocumentDateRange({
                 <option key={label} value={index}>{label}</option>
               ))}
             </select>
-            <select
+            <select data-consent-input="true"
               aria-label="Year"
               value={month.getFullYear()}
               onChange={(event) =>
