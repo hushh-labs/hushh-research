@@ -1,9 +1,11 @@
 # Profile, Navigation, and Feed Typography Contract
 
-Mail now adopts Connect's compact roles and shared header; its current refinement
-is documented in [Mail alignment](./mail.md#connect-alignment-and-warm-return-refinement--21-october-2026).
-The older page-specific heading overrides, dialogs, editor, phone/desktop sizing
-and cascade boundaries are recorded in the [Mail contract](./mail.md#font-schema-what-to-use-where-and-actual-override-boundaries).
+Mail adopts Connect's compact roles and shared header. Its 24 October 2026
+mounted pass, state/action classification and optimized computed roles are in
+[Mail alignment](./mail.md#connect-alignment-and-mounted-presentation-audit--24-october-2026)
+and the [Mail font schema](./mail.md#font-schema-what-to-use-where-and-actual-override-boundaries).
+Mail scopes those roles at the actual route and portal hosts; this page remains
+the cross-product usage map, not another Mail token authority.
 
 Calendar's Inter family exception, heading cascade, controls, overlays and
 responsive dimensions are recorded in the [Calendar contract](./calendar.md).

@@ -17,6 +17,7 @@ import { ReceiptCollectionOverview } from "./receipt-collection-overview";
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { MailActionButton as Button } from "./mail-action-button";
+import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -178,7 +179,7 @@ function ReceiptMerchantVisit({ homepageUrl }: { homepageUrl: string }) {
   return (
     <div className="space-y-2">
       <Button
-        className="min-h-11 w-full"
+        className={`${mailStyles.wideAction} min-h-11 w-full`}
         data-voice-control-id="visit_receipt_merchant"
         type="button"
         variant="outline"
@@ -678,7 +679,7 @@ export function GmailRecentReceipts({
                 key={group.key}
               >
                 <h3
-                  className="receipt-month-heading app-metadata-label px-1 text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground"
+                  className="receipt-month-heading px-1 text-muted-foreground"
                   id={headingId}
                 >
                   {group.label}
@@ -721,28 +722,34 @@ export function GmailRecentReceipts({
           aria-label="Receipt pagination"
           className="flex items-center justify-between gap-3 pt-3 text-sm"
         >
-          <Button
-            variant="ghost"
+          <MorphyButton
+            variant="none"
+            effect="fade"
+            size="compact"
+            className={mailStyles.utilityAction}
             disabled={currentPage === 1}
             onClick={() => setDisplayPage(currentPage - 1)}
           >
             Previous
-          </Button>
+          </MorphyButton>
           <span aria-live="polite">
             {currentPage} / {pageCount}
           </span>
-          <Button
-            variant="ghost"
+          <MorphyButton
+            variant="none"
+            effect="fade"
+            size="compact"
+            className={mailStyles.utilityAction}
             disabled={currentPage === pageCount}
             onClick={() => setDisplayPage(currentPage + 1)}
           >
             Next
-          </Button>
+          </MorphyButton>
         </nav>
       ) : null}
 
       <AdaptiveDetailSurface
-        surfaceClassName={`${mailStyles.typography} ${mailStyles.portal}`}
+        surfaceClassName={`${mailStyles.typography} ${mailStyles.portal} ${mailStyles.detailPortal}`}
         open={Boolean(selectedRow && selectedReceiptAvailable)}
         onOpenChange={(open) => {
           if (!open) closeDetail();
@@ -779,13 +786,12 @@ export function GmailRecentReceipts({
         {detailError ? (
           <div className="space-y-3 text-sm">
             <p className="text-destructive">{detailError}</p>
-            <button
-              className="font-normal text-primary"
+            <Button
               onClick={() => setDetailAttempt((attempt) => attempt + 1)}
               type="button"
             >
               Try again
-            </button>
+            </Button>
           </div>
         ) : null}
         {receiptDetail && !detailLoading ? (
@@ -856,7 +862,7 @@ export function GmailRecentReceipts({
 
             {selectedRow && selectedRow.eventTimeline.length > 1 ? (
               <div className="space-y-2 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
+                <p className={`${mailStyles.sourceGroup} text-muted-foreground`}>
                   Activity
                 </p>
                 <ol className="divide-y divide-border/60">
@@ -865,16 +871,16 @@ export function GmailRecentReceipts({
                       className="space-y-0.5 py-2.5 first:pt-0 last:pb-0"
                       key={event.sourceReceiptKey}
                     >
-                      <div className="flex items-baseline justify-between gap-3 text-sm">
-                        <span className="font-normal text-foreground">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className={`${mailStyles.rowName} text-foreground`}>
                           {receiptTimelineLabel(event)}{event.sourceUnavailable ? " · Source unavailable" : ""}
                         </span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
+                        <span className={`${mailStyles.support} shrink-0 text-muted-foreground`}>
                           {formatReceiptDate(event.date)}
                         </span>
                       </div>
                       {event.detail || event.subject ? (
-                        <p className="line-clamp-2 break-words text-xs leading-5 text-muted-foreground">
+                        <p className={`${mailStyles.support} line-clamp-2 break-words text-muted-foreground`}>
                           {formatReceiptPassage(event.detail || event.subject || "")}
                         </p>
                       ) : null}
@@ -886,7 +892,7 @@ export function GmailRecentReceipts({
 
             {emailExcerpt ? (
               <div className="space-y-1.5 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
+                <p className={`${mailStyles.sourceGroup} text-muted-foreground`}>
                   {emailExcerpt.label}
                 </p>
                 <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
@@ -897,7 +903,7 @@ export function GmailRecentReceipts({
 
             {sourceEvidence.length ? (
               <div className="space-y-2 rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-4 py-3">
-                <p className="app-metadata-label text-xs font-normal uppercase tracking-[0.12em] text-muted-foreground">
+                <p className={`${mailStyles.sourceGroup} text-muted-foreground`}>
                   Source evidence
                 </p>
                 <ul className="space-y-2">
@@ -937,9 +943,9 @@ function ReceiptDetailRow({
   if (!normalizedValue) return null;
 
   return (
-    <div className="grid grid-cols-[minmax(0,0.36fr)_minmax(0,0.64fr)] gap-3 py-3 text-sm">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="break-words text-right font-normal text-foreground">
+    <div className="grid grid-cols-[minmax(0,0.36fr)_minmax(0,0.64fr)] gap-3 py-3">
+      <dt className={`${mailStyles.support} text-muted-foreground`}>{label}</dt>
+      <dd className={`${mailStyles.rowName} break-words text-right text-foreground`}>
         {normalizedValue}
       </dd>
     </div>
