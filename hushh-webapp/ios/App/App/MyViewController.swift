@@ -2,6 +2,13 @@ import UIKit
 import Capacitor
 import WebKit
 
+enum NativeWebSafeArea {
+    static func topInset(for webView: WKWebView, in window: UIWindow) -> CGFloat {
+        let webTop = webView.convert(webView.bounds, to: window).minY
+        return max(0, window.safeAreaInsets.top - webTop)
+    }
+}
+
 struct HushhNativeRouter: Router {
     private static let nativeStaticPersonProfileRef = "00000000-0000-4000-8000-000000000001"
     private static let personProfileRoutePrefix = "/people/"
@@ -134,9 +141,11 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     /// Presentation geometry only. UIKit remains authoritative when WebKit's
     /// CSS env inset is temporarily zero during navigation or keyboard changes.
     private func publishSafeAreaTop() {
-        guard isViewLoaded, let webView = webView, view.window != nil else { return }
-        let webTop = webView.convert(webView.bounds, to: view).minY
-        let inset = max(0, view.safeAreaInsets.top - webTop)
+        guard isViewLoaded, let webView = webView, let window = view.window else { return }
+        // A full-window WebView needs the window's status-bar clearance even
+        // when its container reports a different safe area. Subtract the
+        // WebView's window position so an already inset viewport stays at zero.
+        let inset = NativeWebSafeArea.topInset(for: webView, in: window)
         guard inset.isFinite, inset != lastPublishedSafeAreaTop else { return }
         lastPublishedSafeAreaTop = inset
         webView.evaluateJavaScript("document.documentElement.style.setProperty('--app-native-safe-area-top', '\(Double(inset))px')", completionHandler: nil)
