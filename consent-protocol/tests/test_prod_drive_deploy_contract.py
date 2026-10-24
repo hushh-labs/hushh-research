@@ -397,7 +397,6 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     repo = tmp_path / "repo"
     repo.mkdir()
     runner = tmp_path / "runner"
-    runner.mkdir()
 
     def git(*args):
         return subprocess.run(  # noqa: S603 - fixed git command and synthetic fixture arguments
@@ -463,6 +462,10 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     scope_tool = runner / "release-tools/resolve-deploy-scope.py"
     assert scope_tool.read_text() == (ROOT / "scripts/ci/resolve-deploy-scope.py").read_text()
+    companion = "release_acceptance_provenance.py"
+    assert (runner / "release-tools" / companion).read_text() == (
+        ROOT / "scripts/ci" / companion
+    ).read_text()
     for path in current_paths:
         # Main-owned helpers are consumed directly from RUNNER_TEMP.
         if path.endswith(
@@ -470,6 +473,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",
                 "verify-predecessor-acceptance.py",
+                "release_acceptance_provenance.py",
                 "resolve-deploy-scope.py",
                 "verify-prod-places-readiness.py",
                 "passkey-domain-aliases.json",

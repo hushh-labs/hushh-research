@@ -17,6 +17,15 @@ on:
         description: "Exact green main SHA to deploy (blank defaults to latest origin/main)"
         required: false
         type: string
+      backend_image_source:
+        description: "Reuse the accepted Dev backend image when recorded, or build explicitly"
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - build-from-source
+          - promote-from-dev
       run_live_model_checks:
         description: "Opt in to paid candidate Gemini/Vertex readiness and synthetic PKM evaluation"
         required: false
@@ -291,10 +300,14 @@ jobs:
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
           cp scripts/ci/runtime-capacity-budget.py \
             "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
+          cp scripts/ci/runtime_capacity_inventory.py \
+            "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py"
           cp scripts/ci/account-deletion-fence-decision.py \
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
           cp config/runtime-capacity.json \
@@ -349,6 +362,9 @@ jobs:
             scripts/ops/run_uat_text_recovery_job.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
             scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py" \
+            scripts/ci/runtime_capacity_inventory.py
+          cp "${RUNNER_TEMP}/release-tools/verify-cloudrun-revision-provenance.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
             scripts/ci/account-deletion-fence-decision.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
@@ -485,6 +501,16 @@ jobs:
           python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
             --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
             --scope "${{ steps.scope.outputs.scope }}" --output /tmp/uat-predecessor-acceptance.json
+
+      - name: Resolve the exact accepted Dev backend image
+        if: steps.scope.outputs.deploy_backend == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" backend-image \
+            --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --predecessor /tmp/uat-predecessor-acceptance.json \
+            --output /tmp/uat-dev-backend-image.json
 
       - name: Enforce UAT database connection budget before deployment
         shell: bash
@@ -951,15 +977,46 @@ jobs:
         id: build-backend-image
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
+        env:
+          BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source || 'auto' }}
         run: |
           set -euo pipefail
           image_tag="uat-${{ steps.resolve-sha.outputs.sha }}"
-          gcloud builds submit \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --config=deploy/backend-image.cloudbuild.yaml \
-            "--substitutions=_IMAGE_TAG=${image_tag}"
-
           image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
+          dev_image="$(python3 -c '
+          import json, re
+          pin = json.load(open("/tmp/uat-dev-backend-image.json"))
+          ref = pin.get("image_reference", "")
+          if "image_reference" in pin:
+              assert isinstance(ref, str) and re.fullmatch(r"gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}", ref), "Invalid accepted Dev image"
+          print(ref)
+          ')"
+          case "${BACKEND_IMAGE_SOURCE}" in
+            auto)
+              if [ -n "${dev_image}" ]; then
+                image_source=promote-from-dev
+              else
+                image_source=build-from-source
+                echo "::notice title=Historical Dev acceptance::No image proof was recorded; building this backend from source."
+              fi
+              ;;
+            build-from-source|promote-from-dev) image_source="${BACKEND_IMAGE_SOURCE}" ;;
+            *) echo "Invalid backend image source." >&2; exit 1 ;;
+          esac
+          if [ "${image_source}" = promote-from-dev ]; then
+            if [[ ! "${dev_image}" =~ ^gcr\.io/hushh-pda-dev/consent-protocol@sha256:[0-9a-f]{64}$ ]]; then
+              echo "Accepted Dev executable image proof is required for promotion." >&2
+              exit 1
+            fi
+            # Copy immutable bytes into UAT. Missing permission or a missing
+            # image fails before migrations; there is no automatic build retry.
+            gcloud container images add-tag --quiet "${dev_image}" "${image_repository}:${image_tag}"
+          else
+            gcloud builds submit \
+              --project="${{ env.GCP_PROJECT_ID }}" \
+              --config=deploy/backend-image.cloudbuild.yaml \
+              "--substitutions=_IMAGE_TAG=${image_tag}"
+          fi
           image_digest="$(gcloud container images describe \
             "${image_repository}:${image_tag}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
@@ -979,7 +1036,13 @@ jobs:
             --manifest-json /tmp/uat-backend-image-manifest.json \
             --sha "${{ steps.resolve-sha.outputs.sha }}" \
             --json-output /tmp/uat-backend-image.json)"
+          if [ "${image_source}" = promote-from-dev ] \
+            && [ "${image_reference}" != "${image_repository}@${dev_image#*@}" ]; then
+            echo "Copied backend executable digest differs from the accepted Dev image." >&2
+            exit 1
+          fi
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+          echo "image_source=${image_source}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
         if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
@@ -2006,6 +2069,7 @@ jobs:
             --expected-source deploy-uat \
             --expected-sha "${{ steps.resolve-sha.outputs.sha }}" \
             --expected-run-id "${{ github.run_id }}" \
+            --expected-image-reference "${{ steps.build-backend-image.outputs.image_reference }}" \
             --report-path /tmp/uat-backend-provenance.json
 
       - name: Verify frontend deployment provenance
@@ -3469,6 +3533,7 @@ jobs:
                   "frontend_image_wait": "${{ steps.build-frontend-image.outputs.wait_seconds || '0' }}",
               },
           }
+          payload["backend_image_source"] = "${{ steps.build-backend-image.outputs.image_source }}"
           predecessor = Path("/tmp/uat-predecessor-acceptance.json")
           payload["predecessor_acceptance"] = (
               json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None
