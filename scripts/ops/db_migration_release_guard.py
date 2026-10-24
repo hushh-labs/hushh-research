@@ -259,18 +259,6 @@ def _database_ssl_from_env() -> str | None:
     return None
 
 
-async def _fetch_columns(conn: asyncpg.Connection, table_name: str) -> set[str]:
-    rows = await conn.fetch(
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = $1
-        """,
-        table_name,
-    )
-    return {str(row["column_name"]) for row in rows}
-
-
 async def _run_db_contract_check(
     contract: dict[str, Any],
 ) -> tuple[dict[str, Any], list[str]]:
@@ -284,11 +272,42 @@ async def _run_db_contract_check(
     ssl = _database_ssl_from_env()
     conn = await asyncpg.connect(db_url, ssl=ssl)
     try:
+        # Batch catalog reads, preserving relation existence and ACL-visible columns.
+        table_names = list(required_tables)
+        relations = await conn.fetch(
+            """
+            SELECT table_name, to_regclass('public.' || table_name) AS relation
+            FROM unnest($1::text[]) AS requested(table_name)
+            """,
+            table_names,
+        )
+        columns = await conn.fetch(
+            """
+            SELECT table_name, column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = ANY($1::text[])
+            """,
+            table_names,
+        )
+        functions = await conn.fetch(
+            """
+            SELECT DISTINCT p.proname
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public' AND p.proname = ANY($1::text[])
+            """,
+            required_functions,
+        )
+        present_tables = {
+            str(row["table_name"]) for row in relations if row["relation"] is not None
+        }
+        columns_by_table: dict[str, set[str]] = {}
+        for row in columns:
+            name = str(row["table_name"])
+            columns_by_table.setdefault(name, set()).add(str(row["column_name"]))
+        present_functions = {str(row["proname"]) for row in functions}
         for table_name, required_columns in required_tables.items():
-            regclass = await conn.fetchval(
-                "SELECT to_regclass($1)", f"public.{table_name}"
-            )
-            if regclass is None:
+            if table_name not in present_tables:
                 violations.append(f"missing_table:{table_name}")
                 table_results[table_name] = {
                     "exists": False,
@@ -296,9 +315,9 @@ async def _run_db_contract_check(
                 }
                 continue
 
-            actual_columns = await _fetch_columns(conn, table_name)
+            actual_columns = columns_by_table.get(table_name, set())
             missing_columns = sorted(
-                [column for column in required_columns if column not in actual_columns]
+                c for c in required_columns if c not in actual_columns
             )
             if missing_columns:
                 violations.append(
@@ -312,18 +331,7 @@ async def _run_db_contract_check(
             }
 
         for function_name in required_functions:
-            exists = await conn.fetchval(
-                """
-                SELECT EXISTS (
-                  SELECT 1
-                  FROM pg_proc p
-                  JOIN pg_namespace n ON n.oid = p.pronamespace
-                  WHERE n.nspname = 'public' AND p.proname = $1
-                )
-                """,
-                function_name,
-            )
-            present = bool(exists)
+            present = function_name in present_functions
             function_results[function_name] = present
             if not present:
                 violations.append(f"missing_function:{function_name}")
