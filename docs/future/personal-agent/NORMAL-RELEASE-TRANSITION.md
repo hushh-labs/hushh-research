@@ -1,10 +1,14 @@
 # Private agent: normal release transition
 
-**Current surgical follow-up — 24 October 2026:** local checkpoint `7ac0e4cc9c`
+**Current surgical follow-up — 24 October 2026:** local checkpoint `ef3837592a`
 adds durable cleanup, explicit federated/email Start fresh and application-owner
-continuity. It is not pushed, frozen, merged or deployed. Admission remains off;
+continuity; observed main `163ddb96a33e` and the relevant native ADK fixes are
+integrated. It is not pushed, frozen, merged or deployed. Admission remains off;
 draft migrations 412–414 remain unregistered and unapplied. Corporate ADC last
-verified dev/UAT serving `2548bbc901cd` at 08:58 UTC. The
+verified peer dev/UAT rollouts serving `2732b301cc9e` at 12:41 UTC. Live read-only
+catalog inspection confirms UAT lacks dev's cloud-removal authorities. New forward
+schema graduation and clean/retained-schema replay must precede that lifecycle's
+UAT acceptance; do not append 414 before its parked-972 dependency closure. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns the
 current evidence and remaining acceptance; earlier releases below are historical.
 

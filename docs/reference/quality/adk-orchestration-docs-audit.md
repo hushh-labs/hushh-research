@@ -1,14 +1,32 @@
 # Private-pod readiness: CTO decision memo
 
+## Visual Context
+
+Start with the [Founder/CTO diagram guide](../architecture/README.md#founder-and-cto-diagram-guide)
+and [private-agent north star](../architecture/private-agent-north-star.md).
+The [Browser reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
+owns exact execution mode, qualification and lifecycle evidence. Operating procedures
+stay in the [pod runbook](../operations/dev-pod-first-light-runbook.md),
+[Files runbook](../operations/private-files-library.md),
+[deletion runbook](../operations/account-deletion-rollout.md) and
+[normal-release transition plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md).
+
+Private work stays in the selected owner cloud. The hub coordinates identity,
+consent, placement and updates. Puppy runs inference on the granted machine
+through its bound pod, with no cloud-model fallback. Model-provider processing
+retains its disclosed boundary.
+
+
 ## Current decision — 24 October 2026
 
 **The prior application correction is accepted on dev and UAT. The surgical
 lifecycle follow-up is local; it has not been merged or deployed.
 Installed-pod and desktop acceptance remain separate.**
 
-The preserved infrastructure branch inherited main through `48ac08a2b422`
-without overwriting peer edits. Fresh main `2548bbc901cd` is fetched for the final
-integration. The former ADK checkout is no longer present; its local branch
+The preserved infrastructure branch now includes observed main `163ddb96a33e`
+through merge `912592cf7d`, without dropping main content or overwriting peer edits.
+The dependency-relevant native Profile/phone/device changes from local ADK are
+reconciled in `e95fd03b25`; the rest of that branch remains preserved. The former ADK checkout is no longer present; its local branch
 `feat/adk-orchestration-runtime` retains 20 unique commits at `48140fcd70`.
 Do not describe that checkout as active or assume the remote ADK ref contains its
 local work. Local changes add truthful
@@ -97,8 +115,18 @@ methods and notifications. Firebase User remains the external identity and token
 source. Same-UID replacement cases cover Memory, contacts, Files, Puppy and push
 registration/sign-out. The focused owner suites passed 142 cases, Files/Puppy 27,
 and notification/auth 259; these overlap other evidence and are not a combined
-acceptance total. Changed-source lint and TypeScript passed. Browser UI receipts
-will be regenerated after the final main integration. Activation remains off.
+acceptance total. Changed-source lint and TypeScript passed. Combined UI review
+receipts were regenerated after main/ADK reconciliation and UI contract verification
+passed. The four affected Profile/phone/native/device suites passed 280 cases across
+the corrected fixture retry; TypeScript and changed-source lint passed. Activation remains off.
+
+SDK reads now translate the exact captured application owner to Firebase identity
+without replacing owner keys in application records. The focused SDK-read suite
+passed 547 cases, with its remaining Drive case passing after an explicit test-only
+lifecycle fixture repair. Four directory cases include real PostgreSQL projection
+and warm-cache retirement refusal. Conditional WorkOS/HushhTech custom-auth paths
+now refuse generation-enabled execution explicitly; 133 affected cases passed.
+These are bounded source checks, not deployed registration acceptance.
 
 Cloud-only removal now has a draft forward recovery contract (414): approval,
 execution admission and unapproved cancellation serialize on the existing owner
@@ -108,7 +136,13 @@ checks dispatch before owner-access destruction and at SQL worker admission;
 GCP carries the captured attempt. The affected backend suite passed 212 cases,
 including real PostgreSQL cancellation/approval concurrency; the cleanup interface
 passed 14 cases. Migrations 412–414 remain unregistered and unapplied. Installed
-provider removal and final combined acceptance are still required.
+provider removal and final combined acceptance are still required. Canonical
+release 404 supplies placement readers, not the full dev pod authority schema.
+Draft 414 depends on parked 972 and its earlier erasure/update foundations; simply
+adding 412–414 to the release manifest cannot qualify UAT. Graduate the final
+schema through new forward migrations, preserving applied dev checksums and
+excluding historical Shared inference and destructive chat cutover. Clean canonical
+replay, rich-dev upgrade and repeated-replay preservation remain required.
 
 The native upstream autofix workflow separately failed to open its generated PR
 because Actions cannot create PRs in this repository. Main stayed unchanged.
@@ -129,7 +163,8 @@ from an email or by clearing a retired account's tombstone. The existing
 | Dev | [Run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106) accepted `ca83c0bf5a`, both services; schema, provenance and semantic checks passed. Accepted revisions: backend `00214-nn5`, frontend `00181-mpz`, both 100% |
 | UAT | [Run 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175) accepted `ca83c0bf5a`; schema, provenance, semantics and Drive-worker attestation passed. Corporate ADC confirms backend `02497-zic` / frontend `02054-lkq`, both 100% |
 | Pod image | Genuine Dev29 image `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by dev run `40041198106`; no eligible existing-owner upgrades or Browser qualification pins |
-| Last verified serving state | Corporate ADC at 08:58 UTC confirms dev and UAT both serve `2548bbc901cd`. Dev: backend `00221-gcf` / frontend `00188-bw5`; UAT: backend `02516-rav` / frontend `02078-dwf`; all 100%. Provenance identifies [dev run 40069550013](https://github.com/hushh-labs/hushh-research/actions/runs/40069550013) and [UAT run 40072782188](https://github.com/hushh-labs/hushh-research/actions/runs/40072782188). Deployed backend configuration fingerprints differ between environments; this is configuration evidence, not a new live schema query or acceptance of our local follow-up |
+| Last verified serving state | Corporate ADC at 12:41 UTC confirms peer rollouts serve `2732b301cc9e` on dev and UAT. Dev: backend `00222-scm` / frontend `00189-7jk`; UAT: backend `02519-jul` / frontend `02082-svf`; all 100%. Provenance identifies [dev run 40085364751](https://github.com/hushh-labs/hushh-research/actions/runs/40085364751) and [UAT run 40087949679](https://github.com/hushh-labs/hushh-research/actions/runs/40087949679). This is serving evidence, not acceptance of the local surgical follow-up |
+| Live lifecycle schema | Read-only corporate ADC/catalog inspection at 12:42 UTC confirms dev has 39 registry columns and the cloud-removal authorities; UAT has 31 registry columns and no cloud-removal table/functions. Neither has account generations. Both owned inspection proxies exited. This confirms the forward-graduation prerequisite; no live schema or owner records were changed |
 | Desktop | [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23) merged by the normal path at `d42ced4d5f70`. Exact-head [CI 40083504664](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40083504664) and [Nix](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40083504327) passed; Python completed in 26m23s with the full discovered suite. [Landed fresh-sync](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40085556487) passed in 3m28s, logged the exact landed checkout and passed 450 guard tests. The native checkout now tracks main with the identical file tree; the finished feature branch was deleted after ancestry proof. No runtime restart or installed Puppy acceptance is claimed |
 
 The accepted application preserves earlier Hosting/AI/cleanup and provider-correct
@@ -162,23 +197,6 @@ Other predecessors remain unqualified. An approved offer and normal owner
 installation are still required. Installed Browser and full Puppy inference
 are not established by application deployment. Production, stable publication
 and automatic owner upgrades remain held.
-
-## Visual Context
-
-Start with the [Founder/CTO diagram guide](../architecture/README.md#founder-and-cto-diagram-guide)
-and [private-agent north star](../architecture/private-agent-north-star.md).
-The [Browser reference](../../../consent-protocol/docs/reference/private-browser-runtime.md)
-owns exact execution mode, qualification and lifecycle evidence. Operating procedures
-stay in the [pod runbook](../operations/dev-pod-first-light-runbook.md),
-[Files runbook](../operations/private-files-library.md),
-[deletion runbook](../operations/account-deletion-rollout.md) and
-[normal-release transition plan](../../future/personal-agent/NORMAL-RELEASE-TRANSITION.md).
-
-Private work stays in the selected owner cloud. The hub coordinates identity,
-consent, placement and updates. Puppy runs inference on the granted machine
-through its bound pod, with no cloud-model fallback. Model-provider processing
-retains its disclosed boundary.
-
 
 ### Current account-specific findings
 
@@ -485,7 +503,7 @@ Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 Do not rerun it for backend/doc-only changes.
 
 Earlier main integration and landed-SHA smoke were verified through `9af321d2a9`.
-The current serving application is `2548bbc901cd`, as dated above. The local
+The current serving application is `2732b301cc9e`, as dated above. The local
 surgical candidate has not landed or deployed; its own main/dev/UAT validation
 and installed-owner acceptance remain required. Earlier provenance, schema,
 semantic and owner Back/Finish receipts do not replace those checks. Production, stable publication,

@@ -10,6 +10,29 @@ import pytest
 import server
 
 
+@pytest.mark.parametrize(
+    "integration",
+    [
+        "WORKOS_SSO_ENABLED",
+        "WORKOS_WEBHOOK_SECRET",
+        "HUSSH_TECH_CLIENT_ENABLED",
+    ],
+)
+def test_generation_activation_cannot_withdraw_existing_identity_integrations(
+    monkeypatch, integration
+):
+    for name in ("WORKOS_SSO_ENABLED", "WORKOS_WEBHOOK_SECRET", "HUSSH_TECH_CLIENT_ENABLED"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(integration, "true")
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "false")
+    asyncio.run(server.startup_one_runtime_dependency_guard())
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    with pytest.raises(RuntimeError, match="account_generation_identity_integration_not_qualified"):
+        asyncio.run(server.startup_one_runtime_dependency_guard())
+    monkeypatch.delenv(integration)
+    asyncio.run(server.startup_one_runtime_dependency_guard())
+
+
 class _FakeConn:
     def __init__(self, rows: list[dict[str, str]]) -> None:
         self._rows = rows

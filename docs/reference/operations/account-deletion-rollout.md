@@ -1,5 +1,24 @@
 # Account deletion rollout and rollback
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  build[Build immutable backend] --> qualify[Check v201 revisions, changed paths and DB guards]
+  qualify -->|Unproven boundary| fence[Pause account deletion]
+  qualify -->|Verified routine rollout| schema[Apply and verify schema]
+  fence --> schema
+  schema --> candidate[Verify candidate and frontend]
+  candidate --> drain[Prove cleanup worker and retire legacy revisions]
+  drain --> enable[Re-enable account deletion]
+```
+
+Migration `201_account_deletion_tombstones.sql` and the tombstone-aware runtime
+form one compatibility boundary. Applying the migration before the runtime is
+necessary, but it is not sufficient on its own: a full deletion that was
+already in flight before the DDL committed can finish without crossing either
+root trigger, and a legacy account can lack one of the two root rows.
+
 The current local follow-up adds draft migrations 412–414. Cleanup retains only
 required existing encrypted custody; registration generations and cloud-removal
 recovery are not enabled by source tests. Migration 414 records exact destructive
@@ -62,6 +81,15 @@ application owner and generation. `ACCOUNT_GENERATION_ADMISSION_ENABLED` default
 off. Do not enable it or publish registration until remaining application callers
 qualify. Federated and purpose-bound email recovery are implemented locally;
 neither has been accepted on a deployed environment.
+Conditional WorkOS and HushhTech custom-auth integrations remain incompatible
+with generation-enabled admission. Their entrypoints now return explicit
+unavailable outcomes before provider mutation or exchange; they never bind an
+old callback to the latest owner. Do not enable generations beside active WorkOS
+sign-in or offboarding until that integration's captured-generation mutation
+authority qualifies. Startup refuses the conflicting configuration, preserving
+the prior running service rather than silently withdrawing offboarding. The
+existing generation-off behavior remains supported.
+
 An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
 Firebase mutation across retirement. Device and passkey mints now map the exact
 captured application owner to its external UID and stamp owner/lane claims in the
@@ -133,25 +161,6 @@ old job, callback or grant. Vault, device, native, provider and pod contracts mu
 carry the explicit application owner before replacement enrollment is enabled.
 No global Firebase claims, identity deletion, email-based relinking or transparent
 SQL parameter rewriting can substitute for this boundary.
-
-## Visual Map
-
-```mermaid
-flowchart LR
-  build[Build immutable backend] --> qualify[Check v201 revisions, changed paths and DB guards]
-  qualify -->|Unproven boundary| fence[Pause account deletion]
-  qualify -->|Verified routine rollout| schema[Apply and verify schema]
-  fence --> schema
-  schema --> candidate[Verify candidate and frontend]
-  candidate --> drain[Prove cleanup worker and retire legacy revisions]
-  drain --> enable[Re-enable account deletion]
-```
-
-Migration `201_account_deletion_tombstones.sql` and the tombstone-aware runtime
-form one compatibility boundary. Applying the migration before the runtime is
-necessary, but it is not sufficient on its own: a full deletion that was
-already in flight before the DDL committed can finish without crossing either
-root trigger, and a legacy account can lack one of the two root rows.
 
 ## Database erasure runtime boundary
 

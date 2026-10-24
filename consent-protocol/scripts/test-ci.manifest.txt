@@ -1,6 +1,10 @@
 # Fundamental blocking backend tests for CI.
 # Keep this list small and stable. Full historical suites remain manual.
 
+# Runtime startup must refuse incompatible identity and account-generation authority.
+tests/test_runtime_readiness.py
+tests/test_server_startup_guards.py
+
 # PLG exports are signed, production-only and limited to enrolled task metadata.
 tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
