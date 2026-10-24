@@ -1,23 +1,25 @@
-@font-face { font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("/fonts/Inter/InterVariable.woff2") format("woff2"); }
-.calendarTypography, .invitations { --font-app-body: "Inter", system-ui, sans-serif; --font-app-display: var(--font-app-body); --font-app-heading: var(--font-app-body); font-family: var(--font-app-body); }
+.calendarTypography, .invitations { font-family: var(--font-app-body); }
+.calendarTypography { --foundation-title2-size: 20px; --foundation-title2-line: 28px; --foundation-title2-weight: 600; --foundation-title3-size: 20px; --foundation-title3-line: 28px; --foundation-title3-weight: 600; --type-input-value-size: 14px; --type-input-value-line: 22px; }
+.calendarTypography :global(label > span) { font-size: 15px; line-height: 22px; font-weight: 550; }
+@media (max-width: 620px) { .calendarTypography { --type-input-value-size: 16px; } }
 .invitations { min-width: 0; font-family: var(--font-app-body); color: var(--app-label); }
 .filters { margin: 4px 0 24px; }
 .workspace { display: grid; gap: 24px; min-width: 0; }
 .listPane, .detailPane, .copy { min-width: 0; }
 .copy { display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
-.sectionTitle { margin: 0; font-size: 18px; line-height: 26px; font-weight: 600; letter-spacing: -.025em; }
+.sectionTitle { --foundation-title2-size: 14px; --foundation-title2-line: 22px; --foundation-title2-weight: 600; --foundation-title3-size: 14px; --foundation-title3-line: 22px; --foundation-title3-weight: 600; margin: 0; letter-spacing: -.025em; }
 .range { margin: 3px 0 16px; font-size: 12px; color: var(--app-secondary-label); }
 .list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .inviteCard { display: grid; grid-template-columns: 58px minmax(0,1fr) 14px; gap: 12px; width: 100%; padding: 16px 12px; text-align: left; border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); cursor: pointer; }
 .inviteCard:focus-visible, .providerShortcut:focus-visible, .calendarLink:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; }
 .inviteCard[aria-pressed=true] { box-shadow: inset 0 0 0 1px var(--app-accent-ring); }
-.title { font-size: 16px; line-height: 22px; font-weight: 600; letter-spacing: -.025em; }
-.muted { color: var(--app-secondary-label); font-size: 14px; line-height: 21px; }
+.title { font-size: 14px; line-height: 21px; font-weight: 550; letter-spacing: -.025em; }
+.muted { color: var(--app-secondary-label); font-size: 12px; line-height: 18px; font-weight: 400; }
 .dateBlock { display: flex; flex-direction: column; align-items: center; width: 58px; height: 76px; overflow: hidden; border-radius: 12px; background: var(--app-neutral-fill); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .dateBlock > span { width: 100%; padding: 3px 0; text-align: center; font-size: 10px; line-height: 15px; color: var(--app-destructive, #e63335); background: color-mix(in oklab, var(--app-destructive, #ff3b30) 9%, var(--app-card-surface-default-solid)); }
 .dateBlock > strong { font-size: 25px; line-height: 30px; font-weight: 600; }
 .dateBlock > small { font-size: 11px; line-height: 17px; color: var(--app-secondary-label); }
-.organizer, .person { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 13px; line-height: 19px; }
+.organizer, .person { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 14px; line-height: 21px; font-weight: 550; }
 .organizer .muted { font-size: 12px; line-height: 18px; }
 .avatar { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; color: var(--app-accent); background: var(--app-accent-surface); font-size: 15px; font-weight: 500; }
 .avatar[data-tone="0"] { color: #fff; background: #7564ed; }
@@ -25,25 +27,26 @@
 .avatar[data-tone="2"] { color: var(--app-success-deep); background: color-mix(in oklab, var(--app-success) 12%, var(--app-card-surface-default-solid)); }
 .avatar[data-tone="3"] { color: var(--app-secondary-label); background: var(--app-neutral-fill); }
 .avatarFallback { background: transparent; color: inherit; font-size: inherit; font-weight: inherit; }
-.preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-secondary-label); font-size: 13px; line-height: 20px; margin-top: 6px; }
+.preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-secondary-label); font-size: 12px; line-height: 18px; margin-top: 6px; }
 .chevron { align-self: center; width: 16px; color: var(--app-secondary-label); }
-.response { align-self: flex-start; margin-top: 4px; font-size: 12px; color: var(--app-secondary-label); }
+.response { align-self: flex-start; margin-top: 4px; font-size: 13px; line-height: 18px; font-weight: 600; color: var(--app-secondary-label); }
 .response[data-response="accepted"] { color: var(--app-success-deep); }
-.conflict { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 12px; line-height: 18px; color: var(--app-warning-deep, #986000); overflow-wrap: anywhere; }
+.conflict { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: 13px; line-height: 18px; font-weight: 600; color: var(--app-warning-deep, #986000); overflow-wrap: anywhere; }
 .providerShortcut, .calendarLink { display: flex; align-items: center; gap: 14px; min-height: 68px; padding: 12px 16px; text-decoration: none; background: var(--app-card-surface-default-solid); color: var(--app-label); font-size: 13px; }
 .providerShortcut { margin-top: 14px; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); }
 .providerShortcut > span:first-child, .calendarLink > span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: var(--app-accent); background: var(--app-accent-surface); flex-shrink: 0; }
 .providerShortcut > svg { margin-left: auto; color: var(--app-secondary-label); flex-shrink: 0; }
-.providerShortcut strong { font-size: 14px; font-weight: 500; }
+.providerShortcut strong { font-size: 14px; line-height: 21px; font-weight: 550; }
 .providerShortcut small { color: var(--app-secondary-label); font-size: 12px; }
 .detailCard { overflow: hidden; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); }
 .detailHeading { display: flex; align-items: flex-start; gap: 16px; padding: 20px 16px; }
-.detailHeading h2 { font-size: 18px; line-height: 25px; font-weight: 600; letter-spacing: -.025em; }
+.detailHeading h2 { --foundation-title2-size: 20px; --foundation-title2-line: 28px; --foundation-title2-weight: 600; letter-spacing: -.025em; }
 .meeting { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 13px; }
-.meeting > a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 14px; border-radius: 999px; text-decoration: none; background: var(--app-accent-surface); color: var(--app-accent); }
+.meeting > a { display: inline-flex; align-items: center; justify-content: center; min-width: 88px; min-height: 44px; padding: 0 15px; border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid)); border-radius: 999px; text-decoration: none; background: var(--app-card-surface-default-solid); color: var(--app-accent); font-size: 12px; line-height: 18px; font-weight: 550; }
 .detailSection { padding: 16px; border-top: 1px solid var(--app-separator); }
-.detailSection .sectionLabel { font-size: 13px; font-weight: 400; color: var(--app-secondary-label); margin-bottom: 10px; }
+.detailSection .sectionLabel { font-size: 14px; line-height: 22px; font-weight: 600; color: var(--app-secondary-label); margin-bottom: 10px; }
 .detailSection p { margin: 0; font-size: 14px; line-height: 21px; }
+.detailSection p.muted { font-size: 12px; line-height: 18px; font-weight: 400; }
 .person { margin: 0; }
 .person .avatar { width: 38px; height: 38px; }
 .descriptionLabel { margin-top: 22px; }
@@ -51,22 +54,24 @@
 .description { color: var(--app-secondary-label); }
 .location { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px !important; overflow-wrap: anywhere; }
 .attendees { display: flex; flex-wrap: wrap; align-items: start; gap: 16px; margin: 0; padding: 0; list-style: none; }
-.attendees > li { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 48px; max-width: 100px; text-align: center; font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
-.attendees small { color: var(--app-secondary-label); font-size: 10px; }
+.attendees > li { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 48px; max-width: 100px; text-align: center; font-size: 14px; line-height: 21px; font-weight: 550; overflow-wrap: anywhere; }
+.attendees small { color: var(--app-secondary-label); font-size: 13px; line-height: 18px; font-weight: 600; }
 .calendarLink { border-top: 1px solid var(--app-separator); }
 .calendarLink > svg { color: var(--app-accent); }
 .back { display: inline-flex; min-height: 44px; margin-bottom: 12px; padding-left: 0; color: var(--app-secondary-label); }
 .actions { display: grid; gap: 10px; margin-top: 24px; }
 .actionPair { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
-.actionPair > button, .offerButton { border-radius: 999px; min-height: 46px; font-weight: 500; font-size: 14px; gap: 8px; }
-.offerButton { width: 100%; white-space: normal; height: auto; padding: 10px 14px; }
-.actionPair > button:nth-child(2), .offerButton { color: var(--app-accent); border-color: var(--app-accent-ring); background: transparent; }
+.actionPair > button { width: 100%; }
+.actionPair > button > span, .offerButton > span { width: 100%; }
+.offerButton { width: 100%; }
 .review { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); font-size: 14px; line-height: 21px; overflow-wrap: anywhere; }
-.review h3 { font-size: 16px; font-weight: 600; }
+.review h3 { --foundation-headline-size: 14px; --foundation-headline-line: 22px; --foundation-headline-weight: 600; }
 .review .message { font-size: 13px; max-height: 260px; overflow-y: auto; }
 .openings { margin: 0; padding-left: 18px; font-size: 12px; }
 .empty { padding: 32px 16px; color: var(--app-secondary-label); font-size: 14px; }
 @media (min-width:768px) { .detailPane { padding-top: 0; } .inviteCard { grid-template-columns: 50px minmax(0,1fr) 12px; gap: 10px; } .inviteCard .dateBlock { width: 50px; } }
+@media (max-width:620px) { .meeting > a { min-width: 78px; padding-inline: 11px; } }
+@media (max-width:350px) { .meeting > a { min-width: 72px; padding-inline: 9px; } }
 
 .invitations[data-workspace=true] { display: grid; gap: 16px; }
 .invitations[data-workspace=true] .filters { margin: 4px 0 0; }
