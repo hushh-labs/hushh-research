@@ -453,6 +453,7 @@
           "required_titles": [
             "test_real_blocked_erasure_rolls_back_and_releases_session_barrier",
             "test_large_recovery_history_erasure_is_bounded_atomic_and_owner_scoped",
+            "test_late_recovery_cursor_bounds_parent_scan_work",
             "test_recovery_erasure_reference_indexes_replay_validate_and_roll_back"
           ]
         },
@@ -466,7 +467,24 @@
             "never submits deletion after a token-read timeout, even if the bridge later returns",
             "retains a reported rollback when authoritative status arrives after nine seconds",
             "accepts a committed tombstone after nine seconds without an uncertain sign-out",
-            "hands a still-running deletion to the sealed owner gate without a second DELETE"
+            "hands a still-running deletion to the sealed owner gate without a second DELETE",
+            "does not reuse deletion approval after sign-out and same-owner return during bank preflight"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/one_voice/test_tools_account_lifecycle.py",
+          "assertion_pattern": "^\\s+assert ",
+          "min_assertions": 10,
+          "required_titles": [
+            "test_pending_deletion_uses_server_barrier_evidence_without_sign_in_or_retry"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/one_voice/test_relay_account_lifecycle.py",
+          "assertion_pattern": "^\\s+assert ",
+          "min_assertions": 10,
+          "required_titles": [
+            "test_pending_delete_server_barrier_reaches_narration_without_sign_in_or_retry"
           ]
         },
         {
