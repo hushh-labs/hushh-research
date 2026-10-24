@@ -129,6 +129,7 @@ final class NativeDockModel: ObservableObject {
     @Published var interactionEnabled = false
     @Published var attachments = [(String, String, Bool)]()
     @Published var accent = UIColor.tintColor
+    @Published var accentForeground = UIColor.white
     weak var editor: DockTextView?
     var emit: ((String, String?, String?, String?, NSRange?) -> Void)?
     var changedHeight: (() -> Void)?
@@ -204,7 +205,7 @@ final class NativeDockPlacement {
         dock.translatesAutoresizingMaskIntoConstraints = false
         leading = dock.leadingAnchor.constraint(equalTo: parent.leadingAnchor)
         width = dock.widthAnchor.constraint(equalToConstant: 1)
-        height = dock.heightAnchor.constraint(equalToConstant: 52)
+        height = dock.heightAnchor.constraint(equalToConstant: 60)
         bottom = dock.bottomAnchor.constraint(equalTo: parent.topAnchor)
         // A short landscape viewport may compress the editor, but never push
         // it through the keyboard or above the safe header region.
@@ -373,6 +374,16 @@ struct NativeAgentDockView: View {
                                     else if Date().timeIntervalSince(began) >= 0.25 { model.action("capture-finish") }
                                 })
                     }
+                    if model.mode == "text" && !model.expanded {
+                        if model.cancelEnabled {
+                            dockButton("stop.fill", "Stop One", prominent: true) { model.action("cancel") }
+                        } else if !model.text.isEmpty || !model.attachments.isEmpty || !model.micEnabled {
+                            dockButton("arrow.up", "Send message", prominent: true) { model.action("send") }
+                                .disabled(!model.sendEnabled)
+                        } else {
+                            dockButton("waveform", "Start voice mode", prominent: true) { model.action("mic") }
+                        }
+                    } else {
                     if model.micEnabled {
                         dockButton(model.muted ? "mic.slash" : "mic", "Microphone") { model.action(model.mode == "text" ? "mic" : "mute") }
                     }
@@ -384,10 +395,11 @@ struct NativeAgentDockView: View {
                     if model.cancelEnabled {
                         dockButton("xmark", "Cancel") { model.action("cancel") }
                     }
+                    }
                     if model.mode == "text" && model.expanded {
                         dockButton("arrow.down.right.and.arrow.up.left", "Finish editing") { model.action("collapse") }
                     }
-                }.padding(.vertical, 4).padding(.trailing, 6)
+                }.padding(.vertical, model.expanded ? 8 : 12).padding(.trailing, model.expanded ? 8 : 12)
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 24))
             .glassEffectID("agent-dock", in: glass)
@@ -395,17 +407,16 @@ struct NativeAgentDockView: View {
         .tint(Color(uiColor: model.accent))
         .accessibilityElement(children: .contain)
     }
-    private func dockButton(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+    private func dockButton(_ symbol: String, _ label: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: glyphSize, weight: .semibold))
-                .foregroundStyle(.tint)
+                .foregroundStyle(Color(uiColor: prominent ? model.accentForeground : model.accent))
                 .frame(width: actionSize, height: actionSize)
-                // The dock owns the single glass material. Child actions
-                // remain compact plain controls, never glass on glass.
-                // Compact visible material; the entire 44-point slot still
-                // belongs to the button, including its transparent perimeter.
+                // Filled actions and plain glyphs share a 44-point target.
+                // The outer dock alone owns the glass material.
                 .frame(width: max(44, actionSize), height: max(44, actionSize))
+                .background(prominent ? Color(uiColor: model.accent) : Color.clear, in: Circle())
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).accessibilityLabel(label)
@@ -615,6 +626,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             self.model.supportsHold = call.getBool("supportsHold") ?? false
             self.model.muted = call.getBool("muted") ?? false
             self.model.accent = theme.accent
+            self.model.accentForeground = theme.foreground
             self.model.attachments = (call.getArray("attachments", JSObject.self) ?? []).prefix(16).compactMap { item in
                 guard let id = item["id"] as? String, id.count <= 128, let label = item["label"] as? String, label.count <= 256 else { return nil }
                 return (id, label, item["editable"] as? Bool ?? false)
@@ -665,7 +677,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         guard #available(iOS 26.0, *), let parent = bridge?.viewController, let host = hosting else { return }
         let scale = parent.view.bounds.width / max(1, viewport.width)
         guard let dockHost = host as? NativeDockHostingController else { return }
-        let desired = min(340, max(52, dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height))
+        let desired = min(340, max(68, dockHost.sizeThatFits(in: CGSize(width: frame.width * scale, height: 340)).height))
         if placement?.update(frame: CGRect(x: frame.minX * scale, y: frame.minY * scale,
             width: frame.width * scale, height: frame.height * scale), height: desired, editing: model.mode == "text") == true {
             parent.view.setNeedsLayout()
@@ -835,7 +847,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         var result = identityPayload(identity)
         result["updateSequence"] = sequence
         result["phase"] = phase
-        result["height"] = Double(hosting?.view.bounds.height ?? 52)
+        result["height"] = Double(hosting?.view.bounds.height ?? 68)
         if phase == "active", let layout = currentLayout() { result["layout"] = layout }
         return result
     }
