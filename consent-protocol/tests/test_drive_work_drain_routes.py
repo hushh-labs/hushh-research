@@ -55,7 +55,7 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
     search = _worker({"outcomes": {"completed": 1}})
     periods = _worker({"outcomes": {"queued": 1, "private_query": "not-returned"}})
     result = await _drain(workers, search, period_packet_worker=periods).run(stage="suggestions")
-    periods.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
+    periods.run.assert_awaited_once_with(max_jobs=2, deadline_seconds=90)
     search.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
 
     workers[1].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=175)
