@@ -33,7 +33,7 @@ describe("RenaissanceVerdictCard", () => {
     render(<RenaissanceVerdictCard row={makeRow({ company_facts: {
       symbol: "NVDA", summary: "Nvidia designs graphics processors.",
     } })} />);
-    expect(screen.getByRole("heading", { name: "Summary" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Company summary", level: 3 })).toBeTruthy();
     expect(screen.getByText("Nvidia designs graphics processors.")).toBeTruthy();
     expect(screen.queryByText(/Constructive signal|Caution signal/)).toBeNull();
   });

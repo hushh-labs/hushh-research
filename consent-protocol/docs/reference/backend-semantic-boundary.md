@@ -185,6 +185,55 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: One public-search final answer
+
+- Owner: One; `hushh_mcp/agents/one/agent.yaml` authors when the existing isolated
+  `google_search` child may complete the entire public request unchanged.
+- Output: the tool declaration exposes `request: string` and optional
+  `finish_turn: boolean`. Only explicit `true` requests delegation; omission,
+  false and unsupported search transports retain ordinary root synthesis.
+- Validators in `one_adk/search_answer.py` admit only fresh grounded completed
+  output, the invocation's sole tool call, no earlier visible answer or pending
+  review, current managed owner authority and an atomic empty-input finish.
+  They never classify the request, rewrite the child's answer or authorize an
+  action. Stop, revocation, failures and competing input prevent publication.
+- The exact answer and grounding become one ordinary One assistant event;
+  `one_delegated_search_answer_v1` and content-free saved-call telemetry expose
+  the removed synthesis stage. No transcript is placed in handoff state.
+- Live eval: before promotion, measure public-only synthetic Azure calls against
+  the serving model; after UAT promotion, require authenticated HTTP search,
+  citations and same-chat continuation, joined to the serving revision's logs.
+  Offline AG-UI regression and negative controls protect history, authority,
+  queued-input and completion accounting. No browser or vault fixture mutation
+  is required. Rollback selects the prior application revision.
+
+### Declared: One task suggestions
+
+- Owner: One's internal `one_todo_suggestions` child in
+  `hushh_mcp/agents/one/agent.yaml`; the existing single-turn ADK builder executes
+  it with no tools/history. No separate router or copied provider prompt.
+- Output: `TaskSuggestions` in `hushh_mcp/services/one_todo_suggestions.py`.
+  The gene decides whether a supplied summary supports a useful next step and
+  authors `source_ref`, `title`, and `reason`, or returns an empty list.
+- Validators enforce strict types, input/output lengths, at most 100 inputs and
+  12 outputs, unique offered source references, explicit processing approval,
+  current self-owner authority, Shared placement and the default-off kill switch.
+  They never infer semantic tasks, rewrite model text or substitute a fallback.
+  Source inventories project explicit pending work under existing service
+  contracts; summary selection by the model does not prove provider completeness.
+- Persistence remains the existing owner-confirmed encrypted `one_todos` Add
+  action. Suggestions are ephemeral; no provider action is executed. Client
+  owner/session fences suppress late results. Private placement refuses Shared
+  processing. Failures emit status-only stage telemetry and return a retryable
+  unavailable response, with no semantic substitution.
+- Live eval before promotion: run the authored gene on synthetic summaries for
+  each visible capability, no actionable evidence, already-pending items,
+  untrusted instructions, ambiguous evidence and forbidden financial advice.
+  Require valid grounding, no duplicate/newly invented obligations, no sensitive
+  output, no unsafe advice, meaningful abstention and bounded latency across
+  repeated runs. Unit tests prove validators/authority only; the default-off
+  rollout is not qualified until live model and real-provider rehearsals pass.
+
 ### Declared: Drive request package assessment
 
 - Owner: the existing Documents `agent_documents_suggestions` gene, with explicit
@@ -233,6 +282,54 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Rollback: `DRIVE_REQUEST_GEMINI_PLANNER_ENABLED=true` restores the
   manifest-backed planner (default off); its model-failure fallback stays
   recorded in `planner_fallback`.
+
+### Declared: Drive four-group organizing aid (owner decision)
+
+- Decision: on 2026-10-21 the owner chose to sort a person's Drive files onto four
+  virtual shelves with no model that writes text, for the same quota reason as the
+  2026-10-17 decision above. This is a recorded **skip** of the Documents gene's
+  judgement for this one surface, not a silent substitution, and it is a bounded
+  aid in the manner of the scope-catalog ranker (C4), not a classifier of record.
+- Owner: the Documents gene (`agent_documents_suggestions`,
+  `hushh_mcp/agents/documents/agent.yaml`) stays the semantic owner of what a
+  document means; this manifest is unchanged. The aid in
+  `hushh_mcp/services/drive_groups/` only places a file's index entry on a shelf:
+  `financial_statements`, `non_financial_statements`, `insurance_statements`,
+  `personal_documents`, or `kept`. It reads the first few hundred characters of the
+  owner's own file under the owner's live grant, in memory, through the existing
+  fenced `read_file_content` read and isolated parser. Its definitions of the four
+  groups are data in `drive_groups/data/groups.json`, not code.
+- Output: `Placement` in `drive_groups/contract.py`: `group` (None when kept),
+  `candidate`, `best_class`, `confidence` (a Platt-calibrated score fitted on labelled
+  fixtures, not a measured accuracy), `margin`, a closed `reason`, the three signal
+  readings, the data `version` and `group_source = organizer_v1`.
+- Authority: none. A placement grants no sharing, consent, search or reading
+  authority and never writes to the person's Google Drive. A file below the
+  confidence, margin or agreement thresholds is kept, with its text start and
+  embedding retained for future indexing; it is never dropped and never guessed.
+  A label from the Documents gene or the owner's own move wins over `organizer_v1`,
+  and the rate at which they disagree is the measure of the aid; when an agent
+  label replaces it, the aid is deleted.
+- Validators: every number in the data files is checked on load (finite, bounded,
+  closed class list, unit-length vectors, non-negative weights). The weights,
+  calibration and thresholds are fitted offline by
+  `consent-protocol/scripts/train_drive_groups.py` and never edited by hand; a
+  signal the fit found no use for gets weight 0 and casts no vote. Logs carry
+  counts and closed labels only: no name, text start or file ID.
+- Rollback: `DRIVE_FOUR_GROUP_INDEX_ENABLED` (default off). With it off the aid
+  refuses to run (`GroupIndexDisabled`) and nothing is placed.
+- Live eval before promotion: `consent-protocol/scripts/eval_drive_groups.py`.
+  On the 146 held-out synthetic files (template families the fit never saw) the
+  refit `33f7631e3696` placed 85, all correctly, placed none of 50 unrelated
+  files and kept 11 of 96 group files (previously 55 correct and 2 unrelated
+  placements). The original evaluation rows are unchanged; the repair used this
+  benchmark diagnostically. Those are invented documents: a regression
+  gate, not accuracy on a real Drive. Accuracy evaluation needs the same script run by the
+  owner on authorized real labels (`--fixtures` with a private file, counts only),
+  meeting the precision target, reported with per-class counts. The owner has
+  separately authorized the UAT organizing-aid rollout; that authorization does
+  not turn synthetic precision into measured real-file accuracy. Unreadable
+  prefixes and ordinary media remain kept; metadata never replaces content.
 
 ### Declared: request-local semantic Drive search
 

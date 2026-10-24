@@ -147,6 +147,10 @@ class SharedCipherStore(FilesGcsStore):
                     return "complete"
                 if response.status_code == 410:
                     return "invalidated"
+                if response.status_code == 404:
+                    # Missing alone is not terminal: the receipt owner must
+                    # additionally qualify the exact session's expiry bound.
+                    return "missing"
                 return "incomplete" if response.status_code == 308 else "uncertain"
             finally:
                 response.close()

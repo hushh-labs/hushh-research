@@ -10,19 +10,30 @@ from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users_async
 
 AZURE_BING_CONSENT_VERSION = "pwm-azure-bing-v1"
+AZURE_TAVILY_CONSENT_VERSION = "pwm-azure-tavily-v1"
 NATIVE_CONSENT_VERSION = "pwm-native-v1"
 
 
 def _consent_marker() -> str:
-    return (
-        AZURE_BING_CONSENT_VERSION
-        if load_pwm_policy()["provider"] == "azure_openai_web_search"
-        else NATIVE_CONSENT_VERSION
-    )
+    return {
+        "azure_openai_web_search": AZURE_BING_CONSENT_VERSION,
+        "azure_openai_tavily": AZURE_TAVILY_CONSENT_VERSION,
+        "vertex_google_search": NATIVE_CONSENT_VERSION,
+    }[load_pwm_policy()["provider"]]
 
 
 def azure_bing_consented(row: dict | None) -> bool:
     return bool(row and row.get("consent_version") == AZURE_BING_CONSENT_VERSION)
+
+
+def provider_consented(row: dict | None) -> bool:
+    return bool(
+        row
+        and (
+            _consent_marker() == NATIVE_CONSENT_VERSION
+            or row.get("consent_version") == _consent_marker()
+        )
+    )
 
 
 async def preferences(user_id, *, conn=None):
@@ -42,13 +53,11 @@ async def preferences(user_id, *, conn=None):
 
 
 def public_preferences(row):
-    azure = _consent_marker() == AZURE_BING_CONSENT_VERSION
     return {
-        "enabled": bool(row and row["enabled"] and (not azure or azure_bing_consented(row))),
+        "enabled": bool(row and row["enabled"] and provider_consented(row)),
         "email_enabled": bool(row and row["email_enabled"]),
-        # API shape version; the separate DB marker records Azure/Bing opt-in.
         "consent_version": NATIVE_CONSENT_VERSION,
-        "research_provider": "azure_openai_web_search" if azure else "vertex_google_search",
+        "research_provider": load_pwm_policy()["provider"],
     }
 
 
@@ -112,17 +121,16 @@ async def enroll_default(user_id, token):
 
 
 async def draft_completed(user_id, draft_id):
-    """True once the draft reached a terminal outcome the owner was told about."""
+    """Only a draft with reviewable findings satisfies the preparation cadence."""
     pool = await get_pool()
     async with pool.acquire(timeout=5) as connection:
-        return bool(
-            await connection.fetchval(
-                "SELECT 1 FROM pwm_completion_events WHERE user_id=$1 AND draft_id=$2",
-                user_id,
-                draft_id,
-                timeout=5,
-            )
+        outcome = await connection.fetchval(
+            "SELECT outcome FROM pwm_completion_events WHERE user_id=$1 AND draft_id=$2",
+            user_id,
+            draft_id,
+            timeout=5,
         )
+        return outcome in {"ready", "partial"}
 
 
 async def checkpoint_committed(conn, user_id, state):
@@ -134,7 +142,7 @@ async def checkpoint_committed(conn, user_id, state):
     )
     if not row or str(row["generation"]) != state.get("consent_generation"):
         raise PermissionError("Research consent changed")
-    if _consent_marker() == AZURE_BING_CONSENT_VERSION and not azure_bing_consented(row):
+    if not provider_consented(row):
         raise PermissionError("Azure research needs owner opt-in")
     draft_id = uuid.UUID(state["job_id"])
     if state["status"] == "saved":

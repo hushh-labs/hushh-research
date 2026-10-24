@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import httpx
 import pytest
 
 import hushh_mcp.operons.kai.fetchers as fetchers
-
-
-def _valid_token(*_args, **_kwargs):
-    return True, "", SimpleNamespace(user_id="user_1")
-
-
-def _unexpected_validate(*_args, **_kwargs):
-    raise AssertionError("validate_token should not run for public-safe market baseline fetches")
+from tests.helpers.market_runtime import (  # noqa: F401
+    _unexpected_validate,
+    _valid_token,
+    isolated_public_provider_cache,
+)
 
 
 @pytest.mark.asyncio
@@ -90,6 +85,47 @@ async def test_market_data_falls_back_from_finnhub_to_pmp(monkeypatch):
     payload = await fetchers.fetch_market_data("AAPL", "user_1", "vault_token")
     assert payload["source"] == "PMP/FMP"
     assert called == ["finnhub", "pmp"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, "quote", "profile", "transport"])
+async def test_fmp_quote_budget_counts_every_attempt_once(monkeypatch, failure):
+    monkeypatch.setenv("PMP_API_KEY", "fixture-key")
+    monkeypatch.setattr(fetchers, "_provider_in_cooldown", lambda _key: False)
+    monkeypatch.setattr(fetchers, "_mark_provider_cooldown", lambda *_args: None)
+    recorded = []
+    monkeypatch.setattr(fetchers, "record_fmp_call", lambda **kwargs: recorded.append(kwargs))
+
+    def respond(request):
+        endpoint = request.url.path.rsplit("/", 1)[-1]
+        if failure == "transport":
+            raise httpx.ConnectError("offline", request=request)
+        if failure == endpoint:
+            return httpx.Response(503, json={})
+        return httpx.Response(
+            200, json=[{"price": 100}] if endpoint == "quote" else [{"companyName": "Fixture"}]
+        )
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        fetchers.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(respond), **kwargs),
+    )
+    if failure:
+        with pytest.raises(httpx.HTTPError):
+            await fetchers._fetch_pmp_quote("AAPL")
+    else:
+        await fetchers._fetch_pmp_quote("AAPL")
+    paths = (
+        ["/stable/quote"]
+        if failure in {"quote", "transport"}
+        else ["/stable/quote", "/stable/profile"]
+    )
+    assert [row["endpoint"] for row in recorded] == paths
+    assert recorded[-1]["status_code"] == (
+        None if failure == "transport" else 503 if failure else 200
+    )
 
 
 @pytest.mark.asyncio
@@ -290,109 +326,6 @@ async def test_market_news_stops_after_the_first_useful_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_market_data_batch_allows_public_fetch_without_token(monkeypatch):
-    monkeypatch.setattr(fetchers, "validate_token", _unexpected_validate)
-    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
-    monkeypatch.delenv("PMP_API_KEY", raising=False)
-    monkeypatch.delenv("FMP_API_KEY", raising=False)
-    fetchers._MARKET_DATA_CACHE.clear()
-
-    async def _yahoo_batch(_tickers):
-        return [
-            {
-                "ticker": "AAPL",
-                "price": 192.0,
-                "change_percent": 0.5,
-                "volume": 100,
-                "market_cap": 1,
-                "source": "Yahoo Quote (Batch)",
-                "fetched_at": "2026-03-30T00:00:00Z",
-                "ttl_seconds": 60,
-            }
-        ]
-
-    monkeypatch.setattr(fetchers, "_fetch_yahoo_quotes", _yahoo_batch)
-
-    payload = await fetchers.fetch_market_data_batch(["AAPL"], "user_1", None)
-    assert payload["AAPL"]["source"] == "Yahoo Quote (Batch)"
-
-
-@pytest.mark.asyncio
-async def test_market_data_allows_public_fetch_without_token(monkeypatch):
-    monkeypatch.setattr(fetchers, "validate_token", _unexpected_validate)
-    monkeypatch.delenv("FINNHUB_API_KEY", raising=False)
-    monkeypatch.delenv("PMP_API_KEY", raising=False)
-    monkeypatch.delenv("FMP_API_KEY", raising=False)
-    fetchers._MARKET_DATA_CACHE.clear()
-
-    async def _yfinance_ok(ticker: str):
-        return {
-            "ticker": ticker,
-            "price": 246.63,
-            "change_percent": 0.9,
-            "volume": 42,
-            "market_cap": 10,
-            "pe_ratio": 1,
-            "pb_ratio": 1,
-            "dividend_yield": 0,
-            "company_name": ticker,
-            "sector": "Technology",
-            "industry": "Software",
-            "source": "yfinance (Real-time)",
-            "fetched_at": "2026-03-30T00:00:00Z",
-            "ttl_seconds": 60,
-            "is_stale": False,
-        }
-
-    monkeypatch.setattr(fetchers, "_fetch_yfinance_quote", _yfinance_ok)
-    monkeypatch.setattr(fetchers, "_fetch_yahoo_quote_fast", _unexpected_validate)
-
-    payload = await fetchers.fetch_market_data(
-        "AAPL",
-        "user_1",
-        None,
-        allow_slow_fallbacks=False,
-    )
-    assert payload["source"] == "yfinance (Real-time)"
-
-
-@pytest.mark.asyncio
-async def test_market_news_allows_public_fetch_without_token(monkeypatch):
-    monkeypatch.setattr(fetchers, "validate_token", _unexpected_validate)
-    monkeypatch.setenv("PMP_API_KEY", "pmp")
-
-    async def _empty_finnhub(_ticker: str, _days_back: int):
-        return []
-
-    async def _pmp_ok(_ticker: str):
-        return [
-            {
-                "title": "Apple ships new products",
-                "description": "desc",
-                "url": "https://example.com/apple-news",
-                "publishedAt": "2026-02-20T00:00:00Z",
-                "source": {"name": "PMP/FMP"},
-                "provider": "pmp_fmp",
-            }
-        ]
-
-    async def _empty_newsapi(_ticker: str, _days_back: int):
-        return []
-
-    async def _empty_google(_ticker: str, _days_back: int):
-        return []
-
-    monkeypatch.setattr(fetchers, "_fetch_finnhub_company_news", _empty_finnhub)
-    monkeypatch.setattr(fetchers, "_fetch_pmp_news", _pmp_ok)
-    monkeypatch.setattr(fetchers, "_fetch_newsapi_articles", _empty_newsapi)
-    monkeypatch.setattr(fetchers, "_fetch_google_news_rss", _empty_google)
-
-    rows = await fetchers.fetch_market_news("AAPL", "user_1", None)
-    assert len(rows) == 1
-    assert rows[0]["provider"] == "pmp_fmp"
-
-
-@pytest.mark.asyncio
 async def test_market_data_falls_back_when_finnhub_is_rate_limited(monkeypatch):
     monkeypatch.setattr(fetchers, "validate_token", _valid_token)
     monkeypatch.setenv("FINNHUB_API_KEY", "fh")
@@ -436,3 +369,48 @@ async def test_market_data_falls_back_when_finnhub_is_rate_limited(monkeypatch):
     payload = await fetchers.fetch_market_data("MSFT", "user_1", "vault_token")
     assert payload["source"] == "PMP/FMP"
     assert called == ["finnhub", "pmp"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("yield_value", [None, 0, 0.02])
+async def test_yahoo_fast_missing_dividend_yield_is_not_measured_zero(monkeypatch, yield_value):
+    original_client = httpx.AsyncClient
+
+    def reply(request):
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "quoteResponse": {
+                    "result": [
+                        {
+                            "regularMarketPrice": 100,
+                            "trailingAnnualDividendYield": yield_value,
+                        }
+                    ]
+                }
+            },
+        )
+
+    monkeypatch.setattr(fetchers, "_provider_in_cooldown", lambda *_: False)
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(reply), **kwargs),
+    )
+    row = await fetchers._fetch_yahoo_quote_fast("TEST")
+    assert row["dividend_yield"] == yield_value
+
+
+def test_market_only_fundamentals_keep_unknown_distinct_from_measured_zero():
+    from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent
+
+    agent = FundamentalAgent(processing_mode="offline")
+    missing = agent._build_market_only_analysis("TEST", {})["key_metrics"]
+    assert (
+        missing["price"] is None and missing["market_cap"] is None and missing["pe_ratio"] is None
+    )
+    measured = agent._build_market_only_analysis("TEST", {"change_percent": 0, "change_pct": 5})[
+        "key_metrics"
+    ]
+    assert measured["change_percent"] == 0

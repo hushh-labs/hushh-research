@@ -30,6 +30,10 @@ export type SharingStatus = DocumentRequestSetup & {
   status: string;
   revision: number;
   direction: "incoming" | "outgoing";
+  outcomeReason?: "no_matching_files" | "matching_files_unshareable";
+  /** Owner-only retained candidate counts; never delivery or grant evidence. */
+  matchedFileCount?: number;
+  unshareableFileCount?: number;
   requestedAccessDays?: number | null;
   approvedAccessDays?: number | null;
   accessExpiresAt?: string | null;
@@ -1317,6 +1321,13 @@ export class DriveSharingService {
       revision: revision(result.revision),
       status: string(result.status, 80),
       direction: result.direction,
+      ...(typeof result.outcomeReason === "string" && ["no_matching_files", "matching_files_unshareable"].includes(result.outcomeReason)
+        ? { outcomeReason: result.outcomeReason as SharingStatus["outcomeReason"] } : {}),
+      ...(result.direction === "incoming" && result.outcomeReason === "matching_files_unshareable" &&
+        Number.isSafeInteger(result.matchedFileCount) && (result.matchedFileCount as number) > 0 &&
+        (result.matchedFileCount as number) <= 10000 && result.unshareableFileCount === result.matchedFileCount
+        ? { matchedFileCount: result.matchedFileCount as number,
+            unshareableFileCount: result.unshareableFileCount as number } : {}),
       ...(result.requestedAccessDays === undefined ? {} : { requestedAccessDays }),
       ...(result.approvedAccessDays === undefined ? {} : { approvedAccessDays }),
       ...(result.accessExpiresAt === undefined ? {} : { accessExpiresAt }),

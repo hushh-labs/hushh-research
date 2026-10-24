@@ -3,8 +3,17 @@ import { APP_ROUTE_LAYOUT_CONTRACT, resolveAppRouteLayout } from "@/lib/navigati
 import { PUBLIC_ROUTES, PUBLIC_ROUTE_SEMANTICS } from "@/lib/seo/site";
 import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { describe, expect, it } from "vitest";
+import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("One route voice playbooks", () => {
+  it.each([["", "Setup", "/one/setup"], ["from=%2Fone%2Fprofile%2Fhosting", "Hosting", "/one/profile/hosting"]])("preserves the cloud visit parent (%s)", (query, label, href) => {
+    const breadcrumb = resolveTopShellBreadcrumb("/one/setup/cloud", new URLSearchParams(query));
+    expect(breadcrumb?.items[1]).toEqual({ label, href });
+    expect(breadcrumb?.backHref).toBe(href);
+    const playbook = resolveAppRouteLayout("/one/setup/cloud").voicePlaybook;
+    expect(playbook.primaryActionId).toBe("setup.finish_cloud");
+  });
+
   it("authors exactly one bounded playbook for every physical route", () => {
     const physicalRoutes = surfaceMap.routes
       .filter(

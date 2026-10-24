@@ -26,6 +26,7 @@ from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 
 logger = logging.getLogger(__name__)
 TEXT_SCOPES = frozenset({"one_text_chat", "drive_document_requests"})
+ONE_TOOL_FIRST_OUTPUT_SECONDS = 30.0
 ManagedProvider = Literal["azure_openai", "vertex"]
 
 
@@ -96,22 +97,58 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
     )
     policy_generation: str
     processing_scope: str
+    runtime_binding: Any = Field(default=None, exclude=True, repr=False)
     primary_seconds: float = Field(default=30, gt=0, le=40)
     fallback_seconds: float = Field(default=20, gt=0, le=30)
 
-    async def generate_content_async(self, llm_request, stream=False):
-        async def current():
-            policy = managed_text_policy()
-            if policy is None or policy["generation"] != self.policy_generation:
-                raise ManagedTextAuthorityError("UAT managed text processing policy changed")
-            if self.require_current is not None:
-                try:
-                    await self.require_current()
-                except Exception:
-                    raise ManagedTextAuthorityError(
-                        "Current text invocation authority ended"
-                    ) from None
+    def _primary_timeout(self, request) -> float:
+        if self.processing_scope != "one_text_chat":
+            return self.primary_seconds
+        latest = request.contents[-1] if request.contents else None
+        continuation = (
+            latest is not None
+            and latest.role == "user"
+            and any(part.function_response is not None for part in latest.parts or [])
+        )
+        native_search = (
+            self.allow_web_search
+            and request.config is not None
+            and any(
+                getattr(tool, "google_search", None) is not None
+                for tool in request.config.tools or []
+            )
+        )
+        # Native search can be silent while searching. A tool response starts a
+        # new model call, but is already inside the user's bounded active turn.
+        return (
+            ONE_TOOL_FIRST_OUTPUT_SECONDS if continuation or native_search else self.primary_seconds
+        )
 
+    async def _require_current(self):
+        if self.runtime_binding is not None:
+            try:
+                self.runtime_binding.require_current()
+            except RuntimeError as error:
+                if str(error) == "Managed Azure processor selection changed":
+                    raise ManagedTextAuthorityError(
+                        "Managed Azure processing policy changed"
+                    ) from None
+                raise
+        policy = managed_text_policy()
+        if policy is None or policy["generation"] != self.policy_generation:
+            raise ManagedTextAuthorityError("UAT managed text processing policy changed")
+        if self.require_current is not None:
+            try:
+                await self.require_current()
+            except ManagedTextAuthorityError:
+                raise
+            except PermissionError:
+                raise ManagedTextAuthorityError(
+                    "Text invocation authority validation failed"
+                ) from None
+
+    async def generate_content_async(self, llm_request, stream=False):
+        current = self._require_current
         if self.require_current is None:
             raise ManagedTextAuthorityError("Managed text model requires invocation authority")
         await current()
@@ -120,7 +157,12 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
             if self.primary_provider == "azure_openai"
             else ("vertex", "azure_openai")
         )
-        if not self.allow_fallback:
+        # One chat never changes processors, including manually composed models.
+        if self.processing_scope == "one_text_chat":
+            if self.primary_provider != "azure_openai":
+                raise ValueError("One chat requires the managed Azure processor")
+            providers = ("azure_openai",)
+        elif not self.allow_fallback:
             providers = providers[:1]
         for index, provider in enumerate(providers):
             observed = completed = False
@@ -129,7 +171,7 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
             if provider == "azure_openai":
                 primary = self.model_copy(update={"require_current": current})
                 source = AzureOpenAIAdkModel.generate_content_async(primary, request, stream=stream)
-                seconds = self.primary_seconds
+                seconds = self._primary_timeout(request)
             else:
                 vertex = self.fallback_model
                 if vertex is None:
@@ -152,11 +194,12 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                 location = ManagedGeminiRuntimeBinding.from_environment().primary_location
                 seconds = self.fallback_seconds
             logger.info(
-                "managed_text.selection scope=%s policy=%s provider=%s attempt=%s",
+                "managed_text.selection scope=%s policy=%s provider=%s attempt=%s first_output_budget_ms=%s",
                 self.processing_scope,
                 self.policy_generation,
                 provider,
                 index + 1,
+                int(seconds * 1000),
             )
             try:
                 if index:
@@ -198,7 +241,13 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                     type(error).__name__,
                     observed,
                 )
-                if observed or reason is None or index or not self.allow_fallback:
+                if (
+                    observed
+                    or reason is None
+                    or index
+                    or not self.allow_fallback
+                    or self.processing_scope == "one_text_chat"
+                ):
                     raise
 
 
@@ -215,9 +264,9 @@ def build_managed_text_model(
     policy = managed_text_policy()
     if policy is None:
         raise ValueError("Managed Azure text policy is UAT only")
-    from hushh_mcp.one_adk.azure_workload_identity import azure_openai_token_provider
     from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+    from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding, _credential_supplier
 
     config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
 
@@ -232,21 +281,30 @@ def build_managed_text_model(
     selected = provider or policy["selected_provider"]
     if selected not in {"azure_openai", "vertex"}:
         raise ValueError("Invalid UAT managed text provider")
+    chat = scope == "one_text_chat"
+    if chat and selected != "azure_openai":
+        raise ValueError("One chat requires the managed Azure processor")
+    binding = ManagedAzureBinding.from_environment() if chat else None
+    if chat and binding is None:
+        raise ValueError("One chat requires the managed Azure processor")
     return ManagedPrimaryTextModel(
         model=config["primary_deployment"],
         endpoint=config["primary_endpoint"],
-        token_supplier=azure_openai_token_provider(
-            tenant_id=config["tenant_id"], client_id=config["client_id"]
-        ),
+        token_supplier=_credential_supplier(config["tenant_id"], config["client_id"]),
         require_current=require_current,
-        fallback_factory=fallback,
+        fallback_factory=None if chat else fallback,
+        allow_fallback=not chat,
         primary_provider=cast(ManagedProvider, selected),
         completion_observer=completion_observer,
         policy_generation=policy["generation"],
         processing_scope=scope,
-        timeout_seconds=10 if scope == "one_text_chat" else 30,
-        primary_seconds=10 if scope == "one_text_chat" else 30,
-        fallback_seconds=8 if scope == "one_text_chat" else 20,
+        runtime_binding=binding,
+        # The outer first-output budget is independent of the SDK's read-idle
+        # budget after output starts. Never kill a healthy stream at 10 seconds.
+        timeout_seconds=60 if chat else 30,
+        primary_seconds=10 if chat else 30,
+        fallback_seconds=8 if chat else 20,
+        default_reasoning_effort="minimal" if chat else None,
     )
 
 
@@ -364,7 +422,8 @@ class ManagedTextAgent(LlmAgent):
             if (
                 not owner
                 or not token
-                or await validate_first_party_owner_token(owner, token) is None
+                or await validate_first_party_owner_token(owner, token, report_unavailable=True)
+                is None
             ):
                 raise ManagedTextAuthorityError("Current owner invocation authority ended")
 

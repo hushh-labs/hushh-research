@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
-import { assertCalendarAccountLabel, assertCalendarBoardGeometry } from "./helpers/calendar-board-geometry";
+import { calendarBoardDayFixture } from "./fixtures/calendar-board-day";
+import { assertCalendarAccountLabel, assertCalendarBoardGeometry, assertCalendarAccountScroll } from "./helpers/calendar-board-geometry";
 
 // Real component + actual typed Calendar transport; only authentication/router
 // and HTTP provider boundaries are synthetic. This is rendered UI evidence,
@@ -120,13 +121,13 @@ function freeWindows(body: Record<string, unknown>) {
 }
 const privateLongTitle = "QA Product Sync with the architecture team and a deliberately long private planning title that must remain complete in event details";
 const privateLongLocation = "A long private meeting location with room instructions and a confidential customer source that must remain complete in event details";
-function fixtureEvents(day: string, variant: "standard" | "long" | "empty") {
+function fixtureEvents(day: string, variant: "standard" | "long" | "empty" | "busy") {
   if (variant === "empty") return [];
   const events = dayEvents(day);
   return variant === "long" ? events.map(event => event.calendar_id === "primary" && event.id === "shared-id"
     ? { ...event, title: privateLongTitle, location: privateLongLocation } : event) : events;
 }
-async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" = "standard", replay: false | "future" | "today" = false, boardMode = false) {
+async function openFixture(page: Page, width: number, locked = false, variant: "standard" | "long" | "empty" | "busy" = "standard", replay: false | "future" | "today" = false, boardMode = false) {
   // Settle the previous fixture before registering the next fixture's error
   // collector: navigating away intentionally cancels its pending reads.
   await page.goto("about:blank");
@@ -161,28 +162,10 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
     calls.push(call);
     if (routePath.endsWith("/status/synthetic-calendar-owner")) return route.fulfill({ json: { connected: true, access_level: "manage", google_email: "qa-owner@example.com" } });
     if (boardMode && routePath.endsWith("/board/day")) {
-      const day = String(body.date), zone = String(body.time_zone);
-      const event = (account_id: string, id: string, title: string, first: string, last: string) => ({
-        account_id, id, calendar_id: "primary", title, etag: `etag-${id}`,
-        start: { dateTime: new Date(instant(day, first, zone)).toISOString() },
-        end: { dateTime: new Date(instant(day, last, zone)).toISOString() },
-        organizer: { email: `organizer-${id}@example.test` }, can_decline: true,
-        attendees: [{ email: `qa-${account_id}@example.com`, response_status: "needsAction" }],
-      });
-      const first = event("default", "design", "QA Design Review", "10:00", "11:00");
-      const second = event("work", "client", "QA Client Call", "10:30", "11:30");
-      const third = event("projects", "focus", "QA Project Focus", "13:00", "14:00");
-      const opening = [{ start_at: new Date(instant(day, "15:00", zone)).toISOString(), end_at: new Date(instant(day, "16:00", zone)).toISOString() }];
-      return route.fulfill({ json: { date: day, time_zone: zone, duration_minutes: body.duration_minutes,
-        checked_at: new Date(qaNow).toISOString(), complete: true, conflicts_complete: true,
-        shared_free_windows: opening,
-        conflicts: [{ left: { account_id: "default", calendar_id: "primary", event_id: "design" }, right: { account_id: "work", calendar_id: "primary", event_id: "client" }, start_at: second.start.dateTime, end_at: first.end.dateTime }],
-        accounts: [
-          { account_id: "default", google_email: "qa-owner@example.com", connection_status: "connected", status: "complete", events: [first], free_windows: opening, unreadable_calendars: [] },
-          { account_id: "work", google_email: "qa-work@example.com", connection_status: "connected", status: "complete", events: [second], free_windows: opening, unreadable_calendars: [] },
-          { account_id: "projects", google_email: "qa-projects@example.com", connection_status: "connected", status: "complete", events: [third], free_windows: opening, unreadable_calendars: [] },
-        ],
-      } });
+      return route.fulfill({ json: calendarBoardDayFixture({
+        day: String(body.date), zone: String(body.time_zone), durationMinutes: Number(body.duration_minutes),
+        now: qaNow, busy: variant === "busy", instant,
+      }) });
     }
     if (boardMode && routePath.endsWith("/conflicts/review")) {
       const keep = body.keep as Record<string, string>;
@@ -253,7 +236,7 @@ async function openFixture(page: Page, width: number, locked = false, variant: "
   await expect(page).toHaveTitle("Connected Calendar QA");
   await awaitProductFont(page);
   await expect(page.getByRole("heading", { name: "Calendar", exact: true }), `Calendar fixture render errors: ${errors.join("; ")}`).toBeVisible();
-  if (!locked && variant !== "empty") await expect(page.getByRole("button", { name: boardMode ? /^Open QA Design Review/ : /^QA Product Sync/ })).toBeVisible();
+  if (!locked && variant !== "empty") await expect(page.getByRole("button", { name: boardMode ? /^Open QA Design Review/ : /^QA Product Sync/ }).first()).toBeVisible();
   return { errors, unexpectedRequests, calls, failMail: () => { mailFailure = true; }, failAvailability: (failed = true) => { failAvailability = failed; } };
 }
 async function assertActionsClearChrome(page: Page, width: number, suffix: string) {
@@ -266,6 +249,13 @@ async function assertActionsClearChrome(page: Page, width: number, suffix: strin
   await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-actions${suffix === "today" ? "" : "-free"}-${width}.png`) });
 }
 for (const width of [390, 1440]) {
+  test(`Calendar caps each account at three events and scrolls the rest inside at ${width}px`, async ({ page }) => {
+    const { errors, unexpectedRequests } = await openFixture(page, width, false, "busy", false, true);
+    await assertCalendarAccountScroll(page, width, path.join(screenshotDirectory, `calendar-three-event-scroll-${width}.png`));
+    expect(unexpectedRequests).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
   test(`three-account board and inline conflict review at ${width}px`, async ({ page }) => {
     const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "standard", false, true);
     await assertCalendarBoardGeometry(page, width);

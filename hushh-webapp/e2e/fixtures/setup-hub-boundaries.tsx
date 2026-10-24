@@ -12,7 +12,8 @@ window.addEventListener("fixture:ai-choice-saved", () => {
 });
 export const useRouter = () => router;
 export const useSearchParams = () => params;
-export const useAuth = () => ({user:{uid:"fixture"},signOut:noop});
+const authSnapshot = { user: { uid: "fixture" }, signOut: noop };
+export const useAuth = () => authSnapshot;
 export const useVault = () => ({isVaultUnlocked:false});
 export const useInitialContacts = () => ({ownerId:null,status:"idle",source:null,result:null});
 export const InitialContactsOnboardingService = {getSnapshot: () => ({ownerId:null}),startSource:noop};
@@ -52,3 +53,10 @@ export const PersonalKnowledgeModelService = { loadRuntimeSecret: unavailable };
 export const hasSavedAzureKey = unavailable;
 export const hasSavedOpenAiKey = unavailable;
 export const loadSelectedAiProvider = unavailable;
+
+// Loaded preferences reproduce the actual form which used to cover setup.
+export const useMarketingPreference = () => ({
+  value: { enabled: true, frequency: "weekly" }, enabledDraft: true,
+  frequencyDraft: "weekly", loading: false, busy: false, error: null,
+  saved: false, save: unavailable, edit: noop, refresh: unavailable,
+});

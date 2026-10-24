@@ -6,7 +6,7 @@ import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtim
 import { isUnresolvedSourceBlock, prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import { loadMarkdownMemory, MARKDOWN_MEMORY_DOMAIN, markdownFactsFromCards, stageMarkdownMemoryFacts } from "@/lib/pkm/markdown-memory";
 import type { ReceiptListItem } from "@/lib/services/gmail-receipts-service";
-import { captureReceiptSnapshot, RECEIPT_SNAPSHOT_PREFIX } from "@/lib/mail/receipt-snapshot";
+import { captureReceiptSnapshot, receiptSnapshotRows, RECEIPT_SNAPSHOT_PREFIX } from "@/lib/mail/receipt-snapshot";
 import { receiptStoreVersion, writeReceiptSnapshot, loadReceiptSnapshot } from "@/lib/mail/receipt-store";
 import { migrateReceiptMemory } from "@/lib/mail/receipt-memory-migration";
 import { assertLightweightReceiptFacts, safeAffinityLabel } from "@/lib/mail/receipt-lightweight-memory";
@@ -17,6 +17,9 @@ export type ReceiptMemorySaveOutcome = { count: number };
 /** Mathematical projection only. Memory agents still select durable statements. */
 export function buildReceiptTrendObservations(receipts: readonly ReceiptListItem[], accountKey: string | null | undefined, partialScan = true): string[] {
   const rows = buildRecentReceiptRows(receipts, accountKey);
+  return buildReceiptRowTrendObservations(rows, partialScan);
+}
+function buildReceiptRowTrendObservations(rows: ReturnType<typeof buildRecentReceiptRows>, partialScan: boolean): string[] {
   if (!rows.length) return [];
   const merchants = new Map<string, number>();
   const categories = new Map<string, number>();
@@ -66,7 +69,7 @@ export async function saveReceiptCanonicalIndexToMemory(params: {
   }, params.now);
   const verified = persisted ?? await writeReceiptSnapshot(session, snapshot, expected);
   await guard.assertCurrent();
-  const observations = buildReceiptTrendObservations(params.receipts, params.accountKey, params.partialScan);
+  const observations = buildReceiptRowTrendObservations(receiptSnapshotRows(snapshot).filter(row => !row.archived), snapshot.coverage.partial);
   const observedAt = (params.now ?? new Date()).toISOString();
   const key = `gmail_receipt_radar:${await sha256Hex(String(params.accountKey ?? ""))}`;
   await loadMarkdownMemory(session);

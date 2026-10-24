@@ -743,11 +743,13 @@ async def test_cleanup_readiness_and_early_failure_are_observable_without_creden
         erasure_digest=grant["digest"],
     )
     await store.mark_authorization(owner, selection, "execute", "running", "STARTED")
+    assert (await store.view(owner))["inProgress"] is True
     await store.mark_authorization(
         owner, selection, "execute", "attention_required", "RETRY_REQUIRED"
     )
     view = await store.view(owner)
     assert view["canFinalize"] is False
+    assert view["inProgress"] is False
     assert view["authorizationOutcome"]["status"] == "attention_required"
     assert view["authorizationOutcome"]["code"] == "RETRY_REQUIRED"
     assert "opaque-synthetic-nonce" not in json.dumps(view)

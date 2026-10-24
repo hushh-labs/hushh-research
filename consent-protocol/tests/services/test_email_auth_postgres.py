@@ -144,22 +144,6 @@ def test_policy_activation_uses_only_the_attested_database_and_process_credentia
         assert calls == []
 
 
-@pytest.mark.parametrize("available", [True, False])
-def test_enabled_candidate_must_offer_email_sign_in_before_promotion(monkeypatch, available):
-    module = release_module()
-    monkeypatch.setattr(
-        module.httpx,
-        "get",
-        lambda *args, **kwargs: httpx.Response(200, json={"enabled": available}),
-    )
-    url = "https://candidate---consent-protocol-example-uc.a.run.app"
-    if available:
-        assert module.verify_candidate(url)["candidate_ready"]
-    else:
-        with pytest.raises(module.ReleaseError, match="candidate_capabilities"):
-            module.verify_candidate(url)
-
-
 class Answer(list):
     def __init__(self, items, ttl=300):
         super().__init__(items)

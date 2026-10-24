@@ -62,7 +62,7 @@ export function WorldModelFactRow({
               data-pwm-fact-yes={factKey}
               onClick={onYes}
             >
-              Yes
+              <span aria-hidden="true">✓</span>
             </Button>
             <Button
               size="compact"
@@ -72,7 +72,7 @@ export function WorldModelFactRow({
               data-voice-control-id="pwm_fact_no"
               onClick={onNo}
             >
-              No
+              <span aria-hidden="true">✕</span>
             </Button>
             {saving ? <HelperText role="status">Saving…</HelperText> : null}
             {failed && !saving ? (

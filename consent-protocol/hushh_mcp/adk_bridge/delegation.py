@@ -9,8 +9,12 @@ from hushh_mcp.constants import ConsentScope
 from hushh_mcp.types import HushhConsentToken
 
 
+class OwnerTokenValidationUnavailable(RuntimeError):
+    """Authority could not be checked; this is not a confirmed revocation."""
+
+
 async def validate_first_party_owner_token(
-    user_id: str, consent_token: str, *, conn=None
+    user_id: str, consent_token: str, *, conn=None, report_unavailable: bool = False
 ) -> HushhConsentToken | None:
     """Validate exact self-owner authority, without the generic DB outage grace.
 
@@ -44,10 +48,16 @@ async def validate_first_party_owner_token(
             token_id=consent_token,
             **({"conn": conn} if conn is not None else {}),
         )
+        if active is not True and active is not False and report_unavailable:
+            raise OwnerTokenValidationUnavailable("Owner authority validation unavailable")
         return payload if active is True else None
     except Exception:
         # Missing grants, backend failures and malformed validation results must
         # never authorize a new delegation. Cancellation still propagates.
+        if report_unavailable:
+            raise OwnerTokenValidationUnavailable(
+                "Owner authority validation unavailable"
+            ) from None
         return None
 
 

@@ -136,8 +136,8 @@ config = json.loads(Path("consent-protocol/config/managed-ai-runtime.json").read
 print(config.get("pwm_research_uat", config["pwm_research"])["provider"])
 PYCONFIG
   )"
-  if [[ "${pwm_provider}" == "azure_openai_web_search" ]]; then
-    disposition="$(PROBE_LINE="${probe_line}" EXPECTED_CONFIG_HASH="${_MANAGED_AI_CONFIG_HASH}" \
+  if [[ "${pwm_provider}" == "azure_openai_web_search" || "${pwm_provider}" == "azure_openai_tavily" ]]; then
+    disposition="$(DEPLOY_ENV="${_DEPLOY_ENV}" PROBE_LINE="${probe_line}" EXPECTED_CONFIG_HASH="${_MANAGED_AI_CONFIG_HASH}" \
       EXPECTED_CHAT_PROJECT="${genai_project_id}" VOICE_ENABLED="${_ONE_VOICE_LIVE_ENABLED}" \
       EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}" EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}" \
       EXECUTE_STATUS="${execute_status}" AZURE_UAT_RESOURCE_EXHAUSTION=true \
@@ -158,7 +158,7 @@ if [[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true"
     --location "${_VERTEX_LIVE_LOCATION}"
 fi
 if [[ -n "${_MANAGED_AI_CONFIG_HASH}" ]]; then
-  PROBE_LINE="${probe_line}" EXPECTED_CONFIG_HASH="${_MANAGED_AI_CONFIG_HASH}" EXPECTED_CHAT_PROJECT="${_GENAI_PROJECT_ID}" python3 - <<'PY'
+  DEPLOY_ENV="${_DEPLOY_ENV}" PROBE_LINE="${probe_line}" EXPECTED_CONFIG_HASH="${_MANAGED_AI_CONFIG_HASH}" EXPECTED_CHAT_PROJECT="${_GENAI_PROJECT_ID}" python3 - <<'PY'
 import json
 import os
 
@@ -170,8 +170,9 @@ except (IndexError, json.JSONDecodeError):
     raise SystemExit("One chat Vertex readiness verdict is missing") from None
 if verdict.get("config_hash") != os.environ["EXPECTED_CONFIG_HASH"]:
     raise SystemExit("Candidate image managed AI profile does not match deployment")
-if verdict.get("one_chat_project") != os.environ["EXPECTED_CHAT_PROJECT"] or verdict.get("one_chat_probe_ok") is not True:
-    raise SystemExit("One chat Vertex target did not pass its runtime-identity probe")
+scope_field = "drive_document_requests_probe_ok" if os.environ["DEPLOY_ENV"] == "uat" else "one_chat_probe_ok"
+if verdict.get("one_chat_project") != os.environ["EXPECTED_CHAT_PROJECT"] or verdict.get(scope_field) is not True:
+    raise SystemExit("Vertex target did not pass its scoped runtime-identity probe")
 PY
 fi
 if [[ "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then

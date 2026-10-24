@@ -87,6 +87,64 @@ class WalletCardRequestService:
         WalletCardAccessService(db=self.db).require_available(conn)
         require_requests(conn)
 
+    def list_pending(self, owner, cursor=None, limit=100):
+        """Current recipient-visible asks only; never cards, grants or message text."""
+        with self.db.engine.connect() as conn:
+            self._available(conn)
+            anchor = None
+            if cursor:
+                anchor = one(
+                    conn,
+                    "SELECT created_at,id FROM wallet_card_requests WHERE id=CAST(:id AS uuid) AND target_user_id=:owner",
+                    {"id": cursor, "owner": owner},
+                )
+                if not anchor:
+                    raise WalletCardAccessError("WALLET_CARD_REQUEST_NOT_FOUND", 404)
+            rows = (
+                conn.execute(
+                    text("""
+SELECT r.id,r.created_at,r.expires_at
+FROM wallet_card_requests r
+JOIN messages m ON m.id=r.message_id AND m.sender_user_id=r.requester_user_id
+JOIN conversations c ON c.id=m.conversation_id
+WHERE r.target_user_id=:owner AND r.status='pending'
+AND r.expires_at>statement_timestamp()
+AND m.deleted_for_everyone_at IS NULL AND m.deleted_for_recipient_at IS NULL
+AND ((c.participant_a_user_id=r.requester_user_id AND c.participant_b_user_id=:owner)
+  OR (c.participant_b_user_id=r.requester_user_id AND c.participant_a_user_id=:owner))
+AND EXISTS (SELECT 1 FROM connections edge WHERE edge.status='active'
+ AND edge.user_a_id=LEAST(:owner,r.requester_user_id)
+ AND edge.user_b_id=GREATEST(:owner,r.requester_user_id))
+AND NOT EXISTS (SELECT 1 FROM direct_message_blocks block
+ WHERE (block.blocker_user_id=:owner AND block.blocked_user_id=r.requester_user_id)
+ OR (block.blocker_user_id=r.requester_user_id AND block.blocked_user_id=:owner))
+AND (CAST(:anchor_id AS uuid) IS NULL OR r.created_at<:anchor_time
+ OR (r.created_at=:anchor_time AND r.id>CAST(:anchor_id AS uuid)))
+ORDER BY r.created_at DESC,r.id ASC LIMIT :row_limit
+"""),
+                    {
+                        "owner": owner,
+                        "anchor_id": str(anchor["id"]) if anchor else None,
+                        "anchor_time": anchor["created_at"] if anchor else None,
+                        "row_limit": limit + 1,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+            return {
+                "items": [
+                    {
+                        "id": str(row["id"]),
+                        "createdAt": iso(row["created_at"]),
+                        "expiresAt": iso(row["expires_at"]),
+                    }
+                    for row in rows[:limit]
+                ],
+                "hasMore": len(rows) > limit,
+                "nextCursor": str(rows[limit - 1]["id"]) if len(rows) > limit else None,
+            }
+
     @staticmethod
     def _view(conn, row, viewer):
         names = (

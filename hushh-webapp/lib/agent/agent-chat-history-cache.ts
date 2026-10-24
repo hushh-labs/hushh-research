@@ -23,6 +23,8 @@ type AgentChatHistoryCacheEntry = {
 };
 
 export type AgentChatHistorySnapshot = {
+  ownerId: string;
+  cacheGeneration: string;
   conversations: AgentChatConversation[];
   latestConversationId: string | null;
   latestMessages: AgentChatMessage[];
@@ -53,9 +55,11 @@ function assertCurrentGeneration(userId: string, generation: string): void {
   }
 }
 
-function snapshot(entry: AgentChatHistoryCacheEntry): AgentChatHistorySnapshot {
+function snapshot(entry: AgentChatHistoryCacheEntry, userId: string): AgentChatHistorySnapshot {
   const latestConversationId = entry.conversations[0]?.id || null;
   return {
+    ownerId: userId,
+    cacheGeneration: generationFor(userId),
     conversations: [...entry.conversations],
     latestConversationId,
     latestMessages: latestConversationId
@@ -69,7 +73,12 @@ export function peekAgentChatHistoryCache(
   userId: string,
 ): AgentChatHistorySnapshot | null {
   const entry = entriesByUser.get(userId);
-  return entry ? snapshot(entry) : null;
+  return entry ? snapshot(entry, userId) : null;
+}
+
+/** Presentation liveness only; cached history never grants request authority. */
+export function isAgentChatHistorySnapshotCurrent(userId: string, value: AgentChatHistorySnapshot): boolean {
+  return value.ownerId === userId && value.cacheGeneration === generationFor(userId);
 }
 
 export function clearAgentChatHistoryCache(userId?: string): void {
@@ -96,7 +105,7 @@ export function warmAgentChatHistoryCache(input: {
   force?: boolean;
 }): Promise<AgentChatHistorySnapshot> {
   const cached = entriesByUser.get(input.userId);
-  if (!input.force && cached && snapshot(cached).isFresh) {
+  if (!input.force && cached && snapshot(cached, input.userId).isFresh) {
     trackCacheResourceResolved({
       result: "success",
       resourceClass: "realtime_stream",
@@ -104,7 +113,7 @@ export function warmAgentChatHistoryCache(input: {
       freshness: "fresh",
       durationMs: 0,
     });
-    return Promise.resolve(snapshot(cached));
+    return Promise.resolve(snapshot(cached, input.userId));
   }
 
   const existing = warmupsByUser.get(input.userId);
@@ -152,7 +161,7 @@ export function warmAgentChatHistoryCache(input: {
           force: input.force,
         }).catch(() => undefined);
       }
-      return snapshot(next);
+      return snapshot(next, input.userId);
     })
     .catch((error) => {
       trackWarmupCompleted({

@@ -62,6 +62,10 @@ export const useAuth = () => fixtureAuth;
 export const AccountService = {
   getLostVaultDeleteOptions: async () => ({ providers: ["google.com"], phone_available: false }),
 };
+// Keep the production ApiError reader while preventing live transport in visual QA.
+export const ApiService = {
+  apiFetch: async () => { throw new Error("Network is disabled in the visual fixture"); },
+};
 export const AuthService = {};
 export const prepareRecaptchaVerifier = async () => undefined;
 export const resetRecaptcha = () => undefined;

@@ -216,12 +216,14 @@ async def test_structured_contract_is_native_and_remains_subject_to_strict_host_
         confidence: int = Field(ge=0, le=100)
 
     adapter, client, _, _ = model([response(message('{"title":"Observed","confidence":98}'))])
+    adapter.text_verbosity = "low"
     (answer,) = [
         item async for item in adapter.generate_content_async(request(response_schema=Output))
     ]
     parsed = Output.model_validate_json(answer.content.parts[0].text)
     assert parsed.title == "Observed"
     wire = client.requests[0]["text"]["format"]
+    assert client.requests[0]["text"]["verbosity"] == "low"
     assert wire["type"] == "json_schema" and wire["strict"] is True
     assert set(wire["schema"]["properties"]) == {"title", "confidence"}
     assert wire["schema"]["additionalProperties"] is False
@@ -616,9 +618,7 @@ async def test_private_authority_is_rechecked_after_token_before_every_send(stre
 
 
 @pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
-async def test_managed_uat_azure_first_fallback_targets_gemini_without_replaying_tools(
-    monkeypatch, status
-):
+async def test_managed_drive_fallback_targets_gemini_without_replaying_tools(monkeypatch, status):
     from unittest.mock import AsyncMock
 
     from google.adk.models.llm_response import LlmResponse
@@ -652,7 +652,7 @@ async def test_managed_uat_azure_first_fallback_targets_gemini_without_replaying
         require_current=guard,
         fallback_model=SimpleNamespace(model="gemini-fallback", generate_content_async=gemini),
         policy_generation=managed.managed_text_policy()["generation"],
-        processing_scope="one_text_chat",
+        processing_scope="drive_document_requests",
     )
     req = request(
         types.Content(role="user", parts=[types.Part(text="Arbitrary topic")]),
@@ -802,7 +802,7 @@ async def test_managed_invocation_guards_are_owner_local_and_policy_changes_bloc
     )
     agent = managed.managed_text_agent(name="one", model=wrapped)
     validator = AsyncMock(
-        side_effect=lambda owner, credential: (
+        side_effect=lambda owner, credential, **kwargs: (
             object() if credential == f"synthetic-{owner}" else None
         )
     )
@@ -950,7 +950,7 @@ async def test_vertex_primary_uses_real_sdk_status_and_reports_only_actual_compl
         token_supplier=lambda: "synthetic",
         require_current=AsyncMock(),
         policy_generation=managed.managed_text_policy()["generation"],
-        processing_scope="one_text_chat",
+        processing_scope="drive_document_requests",
         primary_provider="vertex",
         fallback_model=SimpleNamespace(model="gemini-alternate", generate_content_async=vertex),
         completion_observer=completed.append,

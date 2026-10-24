@@ -48,6 +48,7 @@ import {
 import {
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
+  marketSnapshotForTicker,
   pickPreferredMarketSnapshot,
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
@@ -199,7 +200,7 @@ export function KaiAnalysisPageContent() {
     ],
     [],
   );
-  const [headerSnapshot, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
+  const [headerSnapshotState, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
   const [stockPreview, setStockPreview] = useState<KaiStockPreviewResponse | null>(null);
   const [stockPreviewLoading, setStockPreviewLoading] = useState(false);
@@ -1010,6 +1011,7 @@ export function KaiAnalysisPageContent() {
     handleStartDebateFromPreview();
     return { status: "started", summary: "Starting the confirmed analysis debate." };
   });
+  const headerSnapshot = marketSnapshotForTicker(headerSnapshotState, activeTicker);
   const headerPriceLabel =
     headerSnapshotLoading && (headerSnapshot?.last_price ?? null) === null
       ? "Loading price..."
@@ -1028,14 +1030,14 @@ export function KaiAnalysisPageContent() {
     const cached = getLatestMarketSnapshotFromCache(userId, activeTicker);
     setHeaderSnapshotLoading(Boolean(vaultOwnerToken) && !cached);
     if (!cancelled) {
-      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached));
+      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached, activeTicker));
     }
 
     const unsubscribeCache = cache.subscribe((event) => {
       if (cancelled || event.type !== "set") return;
       if (!event.key.startsWith(`kai_market_home_${userId}_`)) return;
       const next = getLatestMarketSnapshotFromCache(userId, activeTicker);
-      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, next));
+      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, next, activeTicker));
       setHeaderSnapshotLoading(false);
     });
 
@@ -1056,7 +1058,7 @@ export function KaiAnalysisPageContent() {
           daysBack: 7,
         });
         if (!cancelled) {
-          setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, live));
+          setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, live, activeTicker));
         }
       } catch {
         // Keep best known cached value.
@@ -1450,7 +1452,16 @@ export function KaiAnalysisPageContent() {
           />
           <AppPageContentRegion className="min-w-0 max-w-full">
             <SurfaceStack compact className="min-w-0 max-w-full">
-          {showStockBrowser ? <KaiStocksView onAnalyze={handleSelectTicker} onSelectedSymbolChange={setSelectedStockSymbol} /> : null}
+          <KaiStocksView browseStocks={showStockBrowser} historyRequested={showHistoryWhileActive} onHistoryClose={() => setShowHistoryWhileActive(false)} onAnalyze={handleSelectTicker} onSelectedSymbolChange={setSelectedStockSymbol} history={<AnalysisHistoryDashboard
+            userId={userId}
+            vaultKey={vaultKey}
+            vaultOwnerToken={vaultOwnerToken || ""}
+            onSelectTicker={handleSelectTicker}
+            onViewHistory={handleViewHistory}
+            onHistoryCount={setHistoryCount}
+            showDebateInputs={false}
+            ephemeralEntry={historyFallbackEntry}
+          />} />
           {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
             <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">
               <SurfaceCardContent className="p-5 text-center">
@@ -1565,16 +1576,7 @@ export function KaiAnalysisPageContent() {
               </SurfaceCardContent>
             </SurfaceCard>
           ) : null}
-          <AnalysisHistoryDashboard
-            userId={userId}
-            vaultKey={vaultKey}
-            vaultOwnerToken={vaultOwnerToken || ""}
-            onSelectTicker={handleSelectTicker}
-            onViewHistory={handleViewHistory}
-            onHistoryCount={setHistoryCount}
-            showDebateInputs={false}
-            ephemeralEntry={historyFallbackEntry}
-          />
+
             </SurfaceStack>
           </AppPageContentRegion>
         </div>

@@ -86,6 +86,7 @@ dependencies = [
     "dnspython>=2.8,<3",
     "idna>=3.10,<4",
     "certifi>=2026.10.19",
+    "exchange-calendars>=4.11,<5",
 ]
 
 [dependency-groups]

@@ -147,6 +147,12 @@ before traffic promotion; redirects do not count as health. The captured serving
 revision remains protected from retention cleanup as the rollback target. Migration
 compatibility and recovery evidence must establish that it is a usable target.
 
+The external candidate health probe observes one bounded 240-second startup
+window, with short requests and retries capped by the remaining time. No-traffic
+revisions can scale to zero after deployment readiness; a cold start must still
+return HTTP 200 from the exact candidate before promotion. Exhausting the window,
+redirects and unhealthy responses remain blocking and retain the rollback path.
+
 The frontend image builds in parallel with the backend image and is pinned by
 digest before the frontend deploy
 ([CI: deploy image pipeline](./ci.md#deploy-image-pipeline)). Because this workflow

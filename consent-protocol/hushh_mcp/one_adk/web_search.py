@@ -1,19 +1,10 @@
-"""Web search on One's head: Google Search grounding, which only a Gemini head has.
+"""Provider-aware public search behind One's isolated manifest-authored child.
 
-One's web search is ADK's ``GoogleSearchTool``, a Gemini built-in. ADK refuses it for
-any other model ("Google search tool is not supported for model X"), so an Azure
-OpenAI head (mode ``user_azure_mi``) or a Puppy head that held it would fail as a tool
-error at the moment the person asked for something fresh. Such a head is never given
-the tool, and its instruction says plainly that web search is not available on this
-setup yet. Nothing stands in for it: no other search provider is added (founder rule,
-no new provider API unasked).
-
-The head declares its provider. Every non-Gemini head reaches One through
-``ProviderAdkModel`` (built by ``text_runtime._runtime_model`` for ``puppy_relay``,
-``user_azure_mi`` and the owner's sealed OpenAI key), which carries ``provider``. Any other head (the Gemini adapters, a
-Gemini model id, a test double standing in for Gemini) keeps web search exactly as
-before. The pod's capability report asks ``provider_supports_web_search`` too, so what
-the pod says it can do and what its head can do are one decision.
+Managed One chat uses Azure native web search on the same Azure processor as
+its root. Gemini heads retain ADK Google Search; unsupported heads get the
+existing honest unavailable response. The child receives an explicit public
+request and no parent conversation history. Managed chat may explicitly delegate
+its final public answer without a second synthesis call.
 """
 
 from __future__ import annotations
@@ -26,6 +17,7 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.google_search_tool import GoogleSearchTool
 
 from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 from hushh_mcp.runtime_providers.registry import is_known_provider, normalize_provider
 
 #: The only provider whose head grounds on Google Search.
@@ -56,6 +48,8 @@ def head_provider(model: Any) -> str:
 
 def head_supports_web_search(model: Any) -> bool:
     """Whether One's head on ``model`` may be given the Google Search tool."""
+    if isinstance(model, AzureOpenAIAdkModel):
+        return model.allow_web_search
     return provider_supports_web_search(head_provider(model))
 
 
@@ -73,6 +67,27 @@ def instruction_for_head(model: Any, instruction: Callable[[Any], str]) -> Calla
     return instruction_without_web_search
 
 
+def build_web_search_agent(model: Any, *, manifest: Any) -> LlmAgent:
+    """Construct the manifest search child through its declared provider transport."""
+    from hushh_mcp.runtime_providers.managed_text import managed_text_agent
+
+    if not head_supports_web_search(model):
+        raise ValueError("Web search is unavailable for this model")
+    tool = GoogleSearchTool()
+    if isinstance(model, AzureOpenAIAdkModel):
+        from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
+
+        tool = AzurePublicSearchTool()
+    child = next(item for item in manifest.subagents if item.id == "google_search")
+    return managed_text_agent(
+        name=child.name,
+        model=model,
+        description=child.description,
+        instruction=child.system_instruction,
+        tools=[tool],
+    )
+
+
 def web_search_tools(model: Any, *, manifest: Any) -> list[Any]:
     """One's search tool for a head on ``model``, or nothing when that head cannot search.
 
@@ -83,14 +98,7 @@ def web_search_tools(model: Any, *, manifest: Any) -> list[Any]:
     """
     if not head_supports_web_search(model):
         return []
-    child = next(item for item in manifest.subagents if item.id == "google_search")
-    agent = LlmAgent(
-        name=child.name,
-        model=model,
-        description=child.description,
-        instruction=child.system_instruction,
-        tools=[GoogleSearchTool()],
-    )
+    agent = build_web_search_agent(model, manifest=manifest)
     return [AgentTool(agent=agent, propagate_grounding_metadata=True)]
 
 

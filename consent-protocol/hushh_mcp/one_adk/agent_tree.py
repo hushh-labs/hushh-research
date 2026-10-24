@@ -153,6 +153,7 @@ from hushh_mcp.one_adk.registered_mcp_toolset import (
     probe_private_connector,
 )
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.one_adk.search_answer import one_text_agent
 from hushh_mcp.one_adk.selected_drive_status import inspect_selected_drive_files
 from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
@@ -174,7 +175,7 @@ from hushh_mcp.runtime_providers import (
     live_compatibility,
     thinking_config_for,
 )
-from hushh_mcp.runtime_providers.managed_text import managed_text_agent
+from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel, managed_text_agent
 from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
 from hushh_mcp.services.action_gateway import (
@@ -2543,24 +2544,10 @@ def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
 
 def build_google_search_agent(*, model: Any | None = None) -> LlmAgent:
     """The manifest-owned public Search child, shared by One's bounded tasks."""
-    from google.adk.tools.google_search_tool import GoogleSearchTool
-
-    manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
-    from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
-    from hushh_mcp.runtime_providers.managed_azure_text import AzurePublicSearchTool
+    from hushh_mcp.one_adk.web_search import build_web_search_agent
 
     resolved = model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
-    return managed_text_agent(
-        name=manifest.name,
-        model=resolved,
-        description=manifest.description,
-        instruction=manifest.system_instruction,
-        tools=[
-            AzurePublicSearchTool()
-            if isinstance(resolved, AzureOpenAIAdkModel)
-            else GoogleSearchTool()
-        ],
-    )
+    return build_web_search_agent(resolved, manifest=_ONE_MANIFEST)
 
 
 def _one_roster_tools(
@@ -2805,11 +2792,16 @@ def build_one_text_agent(
     for its native tool; other specialists continue to inherit the text model.
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
-    from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel
-
     if isinstance(text_model, ManagedPrimaryTextModel) and google_search_model is None:
-        # Native Google Search is a separate declared capability, not a text fallback.
-        google_search_model = build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
+        # Search keeps the same Azure-only processor and invocation authority.
+        # Native search requires LOW/default rather than minimal reasoning.
+        google_search_model = text_model.model_copy(
+            update={
+                "allow_web_search": True,
+                "default_reasoning_effort": "low",
+                "text_verbosity": "low",
+            }
+        )
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
     async def track_current_consent(callback_context: Any) -> None:
@@ -2817,7 +2809,7 @@ def build_one_text_agent(
             callback_context, lookup=consent_bundle_lookup or _requester_bundle
         )
 
-    return managed_text_agent(
+    return one_text_agent(
         name="one",
         mode=execution_mode,
         output_schema=output_schema,

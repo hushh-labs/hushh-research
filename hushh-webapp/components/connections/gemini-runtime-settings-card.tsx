@@ -127,7 +127,8 @@ export function useGeminiRuntimeSettingsModel({
   const router = useRouter();
   const pathname = usePathname();
   const [cloudAiVerified, setCloudAiVerified] = useOwnerPresentationState(visit, false);
-  const { placement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
+  const [cloudAiModel, setCloudAiModel] = useOwnerPresentationState<string | null>(visit, null);
+  const { placement, refreshPlacement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
   const privateCloud = placement === "gcp" || placement === "azure";
   const defaultLabel = privateCloud ? "Use existing cloud" : "Use Hussh AI";
   const [showAiAlternatives, setShowAiAlternatives] = useOwnerPresentationState(visit, false);
@@ -329,9 +330,6 @@ export function useGeminiRuntimeSettingsModel({
       //
       //   1. Honesty. Persisting first and probing second means a person can be
       //      told "selected" about a runtime that cannot generate.
-      //   2. This is the only moment the server learns an AI connection exists for
-      //      a managed user. Provisioning their private agent hangs off this call;
-      //      before it, choosing managed contacted no server route at all.
       if (!privateCloud && placement !== "shared")
         throw new Error("HOSTING_NOT_READY");
       let selection;
@@ -343,6 +341,7 @@ export function useGeminiRuntimeSettingsModel({
           throw new Error(outcome.code);
         }
         setCloudAiFailure(null);
+        setCloudAiModel(outcome.model);
         selection = { agentScheduled: false, agentReason: "host already connected" };
       } else selection = await ApiService.selectManagedGeminiRuntime();
       if (!selection) throw new Error("AGENT_UNREACHABLE");
@@ -406,9 +405,14 @@ export function useGeminiRuntimeSettingsModel({
         router.push(ROUTES.ONE_SETUP_CLOUD);
         return false;
       }
+      const cloudRefusal = error instanceof Error && privateCloud
+        ? aiSelectionRefusalMessage(error.message, placement === "azure" ? "Azure AI" : "Vertex AI")
+        : null;
       toast.error(
         error instanceof Error && privateCloud && ["QUOTA_EXCEEDED", "MODEL_UNAVAILABLE", "KEY_REFUSED", "AI_DEFAULT_UNAVAILABLE"].includes(error.message)
           ? "Your cloud AI is unavailable. Check model access or connect your own key below."
+          : cloudRefusal
+          ? cloudRefusal
           : error instanceof Error && error.message === "AGENT_UNREACHABLE"
           ? "Your private agent could not be reached. Try again."
           : error instanceof Error && error.message === "PKM_CONFLICT"
@@ -757,14 +761,14 @@ export function useGeminiRuntimeSettingsModel({
     if (cloudAiVerified) {
       setMode("hushh_managed_vertex");
       setSelectedOption("hushh_managed_vertex");
-      setHasExplicitSelection(true);
       setDraftKey("");
       invalidateCredentialValidation();
+      setHasExplicitSelection(true);
     }
     return true;
   });
   const editable = () => visit.credentialCurrent() && !selectionPendingRef.current;
-  return { userId, vaultKey, vaultOwnerToken, placement, privateCloud, defaultLabel, cloudAiVerified, cloudAiFailure,
+  return { userId, vaultKey, vaultOwnerToken, placement, refreshPlacement, privateCloud, defaultLabel, cloudAiVerified, cloudAiModel, cloudAiFailure,
     showAiAlternatives, setShowAiAlternatives, setCloudAiVerified, setCloudAiFailure, onProviderPendingChange,
     otherProvider, agentOutcome, compactDefault, managedChoiceDisabled: isSaving || isRemoving || externalAiPending || (!privateCloud && placement !== "shared"),
     onRequestVaultUnlock, onRequestVaultCreation,
@@ -849,6 +853,12 @@ export function GeminiRuntimeSettingsView({ model }: { model: GeminiRuntimeSetti
           {agentOutcome}
         </p>
       ) : null}
+      {placement === "pending" || placement === "unknown" ? (
+        <div role="status" className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span>{placement === "pending" ? "Your agent is still getting ready." : "We couldn't verify your hosting connection."}</span>
+          <Button type="button" variant="link" onClick={model.refreshPlacement}>Check connection</Button>
+        </div>
+      ) : null}
       <RadioPrimitive.Root
         asChild
         value={otherProvider ?? selectedOption}
@@ -890,6 +900,7 @@ export function GeminiRuntimeSettingsView({ model }: { model: GeminiRuntimeSetti
               hasExplicitSelection={hasExplicitSelection}
               otherProvider={Boolean(otherProvider)}
               cloudAiVerified={cloudAiVerified}
+              modelLabel={cloudAiVerified ? model.cloudAiModel : null}
               onSelect={() => {
                 if (!requiresExplicitSelection ||
                   (selectedOption === "hushh_managed_vertex" &&

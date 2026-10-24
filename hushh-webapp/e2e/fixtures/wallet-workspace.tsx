@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 
 import { WalletWorkspace } from "../../components/wallet/wallet-workspace";
 import { WalletEncryptedCardViewer } from "../../components/wallet/wallet-encrypted-card-viewer";
-import { AppPageShell, AppPageContentRegion, type AppPageHeaderContentSpacing } from "../../components/app-ui/app-page-shell";
+import { AppPageShell, AppPageContentRegion } from "../../components/app-ui/app-page-shell";
 import { PageHeader } from "../../components/app-ui/page-sections";
 import { TopShellTabs } from "../../components/app-ui/top-shell-tabs";
 import { TOP_SHELL_TAB_REGISTRY } from "../../lib/navigation/top-shell-tabs";
@@ -38,8 +38,8 @@ function SharedPagerMotion() {
 }
 
 const reference = (window as unknown as {
-  __locationReference?: { hubClass: string; headerClass: string; headerContentSpacing: AppPageHeaderContentSpacing };
-}).__locationReference;
+  __workspaceHeaderReference?: boolean;
+}).__workspaceHeaderReference;
 const calendarHeading = (window as unknown as { __calendarHeading?: boolean }).__calendarHeading;
 
 function ArtworkGallery() {
@@ -83,10 +83,12 @@ root.render((window as unknown as { __walletPagerOnly?: boolean }).__walletPager
     </AppPageContentRegion>
   </AppPageShell>
 ) : (window as unknown as { __encryptedCardReader?: boolean }).__encryptedCardReader ? <WalletEncryptedCardViewer /> : window.__walletScenario?.artworkGallery ? <ArtworkGallery /> : reference ? (
-  <AppPageShell width="agent" headerContentSpacing={reference.headerContentSpacing} fitContent className="relative isolate [--app-page-content-bottom-gap:0px]">
+  // Frozen shared workspace geometry predating Location's top-shell title.
+  // This protects Wallet's unchanged body header without reconstructing Location.
+  <AppPageShell width="agent" headerContentSpacing="compact" fitContent className="relative isolate [--app-page-content-bottom-gap:0px]">
     <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
-      <div data-location-hub className={reference.hubClass}>
-        <PageHeader title="Location" titleRole="agent" actionsInlineMobile className={reference.headerClass}
+      <div data-wallet-hub data-workspace-header-reference className="mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]">
+        <PageHeader title="Reference" titleRole="agent" actionsInlineMobile className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
           actions={<div className="ml-auto flex min-h-0 w-[92px] shrink-0 flex-col items-center justify-center overflow-visible">
             <Switch size="ios" aria-label="Location" />
             <button className="mt-1 block w-full whitespace-nowrap text-center font-[family-name:var(--font-app-body)] text-[13px] font-medium leading-[18px] tracking-[-0.01em] text-[color:var(--app-secondary-label)]">Location off</button>

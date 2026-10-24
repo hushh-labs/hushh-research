@@ -94,7 +94,7 @@ concurrency:
 jobs:
   select-target:
     name: Select UAT target
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       checks: read
@@ -176,7 +176,7 @@ jobs:
     name: Wait for UAT capacity outside the mutation lock
     needs: select-target
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 7
     permissions:
       contents: read
@@ -222,7 +222,7 @@ jobs:
     name: Deploy UAT Scope
     needs: [select-target, wait-capacity]
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency:
       group: deploy-uat
       cancel-in-progress: false
@@ -305,6 +305,8 @@ jobs:
             "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
           cp scripts/ci/capture_managed_provider_receipt.py \
             "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py"
+          cp scripts/ops/run_uat_text_recovery_job.py \
+            "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py"
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp scripts/ci/managed_provider_readiness.py \
               "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
@@ -337,6 +339,10 @@ jobs:
             scripts/ops/verify_uat_release.py
           cp "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py" \
             scripts/ci/capture_managed_provider_receipt.py
+          # The launcher is current release tooling; the approved target image
+          # and its processing policy remain bound by the launcher itself.
+          cp "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py" \
+            scripts/ops/run_uat_text_recovery_job.py
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
@@ -492,6 +498,9 @@ jobs:
               candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
             else
               candidate_services+=(--candidate-service consent-protocol-drive-worker)
+              if [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" = true ]; then
+                candidate_services+=(--candidate-service consent-protocol-drive-v1-worker)
+              fi
             fi
             timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
               "${candidate_services[@]}"
@@ -614,24 +623,47 @@ jobs:
           path: /tmp/uat-verification-plan.json
           if-no-files-found: error
 
-      - name: Set up Node runtime for protected PKM verification
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+      - name: Set up Node runtime for UAT browser verification
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
         uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
 
-      - name: Install protected PKM browser dependencies
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+      - name: Cache UAT Chromium binaries
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          # CI's browser cache also promises WebKit; this lane installs Chromium.
+          key: ${{ runner.os }}-uat-chromium-${{ hashFiles('hushh-webapp/package-lock.json') }}
+
+      - name: Install UAT browser verification dependencies
+        id: install-browser-dependencies
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        timeout-minutes: 8
         shell: bash
         run: |
           set -euo pipefail
-          npm ci --prefix hushh-webapp
-          (
-            cd hushh-webapp
-            npx playwright install --with-deps chromium
-          )
+          npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
+          # Keep the runner's signed archive/security fallbacks. PR CI uses this
+          # same removal after the preferred Azure mirror stalled for 23 minutes.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
+          fi
+          # Always verify installation, including restored binaries and system
+          # libraries. Playwright reuses its completed browser downloads.
+          for attempt in 1 2; do
+            if (cd hushh-webapp && npx --no-install playwright install --with-deps chromium); then
+              break
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::UAT Chromium installation failed twice."
+              exit 1
+            fi
+            sleep 15
+          done
 
       - name: Verify One Location read-only rollout prerequisites
         id: one_location_read_only_rollout
@@ -781,6 +813,10 @@ jobs:
             echo "Selected SHA cannot preserve enabled email OTP; disable EMAIL_AUTH_ENABLED_UAT for an older approved release." >&2
             exit 1
           fi
+          drive_group_args=()
+          if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
+            drive_group_args=(--drive-four-group-index "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}")
+          fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment uat \
@@ -808,6 +844,7 @@ jobs:
             --google-drive-live "$UAT_GOOGLE_DRIVE_LIVE" \
             --google-drive-picker "$UAT_GOOGLE_DRIVE_PICKER" \
             --drive-document-indexing "$UAT_DRIVE_DOCUMENT_INDEXING" \
+            "${drive_group_args[@]}" \
             --drive-document-sharing "$UAT_DRIVE_DOCUMENT_SHARING" \
             --drive-agent-packages-enabled "$UAT_DRIVE_AGENT_PACKAGES_ENABLED" \
             --gmail-chat-reads "$UAT_GMAIL_CHAT_READS" \
@@ -1734,23 +1771,6 @@ jobs:
           ' "${smoke_revision}")"
           echo "revision=${smoke_revision}" >> "$GITHUB_OUTPUT"
           echo "url=${candidate_url}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Node runtime for UAT analytics verification
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      - name: Install UAT analytics smoke dependencies
-        if: steps.scope.outputs.deploy_frontend == 'true'
-        shell: bash
-        working-directory: hushh-webapp
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts
-          npx playwright install --with-deps chromium
 
       - name: Verify governed analytics transport on zero-traffic UAT candidate
         id: verify-analytics-uat
@@ -3030,12 +3050,26 @@ jobs:
             --baseline /tmp/uat-paused-drive-baseline.json \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Pause Data packets scheduler when UAT activation is off
+        id: pause-drive-groups
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-drive-worker.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot=/tmp/uat-drive-v1-before-groups.json
+          python3 deploy/drive/v1_scheduler_state.py capture-if-present --stage groups --snapshot "${snapshot}"
+          if ! python3 deploy/drive/v1_scheduler_state.py quarantine --stage groups; then
+            python3 deploy/drive/v1_scheduler_state.py restore --stage groups --snapshot "${snapshot}"
+            exit 1
+          fi
+
       - name: Deploy isolated V1 Drive worker while legacy jobs stay paused
         id: deploy-drive-v1-worker
-        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.verify-paused-drive-maintenance.outcome == 'success' && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
+        if: always() && !cancelled() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && (inputs.preserve_paused_drive_worker != true || steps.verify-paused-drive-maintenance.outcome == 'success') && (inputs.preserve_paused_drive_worker == true || steps.deploy-drive-worker.outcome == 'success') && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
         shell: bash
         env:
           DRIVE_WORK_DRAIN_ENABLED: ${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}
+          DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED: ${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
           DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
           RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
@@ -3108,7 +3142,7 @@ jobs:
 
       - name: Restore backend after Drive worker failure
         id: rollback-backend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -3119,7 +3153,7 @@ jobs:
 
       - name: Verify isolated V1 lane rollback after failed rollout
         id: verify-drive-v1-worker-rollback
-        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -3132,7 +3166,7 @@ jobs:
 
       - name: Restore frontend after Drive worker failure
         id: rollback-frontend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -3253,6 +3287,17 @@ jobs:
             fi
           elif [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ]; then
             DRIVE_WORKER_GATE_SUCCESS=true
+          fi
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" = "true" ] \
+             && [ "${{ steps.deploy-drive-v1-worker.outcome }}" != "success" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=false
+          fi
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
+             && [ "${{ vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED || 'false' }}" != "true" ] \
+             && [ "${{ steps.pause-drive-groups.outcome }}" != "success" ]; then
+            DRIVE_WORKER_GATE_SUCCESS=false
           fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \

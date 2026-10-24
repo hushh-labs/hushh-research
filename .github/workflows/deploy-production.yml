@@ -113,7 +113,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy Production Scope
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_dispatch'
     environment: production
 
@@ -209,8 +209,9 @@ jobs:
           done
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
-          cp scripts/ci/cloudrun-retention.py \
-            "${RUNNER_TEMP}/release-tools/cloudrun-retention.py"
+          for tool in cloudrun-retention.py process_group.py; do
+            cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/$tool"
+          done
           # Capacity policy and phase support belong to current release tooling,
           # including when promoting or rolling back an older approved app image.
           cp scripts/ci/runtime-capacity-budget.py \
@@ -254,8 +255,9 @@ jobs:
           done
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
-          cp "${RUNNER_TEMP}/release-tools/cloudrun-retention.py" \
-            scripts/ci/cloudrun-retention.py
+          for tool in cloudrun-retention.py process_group.py; do
+            cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
+          done
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py" \
@@ -634,6 +636,7 @@ jobs:
             --google-drive-live "${{ steps.drive-mode.outputs.active }}" \
             --google-drive-picker "${{ steps.drive-mode.outputs.active }}" \
             --drive-document-indexing "${{ steps.drive-mode.outputs.active }}" \
+            --drive-four-group-index "false" \
             --drive-document-sharing "${{ steps.drive-mode.outputs.active }}" \
             --google-drive-chat-reads "${{ steps.drive-mode.outputs.active }}" \
             --connector-production-all-users "${{ steps.drive-mode.outputs.active }}" \

@@ -221,6 +221,7 @@ test.beforeEach(async ({ page }) => {
           google_drive_live: true,
           google_drive_picker: true,
           drive_document_indexing: true,
+          drive_four_group_index: new URL(page.url()).searchParams.has("data-packets"),
         },
         connectors: [
           {
@@ -228,10 +229,25 @@ test.beforeEach(async ({ page }) => {
             status,
             available: true,
             accountLabel: "drive-owner@synthetic.invalid",
+            profile: new URL(page.url()).searchParams.has("data-packets") ? "live" : null,
             authStyle: "oauth",
           },
         ],
       };
+    else if (url.pathname === "/api/connectors/google_drive/groups") body = {
+      status: { enabled: true, state: "ready", revision: 1, timeZone: "UTC", listedFiles: 54, indexedFiles: 54,
+        counts: { financial_statements: 51, insurance_statements: 0, non_financial_statements: 0, personal_documents: 0, kept: 3 }, listingComplete: true, limited: false, lastRunAt: null },
+      groups: [{ shelf: "financial_statements", name: "Financial Assets" }, { shelf: "insurance_statements", name: "Insurance" },
+        { shelf: "non_financial_statements", name: "Non-Financial Records" }, { shelf: "personal_documents", name: "Personal Documents" }], folders: [],
+    };
+    else if (url.pathname.startsWith("/api/connectors/google_drive/groups/") && url.pathname.endsWith("/files")) {
+      const cursor = Number(url.searchParams.get("cursor") || 0), total = url.pathname.includes("financial_statements") ? 51 : 0;
+      body = { items: Array.from({ length: Math.min(50, Math.max(0, total - cursor)) }, (_, index) => ({
+        ref: (cursor + index + 1).toString(16).padStart(64, "0"), title: `Synthetic statement ${cursor + index + 1} — a long document title for the phone layout`,
+        viewUrl: `https://drive.google.com/file/d/synthetic-file-${cursor + index}/view`, day: "2026-10-22",
+      })), total, nextCursor: cursor + 50 < total ? cursor + 50 : null };
+    }
+    else if (url.pathname.endsWith("/live/background")) body = { enabled: true };
     else if (url.pathname.endsWith("/disconnect")) {
       status = "revoked";
       documents = [];
@@ -1769,6 +1785,7 @@ async function presencePixels(artwork: Locator, original?: ElementHandle | null)
       resize: original && style ? {
         width: style.width, height: style.height, transform: style.transform,
         visible: getComputedStyle(canvas).visibility === "visible",
+        playbackStatus: canvas.dataset.onePresencePlayback,
         playback: /waiting-for-paint|playing|paint-timeout|asset-error|runtime-error/.test(canvas.dataset.onePresencePlayback ?? ""),
         canvasCount: surface.querySelectorAll("canvas").length,
         sameCanvas: canvas === original, bufferWidth: width, bufferHeight: height,
@@ -2023,10 +2040,10 @@ test.describe("One profile artwork and animated presence", () => {
         await expectPresencePlayback(panel.locator('[data-one-presence-state="connected"]'));
         expect(errors).toEqual([]);
       });
-      // Pointer interactions mount and dispose several native scenes. Keep
-      // that separate from the same-canvas resize contract: both retain the
-      // normal 30-second deadline on software-rendered Linux WebKit.
+      // Keep pointer scene disposal separate from cumulative same-canvas resizing.
+      // Each resize retains its own five-second paint deadline.
       test("resizes the same native canvas across phone and desktop widths", async ({ page }) => {
+        test.setTimeout(45_000); // Eight resizes and two motion checks share this budget.
         const started = Date.now();
         const checkpoint = (phase: string, width?: number, size?: number) => {
           console.log("One native resize", JSON.stringify({ density, phase, width, size, elapsedMs: Date.now() - started }));
@@ -2057,6 +2074,7 @@ test.describe("One profile artwork and animated presence", () => {
           await expectPresencePlayback(trigger);
           // Header identity is inline; the compact-header regression below verifies nonoverlap.
           for (const size of [128, 192, 256, 192]) {
+            checkpoint("resize started", width, size);
             await artwork.evaluate((node, size) => {
               (node.parentElement as HTMLElement).style.setProperty("--one-presence-size", `${size}px`);
             }, size);
@@ -2065,15 +2083,20 @@ test.describe("One profile artwork and animated presence", () => {
             // Sample geometry, the native bitmap and painted-foot spacing on
             // the same frame. Separate browser reads repeatedly flush Linux
             // WebKit's software compositor at Retina density.
+            let lastSample: Awaited<ReturnType<typeof presencePixels>> | undefined;
             await expect.poll(async () => {
               const pixels = await presencePixels(canvas, original);
+              lastSample = pixels;
               return { ...pixels.resize, painted: pixels.opaque > 0, cornerAlpha: pixels.cornerAlpha };
-            }).toMatchObject({
+            }, { timeout: 5_000 }).toMatchObject({
               width: `${size}px`, height: `${size}px`, transform: "none",
               visible: true, playback: true, canvasCount: 1, sameCanvas: true,
               bufferWidth: expectedBuffer, bufferHeight: expectedBuffer,
               feetPainted: true, nameClearOfFeet: true, nameCloseToFeet: true,
               painted: true, cornerAlpha: [0, 0, 0, 0],
+            }).catch(error => {
+              console.log("One native resize failure", JSON.stringify({ density, width, size, elapsedMs: Date.now() - started, sample: lastSample }));
+              throw error;
             });
             checkpoint("resized", width, size);
           }
@@ -2086,6 +2109,10 @@ test.describe("One profile artwork and animated presence", () => {
     });
   }
   test("retains painted artwork through delayed loads and interrupted transitions", async ({ page }) => {
+    test.setTimeout(45_000);
+    // Each phase dwells for a full painted loop before its fade can commit.
+    // Asset readiness is checked separately from this presentation budget.
+    const phaseCommitTimeout = 8_000;
     let release!: () => void;
     const waiting = new Promise<void>(resolve => { release = resolve; });
     await page.route("http://localhost/one-presence/hd/working.riv", async route => {
@@ -2176,10 +2203,13 @@ test.describe("One profile artwork and animated presence", () => {
       await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "connected");
       await page.evaluate(() => (window as any).__setOnePresenceWork({ drafting: false, answering: false, thinking: true }));
       release();
-      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working");
+      await expectPresencePlayback(profile.locator('[data-one-presence-artwork="working"]'));
+      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "working", { timeout: phaseCommitTimeout });
+      await expectPresencePlayback(profile.locator('[data-one-presence-artwork="thinking"]'));
       await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.interrupted)).toBe(true);
-      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "thinking");
-      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering");
+      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "thinking", { timeout: phaseCommitTimeout });
+      await expectPresencePlayback(profile.locator('[data-one-presence-artwork="answering"]'));
+      await expect(profile.locator('[data-one-presence-layer="current"]')).toHaveAttribute("data-one-presence-artwork", "answering", { timeout: phaseCommitTimeout });
       await expect(profile.locator("[data-one-presence-artwork]")).toHaveCount(1);
       await expectPresencePlayback(profile);
       await expect.poll(() => page.evaluate(() => (window as any).__presenceContinuity.frames)).toBeGreaterThan(5);
@@ -2349,7 +2379,7 @@ test.describe("One profile artwork and animated presence", () => {
       await Promise.all([0, 1].map(async index => {
         const canvas = canvases.nth(index);
         const textures = await canvas.evaluate(canvas => (window as any).__onePresenceTextures.get(canvas));
-        expect(textures, "native animation must embed genuine HD pixels, not enlarge 128px frames").toEqual([[1254, 1254]]);
+        expect(textures, "native animation must embed genuine source pixels, not enlarge 128px frames").toEqual(phase.state === "working" ? Array.from({ length: 16 }, () => [314, 314]) : [[1254, 1254]]);
         await expect.poll(async () => (await presencePixels(canvas)).opaque).toBeGreaterThan(0);
         expect((await presencePixels(canvas)).cornerAlpha).toEqual([0, 0, 0, 0]);
       }));
@@ -2675,3 +2705,33 @@ for (const dark of [false, true])
     await expect(chats).not.toBeVisible();
     expect(await page.evaluate(() => [getComputedStyle(document.documentElement).backgroundColor, getComputedStyle(document.body).backgroundColor])).toEqual(before);
   });
+
+for (const width of [320, 390, 1440]) test(`Drive data packets list and page without overflow at ${width}px`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto("http://localhost/connections-fixture?data-packets=1");
+  await page.addScriptTag({ content: script });
+  await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+  await expect(page.getByLabel("Open Connectors", { exact: true })).toBeFocused();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.getByRole("button", { name: /^Google Drive\b/ }).click();
+  const packets = page.getByRole("region", { name: "Data packets", exact: true });
+  await expect(packets.getByRole("heading", { name: "Data packets", exact: true })).toBeVisible();
+  for (const name of ["Financial Assets", "Insurance", "Non-Financial Records", "Personal Documents"]) {
+    const folder = packets.getByRole("button", { name: `Open ${name}`, exact: true });
+    await expect(folder).toBeVisible();
+    expect((await folder.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  const trust = page.getByRole("region", { name: "Trusted documents", exact: true });
+  expect((await packets.boundingBox())!.y).toBeGreaterThanOrEqual((await trust.boundingBox())!.y + (await trust.boundingBox())!.height);
+  await testInfo.attach(`Data packets ${width}px`, { body: await page.screenshot(), contentType: "image/png" });
+  await packets.getByRole("button", { name: "Open Financial Assets", exact: true }).click();
+  await expect(packets.getByText("51 indexed files", { exact: true })).toBeVisible();
+  await packets.getByRole("button", { name: "Load more files", exact: true }).click();
+  await expect(packets.getByText(/^Synthetic statement 51 —/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await packets.getByRole("button", { name: "Back to data packets", exact: true }).click();
+  await packets.getByRole("button", { name: "Open Insurance", exact: true }).click();
+  await expect(packets.getByText("No indexed files in this folder yet.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Back to data packets", exact: true }).first().click();
+  await expect(packets.getByRole("heading", { name: "Insurance", exact: true })).toHaveCount(0);
+});

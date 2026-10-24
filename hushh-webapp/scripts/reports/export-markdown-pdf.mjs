@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
+import { mermaidBrowserBundle } from "../../../scripts/mermaid-browser-bundle.mjs";
 import {
   createPdfDocumentFormatter,
   PDF_FORMATTER_PROFILES,
@@ -14,8 +14,6 @@ import {
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../..");
-const require = createRequire(import.meta.url);
-const mermaidBrowserBundle = require.resolve("mermaid/dist/mermaid.min.js");
 
 function parseArgs(argv) {
   const args = {
@@ -1858,7 +1856,7 @@ async function renderPdf({ input, output, html: htmlOutput, title, subtitle, the
     const page = await browser.newPage({ viewport: { width: 1240, height: 1754 } });
     await page.setContent(html, { waitUntil: "networkidle", timeout: 20000 });
     await page.evaluate(() => document.fonts.ready);
-    const mermaidScript = await page.addScriptTag({ path: mermaidBrowserBundle });
+    const mermaidScript = await page.addScriptTag({ content: await mermaidBrowserBundle() });
     await page.evaluate(async () => {
       const styles = getComputedStyle(document.documentElement);
       const color = (name) => styles.getPropertyValue(name).trim();

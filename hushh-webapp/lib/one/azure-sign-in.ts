@@ -50,6 +50,14 @@ export const AZURE_SIGN_IN_CHANNEL = "hussh-azure-sign-in";
 const POPUP_NAME = "hussh-azure-sign-in";
 const POPUP_WIDTH = 520;
 const POPUP_HEIGHT = 720;
+const popupOwners = new WeakMap<Window, symbol>();
+
+/** A reused named popup belongs to its newest initiating action. */
+export function captureSignInPopupOwner(popup: Window | null): () => boolean {
+  if (!popup) return () => true;
+  const owner = popupOwners.get(popup);
+  return () => owner !== undefined && popupOwners.get(popup) === owner;
+}
 
 type AzureSignInMessage =
   | { type: "azure-setup-started"; kind?: "upgrade"; jobId?: string; operationId?: string; releaseId?: string }
@@ -70,7 +78,9 @@ export function openSignInPopup(): Window | null {
   const features = `popup,width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top}`;
   try {
     // jsdom and some embedded browsers return undefined rather than null.
-    return window.open("about:blank", POPUP_NAME, features) ?? null;
+    const popup = window.open("about:blank", POPUP_NAME, features) ?? null;
+    if (popup) popupOwners.set(popup, Symbol());
+    return popup;
   } catch {
     return null;
   }

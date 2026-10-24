@@ -62,7 +62,7 @@ import {
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
   authSessionInvalidationFromSiblingTabStorageEvent,
-  authSessionInvalidationCodeFromBackendPayload,
+  authSessionLandingCodeFromBackendPayload,
   authSessionInvalidationCodeFromFirebaseError,
   buildLoginRouteWithAuthSessionNotice,
   dispatchAuthSessionInvalidated,
@@ -107,7 +107,7 @@ type AccountSessionStatusInspection =
   | { outcome: "deletion_in_progress"; response: Response }
   | {
       outcome: "terminal";
-      code: "account_not_found" | "session_invalid";
+      code: "account_not_found" | "account_deleted" | "session_invalid";
     };
 
 function withinAccountSessionValidationBudget<T>(
@@ -224,7 +224,7 @@ async function inspectAccountSessionStatusResponse(
   }
 
   if (response.status === 401) {
-    const code = authSessionInvalidationCodeFromBackendPayload(payload);
+    const code = authSessionLandingCodeFromBackendPayload(payload);
     return code
       ? { outcome: "terminal", code }
       : { outcome: "credential_rejected" };
@@ -1397,7 +1397,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const invalidatedUserId = eventUserId || currentUserId;
       if (
         invalidatedUserId &&
-        (code === "account_not_found" || code === "account_deleted" || code === "account_deleted_ready_to_start_fresh" || code === "account_deletion_finishing")
+        (code === "account_not_found" || code === "account_deleted" || code === "account_deleted_ready_to_start_fresh" || code === "account_deletion_finishing" || code === "account_deletion_identity_retained")
       ) {
         // The backend or Firebase confirmed this account is gone (never an
         // uncertain outcome or a disabled account), so the device key material

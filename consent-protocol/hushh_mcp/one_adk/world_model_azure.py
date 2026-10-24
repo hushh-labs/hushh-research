@@ -22,7 +22,6 @@ from urllib.parse import urlsplit
 from openai import APIError
 from pydantic import ValidationError
 
-from hushh_mcp.one_adk.azure_web_receipts import extract_azure_web_receipts
 from hushh_mcp.one_adk.profile_research import ProfileFact, ProfileSource, ProfileSourceRef
 from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
 from hushh_mcp.one_adk.world_model import (
@@ -44,6 +43,11 @@ from hushh_mcp.one_adk.world_model_contracts import (
     WorldModelReport,
     eligible_report_sources,
     validated_facts_from_work,
+)
+from hushh_mcp.one_adk.world_model_search_receipts import (
+    admit_search_receipts,
+    billed_search_requests,
+    normalize_search_receipts,
 )
 from hushh_mcp.one_adk.world_model_usage import UsageReceipt, provider_usage, summarize_usage
 
@@ -385,8 +389,11 @@ def _structured_schema(value: Any, *, definitions: dict[str, Any]) -> Any:
 
 def azure_execution_contract() -> dict[str, Any]:
     """Invalidate old drafts when active transport instructions or bounds change."""
+    from hushh_mcp.one_adk.tavily_search import execution_contract
+
     return {
-        "revision": "observed-topic-report-contract-v24",
+        "revision": "observed-topic-report-contract-v25",
+        "tavily": execution_contract(),
         "assessment": _ASSESSMENT_INSTRUCTION,
         "assessment_repair": _ASSESSMENT_REPAIR_INSTRUCTION,
         "single_page_assessment_repair": _SINGLE_PAGE_REPAIR_INSTRUCTION,
@@ -469,6 +476,7 @@ class AzurePwmGateway:
         phi_deployment: str = "",
         phi_token_supplier: Callable[[], str] | None = None,
         on_usage: Callable[[UsageReceipt], Awaitable[None]] | None = None,
+        search_provider: Literal["bing", "tavily"] = "bing",
     ) -> None:
         self.primary_endpoint = _endpoint(primary_endpoint)
         # Retain the old constructor arguments for callers; planning now uses
@@ -476,6 +484,7 @@ class AzurePwmGateway:
         self.primary_deployment = primary_deployment
         self.primary_token_supplier = primary_token_supplier
         self.on_usage = on_usage
+        self.search_provider = search_provider
         if not primary_deployment:
             raise ValueError("The primary PWM deployment is required")
 
@@ -514,6 +523,10 @@ class AzurePwmGateway:
 
     async def search(self, request: dict[str, Any]) -> Mapping[str, Any]:
         """Return the raw Responses result for provider receipt extraction."""
+        if self.search_provider == "tavily":
+            from hushh_mcp.one_adk.tavily_search import search_with_query_model
+
+            return await search_with_query_model(request, self.structured)
         started = time.monotonic()
         client = await self._client(self.primary_endpoint, self.primary_token_supplier)
         async with client:
@@ -1081,6 +1094,7 @@ async def run_world_model_azure(
     phi_deployment: str = "",
     phi_token_supplier: Callable[[], str] | None = None,
     gateway: AzurePwmGateway | None = None,
+    search_provider: Literal["bing", "tavily"] = "bing",
     attempts_used: tuple[int, ...] = (),
     work: dict[str, Any] | None = None,
     on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -1108,6 +1122,11 @@ async def run_world_model_azure(
         raise ValueError("PWM checkpoint must be an object")
     if history and history.get("azure_work_version") != AZURE_WORK_VERSION:
         raise ValueError("PWM checkpoint belongs to another research provider")
+    if search_provider not in {"bing", "tavily"}:
+        raise ValueError("Unknown public-search provider")
+    if history and history.get("search_provider", "bing") != search_provider:
+        raise ValueError("PWM checkpoint belongs to another search provider")
+    history["search_provider"] = search_provider
     history["azure_work_version"] = AZURE_WORK_VERSION
     receipts = history.setdefault("sources", {})
     attempts = history.setdefault("attempts", {})
@@ -1153,19 +1172,7 @@ async def run_world_model_azure(
     )
 
     def billed_searches() -> int:
-        total = 0
-        for row in attempts.values():
-            if not isinstance(row, dict):
-                raise ValueError("PWM search checkpoint has an invalid shape")
-            billed = row.get("bing_requests")
-            if billed is None:
-                # A dispatched but unacknowledged call may already be billed.
-                # Resume from received evidence, never blindly retry search.
-                return MAX_AZURE_BING_REQUESTS
-            if type(billed) is not int or not 0 <= billed <= 100:
-                raise ValueError("PWM Bing usage checkpoint is invalid")
-            total += billed
-        return total
+        return billed_search_requests(attempts, search_provider, MAX_AZURE_BING_REQUESTS)
 
     if not set(_MODEL_SLOTS) - used and not (
         pending_report is not None and history.get("fact_review") is not None
@@ -1199,6 +1206,7 @@ async def run_world_model_azure(
             phi_deployment=phi_deployment,
             phi_token_supplier=phi_token_supplier,
             on_usage=record_usage,
+            search_provider=search_provider,
         )
 
     async def charge(slots: range) -> int:
@@ -1291,34 +1299,17 @@ async def run_world_model_azure(
             lambda: gateway.search(request), slot=model_slot, reserve_seconds=reserve_seconds
         )
         try:
-            evidence = extract_azure_web_receipts(raw)
+            evidence = normalize_search_receipts(raw, search_provider)
         except ValueError:
-            # The paid dispatch remains unacknowledged: never infer billing or
-            # admit its evidence. Preserve prior receipts for a bounded report.
             attempts[str(search_index)]["state"] = "unavailable"
             logger.warning("one.pwm_search_receipt_invalid")
             await checkpoint()
             return False
-        received: list[str] = []
-        if len(receipts) + len(evidence.sources) > _MAX_RECEIPTS:
-            raise ValueError("Provider receipt exceeds supported bounds")
-        for source in evidence.sources:
-            source_value = source.model_dump()
-            ref = next((key for key, value in receipts.items() if value == source_value), None)
-            if ref is None:
-                ref = f"s{len(receipts) + 1}"
-                receipts[ref] = source_value
-            if ref not in received:
-                received.append(ref)
-        attempts[str(search_index)].update(
-            observed=evidence.observed,
-            answer=evidence.answer,
-            source_refs=received,
-            citations=list(evidence.citations),
-            state="received" if evidence.observed else "unavailable",
-            bing_requests=evidence.num_requests,
-            at=time.time(),
+        received, updates = admit_search_receipts(
+            evidence, receipts, provider=search_provider, max_receipts=_MAX_RECEIPTS, at=time.time()
         )
+        receipts.update(received)
+        attempts[str(search_index)].update(updates)
         await checkpoint()
         return evidence.observed
 
@@ -1862,7 +1853,11 @@ async def run_world_model_azure(
             ],
             "searches_used": len(used & set(_SEARCH_SLOTS)),
             "candidates": [row.model_dump() for row in assessment.candidates],
-            "source_use": "azure_web_grounded_display_only",
-            "provider": "azure_openai_web_search",
+            "source_use": "tavily_review_retained"
+            if search_provider == "tavily"
+            else "azure_web_grounded_display_only",
+            "provider": "azure_openai_tavily"
+            if search_provider == "tavily"
+            else "azure_openai_web_search",
         },
     }

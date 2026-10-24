@@ -47,7 +47,6 @@ type CachedMarkdownMemory = {
 type PwmClaims = Record<string, PwmClaim>;
 const PWM_DECISIONS = new Set(["accepted", "edited", "rejected", "removed"]);
 // Keep every No from a full 269-point draft, plus room for later refreshes.
-const MAX_DECLINED_PWM_CLAIMS = 512;
 
 function readPwmClaims(value: unknown): PwmClaims {
   return Object.fromEntries(Object.entries(record(value)).filter(([key, raw]) => {
@@ -62,14 +61,6 @@ function samePwmClaim(a: PwmClaim | undefined, b: PwmClaim | undefined): boolean
   return a === b || (!!a && !!b && a.decision === b.decision && a.text === b.text && a.decided_at === b.decided_at);
 }
 
-/** Saved decisions are kept; only the newest declined ones are remembered. */
-function boundPwmClaims(claims: PwmClaims): PwmClaims {
-  const declined = Object.values(claims).filter(claim => claim.decision === "rejected" || claim.decision === "removed")
-    .sort((a, b) => Date.parse(b.decided_at) - Date.parse(a.decided_at));
-  const dropped = new Set(declined.slice(MAX_DECLINED_PWM_CLAIMS).map(claim => claim.key));
-  return Object.fromEntries(Object.entries(claims).filter(([key]) => !dropped.has(key)));
-}
-
 type SourceSummaries = Record<string, { observedAt: string; facts: string[] }>;
 type ReceiptSnapshotFence = { resourceKey: string; revision: number };
 class ReceiptWriteInvalidatedError extends Error {}
@@ -77,7 +68,7 @@ type MemoryCheckpoint = { version: number; userId: string; facts: SoulFact[]; co
 type ReplaceSource = { key: string; observedAt: string };
 function isReceiptSnapshotFence(value: unknown): value is ReceiptSnapshotFence {
   const v = record(value);
-  return Object.keys(v).length === 2 && typeof v.resourceKey === "string" && /^mail_receipts\.v1:[a-f0-9]{64}$/.test(v.resourceKey) && Number.isSafeInteger(v.revision) && Number(v.revision) > 0;
+  return Object.keys(v).length === 2 && typeof v.resourceKey === "string" && /^mail_receipts\.v[12]:[a-f0-9]{64}$/.test(v.resourceKey) && Number.isSafeInteger(v.revision) && Number(v.revision) > 0;
 }
 async function assertReceiptWriteFence(params: { userId: string; receiptGeneration?: number; receiptSnapshotFence?: ReceiptSnapshotFence }) {
   if (params.receiptGeneration === undefined) return;
@@ -543,7 +534,7 @@ export async function appendMarkdownMemoryFacts(params: {
       // not overwrite a newer one and leave an orphaned bullet behind.
       if (params.pwmClaim && !samePwmClaim(currentClaims[params.pwmClaim.key], params.pwmClaimPrevious ?? undefined))
         throw new Error("Memory changed during preparation. Reassess before updating it.");
-      pwmClaims = params.pwmClaim ? boundPwmClaims({ ...currentClaims, [params.pwmClaim.key]: params.pwmClaim }) : currentClaims;
+      pwmClaims = params.pwmClaim ? { ...currentClaims, [params.pwmClaim.key]: params.pwmClaim } : currentClaims;
       writtenMarkdown = appended.markdown;
       saved = appended.saved;
       const updatedAt = new Date().toISOString();

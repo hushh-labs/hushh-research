@@ -235,6 +235,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
         return_value={
             "schema_version": "drive.work_drain.v1",
             "workers": {
+                "groups": {"indexed": 1},
                 "documents": {"ready": 1},
                 "suggestions": {"review_ready": 1, "private_request_id": "not-allowed"},
                 "searches": {"superseded": 1, "private_search_id": "not-allowed"},
@@ -270,6 +271,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
         },
         "schema_version": "drive.work_drain.v1",
         "workers": {
+            "groups": {"indexed": 1},
             "documents": {"ready": 1},
             "suggestions": {"review_ready": 1},
             "searches": {"superseded": 1},

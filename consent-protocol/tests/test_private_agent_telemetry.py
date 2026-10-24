@@ -8,6 +8,64 @@ from mcp_modules.log_redaction import SensitiveLogFilter
 from tests.test_agui_turn_timing import _input
 
 
+async def test_incoming_tracestate_never_reaches_instrumentation_or_logs(caplog):
+    import httpx
+    from fastapi import FastAPI
+    from opentelemetry import propagate, trace
+    from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+    from api.utils.private_trace_exporter import protect_incoming_trace_context
+
+    original = propagate.get_global_textmap()
+    provider = TracerProvider()
+    memory = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(memory))
+    app = FastAPI()
+
+    @app.get("/synthetic")
+    async def synthetic():
+        return {"ok": True}
+
+    instrumented = OpenTelemetryMiddleware(app, tracer_provider=provider)
+    headers = {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}
+    try:
+        propagate.set_global_textmap(TraceContextTextMapPropagator())
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=instrumented), base_url="http://fixture"
+        ) as client:
+            # Positive control proves the actual installed instrumentation is vulnerable.
+            await client.get(
+                "/synthetic", headers={**headers, "tracestate": "private=x" + "\t" * 4096 + "!"}
+            )
+            assert "private=x" in caplog.text
+            caplog.clear()
+            protect_incoming_trace_context()
+            guarded = propagate.get_global_textmap()
+            protect_incoming_trace_context()
+            assert propagate.get_global_textmap() is guarded
+            response = await client.get(
+                "/synthetic", headers={**headers, "tracestate": "private=x" + "\t" * 131072 + "!"}
+            )
+            assert response.status_code == 200
+        assert "private=x" not in caplog.text
+        incoming = [span for span in memory.get_finished_spans() if span.name == "GET /synthetic"]
+        assert incoming[-1].parent.trace_id == int("0af7651916cd43dd8448eb211c80319c", 16)
+        assert incoming[-1].parent.span_id == int("b7ad6b7169203331", 16)
+        local = trace.SpanContext(
+            1, 2, False, trace.TraceFlags(1), trace.TraceState([("local", "approved")])
+        )
+        carrier = {}
+        propagate.inject(carrier, context=trace.set_span_in_context(trace.NonRecordingSpan(local)))
+        assert carrier["tracestate"] == "local=approved"
+    finally:
+        propagate.set_global_textmap(original)
+        provider.shutdown()
+
+
 def test_effective_legacy_and_modern_content_telemetry_is_off(monkeypatch):
     monkeypatch.setenv("ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS", "true")
     monkeypatch.setenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "SPAN_AND_EVENT")

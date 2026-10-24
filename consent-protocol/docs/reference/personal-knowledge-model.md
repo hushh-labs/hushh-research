@@ -68,9 +68,13 @@ source passages, PDFs, URLs, provider message IDs or tokens.
 
 ### Mail receipt snapshot
 
-`mail_receipt_snapshot.v1` uses the existing vault AES-GCM encryption and
+`mail_receipt_snapshot.v2` (with read compatibility for v1) uses the existing vault AES-GCM encryption and
 IndexedDB secure-resource database's durable store. Its resource key is
-`mail_receipts.v1:<hashed account binding>`. Encryption AAD binds the owner,
+`mail_receipts.v2:<hashed account binding>`. New readers fall back to a retained
+`mail_receipts.v1:` record only when V2 is absent. Upgrading never overwrites V1,
+and an old tab or rolled-back bundle cannot overwrite V2 continuity. Rollback
+shows the legacy saved view; returning to V2 restores its accumulated receipts.
+Reset/delete removes both formats and fences their pending writers. Encryption AAD binds the owner,
 resource key, Reset generation and monotonically increasing revision. Writes
 compare generation/revision atomically and verify decrypted read-back before
 memory migration. The closed snapshot is limited to 2 MiB UTF-8, 10,000
@@ -85,6 +89,14 @@ Current `short_detail` contains source prose, so it is excluded. The optional
 sealed `grs1_` action locator is opaque, conveys no access authority and is bound
 to owner, Mail account and connection generation. It is resolved only during
 an explicit owner-authorized detail read.
+
+V2 stores a closed normalized event ledger alongside canonical groups, stable
+owner/account event references, source availability and opaque sync progress. This
+supports incremental grouping without reconstructing old v1 display groups as
+provider facts. Incomplete legacy groups remain available as archive entries and
+are excluded from exact analytical totals. A source disappearing from Gmail never
+deletes its saved receipt. Verified partial pages and their continuation survive
+interruption; completed progress advances only with its matching encrypted facts.
 
 The existing Receipts list renders the same DTO/projection, filters and
 pagination after an owner reauthenticates and unlocks following reload. Saved

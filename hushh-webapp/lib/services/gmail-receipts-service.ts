@@ -112,6 +112,8 @@ export interface GmailConnectionStatus {
   /** Legacy server receipt rows remain readable while new receipt writes are cut over. */
   receipt_storage_mode?: "legacy_read_only";
   receipt_sync_available?: boolean;
+  /** Owner history has unknown Google-account provenance; never merge into live receipts. */
+  receipt_history_available?: boolean;
   receipt_storage_message?: string;
   google_email?: string | null;
   google_sub?: string | null;
@@ -140,7 +142,10 @@ export interface GmailSyncQueueResponse {
 
 export interface ReceiptListItem {
   id: number;
-  /** Server-sealed routing locator. Never conveys authorization. */
+  /** Stable owner/account-bound event identity, never authorization. */
+  event_id?: string;
+  /** Encrypted normalized grouping feature, never source prose. */
+  grouping_detail_ref?: string;
   durable_source_ref?: string;
   amount_decimal?: string | null;
   /** Stable, account-bound identity used for backend detail selection. */
@@ -229,6 +234,7 @@ export interface ReceiptListResponse {
   per_page: number;
   total: number;
   has_more: boolean;
+  provenance?: { source: "legacy_server_read_only"; account_binding: "unknown" };
 }
 
 export interface GmailLiveReceiptItem extends ReceiptListItem {
@@ -264,6 +270,8 @@ export interface GmailLiveReceiptScanCoverage {
   max_messages: number;
   max_pages: number;
   reached_limit: boolean;
+  window_start?: string | null;
+  window_end?: string | null;
   query_scope: "receipt_signals_all_mail_except_spam_trash";
   rejection_counts: {
     missing_receipt_signal: number;
@@ -280,6 +288,9 @@ export interface GmailLiveReceiptScanCoverage {
 }
 
 export interface GmailLiveReceiptScanResponse {
+  sync_mode?: "bootstrap" | "delta";
+  checkpoint?: string | null;
+  unavailable_events?: string[];
   next_cursor?: string | null;
   items: GmailLiveReceiptItem[];
   page: number;
@@ -473,7 +484,7 @@ function isSourceEvidenceList(value: unknown): value is GmailReceiptSourceEviden
 
 function parseLiveReceiptItem(value: unknown): GmailLiveReceiptItem {
   if (!isRecord(value)) throw invalidLiveReceiptResponse();
-  if ((value.durable_source_ref != null && (typeof value.durable_source_ref !== "string" || !/^grs1_[A-Za-z0-9_-]{39,310}$/.test(value.durable_source_ref))) ||
+  if ((value.event_id != null && (typeof value.event_id !== "string" || !/^[a-f0-9]{64}$/.test(value.event_id))) || (value.durable_source_ref != null && (typeof value.durable_source_ref !== "string" || !/^grs1_[A-Za-z0-9_-]{39,310}$/.test(value.durable_source_ref))) ||
       (value.amount_decimal != null && (typeof value.amount_decimal !== "string" || !/^\d{1,12}(?:\.\d{1,2})?$/.test(value.amount_decimal)))) throw invalidLiveReceiptResponse();
   if (value.source_evidence != null && !isSourceEvidenceList(value.source_evidence)) {
     throw invalidLiveReceiptResponse();
@@ -565,6 +576,11 @@ function parseLiveReceiptScanResponse(
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
     throw invalidLiveReceiptResponse();
   }
+  if ((payload.checkpoint != null && (typeof payload.checkpoint !== "string" || !/^grc1_[A-Za-z0-9_-]{39,8100}$/.test(payload.checkpoint))) ||
+      (payload.sync_mode != null && !["bootstrap", "delta"].includes(String(payload.sync_mode))) ||
+      (payload.unavailable_events != null && (!Array.isArray(payload.unavailable_events) || payload.unavailable_events.length > 6 || !payload.unavailable_events.every(value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value))))) throw invalidLiveReceiptResponse();
+  const rollover = ["bootstrap", "delta"].includes(String(payload.sync_mode)) && payload.page === 50 &&
+    payload.has_more === true && typeof payload.next_cursor === "string" && payload.next_cursor.length > 0 && payload.checkpoint == null;
   const items = payload.items.map(parseLiveReceiptItem);
   const coverage = payload.coverage;
   const rejectionCounts = isRecord(coverage) ? coverage.rejection_counts : null;
@@ -591,8 +607,8 @@ function parseLiveReceiptScanResponse(
     (payload.next_cursor != null && (typeof payload.next_cursor !== "string" || payload.next_cursor.length > 8192)) ||
     typeof coverage.reached_limit !== "boolean" ||
     (coverage.reached_limit &&
-      (expected.page !== coverage.max_pages || payload.has_more)) ||
-    (expected.page === coverage.max_pages && payload.has_more) ||
+      (expected.page !== coverage.max_pages || (payload.has_more && !rollover))) ||
+    (expected.page === coverage.max_pages && payload.has_more && !rollover) ||
     coverage.query_scope !== "receipt_signals_all_mail_except_spam_trash" ||
     coverage.matched_count !== items.length ||
     !isRecord(rejectionCounts) ||
@@ -626,6 +642,9 @@ function parseLiveReceiptScanResponse(
   }
   return {
     items,
+    sync_mode: payload.sync_mode as "bootstrap" | "delta" | undefined,
+    checkpoint: (payload.checkpoint ?? null) as string | null,
+    unavailable_events: (payload.unavailable_events ?? []) as string[],
     page: expected.page,
     per_page: expected.perPage,
     returned_count: items.length,
@@ -777,7 +796,7 @@ export class GmailReceiptsService {
       const value = await privateGoogleStatus('gmail');
       const manage = value.capabilities.manage;
       const connected = value.status === 'connected' && value.capabilities.read;
-      return { configured: true, connected, status: connected ? 'connected' : 'disconnected', connection_state: value.status === 'needs_reauth' || value.status === 'connected' && !connected ? 'needs_reauth' : connected ? 'connected' : 'not_connected', needs_reauth: value.status === 'needs_reauth' || value.status === 'connected' && !connected, scope_csv: '', compose_permission_granted: manage, modify_permission_granted: manage, send_permission_granted: manage, last_sync_status: 'idle', auto_sync_enabled: false, revoked: false, receipt_sync_available: false, receipt_storage_message: 'Receipt sync is not available for your private agent yet.' };
+      return { configured: true, connected, status: connected ? 'connected' : 'disconnected', connection_state: value.status === 'needs_reauth' || value.status === 'connected' && !connected ? 'needs_reauth' : connected ? 'connected' : 'not_connected', needs_reauth: value.status === 'needs_reauth' || value.status === 'connected' && !connected, scope_csv: '', compose_permission_granted: manage, modify_permission_granted: manage, send_permission_granted: manage, last_sync_status: 'idle', auto_sync_enabled: false, revoked: false, receipt_sync_available: false, receipt_history_available: false, receipt_storage_message: 'Receipt sync is not available for your private agent yet.' };
     }
     const cache = CacheService.getInstance();
     const cacheKey = gmailStatusCacheKey(params.userId);
@@ -1177,9 +1196,13 @@ export class GmailReceiptsService {
     userId: string;
     page?: number;
     cursor?: string | null;
+    checkpoint?: string | null;
+    incremental?: boolean;
+    accountKey?: string;
     perPage?: number;
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptScanResponse> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const page = Math.max(1, Math.min(50, Math.trunc(params.page ?? 1)));
     const perPage = Math.max(
       1,
@@ -1203,6 +1226,9 @@ export class GmailReceiptsService {
             user_id: params.userId,
             page,
             per_page: perPage,
+            ...(params.accountKey ? { account_key: params.accountKey } : {}),
+            ...(params.incremental ? { incremental: true } : {}),
+            ...(params.checkpoint ? { checkpoint: params.checkpoint } : {}),
             ...(params.cursor ? { cursor: params.cursor } : {}),
           }),
         },
@@ -1236,6 +1262,7 @@ export class GmailReceiptsService {
     sourceId: string;
     signal?: AbortSignal;
   }): Promise<GmailLiveReceiptDetailResponse> {
+    if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt details');
     const sourceId = params.sourceId.trim();
     if (!sourceId || sourceId.length > 340) {
       throw new Error("The selected Mail receipt is not available.");
@@ -1274,6 +1301,7 @@ export class GmailReceiptsService {
     userId: string;
     page?: number;
     perPage?: number;
+    signal?: AbortSignal;
   }): Promise<ReceiptListResponse> {
     if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
     const query = new URLSearchParams({
@@ -1285,6 +1313,7 @@ export class GmailReceiptsService {
       {
         method: "GET",
         headers: buildSealedHeaders(params.idToken, params.vaultOwnerToken),
+        signal: params.signal,
       },
     );
 
@@ -1301,6 +1330,18 @@ export class GmailReceiptsService {
       result: "success",
     });
     return (await response.json()) as ReceiptListResponse;
+  }
+
+  /** The existing owner-only archive endpoint; it grants no live account identity. */
+  static async getSavedHistory(params: {
+    idToken: string; vaultOwnerToken: string; userId: string; page: number; perPage: number; signal: AbortSignal;
+  }): Promise<ReceiptListResponse> {
+    const page = await this.listReceipts(params);
+    if (page.provenance?.source !== "legacy_server_read_only" || page.provenance.account_binding !== "unknown" || Object.keys(page.provenance).length !== 2 ||
+        page.page !== params.page || page.per_page !== params.perPage || !Array.isArray(page.items) || page.items.length > params.perPage ||
+        !Number.isSafeInteger(page.total) || page.total < page.items.length || typeof page.has_more !== "boolean")
+      throw new Error("Saved receipt history could not be verified.");
+    return page;
   }
 
   static async listNudges(params: {

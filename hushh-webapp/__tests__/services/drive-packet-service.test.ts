@@ -4,6 +4,7 @@ vi.mock("@/lib/services/api-service", () => ({ ApiService: {
   apiFetch: api.fetch, getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
 } }));
 import { DrivePacketService, parseDrivePacket, parseDriveCollectionStatus } from "@/lib/services/drive-packet-service";
+import { DriveGroupService, parseDriveGroupPage } from "@/lib/services/drive-group-service";
 const id = "11111111-1111-4111-8111-111111111111";
 const packet = { packetId: id, version: 2, listingRevision: 3, title: "Schwab statements",
   description: "Verified statements", state: "ready", coverageSummary: "September 2026", gaps: [],
@@ -11,6 +12,27 @@ const packet = { packetId: id, version: 2, listingRevision: 3, title: "Schwab st
   importance: 100, suggestedPriceCents: 1234, priceCents: 1234, listingEnabled: false,
   canRequest: false, canList: true };
 beforeEach(() => vi.resetAllMocks());
+
+describe("owner data packet file pages", () => {
+  const file = { ref: "a".repeat(64), title: "Synthetic file", viewUrl: "https://drive.google.com/file/d/synthetic-file/view", day: "2026-10-22" };
+  it("rejects unsafe provider links and nonadvancing pages", () => {
+    expect(parseDriveGroupPage({ items: [file], nextCursor: null, total: 1 }, 0).items[0].title).toBe(file.title);
+    for (const viewUrl of ["javascript:alert(1)", "https://drive.google.com.evil.test/file/d/synthetic-file/view", "https://evil.test/"]) {
+      expect(() => parseDriveGroupPage({ items: [{ ...file, viewUrl }], nextCursor: null, total: 1 }, 0)).toThrow();
+    }
+    expect(() => parseDriveGroupPage({ items: [file], nextCursor: 0, total: 2 }, 0)).toThrow();
+  });
+  it("uses no-store and drops response bytes after owner retirement", async () => {
+    let current = true;
+    const guard = () => { if (!current) throw new Error("session_changed"); };
+    api.fetch.mockResolvedValue({ ok: true, text: async () => { current = false; return JSON.stringify({ items: [file], nextCursor: null, total: 1 }); } });
+    await expect(DriveGroupService.files("owner", "kept", 0, guard)).rejects.toThrow("session_changed");
+    expect(api.fetch.mock.calls[0][1].cache).toBe("no-store");
+    api.fetch.mockClear();
+    await expect(DriveGroupService.setProcessing("owner", true, guard)).rejects.toThrow("session_changed");
+    expect(api.fetch).not.toHaveBeenCalled();
+  });
+});
 describe("private packet wire contract", () => {
   it("binds Allow to the exact version, revision, disclosure and cent price", async () => {
     api.fetch.mockResolvedValue(Response.json({}));

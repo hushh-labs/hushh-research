@@ -44,7 +44,7 @@
     {
       "action_id": "route.profile_receipts",
       "label": "Open Receipts Page",
-      "meaning": "Opens Mail from any investor surface and restores its workspace. Receipt scans start only after an explicit Start sync, Load older receipts or Try again action.",
+      "meaning": "Opens Mail and restores saved receipts. Eligible connected and unlocked accounts check newer receipts automatically; unavailable processing has an explanation and settings action.",
       "aliases": ["open receipts", "open gmail receipts"],
       "search_keywords": ["receipts", "gmail receipts"],
       "reachability": {
@@ -208,6 +208,85 @@
         ]
       },
       "speaker_persona": "nav"
+    },
+    {
+      "action_id": "profile.gmail.receipt_sync_details",
+      "label": "Receipt update details",
+      "meaning": "Explains actual receipt processing availability. Got it dismisses the explanation without changing connection, hosting or consent.",
+      "aliases": [],
+      "search_keywords": [],
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Mail receipts workspace is active"
+        ]
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Local view or restoration handler; no provider or consent change.",
+        "intended_handler": "ReceiptSyncToolbar"
+      },
+      "control_ids": [
+        "receipt_sync_details",
+        "receipt_sync_details_ack"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/gmail/receipt-sync-toolbar.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.gmail.restore_saved_receipts",
+      "label": "Open saved receipts again",
+      "meaning": "Retries bounded encrypted device restoration with current owner and vault authority. It does not enable an unavailable provider scan.",
+      "aliases": [],
+      "search_keywords": [],
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Mail receipts workspace is active"
+        ]
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Local view or restoration handler; no provider or consent change.",
+        "intended_handler": "retryReceiptRestore"
+      },
+      "control_ids": [
+        "restore_saved_receipts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/gmail/receipt-sync-toolbar.tsx"
+      ],
+      "speaker_persona": "one"
     }
   ],
   "search": {}

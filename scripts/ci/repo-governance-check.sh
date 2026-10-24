@@ -7,6 +7,13 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Fail fast on source ownership and modularity before expensive controller/docs checks.
+python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
+python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py --self-test
+python3 .agents/skills/repo-context/scripts/architecture_fitness.py --self-test
+python3 .agents/skills/repo-context/scripts/architecture_fitness.py --baseline docs/reference/quality/architecture-fitness-baseline.json --limit 20
+
 python3 scripts/ci/verify-pr-governance-sections.py
 python3 scripts/ci/verify-protected-pipeline-edits.py
 python3 scripts/ci/verify-protected-pipeline-edits.py --self-test
@@ -15,6 +22,7 @@ python3 scripts/ci/verify-protected-behavior-tests.py --self-test
 python3 scripts/ci/live-memory-source-gate.py
 python3 scripts/ci/live-memory-source-gate.py --self-test
 python3 scripts/ci/test_github_security_authority.py
+python3 scripts/ci/test_github_security_receipt.py
 python3 scripts/ci/verify-pr-base-policy.py --self-test
 python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
@@ -23,6 +31,7 @@ python3 scripts/ci/test_verify_deployment_environment_governance.py
 python3 scripts/ci/test_release_cadence.py
 python3 scripts/ci/test_release_cadence_monitor.py
 bash scripts/ci/verify-protocol-ci-parity.sh --self-test
+python3 scripts/ci/test_protocol_manifest_transport.py
 python3 scripts/ci/test_apply_governance_teams.py
 python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_cloudrun_retention.py
@@ -63,23 +72,18 @@ python3 scripts/ci/test_ci_cache_scopes.py
 python3 scripts/ops/generate_runtime_topology_index.py --check
 python3 scripts/licenses/verify_apache_surface.py
 python3 scripts/ci/verify-runtime-config-contract.py
-python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
-python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py --self-test
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
 python3 .agents/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --check
-python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
-python3 .agents/skills/repo-context/scripts/architecture_fitness.py --self-test
-python3 .agents/skills/repo-context/scripts/architecture_fitness.py --baseline docs/reference/quality/architecture-fitness-baseline.json --limit 20
 python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py
 python3 .agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py
 python3 .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
-python3 .agents/adapters/claude/codex-bridge/scripts/route.py --check
-python3 .agents/adapters/claude/codex-bridge/scripts/test_route_hook.py
+python3 .agents/routing/scripts/route.py --check
+python3 .agents/routing/scripts/test_route_hook.py
 # Fails when a required NEXT_PUBLIC_* credential is missing from a build lane.
 # Offline and fast. The origin-restriction half of this skill needs gcloud and
 # stays out of CI on purpose — run it from the skill before a release.
-bash .claude/skills/client-env-parity/check.sh
+bash .agents/skills/client-env-parity/check.sh
 ./bin/hushh db verify-release-contract
 ./bin/hushh db report-prod-posture
 

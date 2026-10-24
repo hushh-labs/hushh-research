@@ -1,11 +1,42 @@
 # Private agent: normal release transition
 
-**Status:** founder-approved MVP scope, refreshed 2026-10-22 UTC. Continue on the
-infrastructure branch; preserve nine peer edits and the active ADK tree.
-Local merge `0464d0235c` integrates main `e4a7f78935` without replacing its
-Calendar, Profile, check-in or account behavior. ADK `914e7c044c` remains preserved.
-The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
-owns exact source, serving and installed-owner evidence.
+**Current delivery — 23 October 2026:**
+[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) and
+[PR #8391](https://github.com/hushh-labs/hushh-research/pull/8391) landed.
+The newer [PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395)
+landed as `7b558f4881` after all 26 exact-head CI jobs passed. Both dev services
+now serve accepted `713981942c`, verified through separate backend and frontend
+acceptance receipts. UAT accepted older `4868571487` in run `40027712049`
+(38m08s); run `40029322798` selected corrected `713981942c` and safely rolled
+back. Its email readiness returned HTTP 200 in 19.2 seconds after the operator’s
+15-second deadline. The bounded read-only verifier repair is local; strict
+capability admission remains.
+Each run's workflow head is separate from its resolved application
+SHA. Serving revisions, receipt provenance and 100% traffic were read back with
+corporate ADC. The expired snapshot blocker is resolved. The
+[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns the
+exact revision matrix and remaining journey boundaries.
+
+PR #8395 supplies the provider-correct Chat picker, owner-safe foreground wake,
+bounded Puppy model-list refresh and timeout correction. Owner dev acceptance
+proved preserved AI selection through Back/re-entry, Finish returning to Hosting,
+the cloud-removal review and a synthetic One answer. It did not install a new pod
+image or qualify fresh hidden-tab Puppy inference.
+
+Peer main changes through `9af321d2a9`, including Profile/calendar polish and UAT
+parallelism, are integrated normally without whole-file replacement. PR #8398
+corrects the strict managed-provider receipt consumer to match the actual build
+graph; live UAT capture passed. Duplicate PR #8399 was closed and its CI cancelled.
+Checkpoint `050687dac1` exactly preserved main's committed tree; subsequent
+local source fixes remain separate until exact validation. Nine peer
+paths and the active ADK tree remain preserved. No production deployment, stable
+publication, owner installation or destructive cloud cleanup is implied.
+
+The current application correction includes Hosting return/Finish, explicit
+verification of admitted cloud AI, truthful cleanup progress, reviewed cloud-only
+removal and recorded-home inspection. Dev-only migration 972 passed schema gates;
+UAT graduation and real provider removal remain separate. Missing schema keeps
+removal unavailable. Earlier PR #8365/8377 receipts remain historical evidence.
 
 One and Browser share the owner's image, container, non-root identity and
 lifecycle. GCP remains Cloud Run with Chromium's sandbox enabled; Azure remains
@@ -20,32 +51,39 @@ rehearsal or a new capacity study. Preserve those designs and keep unqualified
 execution unavailable. This supersedes the broader acceptance gate below wherever
 it would delay the MVP. Production remains outside this authorization.
 
-- Dev application `91b987b017` passed exact-SHA CI and governed rollout. Both
-  services serve that source at 100%; 69 migration checksums and the actual
-  private-review constraint definitions match. The 971/replay repair is deployed.
-- Azure's normal owner approval installed Dev 28, digest `8b846022…68ac07`.
-  Fresh Browser consent and active takeover passed; early takeover then exposed
-  a startup/resize race. Its local repair requires a new qualified image and
-  exact approval. Installed Browser acceptance is still incomplete.
-- GCP legacy inventory, storage protection and old-domain access are repaired.
-  All 39 objects and the original keys, image and economy configuration are
-  preserved. The local Files offer correction recognizes only the already
-  approved personal Gemini bridge; native organization AI remains restricted.
-- The scoped UAT backend workflow now has a locally verified exact-SHA
-  dev/backend acceptance guard, including interrupted recovery. Its 78 nearest
-  checks pass; it has not been dispatched or merged to main.
-- Additional selected-information producer work is preserved outside this
-  candidate. Existing committed ports remain disabled unless their authority and
-  qualification prerequisites pass; no incomplete information-sharing UI ships.
-- Retained Shared erasure remains fenced: exact-session cancellation returns
-  412. The final isolated DELETE-only normalization hypothesis also failed.
-  Neither failed preconditions nor process exit establish provider termination.
+The current correction has completed local verification, exact-head validation,
+Admin landing and dev acceptance. Finish the bounded UAT-readiness correction
+and promote the accepted candidate, then read back actual application SHA and
+traffic. The retained accepted `4868571487` cannot certify PR #8395; failed
+`713981942c` promotion is not acceptance.
+A workflow head alone is insufficient.
+The source recovery controller observes one exact execution; provider cancellation
+cannot qualify from a later worker receipt, and uncertain work is never replayed.
 
-Freeze the existing Browser control repairs, Shared-continuity safeguards and
-normal CI integration. Run one core mirror and exact-SHA hosted validation, then
-land the reviewed MVP through Admin SOP. Validate the landed SHA, establish its
-governed dev receipt and use the normal UAT path. Do not build or install a new pod
-image merely to merge disabled scaffolding.
+The protected security consumer runs immutable main code with exact-attempt
+binding. Initial requested events avoid repeated trigger starts; verified pending
+concurrency states are supported. Governed reruns still require fresh clearance.
+The repository-wide credential is retired; original-token revocation remains
+unverified. Dependency advisories retain their separate tracked mitigation.
+Publishing an application never installs a pod image or deploys the standalone
+production mail service. The
+[canonical task](https://github.com/hushh-labs/hushh-research/issues/5507) tracks
+current delivery without replacing the readiness memo's evidence.
+
+Same-login re-registration is staged separately. Non-production currently shares
+production Firebase identity authority, whose destructive mutation guard must
+remain enforced. Shared Firebase identifiers may remain; same-UID re-registration
+requires environment-scoped account generations across sessions, grants, jobs
+and database writes. Isolated identity projects remain an alternative. Qualify
+that lifecycle before advertising re-registration. Never reattach owners
+by email, clear full-account tombstones or use account reset to revive deletion.
+
+Azure installed Dev28; its startup/resize repair still needs a new qualified image
+and exact owner approval. GCP inventory, storage protection and domain access have
+recorded repair evidence. Retained Shared erasure remains fenced after provider
+precondition failures; neither a worker exit nor a failed cancellation proves
+provider termination. Installed Browser and broad lifecycle acceptance remain
+separate from this application correction.
 
 ### MVP acceptance
 
@@ -91,33 +129,20 @@ The [repository organization plan](../repository-organization-plan.md) adds the
 requested canonical `.agents/` migration, bounded folder consolidation and linked
 documentation cleanup. It preserves this plan's implementation and release gates;
 neither a cleaner tree nor passing documentation checks proves pod readiness.
-The local consolidation removes copied Codex skill discovery, moves settings,
-routing cases and pinned imports into `.agents`, and checks exact native links.
+The consolidation removed copied Codex skill discovery, moved settings,
+routing cases and pinned imports into `.agents`, and added checks for exact native links.
 Peer MCP definitions and the active ADK worktree are preserved. Existing owner
 resources, product agents and release authority are unchanged.
 
 ## 1. Finish and freeze the source
 
-- Main through `904fbd215c` is integrated locally at `a926dfff61`; dev remains
-  `91b987b017`. Account exports retain bounded server
-  cursors and browser Blob assembly; retired owners cannot keep Feed streams
-  alive. These are hub/frontend changes, not new pod image provenance. The
-  earlier capacity-recovery changes
-  preserve manual authorization and durable predecessor/successor reconciliation;
-  they change no pod executable or dependency. The union preserves main’s
-  Profile/mobile, consent, deletion, optional email permission, PLG, Calendar and migrations 365–370 alongside
-  pod authority. New content routes retain Shared-only admission; signed PLG
-  operational exports retain their separate bounds and disabled defaults. The
-  managed Azure provider update keeps its required admission aggregate. One Vertex
-  probe records its actual result before cleanup; UAT evaluates both providers,
-  while other environments retain predeployment Vertex refusal. Messaging keeps
-  main's photo, contact, voice and touch behavior alongside owner-bound drafts,
-  pinned attachment authority and late-result fencing.
-- Frozen ADK `914e7c044c` is integrated by `47bc0245d7`. Its native Profile
-  preparation and visit fencing retain lazy plugin registration, current public-
-  profile forms, pod AI selection and owner controls. Regenerate projections
-  from this committed ancestry. Retain the earlier integration receipts as
-  history; neither old CI nor component probes qualify the combined candidate.
+- Main through `6a84c73e18` was inherited without whole-file replacement; the
+  final source passed exact-head CI and landed as `7671c6ca6d`. Committed ADK
+  lineage `914e7c044c` remains preserved. The active ADK tree at `48140fcd70`
+  retains its unique work and is not imported wholesale into this correction.
+- Preserve main's Profile/mobile, identity, consent, commerce, deletion and migration
+  behavior alongside private-agent authority. Regenerate from reconciled authored
+  sources; previous source stamps do not verify the next candidate.
 - Keep unrelated PDF, native dependency and tooling edits outside the release.
   Freeze one dependency-complete revision after these seams are resolved.
 - Run affected contract checks while implementing. Run the local core mirror once
@@ -126,7 +151,7 @@ resources, product agents and release authority are unchanged.
 
 ## 2. Consolidate the existing release path
 
-Local cleanup removes the two duplicate pod-only scheduled workflows and standardizes
+The completed cleanup removed the two duplicate pod-only scheduled workflows and standardized
 13 display names. Normal Protocol CI retains both core suites. See the
 [workflow catalog and timing review](../../reference/operations/ci.md#workflow-catalog-and-naming).
 Core gate names, deployment authority and capacity tick titles are unchanged.
@@ -150,14 +175,13 @@ Thin environment entrypoints may remain for GitHub permissions and dispatch
 compatibility. They must call the common implementation rather than carry their own
 copy. Delete obsolete references, selectors, tests and runbook commands together.
 Normal application deployment and owner-pod installation remain separate operations.
-The local predecessor-acceptance helper requires a healthy dev receipt for the
+The existing predecessor-acceptance helper requires a healthy dev receipt for the
 exact application SHA and resolved services before UAT; production requires UAT
 acceptance with its dev chain for both source builds and image promotion. Receipts
 bind successful main-owned workflow attempts, immutable artifact digests, final
 serving revisions, schema checks and existing health classifications. Advisory
 findings retain their existing policy. A landed merge SHA needs its own dev
-acceptance; a branch receipt cannot substitute. This operations change is prepared
-locally and takes effect only after its reviewed main landing.
+acceptance; a branch receipt cannot substitute. These acceptance guards are on main; verify their actual receipts at promotion.
 Receipt discovery retains successful earlier attempts when a later rerun fails;
 every selected artifact still requires its own successful attempt and exact
 application SHA, services, digest and serving evidence.
@@ -182,16 +206,19 @@ A shorter YAML file or a matching elapsed time is not a verification result.
 | New user at current release | Complete onboarding without a catch-up changelog | New/unknown account dates cannot establish the returning-user audience |
 
 Use the existing choice and continuity migrations (402/404/405), their owning
-manifest and schema contracts. Verified ADC readback on 2026-10-20 found 955/958
-already applied on dev with unchanged source checksums; 405 is unapplied in dev,
-UAT and production. UAT has a ledger but no hosting-choice columns; production
-has neither the migration ledger nor pod registry. Inspect again before rollout.
+manifest and schema contracts. Historical ADC readback on 2026-10-20 found 955/958
+already applied on dev with unchanged source checksums; 405 was unapplied in dev,
+UAT and production. UAT had a ledger but no hosting-choice columns; production
+had neither the migration ledger nor pod registry. Those are historical baselines,
+not current cohort proofs. The 23 October dev and UAT rollouts passed their selected
+schema contracts; consult current guarded rollout receipts before any later migration.
 
-The local 405 correction excludes retained cloud and pod-signing fields, matching
+The 405 source correction excludes retained cloud and pod-signing fields, matching
 runtime eligibility. New dev-only 965 repairs only incompatible **inferred**
 Shared choices whose choice timestamp still matches the legacy receipt. It keeps
 the receipt and preserves explicit later choices, BYOC assignments and pending
-setups. Sixty focused PostgreSQL/manifest checks pass. No live migration ran.
+setups. Sixty focused PostgreSQL/manifest checks passed; that fixture evidence
+alone never established a live cohort migration.
 Never rewrite the applied 958 migration or infer that ledger readback proves
 every owner's placement.
 
@@ -267,8 +294,7 @@ server-side and verify Shared, unplaced, pending and admitted pod cases.
 Local Puppy and Scheduled tasks entry points now check canonical placement before
 requesting private execution. Browser rediscovery preserves known task cards and
 offers a bounded reconnect action after a requested task; an ordinary Shared visit
-does not display a failed private discovery request. These focused UI checks pass,
-but they are not deployed. The unavailable Browser tool still needs its attempted-
+does not display a failed private discovery request. These controls landed with the MVP; exact installed-pod acceptance remains separate. The unavailable Browser tool still needs its attempted-
 action explanation through production capability composition.
 
 ## 5. Complete built-in Browser independently on GCP and Azure

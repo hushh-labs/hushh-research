@@ -192,10 +192,8 @@ import {
   CardNetworkMark,
   cardNetworkLabel,
 } from "@/components/wallet/card-network-mark";
-import {
-  ModelPreferenceService,
-  type ModelPreference,
-} from "@/lib/services/model-preference-service";
+import { useOneModelPreference } from "@/lib/agent/use-one-model-preference";
+import { useChatAgentWake } from "@/lib/agent/use-chat-agent-wake";
 import {
   SpecialistConsentActionsCard,
   SpecialistConsentRequiredCard,
@@ -301,6 +299,7 @@ import {
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
   clearAgentChatHistoryCache,
+  isAgentChatHistorySnapshotCurrent,
 } from "@/lib/agent/agent-chat-history-cache";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
@@ -2543,6 +2542,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // on the owner's machine.
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
+  useChatAgentWake(user?.uid ?? null, isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired);
   // Puppy One is mounted on FIRST use and hidden thereafter, never unmounted.
   // Unmounting it destroyed the whole on-device conversation and its Hermes
   // session on every glance at One, which is exactly what the comment beside
@@ -2686,7 +2686,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const generatedDriveSearchDraftRef = useRef(false);
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
-  const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
+  const { modelPreference, modelPreferenceSaving, handleOneModelChange } = useOneModelPreference(user, isCanonicalChatRoute && !isPuppySurface && isVaultUnlocked);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   const [queuedDeliveryUnconfirmed, setQueuedDeliveryUnconfirmed] = useState(false);
   const [queuedDeliveryChecking, setQueuedDeliveryChecking] = useState(false);
@@ -3417,16 +3417,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const canPickOneModel = Boolean(
     modelPreference && modelPreference.choices.length > 1,
   );
-  const handleOneModelChange = (nextModel: string) => {
-    if (!modelPreference || !user || isPuppySurface) return;
-    const previous = modelPreference;
-    setModelPreference({ ...previous, effective_model: nextModel });
-    void (async () => {
-      try {
-        setModelPreference(await ModelPreferenceService.set(await user.getIdToken(), nextModel));
-      } catch { setModelPreference(previous); }
-    })();
-  };
   const statusText = useMemo(() => {
     // Every line below narrates One's turn, so in Puppy One a bare "Thinking"
     // or "Streaming" would report on an agent the reader is not looking at:
@@ -3650,26 +3640,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       void cancelled;
     };
   }, [user?.uid, vaultKey, getVaultOwnerToken]);
-
-  useEffect(() => {
-    if (!user) {
-      setModelPreference(null);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const preference = await ModelPreferenceService.get(await user.getIdToken());
-        if (!cancelled) setModelPreference(preference);
-      } catch {
-        // A picker that cannot load is non-blocking: the turn still runs on
-        // whatever the backend resolves.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -4951,13 +4921,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const restoreEpoch = historyRestoreEpochRef.current;
     const historyOwner = snapshotValidatedAuthSessionOwner();
     const historyVaultEpoch = snapshotVaultSessionEpoch();
+    const historyChatEpoch = chatSessionRef.current.value;
     let cancelled = false;
     const cached = peekAgentChatHistoryCache(user.uid);
+    const authorityCurrent = () => !cancelled && Boolean(historyOwner) &&
+      historyOwner?.userId === user.uid && workspaceOwnerIdRef.current === user.uid &&
+      isValidatedAuthSessionOwnerCurrent(historyOwner!) && isVaultSessionEpochCurrent(historyVaultEpoch);
+    const restoreCurrent = () => authorityCurrent() && restoreEpoch === historyRestoreEpochRef.current &&
+      chatSessionRef.current.isCurrent(historyChatEpoch);
 
-    const applySnapshot = async (snapshot: NonNullable<typeof cached>) => {
-      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current || !historyOwner || historyOwner.userId !== user.uid ||
-          !isValidatedAuthSessionOwnerCurrent(historyOwner) || !isVaultSessionEpochCurrent(historyVaultEpoch)) return;
-      historyListOwner.current = { auth: historyOwner, epoch: historyVaultEpoch };
+    const applySnapshot = async (snapshot: NonNullable<typeof cached>, refresh = false) => {
+      const current = () => restoreCurrent() && isAgentChatHistorySnapshotCurrent(user.uid, snapshot);
+      if (!current()) return;
+      historyListOwner.current = { auth: historyOwner!, epoch: historyVaultEpoch };
       setConversations(snapshot.conversations);
       const selectedId = selectedInAppChat(user.uid);
       // A first turn the person left may not be in a cached list yet; its
@@ -4978,14 +4954,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const reattaching = isAgentTurnWatched(user.uid, selectedId);
       const loadSelected = () => loadAgentChatConversationHistory({
         userId: user.uid, conversationId: selectedId, vaultOwnerToken, vaultKey: vaultKeyRef.current ?? "",
-        force: reattaching,
+        force: refresh,
       });
-      let stored = !reattaching && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
+      let stored = !refresh && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
         ? snapshot.latestMessages
         : await loadSelected();
+      if (!current()) return;
       // It may have settled while that read was in flight; read the answer.
-      if (reattaching && !isAgentTurnWatched(user.uid, selectedId)) stored = await loadSelected();
-      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
+      if (refresh && reattaching && !isAgentTurnWatched(user.uid, selectedId)) stored = await loadSelected();
+      if (!current()) return;
       const restored = storedMessagesToAgentMessages(stored);
       const stillRunning = isAgentTurnWatched(user.uid, selectedId);
       updateConversationId(selectedId, false);
@@ -5014,8 +4991,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setHasResponseOutput(false);
         setIsStreaming(true);
       } else {
-        void restorePendingMcpReviews(selectedId, vaultOwnerToken, () =>
-          !cancelled && restoreEpoch === historyRestoreEpochRef.current).catch(() => undefined);
+        void restorePendingMcpReviews(selectedId, vaultOwnerToken, current).catch(() => undefined);
       }
     };
 
@@ -5027,26 +5003,42 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
       historyLoadKeyRef.current = loadKey;
-      setIsLoadingHistory(true);
+      if (!restoreCurrent()) return;
+      setIsLoadingHistory(!cached);
       setSlotHistoryFailed(false);
+      let retainedCache = false;
       try {
+        if (cached) {
+          const needsRefresh = !cached.isFresh || isAgentTurnWatched(user.uid, selectedInAppChat(user.uid) || "");
+          await applySnapshot(cached);
+          if (!restoreCurrent()) return;
+          if (!isAgentChatHistorySnapshotCurrent(user.uid, cached)) throw new Error("Chat history was invalidated.");
+          retainedCache = true;
+          setHistoryReadyForSlot(true);
+          setIsLoadingHistory(false);
+          // A fresh settled thread needs no network request. Watched turns
+          // remain visibly pending while their existing recovery reads settle.
+          if (!needsRefresh) return;
+        }
         const next = await warmAgentChatHistoryCache({
           userId: user.uid,
           vaultOwnerToken,
           vaultKey: vaultKeyRef.current ?? "",
-          force: cached ? !cached.isFresh : false,
+          force: Boolean(cached),
         });
-        await applySnapshot(next);
-        if (!cancelled) setHistoryReadyForSlot(true);
+        // List warming may finish before its transcript fetch. Join that
+        // service-owned flight so background reconciliation publishes new text.
+        await applySnapshot(next, Boolean(cached));
+        if (restoreCurrent() && isAgentChatHistorySnapshotCurrent(user.uid, next)) setHistoryReadyForSlot(true);
       } catch {
-        if (!cancelled && restoreEpoch === historyRestoreEpochRef.current) {
+        if (restoreCurrent() && !retainedCache) {
           historyLoadKeyRef.current = null;
           setSlotHistoryFailed(true);
         }
       } finally {
         // A user turn can supersede the snapshot without cancelling this read.
         // Its completion must still release the history-loading guard.
-        if (!cancelled) {
+        if (authorityCurrent()) {
           setIsLoadingHistory(false);
         }
       }
@@ -5502,6 +5494,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       try {
         await deletion;
         if (!stillCurrent()) return;
+        // Fence any pre-delete list/transcript read before warming again.
+        clearAgentChatHistoryCache(owner.userId);
         if (conversationIdRef.current === targetConversationId) {
           handleHistoryDrawerOpenChange(false);
           handleCreateNewChat();
@@ -9788,6 +9782,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {canPickOneModel && modelPreference && !isPuppySurface && hasInlineModelPicker ? (
                 <Select
                   value={modelPreference.effective_model}
+                  disabled={modelPreferenceSaving}
                   onValueChange={handleOneModelChange}
                 >
                   <SelectTrigger
@@ -9795,13 +9790,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     // Names the agent it configures, so it still says which
                     // one when it is read out of context.
                     aria-label="One's model"
+                    aria-busy={modelPreferenceSaving || undefined}
                     title={`Running ${modelPreference.effective_model}`}
                     className="agent-chat-model-picker h-11 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
                   >
-                    {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
-                        Gemini, so the shared word is the one thing a narrow
-                        header cannot afford. The full label stays in the menu
-                        and in the tooltip. */}
+                    {/* The verified catalog owns labels; a short Gemini label
+                        saves space without assuming the provider of other rows. */}
                     <Cpu aria-hidden="true" className="agent-chat-model-icon size-4 shrink-0" />
                     <span className="truncate">
                       {(
@@ -9895,24 +9889,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 px-[var(--agent-chat-header-inline-gutter)] py-1 text-xs leading-5 text-muted-foreground">
-            <p>One: cloud · Puppy: your linked computer</p>
-            {!isPuppySurface && hasChatAccess ? (
-              <button type="button" aria-label="What One can access" onClick={event => {
-                historyDrawerTriggerRef.current = event.currentTarget;
-                openHistoryConnectors();
-              }}
-                className="min-h-11 text-left font-medium text-foreground underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                Access
-              </button>
-            ) : null}
-          </div>
-
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
             nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
             modelControl={canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
-              <Select value={modelPreference.effective_model} onValueChange={handleOneModelChange}>
-                <SelectTrigger aria-label="One's model" className="h-11 w-full">
+              <Select value={modelPreference.effective_model} disabled={modelPreferenceSaving} onValueChange={handleOneModelChange}>
+                <SelectTrigger aria-label="One's model" aria-busy={modelPreferenceSaving || undefined} className="h-11 w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper" className="z-[560]">

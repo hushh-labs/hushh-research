@@ -30,6 +30,10 @@ tests/test_drive_uat_registry_provisioning.py
 tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
+tests/services/test_drive_groups.py
+tests/services/test_drive_group_inventory.py
+tests/services/test_drive_group_index_job.py
+tests/services/test_drive_group_index_postgres.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
@@ -54,6 +58,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_runtime_config_retention.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
 tests/services/test_drive_live_reader.py
 tests/services/test_drive_candidate_selection.py
@@ -66,6 +71,8 @@ tests/services/test_drive_live_formats.py
 # Calendar writes: a reschedule patches only what the owner reviewed (never a
 # full-replacement PUT), and the review counts the event's real guests.
 tests/services/test_google_calendar_service.py
+tests/services/test_google_calendar_event_type.py
+tests/services/test_google_calendar_profile_photos.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
 tests/agents/test_calendar_agent_tools.py
@@ -95,6 +102,8 @@ tests/services/test_drive_request_package_service.py
 # Managed UAT text: primary/fallback transport, current owner authority,
 # immutable administrator policy and actual foreground/background ADK entrypoints.
 tests/services/test_azure_adk.py
+tests/services/test_one_azure_chat_contract.py
+tests/services/test_one_search_answer_contract.py
 tests/test_model_preference_resolution.py
 tests/test_one_adk_text_runtime.py
 tests/services/test_drive_bounded_search_unit.py
@@ -152,6 +161,8 @@ tests/test_mcp_log_redaction.py
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_developer_oauth.py
+tests/test_mcp_oauth_registration.py
 tests/test_developer_commerce_contracts.py
 # Consumer-paid scope admission and accounting: real isolated PostgreSQL,
 # signed provider receipts, and OIDC-only reconciliation through rollback.
@@ -227,6 +238,7 @@ tests/services/test_connections_service.py
 tests/services/test_push_notifications.py
 tests/services/test_system_push_delivery.py
 tests/test_fcm_messages.py
+tests/test_fcm_sms_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_agent_manifests.py
@@ -250,6 +262,8 @@ tests/test_cloudbuild_step_arg_limit.py
 tests/test_one_wallet_card_deploy_parity.py
 tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
+tests/test_uat_text_recovery_controller.py
+tests/test_uat_deploy_parallelism.py
 tests/test_feed_stream_capacity_contract.py
 tests/test_verify_env_secrets_parity.py
 tests/test_deploy_sha_gate_payload_size.py
@@ -385,6 +399,7 @@ tests/test_market_advisory_lock_connection.py
 # Keep the route machine code, Firebase classification, durable cleanup intent,
 # and migration-level resurrection guard in every backend and merge-queue run.
 tests/test_account_routes.py
+tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
 tests/services/test_account_service_export.py
@@ -392,7 +407,9 @@ tests/test_account_legal_acceptance.py
 tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
 tests/services/test_account_deletion_lifecycle_service.py
+tests/services/test_account_deletion_provider_cleanup.py
 tests/test_account_deletion_tombstone_migration.py
+tests/test_account_erasure_lock_timeout_postgres.py
 tests/test_account_deletion_release_workflow.py
 tests/test_cloud_run_image_resolution.py
 # Parallel digest-pinned web image build on every deploy lane, and promotion
@@ -534,6 +551,7 @@ tests/scripts/test_eval_pkm_structure_agent.py
 tests/scripts/test_eval_pkm_latency.py
 tests/scripts/test_eval_kai_adk_synthetic.py
 tests/scripts/test_measure_agent_chat_latency.py
+tests/scripts/test_reviewer_chat_acceptance.py
 tests/test_evalsets_are_valid.py
 tests/test_conformance_harness.py
 tests/test_nav_conformance.py
@@ -597,6 +615,11 @@ tests/test_nav_a2a_agent.py
 tests/test_one_adk_agent_tree.py
 # Finance market tools: providers receive the ticker only, never owner identity.
 tests/test_one_finance_market_tools.py
+
+# Market price sessions, cache reopening and owner validation before runtime ports.
+tests/test_market_refresh_policy.py
+tests/test_market_runtime_port.py
+tests/test_kai_market_session_cache.py
 tests/test_a2a_delegation_scopes.py
 tests/test_connections_a2a.py
 tests/test_specialist_availability.py
@@ -1070,6 +1093,7 @@ tests/test_azure_setup_authority_postgres.py
 tests/test_azure_vm_upgrade_postgres.py
 tests/test_azure_resource_teardown.py
 tests/test_azure_cleanup_lifecycle.py
+tests/test_personal_agent_cloud_removal_postgres.py
 tests/test_azure_resource_teardown_postgres.py
 tests/test_gcp_runtime_quota_grant_postgres.py
 tests/test_azure_partial_setup_erasure_postgres.py
@@ -1320,6 +1344,8 @@ tests/test_answer_center_surface_integration.py
 
 tests/test_world_model.py
 tests/test_world_model_azure.py
+tests/test_tavily_search.py
+tests/test_world_model_checkpoint_retention.py
 tests/test_world_model_story.py
 tests/test_world_model_contracts.py
 
@@ -1410,3 +1436,7 @@ tests/services/test_drive_request_payment_v1_lane.py
 tests/services/test_email_auth_postgres.py
 
 tests/test_client_connector_routes.py
+tests/test_one_todo_feature_settings.py
+tests/services/test_one_todo_suggestions.py
+tests/routes/test_one_todo_suggestions_route.py
+tests/test_todo_wallet_inventory_postgres.py

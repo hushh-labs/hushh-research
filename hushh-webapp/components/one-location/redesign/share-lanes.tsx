@@ -90,7 +90,7 @@ export function ShareLaneRow({
       ? isSms ? "Stop SMS" : "Stop"
       : "Stop";
   const changeTimeControl = !isSms && onChangeEndTime ? (
-    <Button
+    <Button data-location-type-role="utility-action"
       type="button"
       variant="ghost"
       size="compact"
@@ -112,7 +112,7 @@ export function ShareLaneRow({
     >
       {category ? <div className="col-start-1 row-start-1 flex items-center">{avatar}</div> : null}
       <div className={cn("min-w-0 flex-1", comparison && "flex flex-wrap items-center justify-between gap-x-2", category && (isSms ? "col-start-2 row-start-1" : "col-start-2 col-span-2 row-start-1"))}>
-        <p className={cn(
+        <p data-location-type-role="row-title" className={cn(
           TYPOGRAPHY_CLASSNAMES.rowLabel,
           "flex min-w-0 items-center gap-1.5 text-foreground",
           comparison && "@min-[46rem]:sr-only",
@@ -127,7 +127,7 @@ export function ShareLaneRow({
           ) : null}
           {category ? counterpartName : comparison && isSms ? "SMS" : grantLaneLabel(grant)}
         </p>
-        <p className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, MUTED_TEXT, "[overflow-wrap:anywhere]", (comparison || category) && "ui-text-row-description-compact")}>
+        <p data-location-type-role="row-description" className={cn(TYPOGRAPHY_CLASSNAMES.rowDescription, MUTED_TEXT, "[overflow-wrap:anywhere]", (comparison || category) && "ui-text-row-description-compact")}>
           {grant.durationMode === "until_stopped" ? (
             "Until you stop"
           ) : formatEndsAt && grant.expiresAt ? (
@@ -141,7 +141,7 @@ export function ShareLaneRow({
       <div className={category ? cn("flex min-w-0 items-center", isSms ? "col-start-3 row-start-1 justify-end" : "col-start-2 col-span-2 row-start-2 flex-wrap justify-between gap-x-2 gap-y-1") : comparison ? "flex shrink-0 items-center justify-end" : ACTIVE_SHARE_LANE_ACTIONS_CLASSNAME}>
         {!comparison ? changeTimeControl : null}
         {onStop ? (
-        <Button
+        <Button data-location-type-role="utility-action"
           type="button"
           variant="ghost"
           size="compact"
@@ -253,7 +253,7 @@ export function ActiveShareComparison({
               <div className={ACTIVE_SHARE_COMPARISON_GRID_CLASSNAME}>
                 <div className="flex min-w-0 items-center gap-3">
                   {renderAvatar(group, name)}
-                  <span className={cn(TYPOGRAPHY_CLASSNAMES.rowLabel, "ui-text-row-label-compact min-w-0 [overflow-wrap:anywhere]")}>{name}</span>
+                  <span data-location-type-role="row-title" className={cn(TYPOGRAPHY_CLASSNAMES.rowLabel, "ui-text-row-label-compact min-w-0 [overflow-wrap:anywhere]")}>{name}</span>
                 </div>
                 {[false, true].map((isSms) => {
                   const grants = group.grants.filter((grant) => isSmsTriggeredGrant(grant) === isSms);
@@ -357,7 +357,7 @@ export function ShareLanesDisclosure({
   label: string;
 }) {
   return (
-    <Button
+    <Button data-location-type-role="utility-action"
       type="button"
       variant="ghost"
       size="sm"

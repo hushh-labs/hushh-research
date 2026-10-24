@@ -4394,7 +4394,7 @@
         "receipts",
         "gmail receipts"
       ],
-      "meaning": "Opens Mail from any investor surface and restores its workspace. Receipt scans start only after an explicit Start sync, Load older receipts or Try again action.",
+      "meaning": "Opens Mail and restores saved receipts. Eligible connected and unlocked accounts check newer receipts automatically; unavailable processing has an explanation and settings action.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4900,6 +4900,207 @@
             "type": "action",
             "action_id": "profile.gmail.disconnect",
             "label": "Disconnect Gmail",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.receipt_sync_details",
+      "surface_id": "gmail",
+      "label": "Receipt update details",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Explains actual receipt processing availability. Got it dismisses the explanation without changing connection, hosting or consent.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Mail receipts workspace is active"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Local view or restoration handler; no provider or consent change.",
+        "intended_handler": "ReceiptSyncToolbar"
+      },
+      "control_ids": [
+        "receipt_sync_details",
+        "receipt_sync_details_ack"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/gmail/receipt-sync-toolbar.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.receipt_sync_details",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.receipt_sync_details",
+            "label": "Receipt update details",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.restore_saved_receipts",
+      "surface_id": "gmail",
+      "label": "Open saved receipts again",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Retries bounded encrypted device restoration with current owner and vault authority. It does not enable an unavailable provider scan.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail",
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Mail receipts workspace is active"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Local view or restoration handler; no provider or consent change.",
+        "intended_handler": "retryReceiptRestore"
+      },
+      "control_ids": [
+        "restore_saved_receipts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/gmail/receipt-sync-toolbar.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.restore_saved_receipts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.restore_saved_receipts",
+            "label": "Open saved receipts again",
             "failure_behavior": "stop"
           }
         ],
@@ -19072,7 +19273,7 @@
         "byoc",
         "AI"
       ],
-      "meaning": "Keeps the verified hosting and saved AI choice, then returns to the One setup hub.",
+      "meaning": "Keeps the verified hosting and saved AI choice, then returns to Hosting when opened from its Settings page, or to the One setup hub during onboarding.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

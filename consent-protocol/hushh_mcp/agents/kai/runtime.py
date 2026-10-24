@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -283,6 +284,15 @@ async def run_kai_analyst_turn(
     payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
     if not isinstance(payload, dict):
         raise ValueError("Kai analyst returned a non-object payload")
+    if "confidence" in payload:
+        confidence = payload["confidence"]
+        if (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not math.isfinite(confidence)
+            or not 0 <= confidence <= 1
+        ):
+            raise ValueError("Kai analyst confidence must be a finite value from 0 to 1")
     return json.loads(json.dumps(payload, separators=(",", ":")))
 
 

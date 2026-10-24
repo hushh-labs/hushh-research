@@ -32,6 +32,7 @@ function historyCallbacks() {
     vaultKeyRef: { current: "synthetic-key" },
     pkmCaptureReadinessRef: { current: { authLoading: false, sessionVerificationRequired: false, isVaultUnlocked: true } },
     warmAgentChatHistoryCache: vi.fn(), renameAgentChatConversation: vi.fn(), deleteAgentChatConversation: vi.fn(),
+    clearAgentChatHistoryCache: vi.fn(),
     setConversations: vi.fn(), setIsLoadingHistory: vi.fn(), setHistoryActionPendingId: vi.fn(),
     toast: { success: vi.fn(), error: vi.fn(), promise: vi.fn() },
     historyInteractionDisabled: false, conversationId: "selected-chat", conversationIdRef: { current: "selected-chat" },
@@ -91,8 +92,73 @@ describe("History caller authority", () => {
     await callbacks.handleDeleteConversation("selected-chat");
     expect(deps.handleCreateNewChat).toHaveBeenCalledTimes(1);
     expect(deps.setConversations).toHaveBeenCalledTimes(1);
+    expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner");
+    expect(deps.clearAgentChatHistoryCache.mock.invocationCallOrder[0]).toBeLessThan(deps.warmAgentChatHistoryCache.mock.invocationCallOrder[0]);
     publishValidatedAuthSessionOwner(null);
   });
+});
+
+describe("Initial history warm return", () => {
+  it.each(["current", "watched turn", "selection", "typed turn", "owner ABA", "vault change", "cache invalidation", "refresh failure"])(
+    "renders expired memory before network and fences %s", async (transition) => {
+      publishValidatedAuthSessionOwner("history-owner");
+      const start = source.indexOf('    const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;');
+      const end = source.indexOf("    // History is never on the workspace", start);
+      expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+      const compiled = ts.transpileModule(source.slice(start, end) + "\nreturn loadRecentConversation;",
+        { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
+      const cached = { conversations: [{ id: "selected-chat" }], latestConversationId: "selected-chat", latestMessages: [{ id: "cached" }], isFresh: false };
+      let watched = transition === "watched turn";
+      if (watched) cached.isFresh = true;
+      let chatEpoch = 1, cacheCurrent = true;
+      let settle!: (value: typeof cached) => void, fail!: (reason: Error) => void;
+      const deps = {
+        user: { uid: "history-owner" }, vaultOwnerToken: "synthetic-token", vaultKeyRef: { current: "synthetic-key" },
+        skipInitialHistoryLoadRef: { current: false }, historyLoadKeyRef: { current: null }, historyRestoreEpochRef: { current: 1 },
+        chatSessionRef: { current: { value: 1, isCurrent: (value: number) => value === chatEpoch } },
+        workspaceOwnerIdRef: { current: "history-owner" }, historyListOwner: { current: null },
+        snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, snapshotVaultSessionEpoch, isVaultSessionEpochCurrent,
+        peekAgentChatHistoryCache: () => cached,
+        isAgentChatHistorySnapshotCurrent: () => cacheCurrent,
+        warmAgentChatHistoryCache: vi.fn(() => new Promise<typeof cached>((resolve, reject) => { settle = resolve; fail = reject; })),
+        loadAgentChatConversationHistory: vi.fn(async () => [{ id: "refreshed" }]),
+        selectedInAppChat: () => "selected-chat", isAgentTurnWatched: () => watched,
+        setIsChatLoading: vi.fn(), responseOutputRef: { current: false }, setHasResponseOutput: vi.fn(), setIsStreaming: vi.fn(), stampNow: () => ({}),
+        storedMessagesToAgentMessages: (value: unknown) => value,
+        mergePendingConsentMessages: (value: unknown) => value, createGreetingMessage: () => ({ id: "greeting" }),
+        setConversations: vi.fn(), setMessages: vi.fn(), updateConversationId: vi.fn(),
+        setHistoryReadyForSlot: vi.fn(), setIsLoadingHistory: vi.fn(), setSlotHistoryFailed: vi.fn(),
+        restorePendingMcpReviews: vi.fn(async () => undefined),
+      };
+      const restore = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as () => Promise<void>;
+      const pending = restore();
+      await vi.waitFor(() => expect(deps.setHistoryReadyForSlot).toHaveBeenCalledWith(true));
+      expect(deps.warmAgentChatHistoryCache).toHaveBeenCalledTimes(1);
+      expect(deps.setIsLoadingHistory).not.toHaveBeenCalledWith(true);
+      expect(deps.setMessages.mock.calls[0][0]([])[0]).toEqual({ id: "cached" });
+      if (watched) {
+        expect(deps.setMessages.mock.calls[0][0]([])[1]).toMatchObject({ status: "streaming" });
+        watched = false;
+      }
+      deps.setMessages.mockClear(); deps.setConversations.mockClear(); deps.setSlotHistoryFailed.mockClear();
+      if (transition === "selection") chatEpoch++;
+      if (transition === "typed turn") deps.historyRestoreEpochRef.current++;
+      if (transition === "owner ABA") { publishValidatedAuthSessionOwner("other-owner"); publishValidatedAuthSessionOwner("history-owner"); }
+      if (transition === "vault change") advanceVaultSessionEpoch();
+      if (transition === "cache invalidation") cacheCurrent = false;
+      if (transition === "refresh failure") fail(new Error("synthetic refresh failure"));
+      else settle(cached);
+      await pending;
+      if (transition === "current" || transition === "watched turn") {
+        expect(deps.loadAgentChatConversationHistory).toHaveBeenCalledWith(expect.objectContaining({ force: true }));
+        expect(deps.setMessages.mock.calls[0][0]([])).toEqual([{ id: "refreshed" }]);
+      } else {
+        expect(deps.setMessages).not.toHaveBeenCalled();
+      }
+      expect(deps.setSlotHistoryFailed).not.toHaveBeenCalled();
+      publishValidatedAuthSessionOwner(null);
+    },
+  );
 });
 
 describe("Agent Chat email draft layout contract", () => {

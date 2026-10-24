@@ -429,7 +429,7 @@
     "exemptionReason": "OAuth authorization is a short-lived connector handoff and intentionally bypasses signed-in app chrome.",
     "voicePlaybook": {
       "playbookId": "route.oauth.authorize",
-      "purpose": "Help the person approve or cancel a verified MCP connector authorization request.",
+      "purpose": "Help the person review the MCP client identifier and return host before authorizing or cancelling the connection.",
       "screen": "app",
       "entryCue": "Review the connector request, then authorize it or cancel.",
       "proactivity": "ambient",
@@ -2986,7 +2986,8 @@
           }
         }
       ],
-      "kind": "parent"
+      "kind": "parent",
+      "reason": "Saved analysis opens in the shared History sheet; overlay dismissal and the active Stocks Back layer close it before the authored route parent. Inactive Finance panes release the layer."
     }
   },
   {

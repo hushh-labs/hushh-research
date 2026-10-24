@@ -686,6 +686,45 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 
 ---
 
+### Hosting management and update compatibility
+
+Completed owners entering cloud setup directly receive a same-route Hosting
+return target. Explicit invitation/setup origins are preserved; unfinished
+onboarding still uses the setup hub. Finish appears only after verified hosting
+and AI readiness. The changed `setup.finish_cloud` meaning retires its exact
+previous capability revision; a stale action resumes through a fresh assessment.
+
+Personal-agent status may include `updateBlockedReason`: `UPDATE_IN_PROGRESS`,
+`RELEASE_UNVERIFIED`, `INSTALLED_RELEASE_UNVERIFIED`, or
+`PREDECESSOR_NOT_QUALIFIED`. This explains an existing installation refusal; it
+does not grant upgrade authority. A verified private AI check displays its actual
+model/deployment. The hub's Shared model catalog is not an Azure pod catalog.
+
+### Owner cloud removal and inspection
+
+- `GET /api/one/personal-agent/removal`: Firebase-owner, no-store discovery.
+  Returns `{available, provider}` only for the installed schema and recorded
+  GCP/Azure home, including qualified interrupted Azure setup. No provider calls,
+  reservations or mutations; missing/old schema does not offer the control.
+- `POST /api/one/personal-agent/removal`: current vault-owner authority. Strict
+  phases `inspect`, `status`, `approve`, `execute`, `finalize`; exact operation and
+  plan digest plus explicit contents/retention confirmation are required for
+  destructive work. Uses the existing erasure executor; never calls full account
+  deletion. Successful finalization returns `{status:"cloud_removed",
+  operationId, accountRetained:true, hostingMode:"unplaced"}` only for that exact
+  released identity. A stale replacement, uncertain outcome or changed approval
+  returns a bounded 409 and retains recovery custody.
+- `GET /api/one/personal-agent/hosting/inspection`: Firebase-owner, read-only
+  control-plane observation of the recorded service and historical receipt
+  coverage. Returns `connected`, `starting`, `absent`, `ownership_unverified`,
+  `cleanup_pending` or `unverified`, plus bounded previous-home metadata. A denied
+  read is never absence. This neither wakes nor repairs/deletes the pod.
+
+These routes use the existing One proxy and personal-agent feature authority.
+Cloud removal requires dev-only migration972; native execution and broad orphan
+scanning are not qualified. See the [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account).
+
+
 ## Route Categories
 
 ### One business suggestion completion
@@ -869,6 +908,7 @@ The `/api/one/wallet/card-access` endpoints are:
 | POST | `/artwork/validate` | Same owner authority. At most 24 explicit catalog/issuer/product/variant/digest references under the private 16 KB cap. `purpose=selection` (default) requires current catalog version, selectable asset and complete provider snapshot. `purpose=saved` validates an immutable saved reference independently of unrelated catalog versions. Both require current approval, grant and rights. No stored owner image or card ID is disclosed. See [provider contract](../one/wallet-artwork-providers.md). |
 | POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
 | GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status, newest first in pages of 20. Optional `cursor` is the last grant ID; `nextCursor` and `hasMore` describe the next page, and each grant includes ISO `createdAt`. Cursors resolve only within the authenticated owner and card. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
+| GET | `/requests` | Matching Firebase and vault-owner identity; pending incoming Wallet requests only. Optional owner-bound UUID `cursor`, `limit=1..100`; returns metadata-only `items` (`id`, `createdAt`, `expiresAt`), `hasMore`, `nextCursor`. Requires current connection, no blocks, recipient-visible message and unexpired request. Pure read; never expires or mutates requests. |
 | GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
 | GET | `/profile` | Matching identity and vault-owner consent; current canonical Profile Card eligibility and server-issued card ID, without profile contents. |
 | GET | `/history` | Participant-only unified ledger. `direction=outgoing\|received`, optional `cardType=payment\|profile`, `limit=1..100` (default 20), and participant/filter-bound `cursor`. Returns `items`, `hasMore`, `nextCursor`, `serverNow`. |
@@ -1536,12 +1576,21 @@ The old PUT remains a historical personal receipt operation; it cannot choose th
 managed UAT processor. Updated clients expose read-only processing information.
 
 All UAT users use the administrator managed-text policy for One text chat
-and semantic document requests. Candidate readiness prefers Azure and selects
-Vertex when only Vertex passes; either or both complete application bundles
-satisfy provider admission. Partial text-only readiness does not certify Voice,
+and semantic document requests. One text chat requires Azure and never falls back to Gemini. Candidate readiness requires the complete Azure application bundle; Vertex Drive-only evidence cannot authorize One. Drive retains its separately bounded alternate transport. Partial text-only readiness does not certify Voice,
 media or other capabilities. `/api/one/models/preference` projects the
 central deployment as effective, with `source:administrator_policy`; old saved
 choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.
+Connected-stream revocation emits the fixed `TEXT_AUTHORITY_ENDED` refusal without
+automatic retry. Failure to validate current authority still fails closed and
+remains an actionable runtime error, including consent database outages.
+An explicit Azure `incomplete/content_filter` response or structured SDK
+`content_filter` error (HTTP 400 or statusless SSE) emits `TEXT_CONTENT_FILTERED`
+with a fixed rephrasing notice and `retryable:false`. It remains a terminal error
+classified as a refusal; partial output never becomes a completed answer.
+An explicit Azure SSE `rate_limit_exceeded` error without an HTTP error status
+emits the existing retryable `RESOURCE_EXHAUSTED` capacity notice. Telemetry
+records `quota` while preserving the unknown HTTP status as zero; no automatic
+replay or alternate provider is introduced.
 Managed UAT fleet aliases resolve through the selected Azure compatibility port;
 responses and telemetry retain the actual model/provider. BYOK remains explicit.
 
@@ -1611,6 +1660,22 @@ still an authenticated write and follows the normal Firebase auth dependency.
 
 ### Kai Gmail receipt read-through
 
+Receipt availability is independent of legacy database write retirement. Shared
+status resolves current owner placement and advertises `receipt_sync_available`
+only for a configured, connected, non-revoked readonly grant with a provider account
+and connection generation. Private or unknown placement remains unavailable;
+status does not refresh provider credentials. `receipt_history_available` admits
+only the existing owner-authorized Shared history read. Every actual read retains
+its independent current authority and placement checks.
+
+The existing paginated receipt-history response adds constant provenance
+`{source: "legacy_server_read_only", account_binding: "unknown"}`. Historical
+rows have no provider-account binding. `amount_decimal` is PostgreSQL's exact
+four-decimal text; pagination ends with the unique `id DESC` tie-breaker. Clients
+must keep these owner records separate from live account totals, source locators,
+continuations and deduplication. No retired database writes are re-enabled.
+
+
 The supported receipt path is a stateless backend read-through over the
 authenticated owner's existing encrypted Gmail connection. It does not revive
 the retired receipt worker and does not write `kai_gmail_receipts` or
@@ -1628,7 +1693,7 @@ locator survives encrypted device snapshots without exposing the Gmail ID.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| POST | `/api/kai/gmail/receipts/scan` | Firebase + `VAULT_OWNER` | Body `{user_id,page?,per_page?,cursor?}` with `page<=50` and `per_page<=6`. Search a bounded receipt-like Gmail page, fetch bounded content only for those candidates, run at most two manifest-owned Email receipt extractors concurrently, and return normalized live items plus honest page coverage. Receipt scans use owner-scoped expiring task leases; timeout, cancellation, and caller disconnect release the lane without changing Gmail connection state. A successful empty provider page is `200` with `items:[]`; provider, authorization, malformed-response, timeout, and extraction failures remain typed non-empty errors. |
+| POST | `/api/kai/gmail/receipts/scan` | Firebase + `VAULT_OWNER` | Body `{user_id,page?,per_page?,cursor?,incremental?,checkpoint?,account_key?}` with `page<=50` and `per_page<=6`. Search a bounded receipt-like Gmail page, fetch bounded content only for those candidates, run at most two manifest-owned Email receipt extractors concurrently, and return normalized live items plus honest page coverage. Receipt scans use owner-scoped expiring task leases; timeout, cancellation, and caller disconnect release the lane without changing Gmail connection state. Incremental requests capture a pre-listing Gmail history baseline, then reconcile authenticated history changes. Responses add stable `event_id`, `sync_mode`, sealed `checkpoint`, and bounded `unavailable_events`. The requested account must match current server authority. Page 50 may return `has_more:true` with `reached_limit:true` and a signed rollover cursor for a later page-1 batch; it never advances a partially consumed checkpoint. Expired history/continuations return safe typed recovery codes. A successful empty provider page is `200` with `items:[]`; provider, authorization, malformed-response, timeout, and extraction failures remain typed non-empty errors. |
 | POST | `/api/kai/gmail/receipts/detail` | Firebase + `VAULT_OWNER` | Body `{user_id,source_id}`. Verify the signed owner/account-bound source handle, re-fetch only that Gmail message, and return its current normalized item plus an optional bounded object labelled `email_excerpt` / `Email preview`; it is never represented as a full invoice. |
 | GET | `/api/kai/gmail/receipts/{user_id}` | Firebase + `VAULT_OWNER` | Compatibility read of owner-scoped legacy receipt rows only. The table remains read-only and is not a dependency or write target for live scan results. |
 
@@ -2249,6 +2314,51 @@ At the encrypted writer, an existing semantic entity can only be updated by the
 same business UID. A different or unidentified origin fails closed rather than
 merging two businesses merely because their names or contact details overlap.
 
+### One task inventory and reviewed suggestions
+
+One profile To-do and `/one/todos` share live pending-work projection and encrypted
+completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location,
+Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
+services. This is a bounded foreground inventory, not a background sweep of all
+connected information. Calendar agenda covers the next 168 hours plus bounded
+invitations; Mail inspects at most 50 recent nudges and reports limited coverage;
+Advisor reads existing advisor-persona attention items (other personas report
+unavailable coverage, not disconnected relationships); Memory inspects only the
+current session's verified Live Memory mirror metadata, never its contents.
+A cold or stale mirror is unavailable/incomplete. Consent and Wallet page at
+most 5,000 rows each and preserve incomplete coverage when capped. Source failures
+remain independent, never becoming a disconnected status or an empty success.
+
+`GET /api/one/todos/suggestions/status` requires vault-owner authentication and
+returns private/no-store `{available}` from `ONE_TODO_SUGGESTIONS_ENABLED`.
+`POST /api/one/todos/suggestions` additionally requires current self-owner
+authority and Shared placement, checked before processing and before release.
+The bounded input rotates across represented capabilities so one large queue
+cannot crowd out every other source. It is rate limited to three requests per
+minute and accepts only
+`{allow_model_processing: true, sources}`: 1-100 strict records containing
+`ref` (`s` followed by 1-4 digits), one of the nine capability IDs, a 1-240
+character summary, and `already_pending`. The client requires explicit processing
+approval and excludes message bodies, card details and Memory contents. Owner
+IDs, tokens, provider IDs and URLs are not included in the prompt.
+
+One's manifest-owned `one_todo_suggestions` single-turn gene has no tools or
+conversation history. Its strict response is `{items: [{source_ref,title,reason}]}`,
+at most 12 rows with title length 1-160 and reason length 1-240. Unknown or
+duplicate source references, invalid output, timeouts and changed authority fail
+closed. The host does not rewrite semantic output or create replacement tasks.
+Only opaque-count/status telemetry is emitted; no summaries or model text are logged.
+No source mutation or persistence occurs. A reviewed Add task uses the existing
+encrypted `one_todos` writer, with source links resolved locally. Completion and
+dismissal never execute the source action.
+
+The rollout defaults off and is rechecked before returning suggestions. Private
+placement refuses this Shared processing path; a qualified owner-direct version
+of the same gene is separate acceptance work. Web and native use the existing
+One API proxy/ApiService transport. Mock/schema tests do not qualify live model
+behavior or real-provider completeness. See the
+[semantic declaration](../../../consent-protocol/docs/reference/backend-semantic-boundary.md#declared-one-task-suggestions).
+
 ### One Google Calendar
 
 Private-pod Calendar reads use the existing owner-bound
@@ -2671,6 +2781,20 @@ uses the shared red alarm card, Android routes through the dedicated
 `one_location_sms_emergency_v1` high-importance channel, and iOS background
 delivery uses the matching category plus `one_location_sms_alarm.wav`. The
 profile does not authorize Do Not Disturb bypass or Apple Critical Alerts.
+
+While the recipient app is visible, the SOS cue repeats until the recipient
+dismisses the alarm or opens/unwatches the share, or the sender ends it. The
+emergency card has no automatic timeout. Web Audio owns browser cues; the
+existing native notification bridge owns foreground sound and vibration on
+iOS and Android. Cues also release on expiry, sign-out, interruption and
+foreground loss. The existing two-second sender countdown is unchanged.
+`location_share_revoked` is always silent transport, including SOS: its grant
+identity stops an active cue without triggering another sound or vibration.
+Background delivery retains the platform notification cue; indefinite closed-app
+or locked-screen alarms are outside this contract. Browser playback remains
+subject to audio/vibration support and device permissions; blocked audio is
+not queued to ring after a later unlock. A remote stop still requires delivery
+or authoritative reconciliation on the receiving device.
 
 The older KAI location route family is transitional prototype history and is
 not the product owner for live location.
@@ -3233,7 +3357,8 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | POST   | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake                                                                                                                                          |
 | DELETE | `/api/account/delete`                             | Delete the account, user-owned Vault/profile/application records, and the authenticated Firebase UID. Required append-only or regulated evidence follows its approved retention/redaction policy rather than an incidental cascade. Returns `409 ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING` without deleting anything when parked personal-agent/BYOC state may still own an external resource. A settled bounded Shared Files batch returns `409 FILES_ERASURE_IN_PROGRESS` while versions remain; keys are retained and completion requires subsequent qualified absence. The owner may retry deliberately after active-account confirmation; uncertain delivery is never replayed automatically. |
 | GET | `/api/account/delete-lost-vault/options` | Firebase-authenticated, no-store discovery for a signed-in person with an inaccessible vault. Returns whether a verified linked phone is required, a masked hint, and enrolled Google/Apple provider IDs. It grants no deletion or vault authority. |
-| POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must show a pending cleanup state. |
+| POST | `/api/account/delete-lost-vault/phone` | Read-only preflight after fresh same-owner Google/Apple reauthentication. Accepts `{phone_number:"+..."}` with an explicit country code, normalizes through the canonical phone utility, and compares the complete number with the same authoritative existing binding used by deletion. Returns only `{valid:true}`, with `private, no-store`; mismatch, invalid number, binding conflict, or unavailable identity cannot issue SMS through the normal UI. It changes no binding and grants no deletion or vault authority. Final deletion rereads the binding and checks fresh phone proof independently. |
+| POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must withhold fresh signup. `details.firebase_auth_user: "identity_retained"` means deliberate preservation, not automatically completing cleanup; the central sign-out/login notice preserves this distinction. |
 
 Every Firebase bearer dependency verifies signature, issuer, audience, and
 expiry, preserves revoked/disabled-token enforcement, and always enforces the
@@ -3465,6 +3590,23 @@ price-only quote cache cannot suppress market cap, P/E (TTM), P/B, total
 debt/equity, or the provider company description. Unknown ratios are null.
 Debt/equity is a multiple (Yahoo's reported percentage divided by 100).
 Provider retrieval time and financial period end remain separate.
+
+Stock detail reads `GET /api/kai/market/history/{user_id}?symbol=AAPL`
+through the existing Kai catch-all proxy and platform-aware `ApiService`.
+Firebase authentication must match the path owner before any cache/provider
+work. One uppercase symbol (at most 16 characters) and a recognized US exchange
+in the symbol master are required; unsupported listings return 422.
+The response contains `symbol`, `currency: "USD"`, `interval: "1d"`,
+`points: [{t, p}]` (Unix seconds and observed closes), `retrieved_at`, `stale`,
+and `unavailable`. At most 32 observations are returned from the existing
+month history fetcher. This is daily history, independent of the spot quote;
+it does not supply intraday candles or an earnings calendar.
+The shared L1/L2 owner uses `stock_history:v1:{symbol}:1mo`, a two-minute
+fresh window and seven-day stale-on-error window. The fetch closure refuses
+provider work outside the existing regular-session policy, including cold
+misses. A closed cold miss returns an empty unavailable result. The frontend
+preserves retrieval/cache status, aborts a dismissed selection, and offers only
+ranges containing at least two observations. No new provider or scraper is added.
 
 Sector rows now include `change_1w_pct`, `period_start_1d`, `period_start_1w`,
 `period_end` and `basis`. Both periods use observed sector ETF closes; one
@@ -4016,6 +4158,34 @@ an owner confirmation card. Confirmation writes only an opaque proposal item
 identifier and the owner-visible follow-up title to the encrypted list; Gmail
 message identifiers, bodies, and received timestamps are never treated as a
 task due date or saved in the To-do record.
+
+### Owner Drive four-group folders
+
+`/api/connectors/google_drive/groups` uses a current Vault Owner, derives the owner
+from that credential, and rechecks it after storage I/O. Responses and authored
+errors are `private, no-store`. With `DRIVE_FOUR_GROUP_INDEX_ENABLED` off (the
+default), every endpoint returns 404 before storage construction. This is a
+virtual, sealed server index; it never mutates Drive, writes PKM or grants sharing.
+An enabled global switch still requires the existing environment-specific owner
+cohort; admission is rechecked after storage I/O and before lease renewal/commit.
+The existing connector catch-all web proxy forwards these endpoints. The Google
+Drive detail renders Data packets below Trusted documents on web and native.
+Content routes also require current shared-runtime placement; moving to a private
+runtime during a read prevents delivery of hub file names.
+
+| Method / suffix | Contract |
+| --- | --- |
+| `GET /` | `{status,groups,folders}`. `groups` is the four-item `{shelf,name}` catalog from `folders.json`, including empty categories. Status includes `enabled,state,revision,timeZone,listedFiles,indexedFiles,counts,listingComplete,limited,lastRunAt,modelVersion`; state is `off`, `paused`, `indexing`, `incomplete` or `ready`. Folders contain `shelf,name,period,fiscalYear,fiscalQuarter,count`. |
+| `POST /processing` | `{enabled:boolean,disclosure?:string,timeZone:string}`; strict boolean, no extra fields. Enabling requires the exact `drive-four-group-v1` disclosure and a valid IANA zone. Returns `{enabled,revision}`. Disabling pauses preparation without deleting entries. |
+| `GET /{shelf}/files?period=…&cursor=0&limit=50` | One of the four group IDs or `kept`; optional period `FY26-Q1` or `undated`, omitted for the whole shelf and always omitted for `kept`. Returns `{items,nextCursor,total}`; limit 1–100, non-negative integer offset cursor. Items contain `ref,title,mimeType,viewUrl,day,dayBasis,modifiedTime,shelf,candidate,confidence,reason,groupSource`. No text starts, vectors or provider file ID field. Offset pages are a current view, not a frozen snapshot. |
+| `POST /erase` | `{confirmed:true}`; repeat-safe owner erase, returns `{removed}`. Deletes entries, withdraws opt-in and invalidates in-flight work. No provider call. |
+
+The live Drive policy and generation remain authoritative. Background OFF pauses
+preparation; opt-in, background revision, lease expiry and connection changes fence
+late commits. Only a complete, uncapped listing permits deletion of absent files.
+The fiscal rule is title date, created time, then modified time in the owner's
+zone. Kept files have no fiscal folder. See [implementation and local release
+registration](../one/drive-four-group-index.md#slice-3-storage-worker-and-owner-api).
 
 ### Owner Drive searches
 

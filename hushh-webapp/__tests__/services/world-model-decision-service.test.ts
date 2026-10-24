@@ -230,3 +230,18 @@ describe("PWM owner decisions in encrypted memory", () => {
     expect(claims[key]?.decision).toBe("accepted");
   });
 });
+
+
+it("retains the oldest rejection after more than 512 decisions and a fresh memory read", async () => {
+  const claims = Object.fromEntries(Array.from({ length: 512 }, (_, index) => {
+    const key = index.toString(16).padStart(64, "0");
+    return [key, { key, decision: "rejected", text: `Declined finding ${index}`, topic: "career",
+      decided_at: "2026-10-01T00:00:00.000Z", basis: "owner_declaration" }];
+  }));
+  cloud = { markdown: "# Memory\n", _pwm_claims: claims };
+  await WorldModelDecisionService.reject({ ...owner, statement: "Another declined finding", topic: "career" });
+  clearMarkdownMemory();
+  const reloaded = await WorldModelDecisionService.load(owner);
+  expect(Object.keys(reloaded.claims)).toHaveLength(513);
+  expect(reloaded.claims["0".repeat(64)]).toEqual(claims["0".repeat(64)]);
+});

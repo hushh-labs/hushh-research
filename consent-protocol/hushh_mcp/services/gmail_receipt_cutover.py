@@ -13,7 +13,7 @@ GmailReceiptStorageMode = Literal["legacy_read_only"]
 
 GMAIL_RECEIPT_STORAGE_MODE: Final[GmailReceiptStorageMode] = "legacy_read_only"
 GMAIL_RECEIPT_CUTOVER_MESSAGE: Final = (
-    "Receipt sync is moving to private on-device processing. Existing receipts remain available."
+    "Earlier receipt history is read-only. Open Mail to check current receipt updates."
 )
 
 

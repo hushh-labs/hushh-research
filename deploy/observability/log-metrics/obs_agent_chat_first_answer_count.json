@@ -1,0 +1,5 @@
+{
+  "name": "obs_agent_chat_first_answer_count",
+  "description": "Chat turns with a measured first answer; no owner/run labels",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND textPayload=~\"one_agent_chat_turn_complete .* first_answer_token_ms=[0-9]+ \""
+}

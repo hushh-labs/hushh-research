@@ -2318,7 +2318,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.oauth.authorize",
-          "purpose": "Help the person approve or cancel a verified MCP connector authorization request.",
+          "purpose": "Help the person review the MCP client identifier and return host before authorizing or cancelling the connection.",
           "screen": "app",
           "entry_cue": "Review the connector request, then authorize it or cancel.",
           "proactivity": "ambient",
@@ -3199,6 +3199,8 @@
       "voice_action_contract_ids": [
         "profile.gmail.connect",
         "profile.gmail.disconnect",
+        "profile.gmail.receipt_sync_details",
+        "profile.gmail.restore_saved_receipts",
         "profile.gmail.sync_now",
         "profile.gmail.visit_merchant",
         "route.one_gmail_kyc",
@@ -10894,5 +10896,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "23d533734bee68bd11920719b1b2ab285ced2703fe38a932878ee3e9e4c65a78"
+  "content_sha256": "65ebd424b259e67ff0f855b745b869b1852b60fc303f1f38508e483451741fc4"
 }

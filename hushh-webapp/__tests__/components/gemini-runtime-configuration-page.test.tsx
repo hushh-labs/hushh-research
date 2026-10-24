@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
 import {
   PwmResearchDisclosure,
-  PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
 } from "@/components/onboarding/setup/pwm-research-disclosure";
 
 const state = vi.hoisted(() => ({
@@ -19,6 +18,7 @@ const state = vi.hoisted(() => ({
   setupChoice: "managed",
   hasGeminiRuntimeDraft: false,
   savedGeminiKey: false,
+  vaultUnlocked: true,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => state.router,
@@ -32,22 +32,25 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
-    isVaultUnlocked: true,
-    vaultKey: "test-key",
-    vaultOwnerToken: "test-token",
+    isVaultUnlocked: state.vaultUnlocked,
+    vaultKey: state.vaultUnlocked ? "test-key" : null,
+    vaultOwnerToken: state.vaultUnlocked ? "test-token" : null,
   }),
 }));
 vi.mock("@/components/connections/gemini-runtime-settings-card", () => ({
   GeminiRuntimeSettingsCard: ({
     onCanContinueChange,
     initiallyConfigured,
+    onRequestVaultUnlock,
   }: {
     onCanContinueChange: (ready: boolean) => void;
     initiallyConfigured: boolean;
-  }) => <button data-initially-configured={initiallyConfigured} onClick={() => onCanContinueChange(true)}>Choose AI</button>,
+    onRequestVaultUnlock: () => void;
+  }) => <><button data-initially-configured={initiallyConfigured} onClick={() => onCanContinueChange(true)}>Choose AI</button><button onClick={onRequestVaultUnlock}>Open vault for AI</button></>,
 }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
-  VaultUnlockDialog: () => null,
+  VaultUnlockDialog: ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) =>
+    open ? <div role="dialog"><button onClick={() => onOpenChange(false)}>Cancel unlock</button></div> : null,
 }));
 vi.mock("@/lib/services/vault-service", () => ({ VaultService: {} }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -105,6 +108,7 @@ beforeEach(() => {
   state.setupChoice = "managed";
   state.hasGeminiRuntimeDraft = false;
   state.savedGeminiKey = false;
+  state.vaultUnlocked = true;
   state.finalize.mockResolvedValue(undefined);
   state.sync.mockResolvedValue(undefined);
   state.finance.mockResolvedValue(undefined);
@@ -117,12 +121,33 @@ beforeEach(() => {
 });
 
 describe("AI-choice setup invitation continuation", () => {
-  it("requires a distinct Azure/Bing opt-in disclosure in the UAT setup", () => {
+  it.each([false, true])("shows vault unlock during setup, including embedded=%s", (embedded) => {
+    state.vaultUnlocked = false;
+    state.runtimeChoiceSaved = false;
+    const ready = vi.fn();
+    render(<GeminiRuntimeConfigurationPage setupMode embeddedInCloudSetup={embedded} onSetupReadyChange={ready} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open vault for AI" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel unlock" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(ready).not.toHaveBeenCalledWith(true);
+    expect(state.router.replace).not.toHaveBeenCalled();
+  });
+  it("offers unlock for a saved Shared key after refresh without trusting its marker", async () => {
+    state.setupChoice = "byok_pending_vault";
+    state.vaultUnlocked = false;
+    const ready = vi.fn();
+    render(<GeminiRuntimeConfigurationPage setupMode embeddedInCloudSetup onSetupReadyChange={ready} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Unlock saved AI connection" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(ready).not.toHaveBeenCalledWith(true);
+  });
+  it("requires separate provider disclosure and opt-in after UAT setup", () => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
     try {
       render(<PwmResearchDisclosure compact />);
       expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
-        PWM_AZURE_RESEARCH_DISCLOSURE_COMPACT,
+        "Review the search provider and information use there before starting.",
       );
       expect(screen.getByTestId("pwm-research-disclosure")).toHaveTextContent(
         "off until you turn it on",

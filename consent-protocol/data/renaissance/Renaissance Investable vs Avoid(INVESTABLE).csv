@@ -58,7 +58,6 @@ KING,DHR,Danaher Corp,Healthcare,6.2,Life sciences tools
 KING,ISRG,Intuitive Surgical,Healthcare,2.1,Surgical robotics monopoly
 KING,SYK,Stryker Corp,Healthcare,3.2,MedTech leader
 KING,MDT,Medtronic,Healthcare,5.5,MedTech diversified
-KING,VRTX,Vertex Pharma,Healthcare,4.2,"CF monopoly, pipeline"
 KING,REGN,Regeneron,Healthcare,5.5,"Eylea, Dupixent"
 KING,BAC,Bank of America,Financials,8.5,"Scale bank, Buffett holding"
 KING,WFC,Wells Fargo,Financials,5.2,"Turnaround, rate benefit"
@@ -71,16 +70,13 @@ KING,MCO,Moody's Corp,Financials,2.5,Ratings duopoly
 KING,ICE,Intercontinental Exchange,Financials,3.2,Exchange/data infrastructure
 KING,CME,CME Group,Financials,3.5,Derivatives exchange
 KING,AON,Aon plc,Insurance,2.8,Insurance broker #2
-KING,MMC,Marsh McLennan,Insurance,3.5,Insurance broker #1
+KING,MRSH,Marsh McLennan,Insurance,3.5,Insurance broker #1
 QUEEN,AXP,American Express,Financials,8.2,Premium card network
 QUEEN,COF,Capital One,Financials,4.5,Credit card + banking
 QUEEN,USB,U.S. Bancorp,Financials,3.5,Regional bank leader
 QUEEN,PNC,PNC Financial,Financials,4.2,Regional bank leader
 QUEEN,TRV,Travelers,Insurance,3.8,P&C insurance leader
 QUEEN,CB,Chubb Ltd,Insurance,5.5,Global P&C leader
-QUEEN,AIG,American Intl Group,Insurance,2.5,P&C turnaround
-QUEEN,MET,MetLife,Insurance,3.2,Life insurance leader
-QUEEN,PRU,Prudential Financial,Insurance,2.8,Life/retirement
 QUEEN,AFL,Aflac Inc,Insurance,2.5,Supplemental insurance
 QUEEN,UNP,Union Pacific,Industrials,6.8,Railroad duopoly
 QUEEN,CSX,CSX Corp,Industrials,3.5,Eastern railroad
@@ -111,7 +107,6 @@ JACK,ZTS,Zoetis Inc,Healthcare,2.5,Animal health leader
 JACK,EL,Estee Lauder,Consumer,1.5,Prestige beauty leader
 JACK,CL,Colgate-Palmolive,Consumer Staples,3.2,Oral care leader
 JACK,GIS,General Mills,Consumer Staples,2.8,Packaged food leader
-JACK,K,Kellanova,Consumer Staples,1.5,Snacks focused
 JACK,HSY,Hershey Company,Consumer Staples,1.8,Confectionery leader
 JACK,MDLZ,Mondelez Intl,Consumer Staples,3.5,Global snacks
 JACK,SJM,JM Smucker,Consumer Staples,1.2,Coffee/pet food
@@ -148,6 +143,6 @@ JACK,TYL,Tyler Technologies,Software,0.4,Government software
 JACK,PAYC,Paycom Software,Software,0.3,HCM software
 JACK,PAYX,Paychex Inc,Software,1.5,Payroll services
 JACK,ADP,Automatic Data,Software,3.5,HR/payroll leader
-JACK,FI,Fiserv Inc,Fintech,4.5,Payment processing
+JACK,FISV,Fiserv Inc,Fintech,4.5,Payment processing
 JACK,FIS,Fidelity National,Fintech,3.8,Banking technology
 JACK,GPN,Global Payments,Fintech,2.5,Payment processing

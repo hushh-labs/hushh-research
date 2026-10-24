@@ -3,7 +3,7 @@
   "reviewed_on": "2026-10-22",
   "note": "Authored development sources live under .agents. Host adapters are generated or thin pointers. Pinned imports remain separately classified and are not approved or activated by relocation. Retired redundant host aliases and unapproved KG procedure in the canonical consolidation. Historical KG source: ac3dea21efde66f3b05014731bdc637c3ac12b3d; SKILL blob2372a472bac7928833d1d79a11c37388d648a625, PROMPT blob317de1ab9d89ec7370c5f34790ec2a4d1d590e1c. Relocation never activates imported writers.",
   "sources": {
-    ".agents/adapters/claude/codex-bridge/SKILL.md": {
+    ".agents/routing/SKILL.md": {
       "classification": "host_adapter",
       "sha256": "8795d5acf6eb22f69d198e82dd889a18d88fe50f107d4988b4915a408f34e1ab"
     },
@@ -157,7 +157,7 @@
   },
   "host_adapters": {
     "codex-bridge": {
-      "source": ".agents/adapters/claude/codex-bridge/SKILL.md",
+      "source": ".agents/routing/SKILL.md",
       "target": ".claude/skills/codex-bridge/SKILL.md",
       "classification": "host_adapter"
     }

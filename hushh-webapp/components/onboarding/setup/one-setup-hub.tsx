@@ -613,9 +613,8 @@ export function OneSetupHub() {
     }
     setDismissing(true);
     try {
-      // Root-setup gate: BOTH prerequisites are mandatory before leaving the hub.
-      // When the client already knows they are satisfied (the footer stays disabled
-      // until then) trust it and skip the network round-trip. Only re-verify against
+      // Root-setup prerequisites remain mandatory before leaving the hub.
+      // Only re-verify against
       // fresh server state when the client is unsure — and even then a failed probe
       // must not trap the person, so fall back to the resolved client gate rather
       // than stranding them.
@@ -663,6 +662,12 @@ export function OneSetupHub() {
       // "Choose AI access" are different next actions, and one string covering both
       // is how a gate stops telling a person what to do and becomes noise.
       if (!cloudConfirmed) {
+        toast.info("Choose where your agent lives.", {
+          action: {
+            label: "Choose",
+            onClick: () => router.push(buildOneSetupCloudRoute(returnTo)),
+          },
+        });
         return {
           status: "blocked" as const,
           summary: "Choose where your agent lives before continuing.",
@@ -966,9 +971,11 @@ export function OneSetupHub() {
                 </SettingsGroup>
               ) : null}
             </div>
-            <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
+            <div className="mt-6 space-y-4">
               <PwmResearchDisclosure className="mb-4" />
               <MarketingPreferencePanel model={emailPreference} />
+            </div>
+            <div className={`mx-auto w-full sm:w-80 ${styles.hubFooter}`}>
               <Button
                 type="button"
                 variant="blue"

@@ -79,6 +79,9 @@ class GmailLiveReceiptScanRequest(BaseModel):
     page: int = Field(default=1, ge=1, le=50)
     per_page: int = Field(default=6, ge=1, le=6)
     cursor: str | None = Field(default=None, max_length=8192)
+    checkpoint: str | None = Field(default=None, max_length=8192)
+    incremental: bool = False
+    account_key: str | None = Field(default=None, max_length=256)
 
 
 class GmailLiveReceiptDetailRequest(BaseModel):
@@ -108,6 +111,7 @@ class GmailLiveReceiptItem(BaseModel):
 
     id: int
     source_id: str = Field(min_length=1, max_length=340)
+    event_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     durable_source_ref: str | None = Field(
         default=None, max_length=315, pattern=r"^grs1_[A-Za-z0-9_-]{39,310}$"
     )
@@ -233,6 +237,9 @@ class GmailLiveReceiptCoverage(BaseModel):
 class GmailLiveReceiptScanResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    sync_mode: Literal["bootstrap", "delta"] = "bootstrap"
+    checkpoint: str | None = Field(default=None, max_length=8192)
+    unavailable_events: list[str] = Field(default_factory=list, max_length=6)
     items: list[GmailLiveReceiptItem]
     page: int = Field(ge=1, le=50)
     per_page: int = Field(ge=1, le=6)
@@ -368,6 +375,8 @@ def _live_receipt_http_error(exc: Exception) -> HTTPException:
                 "The bounded Gmail receipt response was too large."
             ),
             "GMAIL_RECEIPT_INVALID_RESPONSE": ("Gmail returned an invalid receipt response."),
+            "GMAIL_RECEIPT_CHECKPOINT_EXPIRED": "Saved Mail progress expired. Saved receipts are safe.",
+            "GMAIL_RECEIPT_ACCOUNT_CHANGED": "The Mail account changed. Reopen Mail to continue.",
             "GMAIL_RECEIPT_CURSOR_EXPIRED": ("Receipt continuation expired. Start a new scan."),
             "GMAIL_RECEIPT_CONTRACT_MISMATCH": (
                 "Receipt sync could not validate its response. Please try again later."
@@ -727,6 +736,15 @@ async def gmail_live_receipt_scan(
                 page=payload.page,
                 per_page=payload.per_page,
                 cursor=payload.cursor,
+                **(
+                    {
+                        "checkpoint": payload.checkpoint,
+                        "incremental": True,
+                        "expected_account": payload.account_key,
+                    }
+                    if payload.incremental or payload.checkpoint
+                    else {}
+                ),
             ),
         )
         try:

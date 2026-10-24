@@ -177,6 +177,21 @@ class QueuedInputRegistry:
                 self._settled.popitem(last=False)
             return settlement
 
+    def try_finish_run(self, owner_id: str, conversation_id: str, run_id: str) -> bool:
+        """Close an empty inbox atomically; later messages use the next-turn path."""
+        with self._lock:
+            inbox = self._inbox((owner_id, conversation_id), run_id)
+            if (
+                inbox is None
+                or not inbox.accepting
+                or inbox.stop_requested
+                or inbox.pending
+                or inbox.inflight
+            ):
+                return False
+            inbox.accepting = False
+            return True
+
     # ── person-facing operations ─────────────────────────────────────────────
     def enqueue(
         self, owner_id: str, conversation_id: str, client_message_id: str, text: str

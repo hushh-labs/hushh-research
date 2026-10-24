@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { RiaPicksList, mergeMarketCompanyFacts } from "@/components/kai/cards/renaissance-market-list";
@@ -40,7 +40,10 @@ describe("RiaPicksList detail", () => {
   it("leads with the company logo and keeps identity copy singular", async () => {
     const analyze = vi.fn();
     const selection = vi.fn();
-    const { rerender } = render(<RiaPicksList rows={[row]} onAnalyze={analyze} onSelectedSymbolChange={selection} />);
+    const { rerender } = render(<RiaPicksList rows={[row]} onAnalyze={analyze} onSelectedSymbolChange={selection} news={[
+      { symbol: "NVDA", title: "Nvidia company headline", url: "https://publisher.test/nvda", source_name: "Publisher", published_at: "2026-10-20T20:00:00Z", provider: "fixture", degraded: false },
+      { symbol: "MSFT", title: "Unrelated company headline", url: "https://publisher.test/msft", source_name: "Publisher", published_at: "2026-10-20T20:00:00Z", provider: "fixture", degraded: false },
+    ]} />);
 
     fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
 
@@ -48,12 +51,14 @@ describe("RiaPicksList detail", () => {
     const detail = within(dialog);
 
     expect(dialog.querySelector('[data-symbol-avatar="true"]')).toBeTruthy();
-    expect(detail.getAllByText("Nvidia")).toHaveLength(1);
     expect(detail.getByText(/NVDA • Semiconductors/i)).toBeTruthy();
+    expect(detail.getByText("USD · Quoted", { exact: false })).toBeTruthy();
     expect(detail.queryByText(/Advisor list detail/i)).toBeNull();
     expect(detail.queryByText(/Symbol repaired/i)).toBeNull();
     expect(detail.queryByText("Investment thesis")).toBeNull();
-    expect(detail.getByRole("heading", { name: "Summary" })).toBeTruthy();
+    expect(detail.getByRole("heading", { name: "Company summary" })).toBeTruthy();
+    expect(detail.getByText("Nvidia company headline")).toBeTruthy();
+    expect(detail.queryByText("Unrelated company headline")).toBeNull();
     expect(detail.getByText("28.50×")).toBeTruthy();
     expect(detail.getByText("9.20×")).toBeTruthy();
     expect(detail.getByText("0.42×")).toBeTruthy();
@@ -70,6 +75,19 @@ describe("RiaPicksList detail", () => {
     expect(within(publicDetail).queryByRole("button", { name: "Analyze NVDA" })).toBeNull();
   });
 
+  it("loads observed history only after selection and cancels it when details close", async () => {
+    const loadHistory = vi.fn(async (_symbol: string, _signal: AbortSignal) => ({ points: [], stale: true, retrievedAt: null }));
+    render(<RiaPicksList rows={[row]} loadHistory={loadHistory} />);
+    expect(loadHistory).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
+    const dialog = await screen.findByRole("dialog", { name: "Nvidia" });
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(1));
+    const signal = loadHistory.mock.calls[0][1];
+    expect(loadHistory.mock.calls[0][0]).toBe("NVDA");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close detail panel" }));
+    await waitFor(() => expect(signal.aborted).toBe(true));
+  });
+
   it("hides a source control that has no alternative and keeps empty-source recovery available", () => {
     const { rerender } = render(<RiaPicksList rows={[]} />);
     expect(screen.queryByText("List source")).toBeNull();
@@ -77,7 +95,7 @@ describe("RiaPicksList detail", () => {
       { id: "default", label: "Curated stocks", kind: "default", state: "ready", is_default: true },
       { id: "ria:one", label: "Advisor list", kind: "ria", state: "ready", is_default: false },
     ]} />);
-    expect(screen.getByText("List source")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "List source" })).toBeTruthy();
     expect(screen.getAllByRole("combobox").length).toBeGreaterThan(0);
   });
 });

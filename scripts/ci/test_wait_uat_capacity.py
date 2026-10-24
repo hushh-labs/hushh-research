@@ -235,18 +235,20 @@ class CapacityAdmissionTests(unittest.TestCase):
             subprocess.TimeoutExpired(["query"], 4),
             ("", ""),
         ]
+        group = unittest.mock.MagicMock()
+        stop = unittest.mock.Mock()
+        group.__enter__.return_value = (process, stop)
         try:
             with (
                 patch.object(wait.time, "monotonic", return_value=5),
-                patch.object(wait.subprocess, "Popen", return_value=process),
-                patch.object(wait.os, "killpg") as kill,
+                patch.object(wait, "command_group", return_value=group),
             ):
                 with self.assertRaisesRegex(wait.AdmissionError, "timed out"):
                     wait.command(["query"])
                 self.assertEqual(
                     process.communicate.call_args_list[0].kwargs["timeout"], 4
                 )
-                kill.assert_called_once_with(123, wait.signal.SIGTERM)
+                stop.assert_called_once_with()
         finally:
             wait.QUERY_DEADLINE.reset(token)
 

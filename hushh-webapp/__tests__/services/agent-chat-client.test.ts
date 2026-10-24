@@ -2149,36 +2149,30 @@ describe("stream health for the slow-reply notice", () => {
     expect(signals).toEqual(["activity"]);
   });
 
-  it("reports capacity from a typed RUN_ERROR and shows the authored line", async () => {
-    const signals: unknown[] = [];
-    const shown: string[] = [];
-    mockTransport.emitEvents = (subscriber) => {
-      subscriber.onRunErrorEvent({ event: { type: "RUN_ERROR", code: "RESOURCE_EXHAUSTED",
-        message: "One is temporarily at capacity. Please try again in a moment." } });
-      mockTransport.aborted = true; // the server ended the run
-    };
+  it.each([
+    ["RESOURCE_EXHAUSTED", "One is temporarily at capacity. Please try again in a moment.", "busy"],
+    ["TEXT_CONTENT_FILTERED", "This response was filtered. Try rephrasing your message.", null],
+    ["TEXT_AUTHORITY_ENDED", "Chat access changed. Please check your access before trying again.", null],
+    [503, null, "unavailable"], [500, null, null],
+  ] as const)("shows safe terminal copy and truthful strain for %s", async (code, expected, strain) => {
+    const signals: unknown[] = []; const shown: string[] = [];
+    if (typeof code === "number") {
+      mockTransport.failWith = Object.assign(new Error(`HTTP ${code}: private detail`), { status: code, payload: { detail: "private detail" } });
+    } else {
+      mockTransport.emitEvents = (subscriber) => {
+        subscriber.onRunErrorEvent({ event: { type: "RUN_ERROR", code, message: "Untrusted provider text" } });
+        mockTransport.aborted = true;
+      };
+    }
     const error = await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Plan my week",
-      conversationId: "thread-capacity", vaultOwnerToken: "owner-token",
+      conversationId: "thread-error", vaultOwnerToken: "owner-token",
       handlers: { onStreamHealth: (signal) => signals.push(signal), onError: (message) => shown.push(message) },
     }).catch((caught) => caught);
-    expect(signals).toEqual([{ kind: "backend_strain", strain: "busy" }]);
-    expect(shown).toEqual(["One is temporarily at capacity. Please try again in a moment."]);
+    expect(signals).toEqual(strain ? [{ kind: "backend_strain", strain }] : []);
+    if (expected) expect(shown).toEqual([expected]);
     expect(error.message).toBe(shown[0]);
+    expect(shown.join("")).not.toContain("Untrusted provider text");
   });
-
-  it("reports a refused 503 as unavailable, and a 500 as nothing", async () => {
-    const refused = (status: number) => Object.assign(new Error(`HTTP ${status}: {"detail":"x"}`), { status, payload: { detail: "x" } });
-    const signals: unknown[] = [];
-    mockTransport.failWith = refused(503);
-    await run((signal) => signals.push(signal)).catch(() => undefined);
-    expect(signals).toEqual([{ kind: "backend_strain", strain: "unavailable" }]);
-
-    signals.length = 0;
-    mockTransport.failWith = refused(500);
-    await run((signal) => signals.push(signal)).catch(() => undefined);
-    expect(signals).toEqual([]);
-  });
-
 
   it("reports body bytes, keep-alive pings included", async () => {
     const encoder = new TextEncoder();

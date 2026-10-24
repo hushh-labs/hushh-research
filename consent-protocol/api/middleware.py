@@ -36,7 +36,11 @@ def _auth_error(detail: str) -> HTTPException:
 def _account_not_found_error() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={"code": "AUTH_ACCOUNT_NOT_FOUND", "message": "Account not found"},
+        detail={
+            "code": "AUTH_ACCOUNT_NOT_FOUND",
+            "account_lifecycle": "deleted",
+            "message": "Account information has been deleted",
+        },
         headers={"WWW-Authenticate": "Bearer"},
     )
 

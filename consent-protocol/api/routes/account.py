@@ -48,6 +48,8 @@ from api.middleware import (
 )
 from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account_cloud_cleanup
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
+from api.routes.account_lost_vault import LostVaultDeleteRequest
+from api.routes.account_lost_vault import router as lost_vault_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
     carries_review_mint,
@@ -105,6 +107,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/account", tags=["Account"])
 # Terms and Privacy acceptance lives in its own module, mounted under this prefix.
 router.include_router(legal_acceptance_router)
+router.include_router(lost_vault_router)
 
 
 @router.post("/welcome")
@@ -1500,11 +1503,6 @@ class DeleteAccountRequest(BaseModel):
     cleanup: AccountCloudCleanupRequest | None = None
 
 
-class LostVaultDeleteRequest(BaseModel):
-    method: Literal["phone", "provider"]
-    phone_id_token: str | None = Field(default=None, min_length=1, max_length=20_000)
-
-
 class EmailAliasVerificationStartRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
@@ -2084,14 +2082,7 @@ async def delete_lost_vault_account(
         await _verify_lost_vault_phone_proof(payload.phone_id_token, phone)
     elif payload.method != "provider" or payload.phone_id_token:
         raise HTTPException(status_code=403, detail={"code": "ACCOUNT_DELETE_METHOD_UNAVAILABLE"})
-    result = await _perform_account_deletion(firebase_uid, target="both")
-    if isinstance(result, dict) and result.get("account_deleted") is True:
-        details = result.get("details") or {}
-        result["ready_to_start_fresh"] = details.get("firebase_auth_user") in {
-            "deleted",
-            "not_found",
-        }
-    return result
+    return await _perform_account_deletion(firebase_uid, target="both")
 
 
 @router.delete("/delete")
@@ -2209,6 +2200,7 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 user_id,
             )
         result["details"] = details
+        result["ready_to_start_fresh"] = firebase_auth_status in {"deleted", "not_found"}
 
     return result
 

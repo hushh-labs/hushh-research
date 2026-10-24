@@ -61,7 +61,8 @@ vi.mock("firebase/auth", () => ({
   ),
 }));
 
-vi.mock("@capacitor/core", () => ({
+vi.mock("@capacitor/core", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@capacitor/core")>(),
   Capacitor: {
     getPlatform: () => "web",
     isNativePlatform: () => false,
@@ -581,7 +582,7 @@ describe("AuthProvider terminal session invalidation", () => {
   it("honors a real phone binding removal without resurrecting the old provider phone after cache expiry", async () => {
     mocks.firebaseUser = makeUser("account-owner", "+12025550101");
     render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
-    await screen.findByText("Vault content for account-owner");
+    await waitFor(() => expect(mocks.identityRefresh).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId("verified-phone")).toHaveTextContent("+12025550101");
     const identity = { user_id: "account-owner", phone_number: null, phone_verified: false, source: "firebase_phone_claim" };
     mocks.identityPeek.mockReturnValue({ data: identity, isStale: false });
@@ -1061,7 +1062,21 @@ describe("AuthProvider terminal session invalidation", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("does not let a delayed deletion fallback replace or repeat the completed terminal navigation", async () => {
+  it("retains the deleted notice through real apiFetch before the provider sign-out latch", async () => {
+    const { ApiService } = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
+    vi.mocked(global.fetch).mockResolvedValueOnce(Response.json({ detail: {
+      code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted",
+    } }, { status: 401 }));
+    const token = [btoa("{}"), btoa(JSON.stringify({ sub: "account-owner", user_id: "account-owner" })), "synthetic"].join(".");
+    vi.mocked((mocks.firebaseUser as User).getIdToken).mockResolvedValue(token);
+    mocks.apiGetAccountSessionStatus.mockImplementationOnce(ApiService.getAccountSessionStatus);
+    render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await waitFor(() => expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_deleted"));
+    expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
+    expect(mocks.replaceDocument).not.toHaveBeenCalledWith("/login?auth_notice=account_not_found");
+  });
+
+  it.each(["account_deleted", "account_deletion_identity_retained"] as const)("does not let delayed cleanup replace terminal navigation: %s", async code => {
     render(
       <AuthProvider>
         <ScopedSignOutRaceProbe />
@@ -1077,7 +1092,7 @@ describe("AuthProvider terminal session invalidation", () => {
           AUTH_SESSION_INVALIDATED_EVENT,
           {
             detail: {
-              code: "account_deleted",
+              code,
               path: "account_delete_confirmed",
               userId: "account-owner",
             },
@@ -1087,7 +1102,7 @@ describe("AuthProvider terminal session invalidation", () => {
     });
     await waitFor(() => {
       expect(mocks.replaceDocument).toHaveBeenCalledWith(
-        "/login?auth_notice=account_deleted",
+        `/login?auth_notice=${code}`,
       );
     });
 
@@ -1205,7 +1220,7 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.clearDeviceSecretsForDeletedAccount).not.toHaveBeenCalled();
   });
 
-  it("clears device key material for a confirmed deletion even after an earlier teardown", async () => {
+  it.each(["account_deleted", "account_deletion_identity_retained"] as const)("clears device secrets for confirmed erasure after teardown: %s", async code => {
     renderProvider();
     await screen.findByText("Vault content for account-owner");
 
@@ -1218,7 +1233,7 @@ describe("AuthProvider terminal session invalidation", () => {
     );
     act(() =>
       dispatchInvalidation({
-        code: "account_deleted",
+        code,
         path: "account_delete_confirmed",
         userId: "account-owner",
       }),

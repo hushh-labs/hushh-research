@@ -41,6 +41,7 @@ def test_connection_and_read_only_chat_available_without_rollout_flags():
     )
     assert not features["google_drive_live"]
     assert not features["drive_document_indexing"]
+    assert not features["drive_four_group_index"]
     assert not features["drive_document_sharing"]
     assert not connector_feature_enabled("google_drive_chat_writes", "owner")
     assert not connector_feature_enabled("google_drive_downloads", "owner")
@@ -167,6 +168,7 @@ def test_structured_hosted_runtime_hydrates_explicit_uat_all_users_mode():
         "connections_panel_v2",
         "google_drive_live",
         "drive_document_indexing",
+        "drive_four_group_index",
         "drive_document_sharing",
     ],
 )

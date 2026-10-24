@@ -4,7 +4,7 @@ run-name: Security alerts for ${{ github.event.workflow_run.id || inputs.source_
 on:
   workflow_run:
     workflows: ["PR Validation"]
-    types: [in_progress]
+    types: [requested]
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -24,25 +24,36 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: security-alerts-${{ github.event.workflow_run.id || inputs.source_run_id }}-${{ github.event.workflow_run.run_attempt || inputs.source_attempt }}-${{ github.event.workflow_run.head_sha || inputs.source_sha }}
+  queue: max
+  cancel-in-progress: false
+
 jobs:
   alerts:
     name: "Read protected repository alerts"
     if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'
     environment: ci-security
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Reuse a verified receipt for this exact source attempt
+        id: reuse
+        run: python3 scripts/ci/github_security_receipt.py --reuse-existing
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Read alerts and bind the exact source attempt
+        if: steps.reuse.outputs.reused != 'true'
         run: python3 scripts/ci/github_security_authority.py
         env:
           GH_TOKEN: ${{ github.token }}
           GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
       - name: Upload bounded security receipt
-        if: always()
+        if: always() && steps.reuse.outputs.reused != 'true'
         uses: actions/upload-artifact@v6
         with:
           name: ci-security-${{ github.run_id }}-${{ github.run_attempt }}

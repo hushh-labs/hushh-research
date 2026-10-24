@@ -7,12 +7,12 @@ import argparse
 import asyncio
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -187,12 +187,36 @@ def verify_candidate(backend_url: str) -> dict:
         or parsed.path not in {"", "/"}
     ):
         raise ReleaseError("candidate_origin")
-    response = httpx.get(
-        f"{backend_url.rstrip('/')}/api/auth/email/capabilities", timeout=15
-    )
-    if response.status_code != 200 or response.json().get("enabled") is not True:
-        raise ReleaseError("candidate_capabilities")
-    return {"enabled": True, "candidate_ready": True}
+    # Health can precede the email service's database-pool initialization. The
+    # measured UAT cold response took 19.2s; the former 15s probe refused it.
+    # Retry only this read, never policy activation or an authentication effect.
+    for attempt in range(2):
+        try:
+            response = httpx.get(
+                f"{backend_url.rstrip('/')}/api/auth/email/capabilities", timeout=30
+            )
+        except (httpx.TimeoutException, httpx.TransportError) as error:
+            if attempt == 0:
+                time.sleep(2)
+                continue
+            stage = (
+                "candidate_timeout"
+                if isinstance(error, httpx.TimeoutException)
+                else "candidate_transport"
+            )
+            raise ReleaseError(stage) from None
+        if response.status_code != 200:
+            raise ReleaseError("candidate_capabilities")
+        try:
+            capabilities = response.json()
+        except ValueError:
+            raise ReleaseError("candidate_response") from None
+        if not isinstance(capabilities, dict):
+            raise ReleaseError("candidate_response")
+        if capabilities.get("enabled") is not True:
+            raise ReleaseError("candidate_capabilities")
+        return {"enabled": True, "candidate_ready": True}
+    raise ReleaseError("candidate_timeout")
 
 
 def main() -> int:

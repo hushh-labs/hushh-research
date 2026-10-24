@@ -3884,7 +3884,7 @@ export function LocationImmersiveMap({
   return (
     <main
       className={MAP_SURFACE_CLASSNAME}
-      data-testid="one-location-map"
+      data-testid="one-location-map" data-location-type-scale="connect"
       data-map-ready={mapReady && status === "ready" ? "true" : "false"}
       data-map-marker-count={markers.length}
       data-map-demo={demoMode ? "true" : undefined}
@@ -4060,23 +4060,23 @@ export function LocationImmersiveMap({
                     className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)] motion-safe:animate-pulse"
                     aria-hidden="true"
                   />
-                  <span className="truncate">
+                  <span data-location-type-role="compact-action" className="truncate">
                     Sharing with {activeShareCount}
                   </span>
-                  <span className="sr-only" role="status" aria-live="polite">
+                  <span data-location-type-role="status" className="sr-only" role="status" aria-live="polite">
                     You are sharing your location with {activeShareCount}{" "}
                     {activeShareCount === 1 ? "person" : "people"}.
                   </span>
                 </button>
               </PopoverTrigger>
-              <PopoverContent
+              <PopoverContent data-location-type-scale="connect" data-location-type-context="overlay"
                 align="center"
                 side="bottom"
                 sideOffset={8}
                 onOpenAutoFocus={(event) => event.preventDefault()}
                 className="pointer-events-auto w-[min(17rem,calc(100vw-2rem))] rounded-[18px] border border-[var(--app-accent-border)] bg-background/92 p-2 text-foreground shadow-xl backdrop-blur-md"
               >
-                <p className="px-2 py-1 text-[13px] font-semibold leading-[18px] text-muted-foreground">
+                <p data-location-type-role="helper" className="px-2 py-1 text-[13px] font-semibold leading-[18px] text-muted-foreground">
                   Sharing with
                 </p>
                 <ul
@@ -4118,11 +4118,11 @@ export function LocationImmersiveMap({
                             className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
                             aria-hidden="true"
                           />
-                          <span className="min-w-0 flex-1 truncate">
+                          <span data-location-type-role="row-title" className="min-w-0 flex-1 truncate">
                             {name}
                           </span>
                           {pin ? (
-                            <span
+                            <span data-location-type-role="helper"
                               className="shrink-0 text-[11px] font-medium text-muted-foreground"
                               aria-hidden="true"
                             >
@@ -4193,7 +4193,7 @@ export function LocationImmersiveMap({
                 onClick={openNearbyCheckIn}
               >
                 <UsersRound className="h-4 w-4 shrink-0" />
-                <span className="truncate">
+                <span data-location-type-role="compact-action" className="truncate">
                   {nearbyPresenceState.presence ? "Checked in" : "Check in"}
                 </span>
               </ShellActionSurface>
@@ -4258,7 +4258,7 @@ export function LocationImmersiveMap({
                 avatarUrl={selfAvatarUrl}
                 displayName={selfDisplayName}
               />
-              <span className="truncate text-foreground">
+              <span data-location-type-role="row-description" className="truncate text-foreground">
                 Checked in at {displayedPlaceFocus.label}
               </span>
             </span>
@@ -4273,7 +4273,7 @@ export function LocationImmersiveMap({
                   staleClockMs,
                 )}
               />
-              <span className="truncate text-foreground">You are here</span>
+              <span data-location-type-role="row-description" className="truncate text-foreground">You are here</span>
             </span>
           ) : null}
           {displayedPlaceFocus && !displayedPlaceFocus.active ? (
@@ -4288,7 +4288,7 @@ export function LocationImmersiveMap({
                 }}
                 aria-hidden="true"
               />
-              <span className="truncate text-foreground">
+              <span data-location-type-role="row-description" className="truncate text-foreground">
                 Checking in at {displayedPlaceFocus.label}
               </span>
             </span>
@@ -4296,14 +4296,14 @@ export function LocationImmersiveMap({
           {!displayedPlaceFocus?.active &&
           displayedPlaceFocus?.distanceMeters != null &&
           displayedPlaceFocus.distanceMeters >= 25 ? (
-            <span className="pl-[1.125rem] font-normal text-muted-foreground">
+            <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
               {displayedPlaceFocus.distanceMeters < 1_000
                 ? `${displayedPlaceFocus.distanceMeters} m`
                 : `${(displayedPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
               from you
             </span>
           ) : null}
-          <span className="pl-[1.125rem] font-normal text-muted-foreground">
+          <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
             {/* "match" is the backend's word for how it pairs attendees, and it
                 also hid a real difference: the live circle is drawn around the
                 PLACE, the search circle around the PERSON (see the circle title
@@ -4345,15 +4345,15 @@ export function LocationImmersiveMap({
           </span>
           {isCheckInSurface ? (
             <>
-              <p className="relative text-[17px] font-semibold leading-[22px] text-foreground">
+              <p data-location-type-role="row-title" className="relative text-[17px] font-semibold leading-[22px] text-foreground">
                 Checking you in…
               </p>
-              <p className="relative -mt-1.5 text-sm font-normal leading-5 text-muted-foreground">
+              <p data-location-type-role="row-description" className="relative -mt-1.5 text-sm font-normal leading-5 text-muted-foreground">
                 Getting the map and nearby places ready.
               </p>
             </>
           ) : (
-            <p className="relative text-sm font-medium text-muted-foreground">
+            <p data-location-type-role="row-title" className="relative text-sm font-medium text-muted-foreground">
               Loading your map…
             </p>
           )}
@@ -4365,10 +4365,10 @@ export function LocationImmersiveMap({
           data-testid="one-location-map-preparation-error"
           className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-[color:var(--app-primary-surface)] px-6 text-center"
         >
-          <p className="max-w-sm text-sm text-[color:var(--app-secondary-label)]">
+          <p data-location-type-role="row-description" className="max-w-sm text-sm text-[color:var(--app-secondary-label)]">
             {rendererPreparationError}
           </p>
-          <Button size="standard" onClick={retryRendererPreparation}>Try again</Button>
+          <Button data-location-type-role="primary-action" size="standard" onClick={retryRendererPreparation}>Try again</Button>
         </section>
       ) : null}
       {!rendererReady && !rendererPreparationPending && !rendererPreparationError && mapReady && status !== "unavailable" && !(isCheckInSurface && nearbyCheckInOpen) ? (
@@ -4409,7 +4409,7 @@ export function LocationImmersiveMap({
           >
             <MapPin className="h-7 w-7" strokeWidth={2} aria-hidden />
           </span>
-          <h1 className="relative font-semibold">
+          <h1 data-location-type-role="flow-title" className="relative font-semibold">
             {/* "build" and "Maps key" are engineering words on a full-bleed
                 screen an ordinary person is looking at. The distinction the two
                 branches exist to make — this is our problem, not your device or
@@ -4418,13 +4418,13 @@ export function LocationImmersiveMap({
               ? "Maps isn't available"
               : "The map could not start"}
           </h1>
-          <p className="relative max-w-sm text-sm text-muted-foreground">
+          <p data-location-type-role="row-description" className="relative max-w-sm text-sm text-muted-foreground">
             {unavailableReason === "maps-key"
               ? "Nothing is wrong with your location."
               : "Check your connection and try again."}
           </p>
           {unavailableReason === "renderer" ? (
-            <Button
+            <Button data-location-type-role="utility-action"
               type="button"
               variant="secondary"
               size="standard"
@@ -4509,7 +4509,7 @@ export function LocationImmersiveMap({
             >
               <UsersRound className="h-6 w-6 stroke-[2.25] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
               {drawerEntryCount > 0 ? (
-                <span className="absolute right-1.5 top-1.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-[var(--app-accent)] px-1 text-[10px] font-semibold leading-none text-[var(--app-accent-fg)]">
+                <span data-location-type-exception="avatar-initial" className="absolute right-1.5 top-1.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-[var(--app-accent)] px-1 text-[10px] font-semibold leading-none text-[var(--app-accent-fg)]">
                   {drawerEntryCount > 9 ? "9+" : drawerEntryCount}
                 </span>
               ) : null}
@@ -4524,7 +4524,7 @@ export function LocationImmersiveMap({
             >
               <span className="flex shrink-0 -space-x-2" aria-hidden="true">
                 {markers.slice(0, 3).map((person) => (
-                  <span
+                  <span data-location-type-exception="avatar-initial"
                     key={person.key}
                     className="grid h-8 w-8 place-items-center rounded-full border-2 border-background text-[10px] font-semibold text-white"
                     style={{
@@ -4539,7 +4539,7 @@ export function LocationImmersiveMap({
                 {nearbyAttendees
                   .slice(0, Math.max(0, 3 - markers.length))
                   .map((attendee) => (
-                    <span
+                    <span data-location-type-exception="avatar-initial"
                       key={attendee.participantAlias}
                       className="grid h-8 w-8 place-items-center rounded-full border-2 border-background bg-[var(--app-accent)] text-[10px] font-semibold text-[var(--app-accent-fg)]"
                     >
@@ -4549,11 +4549,11 @@ export function LocationImmersiveMap({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
-                  <span className="truncate text-sm font-semibold">
+                  <span data-location-type-role="row-title" className="truncate text-sm font-semibold">
                     {peopleDrawerLabel}
                   </span>
                   {demoMode ? (
-                    <span className="rounded-full bg-[var(--app-accent-surface)] px-2 py-0.5 text-[11px] font-medium text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]">
+                    <span data-location-type-role="helper" className="rounded-full bg-[var(--app-accent-surface)] px-2 py-0.5 text-[11px] font-medium text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]">
                       Demo
                     </span>
                   ) : null}
@@ -4591,8 +4591,8 @@ export function LocationImmersiveMap({
               <div ref={trayContentRef} className="px-3 pb-3 pt-1">
                 <label className="relative block">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <span className="sr-only">Find a person</span>
-                  <Input
+                  <span data-location-type-role="row-description" className="sr-only">Find a person</span>
+                  <Input data-location-type-role="input"
                     className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4 focus-visible:ring-2 focus-visible:ring-inset"
                     data-testid="one-location-map-search"
                     inputMode="search"
@@ -4626,14 +4626,14 @@ export function LocationImmersiveMap({
                                 aria-label={`Open nearby actions for ${attendee.displayName}`}
                                 onClick={openNearbyCheckIn}
                               >
-                                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[11px] font-semibold text-[var(--app-accent-fg)]">
+                                <span data-location-type-exception="avatar-initial" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--app-accent)] text-[11px] font-semibold text-[var(--app-accent-fg)]">
                                   {personInitials(attendee.displayName)}
                                 </span>
                                 <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-sm font-medium">
+                                  <span data-location-type-role="row-title" className="block truncate text-sm font-medium">
                                     {attendee.displayName}
                                   </span>
-                                  <span className="block truncate text-xs text-muted-foreground">
+                                  <span data-location-type-role="row-description" className="block truncate text-xs text-muted-foreground">
                                     {nearbyRelationshipLabel(attendee)}
                                   </span>
                                 </span>
@@ -4659,12 +4659,12 @@ export function LocationImmersiveMap({
                                 </Button>
                               ) : attendee.relationship ===
                                 "pending_outgoing" ? (
-                                <span className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
+                                <span data-location-type-role="helper" className="shrink-0 px-2 text-xs font-medium text-muted-foreground">
                                   Requested
                                 </span>
                               ) : attendee.relationship ===
                                 "pending_incoming" ? (
-                                <Button
+                                <Button data-location-type-role="compact-action"
                                   type="button"
                                   size="compact"
                                   variant="secondary"
@@ -4682,7 +4682,7 @@ export function LocationImmersiveMap({
                         })}
                       </div>
                     ) : (
-                      <p className="px-1 py-2 text-sm text-muted-foreground">
+                      <p data-location-type-role="row-description" className="px-1 py-2 text-sm text-muted-foreground">
                         {nearbyAttendees.length > 0
                           ? "No matches."
                           : "No one else here yet."}
@@ -4748,7 +4748,7 @@ export function LocationImmersiveMap({
                           onClick={() => void focusMarker(person)}
                         >
                           <span className="relative shrink-0">
-                            <span
+                            <span data-location-type-exception="avatar-initial"
                               className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
                                 personStale ? "opacity-70 grayscale" : ""
                               }`}
@@ -4774,11 +4774,11 @@ export function LocationImmersiveMap({
                             ) : null}
                           </span>
                           <span className="flex min-w-0 flex-col leading-tight">
-                            <span className="max-w-28 truncate font-medium">
+                            <span data-location-type-role="row-title" className="max-w-28 truncate font-medium">
                               {person.label}
                             </span>
                             {lastSeen ? (
-                              <span className={cn("max-w-28 truncate text-[11px]", selectedPerson ? "text-white" : "text-muted-foreground")}>
+                              <span data-location-type-role="row-description" className={cn("max-w-28 truncate text-[11px]", selectedPerson ? "text-white" : "text-muted-foreground")}>
                                 {lastSeen}
                               </span>
                             ) : null}
@@ -4787,7 +4787,7 @@ export function LocationImmersiveMap({
                       );
                     })}
                     {filteredPeople.length === 0 ? (
-                      <p className="py-2 pl-1 text-sm text-muted-foreground">
+                      <p data-location-type-role="row-description" className="py-2 pl-1 text-sm text-muted-foreground">
                         {markers.length > 0
                           ? "No matches."
                           : // The header already says no one is sharing. This
@@ -4805,13 +4805,13 @@ export function LocationImmersiveMap({
                     data-testid="one-location-map-selection"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
+                      <p data-location-type-role="row-title" className="truncate text-sm font-medium">
                         {selected.label}
                       </p>
                       {/* The self marker is already labelled "You"; captioning it
                         "Your current location" was the same fact twice. */}
                       {selected.kind === "self" ? null : (
-                        <p className="text-xs text-muted-foreground">
+                        <p data-location-type-role="row-description" className="text-xs text-muted-foreground">
                           Sharing now
                         </p>
                       )}
@@ -4880,14 +4880,14 @@ export function LocationImmersiveMap({
                       <UsersRound className="h-[18px] w-[18px]" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
+                      <span data-location-type-role="row-title" className="block truncate text-sm font-medium">
                         {incomingShareLabel}
                       </span>
                       {/* Only when it adds something the title cannot. The
                         empty state has nothing to fit on the map, so it says
                         nothing rather than restating the line above it. */}
                       {markers.length > 0 ? (
-                        <span className="block truncate text-xs text-muted-foreground">
+                        <span data-location-type-role="row-description" className="block truncate text-xs text-muted-foreground">
                           Tap to fit everyone on the map
                         </span>
                       ) : null}
@@ -4920,11 +4920,11 @@ export function LocationImmersiveMap({
                           <LocateFixed className="h-[18px] w-[18px]" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">
+                          <span data-location-type-role="row-title" className="block truncate text-sm font-medium">
                             {privateShareLabel}
                           </span>
                           {privateShareHint ? (
-                            <span className="block truncate text-xs text-muted-foreground">
+                            <span data-location-type-role="row-description" className="block truncate text-xs text-muted-foreground">
                               {privateShareHint}
                             </span>
                           ) : null}
@@ -4966,7 +4966,7 @@ export function LocationImmersiveMap({
                                     className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
                                     aria-hidden="true"
                                   />
-                                  <span className="min-w-0 flex-1 truncate">
+                                  <span data-location-type-role="row-title" className="min-w-0 flex-1 truncate">
                                     {name}
                                   </span>
                                 </button>
@@ -4995,7 +4995,7 @@ export function LocationImmersiveMap({
                         <Eye className="h-[18px] w-[18px]" />
                       )}
                     </span>
-                    <label
+                    <label data-location-type-role="form-label"
                       className="min-w-0 flex-1 cursor-pointer text-sm font-medium"
                       htmlFor="one-location-map-ghost-toggle"
                     >
@@ -5043,7 +5043,7 @@ export function LocationImmersiveMap({
                         <UsersRound className="h-4 w-4 shrink-0" />
                         {/* Pressed state is already carried by the accent fill and
                           aria-pressed; the label need not say it too. */}
-                        <span className="truncate">Demo</span>
+                        <span data-location-type-role="utility-action" className="truncate">Demo</span>
                       </Button>
                     ) : null}
                     {checkInActionAvailable ? (
@@ -5063,7 +5063,7 @@ export function LocationImmersiveMap({
                         data-testid="one-location-map-nearby-check-in"
                         onClick={openNearbyCheckIn}
                       >
-                        <span className="truncate">
+                        <span data-location-type-role="compact-action" className="truncate">
                           {nearbyPresenceState.presence
                             ? "Checked in"
                             : "Want to check in?"}
@@ -5073,7 +5073,7 @@ export function LocationImmersiveMap({
                   </div>
                 ) : null}
                 {status === "error" ? (
-                  <p className="mt-2 text-center text-xs text-destructive">
+                  <p data-location-type-role="row-description" className="mt-2 text-center text-xs text-destructive">
                     Some locations didn&apos;t refresh.
                   </p>
                 ) : null}

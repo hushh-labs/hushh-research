@@ -315,6 +315,12 @@ Do not mount a Gemini API key or `GOOGLE_APPLICATION_CREDENTIALS` into the
 runtime. Database releases use the governed `DB_*` and Cloud SQL contracts; do
 not restore a parallel `DATABASE_URL` deployment path.
 
+Dev temporarily pins the supported `gemini-3.7-flash` text model. During the
+2026-10-22 release recovery, the same candidate image, runtime identity and ADK
+factory answered on 3.7 while 3.8 timed out. Restore Dev's 3.8 pin only after its
+configured runtime probe passes. This Dev recovery preserves UAT's Azure
+selection, production's model profile, and the regional Live Voice model.
+
 GitHub deployment environments expose only the environment-specific WIF
 provider and deploy service account. Production WIF setup is owned by
 `deploy/iam/setup_production_github_wif.sh`; never provision a parallel provider

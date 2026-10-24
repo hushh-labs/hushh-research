@@ -4,6 +4,7 @@ import {
   forwardRef,
   type AnchorHTMLAttributes,
   type MouseEvent,
+  type RefObject,
 } from "react";
 import Link from "next/link";
 
@@ -19,6 +20,8 @@ type ProfileConnectorsLinkProps = Omit<
 > & {
   /** Open straight onto one connector, for example "google_drive". */
   connectorId?: string | null;
+  /** Persistent origin control when this link is inside a closing dialog. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 };
 
 /**
@@ -29,7 +32,7 @@ type ProfileConnectorsLinkProps = Omit<
 export const ProfileConnectorsLink = forwardRef<
   HTMLAnchorElement,
   ProfileConnectorsLinkProps
->(function ProfileConnectorsLink({ connectorId, onClick, ...props }, ref) {
+>(function ProfileConnectorsLink({ connectorId, returnFocusRef, onClick, ...props }, ref) {
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
     if (
@@ -47,7 +50,7 @@ export const ProfileConnectorsLink = forwardRef<
       window.location.pathname,
       window.location.search,
       profileConnectorsLocation(connectorId),
-      { returnsToOrigin: true, returnFocus: event.currentTarget },
+      { returnsToOrigin: true, returnFocus: returnFocusRef?.current ?? event.currentTarget },
     );
   };
   return (

@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
-  SheetContent,
+  SheetContent as UnscopedSheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
@@ -26,6 +26,7 @@ import {
   type InvitationOutcome,
 } from "@/lib/services/contact-invitations-service";
 import { cn } from "@/lib/utils";
+import { withLocationTypography } from "@/components/one-location/redesign/location-typography";
 import {
   CONTACT_INVITE_FOOTER_CLASSNAME,
   CONTACT_INVITE_HEADER_CLASSNAME,
@@ -36,6 +37,8 @@ import {
   CONTACT_INVITE_SURFACE_CLASSNAME,
   CONTACT_INVITE_TITLE_CLASSNAME,
 } from "@/components/connections/contact-sheet-layout";
+
+const SheetContent = withLocationTypography(UnscopedSheetContent);
 
 const OUTCOME_TEXT: Record<InvitationOutcome, string> = {
   queued_or_sent: "Handed to Messages. Delivery is not confirmed.",
@@ -199,13 +202,13 @@ export function ContactInvitationSheet({
                 if (!rows.length) return null;
                 return (
                   <section key={classification} className="mt-2 first:mt-0">
-                    <h3 className="text-sm font-medium">
+                    <h3 data-location-type-role="source-heading" className="text-sm font-medium">
                       {classification === "no_match"
                         ? "No match found"
                         : "Not checked—mail only"}
                     </h3>
                     {classification === "no_match" ? (
-                      <p className="text-xs text-muted-foreground">
+                      <p data-location-type-role="helper" className="text-xs text-muted-foreground">
                         No match does not necessarily mean they are not on One.
                       </p>
                     ) : null}
@@ -252,15 +255,15 @@ export function ContactInvitationSheet({
                                 }
                               />
                               <span className="min-w-0 flex-1">
-                                <span className="block break-words text-sm font-medium">
+                                <span data-location-type-role="row-title" className="block break-words text-sm font-medium">
                                   {candidate.displayName}
                                 </span>
-                                <span className="block break-all text-sm text-muted-foreground">
+                                <span data-location-type-role="row-description" className="block break-all text-sm text-muted-foreground">
                                   {chosen?.value ??
                                     `Choose ${native ? "a number" : "an email"} below`}
                                 </span>
                                 {duplicate ? (
-                                  <span className="block text-xs text-muted-foreground">
+                                  <span data-location-type-role="helper" className="block text-xs text-muted-foreground">
                                     This destination is already selected.
                                   </span>
                                 ) : null}
@@ -304,7 +307,7 @@ export function ContactInvitationSheet({
                 );
               })}
               {!filtered.length ? (
-                <p className="py-6 text-sm text-muted-foreground">
+                <p data-location-type-role="row-description" className="py-6 text-sm text-muted-foreground">
                   {query.trim()
                     ? "No contacts match your search."
                     : native
@@ -313,20 +316,20 @@ export function ContactInvitationSheet({
                 </p>
               ) : null}
               {candidates.length < controller.candidates.length ? (
-                <p className="mt-3 text-xs text-muted-foreground">
+                <p data-location-type-role="helper" className="mt-3 text-xs text-muted-foreground">
                   {native
                     ? "Only contacts with a phone number appear here."
                     : "Only contacts with an email address appear here. Phone-only contacts can be invited from the One mobile app."}
                 </p>
               ) : null}
               {atLimit ? (
-                <p role="status" className="mt-3 text-sm text-muted-foreground">
+                <p data-location-type-role="status" role="status" className="mt-3 text-sm text-muted-foreground">
                   15 contacts selected. Remove one to choose another.
                 </p>
               ) : null}
               {!candidates.length && controller.share ? (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
+                  <Button data-location-type-role="utility-action"
                     variant="outline"
                     className="min-h-11"
                     disabled={busy}
@@ -334,7 +337,7 @@ export function ContactInvitationSheet({
                   >
                     Share link instead
                   </Button>
-                  <Button
+                  <Button data-location-type-role="utility-action"
                     variant="ghost"
                     className="min-h-11"
                     disabled={busy}
@@ -345,12 +348,12 @@ export function ContactInvitationSheet({
                 </div>
               ) : null}
               {!candidates.length && controller.preparing ? (
-                <p role="status">Preparing invitation…</p>
+                <p data-location-type-role="status" role="status">Preparing invitation…</p>
               ) : null}
               {!candidates.length && controller.error ? (
                 <div className="mt-3">
-                  <p role="alert">{controller.error}</p>
-                  <Button
+                  <p data-location-type-role="row-description" role="alert">{controller.error}</p>
+                  <Button data-location-type-role="utility-action"
                     variant="outline"
                     className="mt-2 min-h-11"
                     disabled={controller.preparing || busy}
@@ -361,17 +364,17 @@ export function ContactInvitationSheet({
                 </div>
               ) : null}
               {!candidates.length && outcome ? (
-                <p role="status" className="mt-3 text-sm">
+                <p data-location-type-role="status" role="status" className="mt-3 text-sm">
                   {OUTCOME_TEXT[outcome]}
                 </p>
               ) : null}
               {!candidates.length && error ? (
-                <p role="alert" className="mt-3 text-sm">
+                <p data-location-type-role="row-description" role="alert" className="mt-3 text-sm">
                   {error}
                 </p>
               ) : null}
               {filtered.length > visible ? (
-                <Button
+                <Button data-location-type-role="utility-action"
                   variant="outline"
                   className="mt-3 min-h-11"
                   onClick={() => setVisible((count) => count + 50)}
@@ -383,32 +386,32 @@ export function ContactInvitationSheet({
           ) : (
             <>
               {busy ? (
-                <p role="status" className="mt-3 text-sm">
+                <p data-location-type-role="status" role="status" className="mt-3 text-sm">
                   Preparing invitation…
                 </p>
               ) : outcome ? (
-                <p role="status" className="mt-3 text-sm">
+                <p data-location-type-role="status" role="status" className="mt-3 text-sm">
                   {OUTCOME_TEXT[outcome]}
                 </p>
               ) : null}
               {error ? (
-                <p role="alert" className="mt-3 text-sm">
+                <p data-location-type-role="row-description" role="alert" className="mt-3 text-sm">
                   {error}
                 </p>
               ) : null}
               {handedOff ? (
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p data-location-type-role="helper" className="mt-2 text-xs text-muted-foreground">
                   Before opening again, check your app to avoid sending the same
                   invitation twice.
                 </p>
               ) : null}
               {controller.preparing ? (
-                <p role="status">Preparing invitation…</p>
+                <p data-location-type-role="status" role="status">Preparing invitation…</p>
               ) : null}
               {controller.error ? (
                 <div className="mb-3">
-                  <p role="alert">{controller.error}</p>
-                  <Button
+                  <p data-location-type-role="row-description" role="alert">{controller.error}</p>
+                  <Button data-location-type-role="utility-action"
                     className="mt-2 min-h-11"
                     variant="outline"
                     disabled={controller.preparing || busy}
@@ -420,7 +423,7 @@ export function ContactInvitationSheet({
               ) : null}
               {controller.share ? (
                 <div className="rounded-2xl bg-muted/40 px-4 py-3.5">
-                  <p className="text-[15px] font-semibold leading-5">
+                  <p data-location-type-role="section-heading" className="text-[15px] font-semibold leading-5">
                     Message preview
                   </p>
                   <textarea
@@ -432,12 +435,12 @@ export function ContactInvitationSheet({
                   />
                 </div>
               ) : null}
-              <p className="mt-3 text-sm text-muted-foreground">
+              <p data-location-type-role="row-description" className="mt-3 text-sm text-muted-foreground">
                 {native
                   ? "Opens one Messages draft from your device’s messaging account. This may create a group: recipients can see each other’s numbers. Check recipients and tap Send there. Carrier charges may apply."
                   : "Opens one email draft with the selected addresses in BCC. Check BCC and send from your email account. Your email app must support BCC links."}
               </p>
-              <h3 className="mt-4 text-sm font-medium">
+              <h3 data-location-type-role="source-heading" className="mt-4 text-sm font-medium">
                 {queue.length} selected{" "}
                 {queue.length === 1 ? "contact" : "contacts"}
               </h3>
@@ -448,15 +451,15 @@ export function ContactInvitationSheet({
                     className="flex items-center gap-3 py-2"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="break-words text-sm font-medium">
+                      <p data-location-type-role="row-title" className="break-words text-sm font-medium">
                         {candidate.displayName}
                       </p>
-                      <p className="break-all text-sm text-muted-foreground">
+                      <p data-location-type-role="row-description" className="break-all text-sm text-muted-foreground">
                         {selected[candidate.id]?.value}
                       </p>
                     </div>
                     {step === "review" ? (
-                      <Button
+                      <Button data-location-type-role="utility-action"
                         variant="ghost"
                         className="-mr-2 min-h-11 shrink-0"
                         disabled={busy}
@@ -476,13 +479,13 @@ export function ContactInvitationSheet({
                 ))}
               </ul>
               {native && smsAvailable === false ? (
-                <p role="status" className="mt-3 text-sm text-muted-foreground">
+                <p data-location-type-role="status" role="status" className="mt-3 text-sm text-muted-foreground">
                   Batch Messages is unavailable. Update One and check your
                   messaging app. You can still copy the invitation.
                 </p>
               ) : null}
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button
+                <Button data-location-type-role="utility-action"
                   variant="ghost"
                   className="min-h-11"
                   disabled={busy || !controller.share}
@@ -490,7 +493,7 @@ export function ContactInvitationSheet({
                 >
                   Copy invitation
                 </Button>
-                <Button
+                <Button data-location-type-role="utility-action"
                   variant="ghost"
                   className="min-h-11"
                   disabled={busy || !controller.share}
@@ -499,7 +502,7 @@ export function ContactInvitationSheet({
                   Share link instead
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p data-location-type-role="helper" className="text-xs text-muted-foreground">
                 Sharing the link lets you choose recipients in another app.
               </p>
             </>

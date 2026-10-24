@@ -2,10 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { useVault } from "@/lib/vault/vault-context";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { KaiFinancialResourceService, useKaiFinancialResource } from "@/lib/kai/kai-financial-resource";
 import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
+import { usMarketRefreshSession, useMarketLiveRefresh } from "@/lib/kai/use-market-live-refresh";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
@@ -46,6 +49,7 @@ function useKaiMarketHomeController() {
     vaultKey,
     tokenExpiresAt,
     unlockVault,
+    getVaultKey,
     getVaultOwnerToken,
     vaultOwnerToken,
   } = useVault();
@@ -124,23 +128,40 @@ function useKaiMarketHomeController() {
       if (!user?.uid) {
         throw new Error("Missing authenticated user");
       }
-      return await ensureKaiVaultOwnerToken({
+      const authGeneration = getAuthSessionGeneration();
+      let credentialEpoch = snapshotVaultSessionEpoch();
+      const assertCurrent = () => {
+        if (
+          authGeneration !== getAuthSessionGeneration() ||
+          credentialEpoch !== snapshotVaultSessionEpoch() ||
+          (getVaultKey && getVaultKey() !== vaultKey)
+        ) throw new Error("Finance session changed. Please try again.");
+      };
+      assertCurrent();
+      const token = await ensureKaiVaultOwnerToken({
         userId: user.uid,
-        currentToken: getVaultOwnerToken?.() ?? vaultOwnerToken,
+        currentToken: getVaultOwnerToken ? getVaultOwnerToken() : vaultOwnerToken,
         currentExpiresAt: tokenExpiresAt,
         forceRefresh,
         onIssued: (issuedToken, expiresAt) => {
+          assertCurrent();
           if (
             vaultKey &&
             (issuedToken !== vaultOwnerToken || expiresAt !== tokenExpiresAt)
           ) {
-            unlockVault(vaultKey, issuedToken, expiresAt);
+            if (!unlockVault(vaultKey, issuedToken, expiresAt)) {
+              throw new Error("Finance session changed. Please try again.");
+            }
+            credentialEpoch = snapshotVaultSessionEpoch();
           }
         },
       });
+      assertCurrent();
+      return token;
     },
     [
       getVaultOwnerToken,
+      getVaultKey,
       tokenExpiresAt,
       unlockVault,
       user?.uid,
@@ -169,6 +190,7 @@ function useKaiMarketHomeController() {
       : "kai_market_home_baseline_guest",
     enabled: Boolean(user?.uid),
     resourceLabel: "kai_market_home_baseline",
+    getRequestVersion: () => usMarketRefreshSession() ?? "closed",
     load: async (options) => {
       if (!user?.uid) {
         return null;
@@ -186,17 +208,19 @@ function useKaiMarketHomeController() {
     cacheKey: personalizedCacheKey,
     enabled: marketResourceReady,
     resourceLabel: "kai_market_home",
+    getRequestVersion: () => usMarketRefreshSession() ?? "closed",
     load: async (options) => {
       if (!user?.uid) {
         return null;
       }
-      const currentToken = getVaultOwnerToken?.() ?? vaultOwnerToken ?? null;
+      const currentToken = getVaultOwnerToken ? getVaultOwnerToken() : vaultOwnerToken ?? null;
+      const currentVaultKey = getVaultKey ? getVaultKey() : vaultKey;
       if (options?.force) {
-        if (!currentToken && !vaultKey) {
+        if (!currentToken && !currentVaultKey) {
           return null;
         }
         const forcedToken =
-          currentToken && !vaultKey ? currentToken : await resolveToken(true);
+          currentToken && !currentVaultKey ? currentToken : await resolveToken(false);
         return await KaiMarketHomeResourceService.getPersonalizedStaleFirst({
           userId: user.uid,
           vaultOwnerToken: forcedToken,
@@ -233,7 +257,7 @@ function useKaiMarketHomeController() {
         });
       }
 
-      if (!vaultKey) {
+      if (!currentVaultKey) {
         return null;
       }
       const token = await resolveToken(false);
@@ -371,24 +395,14 @@ function useKaiMarketHomeController() {
     setKaiActivePickSource(user?.uid, activePickSource);
   }, [activePickSource, user?.uid]);
 
-  useEffect(() => {
-    if (!user?.uid) return;
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void baselineResource.refresh();
-        if (marketResourceReady) {
-          void personalizedResource.refresh();
-        }
-      }
-    };
-
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [baselineResource, marketResourceReady, personalizedResource, user?.uid]);
+  useMarketLiveRefresh(async (force) => {
+    await Promise.all([
+      baselineResource.refresh({ force }),
+      marketResourceReady && (vaultOwnerToken || vaultKey)
+        ? personalizedResource.refresh({ force })
+        : Promise.resolve(),
+    ]);
+  }, user?.uid ?? null);
 
   const loadInsights = useCallback(
     async ({
@@ -398,6 +412,7 @@ function useKaiMarketHomeController() {
       if (!user?.uid) {
         return;
       }
+      if (forceTokenRefresh && vaultKey) await resolveToken(true);
       const shouldForce = Boolean(forceTokenRefresh || manual);
       await baselineResource.refresh({ force: shouldForce });
       if (marketResourceReady && (vaultOwnerToken || vaultKey)) {
@@ -408,6 +423,7 @@ function useKaiMarketHomeController() {
       baselineResource,
       marketResourceReady,
       personalizedResource,
+      resolveToken,
       user?.uid,
       vaultKey,
       vaultOwnerToken,

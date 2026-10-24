@@ -2,13 +2,18 @@
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 import yaml
+
+from tests.helpers.deployment_cli import (
+    candidate_clock_environment,
+    copy_candidate_tools,
+    run_candidate_gate,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -86,50 +91,32 @@ def test_workflow_candidate_tag_fits_preview_services_and_binds_retry(tmp_path):
     assert '--remove-tags="${{ env.DEV_CANDIDATE_TAG }}"' in cleanup["run"]
 
 
-@pytest.mark.parametrize("code,expected", [("200", 0), ("302", 1), ("503", 1)])
-def test_candidate_http_gate_does_not_accept_redirects(tmp_path, code, expected):
+@pytest.mark.parametrize(
+    "code,ready_at,response_seconds,expected,requests,elapsed",
+    [
+        ("200", 0, 0, 0, 1, 0),
+        ("200", 118, 0, 0, 7, 118),
+        ("200", 241, 0, 1, 14, 240),
+        ("302", 0, 10, 1, 19, 240),
+        ("503", 0, 10, 1, 19, 240),
+        ("000", 0, 0, 1, 14, 240),
+    ],
+)
+def test_candidate_health_observes_cold_start_without_accepting_redirects(
+    tmp_path, code, ready_at, response_seconds, expected, requests, elapsed
+):
     commands = tmp_path / "commands"
-    for name, body in {
-        "gcloud": 'echo "$*" >> "$COMMANDS"\n',
-        "curl": 'echo "$*" >> "$COMMANDS"\nprintf "%s" "$HTTP_CODE"\n',
-        "sleep": "exit 0\n",
-        "python-gate": 'if [ "$1" = "-c" ]; then echo https://candidate.run.app; fi\n',
-    }.items():
-        path = tmp_path / name
-        path.write_text("#!/bin/sh\n" + body)
-        path.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": str(tmp_path) + ":" + os.environ["PATH"],
-        "PROTOCOL_PYTHON": str(tmp_path / "python-gate"),
-        "HTTP_CODE": code,
-        "COMMANDS": str(commands),
-    }
-    run = subprocess.run(  # noqa: S603 - fixed script with isolated fake executables.
-        [
-            "bash",
-            str(ROOT / "scripts/ci/verify-dev-candidate.sh"),
-            "project",
-            "region",
-            "service",
-            "revision",
-            "registry/image@sha256:" + "a" * 64,
-            "a" * 40,
-            "99",
-            "dev-candidate-99",
-            "/health",
-        ],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert run.returncode == expected
+    env = candidate_clock_environment(tmp_path, code, ready_at, response_seconds)
+    run = run_candidate_gate(ROOT, env)
+    assert run.returncode == expected, run.stderr
+    assert int((tmp_path / "clock").read_text()) == elapsed
     calls = commands.read_text()
     assert "--update-tags=dev-candidate-99=revision" in calls
     assert "--to-" not in calls
     assert "--location" not in calls and " -L" not in calls
-    assert calls.count("https://candidate.run.app/health") == (1 if expected == 0 else 5)
+    assert calls.count("https://candidate.run.app/health") == requests
+    if elapsed == 240:
+        assert "--max-time 6 " in calls.splitlines()[-1]
 
 
 def test_dev_builds_immutable_candidate_before_migration_and_probes_before_promotion():
@@ -187,19 +174,7 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
     )
     step = next(step for step in steps if step["name"] == "Validate candidate build capabilities")
     program = step["run"].split("<<'PYBUILD'\n", 1)[1].rsplit("PYBUILD", 1)[0]
-    for relative in (
-        "scripts/ci/verify-dev-candidate.sh",
-        "scripts/ci/cloudrun-retention.sh",
-        "scripts/ci/verify-cloudrun-revision-provenance.py",
-        "scripts/ops/verify-env-secrets-parity.py",
-        "deploy/backend.cloudbuild.yaml",
-    ):
-        destination = tmp_path / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / relative, destination)
-    retention_helper = ROOT / "scripts/ci/cloudrun-retention.py"
-    if retention_helper.exists():
-        shutil.copy2(retention_helper, tmp_path / "scripts/ci/cloudrun-retention.py")
+    copy_candidate_tools(ROOT, tmp_path)
     if legacy_interface == "missing-probe":
         (tmp_path / "scripts/ci/verify-dev-candidate.sh").unlink()
     elif legacy_interface == "unprotected-retention":
@@ -443,24 +418,9 @@ body=$(cat)
         path = tmp_path / name
         path.write_text("#!/bin/sh\n" + body)
         path.chmod(0o755)
-    result = subprocess.run(  # noqa: S603 - fixed gate with synthetic executables and identity.
-        [
-            "bash",
-            str(ROOT / "scripts/ci/verify-dev-candidate.sh"),
-            "hushh-pda-dev",
-            "us-central1",
-            "consent-protocol-commerce-sandbox",
-            "revision",
-            "registry/image@sha256:" + "a" * 64,
-            "a" * 40,
-            "99",
-            "c123",
-            "/health",
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        env={
+    result = run_candidate_gate(
+        ROOT,
+        {
             **os.environ,
             "PATH": str(tmp_path) + ":" + os.environ["PATH"],
             "PROTOCOL_PYTHON": str(tmp_path / "python-gate"),
@@ -468,6 +428,10 @@ body=$(cat)
             "DEV_TARGET": "scope-commerce-sandbox",
             "CANDIDATE_ID_TOKEN": token,
         },
+        project="hushh-pda-dev",
+        region="us-central1",
+        service="consent-protocol-commerce-sandbox",
+        tag="c123",
     )
     assert result.returncode == expected, result.stderr
     assert "synthetic-identity" not in result.stdout + result.stderr + calls.read_text()

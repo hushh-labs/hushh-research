@@ -78,6 +78,8 @@ _CASCADE_PARENT = {
     "connected_documents": "user_external_connector_connections",
     "document_chunks": "connected_documents",
     "drive_collection_sync": "user_external_connector_connections",
+    "drive_group_index": "user_external_connector_connections",
+    "drive_group_index_state": "user_external_connector_connections",
     "drive_document_extractions": "connected_documents",
     "drive_document_facts": "connected_documents",
     "drive_document_fact_pages": "connected_documents",

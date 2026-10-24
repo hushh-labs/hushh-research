@@ -4,6 +4,7 @@
 """Exercise the production security authority's origin and inventory boundary."""
 
 import importlib.util
+import base64
 import json
 from pathlib import Path
 import tempfile
@@ -46,10 +47,13 @@ def source_fixture():
 
 class SecurityAuthorityTest(unittest.TestCase):
     def test_exact_current_attempt_including_fork_without_executing_fork(self):
-        expected, _, responses = source_fixture()
-        result = authority.verify_source(responses.__getitem__, REPOSITORY, expected)
-        self.assertEqual(result["head_sha"], HEAD)
-        self.assertEqual(result["attempt"], 2)
+        for status in ("pending", "queued", "in_progress", "completed"):
+            with self.subTest(status=status):
+                expected, run, responses = source_fixture()
+                run["status"] = status
+                result = authority.verify_source(responses.__getitem__, REPOSITORY, expected)
+                self.assertEqual(result["head_sha"], HEAD)
+                self.assertEqual(result["attempt"], 2)
 
     def test_wrong_repository_workflow_attempt_sha_or_event_refuses(self):
         for field, value in (
@@ -60,6 +64,7 @@ class SecurityAuthorityTest(unittest.TestCase):
             ("workflow_id", 31),
             ("path", "untrusted.yml"),
             ("event", "push"),
+            ("status", "unrecognized"),
             ("repository", {"id": 99, "full_name": REPOSITORY}),
         ):
             with self.subTest(field=field, value=value):
@@ -70,25 +75,75 @@ class SecurityAuthorityTest(unittest.TestCase):
 
     def test_bound_complete_pagination_and_malformed_or_truncated_refusal(self):
         calls = []
+        next_url = "https://api.github.com/repositories/10/dependabot/alerts?state=open&per_page=100&after=opaque%3Dcursor"
 
         def read(path):
             calls.append(path)
-            return [{"state": "open"}] * (100 if path.endswith("&page=1") else 1)
+            self.assertNotIn("&page=", path)
+            if "after=" not in path:
+                # Even a short page may have a next cursor; row count is not EOF.
+                return ([{"state": "open"}] * 2, f'<{next_url}>; rel="next"')
+            return ([{"state": "open"}] * 100, "")
 
         self.assertEqual(
-            authority.inventory(read, REPOSITORY, "secret-scanning")["open"], 101
+            authority.inventory(read, REPOSITORY, "dependabot", 10)["open"], 102
         )
         self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            calls[1],
+            f"repos/{REPOSITORY}/dependabot/alerts?state=open&per_page=100&after=opaque%3Dcursor",
+        )
         for rows in ({"message": "denied"}, [None], [{"state": "closed"}]):
             with self.subTest(rows=rows), self.assertRaises(authority.Refused):
-                authority.inventory(lambda _: rows, REPOSITORY, "secret-scanning")
+                authority.inventory(lambda _: (rows, ""), REPOSITORY, "secret-scanning")
         with (
             patch.object(authority, "MAX_PAGES", 1),
             self.assertRaises(authority.Refused),
         ):
             authority.inventory(
-                lambda _: [{"state": "open"}] * 100, REPOSITORY, "secret-scanning"
+                lambda _: ([], f'<{next_url}>; rel="next"'),
+                REPOSITORY,
+                "dependabot",
+                10,
             )
+        with self.assertRaisesRegex(authority.Refused, "repeated"):
+            authority.inventory(
+                lambda _: ([], f'<{next_url}>; rel="next"'),
+                REPOSITORY,
+                "dependabot",
+                10,
+            )
+
+    def test_alert_next_link_cannot_redirect_credentials_or_change_filters(self):
+        root = f"https://api.github.com/repos/{REPOSITORY}/dependabot/alerts"
+        query = "?state=open&per_page=100&after=cursor"
+        for url in (
+            root.replace("api.github.com", "untrusted.example") + query,
+            root.replace(REPOSITORY, "another/repository") + query,
+            root.replace("dependabot", "secret-scanning") + query,
+            root.replace("https:", "http:") + query,
+            root + query + "#fragment",
+            root + query.replace("state=open", "state=closed"),
+            root + query.replace("after=cursor", "page=2"),
+            root + query + "&after=duplicate",
+            root + query + "&after=",
+            root + query + "&state=",
+            root + query.replace("after=cursor", "after="),
+            root + query.replace("after=cursor", "after=" + "x" * 2049),
+            "https://api.github.com/repositories/11/dependabot/alerts" + query,
+        ):
+            with self.subTest(url=url), self.assertRaises(authority.Refused):
+                authority.next_alert_page(
+                    f'<{url}>; rel="next"', REPOSITORY, "dependabot", 10
+                )
+        for page in ("0", "-1", "not-a-page"):
+            url = root.replace("dependabot", "secret-scanning") + query.replace(
+                "after=cursor", "page=" + page
+            )
+            with self.subTest(page=page), self.assertRaises(authority.Refused):
+                authority.next_alert_page(
+                    f'<{url}>; rel="next"', REPOSITORY, "secret-scanning", 10
+                )
 
     def test_manual_recovery_is_governed_and_exact(self):
         policy = {"main": {"protected_pipeline_edit_users": ["maintainer"]}}
@@ -141,16 +196,19 @@ class SecurityAuthorityTest(unittest.TestCase):
                 "GH_SECURITY_ALERTS_TOKEN": "synthetic-alerts",
             }
 
-            def read(client, path):
+            def read_page(client, path):
                 if "/alerts?" in path:
                     return (
-                        [{"state": "open", "secret": "unapproved-fixture-value"}]
-                        if "/secret-scanning/" in path
-                        else []
+                        (
+                            [{"state": "open", "secret": "unapproved-fixture-value"}]
+                            if "/secret-scanning/" in path
+                            else []
+                        ),
+                        "",
                     )
-                return responses[path]
+                return responses[path], ""
 
-            with patch.object(authority.GitHub, "read", read):
+            with patch.object(authority.GitHub, "read_page", read_page):
                 result = authority.produce(env)
                 self.assertEqual(result["verdict"], "blocked")
                 self.assertNotIn("unapproved-fixture-value", json.dumps(result))
@@ -161,6 +219,127 @@ class SecurityAuthorityTest(unittest.TestCase):
                 ):
                     with self.subTest(key=key), self.assertRaises(authority.Refused):
                         authority.produce({**env, key: value})
+
+
+def rerun_fixture(actor="operator"):
+    path = PATH.parents[2] / ".agents/skills/repo-operations/scripts/ci_rerun.py"
+    spec = importlib.util.spec_from_file_location("security_rerun", path)
+    retry = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(retry)
+    expected, source, _ = source_fixture()
+    repo = {"id": 10, "full_name": retry.REPOSITORY}
+    source.update(repository=repo, status="completed", conclusion="failure")
+    prefix = f"repos/{retry.REPOSITORY}"
+    policy = {"main": {"protected_pipeline_edit_users": ["operator"]}}
+    responses = {
+        "user": {"login": actor},
+        f"{prefix}/contents/config/ci-governance.json?ref=main": {
+            "encoding": "base64", "size": 100,
+            "content": base64.b64encode(json.dumps(policy).encode()).decode(),
+        },
+        prefix: repo,
+        f"{prefix}/actions/workflows/ci.yml": {"id": 30, "path": authority.CI_PATH},
+        f"{prefix}/actions/runs/20": source,
+    }
+    writes = []
+
+    def write(path, body):
+        writes.append((path, body))
+        if not path.endswith("/dispatches"):
+            source.update(run_attempt=3, status="queued")
+
+    return retry, expected, source, responses.__getitem__, write, writes
+
+
+class SecurityRerunTest(unittest.TestCase):
+    def test_one_job_retry_is_bound_to_the_exact_completed_attempt(self):
+        for mismatch in (None, "attempt", "run_id", "head_sha", "status", "name", "truncated"):
+            retry, expected, source, read, write, writes = rerun_fixture()
+            source["conclusion"] = "success"
+            job = {"id": 50, "run_id": 20, "head_sha": HEAD, "status": "completed", "name": "CI Status Gate"}
+            inventory = {"total_count": 1, "jobs": [{"id": 50}]}
+            if mismatch == "attempt":
+                inventory = {"total_count": 0, "jobs": []}
+            elif mismatch == "truncated":
+                inventory["total_count"] = 101
+            elif mismatch:
+                job[mismatch] = "wrong"
+
+            def read_job(path):
+                if "/attempts/2/jobs?" in path:
+                    return inventory
+                return job if path.endswith("/actions/jobs/50") else read(path)
+
+            if mismatch:
+                with self.subTest(mismatch=mismatch), self.assertRaises(retry.Refused):
+                    retry.rerun_validation(read_job, write, expected, job_id=50)
+                self.assertEqual(writes, [])
+            else:
+                retry.rerun_validation(read_job, write, expected, job_id=50)
+                self.assertTrue(writes[0][0].endswith("/actions/jobs/50/rerun"))
+                self.assertEqual(len(writes), 2)
+
+    def test_one_rerun_and_exact_observed_attempt_dispatch(self):
+        for all_jobs in (False, True):
+            retry, expected, _, read, write, writes = rerun_fixture()
+            result = retry.rerun_validation(read, write, expected, all_jobs=all_jobs)
+            self.assertEqual(result["attempt"], 3)
+            self.assertEqual(len(writes), 2)
+            self.assertTrue(writes[0][0].endswith("/rerun" if all_jobs else "/rerun-failed-jobs"))
+            self.assertEqual(writes[1][1], {"ref": "main", "inputs": {
+                "source_run_id": "20", "source_attempt": "3", "source_sha": HEAD,
+            }})
+
+    def test_ungoverned_stale_or_running_source_refuses_before_mutation(self):
+        for scenario in ("actor", "attempt", "running", "successful"):
+            retry, expected, source, read, write, writes = rerun_fixture(
+                "outsider" if scenario == "actor" else "operator"
+            )
+            if scenario == "attempt":
+                source["run_attempt"] = 1
+            elif scenario == "running":
+                source["status"] = "in_progress"
+            elif scenario == "successful":
+                source["conclusion"] = "success"
+            with self.subTest(scenario=scenario), self.assertRaises(retry.Refused):
+                retry.rerun_validation(read, write, expected)
+            self.assertEqual(writes, [])
+
+    def test_lost_rerun_response_reconciles_without_second_post(self):
+        retry, expected, _, read, write, writes = rerun_fixture()
+
+        def uncertain(path, body):
+            write(path, body)
+            if not path.endswith("/dispatches"):
+                raise retry.Refused("lost response")
+
+        self.assertEqual(retry.rerun_validation(read, uncertain, expected)["attempt"], 3)
+        self.assertEqual(len(writes), 2)
+
+    def test_attempt_race_or_uncertain_security_dispatch_never_replays(self):
+        for scenario in ("race", "dispatch"):
+            retry, expected, source, read, write, writes = rerun_fixture()
+
+            def uncertain(path, body):
+                write(path, body)
+                if scenario == "race":
+                    source["run_attempt"] = 4
+                elif path.endswith("/dispatches"):
+                    raise retry.Refused("lost response")
+
+            with self.subTest(scenario=scenario), self.assertRaises(retry.Refused):
+                retry.rerun_validation(read, uncertain, expected)
+            self.assertEqual(len(writes), 1 if scenario == "race" else 2)
+
+    def test_unobserved_rerun_has_a_bound_and_no_second_post(self):
+        retry, expected, _, read, _, writes = rerun_fixture()
+        ticks = iter((0, 61))
+        with self.assertRaisesRegex(retry.Refused, "unconfirmed"):
+            retry.rerun_validation(
+                read, lambda path, body: writes.append((path, body)), expected,
+                clock=lambda: next(ticks), sleep=lambda _: self.fail("deadline exceeded"),
+            )
+        self.assertEqual(len(writes), 1)
 
 
 if __name__ == "__main__":

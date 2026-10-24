@@ -24,6 +24,7 @@ export type PersonalAgentStatus = {
   updateAvailable?: boolean;
   updateOfferable?: boolean;
   updateInstallable?: boolean;
+  updateBlockedReason?: "UPDATE_IN_PROGRESS" | "RELEASE_UNVERIFIED" | "INSTALLED_RELEASE_UNVERIFIED" | "PREDECESSOR_NOT_QUALIFIED";
   updateInProgress?: boolean;
   updateFailed?: boolean;
   updateError?: string | null;

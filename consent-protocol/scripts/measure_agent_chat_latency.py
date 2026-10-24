@@ -58,10 +58,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from scripts._reviewer_session import (  # noqa: E402
     DEFAULT_PROTOCOL_ENV,
     DEFAULT_WEB_ENV,
-    ReviewerConfig,
+    Printer,
     ReviewerSession,
     authenticate_reviewer,
+    derive_reviewer_chat_key,
     load_reviewer_config,
+    secret_values_of,
 )
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
@@ -98,8 +100,6 @@ _SERVER_FIRST_ANSWER_TOKEN_RE = re.compile(r"\bfirst_answer_token_ms=([^\s,]+)")
 _SERVER_ELAPSED_RE = re.compile(r"\belapsed_ms=([^\s,]+)")
 _SAFE_ERROR_CODE_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 RUN_PREFIX_LEN = 8
-
-REDACTED = "[redacted]"
 
 
 @dataclass(frozen=True)
@@ -384,6 +384,7 @@ def make_http_stream_opener(
         **session.vault_headers(),
         "Accept": "text/event-stream",
         "Content-Type": "application/json",
+        "X-Hussh-Chat-Key": derive_reviewer_chat_key(base_url, session, http=http),
     }
 
     def open_stream(body: dict[str, Any]) -> Iterable[str]:
@@ -700,6 +701,9 @@ def evaluate_bounds(
             f"{s.get('prompt_id')}#{s.get('rep')}={s.get('outcome')}" for s in unfinished
         )
         breaches.append(f"{len(unfinished)} sample(s) did not finish: {summary}")
+    invalid = [s for s in samples if s.get("answer_validated") is False]
+    if invalid:
+        breaches.append(f"{len(invalid)} sample(s) failed semantic answer/tool validation")
 
     first_visible = _client_p95(report, "first_visible")
     total = _client_p95(report, "total")
@@ -745,41 +749,6 @@ def evaluate_bounds(
 # --------------------------------------------------------------------------
 # Output scrubbing
 # --------------------------------------------------------------------------
-
-
-class Printer:
-    """Prints lines after replacing every known secret value.
-
-    Belt and braces: the driver already prints only ids and milliseconds, but
-    a scrubbed writer means a future format string cannot leak a bearer.
-    """
-
-    def __init__(self, secret_values: Iterable[str]) -> None:
-        self._secrets = sorted(
-            {s for s in secret_values if s and len(s) >= 4}, key=len, reverse=True
-        )
-
-    def add(self, *values: str) -> None:
-        self._secrets = sorted(
-            {*self._secrets, *(v for v in values if v and len(v) >= 4)}, key=len, reverse=True
-        )
-
-    def scrub(self, text: str) -> str:
-        for secret in self._secrets:
-            text = text.replace(secret, REDACTED)
-        return text
-
-    def __call__(self, text: str) -> None:
-        print(self.scrub(text))
-
-
-def secret_values_of(config: ReviewerConfig) -> list[str]:
-    values = [config.user_id, config.passphrase, config.firebase_api_key]
-    for key in ("private_key", "client_email", "private_key_id", "client_id"):
-        value = config.firebase_service_account.get(key)
-        if isinstance(value, str):
-            values.append(value)
-    return [v for v in values if v]
 
 
 def format_sample(sample: TurnSample) -> str:

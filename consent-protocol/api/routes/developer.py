@@ -11,7 +11,6 @@ import os
 import time
 import uuid
 from typing import Any, AsyncGenerator, Literal, Optional, TypedDict, cast
-from urllib.parse import urlencode
 
 from fastapi import (
     APIRouter,
@@ -24,7 +23,6 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -70,6 +68,7 @@ from api.routes.developer_consent_contracts import (
 from api.routes.developer_consent_contracts import (
     MCPScopedExportRequest as MCPScopedExportRequest,
 )
+from api.routes.developer_oauth import router as oauth_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.connector_crypto_profiles import (
     X25519_AES256_GCM,
@@ -92,7 +91,6 @@ from hushh_mcp.constants import (
     SCOPE_POLICY_VERSION,
     ConsentScope,
 )
-from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 from hushh_mcp.services.consent_request_lock import serialize_consent_request
@@ -100,7 +98,6 @@ from hushh_mcp.services.developer_oauth_service import (
     DeveloperOAuthService,
     OAuthClient,
     OAuthValidationError,
-    append_oauth_parameters,
 )
 from hushh_mcp.services.developer_registry_service import (
     DEFAULT_PUBLIC_TOOL_GROUPS,
@@ -122,7 +119,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 developer_api_router = APIRouter(prefix="/api/v1", tags=["Developer API"])
 portal_router = APIRouter(prefix="/api/developer", tags=["Developer Portal"])
-oauth_router = APIRouter(prefix="/oauth", tags=["Developer OAuth"])
+
 
 _STATIC_REQUESTABLE_SCOPES: frozenset[str] = EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES
 _MIN_PUBLIC_EXPIRY_HOURS = 24
@@ -1437,16 +1434,6 @@ def _serialize_oauth_client(
         secret_rotated_at=client.secret_rotated_at,
         raw_client_secret=raw_client_secret,
     )
-
-
-def _oauth_frontend_authorize_url(transaction_ref: str) -> str:
-
-    origin = (
-        str(get_app_runtime_settings().app_frontend_origin or "http://localhost:3000")
-        .strip()
-        .rstrip("/")
-    )
-    return f"{origin}/oauth/authorize?{urlencode({'request': transaction_ref})}"
 
 
 def _oauth_error(status_code: int, error: OAuthValidationError) -> HTTPException:
@@ -3272,182 +3259,6 @@ async def update_developer_oauth_redirect_uris(
     except OAuthValidationError as error:
         raise _oauth_error(status.HTTP_422_UNPROCESSABLE_ENTITY, error) from error
     return _serialize_oauth_client(client)
-
-
-def _oauth_public_origin(request: Request) -> str:
-    configured = str(os.getenv("CONSENT_API_PUBLIC_ORIGIN") or "").strip().rstrip("/")
-    if configured:
-        return configured
-    return str(request.base_url).rstrip("/")
-
-
-def _oauth_client_credentials(request: Request, form: dict[str, Any]) -> tuple[str, str | None]:
-    authorization = str(request.headers.get("authorization") or "").strip()
-    if authorization.lower().startswith("basic "):
-        encoded = authorization[6:].strip()
-        try:
-            decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
-            client_id, client_secret = decoded.split(":", 1)
-        except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
-            raise OAuthValidationError("invalid_client", "Client authentication failed.") from exc
-        return client_id, client_secret
-    return str(form.get("client_id") or "").strip(), str(
-        form.get("client_secret") or ""
-    ).strip() or None
-
-
-@router.get("/.well-known/oauth-authorization-server")
-async def oauth_authorization_server_metadata(request: Request):
-    if not developer_api_enabled():
-        raise developer_api_disabled_error()
-    origin = _oauth_public_origin(request)
-    return {
-        "issuer": origin,
-        "authorization_endpoint": f"{origin}/oauth/authorize",
-        "token_endpoint": f"{origin}/oauth/token",
-        "revocation_endpoint": f"{origin}/oauth/revoke",
-        "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
-        "code_challenge_methods_supported": ["S256"],
-        "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
-        "scopes_supported": ["mcp:tools"],
-    }
-
-
-@oauth_router.get("/authorize")
-async def oauth_authorize(
-    request: Request,
-    response_type: str = Query(..., max_length=32),
-    client_id: str = Query(..., min_length=8, max_length=128),
-    redirect_uri: str = Query(..., min_length=8, max_length=2048),
-    code_challenge: str = Query(..., min_length=43, max_length=128),
-    code_challenge_method: str = Query(..., max_length=16),
-    state: str | None = Query(default=None, max_length=512),
-    scope: str | None = Query(default=None, max_length=128),
-):
-    if not developer_api_enabled():
-        raise developer_api_disabled_error()
-    if response_type != "code" or code_challenge_method != "S256":
-        raise _oauth_error(
-            status.HTTP_400_BAD_REQUEST,
-            OAuthValidationError(
-                "unsupported_response_type", "Only authorization code with S256 PKCE is supported."
-            ),
-        )
-    try:
-        transaction_ref = DeveloperOAuthService().begin_authorization(
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-            code_challenge=code_challenge,
-            state=state,
-            scope=scope,
-        )
-    except OAuthValidationError as error:
-        raise _oauth_error(status.HTTP_400_BAD_REQUEST, error) from error
-    return RedirectResponse(
-        _oauth_frontend_authorize_url(transaction_ref), status_code=status.HTTP_303_SEE_OTHER
-    )
-
-
-@oauth_router.post("/authorize/{transaction_ref}/approve")
-async def approve_oauth_authorization(
-    transaction_ref: str = Path(..., pattern=r"^oar_[a-f0-9]{32}$", max_length=36),
-    firebase_uid: str = Depends(require_firebase_auth),
-):
-    try:
-        # The browser only receives an OAuth authorization code after its One
-        # account authenticated.  No consent grant or protected information is
-        # included in this response.
-        oauth = DeveloperOAuthService()
-        code = oauth.approve_authorization(
-            transaction_ref=transaction_ref, subject_firebase_uid=firebase_uid
-        )
-        redirect = oauth.authorization_redirect(transaction_ref=transaction_ref)
-        if redirect is None:  # defensive; successful approval above establishes it
-            raise OAuthValidationError(
-                "invalid_request", "This authorization request is no longer available."
-            )
-        return {
-            "redirect_uri": append_oauth_parameters(
-                redirect["redirect_uri"], {"code": code, "state": redirect["state"]}
-            )
-        }
-    except OAuthValidationError as error:
-        raise _oauth_error(status.HTTP_400_BAD_REQUEST, error) from error
-
-
-@oauth_router.post("/authorize/{transaction_ref}/deny")
-async def deny_oauth_authorization(
-    transaction_ref: str = Path(..., pattern=r"^oar_[a-f0-9]{32}$", max_length=36),
-    firebase_uid: str = Depends(require_firebase_auth),
-):
-    try:
-        result = DeveloperOAuthService().deny_authorization(
-            transaction_ref=transaction_ref, subject_firebase_uid=firebase_uid
-        )
-        return {
-            "redirect_uri": append_oauth_parameters(
-                result["redirect_uri"], {"error": "access_denied", "state": result["state"]}
-            )
-        }
-    except OAuthValidationError as error:
-        raise _oauth_error(status.HTTP_400_BAD_REQUEST, error) from error
-
-
-@oauth_router.post("/token")
-async def oauth_token(request: Request):
-    if not developer_api_enabled():
-        raise developer_api_disabled_error()
-    form = {str(key): value for key, value in (await request.form()).items()}
-    try:
-        client_id, client_secret = _oauth_client_credentials(request, form)
-        client = DeveloperOAuthService().verify_client_secret(
-            client_id=client_id, client_secret=client_secret
-        )
-        grant_type = str(form.get("grant_type") or "")
-        if grant_type == "authorization_code":
-            return DeveloperOAuthService().exchange_authorization_code(
-                client=client,
-                code=str(form.get("code") or ""),
-                redirect_uri=str(form.get("redirect_uri") or ""),
-                code_verifier=str(form.get("code_verifier") or ""),
-            )
-        if grant_type == "refresh_token":
-            return DeveloperOAuthService().refresh(
-                client=client, refresh_token=str(form.get("refresh_token") or "")
-            )
-        if grant_type == "client_credentials":
-            return DeveloperOAuthService().issue_client_credentials(
-                client=client,
-                scope=str(form.get("scope") or ""),
-            )
-        raise OAuthValidationError(
-            "unsupported_grant_type",
-            "Supported grants are authorization_code, refresh_token, and client_credentials.",
-        )
-    except OAuthValidationError as error:
-        raise _oauth_error(
-            status.HTTP_400_BAD_REQUEST
-            if error.code != "invalid_client"
-            else status.HTTP_401_UNAUTHORIZED,
-            error,
-        ) from error
-
-
-@oauth_router.post("/revoke", status_code=status.HTTP_200_OK)
-async def oauth_revoke(request: Request):
-    if not developer_api_enabled():
-        raise developer_api_disabled_error()
-    form = {str(key): value for key, value in (await request.form()).items()}
-    try:
-        client_id, client_secret = _oauth_client_credentials(request, form)
-        client = DeveloperOAuthService().verify_client_secret(
-            client_id=client_id, client_secret=client_secret
-        )
-        DeveloperOAuthService().revoke(client=client, token=str(form.get("token") or ""))
-    except OAuthValidationError as error:
-        raise _oauth_error(status.HTTP_401_UNAUTHORIZED, error) from error
-    return Response(status_code=status.HTTP_200_OK)
 
 
 router.include_router(developer_api_router)

@@ -38,11 +38,12 @@ describe("Portfolio workspace hierarchy", () => {
   it("uses one compact KPI index without an optimize action", () => {
     const dashboard = read("components/kai/views/dashboard-master-view.tsx");
 
-    expect(dashboard).toContain('testId="portfolio-overview-options"');
-    expect(dashboard).toContain('title="Holdings"');
-    expect(dashboard).toContain('title="Allocation"');
-    expect(dashboard).toContain('title="Performance"');
-    expect(dashboard).toContain('title="Portfolio source"');
+    expect(dashboard).toContain("<PortfolioOverview");
+    const overview = read("components/kai/views/portfolio-overview.tsx");
+    expect(overview).toContain('testId="portfolio-overview-options"');
+    for (const title of ["Holdings", "Allocation", "Performance", "Portfolio source"]) {
+      expect(overview).toContain(`title: "${title}"`);
+    }
     expect(dashboard).toContain('testId="portfolio-holdings-mobile-list"');
     expect(dashboard).toContain("isHoldingsEditing");
     expect(dashboard).toContain('className="hidden min-w-0 md:block"');

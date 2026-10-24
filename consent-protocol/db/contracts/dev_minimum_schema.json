@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 408,
+  "expected_migration_version": 410,
   "migration_version_policy": "minimum",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -43,6 +43,7 @@
     "guard_wallet_card_access_grant",
     "install_account_deletion_write_guards",
     "invalidate_drive_collection_sync",
+    "invalidate_drive_group_index",
     "invalidate_drive_packet_sources",
     "invalidate_selected_drive_documents",
     "issue_pkm_upgrade_claim_v1",
@@ -522,6 +523,54 @@
       "status",
       "updated_at"
     ],
+    "developer_oauth_authorizations": [
+      "id",
+      "transaction_ref",
+      "app_id",
+      "client_id",
+      "redirect_uri",
+      "code_challenge",
+      "subject_firebase_uid",
+      "requested_scope",
+      "state",
+      "status",
+      "expires_at",
+      "created_at",
+      "consumed_at",
+      "code_hash",
+      "resource"
+    ],
+    "developer_oauth_clients": [
+      "allowed_grant_types",
+      "app_id",
+      "client_id",
+      "client_secret_hash",
+      "client_secret_prefix",
+      "created_at",
+      "mcp_execution_mode",
+      "redirect_uris",
+      "revoked_at",
+      "secret_rotated_at",
+      "registration_method",
+      "token_endpoint_auth_method"
+    ],
+    "developer_oauth_tokens": [
+      "app_id",
+      "authorization_id",
+      "created_at",
+      "expires_at",
+      "grant_type",
+      "id",
+      "last_used_at",
+      "mcp_execution_mode",
+      "revoked_at",
+      "scopes",
+      "subject_firebase_uid",
+      "token_hash",
+      "token_kind",
+      "token_prefix",
+      "resource"
+    ],
     "developer_tokens": [
       "app_id",
       "created_at",
@@ -738,6 +787,48 @@
       "updated_at",
       "user_id",
       "version"
+    ],
+    "drive_group_index": [
+      "user_id",
+      "connector_id",
+      "connection_generation",
+      "source_ref",
+      "shelf",
+      "candidate",
+      "confidence",
+      "reason",
+      "group_source",
+      "model_version",
+      "title_day",
+      "created_time",
+      "modified_time",
+      "source_modified",
+      "entry_envelope",
+      "indexed_at",
+      "updated_at",
+      "source_version"
+    ],
+    "drive_group_index_state": [
+      "user_id",
+      "connector_id",
+      "connection_generation",
+      "processing_enabled",
+      "disclosure_version",
+      "time_zone",
+      "revision",
+      "lease_id",
+      "lease_expires_at",
+      "next_at",
+      "attempt_count",
+      "last_error_code",
+      "listed_files",
+      "listing_complete",
+      "work_remaining",
+      "limited",
+      "model_version",
+      "last_run_at",
+      "initial_completed_at",
+      "updated_at"
     ],
     "drive_live_preferences": [
       "background_enabled",
@@ -3319,5 +3410,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 408
+  "expected_schema_head": 410
 }

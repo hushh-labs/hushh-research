@@ -11,6 +11,7 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
+import { useCloudRemovalControl } from "@/components/profile/cloud-removal-control";
 import { azureAccountCleanupRequired } from "@/lib/services/account-cloud-cleanup";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -42,6 +43,8 @@ export function OnboardingRouteActions() {
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const cloudRemoval = useCloudRemovalControl({ menuOpen });
   const deletionRunning = useRef(false);
 
   async function handleSignOut() {
@@ -132,7 +135,7 @@ export function OnboardingRouteActions() {
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <ShellActionSurface variant="icon" aria-label="Account actions">
             <MoreHorizontal className="h-5 w-5 text-current" />
@@ -142,6 +145,7 @@ export function OnboardingRouteActions() {
           align="end"
           className="overflow-hidden rounded-[14px] p-1"
         >
+          {cloudRemoval.action}
           <DropdownMenuItem
             onClick={() => void handleSignOut()}
             className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
@@ -159,6 +163,7 @@ export function OnboardingRouteActions() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {cloudRemoval.dialogs}
 
       {user ? (
         <VaultUnlockDialog

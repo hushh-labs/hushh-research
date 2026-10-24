@@ -1,5 +1,17 @@
 # Streaming Implementation Guide
 
+Managed One chat can explicitly delegate a whole public answer through
+`google_search.finish_turn`. The existing isolated search child still owns its
+completed cited answer; One selects whether it fulfills the entire request.
+`OneSearchAnswerAgent` moves ADK's appended tool text into one separate model-role
+assistant event with the same invocation, branch and grounding. Live AG-UI and
+recovered history therefore contain the same answer exactly once; no new wire
+event or frontend parser is needed. The `one_delegated_search_answer_v1` marker
+records the removed synthesis stage. Authority and Stop are rechecked before
+publication, accepted queued input retains a model boundary, and later input
+returns for the next turn. Ordinary searches retain synthesis. See the semantic
+declaration in `consent-protocol/docs/reference/backend-semantic-boundary.md`.
+
 
 ## Visual Context
 
@@ -42,6 +54,18 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
   admission is not a silent model stream. Cancellation invalidates the run so
   late admission cannot dispatch a cancelled turn or restart its watchdog.
 - Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
+- Managed `TEXT_CONTENT_FILTERED` and `TEXT_AUTHORITY_ENDED` errors use fixed
+  client notices and do not imply backend capacity strain. Keep partial answer
+  text, show the reason beneath it, and never turn the refusal into a successful answer.
+- An explicit Azure SSE rate limit remains an actionable capacity failure even
+  when the HTTP stream opened successfully. Show the existing retryable
+  `RESOURCE_EXHAUSTED` notice; do not replay the turn or its tools automatically.
+- Managed UAT One keeps a 10-second initial model first-output budget. An actual
+  native search declaration or the latest user-role function response selects a
+  bounded 30-second first-output budget for that call. Older tool history or a
+  function merely named `google_search` does not extend a fresh question. Active
+  streaming retains its 60-second limit and the outer turn remains bounded at
+  200 seconds. Deadlines never authorize replay or a different provider.
 - A confirmed chat-key refusal may retain one unexecuted request in memory for
   its requested unlock. The shared composer still clears on lock. Recovery
   requires the same validated authentication generation and restored conversation;

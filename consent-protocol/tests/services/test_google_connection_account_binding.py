@@ -62,50 +62,6 @@ def test_custom_callback_does_not_gain_a_spelling_alias_from_cors(monkeypatch):
     assert allowed_oauth_callback_uris(callback) == frozenset({callback})
 
 
-@pytest.mark.asyncio
-async def test_additional_calendar_account_does_not_impersonate_default_status():
-    service = GoogleConnectionService(db=Mock())
-    service.status = AsyncMock(
-        return_value={
-            "configured": True,
-            "connected": False,
-            "google_email": None,
-            "status": "disconnected",
-            "access_level": None,
-            "scope_csv": "",
-            "calendar_list_access": False,
-        }
-    )
-    service._execute_raw_async = AsyncMock(
-        return_value=SimpleNamespace(
-            data=[
-                {
-                    "account_id": "second",
-                    "provider_email": "second@example.com",
-                    "status": "connected",
-                    "scope_csv": "",
-                    "access_level": "manage",
-                }
-            ]
-        )
-    )
-
-    result = await service.calendar_accounts_status(user_id="owner")
-
-    assert result["connected"] is False
-    assert result["google_email"] is None
-    assert result["accounts"] == [
-        {
-            "account_id": "second",
-            "google_email": "second@example.com",
-            "status": "connected",
-            "connected": True,
-            "access_level": "manage",
-            "calendar_list_access": False,
-        }
-    ]
-
-
 class _Db:
     def __init__(
         self,

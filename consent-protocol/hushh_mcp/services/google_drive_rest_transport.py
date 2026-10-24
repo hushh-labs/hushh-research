@@ -23,7 +23,7 @@ from hushh_mcp.services.drive_search_paging_config import (
     FILE_LIST_PAGE_SIZE_MAX,
     OWNER_SEARCH_PAGE_SIZE_MAX,
 )
-from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
+from hushh_mcp.services.drive_telemetry import CHANNEL, drive_logger, drive_stage
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
@@ -239,10 +239,16 @@ def _as_mcp_file(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class GoogleDriveRestTransport:
-    def __init__(self, *, oauth=None, adapter=None, writer=None) -> None:
+    def __init__(
+        self, *, oauth=None, adapter=None, writer=None, parser=None, raw_prefix: bool = False
+    ) -> None:
+        if type(raw_prefix) is not bool:
+            raise ValueError("invalid raw prefix mode")
         self._oauth = oauth or get_external_connector_oauth_service().drive()
         self.adapter = adapter or GoogleDriveAdapter()
         self.writer = writer or GoogleDriveWriteAdapter()
+        self._parser = parser if parser is not None else IsolatedDocumentParser()
+        self._raw_prefix = raw_prefix
 
     async def probe(self, *, access_token: str) -> None:
         """Prove the granted owner can search Drive before the grant is verified."""
@@ -275,6 +281,24 @@ class GoogleDriveRestTransport:
         """
         return await self._fenced(
             user_id, tool_name, arguments, _OWNER_SEARCH_OPERATIONS, _MAX_ARGUMENT_BYTES
+        )
+
+    async def read_group_index_tool(
+        self,
+        *,
+        user_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        expected_generation: int,
+    ) -> ExternalMcpToolResult:
+        """Internal background reads: job-bound grant and explicit processor failures."""
+        return await self._fenced(
+            user_id,
+            tool_name,
+            arguments,
+            _GROUP_INDEX_OPERATIONS,
+            _MAX_ARGUMENT_BYTES,
+            expected_generation=expected_generation,
         )
 
     @asynccontextmanager
@@ -346,7 +370,7 @@ class GoogleDriveRestTransport:
             raise DriveOAuthError("invalid_argument", status_code=400) from None
         if not connector_feature_enabled("google_drive_live", user_id):
             raise DriveOAuthError("connector_unavailable", status_code=403)
-        with drive_stage(logger, "credential"):
+        with drive_stage(logger, "credential") as credential_stage:
             row, credential = await self._oauth.current_credential(
                 user_id=user_id, required_profile="live"
             )
@@ -363,9 +387,9 @@ class GoogleDriveRestTransport:
         # plus its method; these owner, grant and generation checks wrap every
         # entry without change.
         operation = getattr(self, operations[tool_name])
-        with drive_stage(logger, "provider"):
+        with drive_stage(logger, "provider") as provider_stage:
             payload: dict = await operation(arguments, credential["accessToken"])
-        with drive_stage(logger, "connection_recheck"):
+        with drive_stage(logger, "connection_recheck") as recheck_stage:
             current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (
             not current
@@ -378,9 +402,38 @@ class GoogleDriveRestTransport:
                 # not call it failed: "reconnect and retry" could repeat it.
                 raise DriveWriteError("write_outcome_unknown", outcome_unknown=True)
             raise DriveOAuthError("connection_changed", status_code=409)
+        if operations is not _WRITE_OPERATIONS:
+            rows, more = _listing_shape(tool_name, payload)
+            # One self-contained line per read: the fixed channel and tool name,
+            # row and more-pages counts, and each stage's milliseconds. Never a
+            # query, title, file ID, owner, token or page cursor.
+            logger.info(
+                "drive_rest.call channel=%s profile=live tool=%s rows=%d more=%d "
+                "credential_ms=%.2f provider_ms=%.2f recheck_ms=%.2f total_ms=%.2f",
+                CHANNEL,
+                tool_name,
+                rows,
+                more,
+                credential_stage.ms,
+                provider_stage.ms,
+                recheck_stage.ms,
+                credential_stage.ms + provider_stage.ms + recheck_stage.ms,
+            )
         return ExternalMcpToolResult(is_error=False, payload=payload, truncated=False)
 
-    async def _read_file_content(self, arguments: dict[str, Any], token: str) -> dict:
+    async def _read_index_file_content(self, arguments: dict[str, Any], token: str) -> dict:
+        return await self._read_file_content(
+            arguments, token, strict=True, raw_prefix=self._raw_prefix
+        )
+
+    async def _read_file_content(
+        self,
+        arguments: dict[str, Any],
+        token: str,
+        *,
+        strict: bool = False,
+        raw_prefix: bool = False,
+    ) -> dict:
         file_id = arguments.get("fileId")
         if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
             raise DriveOAuthError("invalid_argument", status_code=400)
@@ -401,13 +454,18 @@ class GoogleDriveRestTransport:
                 "metadataOnly": True,
                 "file": await self.adapter.get_file_facts(file_id=file_id, access_token=token),
             }
-        mime_type, content = await self.adapter.read_live_bytes(
+        if raw_prefix and metadata.mime_type.startswith("application/vnd.google-apps."):
+            return {"textFormattingNotSupported": True, "reason": "prefix_unavailable"}
+        mime_type, content = await (
+            self.adapter.read_live_prefix if raw_prefix else self.adapter.read_live_bytes
+        )(
             file_id=file_id,
             mime_type=metadata.mime_type,
             access_token=token,
             **(
                 {"max_bytes": LIVE_COLLECTION_CONTENT_LIMIT}
-                if metadata.mime_type
+                if not raw_prefix
+                and metadata.mime_type
                 in {
                     "application/vnd.google-apps.spreadsheet",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -417,8 +475,11 @@ class GoogleDriveRestTransport:
         )
         parse_started = time.perf_counter()
         try:
-            parsed = await IsolatedDocumentParser().parse(
-                content=content, mime_type=mime_type, live=True
+            parsed = await self._parser.parse(
+                content=content,
+                mime_type=mime_type,
+                live=True,
+                **({"raw_prefix": True} if raw_prefix else {}),
             )
             text = "\n\n".join(parsed.pages)
         except DriveReadError as error:
@@ -431,6 +492,8 @@ class GoogleDriveRestTransport:
             )
             if code in PARSE_REASONS:
                 return {"textFormattingNotSupported": True, "reason": code}
+            if strict:
+                raise
             return {"textFormattingNotSupported": True}
         logger.info(
             "drive_live_content_read source_bytes=%d extracted_text_bytes=%d "
@@ -443,6 +506,7 @@ class GoogleDriveRestTransport:
         return {
             "fileContent": text,
             **({"contentTruncated": True} if parsed.truncated else {}),
+            **({"extractionMethod": parsed.method} if raw_prefix else {}),
         }
 
     async def _get_file_metadata(self, arguments: dict[str, Any], token: str) -> dict:
@@ -747,6 +811,12 @@ _OWNER_SEARCH_OPERATIONS = {
     "changes_start_token": "_owner_changes_start_token",
     "list_changes": "_owner_list_changes",
 }
+_GROUP_INDEX_OPERATIONS = {
+    "search_files": "_owner_search_files",
+    "read_file_content": "_read_index_file_content",
+    "changes_start_token": "_owner_changes_start_token",
+    "list_changes": "_owner_list_changes",
+}
 REST_TOOLS = frozenset(_OPERATIONS)
 # Owner writes. Create, copy, move/rename and comment run when the owner's agent
 # calls them; share and trash run only after the owner reviews the exact call.
@@ -786,6 +856,24 @@ def _resource_key_argument(arguments: dict[str, Any]) -> str | None:
     ):
         raise DriveOAuthError("invalid_argument", status_code=400)
     return value
+
+
+# The payload key that holds the rows of each listing tool; every other tool
+# returns one file or one text and reports -1 rows.
+_LISTING_ROWS = {
+    "search_files": "files",
+    "list_recent_files": "files",
+    "list_changes": "changes",
+    "list_shared_drives": "drives",
+}
+
+
+def _listing_shape(tool_name: str, payload: dict[str, Any]) -> tuple[int, int]:
+    """Row count and more-pages flag of a listing page; (-1, -1) for any other tool."""
+    rows = payload.get(_LISTING_ROWS.get(tool_name, ""))
+    if not isinstance(rows, list):
+        return -1, -1
+    return len(rows), int(bool(payload.get("nextPageToken")))
 
 
 def _page_files(page: dict[str, Any], *, max_files: int = 25) -> list[Any]:

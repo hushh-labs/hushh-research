@@ -5,19 +5,12 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import {
   Building2,
-  ChartNoAxesCombined,
   ChevronDown,
-  Database,
-  Layers3,
   Plus,
   Save,
   Search,
-  TrendingDown,
-  TrendingUp,
   Loader2,
-  Share2,
   FileUp,
-  WalletCards,
 } from "@/components/icons";
 import { toast } from "sonner";
 
@@ -29,9 +22,13 @@ import {
   SurfaceCardContent,
   SurfaceInset,
 } from "@/components/app-ui/surfaces";
+import { PortfolioReportAction } from "@/components/kai/cards/portfolio-report-action";
+import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
+import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
+import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
 import { GainLossDistributionChart } from "@/components/kai/charts/gain-loss-distribution-chart";
 import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-concentration-chart";
-import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
 import { StatementCashflowChart } from "@/components/kai/charts/statement-cashflow-chart";
@@ -51,7 +48,6 @@ import {
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { DataTable } from "@/components/app-ui/data-table";
@@ -1757,7 +1753,11 @@ export function DashboardMasterView({
 
     setIsSharingPortfolioPdf(true);
     try {
-      const result = await exportPortfolioPdf(portfolioSharePayload);
+      const result = await exportPortfolioPdf(portfolioSharePayload, {
+        source: activeSource === "statement" ? "Statement" : "Plaid",
+        period: model.hero.statementPeriod || "Current portfolio snapshot",
+        ...overviewFacts(model, displayedPortfolio),
+      });
       if (result === "download") {
         toast.success("Portfolio PDF exported.");
       } else {
@@ -1780,7 +1780,7 @@ export function DashboardMasterView({
     } finally {
       setIsSharingPortfolioPdf(false);
     }
-  }, [hasShareablePortfolioData, isSharingPortfolioPdf, portfolioSharePayload]);
+  }, [activeSource, displayedPortfolio, model, hasShareablePortfolioData, isSharingPortfolioPdf, portfolioSharePayload]);
 
   const sourceDisplayLabel =
     activeSource === "statement" ? "Statement" : "Plaid";
@@ -2112,7 +2112,7 @@ export function DashboardMasterView({
 
   if (isSourcesLoading && !displayedPortfolio) {
     return (
-      <div className="w-full min-w-0 max-w-full">
+      <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2132,7 +2132,7 @@ export function DashboardMasterView({
 
   if (!displayedPortfolio) {
     return (
-      <div className="w-full min-w-0 max-w-full">
+      <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
@@ -2189,136 +2189,19 @@ export function DashboardMasterView({
   }
 
   if (section === "overview") {
-    const primaryAllocation = model.allocation[0] ?? null;
-    const changeTone =
-      model.hero.netChange >= 0
-        ? "text-emerald-600 dark:text-emerald-400"
-        : "text-rose-600 dark:text-rose-400";
-
     return (
-      <div className="w-full min-w-0 max-w-full">
+      <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
           description="Value, holdings, and portfolio context."
         />
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
-          <SurfaceCard tone="feature" data-testid="portfolio-value-card">
-            <SurfaceCardContent className="relative space-y-4 p-5 sm:p-6">
-              <div className="absolute right-4 top-4">
-                <ShellActionSurface
-                  variant="icon"
-                  onClick={() => void handleSharePortfolioPdf()}
-                  disabled={!hasShareablePortfolioData || isSharingPortfolioPdf}
-                  aria-label="Share portfolio PDF"
-                  data-voice-control-id="share_portfolio_pdf"
-                >
-                  {isSharingPortfolioPdf ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Share2 className="h-4 w-4" />
-                  )}
-                </ShellActionSurface>
-              </div>
-              <div className="pr-12">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {sourceDisplayLabel} portfolio value
-                </p>
-                <p className="mt-2 text-[2.25rem] font-semibold leading-none tracking-[-0.035em] text-foreground sm:text-[2.75rem]">
-                  {formatCurrency(model.hero.totalValue)}
-                </p>
-                <p className={cn("mt-3 text-sm font-medium", changeTone)}>
-                  {formatSignedCurrency(model.hero.netChange)} ·{" "}
-                  {model.hero.changePct >= 0 ? "+" : ""}
-                  {model.hero.changePct.toFixed(2)}%
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {model.hero.statementPeriod ||
-                  (freshness?.lastSyncedAt
-                    ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}`
-                    : "Current portfolio snapshot")}
-              </p>
-            </SurfaceCardContent>
-          </SurfaceCard>
-
-          <SettingsGroup
-            embedded
-            separatorInset
-            testId="portfolio-overview-options"
-          >
-            <SettingsRow
-              icon={WalletCards}
-              iconTone="blue"
-              title="Holdings"
-              trailing={
-                <span className="text-sm tabular-nums text-muted-foreground">
-                  {model.hero.investableHoldingsCount}
-                </span>
-              }
-              onClick={() =>
-                router.push(buildKaiPortfolioSectionRoute("holdings"))
-              }
-              chevron
-              testId="portfolio-open-holdings"
-            />
-            <SettingsRow
-              icon={Layers3}
-              iconTone="purple"
-              title="Allocation"
-              trailing={
-                <span className="max-w-36 truncate text-sm text-muted-foreground">
-                  {primaryAllocation
-                    ? `${primaryAllocation.name} ${
-                        model.hero.totalValue > 0
-                          ? (
-                              (primaryAllocation.value /
-                                model.hero.totalValue) *
-                              100
-                            ).toFixed(1)
-                          : "0.0"
-                      }%`
-                    : "Unavailable"}
-                </span>
-              }
-              onClick={() =>
-                router.push(buildKaiPortfolioSectionRoute("allocation"))
-              }
-              chevron
-              testId="portfolio-open-allocation"
-            />
-            <SettingsRow
-              icon={ChartNoAxesCombined}
-              iconTone={model.hero.netChange >= 0 ? "green" : "red"}
-              title="Performance"
-              trailing={
-                <span className={cn("text-sm font-medium", changeTone)}>
-                  {model.hero.changePct >= 0 ? "+" : ""}
-                  {model.hero.changePct.toFixed(2)}%
-                </span>
-              }
-              onClick={() =>
-                router.push(buildKaiPortfolioSectionRoute("performance"))
-              }
-              chevron
-              testId="portfolio-open-performance"
-            />
-            <SettingsRow
-              icon={Database}
-              iconTone="orange"
-              title="Portfolio source"
-              trailing={
-                <span className="text-sm text-muted-foreground">
-                  {sourceDisplayLabel}
-                </span>
-              }
-              onClick={() =>
-                router.push(buildKaiPortfolioSectionRoute("sources"))
-              }
-              chevron
-              testId="portfolio-open-sources"
-            />
-          </SettingsGroup>
+          <PortfolioOverview model={model} portfolio={displayedPortfolio} source={sourceDisplayLabel}
+            period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
+            onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}
+            action={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
+              disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />} />
 
           {deletePortfolioDialog}
           {deleteStatementSnapshotDialog}
@@ -2335,7 +2218,7 @@ export function DashboardMasterView({
   }[section];
 
   return (
-    <div className="w-full min-w-0 max-w-full">
+    <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
       <KaiWorkspaceHeader
         workspace="portfolio"
         title={detailTitle}
@@ -2348,26 +2231,8 @@ export function DashboardMasterView({
                 ? "Value and change from real portfolio history."
                 : "Where your holdings come from."
         }
-        actions={
-          <ShellActionSurface
-            variant="icon"
-            onClick={() => void handleSharePortfolioPdf()}
-            disabled={!hasShareablePortfolioData || isSharingPortfolioPdf}
-            aria-label="Share portfolio PDF"
-            title={
-              hasShareablePortfolioData
-                ? "Share portfolio PDF"
-                : "No shareable portfolio data yet"
-            }
-            data-voice-control-id="share_portfolio_pdf"
-          >
-            {isSharingPortfolioPdf ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Share2 className="h-4 w-4" />
-            )}
-          </ShellActionSurface>
-        }
+        actions={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
+          disabled={!hasShareablePortfolioData} busy={isSharingPortfolioPdf} onExport={() => void handleSharePortfolioPdf()} />}
         actionsInlineMobile
       />
       <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
@@ -2415,90 +2280,16 @@ export function DashboardMasterView({
         ) : null}
 
         {section === "performance" ? (
-          <SurfaceCard tone="feature">
-            <SurfaceCardContent className="space-y-4 p-5 sm:p-6">
-              <div className="flex flex-col items-center gap-3 text-center">
-                <p className="text-[13px] font-medium text-muted-foreground sm:text-sm">
-                  {sourceDisplayLabel} portfolio value
-                </p>
-                <p className="text-[2rem] font-medium leading-none tracking-normal text-foreground sm:text-[2.5rem]">
-                  {formatCurrency(model.hero.totalValue)}
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-                  <span
-                    className={cn(
-                      "inline-flex items-center font-medium tracking-normal",
-                      model.hero.netChange >= 0
-                        ? "text-emerald-600 dark:text-emerald-400"
-                        : "text-rose-600 dark:text-rose-400",
-                    )}
-                  >
-                    <Icon
-                      icon={
-                        model.hero.netChange >= 0 ? TrendingUp : TrendingDown
-                      }
-                      size="sm"
-                      className="mr-1"
-                    />
-                    {model.hero.netChange >= 0 ? "+" : ""}
-                    {formatCurrency(model.hero.netChange)} (
-                    {model.hero.changePct.toFixed(2)}%)
-                  </span>
-                  {model.hero.statementPeriod ? (
-                    <>
-                      <span className="text-muted-foreground">•</span>
-                      <span className="text-muted-foreground">
-                        {model.hero.statementPeriod}
-                      </span>
-                    </>
-                  ) : null}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {model.hero.investableHoldingsCount} holdings ·{" "}
-                  {model.hero.portfolioConcentrationLabel.replace(
-                    " Concentration",
-                    "",
-                  )}
-                </p>
-              </div>
-
-              <SurfaceInset className="px-4 py-3 text-center">
-                <p className="text-[13px] font-medium tracking-normal text-foreground sm:text-sm">
-                  {isPlaidView
-                    ? freshness?.lastSyncedAt
-                      ? `Last synced ${new Date(freshness.lastSyncedAt).toLocaleString()}`
-                      : "Plaid brokerage snapshot"
-                    : model.hero.statementPeriod || "Current statement period"}
-                </p>
-                <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
-                  {isPlaidView ? (
-                    <>
-                      {freshness?.itemCount || 0} item
-                      {(freshness?.itemCount || 0) === 1 ? "" : "s"} •{" "}
-                      {freshness?.accountCount || 0} account
-                      {(freshness?.accountCount || 0) === 1 ? "" : "s"} •
-                      read-only broker data
-                    </>
-                  ) : (
-                    <>
-                      Beginning Balance:{" "}
-                      <span className="font-medium text-foreground">
-                        {formatCurrency(model.hero.beginningValue)}
-                      </span>
-                    </>
-                  )}
-                </p>
-              </SurfaceInset>
-
-              {model.quality.historyReady ? (
-                <PortfolioHistoryChart data={model.history} />
-              ) : (
-                <SurfaceInset className="px-4 py-3 text-sm text-muted-foreground">
-                  Historical performance is not available for this source yet.
-                </SurfaceInset>
-              )}
-            </SurfaceCardContent>
-          </SurfaceCard>
+          <section className="space-y-4">
+            <PortfolioValueCard source={sourceDisplayLabel} value={model.hero.totalValue}
+              {...overviewFacts(model, displayedPortfolio)} period={model.hero.statementPeriod || "Current portfolio snapshot"}
+              history={model.quality.historyReady ? model.history : []} />
+            <p className={financeStyles.description}>
+              {model.hero.holdingsCount} positions · {model.hero.portfolioConcentrationLabel}
+              {isPlaidView ? ` · ${freshness?.itemCount || 0} items · ${freshness?.accountCount || 0} accounts · Read-only brokerage snapshot` : ""}
+              {freshness?.lastSyncedAt ? ` · Last synced ${new Date(freshness.lastSyncedAt).toLocaleString()}` : ""}
+            </p>
+          </section>
         ) : null}
 
         <div className="space-y-5">
@@ -2507,6 +2298,7 @@ export function DashboardMasterView({
               {model.quality.allocationReady ? (
                 <PortfolioAllocationBar
                   data={model.allocation}
+                  totalValue={model.hero.totalValue}
                   selectedName={selectedAllocationName}
                   onSelectionChange={setSelectedAllocationName}
                 />

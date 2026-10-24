@@ -8,6 +8,18 @@ import pytest
 from hushh_mcp.services.renaissance_service import RenaissanceService
 
 
+@pytest.mark.asyncio
+async def test_avoid_lookup_failure_never_becomes_not_avoid():
+    class UnavailableDatabase:
+        def table(self, _name):
+            raise RuntimeError("offline fixture")
+
+    service = RenaissanceService()
+    service._db = UnavailableDatabase()
+    with pytest.raises(RuntimeError, match="avoid screening unavailable"):
+        await service.get_avoid_context("AAPL")
+
+
 class _FakeQuery:
     def __init__(self, rows: list[dict], execute_thread_ids: list[int]):
         self._rows = rows

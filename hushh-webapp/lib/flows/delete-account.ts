@@ -211,10 +211,8 @@ async function probeDeletionStatus(
       }
     }
     if (response.status !== 401) return "unavailable";
-    return authSessionInvalidationCodeFromBackendPayload(payload) ===
-      "account_not_found"
-      ? "deleted"
-      : "unavailable";
+    const code = authSessionInvalidationCodeFromBackendPayload(payload);
+    return code === "account_not_found" || code === "account_deleted" ? "deleted" : "unavailable";
   } catch {
     return "unavailable";
   }
@@ -327,11 +325,14 @@ export async function executeLostVaultAccountDeletion(params: {
   sessionUser: AccountDeletionSessionUser;
   firebaseIdToken: string;
   phoneIdToken?: string;
+  /** The initiating UI/session can cancel until the destructive request starts. */
+  isCurrent?: () => boolean;
 }): Promise<AccountDeletionResult> {
   if (!params.firebaseIdToken) throw new Error("Fresh sign-in proof required.");
   return executeAccountDeletion({
     userId: params.userId,
     sessionUser: params.sessionUser,
+    isCurrent: params.isCurrent,
     performDeletion: () => AccountService.deleteLostVaultAccount({
       firebaseIdToken: params.firebaseIdToken,
       phoneIdToken: params.phoneIdToken,
@@ -345,6 +346,7 @@ async function executeAccountDeletion(params: {
   sessionUser: AccountDeletionSessionUser;
   performDeletion: () => Promise<AccountDeletionResult>;
   isKnownPrecommitError?: (error: unknown) => boolean;
+  isCurrent?: () => boolean;
 }): Promise<AccountDeletionResult> {
   if (params.sessionUser.uid !== params.userId) {
     throw new Error("Account deletion session identity changed. Please retry.");
@@ -366,6 +368,11 @@ async function executeAccountDeletion(params: {
   let result: AccountDeletionResult | undefined;
   let submissionFailure: unknown = null;
   let terminalDeletionSignalDispatched = false;
+  // Token capture can yield to cancellation or an account switch. No deletion
+  // has been submitted yet, so this is a definite pre-submission abort.
+  if (params.isCurrent?.() === false) {
+    throw new Error("Account deletion cancelled before submission.");
+  }
   // From here the erasure may lock or remove this account's rows under any
   // background vault work still running on this page.
   markAccountDeletionActive(params.userId);
@@ -452,7 +459,9 @@ async function executeAccountDeletion(params: {
     // success, so it receives success copy; sibling/other devices still use
     // the authoritative account-not-found notice.
     dispatchAuthSessionInvalidated({
-      code: result.ready_to_start_fresh === true
+      code: result.details?.firebase_auth_user === "identity_retained"
+        ? "account_deletion_identity_retained"
+        : result.ready_to_start_fresh === true
         ? "account_deleted_ready_to_start_fresh"
         : result.ready_to_start_fresh === false
           ? "account_deletion_finishing"

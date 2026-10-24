@@ -1,3 +1,5 @@
+import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection } from "./personal-agent-hosting";
+import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
 /**
  * Platform-aware API routing. Web hub requests use Next.js proxies; native hub
  * requests use Cloud Run. Admitted owner-pod requests use their signed endpoint
@@ -6,6 +8,7 @@
  * Offline vault, consent and authentication retain their Capacitor owners.
  */
 
+import { readKaiCompanyFacts } from "@/lib/services/kai-company-facts-read";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import {
   HushhVault,
@@ -53,6 +56,7 @@ import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 import {
   AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE,
   authSessionInvalidationCodeFromBackendPayload,
+  authSessionLandingCodeFromBackendPayload,
   authSessionInvalidationCodeFromFirebaseError,
   dispatchAuthSessionInvalidated,
   isAccountDeletionInProgressBackendPayload,
@@ -673,7 +677,7 @@ async function apiFetch(
       .clone()
       .text()
       .catch(() => "");
-    return authSessionInvalidationCodeFromBackendPayload(body);
+    return authSessionLandingCodeFromBackendPayload(body);
   };
 
   const dispatchTerminalAuthCodeFromResponse = async (response: Response) => {
@@ -3820,14 +3824,15 @@ export class ApiService {
   }
 
   static async getPersonalAgentStatus(options?: { signal?: AbortSignal }): Promise<PersonalAgentStatus> {
-    const token = await ApiService.getFirebaseToken();
-    const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
-      method: "GET",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      signal: options?.signal,
-    });
-    if (!response.ok) throw new Error(`AGENT_STATUS_UNAVAILABLE:${response.status}`);
-    return response.json();
+    return readPersonalAgentStatus(await ApiService.getFirebaseToken(), ApiService.apiFetch, options);
+  }
+
+  static async getPersonalAgentCloudRemovalAvailability(options?: { signal?: AbortSignal }) {
+    return readCloudRemovalAvailability(await ApiService.getFirebaseToken(), ApiService.apiFetch, options);
+  }
+
+  static async inspectPersonalAgentHosting() {
+    return readHostingInspection(await ApiService.getFirebaseToken(), ApiService.apiFetch);
   }
 
   static async approvePersonalAgentUpdate(input: {
@@ -3908,11 +3913,14 @@ export class ApiService {
     return response.json();
   }
 
-  static async wakePod(): Promise<{ state: "awake" | "waking" | "gone"; etaMs: number; needsFreshSetup?: boolean }> {
+  static async wakePod(options?: { isEffectCurrent?: () => boolean }): Promise<{ state: "awake" | "waking" | "gone"; etaMs: number; needsFreshSetup?: boolean }> {
     const token = await ApiService.getFirebaseToken();
+    if (options?.isEffectCurrent && !options.isEffectCurrent())
+      throw new DOMException("The connection session changed.", "AbortError");
     const response = await ApiService.apiFetch("/api/one/pod/wake", {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      isEffectCurrent: options?.isEffectCurrent,
     });
     if (!response.ok) throw new Error(`pod wake failed: HTTP ${response.status}`);
     return response.json();
@@ -5096,23 +5104,19 @@ export class ApiService {
   }): Promise<Record<string, KaiMarketCompanyFacts>> {
     const authToken = await this.getFirebaseToken();
     if (!authToken) throw new Error("Missing authentication for company facts");
-    const unique = [...new Set(data.symbols)].slice(0, 24);
-    const chunks = Array.from({ length: Math.ceil(unique.length / 8) }, (_, index) => unique.slice(index * 8, index * 8 + 8));
-    const results = await Promise.allSettled(chunks.map(async (symbols) => {
-      const query = new URLSearchParams({ symbols: symbols.join(",") });
-      const response = await apiFetch(`/api/kai/market/company-facts/${data.userId}?${query}`, {
-        method: "GET", signal: data.signal,
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
-      if (!response.ok) throw new Error(`Company facts unavailable: ${response.status}`);
-      return (await response.json()).facts as Record<string, KaiMarketCompanyFacts>;
-    }));
-    const facts: Record<string, KaiMarketCompanyFacts> = {};
-    results.forEach((result, index) => {
-      if (result.status === "fulfilled") Object.assign(facts, result.value);
-      else for (const symbol of chunks[index] ?? []) facts[symbol] = { symbol, unavailable: true };
+    return readKaiCompanyFacts(data, authToken, apiFetch);
+  }
+
+  static async getKaiStockPriceHistory(userId: string, symbol: string, signal?: AbortSignal): Promise<import("@/lib/kai/price-history").StockPriceHistory> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) throw new Error("Missing authentication for price history");
+    const query = new URLSearchParams({ symbol });
+    const response = await apiFetch(`/api/kai/market/history/${encodeURIComponent(userId)}?${query}`, {
+      signal, headers: { Authorization: `Bearer ${authToken}` },
     });
-    return facts;
+    if (!response.ok) throw new Error("Price history is unavailable");
+    const payload = await response.json() as { points: Array<{ t: number; p: number }>; stale: boolean; retrieved_at: string | null };
+    return { points: payload.points.map(point => ({ date: new Date(point.t * 1000).toISOString(), value: point.p })), stale: payload.stale, retrievedAt: payload.retrieved_at };
   }
 
   static async getKaiMarketBaselineInsights(data: {
@@ -5169,21 +5173,7 @@ export class ApiService {
     signal?: AbortSignal;
   }): Promise<KaiHomeInsightsV2> {
     const startedAt = Date.now();
-    const query = new URLSearchParams();
-    if (Array.isArray(data.symbols) && data.symbols.length > 0) {
-      query.set("symbols", data.symbols.join(","));
-    }
-    if (typeof data.daysBack === "number" && Number.isFinite(data.daysBack)) {
-      query.set("days_back", String(data.daysBack));
-    }
-    if (typeof data.pickSource === "string" && data.pickSource.trim()) {
-      query.set("pick_source", data.pickSource.trim());
-    }
-    const clientTimezone = resolveClientTimezone();
-    if (clientTimezone) {
-      query.set("tz", clientTimezone);
-    }
-    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const suffix = marketInsightsQuery(data, resolveClientTimezone());
     const path = `/api/kai/market/insights/${data.userId}${suffix}`;
 
     const response = await apiFetch(path, {

@@ -14,7 +14,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
+  AlertDialogContent as UnscopedAlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   HelperText,
+  FormLabel,
   PageSubtitle,
   RowDescription,
   RowLabel,
@@ -34,6 +35,10 @@ import type {
   EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { withLocationTypography } from "./location-typography";
+import { SosHoldProgress } from "./sos-hold-progress";
+
+const AlertDialogContent = withLocationTypography(UnscopedAlertDialogContent);
 
 const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
@@ -42,13 +47,6 @@ const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
   "I'm not safe",
   "Come get me",
 ];
-
-/**
- * Circumference of the progress ring in viewBox units (2π × r, r = 168).
- * The SVG scales through its viewBox, so this one constant drives the sweep at
- * every breakpoint — the ring does not need a per-size copy of itself.
- */
-const RING_CIRCUMFERENCE = 1055.6;
 
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
@@ -340,7 +338,8 @@ export function SosPanel({
   };
 
   const isHolding = progress > 0 && progress < 1 && !busy && !active;
-  const progressDashOffset = RING_CIRCUMFERENCE * (1 - progress);
+  const smsIsHolding = holdTarget === "sms" && isHolding;
+  const composerIsHolding = holdTarget === "composer" && isHolding;
   const remainingSeconds = Math.max(
     0.1,
     (HOLD_DURATION_MS - progress * HOLD_DURATION_MS) / 1000,
@@ -351,12 +350,12 @@ export function SosPanel({
     ? "Sending..."
     : active
       ? "Alert active"
-      : isHolding
+      : smsIsHolding
         ? `${remainingSeconds}s`
         : "Hold 2 seconds";
 
   const quickPill =
-    "ui-text-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
+    "ui-text-compact-button-label press-scale flex h-11 flex-1 items-center justify-center rounded-xl border transition-colors";
 
   return (
     <section
@@ -368,18 +367,19 @@ export function SosPanel({
           Save My Soul
         </h1>
         {recipientsLoading && noContacts ? (
-          <PageSubtitle>Checking emergency contacts…</PageSubtitle>
+          <PageSubtitle data-location-type-role="row-description">Checking emergency contacts…</PageSubtitle>
         ) : noContacts ? (
           null
         ) : (
           <div className="flex items-center gap-3">
-            <PageSubtitle className="min-w-0 flex-1 truncate">
+            <PageSubtitle data-location-type-role="row-description" className="min-w-0 flex-1 truncate">
               {recipientCountLabel} · Live location
             </PageSubtitle>
             <button
               type="button"
               onClick={onEditContacts}
               aria-label="Edit emergency contacts"
+              data-location-type-role="utility-action"
               className="ui-text-button-label press-scale -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)]"
             >
               Edit
@@ -391,7 +391,7 @@ export function SosPanel({
       {!active && recipientsLoading && noContacts ? (
         <div
           role="status"
-          className="mt-6 flex min-h-24 items-center justify-center gap-2 rounded-[16px] bg-[color:var(--app-card-surface-default-solid)] text-[14px] text-[color:var(--app-secondary-label)]"
+          className="ui-text-status mt-6 flex min-h-24 items-center justify-center gap-2 rounded-[16px] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-secondary-label)]"
         >
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Updating your SMS Circle…
@@ -452,7 +452,7 @@ export function SosPanel({
       ) : (
         <>
           <div className="mt-5 sm:mt-6">
-            <RowLabel as="p">Choose or type a message</RowLabel>
+            <FormLabel as="p">Choose or type a message</FormLabel>
           </div>
 
           <div className="mt-3 flex gap-2.5">
@@ -471,7 +471,7 @@ export function SosPanel({
                   className={cn(
                     quickPill,
                     selected
-                      ? "border-[color:var(--app-destructive)]/40 bg-[color:var(--app-destructive)]/8 font-semibold text-[color:var(--app-destructive)]"
+                      ? "border-[color:var(--app-destructive)]/40 bg-[color:var(--app-destructive)]/8 text-[color:var(--app-destructive)]"
                       : "border-transparent bg-[color:var(--sos-control-surface)] text-[color:var(--sos-control-text)] hover:bg-[color:var(--sos-control-surface-hover)] active:bg-[color:var(--sos-control-surface-active)]",
                   )}
                 >
@@ -524,8 +524,9 @@ export function SosPanel({
                 onKeyUp={(event) => handleKeyUp(event, "composer")}
                 onBlur={cancelHold}
                 onContextMenu={(event) => event.preventDefault()}
-                className="ui-text-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
+                className="ui-text-compact-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
               >
+                <SosHoldProgress variant="composer" progress={composerIsHolding ? progress : 0} />
                 {tapCountdownActive
                   ? "Cancel"
                   : holdTarget === "composer" && isHolding
@@ -567,35 +568,7 @@ export function SosPanel({
 
           <div className="mt-5 flex flex-col items-center sm:mt-7">
             <div className="relative flex aspect-square w-[196px] items-center justify-center max-[359px]:w-[176px] sm:w-[204px]">
-              <svg
-                viewBox="0 0 344 344"
-                aria-hidden
-                className="absolute inset-0 h-full w-full -rotate-90"
-              >
-                <circle
-                  cx="172"
-                  cy="172"
-                  r="168"
-                  fill="none"
-                  stroke="var(--sos-ring-track)"
-                  strokeWidth="2"
-                  vectorEffect="non-scaling-stroke"
-                />
-                {progress > 0 ? (
-                  <circle
-                    cx="172"
-                    cy="172"
-                    r="168"
-                    fill="none"
-                    stroke="var(--app-destructive)"
-                    strokeWidth="5"
-                    strokeLinecap="round"
-                    strokeDasharray={RING_CIRCUMFERENCE}
-                    strokeDashoffset={progressDashOffset}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                ) : null}
-              </svg>
+              <SosHoldProgress variant="sms" progress={smsIsHolding ? progress : 0} />
 
               <button
                 type="button"
@@ -614,7 +587,7 @@ export function SosPanel({
                   "relative z-10 flex h-[78%] w-[78%] touch-none select-none items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)] outline-none",
                   "transition-transform duration-150 ease-[cubic-bezier(0.4,0,0.2,1)]",
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
-                  progress > 0 && "scale-[0.96]",
+                  smsIsHolding && "scale-[0.96]",
                   disabled && "cursor-not-allowed opacity-65",
                 )}
               >

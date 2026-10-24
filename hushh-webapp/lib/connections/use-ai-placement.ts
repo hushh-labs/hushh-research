@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { ApiService } from "@/lib/services/api-service";
 import { ownerCloudProvider } from "@/lib/one/owner-cloud";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 /** Placement is a current owner observation, never inferred from a saved AI label. */
 export function useAiPlacement(
@@ -13,6 +15,7 @@ export function useAiPlacement(
     "loading" | "unknown" | "shared" | "gcp" | "azure" | "pending"
   >("loading");
   const [ownCloudProject, setOwnCloudProject] = useState<string | null>(null);
+  const [refreshRevision, setRefreshRevision] = useState(0);
   useEffect(() => {
     let cancelled = false;
     const ownerIsCurrent = captureOwnerGuard();
@@ -47,6 +50,17 @@ export function useAiPlacement(
     return () => {
       cancelled = true;
     };
-  }, [captureOwnerGuard, resetVerification]);
-  return { placement, ownCloudProject };
+  }, [captureOwnerGuard, resetVerification, refreshRevision]);
+  useEffect(() => {
+    const ownerIsCurrent = captureOwnerGuard();
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (!owner || !ownerIsCurrent()) return;
+    return CacheService.getInstance().subscribe((event) => {
+      if (ownerIsCurrent() && event.type === "set" &&
+        event.key === CACHE_KEYS.PRE_VAULT_BOOTSTRAP(owner.userId)) {
+        setRefreshRevision((value) => value + 1);
+      }
+    });
+  }, [captureOwnerGuard]);
+  return { placement, ownCloudProject, refreshPlacement: () => setRefreshRevision((value) => value + 1) };
 }

@@ -610,7 +610,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         hideBack: false,
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: "Setup", href: setupBackHref },
+          { label: setupBackHref === ROUTES.PROFILE_HOSTING ? "Hosting" : "Setup", href: setupBackHref },
           ...(capabilitySegment
             ? [
                 {
@@ -844,7 +844,7 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref: resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
         width: "profile",
         align: "center",
-        items: [{ label: fromProfile ? "Profile" : "One" }],
+        items: [{ label: "Location" }],
       };
     },
   },

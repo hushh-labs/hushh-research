@@ -80,7 +80,11 @@ def check_build(build, expected):
     )
     require(
         steps[0][1].get("waitFor")
-        == ["verify-azure-pwm-runtime", "verify-managed-vertex-runtime"],
+        == [
+            "deploy-backend",
+            "verify-azure-pwm-runtime",
+            "verify-managed-vertex-runtime",
+        ],
         "aggregate_dependencies_mismatch",
     )
     for key in ("startTime", "finishTime"):
@@ -147,13 +151,7 @@ def from_entries(entries, expected, document, step_label):
         and all(type(providers[p].get("ready")) is bool for p in providers),
         "provider_flags_invalid",
     )
-    preferred = (
-        "azure_openai"
-        if providers["azure_openai"]["ready"]
-        else "vertex"
-        if providers["vertex"]["ready"]
-        else None
-    )
+    preferred = "azure_openai" if providers["azure_openai"]["ready"] else None
     require(
         preferred is not None
         and aggregate.get("ready") is True

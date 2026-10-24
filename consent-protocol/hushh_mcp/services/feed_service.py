@@ -42,6 +42,7 @@ from hushh_mcp.services.direct_messages_service import (
     DirectMessageCipher,
     DirectMessagesError,
 )
+from hushh_mcp.services.drive_request_outcome_view import request_outcome_view
 from hushh_mcp.services.feed_drive_fold import (
     DRIVE_OUTCOME_EVENT,
     drive_rows_revealed_by_removal,
@@ -567,6 +568,10 @@ class FeedService:
                     """
                     SELECT r.request_id::TEXT AS request_id,
                            r.status AS current_request_status,
+                           outcome_search.status AS outcome_search_status,
+                           outcome_search.incomplete_search AS outcome_search_incomplete,
+                           outcome_search.matched AS outcome_search_matched,
+                           outcome_search.unshareable_count AS outcome_search_unshareable,
                            delivery.total AS current_delivery_total_count,
                            delivery.available AS current_delivery_confirmed_count,
                            delivery.pending AS current_delivery_pending_count,
@@ -611,6 +616,9 @@ class FeedService:
                     FROM drive_share_requests r
                     JOIN jsonb_array_elements_text(CAST(:request_ids_json AS JSONB)) ids(value)
                       ON r.request_id = CAST(ids.value AS UUID)
+                    LEFT JOIN drive_owner_search_jobs outcome_search
+                      ON outcome_search.user_id=r.user_id
+                      AND outcome_search.client_request_id=r.request_id AND r.status='no_match'
                     LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
                     LEFT JOIN drive_request_owner_payouts p
                       ON p.request_id=r.request_id AND p.erased_at IS NULL
@@ -664,6 +672,7 @@ class FeedService:
             }
             projection: dict[str, Any] = {}
             metadata.pop("current_existing_access_nocharge", None)
+            metadata.pop("current_outcome_reason", None)
             if (
                 row.get("event_type") == "document_share_outcome"
                 and current.get("current_request_status") == "partial"
@@ -732,6 +741,11 @@ class FeedService:
                 {
                     **row,
                     "metadata": {**metadata, **projection},
+                    "_drive_outcome_reason": request_outcome_view(
+                        {**current, "status": current.get("current_request_status")}
+                    ).get("outcomeReason")
+                    if row.get("event_type") == "document_share_outcome"
+                    else None,
                     "_drive_existing_access_nocharge": current.get(
                         "current_existing_access_nocharge"
                     )
@@ -1587,6 +1601,8 @@ SELECT r.message_id::text AS source_row_id,r.id::text AS request_id,
         # A participant-scoped live receipt, never a persisted metadata claim.
         if row.get("_drive_existing_access_nocharge") is True:
             metadata["current_existing_access_nocharge"] = True
+        if row.get("_drive_outcome_reason") in {"no_matching_files", "matching_files_unshareable"}:
+            metadata["current_outcome_reason"] = row["_drive_outcome_reason"]
         metadata.pop("wallet_card_grant_id", None)
         metadata.pop("wallet_card_request_id", None)
         metadata.pop("wallet_card_request_status", None)

@@ -435,5 +435,43 @@ class CapacityObservabilityTest(unittest.TestCase):
         self.assertEqual(threshold["duration"], "600s")
 
 
+class ChatFailureObservabilityTest(unittest.TestCase):
+    def test_authority_refusal_is_excluded_without_hiding_runtime_failures(self):
+        args = module.cli(["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"])
+        cases = (
+            ("obs_agent_stream_failure_count", "one_agent_chat_turn_complete head=one events=2 outcome=error error_class=refusal error_code=text.authority.ended ", "error_class=refusal error_code=text.authority.ended", "error_class=other error_code=background.execution.error"),
+            ("obs_agent_stream_failure_count", "one_agent_chat_turn_complete head=one events=2 outcome=error error_class=refusal error_code=text.content.filtered ", "error_class=refusal error_code=text.content.filtered", "error_class=other error_code=background.execution.error"),
+            ("obs_azure_model_error_count", "azure_model_call_complete provider=azure_openai model=gpt-5-mini outcome=failed error_kind=authority status=0 ", "error_kind=authority", "error_kind=server"),
+            ("obs_azure_model_error_count", "azure_model_call_complete provider=azure_openai model=gpt-5-mini outcome=failed error_kind=filtered status=0 ", "error_kind=filtered", "error_kind=protocol"),
+        )
+        for name, refusal, old, actionable in cases:
+            metric = module.render(ROOT / f"log-metrics/{name}.json", args)
+            regex = re.search(r'textPayload=~"([^"]+)"', metric["filter"]).group(1)
+            self.assertIsNone(re.search(regex, refusal))
+            self.assertIsNotNone(re.search(regex, refusal.replace(old, actionable)))
+
+    def test_sparse_terminal_failures_trigger_count_policy(self):
+        args = module.cli(["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"])
+        policy = module.render(ROOT / "alerts/agent-stream-failures-policy.json.in", args)
+        threshold = policy["conditions"][0]["conditionThreshold"]
+        # The actual incident's two failures must trigger even with sparse traffic.
+        self.assertEqual(threshold["aggregations"][0]["perSeriesAligner"], "ALIGN_SUM")
+        self.assertGreater(2, threshold["thresholdValue"])
+        self.assertEqual(threshold["duration"], "0s")
+
+    def test_answer_metrics_preserve_missing_answer_coverage(self):
+        args = module.cli(["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"])
+        metric = module.render(ROOT / "log-metrics/obs_agent_chat_first_answer_ms.json", args)
+        regex = re.search(r'textPayload=~"([^"]+)"', metric["filter"]).group(1)
+        measured = "one_agent_chat_turn_complete head=one first_visible_ms=20 first_answer_token_ms=500 outcome=finished "
+        missing = measured.replace("first_answer_token_ms=500", "first_answer_token_ms=None").replace("finished", "error")
+        self.assertIsNotNone(re.search(regex, measured))
+        self.assertIsNone(re.search(regex, missing))
+        self.assertNotIn("labelExtractors", metric)
+        coverage = module.render(ROOT / "log-metrics/obs_agent_chat_no_answer_count.json", args)
+        coverage_regex = re.search(r'textPayload=~"([^"]+)"', coverage["filter"]).group(1)
+        self.assertIsNotNone(re.search(coverage_regex, missing))
+
+
 if __name__ == "__main__":
     unittest.main()
