@@ -5354,6 +5354,12 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   border-color: color-mix(in oklab, var(--foreground) 16%, transparent);
 }
 
+/* Chat leads the bottom stack: a full-width writing surface above the
+   smaller four-tab pill, with one accent action at the trailing edge. */
+.agent-chat-workspace[data-agent-chat-route="root"] .agent-chat-composer-surface:not(:focus-within) {
+  background: color-mix(in oklab, var(--background) 98%, var(--foreground)) !important;
+}
+
 .agent-chat-composer-surface:focus-within {
   border-color: color-mix(in oklab, var(--app-accent) 62%, transparent);
   background: color-mix(in oklab, var(--background) 88%, var(--app-accent)) !important;
@@ -5407,7 +5413,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [role="radio"] {
-  color: #6e6e73 !important;
+  color: var(--foreground) !important;
   min-height: 44px;
   gap: 3px !important;
   padding: 4px 2px !important;
@@ -5416,11 +5422,12 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
   color: var(--app-accent-deep) !important;
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
   font-weight: 500;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"] {
-  color: #98989d !important;
+  color: var(--foreground) !important;
 }
 
 .dark .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {

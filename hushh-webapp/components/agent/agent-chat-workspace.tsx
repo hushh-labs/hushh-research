@@ -19,6 +19,7 @@ import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-captur
 import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import { AgentPersonSelectionContext } from "@/components/agent/agent-structured-experience";
 import {
+  AudioLines,
   Check,
   ChevronDown,
   ChevronRight,
@@ -6097,14 +6098,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!firebaseIdToken) return null;
     return { firebaseIdToken, vaultOwnerToken: currentVaultOwnerToken };
   };
+  const singleChatAction = isCanonicalChatRoute && !composerExpanded;
+  const showChatVoiceAction = singleChatAction && agentVoiceEnabled &&
+    !input.trim() && !longPromptAttachment;
   const composerActionRail = (
     <>
-      {agentVoiceEnabled ? (
+      {agentVoiceEnabled && (!singleChatAction || showChatVoiceAction) ? (
         <ShellActionSurface
           type="button"
           data-native-voice-control-id="one_voice_agent_chat_start"
           data-testid="one-voice-agent-chat-start"
-          className="text-[rgba(0,0,0,0.50)] max-sm:text-[color:var(--app-accent-deep)] dark:text-zinc-400 dark:max-sm:text-[color:var(--app-accent-deep)]"
+          className={isCanonicalChatRoute
+            ? "h-11 w-11 border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] hover:text-[color:var(--app-accent-fg)] dark:text-[color:var(--app-accent-fg)]"
+            : "text-[rgba(0,0,0,0.50)] max-sm:text-[color:var(--app-accent-deep)] dark:text-zinc-400 dark:max-sm:text-[color:var(--app-accent-deep)]"
+          }
           disabled={!canToggleVoice}
           onClick={() => {
             void startConversationalVoice();
@@ -6112,12 +6119,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           aria-label="Start voice mode"
           title="Start voice mode"
         >
-          <Mic className="h-4 w-4" />
+          {isCanonicalChatRoute ? <AudioLines className="h-6 w-6" /> : <Mic className="h-4 w-4" />}
         </ShellActionSurface>
       ) : null}
-      <ShellActionSurface
+      {!showChatVoiceAction ? <ShellActionSurface
         type="submit"
-        className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
+        className={cn(
+          "border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500",
+          isCanonicalChatRoute && "h-11 w-11",
+        )}
         disabled={!canSend}
         aria-label="Send message"
         title="Send message"
@@ -6131,7 +6141,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }}
       >
         <Send className="h-4 w-4" />
-      </ShellActionSurface>
+      </ShellActionSurface> : null}
     </>
   );
 
@@ -7451,6 +7461,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
               "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3 sm:px-5",
+              isCanonicalChatRoute && "sm:px-3",
               "bg-transparent pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the
@@ -7635,7 +7646,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           ? "bottom-chrome-surface"
                           : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
                         : isCanonicalChatRoute
-                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
+                          ? "bottom-chrome-surface min-h-[3.75rem] rounded-[var(--app-input-radius)]"
                           : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
                     )}
                   >
@@ -7696,25 +7707,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         placeholder={
                           composerExpanded
                             ? "Write a longer message..."
-                            : "Message One..."
+                            : isCanonicalChatRoute ? "Message One" : "Message One..."
                         }
                         rows={1}
-                        className={
+                        className={cn(
                           composerExpanded
                             ? "block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
-                                : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
-                        }
+                                : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]",
+                          singleChatAction && "text-[17px] sm:text-[17px]",
+                        )}
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
                         data-testid={composerExpanded ? undefined : "agent-chat-composer-expand"}
-                        className={
+                        className={cn(
                             composerExpanded
                               ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                              : "h-9 w-9 shrink-0 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] text-muted-foreground hover:border-[color:var(--app-accent)]/25 hover:bg-[color:var(--app-accent)]/10 hover:text-[color:var(--app-accent)] disabled:pointer-events-none disabled:opacity-30"
-                        }
+                              : "h-9 w-9 shrink-0 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] text-muted-foreground hover:border-[color:var(--app-accent)]/25 hover:bg-[color:var(--app-accent)]/10 hover:text-[color:var(--app-accent)] disabled:pointer-events-none disabled:opacity-30",
+                          singleChatAction && !input.trim() && "hidden",
+                        )}
                         aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
                         title={composerExpanded ? "Collapse" : "Expand"}
                         disabled={
@@ -7739,7 +7752,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               : "flex shrink-0 items-center gap-1.5"
                           }
                         >
-                          <div className="flex items-center gap-1 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] p-1">
+                          <div className={cn(
+                            "flex items-center gap-1 rounded-full",
+                            !singleChatAction && "border border-foreground/[0.08] bg-foreground/[0.045] p-1",
+                          )}>
                             {composerActionRail}
                           </div>
                         </div>

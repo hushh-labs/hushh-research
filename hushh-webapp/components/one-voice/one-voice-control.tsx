@@ -295,7 +295,7 @@ export function OneVoiceControl({
             aria-label="Talk to One"
             disabled={!session.enabled}
             onClick={() => start("agent_bar")}
-            className="agent-bar-voice-launcher relative flex h-11 min-w-0 flex-1 touch-manipulation select-none items-center gap-2 rounded-l-full px-3 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)] disabled:opacity-60"
+            className="agent-bar-voice-launcher relative flex h-[3.75rem] min-w-0 flex-1 touch-manipulation select-none items-center gap-3 rounded-full px-3 text-left text-base font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)] disabled:opacity-60"
           >
             <AudioLines className="h-5 w-5 shrink-0" aria-hidden />
             <span className="min-w-0 truncate" role="status" aria-live="polite">

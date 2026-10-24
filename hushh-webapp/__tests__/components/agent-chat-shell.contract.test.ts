@@ -37,7 +37,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('"motion-step-enter flex w-full items-start gap-2"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
     expect(workspace).toContain('"agent-chat-composer"');
-    expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
+    expect(workspace).toContain("bottom-chrome-surface min-h-[3.75rem] rounded-[var(--app-input-radius)]");
     expect(history).toContain("bg-[linear-gradient(180deg");
     expect(history).not.toContain('"border-r border-border/70');
   });

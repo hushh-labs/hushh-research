@@ -138,7 +138,7 @@ export function CommandAgentBar({
           data-testid="one-voice-agent-bar-start-icon"
           data-agent-action="voice"
           className={cn(
-            "agent-bar-voice-launcher relative flex h-11 min-w-0 flex-1 touch-none select-none items-center gap-2 rounded-l-full px-3 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+            "agent-bar-voice-launcher relative flex h-[3.75rem] min-w-0 flex-1 touch-none select-none items-center gap-3 rounded-full px-3 text-left text-base font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
             recording && "bg-primary/5",
           )}
           disabled={working || (active && !recording)}

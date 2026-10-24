@@ -510,12 +510,12 @@ export const Navbar = ({
       className={cn(
         layout === "slot"
           ? "flex w-full justify-center"
-          : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
+          : "fixed inset-x-0 flex justify-center px-3 transform-gpu",
         layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
         // No breakpoint gate here. The bottom pill IS the primary navigation on
         // every viewport — there is no desktop/sidebar nav that takes over at
         // `lg`, so hiding it above 1024px leaves signed-in users with no way to
-        // reach One / Connect / Feed / Search at all.
+        // reach One / Connect / Feed at all.
         "pointer-events-none",
       )}
       style={
@@ -530,19 +530,13 @@ export const Navbar = ({
       <div
         data-testid="app-bottom-nav-frame"
         className="pointer-events-none mx-auto flex w-full justify-center"
-        style={{
-          maxWidth:
-            pathname?.startsWith("/one/location")
-              ? "min(calc(100vw - 1.5rem), 45rem)"
-              : "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
-        }}
+        style={{ maxWidth: bottomNavWidth }}
       >
         <div
           className={cn(
-            "relative flex items-stretch justify-center gap-2",
+            "relative flex w-full items-stretch justify-center gap-2",
             "pointer-events-none",
           )}
-          style={{ maxWidth: "calc(100vw - 2rem)" }}
           ref={pillRef}
         >
           <div
@@ -550,7 +544,7 @@ export const Navbar = ({
             style={{ width: bottomNavWidth }}
           >
             <SegmentedPill
-              size="default"
+              size="compact"
               layout="stacked"
               hitArea="segment"
               ripple={false}
@@ -562,7 +556,7 @@ export const Navbar = ({
                 "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
                 "[&_[role=radio]]:min-h-11",
                 "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
-                "[&_[role=radio]>span:last-of-type]:!text-[10px] [&_[role=radio]>span:last-of-type]:!leading-[13px]",
+                "[&_[role=radio]>span:last-of-type]:!text-[11px] [&_[role=radio]>span:last-of-type]:!leading-[13px]",
                 "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
               )}
             />

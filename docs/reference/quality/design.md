@@ -155,21 +155,20 @@ safe area
 │ Finance                     Market · Portfolio · Analysis                    │
 └──────────────────────────────────────────────────────────────────────────────┘
                                      route content
-                              voice-only control (narrow slot)
-                              Chat · One · Connect · Feed · Search
+                              Message One / voice control (wide pill)
+                              Chat · One · Connect · Feed
 safe area
 ```
 
 1. The centered primary bottom navigation is fixed and constant: **Chat**,
-   **One**, **Connect**, **Feed**, and **Search**, in that order. **Chat** is
-   the canonical home route (`/`). Search is a segment in that shared control
-   and opens the global command surface. Profile remains a top-bar control.
+   **One**, **Connect**, and **Feed**, in that order. **Chat** is
+   the canonical home route (`/`). Profile remains a top-bar control.
 2. Search opens the existing global command/search surface. It is not agent
    chat and has no route-local replacement.
-3. The voice-only control and bottom navigation are one bottom-chrome surface.
-   There is no divider, nested material, or inter-slot gap; their transform,
-   safe-area clearance, and fade are measured by the shared shell. Neither
-   route nor component may add another boundary.
+3. The wider voice control and compact bottom navigation are separate pills
+   with a 6px join, measured and moved by one shared bottom shell. Root Chat
+   owns the wider `Message One` composer and hides the idle voice launcher.
+   Their safe-area clearance, keyboard position, and fade remain shared.
 4. Finance and RIA workspace tabs render only in the unified top shell. Their
    labels, destinations, active query state, and visibility come from the
    central route registry; route bodies and bottom navigation do not duplicate
@@ -179,10 +178,12 @@ safe area
    Profile route. Connect remains a route but is not shell chrome.
 6. Tabs are horizontally scrollable when needed, retain clear selected state,
    and do not push or overlap the top-bar actions on a small viewport.
-7. The bottom navigation frame uses the shared bottom-chrome width constraint.
-   Its five segments are equal-width and centered at every breakpoint; it
-   never aligns to the wider page shell or viewport edge. The voice slot is
-   narrower than the navigation frame while retaining a 44px hit target.
+7. The bottom navigation frame matches the root Chat composer width through
+   `--app-bottom-shell-max-width` and the same 12px mobile side gutters.
+   Its four segments are equal-width and centered at every breakpoint, with
+   at least 44px touch targets. The 60px root Chat composer uses that same
+   frame; the navigation keeps its compact height. The idle voice bar retains
+   its existing width and capture behavior.
 8. Finance is one `/one/kai?tab=` workspace. Market, Portfolio, and Analysis
    use the Profile reading measure and shared outer gutter; their content may
    vary, but they must not introduce a wider dashboard canvas, a second fixed

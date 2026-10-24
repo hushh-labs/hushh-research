@@ -410,7 +410,7 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 Rules:
 
-1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, `Feed`, and `Search`, in that order. `Chat` is the canonical `/` route. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open an agent overlay.
+1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, and `Feed`, in that order. `Chat` is the canonical `/` route. Global search continues to use `KaiCommandBarGlobal` through its existing command entry points; it is not a fifth bottom tab.
 2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
 3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Contextual workspace tabs are rendered by the shared top shell from the central route registry; they never become route-local or bottom-navigation chrome.
 4. Consent Center owns `Requests`, `Active`, `History`, and `Connections` in
@@ -423,7 +423,7 @@ Rules:
    `/one/kai?tab=analysis`; route inventories normalize those URLs to
    the shared pathname without discarding their tab state.
 6. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-7. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 6px resting join. The three bottom segments use the Agent Bar's shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
+7. The Agent Bar and bottom navigation share the measured bottom-chrome stack with a 6px resting join. The four navigation segments have equal widths in a centered compact pill, with at least 44px touch targets. The navigation and root Chat composer match widths through `--app-bottom-shell-max-width` and the same 12px side gutters. The 60px idle Agent Bar retains its existing width and capture behavior. Chat owns one `Message One` textarea and a trailing blue-accent waveform action that becomes Send for a draft; its idle Agent Bar stays hidden. Active voice remains visible and cancellable. Keep measured safe-area, scroll, and keyboard offsets with the shared shell.
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.

@@ -273,7 +273,7 @@ export function resolveBottomNavOptionKeys(
   _scope: AppBottomNavScope,
   _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  return ["chat", "dashboard", "connect", "feed", "search"];
+  return ["chat", "dashboard", "connect", "feed"];
 }
 
 /** Contextual workspace tabs belong exclusively to the unified top shell. */
