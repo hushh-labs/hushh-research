@@ -1,6 +1,15 @@
 # Consent UI contract
 
-Source baseline: `6e6563f32ed2360bdb008cc6daaf82e180b7e598` (fetched `origin/main`, 24 October 2026). Reference supplied for comparison: `dcc4f611e39c80a0001df0ada3f47e85b445421e`. The Consent owners listed below have no source diff between those revisions; the governance tree moved from `.codex` to `.agents` on current main. The finished change was rebased onto fetched `origin/main` `689b4c9d35afb8c478a75641b247bd657d013341`, retaining newer Drive packet and Mail presentation work. This ledger was recorded before presentation code changes. It describes mounted source and conditions; browser-computed values and device acceptance require separate evidence.
+Source baseline: `6e6563f32ed2360bdb008cc6daaf82e180b7e598` (fetched `origin/main`, 24 October 2026). Reference supplied for comparison: `dcc4f611e39c80a0001df0ada3f47e85b445421e`. The Consent owners listed below have no source diff between those revisions; the governance tree moved from `.codex` to `.agents` on current main. The presentation branch was rebased onto `origin/main` `689b4c9d35afb8c478a75641b247bd657d013341` and then merged `4f1dd4a4aea16c103a8395b1c04758f9ff9ec30a`, retaining the newer Drive packet, Mail and Calendar presentation work. This ledger was recorded before presentation code changes. It describes mounted source and conditions; browser-computed values and device acceptance require separate evidence.
+
+## Visual Map
+
+| Placement | Visible composition | Presentation owner |
+| --- | --- | --- |
+| `/one/consent` | Shared Back and Profile shell above Requests, Active, History and Connections | `ConsentCenterPage` and `TopShellTabs` |
+| Selected request | Detail content beside or above the active list according to the existing responsive layout | `SettingsDetailPanel` and the selected specialized review |
+| Profile, Person, Drive, Mail and Chat | Embedded Consent review within each host's existing navigation | Host component marked `.consent-presentation-surface` |
+| Dialog, select and feedback portals | Review and feedback content outside the route subtree | The portalled owner or workspace-scoped Sonner rules |
 
 ## Authority and entry
 
