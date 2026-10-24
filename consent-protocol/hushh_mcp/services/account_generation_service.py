@@ -334,7 +334,7 @@ class AccountGenerationService:
                 or not row["identity_uid"]
             ):
                 raise AccountGenerationRefused("account_retired")
-            return row["identity_uid"]
+            return str(row["identity_uid"])
         if re.fullmatch(r"acct_[0-9a-f]{32}", owner_id):
             raise AccountGenerationRefused("generation_binding_missing")
         return owner_id

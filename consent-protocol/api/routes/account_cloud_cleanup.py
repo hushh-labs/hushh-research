@@ -47,7 +47,8 @@ async def remove_owner_cloud(owner: str, request: CloudRemovalRequest) -> dict:
         if request.action == "cancel":
             if not request.operationId:
                 raise AzureTeardownRefused("CLOUD_REMOVAL_OPERATION_REQUIRED")
-            return await store.cancel(owner, request.operationId)
+            cancelled: dict = await store.cancel(owner, request.operationId)
+            return cancelled
         if request.action == "finalize":
             if not request.operationId or not request.planDigest:
                 raise AzureTeardownRefused("CLOUD_REMOVAL_APPROVAL_REQUIRED")
