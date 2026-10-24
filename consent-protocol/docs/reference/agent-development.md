@@ -73,6 +73,25 @@ or establish deployment readiness. Preserve shared defaults when transferring
 portable changes from a private deployment branch; keep deployment adapters and
 pod admission policy with their owning topology.
 
+### Azure response schemas with dynamic fields
+
+Memory's structure gene returns dynamic payload, summary and sensitivity maps.
+Azure's native strict output format cannot represent those open fields. The
+single-turn runner binds its original output contract while it executes and
+validates the final result. Within that exact validation scope, the Azure
+response adapter uses JSON object mode and sends the original normalized schema
+as output instructions. It never closes a dynamic map to an empty object.
+Direct typed open-schema calls without a matching owning validator fail before
+model I/O. Closed response schemas retain native strict output; tool schemas and
+tool authority are unchanged. No additional call, provider fallback, persistence
+or confirmation is introduced. The original decoder still rejects invalid
+output before returning it to the caller.
+
+The actual Memory manifest/ADK roundtrip and invalid-output/pre-I/O controls are
+covered in `tests/test_hushh_adk_single_turn.py`; the existing Azure adapter
+suite retains its closed-schema and tool-boundary cases. These checks prove the source
+contract; a released image still needs genuine UAT task and save verification.
+
 Scheduled One uses the same authored task head and roster through a claim-owned
 execution segment. Model clients, MCP resources and specialist dependencies have
 explicit invocation lifetimes; teardown joins before the update permit can close.
