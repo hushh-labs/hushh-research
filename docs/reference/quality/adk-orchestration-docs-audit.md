@@ -50,8 +50,9 @@ passed. The vault entry, Hosting/setup and mounted One runtime now use the admit
 application owner too. Additional focused suites passed 148 vault-entry/auth,
 75 onboarding and 39 runtime/recovery cases; these overlap and are not an additive
 total. Pending identities without an application owner stay on recovery. TypeScript
-and changed-source lint passed. Enrollment stays disabled: remaining application callers, custom/email
-authentication and the enrollment/recovery interface still need integration.
+and changed-source lint passed. Enrollment stays disabled: purpose-bound email authentication and remaining
+application callers still need integration. The federated recovery API and UI
+are now implemented locally; they have not been deployed.
 Device/passkey mints now preserve external UID while carrying captured owner/lane;
 101 focused device/passkey/auth cases passed, including retired-owner refusal and
 unavailable-authority distinction. Generic email proof must still be bound to its
@@ -71,6 +72,19 @@ passed with late settlement and forged-nonce refusal. The no-retry identity upda
 transport passed 232 affected backend cases, including one physical POST under
 lost responses, errors and redirects. These remain local source/fixture results;
 no installed image or environment acceptance is inferred.
+
+The latest local registration slice binds explicit Start fresh approval to the
+retired generation, qualified cleanup and immutable authentication/review receipt.
+Google, Apple and Microsoft require independently fresh sign-in; unknown historical
+cleanup stays Action required. The real API/AuthProvider recovery withdraws stale
+application admission and reconciles an uncertain response without automatic replay.
+Full-account deletion retains Firebase's UID in every environment. The latest
+focused checks passed 248 backend, 379 frontend and 41 native privacy cases; these
+counts overlap earlier suites. A 127.87-second disposable PostgreSQL rehearsal
+passed two erase/enroll cycles, changed-proof replay refusal and pending-write
+recovery. TypeScript and changed-source lint passed. This is local source evidence;
+purpose-bound email enrollment, remaining owner consumers and installed acceptance
+still precede activation.
 
 Cloud-only removal now has a draft forward recovery contract (414): approval,
 execution admission and unapproved cancellation serialize on the existing owner
@@ -117,8 +131,7 @@ A later peer rollout accepted the prior application; the original failure remain
 historical evidence. Workflow head, selected application and installed pod are
 separate identities. Peer main through `dcc4f611e3`, including Azure-search, public-source research
 and lost-vault changes, is inherited on the preserved branch. Those later changes
-are not claimed as part of UAT’s `ca83c0bf5a` acceptance. The active ADK tree remains
-preserved.
+are not claimed as part of UAT’s `ca83c0bf5a` acceptance. The local ADK branch remains preserved; the former checkout is absent.
 
 The combined local core passed in 783 seconds: 25,018 backend tests, 143 skips,
 and frontend/security/governance/MCP/integration checks. Exact-head hosted

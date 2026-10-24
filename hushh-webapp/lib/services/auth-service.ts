@@ -701,7 +701,7 @@ export class AuthService {
   /** Fresh current-user provider proof; ordinary token refresh is insufficient. */
   static async reauthenticateIdentity(
     expectedUserId: string,
-    providerId: "google.com" | "apple.com",
+    providerId: "google.com" | "apple.com" | "microsoft.com",
     isCurrent: () => boolean,
   ): Promise<string> {
     if (providerId === "google.com") {
@@ -716,7 +716,7 @@ export class AuthService {
     if (!expectedUserId || !isCurrent() || !currentUser ||
         currentUser.uid !== expectedUserId ||
         !currentUser.providerData.some((provider) => provider.providerId === providerId)) {
-      throw new Error("apple_identity_required");
+      throw new Error(providerId === "apple.com" ? "apple_identity_required" : "microsoft_identity_required");
     }
     const assertCurrent = () => {
       if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== expectedUserId) {
@@ -725,7 +725,7 @@ export class AuthService {
     };
     assertCurrent();
     try {
-      const result = await reauthenticateWithPopup(currentUser, this.createWebProvider("apple"));
+      const result = await reauthenticateWithPopup(currentUser, this.createWebProvider(providerId === "apple.com" ? "apple" : "microsoft"));
       assertCurrent();
       if (result.user.uid !== expectedUserId) throw new Error("identity_mismatch");
       const token = await result.user.getIdToken(true);

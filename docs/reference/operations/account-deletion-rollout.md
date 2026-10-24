@@ -59,9 +59,9 @@ the guard through migration 201's existing discovery.
 
 The verifier and session-status response distinguish verified Firebase identity,
 application owner and generation. `ACCOUNT_GENERATION_ADMISSION_ENABLED` defaults
-off. Do not enable it or publish registration until remaining application callers,
-email enrollment, remaining custom-token consumers and the enrollment/recovery
-interface qualify.
+off. Do not enable it or publish registration until remaining application callers
+and purpose-bound email enrollment qualify. The federated recovery interface is
+implemented locally; it has not been accepted on a deployed environment.
 An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
 Firebase mutation across retirement. Device and passkey mints now map the exact
 captured application owner to its external UID and stamp owner/lane claims in the
@@ -69,6 +69,24 @@ custom token. They never change global Firebase claims. Browser device approval
 returns that same application owner and distinguishes unavailable authority from
 invalid proof. The 101 focused device/passkey/auth cases pass; email purpose proof
 and its generation-bound enrollment/finalization still require implementation.
+
+The local federated recovery path accepts independently fresh Google, Apple or
+Microsoft identity proof only for explicit registration review. It does not admit
+a retired account to private information. The owner confirms the exact prior
+generation, cleanup operation and enrollment receipt. SQL stores the authentication
+time and review digest, refusing changed proof on replay, expired proof and missing
+receipt fields. Historical cleanup without qualified evidence stays **Action
+required**. Unknown submission responses require status reconciliation, never an
+automatic second enrollment. Normal session admission follows a confirmed result.
+The frontend withdraws an old application principal before showing this recovery.
+
+Full-account deletion now retains the external Firebase identity in every
+environment. The existing `firebase_shared_identity_retained` classification is
+kept for compatibility; it no longer implies a development-only policy. Only
+verified provisional phone-orphan cleanup or a separately authorized enterprise
+quarantine may use their narrower identity operations. Drain legacy deletion
+workers before enabling replacement accounts: this change cannot undo an already
+dispatched identity deletion.
 
 Draft 413 now also records remote identity-write dispatch before provider calls,
 using the existing owner 171→198 barriers and the enrollment identity-199 lock.
@@ -86,12 +104,14 @@ never change its shared session per call to work around that behavior.
 
 The retirement cutoff includes a 60-second issuer-clock lead margin, then requires
 independently fresh sign-in; refresh-token `iat` never supplies that proof.
-Migrations 412–414 remain unregistered and unapplied. On 24 October, affected backend
-checks passed 232 cases. The disposable PostgreSQL rehearsal passed two erase/enroll
-cycles with uncertain dispatch, forged settlement and direct-INSERT negative controls.
-Frontend checks passed 304 cases, including real API transport and AuthProvider
-settling a lost deletion response, plus stale owner/episode refusal. These focused
-results overlap prior suites; they are not the final combined mirror or live acceptance.
+Migrations 412–414 remain unregistered and unapplied. On 24 October, the latest
+focused recovery checks passed 248 backend and 379 frontend cases, plus 41 native
+privacy cases. The real PostgreSQL rehearsal passed two erase/enroll cycles in
+127.87 seconds, including changed-proof replay, direct-INSERT refusal and a pending
+current-generation identity write. TypeScript and changed-source lint passed.
+These focused results overlap prior suites; they are not the final combined mirror
+or live acceptance. Email-purpose proof and remaining generation consumers are
+still on the activation boundary.
 
 The reviewed implementation direction separates that
 external identity from an immutable application owner per account generation:

@@ -1931,11 +1931,16 @@ class ActorIdentityService:
         phone = str(expected_phone_number or "").strip()
         if not re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
             raise ValueError("The verified phone number is invalid.")
+        identity_uid = user_id
+        if re.fullmatch(r"acct_[0-9a-f]{32}", user_id):
+            identity_uid = await asyncio.to_thread(
+                AccountGenerationService.firebase_identity_for_owner, user_id
+            )
         record = await self._get_firebase_user_record(user_id, require_success=True)
         if record is None:
             raise ActorIdentitySyncUnavailableError()
         if (
-            str(getattr(record, "uid", "")) != user_id
+            str(getattr(record, "uid", "")) != identity_uid
             or str(getattr(record, "phone_number", "") or "").strip() != phone
         ):
             raise ValueError("The verified phone no longer matches this attempt. Please retry.")

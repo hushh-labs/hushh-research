@@ -890,15 +890,27 @@ async def _assert_account_generation_cycles(conn, database_url):
             journal.settle_local_erasure(transaction, claim)
             return prepared.cleanup_id
 
-    def enroll(claims, generation, cleanup, enrollment):
-        with patch.object(generations, "get_db_connection", engine.begin):
-            return generations.AccountGenerationService.start_fresh(
-                claims,
-                previous_generation=generation,
-                cleanup_operation=cleanup,
-                enrollment_operation=enrollment,
-            )
+    def enroll(claims, generation, cleanup, enrollment, accepted_digest=None):
+        # The client confirms the immutable review it actually saw; the public
+        # service rereads cleanup and does not upgrade stale terms.
+        digest = accepted_digest or generations.enrollment_review_digest(
+            lifecycle.account_deletion_user_hash(identity),
+            generation,
+            cleanup,
+            enrollment,
+            claims["auth_time"],
+            generations.math.ceil(retired["retired_at"].timestamp()) + 60,
+        )
+        return generations.AccountGenerationService.confirm_registration(
+            claims,
+            previous_generation=generation,
+            cleanup_operation=cleanup,
+            enrollment_operation=enrollment,
+            accepted_review_digest=digest,
+        )
 
+    database_override = patch.object(generations, "get_db_connection", engine.begin)
+    database_override.start()
     try:
         for generation in range(2):
             await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
@@ -956,7 +968,7 @@ async def _assert_account_generation_cycles(conn, database_url):
             assert cutoff >= retired["retired_at"].timestamp() + 60
             # Exercise the actual clock boundary, including issuer lead. This
             # is the bounded security regression, not a model/provider sweep.
-            await asyncio.sleep(max(0, cutoff - time.time() + 1.1))
+            await asyncio.sleep(max(0, cutoff - time.time() + 2.1))
             claims = {
                 "uid": identity,
                 "auth_time": int(time.time()),
@@ -993,6 +1005,33 @@ async def _assert_account_generation_cycles(conn, database_url):
             await asyncio.to_thread(settle_mutation, dispatched, "succeeded")
             with pytest.raises(generations.AccountGenerationRefused):
                 await asyncio.to_thread(settle_mutation, dispatched, "succeeded")
+            for invalid_operation, invalid_time in (
+                (None, claims["auth_time"]),
+                (str(uuid4()), int(time.time()) + 300),
+                (str(uuid4()), int(time.time()) - 1000),
+            ):
+                proposed_owner = "acct_" + uuid4().hex
+                with pytest.raises(
+                    asyncpg.InsufficientPrivilegeError, match="lineage is unconfirmed"
+                ):
+                    await conn.execute(
+                        """INSERT INTO account_generations(identity_hash,generation,owner_hash,owner_id,
+                        identity_uid,admitted_after,enrollment_operation,cleanup_operation,
+                        enrollment_authenticated_at,enrollment_review_digest)
+                        VALUES($1,$2,$3,$4,$5,$6,$7::uuid,$8::uuid,$9,
+                        public.account_enrollment_review_digest($1,$2-1,$8::uuid,$7::uuid,$9,$6))""",
+                        lifecycle.account_deletion_user_hash(identity),
+                        generation + 1,
+                        lifecycle.account_deletion_user_hash(proposed_owner),
+                        proposed_owner,
+                        identity,
+                        cutoff,
+                        invalid_operation,
+                        cleanup,
+                        invalid_time,
+                    )
+            with pytest.raises(generations.AccountGenerationRefused):
+                await asyncio.to_thread(enroll, claims, generation, cleanup, enrollment, "0" * 64)
             outcomes = await asyncio.gather(
                 asyncio.to_thread(enroll, claims, generation, cleanup, enrollment),
                 asyncio.to_thread(enroll, claims, generation, cleanup, str(uuid4())),
@@ -1018,6 +1057,40 @@ async def _assert_account_generation_cycles(conn, database_url):
                     "SELECT * FROM account_generations WHERE owner_id=$1", winner.owner_id
                 )
             )
+            # A different valid sign-in cannot replace the immutable review
+            # receipt while replaying an already-completed operation.
+            changed_proof = {**claims, "auth_time": claims["auth_time"] - 1}
+            assert changed_proof["auth_time"] > cutoff
+            with pytest.raises(generations.AccountGenerationRefused):
+                await asyncio.to_thread(
+                    enroll, changed_proof, generation, cleanup, winning_enrollment
+                )
+            with pytest.raises(generations.AccountGenerationRefused):
+                await asyncio.to_thread(
+                    enroll,
+                    changed_proof,
+                    generation,
+                    cleanup,
+                    winning_enrollment,
+                    active["enrollment_review_digest"],
+                )
+            assert active["enrollment_authenticated_at"] == claims["auth_time"]
+            assert active["enrollment_review_digest"] == generations.enrollment_review_digest(
+                active["identity_hash"],
+                generation,
+                cleanup,
+                winning_enrollment,
+                claims["auth_time"],
+                active["admitted_after"],
+            )
+            # A later write cannot hide the result of the already-completed
+            # enrollment when its HTTP response was lost.
+            current_mutation = await asyncio.to_thread(begin_mutation, winner.owner_id)
+            assert (
+                await asyncio.to_thread(enroll, claims, generation, cleanup, winning_enrollment)
+                == winner
+            )
+            await asyncio.to_thread(settle_mutation, current_mutation, "succeeded")
             with pytest.raises(
                 asyncpg.InsufficientPrivilegeError, match="retirement is unconfirmed"
             ):
@@ -1062,4 +1135,5 @@ async def _assert_account_generation_cycles(conn, database_url):
             == 3
         )
     finally:
+        database_override.stop()
         engine.dispose()

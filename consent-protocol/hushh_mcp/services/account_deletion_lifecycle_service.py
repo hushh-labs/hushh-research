@@ -1144,6 +1144,13 @@ class AccountDeletionLifecycleService:
                 "protected",
                 classification=_PHONE_CLASSIFICATION_PROOF_MISSING,
             )
+        if intent_kind == "full_account":
+            # Application generations retire locally. Never destroy, disable or
+            # globally revoke the retained Firebase identity during account erasure.
+            # Keep the historical classification for wire/SQL compatibility.
+            return FirebaseCleanupAttempt(
+                "identity_retained", classification="firebase_shared_identity_retained"
+            )
         try:
             return await asyncio.wait_for(
                 self._delete_or_quarantine_firebase_identity(
@@ -1221,6 +1228,14 @@ class AccountDeletionLifecycleService:
         intent_kind: CleanupIntentKind,
         expected_phone_digest: str | None,
     ) -> FirebaseCleanupAttempt:
+        if intent_kind == "full_account":
+            return FirebaseCleanupAttempt(
+                "identity_retained", classification="firebase_shared_identity_retained"
+            )
+        if intent_kind != "phone_orphan" or expected_phone_digest is None:
+            return FirebaseCleanupAttempt(
+                "protected", classification=_PHONE_CLASSIFICATION_PROOF_MISSING
+            )
         normalized = str(user_id or "").strip()
         if not normalized:
             return FirebaseCleanupAttempt(
@@ -1299,17 +1314,13 @@ class AccountDeletionLifecycleService:
                 _failure_class(last_error) if last_error is not None else None,
                 _PHONE_CLASSIFICATION_REVALIDATED,
             )
-        quarantine_result = await self._quarantine_firebase_identity(
-            normalized,
-            last_error=last_error,
-        )
-        return quarantine_result
+        raise AssertionError("unsupported Firebase cleanup intent")
 
     async def quarantine_firebase_identity(self, user_id: str) -> FirebaseCleanupAttempt:
         """Disable the Firebase user and revoke its refresh tokens; never delete it.
 
-        The public entry to the quarantine the deletion cleanup already uses, for
-        callers that must end an identity's access without erasing the account
+        The explicit entry for callers that must end an identity's access
+        without erasing the account
         (enterprise deprovisioning). ``outcome`` is ``quarantined`` or ``not_found``
         when finished, anything else means retry.
         """

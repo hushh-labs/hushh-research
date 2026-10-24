@@ -12,12 +12,15 @@ together before an owner can activate a replacement.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import math
 import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import text
 
@@ -37,6 +40,92 @@ class AccountPrincipal:
     firebase_uid: str
     owner_id: str
     generation: int
+
+
+def enrollment_review_digest(
+    identity_hash: str,
+    previous_generation: int,
+    cleanup: str,
+    enrollment: str,
+    authenticated_at: int,
+    cutoff: int,
+) -> str:
+    """Match the SQL receipt over fixed, delimiter-safe fields."""
+    terms = [
+        "hussh-account-enrollment/v1",
+        identity_hash,
+        str(previous_generation),
+        str(UUID(cleanup)),
+        str(UUID(enrollment)),
+        str(authenticated_at),
+        str(cutoff),
+    ]
+    return hashlib.sha256("|".join(terms).encode()).hexdigest()
+
+
+def registration_review(
+    claims: Mapping[str, Any],
+    row: Mapping[str, Any] | None,
+    *,
+    mutations_settled: bool,
+    operation_id: str | None = None,
+    now: float | None = None,
+) -> dict:
+    """Read-only review, never a grant to create or read an application account."""
+    identity_hash = account_deletion_user_hash(_uid(claims))
+    if row is None:
+        return {"state": "not_deleted"}
+    if row["identity_hash"] != identity_hash:
+        raise AccountGenerationRefused("identity_binding_invalid")
+    if row["retired_at"] is None:
+        return {"state": "active"}
+    if row["cleanup_confirmed"] is not True or not row["cleanup_operation"]:
+        return {"state": "action_required", "reason": "historical_cleanup_unconfirmed"}
+    if not mutations_settled:
+        return {"state": "action_required", "reason": "identity_write_unconfirmed"}
+    current_time = time.time() if now is None else now
+    cutoff = math.ceil(row["retired_at"].timestamp()) + 60
+    if current_time <= cutoff:
+        return {"state": "waiting_for_identity", "retry_at": cutoff + 1}
+    firebase = claims.get("firebase")
+    provider = firebase.get("sign_in_provider") if isinstance(firebase, Mapping) else None
+    try:
+        authenticated_at = _auth_time(claims)
+    except AccountGenerationRefused:
+        authenticated_at = 0
+    if (
+        provider not in {"google.com", "apple.com", "microsoft.com"}
+        or authenticated_at <= cutoff
+        or authenticated_at < current_time - 300
+        or authenticated_at > current_time
+    ):
+        return {"state": "fresh_identity_required"}
+    cleanup = str(row["cleanup_operation"])
+    # A refresh of the same reviewed sign-in resumes the same operation.
+    # This is a public reference, not an authentication secret.
+    enrollment = (
+        str(UUID(operation_id))
+        if operation_id
+        else str(
+            uuid5(
+                NAMESPACE_URL,
+                f"hussh-account-enrollment/v1|{identity_hash}|{row['generation']}|{cleanup}|{authenticated_at}",
+            )
+        )
+    )
+    return {
+        "state": "ready",
+        "review": {
+            "previous_generation": row["generation"],
+            "cleanup_operation": cleanup,
+            "enrollment_operation": enrollment,
+            "expires_at": authenticated_at + 300,
+            "terms_version": 1,
+            "digest": enrollment_review_digest(
+                identity_hash, row["generation"], cleanup, enrollment, authenticated_at, cutoff
+            ),
+        },
+    }
 
 
 def _auth_time(claims: Mapping[str, Any]) -> int:
@@ -101,6 +190,98 @@ def validate_principal(
 
 class AccountGenerationService:
     """One SQL authority, shared by lifecycle and authenticated admission."""
+
+    @staticmethod
+    def registration_status(
+        claims: Mapping[str, Any],
+        *,
+        operation_id: str | None = None,
+        previous_generation: int | None = None,
+    ) -> dict:
+        identity_hash = account_deletion_user_hash(_uid(claims))
+        with get_db_connection() as conn:
+            conn.execute(text("SET LOCAL statement_timeout='5000ms'"))
+            row = (
+                conn.execute(
+                    text("""SELECT * FROM account_generations
+                WHERE identity_hash=:identity AND (CAST(:previous AS integer) IS NULL OR generation=CAST(:previous AS integer))
+                ORDER BY generation DESC LIMIT 1"""),
+                    {"identity": identity_hash, "previous": previous_generation},
+                )
+                .mappings()
+                .first()
+            )
+            if row is None:
+                historical = conn.execute(
+                    text("""SELECT erasure_phase FROM account_deletion_tombstones
+                    WHERE firebase_identity_hash=:identity AND cleanup_intent_kind='full_account'
+                    ORDER BY deleted_at DESC LIMIT 1"""),
+                    {"identity": identity_hash},
+                ).scalar()
+                if historical:
+                    return {
+                        "state": "action_required" if historical == "erased" else "cleanup_pending",
+                        "reason": "historical_cleanup_unconfirmed"
+                        if historical == "erased"
+                        else "cleanup_in_progress",
+                    }
+            settled = conn.execute(
+                text("SELECT public.account_firebase_mutations_settled(:identity)"),
+                {"identity": identity_hash},
+            ).scalar_one()
+        return registration_review(
+            claims, row, mutations_settled=settled is True, operation_id=operation_id
+        )
+
+    @staticmethod
+    def confirm_registration(
+        claims: Mapping[str, Any],
+        *,
+        previous_generation: int,
+        cleanup_operation: str,
+        enrollment_operation: str,
+        accepted_review_digest: str,
+    ) -> AccountPrincipal:
+        identity = _uid(claims)
+        cleanup, enrollment = str(UUID(cleanup_operation)), str(UUID(enrollment_operation))
+        # Replay discovers this same operation; it never activates another one.
+        with get_db_connection() as conn:
+            conn.execute(text("SET LOCAL statement_timeout='5000ms'"))
+            active = (
+                conn.execute(
+                    text("""SELECT generation,cleanup_operation,enrollment_operation,
+                enrollment_review_digest FROM account_generations WHERE identity_hash=:identity
+                AND retired_at IS NULL"""),
+                    {"identity": account_deletion_user_hash(identity)},
+                )
+                .mappings()
+                .first()
+            )
+        replay = bool(
+            active
+            and active["generation"] == previous_generation + 1
+            and str(active["cleanup_operation"]) == cleanup
+            and str(active["enrollment_operation"]) == enrollment
+            and isinstance(active["enrollment_review_digest"], str)
+            and hmac.compare_digest(active["enrollment_review_digest"], accepted_review_digest)
+        )
+        if not replay:
+            status = AccountGenerationService.registration_status(
+                claims, operation_id=enrollment, previous_generation=previous_generation
+            )
+            review = status.get("review") or {}
+            if (
+                status.get("state") != "ready"
+                or review.get("cleanup_operation") != cleanup
+                or not hmac.compare_digest(str(review.get("digest") or ""), accepted_review_digest)
+            ):
+                raise AccountGenerationRefused("generation_review_changed_or_unavailable")
+        return AccountGenerationService.start_fresh(
+            claims,
+            previous_generation=previous_generation,
+            cleanup_operation=cleanup,
+            enrollment_operation=enrollment,
+        )
 
     @staticmethod
     def identity_in_transaction(conn, owner_id: str) -> str:

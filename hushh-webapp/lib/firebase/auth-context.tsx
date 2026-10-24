@@ -87,6 +87,7 @@ import { useOneConversationSession } from "@/lib/agent/one-conversation-session"
 import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
 import { replaceWindowLocation } from "@/lib/utils/browser-navigation";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { parseAccountRegistrationRecovery, type AccountRegistrationRecovery } from "@/lib/auth/account-registration";
 import { parseAccountCleanupOperation, type AccountCleanupOperation } from "@/lib/auth/account-cleanup-operation";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
@@ -100,7 +101,7 @@ const ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES = 4_096;
 
 type AccountSessionValidationResult =
   | { outcome: "active"; principal: AccountPrincipalBinding }
-  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation }
+  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery }
   | { outcome: "terminal"; code: AuthSessionInvalidationCode };
 
 type AccountSessionStatusInspection =
@@ -290,6 +291,7 @@ interface AuthContextType {
   /** True when the backend has not authoritatively confirmed this session. */
   sessionVerificationRequired: boolean;
   accountCleanup: AccountCleanupOperation | null;
+  accountRegistration: AccountRegistrationRecovery | null;
   phoneNumber: string | null;
   phoneNumberStatus: "loading" | "verified" | "missing" | "unavailable";
   /** Resolves only after the verified backend phone lookup has settled. */
@@ -354,11 +356,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [sessionVerificationRequired, setSessionVerificationRequired] =
     useState(false);
   const [cleanupStatus, setCleanupStatus] = useState<{ ownerId: string; operation: AccountCleanupOperation } | null>(null);
+  const [registrationStatus, setRegistrationStatus] = useState<{ identityUid: string; recovery: AccountRegistrationRecovery } | null>(null);
   const retainCleanupStatus = useCallback((ownerId: string, validation: AccountSessionValidationResult) => {
     if (validation.outcome === "terminal") return;
+    setRegistrationStatus(current => validation.outcome === "unavailable" && validation.registration
+      ? { identityUid: ownerId, recovery: validation.registration }
+      : validation.outcome === "active" || validation.outcome === "unavailable" && validation.cleanup || current?.identityUid !== ownerId ? null : current);
     setCleanupStatus(current => validation.outcome === "unavailable" && validation.cleanup
       ? { ownerId, operation: validation.cleanup }
-      : validation.outcome === "active" || current?.ownerId !== ownerId ? null : current);
+      : validation.outcome === "active" || validation.outcome === "unavailable" && validation.registration || current?.ownerId !== ownerId ? null : current);
   }, []);
   const [nativePrivacyReady, setNativePrivacyReady] =
     useState<NativeSessionPrivacyState | null>(null);
@@ -494,6 +500,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
     userRef.current = nextUser;
     setCleanupStatus(current => current?.ownerId === nextUser?.uid ? current : null);
+    setRegistrationStatus(current => current?.identityUid === nextUser?.uid ? current : null);
     principalRef.current = principal;
     setAccountPrincipal(principal);
     if (nextUser && !principal) publishPendingAuthSessionIdentity(nextUser.uid);
@@ -767,6 +774,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const deadlineMs = Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS;
       let cachedToken: string | null = null;
 
+      const resolveRegistrationRecovery = async (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> => {
+        try {
+          const response = await withinAccountSessionValidationBudget(ApiService.getAccountRegistrationStatus(idToken), deadlineMs);
+          // Older images and the deliberate rollout-off state keep the original
+          // lifecycle outcome. A network failure never proves cleanup completed.
+          if (response.status === 404) return terminal;
+          if (response.ok && hasJsonResponseContentType(response)) {
+            const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
+            const registration = parseAccountRegistrationRecovery(body);
+            if (registration) return { outcome: "unavailable", registration };
+          }
+        } catch { /* Keep identity for purpose-bound recovery, never admit it. */ }
+        return { outcome: "unavailable" };
+      };
+
       const resolveDeletionInProgress = async (
         idToken: string,
       ): Promise<AccountSessionValidationResult> => {
@@ -779,7 +801,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
             const operation = parseAccountCleanupOperation(body?.operation);
             if (operation?.state === "complete") {
-              return { outcome: "terminal", code: "account_deletion_identity_retained" };
+              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: "account_deletion_identity_retained" });
             }
             if (operation) return { outcome: "unavailable", cleanup: operation };
           }
@@ -814,7 +836,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
             candidateUser.uid,
           );
           if (inspection.outcome === "active") return inspection;
-          if (inspection.outcome === "terminal") return inspection;
+          if (inspection.outcome === "terminal") {
+            return inspection.code === "account_not_found" || inspection.code === "account_deleted"
+              ? resolveRegistrationRecovery(cachedToken, inspection) : inspection;
+          }
           if (inspection.outcome === "deletion_in_progress") {
             return resolveDeletionInProgress(cachedToken);
           }
@@ -857,7 +882,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
               candidateUser.uid,
             );
             if (inspection.outcome === "active") return inspection;
-            if (inspection.outcome === "terminal") return inspection;
+            if (inspection.outcome === "terminal") {
+              return inspection.code === "account_not_found" || inspection.code === "account_deleted"
+                ? resolveRegistrationRecovery(refreshedToken, inspection) : inspection;
+            }
             if (inspection.outcome === "deletion_in_progress") {
               return resolveDeletionInProgress(refreshedToken);
             }
@@ -1267,6 +1295,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           console.warn(
             "🔒 [AuthProvider] Session validation unavailable; preserving session",
           );
+          if (validation.registration || validation.cleanup) applyAuthUser(currentUser, null);
           setSessionVerificationRequired(true);
         } else {
           applyAuthUser(currentUser, validation.principal);
@@ -1320,7 +1349,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [checkAuth, validateActiveSession]);
 
   useEffect(() => {
-    if (!sessionVerificationRequired || (!user?.uid && !IS_NATIVE)) return;
+    if (!sessionVerificationRequired || (!user?.uid && !IS_NATIVE)
+        || registrationStatus && registrationStatus.identityUid === user?.uid) return;
 
     let cancelled = false;
     let attempt = 0;
@@ -1360,7 +1390,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       cancelled = true;
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
     };
-  }, [sessionVerificationRequired, user?.uid, retrySessionVerification]);
+  }, [sessionVerificationRequired, user?.uid, retrySessionVerification, registrationStatus]);
 
   useEffect(() => {
     const handleAuthInvalidated = (event: Event) => {
@@ -2330,6 +2360,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       loading,
       sessionVerificationRequired,
       accountCleanup: cleanupStatus && cleanupStatus.ownerId === user?.uid ? cleanupStatus.operation : null,
+      accountRegistration: registrationStatus && registrationStatus.identityUid === user?.uid ? registrationStatus.recovery : null,
       phoneNumber,
       phoneNumberStatus,
       resolveVerifiedPhoneNumber,
@@ -2357,6 +2388,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       loading,
       sessionVerificationRequired,
       cleanupStatus,
+      registrationStatus,
       phoneNumber,
       phoneNumberStatus,
       resolveVerifiedPhoneNumber,

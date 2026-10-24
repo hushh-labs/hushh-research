@@ -168,7 +168,7 @@ export class AccountServiceImpl {
     if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
     return apiJson<AccountDeletionResult>("/api/account/delete-lost-vault", {
       method: "POST",
-      accountDeletionOwnsAuthOutcome: true,
+      accountLifecycleOwnsAuthOutcome: true,
       isEffectCurrent: params.isCurrent,
       headers: { Authorization: `Bearer ${params.firebaseIdToken}` },
       body: JSON.stringify(
@@ -239,7 +239,7 @@ export class AccountServiceImpl {
           "/api/account/delete",
           {
             method: "DELETE",
-            accountDeletionOwnsAuthOutcome: true,
+            accountLifecycleOwnsAuthOutcome: true,
             isEffectCurrent: isCurrent,
             headers: {
               Authorization: `Bearer ${vaultOwnerToken}`,

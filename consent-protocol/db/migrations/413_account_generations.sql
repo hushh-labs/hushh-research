@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS public.account_generations (
  cleanup_operation uuid,
  cleanup_confirmed boolean NOT NULL DEFAULT false,
  enrollment_operation uuid UNIQUE,
+ enrollment_authenticated_at bigint,
+ enrollment_review_digest text,
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  PRIMARY KEY(identity_hash,generation),
  CHECK((retired_at IS NULL AND owner_id IS NOT NULL AND identity_uid IS NOT NULL)
@@ -47,6 +49,9 @@ CREATE TABLE IF NOT EXISTS public.account_generations (
    AND identity_hash='sha256:'||encode(sha256(convert_to(identity_uid,'UTF8')),'hex'))),
  CHECK(generation=0 OR admitted_after>0)
 );
+ALTER TABLE public.account_generations
+ ADD COLUMN IF NOT EXISTS enrollment_authenticated_at bigint,
+ ADD COLUMN IF NOT EXISTS enrollment_review_digest text;
 CREATE UNIQUE INDEX IF NOT EXISTS account_generations_one_active
  ON public.account_generations(identity_hash) WHERE retired_at IS NULL;
 REVOKE ALL ON public.account_generations FROM PUBLIC;
@@ -128,6 +133,14 @@ RETURNS bigint LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
  SELECT ceil(extract(epoch FROM retired))::bigint+60;
 $$;
 
+-- Exact review terms use fixed, bounded fields, so separators are unambiguous.
+CREATE OR REPLACE FUNCTION public.account_enrollment_review_digest(identity_digest text,
+ previous_generation integer, cleanup uuid, enrollment uuid, authenticated_at bigint, cutoff bigint)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT encode(sha256(convert_to(concat_ws('|','hussh-account-enrollment/v1',identity_digest,
+  previous_generation::text,cleanup::text,enrollment::text,authenticated_at::text,cutoff::text),'UTF8')),'hex');
+$$;
+
 CREATE OR REPLACE FUNCTION public.guard_account_generation_history()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
 DECLARE settled public.account_deletion_tombstones%ROWTYPE;
@@ -138,6 +151,8 @@ BEGIN
    OR NEW.generation IS DISTINCT FROM OLD.generation OR NEW.owner_hash IS DISTINCT FROM OLD.owner_hash
    OR NEW.enrollment_operation IS DISTINCT FROM OLD.enrollment_operation
    OR NEW.created_at IS DISTINCT FROM OLD.created_at OR NEW.admitted_after IS DISTINCT FROM OLD.admitted_after
+   OR NEW.enrollment_authenticated_at IS DISTINCT FROM OLD.enrollment_authenticated_at
+   OR NEW.enrollment_review_digest IS DISTINCT FROM OLD.enrollment_review_digest
    OR NEW.retired_at IS NULL)) THEN
   RAISE EXCEPTION 'account generation history is immutable' USING ERRCODE='42501';
  END IF;
@@ -180,6 +195,13 @@ BEGIN
    OR previous.cleanup_confirmed IS NOT TRUE OR NEW.cleanup_operation IS DISTINCT FROM previous.cleanup_operation
    OR NEW.admitted_after IS DISTINCT FROM public.account_generation_admission_cutoff(previous.retired_at)
    OR NEW.owner_id !~ '^acct_[0-9a-f]{32}$'
+   OR NEW.enrollment_operation IS NULL OR NEW.cleanup_operation IS NULL
+   OR NEW.enrollment_authenticated_at IS NULL OR NEW.enrollment_authenticated_at<=NEW.admitted_after
+   OR NEW.enrollment_authenticated_at<extract(epoch FROM clock_timestamp())-300
+   OR NEW.enrollment_authenticated_at>extract(epoch FROM clock_timestamp())
+   OR NEW.enrollment_review_digest IS DISTINCT FROM public.account_enrollment_review_digest(
+    NEW.identity_hash,NEW.generation-1,NEW.cleanup_operation,NEW.enrollment_operation,
+    NEW.enrollment_authenticated_at,NEW.admitted_after)
    OR EXISTS(SELECT 1 FROM public.account_identity_presence WHERE user_id_hash=NEW.owner_hash) THEN
    RAISE EXCEPTION 'account enrollment lineage is unconfirmed' USING ERRCODE='42501';
   END IF;
@@ -244,18 +266,21 @@ BEGIN
  -- This lock is never acquired by owner erasure. Enrollment occurs strictly
  -- after its committed retirement, so it cannot invert owner lock order.
  PERFORM pg_advisory_xact_lock(hashtextextended(identity_digest,199));
- IF NOT public.account_firebase_mutations_settled(identity_digest) THEN RETURN NULL; END IF;
  SELECT * INTO active FROM public.account_generations
   WHERE identity_hash=identity_digest AND retired_at IS NULL;
  IF FOUND THEN
   IF active.enrollment_operation=enrollment AND active.generation=previous_generation+1
    AND active.cleanup_operation=cleanup
+   AND authenticated_at=active.enrollment_authenticated_at
+   AND active.enrollment_review_digest IS NOT DISTINCT FROM public.account_enrollment_review_digest(
+    identity_digest,previous_generation,cleanup,enrollment,authenticated_at,active.admitted_after)
    AND authenticated_at>active.admitted_after THEN
    RETURN jsonb_build_object('owner_id',active.owner_id,'generation',active.generation,
     'admitted_after',active.admitted_after);
   END IF;
   RETURN NULL;
  END IF;
+ IF NOT public.account_firebase_mutations_settled(identity_digest) THEN RETURN NULL; END IF;
  SELECT * INTO previous FROM public.account_generations
   WHERE identity_hash=identity_digest ORDER BY generation DESC LIMIT 1;
  IF NOT FOUND OR previous.generation IS DISTINCT FROM previous_generation
@@ -268,9 +293,11 @@ BEGIN
   OR authenticated_at>extract(epoch FROM clock_timestamp()) THEN RETURN NULL; END IF;
  new_owner:='acct_'||replace(gen_random_uuid()::text,'-','');
  INSERT INTO public.account_generations(identity_hash,generation,owner_hash,owner_id,identity_uid,
-  admitted_after,enrollment_operation,cleanup_operation)
+  admitted_after,enrollment_operation,cleanup_operation,enrollment_authenticated_at,enrollment_review_digest)
  VALUES(identity_digest,previous.generation+1,'sha256:'||encode(sha256(convert_to(new_owner,'UTF8')),'hex'),
-  new_owner,identity,cutoff,enrollment,cleanup) RETURNING * INTO active;
+  new_owner,identity,cutoff,enrollment,cleanup,authenticated_at,
+  public.account_enrollment_review_digest(identity_digest,previous.generation,cleanup,enrollment,authenticated_at,cutoff))
+ RETURNING * INTO active;
  RETURN jsonb_build_object('owner_id',active.owner_id,'generation',active.generation,
   'admitted_after',active.admitted_after);
 END;

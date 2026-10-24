@@ -427,7 +427,7 @@ describe("ApiService.apiFetch", () => {
     expect(dispatch.mock.calls.filter(([event]) => event.type === "auth-session-invalidated")).toHaveLength(0);
     expect(AuthService.getIdToken).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0]?.[1]).not.toHaveProperty("accountDeletionOwnsAuthOutcome");
+    expect(mockFetch.mock.calls[0]?.[1]).not.toHaveProperty("accountLifecycleOwnsAuthOutcome");
   });
 
   it("keeps a local account-status request alive past the deployed eight-second bound", async () => {

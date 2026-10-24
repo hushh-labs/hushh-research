@@ -1766,135 +1766,37 @@ def test_lost_vault_delete_accepts_matching_fresh_phone_and_reports_pending_iden
     assert response.json()["details"]["firebase_auth_user"] == "quarantined"
 
 
-def test_delete_firebase_auth_user_retries_once_before_success(monkeypatch):
-    from firebase_admin import auth as firebase_auth
-
-    delete_calls: list[tuple[str, object]] = []
-    sleep_calls: list[float] = []
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
-    firebase_app = SimpleNamespace(project_id="hushh-pda")
-
-    def _mock_delete_user(user_id: str, *, app: object):
-        delete_calls.append((user_id, app))
-        if len(delete_calls) == 1:
-            raise RuntimeError("temporary Firebase outage")
-
-    async def _mock_sleep(delay: float):
-        sleep_calls.append(delay)
-
-    monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", lambda: firebase_app)
-    monkeypatch.setattr(firebase_auth, "delete_user", _mock_delete_user)
-    monkeypatch.setattr(lifecycle_module.asyncio, "sleep", _mock_sleep)
-    monkeypatch.setattr(
-        AccountDeletionLifecycleService,
-        "record_cleanup_outcome",
-        lambda _self, **_kwargs: True,
-    )
-
-    status = asyncio.run(account._delete_firebase_auth_user("user_123"))
-
-    assert status == "deleted"
-    assert delete_calls == [("user_123", firebase_app), ("user_123", firebase_app)]
-    assert sleep_calls == [lifecycle_module._FIREBASE_DELETE_RETRY_DELAY_SECONDS]
-
-
-@pytest.mark.parametrize("setup_recovers", [True, False])
-def test_delete_firebase_setup_failure_settles_cleanup_intent(monkeypatch, setup_recovers):
+@pytest.mark.parametrize(
+    "environment,project",
+    [("production", "hushh-pda"), ("uat", "hushh-pda-uat"), ("uat", "hushh-pda")],
+)
+def test_full_account_cleanup_retains_uid_without_sdk_initialization_or_mutation(
+    monkeypatch, environment, project
+):
     from unittest.mock import MagicMock
 
     from firebase_admin import auth as firebase_auth
 
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
-    firebase_app = SimpleNamespace(project_id="hushh-pda")
-    setup_calls = []
-    outcomes = []
-
-    def initialize():
-        setup_calls.append(True)
-        if not setup_recovers or len(setup_calls) == 1:
-            raise ValueError("private credential setup detail")
-        return firebase_app
-
-    async def no_sleep(_delay):
-        return None
-
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod" if environment == "production" else "uat")
+    initialize = MagicMock(side_effect=RuntimeError("provider unavailable"))
     delete, disable, revoke = MagicMock(), MagicMock(), MagicMock()
     monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", initialize)
-    monkeypatch.setattr(lifecycle_module.asyncio, "sleep", no_sleep)
     monkeypatch.setattr(firebase_auth, "delete_user", delete)
     monkeypatch.setattr(firebase_auth, "update_user", disable)
     monkeypatch.setattr(firebase_auth, "revoke_refresh_tokens", revoke)
+    outcomes = []
     monkeypatch.setattr(
         AccountDeletionLifecycleService,
         "record_cleanup_outcome",
         lambda _self, **kwargs: outcomes.append(kwargs["attempt"]) or True,
     )
-
-    status = asyncio.run(account._delete_firebase_auth_user("user_123"))
-
-    assert len(outcomes) == 1
-    assert outcomes[0].outcome == status
-    if setup_recovers:
-        assert status == "deleted"
-        delete.assert_called_once_with("user_123", app=firebase_app)
-    else:
-        assert status == "quarantine_incomplete"
-        assert outcomes[0].failure_class == "ValueError"
-        delete.assert_not_called()
+    assert asyncio.run(account._delete_firebase_auth_user("user_123")) == "identity_retained"
+    assert len(outcomes) == 1 and outcomes[0].classification == "firebase_shared_identity_retained"
+    initialize.assert_not_called()
+    delete.assert_not_called()
     disable.assert_not_called()
     revoke.assert_not_called()
-
-
-def test_delete_firebase_auth_user_quarantines_after_bounded_failures(monkeypatch):
-    from firebase_admin import auth as firebase_auth
-
-    delete_calls: list[str] = []
-    disabled_users: list[str] = []
-    revoked_users: list[str] = []
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
-    firebase_app = SimpleNamespace(project_id="hushh-pda")
-
-    def _mock_delete_user(user_id: str, *, app: object):
-        assert app is firebase_app
-        delete_calls.append(user_id)
-        raise RuntimeError("persistent Firebase delete outage")
-
-    def _mock_update_user(user_id: str, *, disabled: bool, app: object):
-        assert disabled is True
-        assert app is firebase_app
-        disabled_users.append(user_id)
-
-    def _mock_revoke_refresh_tokens(user_id: str, *, app: object):
-        assert app is firebase_app
-        revoked_users.append(user_id)
-
-    async def _mock_sleep(_delay: float):
-        return None
-
-    monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", lambda: firebase_app)
-    monkeypatch.setattr(firebase_auth, "delete_user", _mock_delete_user)
-    monkeypatch.setattr(firebase_auth, "update_user", _mock_update_user)
-    monkeypatch.setattr(
-        firebase_auth,
-        "revoke_refresh_tokens",
-        _mock_revoke_refresh_tokens,
-    )
-    monkeypatch.setattr(lifecycle_module.asyncio, "sleep", _mock_sleep)
-    monkeypatch.setattr(
-        AccountDeletionLifecycleService,
-        "record_cleanup_outcome",
-        lambda _self, **_kwargs: True,
-    )
-
-    status = asyncio.run(account._delete_firebase_auth_user("user_123"))
-
-    assert status == "quarantined"
-    assert delete_calls == ["user_123", "user_123"]
-    assert disabled_users == ["user_123"]
-    assert revoked_users == ["user_123"]
 
 
 @pytest.mark.parametrize("cleanup_status", ["deleted", "not_found", "retry_pending", "quarantined"])
@@ -2292,3 +2194,100 @@ def test_cloud_cleanup_requires_full_vault_owner_request_and_exact_terms(
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "synthetic-owner"}
     response = TestClient(app).request("DELETE", "/api/account/delete", json=request_body)
     assert response.status_code == expected
+
+
+def test_start_fresh_is_dark_and_requires_exact_review_and_explicit_confirmation(monkeypatch):
+    from uuid import uuid4
+
+    from api.routes import account_registration as registration
+    from hushh_mcp.services.account_generation_service import (
+        AccountGenerationRefused,
+        AccountPrincipal,
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+    claims = {"uid": "identity", "auth_time": 1000}
+    calls = []
+    monkeypatch.setattr(registration, "verify_account_registration_bearer", lambda _: claims)
+    payload = {
+        "previous_generation": 0,
+        "cleanup_operation": str(uuid4()),
+        "enrollment_operation": str(uuid4()),
+        "accepted_review_digest": "a" * 64,
+        "confirmed": True,
+    }
+    monkeypatch.delenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", raising=False)
+    assert client.get("/api/account/registration-status").status_code == 404
+    assert client.post("/api/account/start-fresh", json=payload).status_code == 404
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    monkeypatch.setattr(
+        registration.AccountGenerationService,
+        "registration_status",
+        lambda _: {"state": "action_required", "reason": "historical_cleanup_unconfirmed"},
+    )
+    response = client.get("/api/account/registration-status")
+    assert (
+        response.json()["state"] == "action_required"
+        and response.headers["Cache-Control"] == "private, no-store"
+    )
+
+    def confirm(proof, **kwargs):
+        calls.append((proof, kwargs))
+        if kwargs["accepted_review_digest"] != "a" * 64:
+            raise AccountGenerationRefused("generation_review_changed_or_unavailable")
+        return AccountPrincipal("identity", "acct_" + "b" * 32, 1)
+
+    monkeypatch.setattr(registration.AccountGenerationService, "confirm_registration", confirm)
+    assert (
+        client.post("/api/account/start-fresh", json={**payload, "confirmed": False}).status_code
+        == 409
+    )
+    assert (
+        client.post("/api/account/start-fresh", json={**payload, "confirmed": 1}).status_code == 422
+    )
+    assert calls == []
+    assert (
+        client.post(
+            "/api/account/start-fresh", json={**payload, "accepted_review_digest": "c" * 64}
+        ).status_code
+        == 409
+    )
+    response = client.post("/api/account/start-fresh", json=payload)
+    assert response.status_code == 200 and response.json() == {
+        "active": True,
+        "firebase_uid": "identity",
+        "owner_id": "acct_" + "b" * 32,
+        "account_generation": 1,
+    }
+    assert (
+        calls[-1][0] == claims
+        and calls[-1][1]["enrollment_operation"] == payload["enrollment_operation"]
+    )
+
+
+async def test_replacement_phone_claim_never_treats_its_retained_identity_as_an_orphan(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    owner, identity = "acct_" + "d" * 32, "external-firebase-uid"
+    monkeypatch.setattr(
+        account.AccountGenerationService,
+        "firebase_identity_for_owner",
+        lambda captured: identity if captured == owner else None,
+    )
+    monkeypatch.setattr(
+        account, "_verify_phone_claim_id_token", AsyncMock(return_value=("+16505550101", identity))
+    )
+    prepare = AsyncMock(return_value="skipped")
+    monkeypatch.setattr(account, "_prepare_safe_phone_session_cleanup_intent", prepare)
+    claim = AsyncMock(return_value={"user_id": owner, "phone_verified": True})
+    monkeypatch.setattr(account.ActorIdentityService, "claim_verified_phone", claim)
+    result = await account.claim_account_phone(
+        account.PhoneClaimRequest(phone_id_token="synthetic-phone-proof", expected_user_id=owner),  # noqa: S106 - synthetic proof; provider verification is mocked
+        owner,
+    )
+    assert result["user_id"] == owner
+    prepare.assert_awaited_once_with(
+        uid=identity, phone_number="+16505550101", protected_uid=identity
+    )
+    claim.assert_awaited_once_with(user_id=owner, phone_number="+16505550101")

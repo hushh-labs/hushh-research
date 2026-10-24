@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { AccountRegistrationRecoveryPanel } from "./account-registration-recovery";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
 import { snapshotAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
@@ -13,7 +14,7 @@ export function SessionVerificationRecovery({
   onRetry: () => void;
   onSignOut: () => void;
 }) {
-  const { user, accountCleanup } = useAuth();
+  const { user, accountCleanup, accountRegistration } = useAuth();
   const [continuingId, setContinuingId] = useState<string | null>(null);
   const [continuationFailure, setContinuationFailure] = useState<{ operationId: string; message: string } | null>(null);
   const cleanup = accountCleanup;
@@ -54,6 +55,7 @@ export function SessionVerificationRecovery({
       setContinuingId(current => current === cleanup.id ? null : current);
     }
   }
+  if (user && accountRegistration) return <AccountRegistrationRecoveryPanel user={user} recovery={accountRegistration} onRetry={onRetry} onSignOut={onSignOut} />;
   return (
     <main className="flex min-h-[70vh] items-center justify-center bg-background px-6 py-12">
       <section

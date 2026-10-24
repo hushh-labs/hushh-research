@@ -383,6 +383,37 @@ def verify_account_cleanup_bearer(
         raise
 
 
+def verify_account_registration_bearer(authorization: Optional[str]) -> Mapping[str, Any]:
+    """Identity proof for registration recovery only; never application admission.
+
+    Preserve normal signature, expiry and revocation checks. Retired owners may
+    inspect recovery, but review/device custom tokens cannot activate accounts.
+    The lifecycle service owns cleanup eligibility and explicit enrollment.
+    """
+    captured: Mapping[str, Any] | None = None
+
+    def capture(claims: Mapping[str, Any]) -> str:
+        nonlocal captured
+        if carries_review_mint(claims) or claims.get("trusted_device_id"):
+            raise HTTPException(status_code=401, detail={"code": "ACCOUNT_FRESH_IDENTITY_REQUIRED"})
+        captured = dict(claims)
+        return str(claims["uid"])
+
+    try:
+        _verify_firebase_bearer(
+            authorization,
+            check_revoked=True,
+            account_guard=lambda _uid: None,
+            identity_resolver=capture,
+        )
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), "Cache-Control": "private, no-store"}
+        raise
+    if captured is None:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    return captured
+
+
 def _verify_firebase_bearer(
     authorization: Optional[str],
     *,

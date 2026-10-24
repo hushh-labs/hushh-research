@@ -51,6 +51,7 @@ from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
 from api.routes.account_lost_vault import LostVaultDeleteRequest
 from api.routes.account_lost_vault import router as lost_vault_router
+from api.routes.account_registration import router as registration_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
     carries_review_mint,
@@ -117,6 +118,7 @@ router = APIRouter(prefix="/api/account", tags=["Account"])
 # Terms and Privacy acceptance lives in its own module, mounted under this prefix.
 router.include_router(legal_acceptance_router)
 router.include_router(lost_vault_router)
+router.include_router(registration_router)
 
 
 @router.get("/deletion-cleanup")
@@ -1906,10 +1908,20 @@ async def claim_account_phone(
     """Persist a Firebase phone-auth session as the app-level verified phone claim."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
+    protected_identity = firebase_uid
+    if re.fullmatch(r"acct_[0-9a-f]{32}", firebase_uid):
+        try:
+            protected_identity = await run_in_threadpool(
+                AccountGenerationService.firebase_identity_for_owner, firebase_uid
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail={"code": "ACCOUNT_IDENTITY_UNAVAILABLE"}
+            ) from None
     phone_session_cleanup = await _prepare_safe_phone_session_cleanup_intent(
         uid=phone_session_uid,
         phone_number=phone_number,
-        protected_uid=firebase_uid,
+        protected_uid=protected_identity,
     )
     if phone_session_cleanup == "unavailable":
         raise HTTPException(
@@ -2066,6 +2078,17 @@ def _recent_federated_claims(authorization: str | None, expected_uid: str) -> di
     ):
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"})
 
+    if re.fullmatch(r"acct_[0-9a-f]{32}", expected_uid):
+        try:
+            expected_uid = AccountGenerationService.firebase_identity_for_owner(expected_uid)
+        except AccountGenerationRefused:
+            raise HTTPException(
+                status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"}
+            ) from None
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail={"code": "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE"}
+            ) from None
     try:
         from firebase_admin import auth as firebase_auth
 
@@ -2113,8 +2136,13 @@ async def _lost_vault_deletion_options(user_id: str) -> tuple[str | None, list[s
 
         from firebase_admin import auth as firebase_auth
 
+        identity_uid = user_id
+        if re.fullmatch(r"acct_[0-9a-f]{32}", user_id):
+            identity_uid = await run_in_threadpool(
+                AccountGenerationService.firebase_identity_for_owner, user_id
+            )
         firebase_user = await asyncio.wait_for(
-            run_in_threadpool(firebase_auth.get_user, user_id, app=get_firebase_auth_app()),
+            run_in_threadpool(firebase_auth.get_user, identity_uid, app=get_firebase_auth_app()),
             timeout=_LOST_VAULT_IDENTITY_TIMEOUT_SECONDS,
         )
         firebase_phone = str(getattr(firebase_user, "phone_number", None) or "").strip()
@@ -2201,7 +2229,7 @@ async def delete_lost_vault_account(
     firebase_uid: str = Depends(require_firebase_auth_read_only),
 ):
     """Erase the entire account after fresh identity proof without unlocking the vault."""
-    claims = _recent_federated_claims(authorization, firebase_uid)
+    claims = await run_in_threadpool(_recent_federated_claims, authorization, firebase_uid)
     phone, providers = await _lost_vault_deletion_options(firebase_uid)
     provider = str((claims.get("firebase") or {}).get("sign_in_provider") or "")
     if provider not in providers:

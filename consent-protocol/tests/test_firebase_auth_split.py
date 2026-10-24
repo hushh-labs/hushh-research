@@ -1004,3 +1004,100 @@ async def test_identity_mutation_transport_sends_one_post_and_records_outcome(mo
         server.server_close()
         await asyncio.to_thread(worker.join, 2)
         assert not worker.is_alive()
+
+
+def test_registration_identity_proof_never_admits_a_retired_application_owner(monkeypatch):
+    import firebase_admin.auth as firebase_auth
+
+    claims = {
+        "uid": "retired-firebase-uid",
+        "auth_time": 900,
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    monkeypatch.setattr(
+        firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test-project")
+    )
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(firebase_auth, "verify_id_token", lambda *_args, **_kwargs: claims)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: True)
+    proof = firebase_auth_module.verify_account_registration_bearer(
+        "Bearer synthetic-registration-proof"
+    )
+    assert proof == claims
+    with pytest.raises(HTTPException) as refused:
+        firebase_auth_module.verify_firebase_bearer("Bearer synthetic-registration-proof")
+    assert refused.value.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "extra", [{"hushh_review_mint": "development"}, {"trusted_device_id": "old-device"}]
+)
+def test_registration_proof_refuses_device_and_review_mints(monkeypatch, extra):
+    import firebase_admin.auth as firebase_auth
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(
+        firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test-project")
+    )
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth, "verify_id_token", lambda *_args, **_kwargs: {"uid": "identity", **extra}
+    )
+    with pytest.raises(HTTPException) as refused:
+        firebase_auth_module.verify_account_registration_bearer("Bearer synthetic-purpose-proof")
+    assert refused.value.status_code == 401
+
+
+def test_registration_review_preserves_cleanup_fences_and_exact_terms():
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from hushh_mcp.services import account_generation_service as generations
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+
+    claims = {"uid": "identity", "auth_time": 900, "firebase": {"sign_in_provider": "google.com"}}
+    row = {
+        "identity_hash": account_deletion_user_hash("identity"),
+        "generation": 0,
+        "retired_at": datetime.fromtimestamp(800, UTC),
+        "cleanup_confirmed": True,
+        "cleanup_operation": str(uuid4()),
+    }
+    operation = str(uuid4())
+    review = generations.registration_review(
+        claims, row, mutations_settled=True, operation_id=operation, now=1000
+    )
+    assert review["state"] == "ready"
+    assert review["review"]["expires_at"] == 1200
+    assert review["review"]["digest"] == generations.enrollment_review_digest(
+        row["identity_hash"], 0, row["cleanup_operation"], operation, 900, 860
+    )
+    assert generations.registration_review(
+        claims, {**row, "cleanup_confirmed": False}, mutations_settled=True, now=1000
+    ) == {"state": "action_required", "reason": "historical_cleanup_unconfirmed"}
+    assert generations.registration_review(claims, row, mutations_settled=False, now=1000) == {
+        "state": "action_required",
+        "reason": "identity_write_unconfirmed",
+    }
+    assert generations.registration_review(claims, row, mutations_settled=True, now=850) == {
+        "state": "waiting_for_identity",
+        "retry_at": 861,
+    }
+    for changed in (
+        {**claims, "auth_time": 859},
+        {**claims, "auth_time": 1001},
+        {**claims, "auth_time": 600},
+        {**claims, "firebase": {"sign_in_provider": "custom"}},
+    ):
+        assert (
+            generations.registration_review(changed, row, mutations_settled=True, now=1000)["state"]
+            == "fresh_identity_required"
+        )
+    changed = generations.registration_review(
+        claims,
+        {**row, "cleanup_operation": str(uuid4())},
+        mutations_settled=True,
+        operation_id=operation,
+        now=1000,
+    )
+    assert changed["review"]["digest"] != review["review"]["digest"]

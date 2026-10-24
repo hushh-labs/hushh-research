@@ -1608,3 +1608,46 @@ async def test_update_display_name_provider_failure_still_raises(
     with pytest.raises(ConnectionError):
         await service.update_display_name("firebase-user-123456789012", "Ayesha S")
     assert sync_called is False
+
+
+@pytest.mark.parametrize("matches", [True, False])
+async def test_replacement_phone_finalize_uses_external_proof_and_application_owner(
+    monkeypatch, matches
+):
+    from firebase_admin import auth as firebase_auth
+
+    owner, identity = "acct_" + "c" * 32, "external-firebase-uid"
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        actor_identity_service.AccountGenerationService,
+        "firebase_identity_for_owner",
+        lambda captured: identity if captured == owner else None,
+    )
+    reads = []
+
+    def get_user(uid, **_):
+        reads.append(uid)
+        return types.SimpleNamespace(
+            uid=uid if matches else "different-identity",
+            phone_number="+16505550101",
+            disabled=False,
+        )
+
+    monkeypatch.setattr(firebase_auth, "get_user", get_user)
+    service = ActorIdentityService()
+    claim = AsyncMock(
+        return_value={"user_id": owner, "phone_verified": True, "phone_number": "+16505550101"}
+    )
+    monkeypatch.setattr(service, "claim_verified_phone", claim)
+    if matches:
+        assert (await service.finalize_verified_phone_from_firebase(owner, "+16505550101"))[
+            "user_id"
+        ] == owner
+        claim.assert_awaited_once_with(
+            user_id=owner, phone_number="+16505550101", source="firebase_auth"
+        )
+    else:
+        with pytest.raises(ValueError):
+            await service.finalize_verified_phone_from_firebase(owner, "+16505550101")
+        claim.assert_not_awaited()
+    assert reads == [identity]

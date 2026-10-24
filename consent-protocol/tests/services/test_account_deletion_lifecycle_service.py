@@ -736,7 +736,7 @@ def test_due_cleanup_claim_uses_skip_locked(monkeypatch):
     assert "cleanup_claim_token = gen_random_uuid()" in str(conn.execute.call_args.args[0])
 
 
-def test_firebase_cleanup_has_whole_intent_deadline(monkeypatch):
+def test_phone_orphan_cleanup_has_whole_intent_deadline(monkeypatch):
     service = AccountDeletionLifecycleService()
 
     async def _never_finishes(_user_id: str, **_kwargs):
@@ -749,9 +749,15 @@ def test_firebase_cleanup_has_whole_intent_deadline(monkeypatch):
     )
     monkeypatch.setattr(service, "_delete_or_quarantine_firebase_identity", _never_finishes)
 
-    attempt = asyncio.run(service.delete_or_quarantine_firebase_identity("user_123"))
+    attempt = asyncio.run(
+        service.delete_or_quarantine_firebase_identity(
+            "user_123",
+            intent_kind="phone_orphan",
+            expected_phone_digest=account_deletion_phone_digest("+16505550101"),
+        )
+    )
 
-    assert attempt.outcome == "quarantine_incomplete"
+    assert attempt.outcome == "retry_pending"
     assert attempt.failure_class == "TimeoutError"
 
 
