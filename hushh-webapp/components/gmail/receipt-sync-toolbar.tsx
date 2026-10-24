@@ -51,7 +51,7 @@ export function ReceiptSyncToolbar({ snapshot, refreshing, error, disabled, onRe
       </DialogHeader>
       <HelperText as="p">Earlier saved history is kept separately when its original Mail account can’t be verified.</HelperText>
       <DialogFooter>
-        <ProfileConnectorsLink connectorId="gmail" returnFocusRef={trigger} className="inline-flex min-h-11 items-center justify-center text-sm text-primary" onClick={() => { openingSettings.current = true; setDetailsOpen(false); }}>Manage Mail</ProfileConnectorsLink>
+        <ProfileConnectorsLink connectorId="gmail" returnFocusRef={trigger} className={styles.utilityAction} onClick={() => { openingSettings.current = true; setDetailsOpen(false); }}>Manage Mail</ProfileConnectorsLink>
         <MailActionButton onClick={() => setDetailsOpen(false)} data-voice-control-id="receipt_sync_details_ack">Got it</MailActionButton>
       </DialogFooter>
     </DialogContent>
