@@ -111,6 +111,30 @@ def observe_controller_health(observed: dict, healthy: bool, enabled: bool, note
             note("automation-status", "enabled", "Automatic releases resumed with verified accounting: TestFlight every 2 and production every 4 successful UAT source commits.")
 
 
+def observe_job_allocation(run: dict, job: dict, intervals: list[dict], now: datetime, seen: dict, note) -> None:
+    """Report live or completed waits without attributing their cause to a release."""
+    key = f"allocation:{run['id']}:{run.get('run_attempt', 1)}:{job.get('id')}"
+    created = timestamp(job["created_at"]) if job.get("created_at") else None
+    if job.get("runner_id") and job.get("started_at"):
+        started = timestamp(job["started_at"])
+        wait = (started - created).total_seconds() if created else 0
+        delayed = created and wait > 600 and any(timestamp(child["created_at"]) <= started
+                  and (not child["completed_at"] or timestamp(child["completed_at"]) >= created) for child in intervals)
+        if delayed:
+            note(key, "allocated", f"UAT run {run['id']} job {job['id']} received a runner after {int(wait)} seconds from job creation "
+                 "with recorded release activity overlapping its wait. Possible shared-runner contention; "
+                 "UAT concurrency and other organization jobs may also explain the delay.")
+        elif seen.get(key) == "queue-warning":
+            note(key, "allocated", f"UAT run {run['id']} job {job['id']} received a runner after its earlier queue warning. "
+                 "This confirms allocation; it does not attribute the earlier wait to a release.")
+    elif (job.get("status") == "queued" and not job.get("runner_id") and created
+          and (now - created).total_seconds() > 600
+          and any(not child["completed_at"] or timestamp(child["completed_at"]) >= created for child in intervals)):
+        note(key, "queue-warning", f"UAT run {run['id']} job {job['id']} has awaited a runner for over 10 minutes "
+             "with recorded release activity overlapping its wait. Possible shared-runner contention; "
+             "UAT concurrency and other organization jobs may also explain the delay.")
+
+
 def observe_uat_jobs(repository: str, inventory: list[dict], intervals: dict, seen: dict, note) -> None:
     """Observe each allocation separately from earlier UAT progress and dependencies."""
     # Job timestamps are observational only. No queue or provider is mutated.
@@ -120,9 +144,8 @@ def observe_uat_jobs(repository: str, inventory: list[dict], intervals: dict, se
             continue
         attempt = run.get("run_attempt", 1)
         key = f"overlap:{run['id']}:{attempt}"
-        allocation_prefix = f"allocation:{run['id']}:{attempt}:"
-        pending_allocation = any(name.startswith(allocation_prefix) and value == "queue-warning" for name, value in seen.items())
-        if seen.get(key) == "observed" and run["status"] == "completed" and not pending_allocation:
+        checked_key = f"allocation-checked:{run['id']}:{attempt}"
+        if run["status"] == "completed" and seen.get(checked_key) == "checked":
             continue
         now = datetime.now(UTC)
         overlapping = [child for child in intervals.values()
@@ -133,18 +156,9 @@ def observe_uat_jobs(repository: str, inventory: list[dict], intervals: dict, se
         jobs = api(f"repos/{repository}/actions/runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
         require(jobs["total_count"] == len(jobs["jobs"]), "UAT job evidence is truncated")
         for job in jobs["jobs"]:
-            allocation_key = allocation_prefix + str(job.get("id"))
-            if job.get("runner_id") and job.get("started_at"):
-                if seen.get(allocation_key) == "queue-warning":
-                    note(allocation_key, "allocated", f"UAT run {run['id']} job {job['id']} received a runner after its earlier queue warning. "
-                         "This confirms allocation; it does not attribute the earlier wait to a release.")
-            elif (job.get("status") == "queued" and not job.get("runner_id") and job.get("created_at")
-                  and (now - timestamp(job["created_at"])).total_seconds() > 600
-                  and any(not child["completed_at"] or timestamp(child["completed_at"]) >= timestamp(job["created_at"])
-                          for child in overlapping)):
-                note(allocation_key, "queue-warning", f"UAT run {run['id']} job {job['id']} has awaited a runner for over 10 minutes "
-                     "with recorded release activity overlapping its wait. Possible shared-runner contention; "
-                     "UAT concurrency and other organization jobs may also explain the delay.")
+            observe_job_allocation(run, job, overlapping, now, seen, note)
+        if run["status"] == "completed":
+            seen[checked_key] = "checked"
         starts = [job["started_at"] for job in jobs["jobs"] if job.get("runner_id") and job.get("started_at")]
         if starts:
             start = timestamp(min(starts))

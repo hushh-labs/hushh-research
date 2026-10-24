@@ -258,7 +258,8 @@ class UATAllocationTest(unittest.TestCase):
                 {"id": 503, "status": "queued", "runner_id": 0, "started_at": None, "created_at": "2020-01-01T01:11:00Z"},
                 {"id": 504, "status": "queued", "runner_id": 3, "started_at": None, "created_at": "2020-01-01T01:01:00Z"}]
         with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "git", return_value=source["created_at"]), \
-                patch.object(monitor, "api", return_value={"total_count": 4, "jobs": jobs}), \
+                patch.object(monitor, "api", return_value={"total_count": 4, "jobs": jobs}) as jobs_api, \
+                patch.object(monitor, "run_info", return_value=source), \
                 patch.object(monitor, "datetime", wraps=datetime) as clock:
             clock.now.return_value = datetime(2020, 1, 1, 1, 12, tzinfo=UTC)
             warning, notices = monitor.observations(REPOSITORY, None, {}, previous, True)
@@ -273,6 +274,19 @@ class UATAllocationTest(unittest.TestCase):
             self.assertEqual(len(notices), 1)
             self.assertIn("job 502 received a runner", notices[0])
             _, notices = monitor.observations(REPOSITORY, None, {}, recovered, True)
+            self.assertEqual(notices, [])
+            # One final scan catches waits that completed between observations.
+            jobs_api.reset_mock()
+            final_event = {"workflow_run": source}
+            historical, notices = monitor.observations(REPOSITORY, None, final_event, previous, True)
+            self.assertEqual(len(notices), 1)
+            self.assertIn("received a runner after 659 seconds", notices[0])
+            _, notices = monitor.observations(REPOSITORY, None, final_event, historical, True)
+            self.assertEqual(notices, [])
+            self.assertEqual(jobs_api.call_count, 1)
+            later_release = deepcopy(previous)
+            later_release["release_intervals"]["20"]["created_at"] = "2020-01-01T01:12:00Z"
+            _, notices = monitor.observations(REPOSITORY, None, final_event, later_release, True)
             self.assertEqual(notices, [])
 
 

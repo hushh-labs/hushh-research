@@ -369,6 +369,8 @@ awaiting a runner for over 10 minutes during recorded release activity raises a
 possible-contention warning, even after an earlier job started. The observer
 deduplicates that warning and records subsequent allocation. Dependency time
 before job creation and time inside UAT's capacity step are not runner waits.
+One final job scan per completed attempt also reports long allocation waits that
+started and finished between observations, without adding a polling schedule.
 A UAT with no allocated job also retains its run-level warning; UAT's own
 concurrency and other organization jobs can explain that delay. The
 monitor observes and reports; it never dispatches, cancels, retries or repairs a
