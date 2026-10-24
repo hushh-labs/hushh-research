@@ -1,21 +1,20 @@
 # Private agent: normal release transition
 
-**Current delivery — 23 October 2026:**
-[PR #8386](https://github.com/hushh-labs/hushh-research/pull/8386) and
-[PR #8391](https://github.com/hushh-labs/hushh-research/pull/8391) landed.
-The newer [PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395)
-landed as `7b558f4881` after all 26 exact-head CI jobs passed. Both dev services
-now serve accepted `713981942c`, verified through separate backend and frontend
-acceptance receipts. UAT accepted older `4868571487` in run `40027712049`
-(38m08s); run `40029322798` selected corrected `713981942c` and safely rolled
-back. Its email readiness returned HTTP 200 in 19.2 seconds after the operator’s
-15-second deadline. The bounded read-only verifier repair is local; strict
-capability admission remains.
-Each run's workflow head is separate from its resolved application
-SHA. Serving revisions, receipt provenance and 100% traffic were read back with
-corporate ADC. The expired snapshot blocker is resolved. The
-[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns the
-exact revision matrix and remaining journey boundaries.
+**Current delivery — 24 October 2026:**
+[PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as
+`ca83c0bf5a` after exact-head CI and authorized Admin preflight. Landed-SHA smoke
+passed. [Dev run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106)
+accepted both services, schema, provenance and semantic checks, and built the
+new dev-only pod image. Existing pods are unchanged.
+
+UAT accepted the preceding `713981942c` application through
+[run 40035573169](https://github.com/hushh-labs/hushh-research/actions/runs/40035573169).
+[Promotion 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175)
+now selects exact dev-accepted `ca83c0bf5a`; terminal acceptance and serving
+readback remain pending. Its workflow definition may come from newer main;
+that does not change the selected application. The
+[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
+revision evidence and retained journey boundaries.
 
 PR #8395 supplies the provider-correct Chat picker, owner-safe foreground wake,
 bounded Puppy model-list refresh and timeout correction. Owner dev acceptance
@@ -28,7 +27,7 @@ parallelism, are integrated normally without whole-file replacement. PR #8398
 corrects the strict managed-provider receipt consumer to match the actual build
 graph; live UAT capture passed. Duplicate PR #8399 was closed and its CI cancelled.
 Checkpoint `050687dac1` exactly preserved main's committed tree; subsequent
-local source fixes remain separate until exact validation. Nine peer
+PR #8401 corrections passed exact validation and landed through Admin SOP. Nine peer
 paths and the active ADK tree remain preserved. No production deployment, stable
 publication, owner installation or destructive cloud cleanup is implied.
 
@@ -52,11 +51,10 @@ execution unavailable. This supersedes the broader acceptance gate below whereve
 it would delay the MVP. Production remains outside this authorization.
 
 The current correction has completed local verification, exact-head validation,
-Admin landing and dev acceptance. Finish the bounded UAT-readiness correction
-and promote the accepted candidate, then read back actual application SHA and
-traffic. The retained accepted `4868571487` cannot certify PR #8395; failed
-`713981942c` promotion is not acceptance.
-A workflow head alone is insufficient.
+Admin landing, landed smoke and dev acceptance. Finish the selected UAT promotion
+and read back its application SHA and traffic. The earlier 15-second email-readiness
+refusal is historical; the bounded operator correction is merged and preserves
+strict capability admission. A workflow head alone is insufficient.
 The source recovery controller observes one exact execution; provider cancellation
 cannot qualify from a later worker receipt, and uncertain work is never replayed.
 

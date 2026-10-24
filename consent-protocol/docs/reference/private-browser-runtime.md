@@ -22,16 +22,18 @@ Full takeover, handback, reconnect and Stop remain unverified on the owner image
 GCP inventory/domain repair is recorded; its exact Browser activation and installed
 owner acceptance remain pending. Source implementation never grants activation.
 
-Application Hosting/AI/cleanup corrections PR #8386 and #8391 and the private
-model/Puppy readiness correction PR #8395 are on main. On 23 October 2026 both dev
-services accepted `713981942c`; UAT retains accepted older `4868571487` after the following
-`713981942c` promotion safely rolled back at email readiness. The request returned
-200 in 19.2 seconds beyond a 15-second verifier timeout; its bounded operator
-repair is local. This is not installed Browser acceptance. The provider-receipt collector
-repair PR #8398 has passed real UAT capture.
-These application deployments do not install a new Browser image or
-complete the owner journeys above. The readiness memo records dev/UAT serving and
-installation outcomes separately.
+Application Hosting/AI/cleanup and provider-correct model routing remain on main.
+On 24 October 2026, PR #8401 landed as `ca83c0bf5a`; exact CI, landed smoke and
+[dev acceptance](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106)
+passed. UAT accepted prior `713981942c`; its selected `ca83c0bf5a` promotion is
+[still running](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175).
+The earlier email-readiness timeout and collector defects have merged repairs.
+
+The new Dev29 image is `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by
+that governed dev run. Existing-owner upgrade eligibility is empty and Browser
+qualification pins are withheld until exact-image recovery and execution proof.
+This publication does not install a pod or complete an owner Browser journey.
+The readiness memo records source, serving and installation outcomes separately.
 
 The current qualified policy covers Python documentation public research only.
 Login, submissions, selected PKM production and Files transfers retain their

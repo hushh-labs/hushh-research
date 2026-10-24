@@ -1,45 +1,41 @@
 # Private-pod readiness: CTO decision memo
 
-## Current decision — 23 October 2026
+## Current decision — 24 October 2026
 
-**The Hosting/AI/cleanup, private model-picker and Puppy foreground-readiness
-repairs are on main. Both dev services serve accepted `713981942c`.
-UAT rolled back safely after a measured readiness-timeout mismatch; the repair
-is local. Installed-pod acceptance remains separate.**
+**The application correction is on main and accepted on dev. Its exact UAT
+promotion is running. Installed-pod and desktop acceptance remain separate.**
 
 | Surface | Verified state |
 | --- | --- |
-| Main | [PR #8395](https://github.com/hushh-labs/hushh-research/pull/8395) landed as `7b558f4881`; peer fixes through `9af321d2a9`, including [PR #8398](https://github.com/hushh-labs/hushh-research/pull/8398), were preserved at checkpoint `050687dac1` with an identical committed tree; later local fixes remain separate |
-| Dev | `713981942c` accepted through [backend run 40024012459](https://github.com/hushh-labs/hushh-research/actions/runs/40024012459) and [frontend run 40028269471](https://github.com/hushh-labs/hushh-research/actions/runs/40028269471); the canonical predecessor check verifies both scoped receipts |
-| UAT | [Run 40027712049](https://github.com/hushh-labs/hushh-research/actions/runs/40027712049) accepted older `4868571487` in 38m08s; [following run 40029322798](https://github.com/hushh-labs/hushh-research/actions/runs/40029322798) selected corrected `713981942c` but rolled back after the email readiness timeout |
-| Serving readback | Corporate ADC at 22:43 UTC: dev backend `00213-hv8` / frontend `00180-t54`; UAT backend `02489-xoc` / frontend `02046-g4w`; all 100% traffic and exact receipt provenance |
-| Owner pods | No image installation or cloud configuration change in this application release |
+| Main | [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as `ca83c0bf5a` through authorized Admin queue bypass; [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/40037466640) and [landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40040728656) passed |
+| Dev | [Run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106) accepted `ca83c0bf5a`, both services; schema, provenance and semantic checks passed. Accepted revisions: backend `00214-nn5`, frontend `00181-mpz`, both 100% |
+| UAT | [Run 40035573169](https://github.com/hushh-labs/hushh-research/actions/runs/40035573169) accepted `713981942c`; [promotion 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175) selected `ca83c0bf5a` and is in progress |
+| Pod image | Genuine Dev29 image `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by dev run `40041198106`; no eligible existing-owner upgrades or Browser qualification pins |
+| Desktop | [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23): approved CI review and passing Nix checks; broader Python failures prevent merge. Five introduced failures have a focused local correction; seven affected checks pass and the old keychain fixture fails four negative controls |
 
-The expired risk-snapshot refusal from run `39972103223` is resolved by the
-published refresh. Dev's correction is accepted. UAT's accepted older application
-does not contain PR #8395. The following promotion selected `713981942c`, but
-its read-only email probe stopped after 15 seconds. Corporate-ADC Cloud Logging
-proves that exact request returned HTTP 200 in 19.2 seconds. Health and all 11
-provenance checks passed; rollback restored the accepted older serving revisions.
-The local operator repair uses two bounded 30-second reads and sanitized failure
-stages. Disabled or malformed capabilities still refuse promotion. A workflow
-head cannot establish application selection or acceptance.
-The collector's build-graph mismatch is fixed by PR #8398; its real UAT capture
-passed at 21:55 UTC. Duplicate PR #8399 was closed, its redundant CI cancelled,
-and the preserved branch reconciled normally to main without replacing peer work.
-Dev29 preparation begins at local `06fcec595c`: a genuine rebuild is requested,
-Browser pins are withheld and existing-owner upgrades are disabled pending exact-
-image recovery. Its 50 release checks and synthetic descriptor assembly passed. The local
-`162d997d74` picker correction passed 16 focused cases, typecheck, 500 canonical
-Back cases, generated UI verification and the 784-second core mirror. The final
-combined runtime source through `bfc1856c8f` includes the UAT verifier repair and
-passed its core mirror in 783 seconds: 25,018 backend passes and 143 skips, plus
-frontend/security/governance/MCP/integration. Twelve focused email-release cases
-passed; exact-head hosted validation remains separate. One early governance refusal
-correctly prevented growing an oversized database test module; candidate checks
-now extend the existing UAT verifier suite. No new image has been built,
-published or installed.
-Production, stable publication and automatic owner upgrades remain held.
+The current release preserves earlier Hosting/AI/cleanup and provider-correct
+model routing. It fixes the Puppy picker’s 12-second presentation deadline versus
+the desktop’s 15-second activation poll: cached choices remain usable while one
+bounded foreground readiness request continues. Owner/view changes cancel stale
+observation; no inference, new grant or artificial keepalive is added.
+
+UAT’s earlier failed promotion returned HTTP 200 after 19.2 seconds, beyond the
+operator’s 15-second deadline. The merged repair permits two bounded 30-second
+read-only attempts; disabled or malformed capabilities still refuse promotion.
+A later peer rollout accepted the prior application; the original failure remains
+historical evidence. Workflow head, selected application and installed pod are
+separate identities. Peer main and the active ADK tree remain preserved.
+
+The combined local core passed in 783 seconds: 25,018 backend tests, 143 skips,
+and frontend/security/governance/MCP/integration checks. Exact-head hosted
+Protocol completed in 28m15s. The accepted dev rollout took 20m20s, including
+497 seconds for backend/image construction and 114 seconds for frontend build.
+These are individual observations, not completion-time guarantees.
+
+The new image requires exact-predecessor recovery before an approved update
+offer and normal owner installation. Installed Browser and full Puppy inference
+are not established by application deployment. Production, stable publication
+and automatic owner upgrades remain held.
 
 ## Visual Context
 
@@ -86,7 +82,7 @@ retains its disclosed boundary.
   readiness never requests inference or enables a new grant. Owner-generation
   fences retire cached device/model responses and prevent late model writes.
 - A second Puppy regression is reproduced: a 12-second model-list UI deadline
-  could expire before the desktop's 15-second activation poll. Local source keeps
+  could expire before the desktop's 15-second activation poll. The merged source keeps
   one bounded foreground connection attempt running after the presentation timer,
   retains cached choices and updates the same menu when readiness arrives.
   Hiding the view or changing owner cancels observation, not a previously
