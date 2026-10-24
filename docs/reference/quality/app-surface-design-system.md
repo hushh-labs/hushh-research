@@ -493,6 +493,13 @@ Rules:
 
 The signed-in bottom navigation is a shared shell surface, not a route-local tab bar.
 
+The four segments use compact container padding while retaining 22px web glyphs,
+24pt native artwork and at least 44px touch targets. The shared message/voice bar
+has a 60px DOM minimum (68pt in the iOS native dock), sits above the shorter navigation and keeps the same column
+edges. Empty Chat presents `Message One` with one accent-filled waveform action;
+a draft presents Send, and an active stoppable turn keeps Stop. The retained
+outer bar owns the glass material in every mode.
+
 The iOS 26+ native wrapper is the presentation exception: Apple's standard
 `UITabBar` replaces the DOM segments only after native acknowledgement. The
 same React action resolver and four-item sequence remain authoritative; web,

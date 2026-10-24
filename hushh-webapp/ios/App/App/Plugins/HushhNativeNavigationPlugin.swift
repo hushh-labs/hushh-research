@@ -105,8 +105,11 @@ enum HushhNativeNavigationArtwork {
     }
 }
 
-/// The existing DOM shell owns width and content padding. UIKit owns its safe area.
+/// The DOM shell owns painted width and content padding. UIKit owns its safe area.
 struct HushhNativeNavigationColumn {
+    // iOS 26's standard floating capsule paints 22pt inside UITabBar's bounds.
+    // Synthetic native captures at 320–760pt qualify this optical allowance.
+    static let glassHorizontalInset: CGFloat = 22
     let x: CGFloat
     let width: CGFloat
     let contentHeight: CGFloat
@@ -129,7 +132,8 @@ struct HushhNativeNavigationColumn {
         guard scale.isFinite, scale > 0, origin >= 0,
               origin + projectedWidth <= host.bounds.width + 0.5 else { return nil }
         let fullHeight = contentHeight + bottomInset
-        return CGRect(x: origin, y: host.bounds.height - fullHeight, width: projectedWidth, height: fullHeight)
+        return CGRect(x: origin - Self.glassHorizontalInset, y: host.bounds.height - fullHeight,
+            width: projectedWidth + 2 * Self.glassHorizontalInset, height: fullHeight)
     }
 }
 
@@ -352,6 +356,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         bar.delegate = self
         // Keep Apple's standard appearance: no custom blur, material or background image.
         bar.unselectedItemTintColor = .label
+        bar.itemPositioning = .fill
         bar.items = items
         // A shield installed before the bridge call must remain above native controls.
         if let compositor {
@@ -441,7 +446,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                                       "scrollFollowing": scrollFollowing,
                                       "privacyGeneration": HushhSessionPrivacyShield.shared.snapshot().generation]
         if let bar = tabBar, compositor != nil {
-            let resting = compositor?.restingBottomChromeFrame("bottom-navigation") ?? bar.frame
+            let resting = (compositor?.restingBottomChromeFrame("bottom-navigation") ?? bar.frame)
+                .intersection(compositor?.bounds ?? bar.superview?.bounds ?? bar.frame)
             receipt["frame"] = ["x": resting.minX, "y": resting.minY, "width": resting.width, "height": resting.height]
         }
         return receipt
