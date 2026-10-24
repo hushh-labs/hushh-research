@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { CalendarConnectIllustration } from "@/components/calendar/calendar-connect-illustration";
 import { Button } from "@/components/ui/button";
+import presentationStyles from "./calendar-presentation.module.css";
 
 type CalendarConnectHeroProps = {
   journeyVariant: "workspace" | "onboarding";
@@ -27,7 +28,7 @@ export function CalendarConnectHero({
   return (
     <section
       aria-labelledby="calendar-connect-title"
-      className="mx-auto flex w-full max-w-[420px] flex-col items-center text-center md:max-w-[480px]"
+      className={`${presentationStyles.setup} mx-auto flex w-full max-w-[420px] flex-col items-center text-center md:max-w-[480px]`}
       data-testid="calendar-connect-hero"
     >
       <CalendarConnectIllustration />

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { CalendarCompactAction } from "./calendar-compact-action";
+import presentationStyles from "./calendar-presentation.module.css";
 import { Textarea } from "@/components/ui/textarea";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarAttendanceResult, type CalendarAttendanceReview, type CalendarBoardDay, type CalendarConflictReview, type CalendarConflictResult, type CalendarEventRef, type CalendarEventSummary } from "@/lib/services/google-calendar-service";
@@ -148,10 +150,10 @@ export function CalendarConflictPanel({ board, keep, token, getIdToken, initialD
         return <li key={`${item.kind}:${key(item.ref)}`}><strong>{choice?.title || "Meeting"}</strong><span>Calendar: {item.calendar} · Mail: {item.email}</span>{item.calendar_error || item.email_error || item.error ? <p role="alert">{item.calendar_error || item.email_error || item.error}</p> : null}</li>;
       })}</ul>
       {!result.complete ? <p className={styles.readOnly}>Completed steps will not be sent again by this review. Refresh the board before preparing any remaining action; verify unknown outcomes in Calendar and Sent Mail first.</p> : null}
-      {!retryReview ? result.results.filter(item => item.kind === "decline" && item.calendar === "declined" && (retryResults[key(item.ref)]?.email || item.email) === "failed").map(item => <Button key={`retry:${key(item.ref)}`} variant="outline" disabled={busy} onClick={() => prepareRetry(item.ref)}>Review email retry for {review?.previews.find(preview => key(preview.ref) === key(item.ref))?.title || "meeting"}</Button>) : null}
+      {!retryReview ? result.results.filter(item => item.kind === "decline" && item.calendar === "declined" && (retryResults[key(item.ref)]?.email || item.email) === "failed").map(item => <CalendarCompactAction key={`retry:${key(item.ref)}`} disabled={busy} onClick={() => prepareRetry(item.ref)}>Review email retry for {review?.previews.find(preview => key(preview.ref) === key(item.ref))?.title || "meeting"}</CalendarCompactAction>) : null}
       {retryReview ? <div className={styles.mailPreview}><h4>Review email retry</h4><p>Calendar attendance is already declined. Only this reviewed note will be sent.</p><p>From: {retryReview.sender_label}</p><p>To: {retryReview.recipient}</p><p>Subject: {retryReview.subject}</p><p className={styles.notePreview}>{retryReview.message}</p><Button disabled={busy || Date.parse(retryReview.expires_at) <= Date.now()} onClick={confirmRetry}>Send reviewed note</Button></div> : null}
       {retryOutcome ? <p role="status">Email retry: {retryOutcome.email}. Calendar: {retryOutcome.calendar}.{retryOutcome.email_error ? ` ${retryOutcome.email_error}` : ""}</p> : null}
-      <Button onClick={onDone}>Done</Button>
+      <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={onDone}>Done</Button>
     </> : review ? <>
       <h3>Review before changing meetings</h3>
       <p>Each Calendar response and organizer email is listed separately. These actions cannot be undone together.</p>
@@ -160,7 +162,7 @@ export function CalendarConflictPanel({ board, keep, token, getIdToken, initialD
         <span>{item.account_email} · {itemTime(item, board.time_zone)}</span>
         {item.kind === "decline" ? <div className={styles.mailPreview}><p>From: {item.sender_label}</p><p>To: {item.recipient}</p><p>Subject: {item.subject}</p><p className={styles.notePreview}>{item.message}</p></div> : null}
       </li>)}</ul>
-      <div className={styles.conflictActions}><Button variant="outline" disabled={busy} onClick={resetReview}>Edit choices</Button><Button disabled={busy || Date.parse(review.expires_at) <= Date.now()} onClick={confirm}>{busy ? "Confirming…" : "Confirm selected changes"}</Button></div>
+      <div className={styles.conflictActions}><Button variant="ghost" size="compact" className={presentationStyles.utility} disabled={busy} onClick={resetReview}>Edit choices</Button><Button disabled={busy || Date.parse(review.expires_at) <= Date.now()} onClick={confirm}>{busy ? "Confirming…" : "Confirm selected changes"}</Button></div>
     </> : <>
       <h3>Choose which meeting to keep</h3>
       <div className={styles.keptCard}><CheckCircle aria-hidden className="size-4" /><div><strong>{keptEvent?.title || "Meeting"}</strong><p>{keptAccount?.google_email} · {keptEvent ? eventTime(keptEvent, board.time_zone) : "Time unavailable"}</p></div></div>
@@ -169,13 +171,13 @@ export function CalendarConflictPanel({ board, keep, token, getIdToken, initialD
         const checked = selected.includes(key(choice.ref));
         return <div key={key(choice.ref)} className={styles.choice}>
           <label><input type="checkbox" disabled={busy || !choice.canDecline || (!checked && selected.length >= 2)} checked={checked} onChange={event => { resetReview(); const next = event.target.checked ? [...selected, key(choice.ref)] : selected.filter(value => value !== key(choice.ref)); setSelected(next); onDraftChange({ selected: next, notes }); }} /><span><strong>{choice.event.title}</strong><small>{choice.email} · {eventTime(choice.event, board.time_zone)}</small>{!choice.canDecline ? <small>This meeting cannot be declined here.</small> : null}</span></label>
-          <Button variant="outline" disabled={busy} onClick={() => onChooseKeep(choice.ref)}>Keep this instead</Button>
+          <CalendarCompactAction disabled={busy} onClick={() => onChooseKeep(choice.ref)}>Keep this instead</CalendarCompactAction>
           {checked ? <label className={styles.noteLabel}>Note to this organizer<Textarea disabled={busy} value={notes[key(choice.ref)] || ""} maxLength={MAX_CALENDAR_DECLINE_REASON_LENGTH} onChange={event => { resetReview(); const next = { ...notes, [key(choice.ref)]: event.target.value }; setNotes(next); onDraftChange({ selected, notes: next }); }} placeholder="Explain why you cannot attend" /></label> : null}
         </div>;
       })}</div>
-      <Button disabled={busy || !token || !board.complete || !board.conflicts_complete || selected.length === 0 || selected.some(value => !notes[value]?.trim() || notes[value].length > MAX_CALENDAR_DECLINE_REASON_LENGTH)} onClick={prepare}>{busy ? "Preparing…" : "Review Calendar and Mail"}</Button>
+      <CalendarCompactAction disabled={busy || !token || !board.complete || !board.conflicts_complete || selected.length === 0 || selected.some(value => !notes[value]?.trim() || notes[value].length > MAX_CALENDAR_DECLINE_REASON_LENGTH)} onClick={prepare}>{busy ? "Preparing…" : "Review Calendar and Mail"}</CalendarCompactAction>
     </>}
-    {error ? <div role="alert" className={styles.conflictError}><AlertTriangle aria-hidden className="size-4" /><span>{error.message}{error instanceof GoogleCalendarError && error.reasonCode?.startsWith("GMAIL") && onMailConnect ? <Button variant="outline" disabled={busy} onClick={() => void execute(onMailConnect)}>Enable Mail sending</Button> : null}</span></div> : null}
+    {error ? <div role="alert" className={styles.conflictError}><AlertTriangle aria-hidden className="size-4" /><span>{error.message}{error instanceof GoogleCalendarError && error.reasonCode?.startsWith("GMAIL") && onMailConnect ? <CalendarCompactAction disabled={busy} onClick={() => void execute(onMailConnect)}>Enable Mail sending</CalendarCompactAction> : null}</span></div> : null}
   </section>;
 }
 

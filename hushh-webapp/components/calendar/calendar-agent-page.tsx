@@ -38,6 +38,8 @@ import {
   CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "@/components/calendar/calendar-agent-page-layout";
 import { CalendarConnectHero } from "@/components/calendar/calendar-connect-hero";
+import { CalendarCompactAction } from "@/components/calendar/calendar-compact-action";
+import presentationStyles from "@/components/calendar/calendar-presentation.module.css";
 
 import { useAuth } from "@/hooks/use-auth";
 import { HushhAuth } from "@/lib/capacitor";
@@ -369,7 +371,7 @@ export function CalendarAgentPage({
         if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
         const outcome = await connectGoogleConnector('calendar', {
           vaultOwnerCapability: vaultOwnerToken,
-          confirmLegacyTransition: confirmTransition,
+          confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
           isCurrent: () => activeOwnerIdRef.current === operationOwnerId,
         });
         if (activeOwnerIdRef.current !== operationOwnerId) return;
@@ -642,7 +644,7 @@ export function CalendarAgentPage({
         open={disconnectConfirmOpen}
         onOpenChange={setDisconnectConfirmOpen}
       >
-        <AlertDialogContent size="sm" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
+        <AlertDialogContent size="sm" className={presentationStyles.portal} onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
           <AlertDialogHeader className="text-center">
             <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -724,23 +726,22 @@ export function CalendarAgentPage({
                 : "empty-valid",
       }}
     >
-      <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
+      <AppPageContentRegion className={`${CALENDAR_SETUP_REGION_CLASSNAME} ${presentationStyles.setup}`} data-calendar-presentation>
         {transitionDialog}
         {checkingConnection && !connected ? (
-          <div role="status" aria-live="polite" className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <div role="status" aria-live="polite" className={`${presentationStyles.status} flex items-center justify-center gap-2 text-muted-foreground`}>
             <Loader2 className="size-4 animate-spin" aria-hidden />
             {connectionPending ? "Finishing Calendar connection…" : "Checking Calendar connection…"}
           </div>
         ) : !status && statusError ? (
           <div className="flex flex-col items-center gap-4 text-center">
-            <p role="status" className="text-sm text-muted-foreground">{statusError}</p>
-            <Button
+            <p role="status" className={`${presentationStyles.support} text-muted-foreground`}>{statusError}</p>
+            <CalendarCompactAction
               type="button"
-              size="compact"
               onClick={() => void refresh().catch(() => toast.error("Calendar connection couldn’t load. Try again."))}
             >
               Try again
-            </Button>
+            </CalendarCompactAction>
           </div>
         ) : showConnectHero ? (
           <CalendarConnectHero
@@ -758,11 +759,11 @@ export function CalendarAgentPage({
             </div>
 
             <div className="space-y-[var(--page-header-copy-gap)]">
-              <h2 className="text-2xl sm:text-[26px] font-semibold tracking-tight text-foreground">
+              <h2 className={`${presentationStyles.flowTitle} tracking-tight text-foreground`}>
                 {connected ? "Google Calendar" : "Connect Google Calendar"}
               </h2>
 
-              <p className="text-base text-muted-foreground/80 max-w-xs leading-normal">
+              <p className={`${presentationStyles.flowDescription} text-muted-foreground/80 max-w-xs`}>
                 {detail}
               </p>
             </div>
@@ -780,7 +781,7 @@ export function CalendarAgentPage({
                   {/* Connection Status & Permission */}
                   <div className="flex flex-col items-center gap-1.5 text-center px-2">
                     <div
-                      className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                      className={`inline-flex items-center gap-1.5 ${presentationStyles.status} ${
                         connected
                           ? "text-emerald-600 dark:text-emerald-400"
                           : "text-muted-foreground"
@@ -792,7 +793,7 @@ export function CalendarAgentPage({
                       <span>{connectionLabel}</span>
                     </div>
                     {connected ? (
-                      <p className="text-xs text-muted-foreground max-w-sm leading-normal">
+                      <p className={`${presentationStyles.support} text-muted-foreground max-w-sm`}>
                         {permissionLabel}
                       </p>
                     ) : null}
@@ -803,7 +804,7 @@ export function CalendarAgentPage({
                     {connected && status?.calendar_list_access === false && !Capacitor.isNativePlatform() ? (
                       <button
                         type="button"
-                        className="min-h-11 text-sm font-medium text-[color:var(--app-tint)] underline-offset-4 hover:underline"
+                        className={`${presentationStyles.utility} text-[color:var(--app-tint)] underline-offset-4 hover:underline`}
                         disabled={busy}
                         onClick={() => void connect("read")}
                       >
@@ -822,7 +823,7 @@ export function CalendarAgentPage({
                         </AskOneButton>
                         <button
                           type="button"
-                          className="min-h-11 text-xs font-medium text-[color:var(--app-destructive)] underline-offset-4 hover:underline focus-visible:underline"
+                          className={`${presentationStyles.utility} text-[color:var(--app-destructive)] underline-offset-4 hover:underline focus-visible:underline`}
                           disabled={busy}
                           onClick={() => setDisconnectConfirmOpen(true)}
                         >

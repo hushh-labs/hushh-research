@@ -343,7 +343,7 @@ describe("CalendarConnectedWorkspace", () => {
     render(workspace());
 
     await waitFor(() => expect(mocks.today).toHaveBeenCalledOnce());
-    expect(screen.getByRole("heading", { name: "Calendar", exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Calendar", exact: true, hidden: true })).toHaveClass("sr-only");
     expect(screen.getByRole("tab", { name: "Schedule", exact: true })).toHaveAttribute("aria-selected", "true");
     expect(control("Today")).toBeInTheDocument();
     expect(screen.getByText("owner@example.com")).toBeInTheDocument();

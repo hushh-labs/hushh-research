@@ -9,6 +9,8 @@ import { ClarificationCard } from "@/components/one-location/redesign/clarificat
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { ConnectorBrandMark, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
+import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
+import { CalendarCompactAction } from "@/components/calendar/calendar-compact-action";
 
 // ─── Action mode (existing contract, unchanged) ───────────────────────────────
 
@@ -43,8 +45,9 @@ export function SpecialistDirectiveCard({
 }: SpecialistCardProps) {
   return (
     <div
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-3"
+      className={`${brand === "calendar" ? calendarPresentation.calendarDirective : ""} rounded-2xl border border-primary/20 bg-primary/5 p-3`}
       data-testid="specialist-directive-card"
+      data-calendar-presentation={brand === "calendar" || undefined}
     >
       <div className="flex items-center gap-3">
         {brand ? <ConnectorBrandMark brand={brand} /> : null}
@@ -75,7 +78,13 @@ export function SpecialistDirectiveCard({
         </ul>
       ) : null}
       <div className="mt-3 flex gap-2">
-        <button
+        {brand === "calendar" ? <CalendarCompactAction
+          onClick={onConfirm}
+          disabled={busy}
+          data-testid="specialist-directive-confirm"
+        >
+          {busy ? busyLabel ?? "Working…" : confirmLabel}
+        </CalendarCompactAction> : <button
           type="button"
           onClick={onConfirm}
           disabled={busy}
@@ -84,8 +93,15 @@ export function SpecialistDirectiveCard({
         >
           {busy ? busyLabel ?? "Working…" : confirmLabel}
           <MaterialRipple variant="none" effect="fill" disabled={busy} />
-        </button>
-        <button
+        </button>}
+        {brand === "calendar" ? <Button
+          variant="ghost"
+          size="compact"
+          className={calendarPresentation.utility}
+          onClick={onCancel}
+          disabled={busy && !cancelWhileBusy}
+          data-testid="specialist-directive-cancel"
+        >Cancel</Button> : <button
           type="button"
           onClick={onCancel}
           disabled={busy && !cancelWhileBusy}
@@ -94,7 +110,7 @@ export function SpecialistDirectiveCard({
         >
           Cancel
           <MaterialRipple variant="none" effect="glass" disabled={busy && !cancelWhileBusy} />
-        </button>
+        </button>}
       </div>
     </div>
   );
@@ -106,6 +122,7 @@ export function SpecialistDirectiveCard({
 
 export type SpecialistPromptCardProps = {
   prompt: ClientPrompt;
+  calendar?: boolean;
   busy?: boolean;
   onAnswer: (refs: Record<string, unknown>[]) => void;
   onConfirm: (yes: boolean) => void;
@@ -114,6 +131,7 @@ export type SpecialistPromptCardProps = {
 
 export function SpecialistPromptCard({
   prompt,
+  calendar = false,
   busy = false,
   onAnswer,
   onConfirm,
@@ -122,6 +140,7 @@ export function SpecialistPromptCard({
   return (
     <ClarificationCard
       prompt={prompt}
+      className={calendar ? calendarPresentation.calendarPrompt : undefined}
       busy={busy}
       onAnswer={onAnswer}
       onConfirm={onConfirm}

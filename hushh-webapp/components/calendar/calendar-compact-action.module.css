@@ -1,0 +1,43 @@
+.target {
+  --type-compact-button-label-size: 12px;
+  --type-compact-button-label-line: 18px;
+  --type-compact-button-label-weight: 550;
+  min-height: 44px;
+  height: auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--app-accent);
+}
+
+.target:hover,
+.target:active {
+  background: transparent;
+}
+
+.pill {
+  display: inline-flex;
+  min-width: 88px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 15px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
+  border-radius: 999px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-accent);
+  white-space: normal;
+  text-align: center;
+}
+
+@media (max-width: 620px) {
+  .pill { min-width: 78px; padding-inline: 11px; }
+}
+
+@media (max-width: 350px) {
+  .pill { min-width: 72px; padding-inline: 9px; }
+}

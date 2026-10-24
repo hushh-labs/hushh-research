@@ -11,12 +11,14 @@ function sameRef(a: Record<string, unknown>, b: Record<string, unknown>): boolea
 
 export function ClarificationCard({
   prompt,
+  className,
   busy,
   onAnswer,
   onConfirm,
   onCancel,
 }: {
   prompt: ClientPrompt;
+  className?: string;
   busy: boolean;
   onAnswer: (refs: Record<string, unknown>[]) => void;
   onConfirm: (yes: boolean) => void;
@@ -40,7 +42,7 @@ export function ClarificationCard({
   return (
     <div
       data-testid="clarification-card"
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-4"
+      className={`${className ?? ""} rounded-2xl border border-primary/20 bg-primary/5 p-4`}
     >
       <p className="text-sm font-medium">{prompt.question}</p>
 

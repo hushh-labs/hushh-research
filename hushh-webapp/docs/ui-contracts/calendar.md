@@ -1,9 +1,11 @@
 # Calendar Subagent UI Contract
 
-Status: source-backed product reference. The original single-account inventory
-was inspected at revision `49b175bdc4bf636ede1b2353f4c493496a94c9cc` on
-21 October 2026. The three-account board section below reflects this checkout;
-it does not claim a deployed provider run.
+Status: source-backed product reference. The mounted presentation was rechecked
+against `origin/main` revision `f68bb44c8dd8e7d784c2d27e3dde68725bf36da9`
+on 24 October 2026. The earlier single-account inventory was inspected at
+`49b175bdc4bf636ede1b2353f4c493496a94c9cc`; its Schedule measurements are
+explicitly historical fallback evidence. This checkout does not claim a live
+provider or physical-device run.
 Owner: frontend architecture with Calendar service and private-agent runtime
 owners. Classification: `canonical`, package-local.
 
@@ -33,9 +35,12 @@ flowchart TD
   workspace --> connect
   connect --> oauth["Google authorization and verified return"]
   oauth --> finish["Finish or skip setup"]
-  oauth --> schedule["Schedule: Today or Free time"]
-  schedule --> event["Event details and attendance review"]
-  schedule --> chat["One conversation and exact selection handoff"]
+  oauth --> board["Board: accounts, events, shared free time"]
+  oauth --> fallback["Conditional single-account Schedule fallback"]
+  board --> conflict["Overlaps, review and separate Calendar/Mail outcomes"]
+  fallback --> event["Today, Free time, settings and attendance detail"]
+  event --> chat["One conversation and exact selection handoff"]
+  board --> chat
   workspace --> invitations["Invitations: Pending, Responded, All"]
   invitations --> detail["Invitation detail and response"]
   detail --> review["Review, confirm and separate Calendar/Mail outcomes"]
@@ -54,12 +59,13 @@ flowchart TD
 | First use | [Entry, onboarding and completion](#entry-onboarding-and-completion) |
 | Connection | [Google authorization, callback, disconnect and Mail recovery](#google-connection-callback-and-disconnect) |
 | Workspace | [Header, tabs and controls](#connected-header-tab-state-and-shared-controls) |
-| Schedule | [Today/event rows](#schedule-today-selected-dates-and-every-event-control), [Free time](#schedule-free-time-and-slot-handoff), [settings](#calendar-settings-and-exclusion-confirmation), [attendance modal](#schedule-event-detail-attendance-and-checked-alternatives) |
+| Current Board | [Three-account Board](#three-account-board-in-this-checkout), [presentation reconciliation](#mounted-presentation-reconciliation--24-october-2026) |
+| Conditional Schedule fallback | [Today/event rows](#schedule-today-selected-dates-and-every-event-control), [Free time](#schedule-free-time-and-slot-handoff), [settings](#calendar-settings-and-exclusion-confirmation), [attendance modal](#schedule-event-detail-attendance-and-checked-alternatives) |
 | Invitations | [Filters, rows and every response path](#invitations-tab-filters-dates-and-rows), [recipient page](#recipient-rescheduling-page) |
 | Insights | [Overview, library, detail and artifacts](#insights-overview-library-meeting-and-files) |
 | Private agent | [Conversation, proposals and voice](#one-conversation-proposal-cards-and-voice) |
 | Wire and state | [API, response fields, provider reads and storage](#api-contract-and-row-level-information-provenance) |
-| Redesign | [Viewport, dimensions and layers](#phone-and-desktop-dimensions-viewport-and-spatial-contract), [font schema](#font-schema-what-to-use-where-and-resolved-overrides) |
+| Presentation | [Viewport, dimensions and layers](#phone-and-desktop-dimensions-viewport-and-spatial-contract), [current typography and CTA matrix](#mounted-presentation-reconciliation--24-october-2026), [prior font baseline](#prior-inspected-font-baseline-superseded) |
 | Evidence | [Compatibility limits](#source-only-compatibility-and-known-verification-boundaries), [verification](#verification-and-evidence-limits), [server copy](#server-authored-error-copy-inventory) |
 
 ## Reading the contract
@@ -112,6 +118,118 @@ The old Schedule geometry and single-account copy below describe the retained
 fallback, not the board. The board's new UI and backend tests use synthetic
 accounts; live Google OAuth, Mail delivery and deployed migrations need
 environment-backed acceptance before rollout can be claimed.
+
+## Mounted presentation reconciliation — 24 October 2026
+
+The shared top bar already renders Back, **Calendar** immediately beside it and
+the profile avatar through `TopAppBar` and the route breadcrumb. Its title is
+17/22/600, Back and avatar targets are 44px and the avatar image is 32px.
+The former Board and fallback body `PageHeader` repeated **Calendar** visibly.
+Both now use `titleVisuallyHidden`: the semantic heading remains, as do the
+Board account count/Add account/Refresh and fallback email/status/provider/menu.
+The agent shell remains capped at 880px; Connect's 728px content measure does
+not replace Board columns. Setup and the public recipient retain their own
+admission and header composition. The illustrated **Bring your schedule / into
+One.** remains a visible flow heading.
+
+Application-owned Calendar body, invitation portal and Insights no longer
+declare Inter or CalendarInter. They use the self-hosted `--font-app-body`
+Plus Jakarta Sans family. Dialog/AlertDialog/Select portal hosts opt in at the
+actual portal element; a React parent does not style a body portal. The
+foundation `@layer base` heading and title-slot rules use `!important`, so
+scoped `--foundation-title1-*`, `--foundation-title2-*`,
+`--foundation-title3-*` and `--foundation-headline-*` variables carry
+the role rather than a weaker local `font-size`. Requested 550 and 650 weights
+resolve from the available Jakarta 400/600/700 faces; they are CSS requests,
+not separate shipped files.
+
+| Mounted role | Before this pass | Authored target now | Owner / exception |
+| --- | --- | --- | --- |
+| Shared Calendar title | Shared17/22/600, already aligned | 17/22/600 | Shared top bar; no Calendar copy. |
+| Main connected tabs | Shared15/20/550, already aligned | 15/20/550 | `SegmentedTabs` Board and `TopShellTabs` fallback. |
+| Setup/hero flow title | Connected setup h2 followed foundation; hero token28/34 | 28/36/600 | Scoped setup role; illustration unchanged. |
+| Board, free-time, Invitation and Insights sections | Several inherited foundation20–22px titles | 14/22/600 | Local heading variables, including app-shell h2→title3 cascade. |
+| Dialog/detail title | Foundation title-slot/heading cascade, not the JSX utility | 20/28/600 | Board, invitation, settings, attendance, disconnect, Calendar grant and phone portals. |
+| Account/event/invitation/library primary | Mixed 13–16px and 400–600 | 14/21/550 | Row owners; invitation day numeral25/30, metrics24/28 and time rail stay specialized. |
+| Supporting copy | Mixed 11–14px | 12/18/400 | Status/count/read-only tone retained. Notes/transcripts stay readable14/21. |
+| Status, including connection/Ended/RSVP | Mixed 11–12px | 13/18/600 where status is a label | Event and invitation owners; warning/destructive color retained. |
+| Form label and semantic input | Mixed local label and shared Input17/22 | Label15/22/550; Input16/22 at≤620,14/22 above | Scoped Calendar workspace and modal tokens. Native date/select and textarea retain their shared/browser behavior. |
+| Compact action | Stock default/outline, often17/22/650 | 12/18/550 | Calendar ordinary-action wrapper; never applied to a final commit or full setup footer. |
+| Utility/helper | Shared or local, role dependent | Utility13/21/550,12px≤620; genuine helper13/18/400 | Existing Back/Cancel/Edit/Done/copy/source controls remain utility or links. |
+
+The ordinary Calendar action uses the same scoped recipe as Connect's person
+row: transparent Morphy target with existing ripple/focus/disabled handling,
+44px minimum hit area, an inner 44px fully rounded neutral pill, accent ink,
+and a 1px border mixing 32% accent with the solid card surface. The pill is
+minimum88px/padding15 on wide screens,78/11 at≤620 and72/9 at≤350; long
+labels may grow/wrap. The Board and fallback Join anchors keep validated URLs,
+`target="_blank"` and `rel="noopener noreferrer"`. Their neutral accent
+pill is 44px high; fallback Join is78px compact/88px wide. The fallback more
+button is a transparent44×44 menu target and event detail title has a 44px
+target. The Board overlap warning remains warning-colored with44px target.
+
+| CTA family | Disposition and exact mounted controls | Result/authority boundary |
+| --- | --- | --- |
+| Ordinary compact | Changed: Board **Add account**, **Retry**, **Reconnect/Retry check**, **Resolve these overlaps**; fallback **Reconnect Calendar/Allow Calendar access**, **Retry**, inclusion, **Can't attend**, **Allow attendance changes/Review**, Mail recovery; invitation **Accept**, **Decline**, **Decline & offer another time**, access/Mail recovery; conflict **Keep this instead**, **Review Calendar and Mail**, failed-only **Review email retry for {meeting}**, Mail recovery; Insights **Try again**, **Load more meetings**, **Ask One about this meeting**; public **Try again**; Calendar-branded connection directive. | Preserve each existing handler, account, current owner and disabled/busy condition. Retry reads; preparatory actions open local review or permission path. They do not imply a Calendar write. |
+| Full-flow primary/final | Verified exception: **Connect your calendar**, **Finish Calendar setup/Skip Calendar setup**, workspace **Try Calendar Agent with One**, conflict **Confirm selected changes/Send reviewed note**, RSVP **Confirm**, invitation send/confirm labels and proposal **Schedule meeting/Reschedule/Cancel**. | Existing shared primary/destructive owners, explicit confirmation, signed review and acknowledged outcomes stay distinct from quiet actions. |
+| Utility/link | Changed or verified: Calendar detail Back, Edit, Done, Insights Refresh/Copy/Back, proposal **Not now/Change time**, chat **Close invitations**, Calendar grant **Not now**, source/provider links and **Open this meeting in Google Calendar**. **Disconnect Calendar** remains destructive in tone. Shared shell Back and modal close keep their owner. | Quiet utility type is13/21/550,12px≤620, with44px targets. Back/close/selector actions are local; provider links and mailto hand off only. Destructive controls keep confirmation/tone. |
+| Selectors and rows | Verified exception: tabs, Events/Free time, Today, date, account select, duration, filters, checkboxes/radios, invitation/event/library whole rows, menu triggers. | Selection changes local state or starts its existing read. No pill around the entire row; no new query state or booking. |
+| Shared or provider-owned | Verified exception: shell Back/avatar, Dialog close and Google consent/OS picker/email composer. Calendar's portalled Sonner toast now opts into the product family and shared13/20 title,12/20 description roles while its shared behavior remains owned by Sonner. | Shared primitives retain focus, animation, platform and authority contracts. |
+
+The status below refers to executable mounted paths. Exact copy, negative,
+busy, stale, partial/unknown and dismissal branches remain in the detailed
+sections below; this table records what the presentation pass changed and
+which apparent requests are not mounted.
+
+| Family | Current mount, primary action/read, and disposition |
+| --- | --- |
+| A Entry/setup | `/one/calendar` and `/one/setup/calendar` share `CalendarAgentPage`; auth pending/redirect and setup coordinator are aligned. Connection loading/error, illustrated hero and connected setup title/status were changed. Finish/Skip keep awaited readiness and their shared footer. Retained disconnected card branch is excluded because the preceding hero guard catches that state. |
+| B OAuth/account/callback | Read/manage/list, Add account, targeted reconnect, web popup, same-window and native/private phone paths remain intact. **Cancel sign-in** aborts locally then reconciles status. Actual web callback is `/one/profile/google/oauth/return`, with shared **Finishing Google connection…** and recovery. Grant review, disconnect AlertDialog and Calendar phone handoff gained portal context; grant presentation follows the initiating Calendar connector rather than the list of grants being replaced. Google consent is provider-owned. |
+| C Workspace/header/tabs | Shared header aligned; both duplicate body titles hidden semantically. Board mounts for nonempty `accounts` plus required callbacks; otherwise single-account Schedule fallback. Local tab/filter selection and conditional mounts stay unchanged. |
+| D Board/accounts | `board/day` read/refresh, one/two/three account cards, stale/partial messages, count, avatars, status, date and account action menu stay. Add/Retry/Reconnect presentation and label roles changed. Account menu still contains only **Disconnect this Calendar account**. |
+| E Events/occasions/free | Event/occasion grouping, provider/status labels, direct Join, occasion/event portals and per-account/shared windows remain. Row/action dimensions and text roles changed. **Use this time** stays a single-default-account handoff; multi-account shared openings remain read-only. Board has no fallback-only zone/duration/inclusion controls. |
+| F Overlaps/Mail retry | Kept meeting, up to two declinable invitations, notes, review, confirm and separate Calendar/Mail outcomes remain. Preparatory action pills, review typography and modal title changed. Unknown/sent Mail has no automatic retry; definitely failed Mail requires fresh email-only review and confirm. |
+| G Schedule fallback | Today/Free time, timeline, date, event menu/detail, 15/30/60 minute choices, stale/error/partial reads and chat handoff remain. Timeline text and Join/more/detail hit targets changed; no Board layout or booking authority copied here. |
+| H Fallback settings/attendance | Session-only settings, inclusion/exclusion confirmation, attendance choice→review→confirm and separate result remain. Portals, labels and preparatory pills changed. Busy outside/Escape and trigger-focus restoration remain. |
+| I–J Invitations | Board account select, pending/responded/all local filters, bounded reads, rows, centered detail, RSVP/offer forms, review and separate outcomes remain. Product font, headings/rows/forms and ordinary response pills changed. No invitation pagination or Tentative CTA is mounted. Chat's explicit-send branch is not copied into workspace decline. |
+| K Public recipient | `/calendar/reschedule` retains fragment scrub before request, memory-only capability, no auth/vault, options read, mailto suggestion and safe event link. Retry pill changed. Current response consumes only `openings,time_zone,reply_to,event_link?`; event title, organizer, offered window and expiry are not rendered fields. Selecting a time does not book or confirm delivery. |
+| L–N Insights/library/detail | Default-account weekly insights, partial metrics, chart, 60-second bounded library/detail refresh, local search/filter/page, artifact authority, notes and Ask One remain. Product font, section/row/source text and ordinary actions changed. No embedded player, download, booking or automatic private-memory capture. |
+| O Conversation | Mounted proposal card and Calendar-branded directive/optional clarification use scoped Jakarta and 44px Calendar action/choice targets; proposal status now resolves product-family status rather than chat monospace, and time Select portal opts in. Generic Try Calendar starts a new chat with its summary request; selected slot/invitation/attendance/meeting handoffs retain their existing conversation restoration. `AgentCalendarEventCard` is defined/tested but unmounted. |
+| P Cross-cutting | Board occasion/event/conflict, fallback settings/attendance, invitation, disconnect, grant, phone and proposal Select portals have explicit Calendar context. Shared Dialog/AlertDialog/menu/focus, toast, native safe area and provider-owned screens are aligned exceptions. |
+
+Request mapping remains branch-specific: shared status is `GET
+/api/one/calendar/status/{userId}`, private status uses owner pod
+`connectors/calendar`; shared web start is `POST /api/one/calendar/connect/start`
+with `{user_id,access_level,additional?,account_id?,login_hint?,redirect_uri}`;
+native start/complete are `/connect/native/start` and `/connect/native/complete`
+with signed state/server auth code. Shared disconnect posts
+`{user_id,account_id}` to `/api/one/calendar/disconnect`; private disconnect
+uses the pod connector seam. Board reads `POST /api/one/calendar/board/day`
+with `{date,time_zone,duration_minutes,calendar_overrides_by_account?}`;
+fallback Today and full-day availability read `/schedule/today` and
+`/schedule/availability`; conflict and attendance review/confirm each retain
+separate endpoints and expiring authority. Weekly Insights uses `/insights`,
+library `/meetings`, detail `/meetings/detail`, meeting chat context
+`/meetings/context`. Proposal confirmation in private mode uses the owner pod
+`actions/{gcal_proposal}/confirm`; shared fallback uses
+`/api/one/calendar/proposals/execute`. Public options uses
+`/rescheduling/options` without owner auth. Tab/filter/open/close/edit/date
+selector and source-link clicks have no mutation; selecting a date or tab can
+cause its existing read. See the detailed wire table below for consumed fields,
+headers, guards, errors and confirmation results.
+
+Rendered evidence after the scoped utility/form corrections: the optimized-CSS Calendar component fixture loaded the
+shipped Jakarta faces and passed21 Chromium layout/behavior cases, including
+the boundary assertion covering350/351,360,393,430,
+520/521,620/621,639/640,759/760,767/768,900/901,1024 and1440 for
+family, horizontal overflow and adjacent Join/more hit targets, then checks
+the invitation modal's20/28 title and44px action boxes after its shared open
+animation, invitation Join and quiet Back target. Its second new assertion checks the three-account Board from360 to1440,
+including the900/901 column boundary, account actions, light/dark neutral pill fill and event-detail title.
+The fixture's header and auth/provider boundaries are synthetic;
+it does not prove the real signed-in route, Google OAuth/Mail, native keyboard,
+physical-device font or final light/dark production composition. Those remain
+acceptance work, not inferred passes.
 
 ## Entry, onboarding and completion
 
@@ -192,6 +310,7 @@ Owners: [coordinator](../../components/onboarding/setup/setup-capability-coordin
 | Callback success | Parent applies verified connected status, requested access and list flag, superseding older status reads; **Google Calendar connected.** Failed settlement shows supplied message or **Google Calendar could not be connected.** Cancelled settlement adds no page error toast. |
 | No popup/tab | Persist redacted same-window attempt before `location.assign(authorize_url)`. Failure **Calendar sign-in could not be started safely. Please try again.** No uncorrelated authorization attempt. |
 | Native | `/connect/native/start` → `HushhAuth.connectCalendar` → `/connect/native/complete`. Bind signed state and server auth code. Require connected, not needs_reauth, manage if requested, optional list grant if requested. Only verified status becomes connected. |
+| Private-owner route | When `ownerContentIsPrivate` is true, require current vault/key/owner token and use `connectGoogleConnector` rather than the shared web/native Calendar endpoint. The connector intent can enter an in-place phone/QR handoff, `unlock_required`, or `cleanup_unconfirmed` state. The Calendar-scoped phone/transition dialogs retain their own portal context; no private credential is copied into a route or screenshot. |
 | Native verification failure | **Calendar authorization did not grant meeting management access.** or **Calendar authorization did not create an active connection.** |
 | Connect catch | Actual Error message or **Unable to connect Calendar.** Native `USER_CANCELLED` is classified expected-error analytically but still passes through the source's error-toast catch. |
 | Error query | `?calendar=error` adds **Google Calendar was not connected. Please try again.** The page does not remove this query. |
@@ -259,8 +378,10 @@ Owners: [page](../../components/calendar/calendar-agent-page.tsx),
 
 ## Connected header, tab state and shared controls
 
-`CalendarConnectedWorkspace` uses `AppPageShell width="agent"`, compact header,
-fit-content and a scoped Inter text wrapper. Main tabs start **Schedule**;
+`CalendarConnectedWorkspace`, when the account-board callbacks are unavailable,
+uses `AppPageShell width="agent"`, compact header, fit-content and the product
+font wrapper. This section describes the retained single-account fallback.
+Main tabs start **Schedule**;
 Schedule view starts **Today**. Local selection/haptics, not route/query writes.
 Remount resets those defaults. Inactive tab owners unmount rather than a promise
 that all tab drafts persist. Settings/zone/date/duration live only in component
@@ -747,9 +868,11 @@ Sources: [Insights UI](../../components/calendar/calendar-insights.tsx),
 ### Selected-context handoff and continuity
 
 Handoffs use the existing memory-only `useOneConversationSession`; URL carries
-no source payload. `navigateToAgentChat` targets `/`, `scroll:false`. Calendar
-waits for current owner/access/history restoration and continues the existing
-conversation. Owner mismatch consumes without use. Reload does not restore a
+no source payload. `navigateToAgentChat` targets `/`, `scroll:false`. Selected
+slot, invitation, attendance and meeting handoffs wait for current owner/access/
+history restoration and continue their existing conversation. Generic **Try
+Calendar Agent with One** instead supplies a summary `transcript` and starts a
+new chat. Owner mismatch consumes without use. Reload does not restore a
 RAM handoff. Generic chat model answers, missing-detail questions, generated
 titles/options and provider text are dynamic; the fixed strings below are
 application-authored boundaries.
@@ -977,7 +1100,7 @@ linked Python/Pydantic and TypeScript definitions own executable validation.
 | POST `events` | `useCalendarUpcomingEvents`, mounted by To-do, not current connected Today or Agent Chat; `{start_at,end_at}` | `V` | Primary first-page events/timezone/paging metadata. Schema accepts `calendar_ids`, route ignores it. Hook default next48hours and safe memory projection. |
 | POST `availability` | Compatibility/agent-facing REST; no current frontend helper call; `{start_at,end_at,calendar_ids?}` | `V` | Legacy `time_min,time_max,time_zone,calendars` FreeBusy map, different from connected `/schedule/availability`. |
 | POST `proposals` | Exposed REST, no Calendar frontend helper caller; typed tools call service directly. `user_id,action,event_id?,title?,start_at?,end_at?,time_zone?,attendees[],description?,location?,send_updates` | `V`, same owner, Google manage | `proposal_id,action,expires_at,plan,confirmation_required:true`; persisted10-minute plan, no event effect. |
-| POST `proposals/execute` | Chat confirm → `runCalendarDirective`; `{user_id,proposal_id}` | `V`, same owner/current manage/stored pending plan | `{action,event}`; reviewed create/PATCH/DELETE. Successful create may separately mirror to encrypted To-do. |
+| POST `proposals/execute` | Shared-runtime Chat confirm → `runCalendarDirective`; `{user_id,proposal_id}`. Private-owner mode instead confirms through pod `actions/{gcal_proposal}/confirm`. | `V`, same owner/current manage/stored pending plan | `{action,event}`; reviewed create/PATCH/DELETE. Successful create may separately mirror to encrypted To-do. |
 | POST `/api/one/google/connect/complete` | Actual shared return; `user_id,code,state,redirect_uri`, extra fields forbidden | `F`, Calendar-only bound attempt | Status plus `service:"calendar"`; generic Drive completion retired at this handler. |
 
 Source anchors: [Calendar client](../../lib/services/google-calendar-service.ts),
@@ -1171,12 +1294,12 @@ recipe for more than3tabs.
 
 | Item | Phone/compact recipe | Wider recipe / placement |
 | --- | --- | --- |
-| Header | Identity flex1/min0; actions inline, gap8. Provider42square/icon28; menu40square/icon20 | At640provider48/menu46. Email wraps anywhere. |
+| Fallback header | Identity flex1/min0; actions inline, gap8. Provider44square/icon28; menu44square/icon20 | At640provider48/menu46. Email wraps anywhere. Board uses its account-count/Add/Refresh header. |
 | Main tabs | Outer wrapper56; actual track36, padding2, radius10;3 equal tracks `(C−4)/3`, buttons32/radius8 | Same track geometry; ArrowLeft/Right/Home/End focus/select locally. |
 | Today/Free time filters |32 high, gap8, horizontal padding12, horizontal overflow when needed; wrapper adds8vertical | Same; semantic labels15/20. |
-| Date controls | Date row min44; native transparent date input covers label's box; Today44, prev/next44square/icon16, gaps4/8 | Date label13below640/15 above. Parent44does not imply label itself has authored44height. |
-| Timeline≤520 | Min98, padding12top/bottom,10 left/8 right; rail46+gap8, stripe3+gap10/min72, copy flex/min0. Join52×32; more24×32/icon16; action gap2/left6 | With both actions text measure `C−169`:119 at 320,192 at 393,229 at 430. Without Join `C−115`. Source/title ellipsis; time wraps. |
-| Timeline≥521 | Min86, padding10vertical/11 left/20 right; rail60+gap11, stripe4+gap16/min62; Join80×36, more24×36/icon20; action gap20/left14 | With both actions text `C−260`:468 at 768,572 at 1024,564 at 1440. Separators start102, right16; compact start77/right8. Minimums can grow with content. |
+| Date controls | Date row and label min44; native transparent date input covers that 44px label target. Today44, prev/next44square/icon16, gaps4/8 | Date label13below640/15 above; native date picker retains browser ownership. |
+| Timeline≤520 | Min98, padding12top/bottom,10 left/8 right; rail46+gap8, stripe3+gap10/min72, copy flex/min0. Join78×44; more44×44/icon16; action gap2/left6; title detail target min44 | Earlier 52×32/24×32 targets are superseded. Title/source retain deliberate ellipsis with full detail on activation; time can wrap. |
+| Timeline≥521 | Min86, padding10vertical/11 left/20 right; rail60+gap11, stripe4+gap16/min62; Join88×44, more44×44/icon20; action gap20/left14 | Earlier 80×36/24×36 targets are superseded. Separators start102, right16; compact start77/right8. Minimums can grow with content. |
 | Highlight | Accent surface, own singleton chronological group, margin-bottom2; ordinary rows group in rounded clipped card | Countdown/current rail, accent Join treatment. No reordering to top. |
 | Free time summary | Padding15, gap14; intro min73/gap15, art tile60×64/radius15 | At640padding16/gap15, intro gap22/tile74×73. Art46below521/52 above. |
 | Duration choices |3 equal flex buttons, gap7,38 high | At64036high. |
@@ -1230,21 +1353,23 @@ Sources: [Calendar layout constants](../../components/calendar/calendar-agent-pa
 [Select](../../components/ui/select.tsx),
 [keyboard inset owner](../../components/keyboard-inset-manager.tsx).
 
-## Font schema: what to use where and resolved overrides
+## Prior inspected font baseline (superseded)
 
-Use existing [semantic typography](./typography.md) and shared components;
-this is the inspected Calendar mapping, not a new type system. Default product
-family is Plus Jakarta Sans400/600/700. Calendar's connected wrapper and
-invitation portal explicitly set Inter variable100–900 from
+The following tables preserve the older source-only Calendar baseline for
+comparison. The current mounted target, role map and rendered fixture evidence
+are in [Mounted presentation reconciliation](#mounted-presentation-reconciliation--24-october-2026).
+Before the October24 pass, the default product family was Plus Jakarta Sans
+400/600/700, while Calendar's connected wrapper and invitation portal set
+Inter variable100–900 from
 `/fonts/Inter/InterVariable.woff2`, `font-display:swap`. Insights declares
 `CalendarInter` alias of the same asset; ordinary text may report CalendarInter
 while semantic children inherit the Inter variables. Requested family is not
 proof every glyph/font download succeeded.
 
 Setup/disconnected/public recipient, unscoped Schedule/settings Dialog portals,
-disconnect Alert and proposal card normally inherit Jakarta. Portals do not
-inherit Calendar's local Inter variables unless explicitly opted in; Invitations
-does opt in. Shared nav remains its own typography/native renderer owner.
+disconnect Alert and proposal card normally inherited Jakarta. Portals did not
+inherit Calendar's local Inter variables unless explicitly opted in. The current
+portal hosts use the scoped product family. Shared nav remains its own owner.
 
 ### Heading cascade and numeric viewport table
 
@@ -1349,11 +1474,10 @@ Sources: [shared setup copy](../../lib/onboarding/capability-setup-copy.ts),
 
 ## Verification and evidence limits
 
-This documentation-only change does not alter routes, UI, permissions, schemas,
-generated actions or provider accounts. Five read-only specialist lanes checked
-entry/tabs, invitations, APIs/authority, Insights/chat/voice and CSS geometry.
-The following existing tests were inspected as behavior boundaries; that is
-separate from rerunning them or proving a live account.
+The following inventory records the prior source-only documentation pass.
+Its inspections remain useful behavior boundaries; the current presentation
+changes and executed checks are recorded in the October24 reconciliation and
+current validation section. Neither pass used live provider accounts.
 
 | Existing evidence owner | What its source covers and does not prove |
 | --- | --- |
@@ -1365,15 +1489,14 @@ separate from rerunning them or proving a live account.
 | [Transport](../../__tests__/services/calendar-schedule-transport.test.ts), [upcoming](../../__tests__/lib/calendar/use-calendar-upcoming-events.test.tsx) | Header/body split, abort/retry/offline, invalid confirmation, public no-owner request and redacted upcoming projection. |
 | [Route authority](../../../consent-protocol/tests/test_calendar_schedule_routes.py), [calendar lifecycle](../../../consent-protocol/tests/test_calendar_routes.py) | Owner-derived reads, reject mismatched dual authority, attendance/public/schema and artifact/context boundaries. |
 | [Schedule boundaries](../../../consent-protocol/tests/services/test_calendar_schedule_boundaries.py), [attendance](../../../consent-protocol/tests/services/test_calendar_attendance_service.py), [artifact authority](../../../consent-protocol/tests/services/test_calendar_meeting_artifacts.py), [native scopes](../../../consent-protocol/tests/services/test_calendar_native_optional_scope.py), [voice reads](../../../consent-protocol/tests/one_voice/test_calendar_read_tool.py) | DST/holiday identity/fail-closed coverage, once-claim/ETag/tamper/separate outcomes, actual granted scope/subject/policy, native optional scope and read-only/selection handoff. |
-| [Connected layout spec](../../e2e/calendar-connected-workspace.layout.spec.ts) | Compiled global CSS/actual component with synthetic APIs/authority at 320/390/1440; tabs/columns/Inter family, chronology/actions/modal/focus/full-day/error/lock and no horizontal overflow. Fixture uses synthetic top64/bottom164 and legacy mocked nav, not complete production chrome. No393/430/768/1024 or50%-zoom acceptance. |
+| [Connected layout spec](../../e2e/calendar-connected-workspace.layout.spec.ts) | Compiled global CSS/actual component with synthetic APIs/authority at 320/390/1440; tabs/columns/product family, chronology/actions/modal/focus/full-day/error/lock and no horizontal overflow. A new boundary assertion measures350/351,360,393,430,520/521,620/621,639/640,759/760,767/768,900/901,1024,1440. Fixture uses synthetic top/bottom chrome and mocked auth/nav, not complete production composition. |
 | [Setup layout spec](../../e2e/calendar-setup-shell.layout.spec.ts) | Imports exact shell/region constants, legacy sample markup at 960 width and short/tall heights; scroll/centering and fixed-height/double-reserve negative controls. Does not render current full collage/footer or prove physical keyboard/native geometry. |
 
-The draft was checked against the production import graph, authored-copy
-inventory, relative source links and documentation gates. Final validation
-results are recorded at the end after the server-copy appendix. No browser,
-native-device, deployed-model or live-provider test was run for this source
-documentation task. Unverified interactions remain marked as such; fixture
-counts do not become product limits.
+The prior draft was checked against the production import graph, authored-copy
+inventory, relative source links and documentation gates. Its historical
+validation is retained at the end after the server-copy appendix. The current
+browser fixture evidence is described above; no native-device, deployed-model
+or live-provider test was run. Fixture counts do not become product limits.
 
 
 
@@ -1393,7 +1516,9 @@ Sources: [Google lifecycle](../../../consent-protocol/hushh_mcp/services/google_
 [Schedule](../../../consent-protocol/hushh_mcp/services/calendar_schedule_service.py),
 [Invitations](../../../consent-protocol/hushh_mcp/services/calendar_invitations.py),
 [Insights](../../../consent-protocol/hushh_mcp/services/calendar_insights_service.py).
-Line numbers refer to the revision stamped above.
+Line numbers below were recorded for the original single-account inventory
+revision; verify them against executable source before using them as a new
+change anchor.
 
 `consent-protocol/hushh_mcp/services/google_connection_service.py`
 
@@ -1564,7 +1689,7 @@ Line numbers refer to the revision stamped above.
 | 243 | 409 | none | 'Calendar account changed. Refresh Calendar.' |
 | 257 | 404 | none | 'Meeting is unavailable' |
 
-## Local validation results
+## Prior documentation validation results
 
 The source draft passed local source-link/internal-anchor checks, Markdown
 fence/table structure checks, authored-copy comparison, `git diff --check` and

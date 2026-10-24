@@ -498,6 +498,11 @@ targets, and action sizing remain owned by the
 [design system](../../../docs/reference/quality/design-system.md).
 The shared top bar owns the single Connect title; the existing tab/search
 bands and focused circle flow own their authored layout.
+Calendar reuses this top-bar composition and the ordinary person-row action
+recipe through a scoped Calendar seam. Its agent-width Board remains880px and
+its full-flow/confirmation controls keep their own hierarchy. See the
+[mounted Calendar presentation reconciliation](./calendar.md#mounted-presentation-reconciliation--24-october-2026)
+for branch, portal, action and evidence boundaries.
 
 ## Per-row read and mutation contract
 

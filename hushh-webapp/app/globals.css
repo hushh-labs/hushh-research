@@ -10496,3 +10496,19 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
   line-height: 20px;
   font-weight: 400;
 }
+
+/* Calendar feedback is portalled beside its route and conversation cards. */
+html:has([data-calendar-presentation]) [data-sonner-toaster] {
+  font-family: var(--font-app-body);
+}
+html:has([data-calendar-presentation]) [data-sonner-toast] [data-title] {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+html:has([data-calendar-presentation]) [data-sonner-toast] [data-description] {
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
+}
