@@ -1904,7 +1904,7 @@ export default function GmailReceiptsPage({
       as="div"
       width="reading"
       headerContentSpacing="compact"
-      className={`${mailStyles.typography} ${journeyVariant === "workspace" ? mailStyles.workspace : ""} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
+      className={`${mailStyles.typography} ${journeyVariant === "workspace" ? mailStyles.workspace : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]`}
       nativeTest={{
         routeId:
           journeyVariant === "workspace"
@@ -1949,7 +1949,7 @@ export default function GmailReceiptsPage({
                     !receiptSyncAvailable ||
                     gmailActionBusy !== null
                   }
-                  className="w-full sm:w-auto sm:min-w-[150px]"
+                  className={`${mailStyles.wideAction} w-full sm:w-auto sm:min-w-[150px]`}
                   data-voice-control-id="sync_gmail_receipts"
                   data-voice-action-id="profile.gmail.sync_now"
                   data-voice-label={primaryActionLabel}

@@ -6,6 +6,7 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Skeleton } from "@/components/ui/skeleton";
+import mailStyles from "./mail-workspace.module.css";
 
 /**
  * Gmail's token-free first paint. The capability boundary owns the actual
@@ -22,7 +23,7 @@ export function GmailWorkspaceSkeleton({
     <AppPageShell
       as="div"
       width="reading"
-      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className={`${mailStyles.typography} ${titleVisuallyHidden ? mailStyles.workspace : mailStyles.fullPageTitle} pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8`}
       aria-busy="true"
       aria-label="Checking your Gmail status"
     >
@@ -38,13 +39,13 @@ export function GmailWorkspaceSkeleton({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <SurfaceInset className="space-y-3 px-4 py-4 sm:px-5 sm:py-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            <p className={`${mailStyles.sourceGroup} text-muted-foreground`}>
               Gmail
             </p>
             <h2 className="text-lg font-semibold tracking-tight text-foreground">
               Checking your Gmail status
             </h2>
-            <p className="text-sm text-muted-foreground">
+            <p className={`${mailStyles.support} text-muted-foreground`}>
               Your inbox and receipts will appear here as they are ready.
             </p>
             <div className="space-y-2 pt-1" aria-hidden="true">

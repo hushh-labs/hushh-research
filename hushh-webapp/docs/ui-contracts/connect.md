@@ -11,6 +11,12 @@ finds and manages relationships. Circles groups people, manages membership,
 and hosts eligible group conversations. The six optional circle ideas are templates;
 saved circles and joined memberships come from the current account.
 
+Mail reuses this product's shared header, 728px reading frame, compact semantic
+roles and neutral accent-pill action treatment. The current mounted Mail
+state/action and optimized-cascade evidence lives in the
+[Mail contract](./mail.md#connect-alignment-and-mounted-presentation-audit--24-october-2026);
+Connect's own routes and controls remain owned here.
+
 ## Visual Map
 
 ```mermaid
