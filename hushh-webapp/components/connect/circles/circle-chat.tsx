@@ -1,17 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, ArrowDown, Mic, Plus, X } from "@/components/icons";
+import { MessageCircle, ImageIcon, ArrowDown, Plus, X } from "@/components/icons";
 import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage, type CircleMessageState, type ChatMutationResult } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
 import { CircleChatMessage, type CircleMessageAction, type OutgoingChatMessage, type OpenChatMessage as OpenMessage } from "./circle-chat-message";
 import { CircleChatMessageActionDialog } from "./circle-chat-message-action-dialog";
+import { ChatLaneMicAction } from "./circle-chat-mic-action";
 import { FileAttachmentPreview, ImageAttachmentPreview } from "./circle-chat-media";
 import { CIRCLE_CHAT_CHANGED, dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
@@ -27,8 +27,6 @@ import laneStyles from "./circle-chat-lane.module.css";
 import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { CircleMembershipEventPill, groupCircleMembershipEvents } from "./circle-chat-system-event";
-import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
-import { ROUTES } from "@/lib/navigation/routes";
 import { connectPersonName } from "@/lib/connections/person-label";
 
 const unavailable = (error: unknown) => error instanceof ApiError &&
@@ -190,14 +188,6 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
   </section>
   </>;
-}
-
-function ChatLaneMicAction() {
-  const router = useRouter();
-  return <ShellActionSurface className="size-11" aria-label="Talk to One" onClick={() => {
-    requestAgentConversationAfterRoute(ROUTES.HOME);
-    router.push(ROUTES.HOME);
-  }}><Mic aria-hidden="true" className="size-5" /></ShellActionSurface>;
 }
 
 function CircleChatThread({ circleName, session, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
