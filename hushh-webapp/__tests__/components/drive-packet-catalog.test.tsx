@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ uid: "owner", token: "private-token", unlocked: true,
-  packets: vi.fn(), listing: vi.fn(), request: vi.fn(), collection: vi.fn(), setProcessing: vi.fn(), identity: vi.fn(), linkIdentity: vi.fn(), openExternal: vi.fn() }));
+  packets: vi.fn(), preview: vi.fn(), preparePreview: vi.fn(), listing: vi.fn(), request: vi.fn(), collection: vi.fn(), setProcessing: vi.fn(), identity: vi.fn(), linkIdentity: vi.fn(), openExternal: vi.fn() }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, isVaultUnlocked: state.unlocked }) }));
 vi.mock("@/lib/services/drive-packet-service", () => ({ DrivePacketService: state }));
@@ -29,17 +29,20 @@ const status = { enabled: false, backgroundEnabled: true, state: "not_enabled", 
   initialCompletedAt: null, lastSyncedAt: null, lastIndexedAt: null, initialIndexingDurationMs: null, initialExtractionCompletedAt: null, lastExtractedAt: null,
   initialExtractionDurationMs: null, lastSemanticIndexingDurationMs: null, lastDocumentExtractionDurationMs: null, syncDurationMs: 2000 };
 beforeEach(() => {
-  for (const mock of [state.packets, state.listing, state.request, state.collection, state.setProcessing, state.identity, state.linkIdentity, state.openExternal]) mock.mockReset();
+  for (const mock of [state.packets, state.preview, state.preparePreview, state.listing, state.request, state.collection, state.setProcessing, state.identity, state.linkIdentity, state.openExternal]) mock.mockReset();
   state.uid = "owner"; state.token = "private-token"; state.unlocked = true;
   publishValidatedAuthSessionOwner("owner");
   state.identity.mockImplementation(async (_uid, current) => { if (!current()) throw new Error("session_changed"); return "firebase-token"; });
   state.linkIdentity.mockResolvedValue("linked-firebase-token");
   state.packets.mockImplementation(async (_token, guard) => { guard(); return { packets: [packet], nextCursor: null }; });
   state.listing.mockResolvedValue({});
+  const preview = { status: "completed", revision: 0, matched: 2, complete: true, stale: false, updatedAt: "2026-10-24T10:00:00Z",
+    errorCode: null, documents: [], nextCursor: null, limited: false };
+  state.preview.mockResolvedValue(preview); state.preparePreview.mockResolvedValue(preview);
   state.collection.mockImplementation(async (_token, guard) => { guard(); return status; });
 });
 afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionOwner(null); });
-describe("agent prepared packets", () => {
+describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
   it("shows four owner category entrypoints before packets exist without starting preparation", async () => {
     state.packets.mockResolvedValue({ packets: [], nextCursor: null });
     render(<DrivePacketCatalog periodPackets />);
@@ -108,7 +111,8 @@ describe("agent prepared packets", () => {
     expect(periods.map(button => button.textContent)).toEqual([expect.stringContaining("Sep–Oct 2026"), expect.stringContaining("Jul–Aug 2026")]);
     fireEvent.click(periods[0]);
     const building = await screen.findByRole("dialog", { name: current.title });
-    expect(building).toHaveTextContent("Building");
+    await waitFor(() => expect(building).toHaveTextContent("Files found"));
+    expect(state.preparePreview).toHaveBeenCalledWith("private-token", person, expect.any(Function), false);
     expect(within(building).queryByRole("button", { name: /^List|Change price/ })).toBeNull();
     fireEvent.click(within(building).getByRole("button", { name: "Close detail panel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -121,6 +125,96 @@ describe("agent prepared packets", () => {
     act(() => { expect(unwindBackLayer("/one/profile")).toBe(true); });
     expect(screen.getByRole("button", { name: "Open Account statements" })).toBeInTheDocument();
     expect(state.collection).not.toHaveBeenCalled(); expect(state.setProcessing).not.toHaveBeenCalled();
+  });
+  it("starts an owner preview on opening, preserves partial originals, and reopens with a read", async () => {
+    const current = { ...packet, kind: "provider_discovery", packetId: person, category: "financial", version: 0,
+      periodStart: "2026-09-01", periodEnd: "2026-10-31", state: "building", documentCount: 0,
+      canList: false, canRequest: false };
+    let resolve!: (value: unknown) => void;
+    state.packets.mockResolvedValue({ packets: [current], nextCursor: null });
+    state.preparePreview.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const partial = { status: "failed", revision: 0, matched: 1, complete: false, stale: false,
+      updatedAt: "2026-10-24T10:00:00Z", errorCode: "provider_unavailable", nextCursor: null, limited: false,
+      documents: [{ name: "Example statement.pdf", type: null, pages: null, period: null, shareable: false,
+        viewUrl: "https://drive.google.com/file/d/statement/view" }] };
+    state.preview.mockResolvedValue(partial);
+    render(<DrivePacketCatalog periodPackets />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Financial statements" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
+    const detail = await screen.findByRole("dialog", { name: current.title });
+    expect(detail).not.toHaveTextContent("0 documents");
+    await act(async () => resolve(partial));
+    expect(detail).toHaveTextContent("Example statement.pdf");
+    expect(detail).toHaveTextContent("new sharing requires its owner");
+    expect(detail).toHaveTextContent("Couldn’t check");
+    expect(state.request).not.toHaveBeenCalled(); expect(state.listing).not.toHaveBeenCalled();
+    fireEvent.click(within(detail).getByRole("button", { name: "Close detail panel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /^Sep–Oct 2026/ }));
+    await waitFor(() => expect(state.preview).toHaveBeenCalledOnce());
+    expect(state.preparePreview).toHaveBeenCalledOnce();
+  });
+  it("drops a late preview after the authenticated owner changes", async () => {
+    let resolve!: (value: unknown) => void;
+    const current = { ...packet, kind: "provider_discovery", category: "bank", version: 0, state: "building",
+      periodStart: "2026-03-01", periodEnd: "2026-04-30", canList: false, canRequest: false };
+    state.packets.mockResolvedValue({ packets: [current], nextCursor: null });
+    state.preparePreview.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const view = render(<DrivePacketCatalog />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Account statements" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Mar–Apr 2026/ }));
+    await waitFor(() => expect(state.preparePreview).toHaveBeenCalledOnce());
+    state.uid = "replacement"; state.token = "replacement-token"; publishValidatedAuthSessionOwner("replacement");
+    state.packets.mockResolvedValue({ packets: [], nextCursor: null });
+    view.rerender(<DrivePacketCatalog />);
+    await act(async () => resolve({ status: "completed", matched: 1, documents: [{ name: "Private old-owner statement" }] }));
+    expect(screen.queryByText("Private old-owner statement")).toBeNull();
+  });
+  it("keeps the next result page after an interleaved read poll", async () => {
+    const current = { ...packet, kind: "provider_discovery", category: "bank", version: 0, state: "building",
+      periodStart: "2026-09-01", periodEnd: "2026-10-31", canList: false, canRequest: false };
+    const file = (name: string) => ({ name, type: null, pages: null, period: null, viewUrl: `https://drive.google.com/file/d/${name}/view` });
+    const page = (index: number) => ({ status: "partial", revision: 0, matched: 3, complete: false, stale: false,
+      updatedAt: "2026-10-24T10:00:00Z", errorCode: null, documents: [file(`statement-${index}`)],
+      nextCursor: index < 3 ? `page-${index + 1}` : null, limited: false });
+    state.packets.mockResolvedValue({ packets: [current], nextCursor: null });
+    state.preparePreview.mockResolvedValue(page(1));
+    state.preview.mockImplementation(async (_token, _id, guard, cursor) => { guard(); return page(cursor === "page-3" ? 3 : cursor === "page-2" ? 2 : 1); });
+    let poll = () => undefined;
+    const nativeInterval = globalThis.setInterval;
+    const intervals = vi.spyOn(globalThis, "setInterval").mockImplementation(((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (delay === 5000) { poll = handler as () => undefined; return 0 as unknown as ReturnType<typeof setInterval>; }
+      return nativeInterval(handler, delay, ...args);
+    }) as typeof setInterval);
+    try {
+      render(<DrivePacketCatalog />);
+      fireEvent.click(await screen.findByRole("button", { name: "Open Account statements" }));
+      fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
+      await screen.findByText("statement-1");
+      fireEvent.click(screen.getByRole("button", { name: "Load more files" }));
+      await screen.findByText("statement-2");
+      await act(async () => { poll(); });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Load more files" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Load more files" }));
+      await screen.findByText("statement-3");
+      expect(screen.getByText("statement-1")).toBeVisible();
+      expect(state.preview.mock.calls.at(-1)?.[3]).toBe("page-3");
+    } finally { intervals.mockRestore(); }
+  });
+  it("retries a start that was not acknowledged when the owner reopens the packet", async () => {
+    const current = { ...packet, kind: "provider_discovery", category: "bank", version: 0, state: "building",
+      periodStart: "2026-09-01", periodEnd: "2026-10-31", canList: false, canRequest: false };
+    state.packets.mockResolvedValue({ packets: [current], nextCursor: null });
+    state.preparePreview.mockRejectedValueOnce(new Error("network unavailable"));
+    render(<DrivePacketCatalog />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Account statements" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
+    const detail = await screen.findByRole("dialog", { name: current.title });
+    await within(detail).findByText(/Couldn’t load the latest search/);
+    fireEvent.click(within(detail).getByRole("button", { name: "Close detail panel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /^Sep–Oct 2026/ }));
+    await waitFor(() => expect(state.preparePreview).toHaveBeenCalledTimes(2));
   });
   it("discards a late private packet response after the authenticated owner changes", async () => {
     let resolve!: (value: unknown) => void;

@@ -14,12 +14,12 @@ import { PacketRows } from "@/components/consent/packets/packet-rows";
 import { CategoryPacketRows } from "@/components/consent/packets/category-packets";
 import { BuyerPacketPage, BuyerPacketRows, useBuyerPacketRequests } from "@/components/consent/packets/buyer-packets";
 import {
-  buyerNotes, buyerSummary, checkedDate, documentCount, documentLine, ownerPacketPrice, ownerPacketStatus, ownerPacketTitle,
-  ownerStatusLine, packetGaps, periodLabel, packetPeriod, sortedDocuments,
+  buyerNotes, buyerSummary, checkedDate, documentLine, ownerPacketPrice, ownerPacketStatus, ownerPacketTitle,
+  ownerStatusLine, ownerDocumentCount, packetGaps, periodLabel, packetPeriod, sortedDocuments,
 } from "@/components/consent/packets/packet-copy";
 import { useOpenerFocus } from "@/components/consent/payouts/receipts/receipt-ui";
 import { formatDocumentRequestPrice, parseDocumentRequestPrice } from "@/lib/consent/document-request-price";
-import { DrivePacketService, type DrivePacket, type PacketGuard } from "@/lib/services/drive-packet-service";
+import { DrivePacketService, type DrivePacket, type DrivePacketPreview, type PacketGuard } from "@/lib/services/drive-packet-service";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 
 export function useDrivePacketSession(scope: string) {
@@ -49,13 +49,16 @@ export function useDrivePacketSession(scope: string) {
  * words ("You pay after Avery approves.").
  */
 type PacketCatalogOptions = { ownerPersonRef?: string; ownerName?: string; refreshKey?: number; preparationPaused?: boolean; enabled?: boolean; periodPackets?: boolean };
-type PacketListValue = { packets: DrivePacket[]; cursor: string | null; busy: boolean; loaded: boolean; error: boolean; opened: DrivePacket | null };
-const emptyList = (): PacketListValue => ({ packets: [], cursor: null, busy: false, loaded: false, error: false, opened: null });
+type PacketListValue = { packets: DrivePacket[]; cursor: string | null; busy: boolean; loaded: boolean; error: boolean; opened: DrivePacket | null;
+  previews: Record<string, DrivePacketPreview>; previewBusy: boolean; previewError: boolean };
+const emptyList = (): PacketListValue => ({ packets: [], cursor: null, busy: false, loaded: false, error: false, opened: null,
+  previews: {}, previewBusy: false, previewError: false });
 
 /** Existing paged reader and selected version, independent of the body renderer. */
 export function useDrivePacketCatalogModel({ ownerPersonRef, ownerName = "the owner", refreshKey = 0, preparationPaused = false, enabled = true, periodPackets = false }: PacketCatalogOptions = {}) {
   const session = useDrivePacketSession(ownerPersonRef ?? "owner-packets");
-  const lease = useMemo(() => ({ live: false, serial: 0, pages: 1, key: session.key, ownerPersonRef, token: session.token, guard: session.guard }), [session.key, session.token, session.guard, ownerPersonRef]);
+  const lease = useMemo(() => ({ live: false, serial: 0, pages: 1, visit: 0, opened: null as string | null,
+    previewLocks: new Set<string>(), previewPages: new Map<string, { revision: number; start: string | null }>(), started: new Set<string>(), key: session.key, ownerPersonRef, token: session.token, guard: session.guard }), [session.key, session.token, session.guard, ownerPersonRef]);
   const active = useRef(enabled);
   useLayoutEffect(() => { active.current = enabled; });
   useLayoutEffect(() => { lease.live = !!lease.token; return () => { lease.live = false; lease.serial += 1; }; }, [lease]);
@@ -88,6 +91,47 @@ export function useDrivePacketCatalogModel({ ownerPersonRef, ownerName = "the ow
     } catch { try { guard(); change(value => ({ ...value, error: true })); } catch { /* Retired private view. */ } }
     finally { try { guard(); change(value => ({ ...value, busy: false })); } catch { /* Retired private view. */ } }
   }, [change, current, lease, ownerPersonRef]);
+  const loadPreview = useCallback(async (packetId: string, action: "start" | "read" | "refresh" | "more", cursor?: string | null) => {
+    const visit = lease.visit, lock = `${packetId}:${visit}`;
+    if (!active.current || !lease.token || ownerPersonRef || lease.previewLocks.has(lock)) return;
+    try { current(); } catch { return; }
+    const guard = () => { current(); if (!active.current || lease.visit !== visit || lease.opened !== packetId) throw new Error("superseded"); };
+    try { guard(); } catch { return; }
+    lease.previewLocks.add(lock);
+    change(value => ({ ...value, previewBusy: true, previewError: false }));
+    try {
+      const previousPage = lease.previewPages.get(packetId);
+      let start = action === "more" ? cursor ?? null : action === "read" ? previousPage?.start ?? null : null;
+      let preview: DrivePacketPreview;
+      if (action === "start" || action === "refresh") preview = await DrivePacketService.preparePreview(lease.token, packetId, guard, action === "refresh");
+      else {
+        try { preview = await DrivePacketService.preview(lease.token, packetId, guard, start); }
+        catch (error) {
+          if (!start) throw error;
+          guard(); start = null;
+          preview = await DrivePacketService.preview(lease.token, packetId, guard);
+        }
+        if (start && preview.revision !== previousPage?.revision) {
+          start = null; preview = await DrivePacketService.preview(lease.token, packetId, guard);
+        }
+      }
+      guard();
+      if (action === "start" || action === "refresh") lease.started.add(packetId);
+      lease.previewPages.set(packetId, { revision: preview.revision, start });
+      change(value => {
+        const previous = value.previews[packetId];
+        const keep = (action === "more" || action === "read") && previous?.revision === preview.revision && !previous.stale && !preview.stale;
+        const documents = keep ? [...(previous?.documents ?? []), ...(preview.documents ?? [])]
+          .filter((file, index, files) => files.findIndex(other => other.viewUrl === file.viewUrl && other.name === file.name) === index) : preview.documents;
+        return { ...value, previews: { ...value.previews, [packetId]: { ...preview, documents } } };
+      });
+      if (preview.complete) void load();
+    } catch { try { guard(); change(value => ({ ...value, previewError: true })); } catch { /* Retired owner or closed detail. */ } }
+    finally {
+      lease.previewLocks.delete(lock);
+      try { guard(); change(value => ({ ...value, previewBusy: false })); } catch { /* Retired visit. */ }
+    }
+  }, [change, current, lease, load, ownerPersonRef]);
   useEffect(() => {
     if (enabled) void load();
     return () => { lease.serial += 1; };
@@ -98,18 +142,50 @@ export function useDrivePacketCatalogModel({ ownerPersonRef, ownerName = "the ow
     const timer = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 30000);
     return () => clearInterval(timer);
   }, [building, enabled, load]);
-  const live = value.opened ? value.packets.find(packet => packet.packetId === value.opened?.packetId) ?? null : null;
+  const selected = value.opened ? value.packets.find(packet => packet.packetId === value.opened?.packetId) ?? null : null;
+  const live = useMemo(() => selected?.kind === "provider_discovery" && value.previews[selected.packetId]
+    ? { ...selected, preview: value.previews[selected.packetId] } : selected, [selected, value.previews]);
+  const previewStatus = live?.kind === "provider_discovery" ? live.preview?.status : undefined;
+  const selectedSummary = selected?.kind === "provider_discovery" ? selected.preview : undefined;
+  const localPreview = selected ? value.previews[selected.packetId] : undefined;
+  const selectedId = selected?.packetId;
+  const catalogAhead = !!selectedSummary && (!localPreview || selectedSummary.revision > localPreview.revision ||
+    (selectedSummary.updatedAt ?? "") > (localPreview.updatedAt ?? "") || selectedSummary.status !== localPreview.status);
+  useEffect(() => {
+    if (enabled && selectedId && catalogAhead && !ownerPersonRef) void loadPreview(selectedId, "read");
+  }, [catalogAhead, enabled, loadPreview, ownerPersonRef, selectedId, selectedSummary?.revision, selectedSummary?.updatedAt, selectedSummary?.status]);
+  useEffect(() => {
+    if (!enabled || ownerPersonRef || !value.opened || value.opened.kind !== "provider_discovery" ||
+      !["not_started", "queued", "searching", "partial"].includes(previewStatus ?? "not_started")) return;
+    const packetId = value.opened.packetId;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") void loadPreview(packetId, "read"); }, 5000);
+    return () => clearInterval(timer);
+  }, [enabled, loadPreview, ownerPersonRef, previewStatus, value.opened]);
   useEffect(() => {
     if (enabled && value.opened && !live && value.cursor && !value.busy && !value.error) void load(value.cursor);
   }, [enabled, live, load, value.opened, value.cursor, value.busy, value.error]);
+  const close = useCallback(() => {
+    lease.visit++; lease.opened = null;
+    change(value => ({ ...value, opened: null, previewBusy: false, previewError: false }));
+  }, [change, lease]);
   // Absence from a complete authoritative owner list closes that exact version.
   useEffect(() => {
     if (enabled && !ownerPersonRef && value.opened && !live && value.loaded && !value.cursor && !value.busy && !value.error)
-      change(value => ({ ...value, opened: null }));
-  }, [change, enabled, live, ownerPersonRef, value.opened, value.loaded, value.cursor, value.busy, value.error]);
+      close();
+  }, [close, enabled, live, ownerPersonRef, value.opened, value.loaded, value.cursor, value.busy, value.error]);
   return { ...value, live, session, ownerPersonRef, ownerName, preparationPaused, enabled, periodPackets, load,
-    open: (packet: DrivePacket) => { if (active.current && value.packets.includes(packet)) change(value => ({ ...value, opened: packet })); },
-    close: () => change(value => ({ ...value, opened: null })),
+    preview: (refresh = false) => { if (lease.opened) void loadPreview(lease.opened, refresh ? "refresh" : "start"); },
+    morePreview: () => { if (lease.opened) void loadPreview(lease.opened, "more", value.previews[lease.opened]?.nextCursor); },
+    open: (packet: DrivePacket) => {
+      if (!active.current || !value.packets.includes(packet)) return;
+      lease.visit++; lease.opened = packet.packetId;
+      change(value => ({ ...value, opened: packet, previewBusy: false, previewError: false }));
+      if (!ownerPersonRef && packet.kind === "provider_discovery") {
+        const started = lease.started.has(packet.packetId);
+        void loadPreview(packet.packetId, started ? "read" : "start");
+      }
+    },
+    close,
   };
 }
 export type DrivePacketCatalogModel = ReturnType<typeof useDrivePacketCatalogModel>;
@@ -138,7 +214,8 @@ export function DrivePacketCatalogView({ model, ownerModel }: { model: DrivePack
     {cursor && <Button variant="outline" size="compact" disabled={busy} onClick={() => void load(cursor)}>Load more</Button>}
     </SettingsGroup>
     {!ownerPersonRef && opened && (live || cursor) && (ownerModel ? <OwnerPacketPageView model={ownerModel} onClose={close} /> :
-      <OwnerPacketPage key={opened.packetId} packet={live ?? opened} token={session.token} guard={session.guard} onChanged={() => void load()} onClose={close} />)}
+      <OwnerPacketPage key={opened.packetId} packet={live ?? opened} token={session.token} guard={session.guard} onChanged={() => void load()} onClose={close}
+        onPreview={model.preview} onMorePreview={model.morePreview} previewBusy={model.previewBusy} previewError={model.previewError} />)}
     {ownerPersonRef && opened && <BuyerPacketPage key={opened.packetId} packet={live ?? (cursor ? opened : { ...opened, canRequest: false })}
       ownerName={ownerName} token={session.token} guard={session.guard} requests={requests} onChanged={() => void load()} onClose={close} />}
   </section>;
@@ -158,12 +235,13 @@ function OwnerPacketRows({ packets, onOpen }: { packets: DrivePacket[]; onOpen: 
  * buyers see (never file names), price and status. List, Don't list and Change
  * price are today's Allow, Deny and Edit price, through the same listing call.
  */
-type OwnerPacketOptions = { packet: DrivePacket | null; token: string | null; guard: PacketGuard; onChanged: () => void };
+type OwnerPacketOptions = { packet: DrivePacket | null; token: string | null; guard: PacketGuard; onChanged: () => void;
+  onPreview?: (refresh?: boolean) => void; onMorePreview?: () => void; previewBusy?: boolean; previewError?: boolean };
 type OwnerPacketValue = { price: string; editingPrice: boolean; busy: boolean; message: string };
 
 /** One listing writer and transient price draft, shared by web/native bodies.
  * Editing a price never lists a packet; only the explicit listing command does. */
-export function useOwnerPacketPageModel({ packet, token, guard, onChanged }: OwnerPacketOptions) {
+export function useOwnerPacketPageModel({ packet, token, guard, onChanged, onPreview, onMorePreview, previewBusy, previewError }: OwnerPacketOptions) {
   const saved = packet ? (packet.priceCents / 100).toFixed(2) : "";
   const revision = packet ? `${packet.packetId}:${packet.version}:${packet.listingRevision}:${packet.priceCents}` : "";
   const lease = useMemo(() => ({ live: false, lock: false, token, guard, revision, saved, input: { price: saved, revision: 0 }, baseline: saved, editor: null as object | null }), [token, guard, revision, saved]);
@@ -200,6 +278,10 @@ export function useOwnerPacketPageModel({ packet, token, guard, onChanged }: Own
     finally { lease.lock = false; change(value => ({ ...value, busy: false })); }
   };
   const actions: PacketPageAction[] = [];
+  if (packet?.kind === "provider_discovery" && onMorePreview && packet.preview?.nextCursor) actions.push({ id: "more-preview", label: "Load more files",
+    onSelect: () => { if (isCurrent()) onMorePreview(); }, disabled: previewBusy });
+  if (packet?.kind === "provider_discovery" && packet.version === 0 && onPreview) actions.push({ id: "preview", label: previewBusy ? "Searching…" : "Refresh files",
+    onSelect: () => { if (isCurrent()) onPreview(true); }, disabled: previewBusy, emphasis: "secondary" });
   if (packet?.canList && (!packet.listingEnabled || amount !== null && amount !== packet.priceCents)) actions.push({ id: "list",
     label: `List for ${formatDocumentRequestPrice(amount ?? packet.priceCents)}`, onSelect: () => void act("allow"), disabled: busy || amount === null });
   if (packet && (packet.listingEnabled || packet.canList && packet.listingRevision === 0)) actions.push({ id: "deny", label: "Don’t list",
@@ -208,7 +290,8 @@ export function useOwnerPacketPageModel({ packet, token, guard, onChanged }: Own
     if (!lease.lock && isCurrent()) { lease.baseline = lease.input.price; lease.editor = editingPrice ? null : {}; change(value => ({ ...value, editingPrice: !value.editingPrice })); }
   },
     emphasis: "plain", disabled: busy, expanded: editingPrice });
-  return { packet, price, amount, editingPrice, busy, message, actions, current: isCurrent, editorCurrent, inputRevision: () => lease.input.revision, mutationPending: () => lease.lock,
+  return { packet, price, amount, editingPrice, busy, message: previewError ? "Couldn’t load the latest search. Saved files are still shown. Retry with Refresh files." : message,
+    actions, current: isCurrent, editorCurrent, inputRevision: () => lease.input.revision, mutationPending: () => lease.lock,
     changePrice: (price: string, expectedRevision = lease.input.revision) => {
       if (lease.lock || !isCurrent() || expectedRevision !== lease.input.revision) return false;
       lease.input.price = price; lease.input.revision += 1;
@@ -227,21 +310,23 @@ export function useOwnerPacketPageModel({ packet, token, guard, onChanged }: Own
 }
 export type OwnerPacketPageModel = ReturnType<typeof useOwnerPacketPageModel>;
 
-function OwnerPacketPage({ packet, token, guard, onChanged, onClose }: OwnerPacketOptions & { packet: DrivePacket; token: string; onClose: () => void }) {
-  const model = useOwnerPacketPageModel({ packet, token, guard, onChanged });
+function OwnerPacketPage({ onClose, ...options }: OwnerPacketOptions & { packet: DrivePacket; token: string; onClose: () => void }) {
+  const model = useOwnerPacketPageModel(options);
   return <OwnerPacketPageView model={model} onClose={onClose} />;
 }
 
 /** Display facts have no operation authority and are shared with native rows. */
 export function ownerPacketSections(packet: DrivePacket, amount: number | null, current?: () => boolean): PacketPageSection[] {
   const status = ownerPacketStatus(packet);
-  const documents = packet.contents ? sortedDocuments(packet.contents.documents) : [];
-  const more = packet.documentCount - documents.length;
+  const preview = packet.kind === "provider_discovery" ? packet.preview : undefined;
+  const documents = preview?.documents ?? (packet.contents ? sortedDocuments(packet.contents.documents) : []);
+  const more = (preview?.matched ?? packet.documentCount) - documents.length;
   const inside: PacketPageRow[] = documents.length ? [
-    ...documents.map((document, index) => ({ id: `document-${index}`, title: document.name, description: documentLine(document) || undefined,
+    ...documents.map((document, index) => ({ id: `document-${index}`, title: document.name,
+      description: [documentLine(document), document.shareable === false ? "You can open this file; new sharing requires its owner." : null].filter(Boolean).join(" · ") || undefined,
       ...(document.viewUrl ? { onOpen: () => { if (current?.() && document.viewUrl) openExternalUrl(document.viewUrl); } } : {}) })),
     ...more > 0 ? [{ id: "more", title: `${more.toLocaleString("en-US")} more ${more === 1 ? "document" : "documents"}` }] : [],
-  ] : [{ id: "count", title: documentCount(packet.documentCount), description: periodLabel(packetPeriod(packet)) ?? undefined }];
+  ] : [{ id: "count", title: ownerDocumentCount(packet) ?? "Files have not been counted yet", description: periodLabel(packetPeriod(packet)) ?? undefined }];
   const summary = buyerSummary(packet);
   const shownPrice = ownerPacketPrice(packet) === null ? null : formatDocumentRequestPrice(amount ?? packet.priceCents);
   const sections: PacketPageSection[] = [
@@ -252,6 +337,8 @@ export function ownerPacketSections(packet: DrivePacket, amount: number | null, 
     }],
     { id: "status", title: "Status", rows: [
       { id: "status", title: status.word, description: status.detail, tone: status.tone },
+      ...preview?.updatedAt ? [{ id: "searched", title: preview.stale ? "Previous search" : "Last searched", value: new Date(preview.updatedAt).toLocaleString() }] : [],
+      ...preview?.limited ? [{ id: "limited", title: "Showing saved files. Refresh to search for the remaining files.", tone: "attention" as const }] : [],
       ...packetGaps(packet).map((gap, index) => ({ id: `gap-${index}`, title: gap, tone: "attention" as const })),
       ...packet.kind !== "provider_discovery" && packet.verifiedAt ? [{ id: "checked", title: "Checked", value: checkedDate(packet.verifiedAt) }] : [],
     ] },

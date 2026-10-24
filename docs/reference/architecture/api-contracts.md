@@ -4377,7 +4377,7 @@ four-group classifier or legacy package builder. Current authorized owners recei
 Financial statements, Account statements, Brokerage and Insurance categories.
 Each category has an independent calendar-pair packet: January–February through
 November–December. Enrollment is bounded to elapsed/current pairs of the current
-year; current pairs are Building and cannot be listed or purchased before closure.
+year. Owners can search current pairs immediately; only final sale versions wait for closure.
 Heads record an explicit UTC calendar boundary; the period window is displayed
 with each packet rather than inferred from the viewer's timezone.
 Explicit background OFF, connector revocation, owner placement and account erasure
@@ -4387,7 +4387,8 @@ acceptance or permission grant.
 The existing Azure planner authors the search expression. The existing discovery
 compiler, Drive pagination and owner-search leases collect metadata without reading
 document bodies or running another content assessor. Only a complete closed search
-can freeze a packet; incomplete, failed and over-limit results remain unavailable.
+can freeze a packet; incomplete, failed and over-limit searches cannot authorize a sale.
+Usable partial originals remain visible in the owner's separate preview.
 Frozen membership and query provenance live encrypted in the existing packet
 version store, independently of temporary search results. A selected metadata date
 window is not a claim about statement reporting coverage.
@@ -4399,6 +4400,27 @@ and recipient-bound `requestId`/`purchaseState`. Unfrozen heads have version zer
 frozen heads have version one. Owner-only contents contain bounded original links.
 Visitors receive only explicitly listed summaries under the existing connection
 audience, never unpurchased filenames or links.
+
+Owner preview uses `POST /sharing/packets/{id}/preview` with `{refresh:false}`
+on opening a period and `{refresh:true}` for an explicit refresh. It derives the
+owner from the current vault authority, accepts no counterparty identifier, and
+runs at most a 25-second slice through the existing planner/search queue. Polling
+and result paging use `GET /sharing/packets/{id}/preview?cursor=...` without
+starting work. Current and historical ranges are searchable; own previews neither
+charge nor grant permissions. An open completed preview is reused for five minutes;
+explicit refresh or a later open can rotate its unfrozen search revision. The first
+post-closure scan must start after the boundary before a sale version can freeze.
+
+Owner-only `preview` reports `status`, `revision`, nullable `matched`, `complete`,
+`stale`, `updatedAt` and safe `errorCode`. Detail reads add up to 25 original links,
+shareability notes, an opaque cursor and a `limited` marker. Unknown is not zero;
+only completed discovery can establish an empty search. Files the owner can open
+but cannot re-share remain in this preview, independently of sale eligibility.
+The last usable first 120 results are retained encrypted in the existing head build
+envelope through retries and temporary-job expiry. A live job pages the full saved
+result set; an expired snapshot explicitly identifies any remaining uncached files.
+Frozen versions and completed purchases are not rewritten. No new index or content
+assessment is introduced. Azure failures cannot become a successful search result.
 
 Listing and purchase use the existing `/sharing/packets/{id}/listing` and
 `/sharing/packets/{id}/requests` endpoints. The new admission cannot reactivate a

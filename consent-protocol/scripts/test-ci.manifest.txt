@@ -58,6 +58,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_runtime_config_retention.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_packet_preview_routes.py
 tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
 tests/services/test_drive_live_reader.py
@@ -1388,6 +1389,8 @@ tests/eval_drive_packets/test_stats.py
 tests/services/test_drive_reusable_packets_postgres.py
 tests/services/test_drive_period_packets.py
 tests/services/test_drive_period_packets_postgres.py
+tests/services/test_drive_period_packet_previews_postgres.py
+tests/services/test_drive_period_packet_loop_postgres.py
 
 tests/services/test_drive_packet_catalog_postgres.py
 

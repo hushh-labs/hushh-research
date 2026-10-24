@@ -842,7 +842,9 @@ function OwnerConnectorsPanel({
     periodPackets: overview?.features.drive_period_packets === true,
     refreshKey: driveCollection.revision, preparationPaused: overview?.features.drive_period_packets !== true && (driveCollection.paused || !driveCollection.status?.enabled) });
   const ownerPacket = useOwnerPacketPageModel({ packet: drivePageActive && drivePackets.opened ? drivePackets.live ?? (drivePackets.cursor ? drivePackets.opened : null) : null,
-    token: drivePackets.session.token, guard: drivePackets.session.guard, onChanged: () => { void drivePackets.load(); } });
+    token: drivePackets.session.token, guard: drivePackets.session.guard, onChanged: () => { void drivePackets.load(); },
+    onPreview: drivePackets.preview, onMorePreview: drivePackets.morePreview,
+    previewBusy: drivePackets.previewBusy, previewError: drivePackets.previewError });
   const documentTrust = useTrustedDocumentRules(vaultOwnerToken, drivePageActive);
   useEffect(() => {
     if (!open || !vaultOwnerToken || drive?.profile !== "live" || drive.status !== "connected") {
