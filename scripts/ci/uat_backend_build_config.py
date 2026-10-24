@@ -40,7 +40,28 @@ def substitutions(raw: str, separator: str) -> dict[str, str]:
     return values
 
 
-def _validate_frontend_release(values: dict, backend: dict) -> None:
+def _rename_frontend(value, names: dict, pending: bool):
+    if isinstance(value, str):
+        return CUSTOM_SUBSTITUTION.sub(
+            lambda match: (
+                "$${UAT_FRONTEND_IMAGE_REFERENCE}"
+                if pending and match[1] == "_IMAGE_REFERENCE"
+                else "${" + names[match[1]] + "}"
+            ),
+            value,
+        )
+    if isinstance(value, list):
+        return [_rename_frontend(item, names, pending) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _rename_frontend(item, names, pending) for key, item in value.items()
+        }
+    return value
+
+
+def _validate_frontend_release(
+    values: dict, backend: dict, *, pending: bool = False
+) -> None:
     required = {
         "_FRONTEND_SERVICE": "hushh-webapp",
         "_FRONTEND_RUNTIME_SERVICE_ACCOUNT": "hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com",
@@ -58,9 +79,13 @@ def _validate_frontend_release(values: dict, backend: dict) -> None:
         or not re.fullmatch(r"[0-9a-f]{40}", values["_DEPLOY_SHA"])
         or not re.fullmatch(r"[0-9]+", values["_GITHUB_RUN_ID"])
         or not re.fullmatch(r"[1-9][0-9]*", values["_GITHUB_RUN_ATTEMPT"])
-        or not re.fullmatch(
-            r"gcr\.io/hushh-pda-uat/hushh-webapp@sha256:[0-9a-f]{64}",
-            values["_IMAGE_REFERENCE"],
+        or (
+            values["_IMAGE_REFERENCE"] != ""
+            if pending
+            else not re.fullmatch(
+                r"gcr\.io/hushh-pda-uat/hushh-webapp@sha256:[0-9a-f]{64}",
+                values["_IMAGE_REFERENCE"],
+            )
         )
     ):
         raise ValueError(
@@ -98,18 +123,29 @@ def _validate_frontend_template(
 
 
 def frontend_parallel_config(
-    config: dict, frontend: dict, backend_values: dict, frontend_values: dict
+    config: dict,
+    frontend: dict,
+    backend_values: dict,
+    frontend_values: dict,
+    *,
+    frontend_image_build_id: str | None = None,
 ) -> dict:
     """Append the unchanged frontend checks and rollout to one required build.
 
-    Only an already-built immutable UAT image is eligible. Namespace frontend
-    settings so its capacity, image and runtime identity cannot alter backend
-    settings. Do not enable dynamic substitutions in the shared backend build.
+    Pin an already-built image, or await the exact in-flight image build inside
+    this DAG. The canonical frontend steps still receive an immutable executable
+    digest. Namespace settings and keep Cloud Build dynamic substitutions off.
     """
     config = deepcopy(config)
     values = {**frontend["substitutions"], **frontend_values}
     backend = {**config["substitutions"], **backend_values}
-    _validate_frontend_release(values, backend)
+    pending = frontend_image_build_id is not None
+    if pending and not re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        frontend_image_build_id,
+    ):
+        raise ValueError("Parallel frontend requires an exact image build ID")
+    _validate_frontend_release(values, backend, pending=pending)
     _validate_frontend_template(config, frontend, values, frontend_values)
     names = {
         key: key if key in SHARED_SUBSTITUTIONS else "_WEB_" + key[1:] for key in values
@@ -119,28 +155,30 @@ def frontend_parallel_config(
     if re.search(r"(?<!\$)\$_[A-Z0-9_]+", json.dumps(frontend)):
         raise ValueError("Parallel frontend requires braced custom substitutions")
 
-    def rename(value):
-        if isinstance(value, str):
-            return CUSTOM_SUBSTITUTION.sub(
-                lambda match: "${" + names[match[1]] + "}", value
-            )
-        if isinstance(value, list):
-            return [rename(item) for item in value]
-        if isinstance(value, dict):
-            return {key: rename(item) for key, item in value.items()}
-        return value
-
-    for index, step in enumerate(rename(frontend["steps"])):
-        step["waitFor"] = (
-            ["build-backend-image", "verify-runtime-iam"]
-            if index == 0
-            else [FRONTEND_STEPS[index - 1]]
-        )
+    prerequisites = ["build-backend-image", "verify-runtime-iam"]
+    if pending:
+        preparation = _pending_frontend_steps(frontend, values, frontend_image_build_id)
+        if {step["id"] for step in preparation} & {
+            step["id"] for step in config["steps"]
+        }:
+            raise ValueError("Cloud Build step identities must be unique")
+        config["steps"].extend(preparation)
+        prerequisites = ["pin-frontend-image"]
+    for index, step in enumerate(_rename_frontend(frontend["steps"], names, pending)):
+        step["waitFor"] = prerequisites if index == 0 else [FRONTEND_STEPS[index - 1]]
+        if pending and index in {1, 2}:
+            _bind_pending_pin(step, values, frontend_image_build_id)
         if step["id"] in {existing["id"] for existing in config["steps"]}:
             raise ValueError("Cloud Build step identities must be unique")
         config["steps"].append(step)
-    config["availableSecrets"] = rename(frontend["availableSecrets"])
+    config["availableSecrets"] = _rename_frontend(
+        frontend["availableSecrets"], names, pending
+    )
     for key, value in values.items():
+        if pending and key == "_IMAGE_REFERENCE":
+            # The guarded workspace pin supplies this value at execution time.
+            # Keep manual-build substitution matching strict: no unused key.
+            continue
         if key not in SHARED_SUBSTITUTIONS:
             if names[key] in config["substitutions"]:
                 raise ValueError("Frontend substitution namespace collision")
@@ -151,6 +189,92 @@ def frontend_parallel_config(
     ):
         raise ValueError("Combined build exceeds Cloud Build substitution limits")
     return config
+
+
+def _bind_pending_pin(step: dict, values: dict, frontend_image_build_id: str) -> None:
+    # The original immutable-image checks/deploy stay intact. The only
+    # new source is the exact pin produced by the prerequisite step.
+    if (
+        step.get("entrypoint") != "bash"
+        or step["args"][:1] != ["-c"]
+        or len(step["args"]) != 2
+    ):
+        raise ValueError("Parallel frontend requires the known shell entrypoint")
+    if any(
+        item.split("=", 1)[0].startswith("UAT_FRONTEND_IMAGE_")
+        or item.startswith("UAT_EXPECTED_IMAGE_CONTEXT=")
+        for item in step.get("env", [])
+    ):
+        raise ValueError("Frontend image handoff namespace collision")
+    step.setdefault("env", []).append(
+        "UAT_EXPECTED_IMAGE_CONTEXT="
+        + "|".join(
+            (
+                values["_DEPLOY_SHA"],
+                values["_GITHUB_RUN_ID"],
+                values["_GITHUB_RUN_ATTEMPT"],
+                frontend_image_build_id,
+                "$BUILD_ID",
+            )
+        )
+    )
+    step["args"][1] = PENDING_IMAGE_GUARD.replace("$", "$$") + step["args"][1]
+
+
+PENDING_IMAGE_GUARD = """set -euo pipefail
+uat_image_context=""; UAT_FRONTEND_IMAGE_REFERENCE=""; uat_image_extra=""
+if ! { IFS= read -r uat_image_context && IFS= read -r UAT_FRONTEND_IMAGE_REFERENCE && ! IFS= read -r uat_image_extra; } < /workspace/.uat-frontend-image-reference ||
+   [[ "$uat_image_context" != "$UAT_EXPECTED_IMAGE_CONTEXT" ||
+      ! "$UAT_FRONTEND_IMAGE_REFERENCE" =~ ^gcr[.]io/hushh-pda-uat/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+  echo "UAT frontend image handoff does not match this exact release." >&2; exit 1
+fi
+"""
+
+
+def _pending_frontend_steps(frontend: dict, values: dict, build_id: str) -> list[dict]:
+    arguments = [
+        "--image-build-id",
+        build_id,
+        "--deployment-build-id",
+        "$BUILD_ID",
+        "--sha",
+        values["_DEPLOY_SHA"],
+        "--github-run",
+        values["_GITHUB_RUN_ID"],
+        "--github-attempt",
+        values["_GITHUB_RUN_ATTEMPT"],
+    ]
+    module = "scripts/ci/uat_frontend_image_handoff.py"
+    inspect = """set -euo pipefail
+image_reference="$(cat /workspace/.uat-frontend-image-parent)"
+if [[ ! "$image_reference" =~ ^gcr[.]io/hushh-pda-uat/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+  echo "UAT frontend parent image is not pinned." >&2; exit 1
+fi
+docker buildx imagetools inspect --raw "$image_reference" > /workspace/.uat-frontend-image-manifest.json
+"""
+    return [
+        {
+            "id": "await-frontend-image",
+            "name": frontend["steps"][0]["name"],
+            "entrypoint": "python3",
+            "args": [module, "wait", *arguments],
+            "waitFor": ["build-backend-image", "verify-runtime-iam"],
+        },
+        {
+            "id": "inspect-frontend-image-manifest",
+            "name": frontend["steps"][1]["name"],
+            "entrypoint": "bash",
+            "args": ["-c", inspect.replace("$", "$$")],
+            "waitFor": ["await-frontend-image"],
+        },
+        {
+            "id": "pin-frontend-image",
+            "name": frontend["steps"][0]["name"],
+            "entrypoint": "python3",
+            "args": [module, "pin", *arguments],
+            "waitFor": ["inspect-frontend-image-manifest"],
+        },
+    ]
 
 
 UAT_CANDIDATE_COMMAND = """set -euo pipefail
@@ -221,6 +345,7 @@ def main() -> None:
     parser.add_argument("--frontend-source", type=Path)
     parser.add_argument("--frontend-substitutions")
     parser.add_argument("--backend-substitutions")
+    parser.add_argument("--frontend-image-build-id")
     args = parser.parse_args()
     config = candidate_parallel_config(yaml.safe_load(args.source.read_text()))
     if args.frontend_source:
@@ -229,7 +354,10 @@ def main() -> None:
             yaml.safe_load(args.frontend_source.read_text()),
             substitutions(args.backend_substitutions, "##"),
             substitutions(args.frontend_substitutions, ","),
+            frontend_image_build_id=args.frontend_image_build_id,
         )
+    elif args.frontend_image_build_id:
+        parser.error("--frontend-image-build-id requires the frontend template")
     args.output.write_text(json.dumps(config, indent=2) + "\n")
 
 
