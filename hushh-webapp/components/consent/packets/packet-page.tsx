@@ -25,6 +25,7 @@ export type PacketPageRow = {
   value?: string;
   /** Shows the tone's icon. */
   tone?: PacketTone;
+  onOpen?: () => void;
 };
 
 export type PacketPageSection = {
@@ -100,7 +101,7 @@ export function PacketPage({ open, onOpenChange, title, description, sections, a
           <SettingsGroup key={section.id} title={section.title}>
             {section.rows?.map((row) => (
               <SettingsRow key={row.id} icon={row.tone ? PACKET_TONE_ICONS[row.tone] : undefined} iconTone="capability"
-                title={row.title} description={row.description}
+                title={row.title} description={row.description} chevron={!!row.onOpen} onClick={row.onOpen}
                 trailing={row.value ? <span className="tabular-nums">{row.value}</span> : undefined} />
             ))}
             {section.children}

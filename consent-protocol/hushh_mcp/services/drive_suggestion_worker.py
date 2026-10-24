@@ -74,30 +74,13 @@ class DriveSuggestionWorker:
                     }.get(outcome, "unavailable")
                 ] += count
             return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
-        packages = self._package_service() if _agent_packages_enabled() else None
+        period_only = (
+            not _agent_packages_enabled()
+            and os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").strip().lower() == "true"
+        )
+        packages = self._package_service() if _agent_packages_enabled() or period_only else None
         if packages is not None:
-            # A separate finite task prevents either legacy or package traffic
-            # from starving the other; neither branch can extend this deadline.
-            async with asyncio.TaskGroup() as group:
-                package_run = group.create_task(
-                    packages.run(max_jobs=max_jobs, deadline_seconds=deadline_seconds)
-                )
-                legacy_run = group.create_task(
-                    DriveSuggestionWorker(self.service).run(
-                        max_jobs=max_jobs, deadline_seconds=deadline_seconds
-                    )
-                )
-            counts.update(legacy_run.result()["outcomes"])
-            for status, count in package_run.result().items():
-                target = {
-                    "queued": "package_queued",
-                    "ready": "review_ready",
-                    "no_match": "no_ready_files",
-                    "not_claimed": "not_claimed",
-                    "deadline": "deadline",
-                }.get(status, "unavailable")
-                counts[target] += count
-            return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
+            return await self._run_packages(packages, period_only, max_jobs, deadline_seconds)
         try:
             async with asyncio.timeout(deadline_seconds):
                 # Durable inspection timestamps rotate even excluded or
@@ -121,4 +104,33 @@ class DriveSuggestionWorker:
                         counts["unavailable"] += 1
         except TimeoutError:
             counts["deadline"] += 1
+        return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}
+
+    async def _run_packages(self, packages, period_only, max_jobs, deadline_seconds):
+        counts = Counter()
+        # A separate finite task prevents either legacy or package traffic
+        # from starving the other; neither branch can extend this deadline.
+        async with asyncio.TaskGroup() as group:
+            package_run = group.create_task(
+                packages.run(
+                    max_jobs=max_jobs,
+                    deadline_seconds=deadline_seconds,
+                    **({"provider_only": True} if period_only else {}),
+                )
+            )
+            legacy_run = group.create_task(
+                DriveSuggestionWorker(self.service).run(
+                    max_jobs=max_jobs, deadline_seconds=deadline_seconds
+                )
+            )
+        counts.update(legacy_run.result()["outcomes"])
+        for status, count in package_run.result().items():
+            target = {
+                "queued": "package_queued",
+                "ready": "review_ready",
+                "no_match": "no_ready_files",
+                "not_claimed": "not_claimed",
+                "deadline": "deadline",
+            }.get(status, "unavailable")
+            counts[target] += count
         return {"schema_version": "drive.suggestions.worker.v1", "outcomes": dict(counts)}

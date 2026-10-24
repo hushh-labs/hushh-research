@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -36,9 +37,14 @@ class PackageDisclosure(BaseModel):
     coverageStatus: str = Field(pattern=r"^(complete|partial|unknown)$")
     periods: list[DisclosurePeriod] = Field(max_length=120)
     limitations: list[str] = Field(max_length=24)
+    confidenceBasis: Literal["provider_search"] | None = None
 
     @model_validator(mode="after")
     def bounded(self):
+        if self.confidenceBasis == "provider_search" and (
+            self.coverageStatus != "unknown" or self.periods
+        ):
+            raise ValueError("Drive search cannot attest document coverage")
         if any(not item or len(item) > 300 for item in self.limitations):
             raise ValueError("invalid buyer limitation")
         if self.coverageStatus != "complete" and not self.limitations:
@@ -120,7 +126,7 @@ def build_package_disclosure(*, package, purpose, observations):
             ],
             "limitations": limitations,
         }
-    ).model_dump()
+    ).model_dump(exclude_none=True)
 
 
 def buyer_package_disclosure(private, *, request_revision, owner_allowed_at):
@@ -134,7 +140,9 @@ def buyer_package_disclosure(private, *, request_revision, owner_allowed_at):
     ):
         return None
     try:
-        value = PackageDisclosure.model_validate(marker.get("buyer_disclosure")).model_dump()
+        value = PackageDisclosure.model_validate(marker.get("buyer_disclosure")).model_dump(
+            exclude_none=True
+        )
     except (ValidationError, ValueError, TypeError):
         return None
     if (
@@ -164,7 +172,9 @@ def manual_buyer_disclosure(private, *, request_revision):
     ):
         return None
     try:
-        full = PackageDisclosure.model_validate(marker.get("buyer_disclosure")).model_dump()
+        full = PackageDisclosure.model_validate(marker.get("buyer_disclosure")).model_dump(
+            exclude_none=True
+        )
     except (ValidationError, ValueError, TypeError):
         return None
     if (
@@ -192,4 +202,4 @@ def manual_buyer_disclosure(private, *, request_revision):
                 "The owner approved a subset of verified documents. Coverage of this exact selection has not been verified."
             ],
         }
-    ).model_dump()
+    ).model_dump(exclude_none=True)

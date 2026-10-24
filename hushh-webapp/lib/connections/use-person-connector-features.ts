@@ -25,7 +25,7 @@ export function usePersonConnectorFeatures(userId: string | undefined, token: st
   const availability: PersonConnectorAvailability = !unlocked ? { status: "locked" }
     : resource.error ? { status: "error" }
     : resource.data ? { status: "ready", documentSharing: resource.data.features?.drive_document_sharing === true,
-      agentPackages: resource.data.driveAgentPackagesEnabled === true }
+      agentPackages: resource.data.driveAgentPackagesEnabled === true || resource.data.features?.drive_period_packets === true }
     : { status: "checking" };
   return { availability, retry: () => resource.refresh({ force: true }) };
 }

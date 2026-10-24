@@ -64,6 +64,27 @@ async function closePage(page: HTMLElement) {
 const JARGON = /coverage|private agent|evidence|assessment|importance|verified|inventory/i;
 
 describe("a seller's packets, as a buyer sees them", () => {
+  it("restores a paid category-period receipt after remount without another purchase", async () => {
+    const purchased = { kind: "provider_discovery", category: "bank", packetId: id(4), version: 1,
+      listingRevision: 3, title: "Account statements", description: "Drive search matches", coverageSummary: "July–August 2026",
+      periodStart: "2026-07-01", periodEnd: "2026-08-31", timezone: "Asia/Kolkata", state: "ready",
+      documentCount: 2, freshness: "current", priceCents: 500, listingEnabled: true, canList: false, canRequest: true,
+      requestId: REQUEST, purchaseState: "delivered" };
+    state.packets.mockResolvedValue({ packets: [purchased], nextCursor: null });
+    let view = render(<Catalog />);
+    for (let visit = 0; visit < 2; visit++) {
+      fireEvent.click(await screen.findByRole("button", { name: "Open Account statements" }));
+      fireEvent.click(screen.getByRole("button", { name: /^Jul–Aug 2026/ }));
+      const page = await screen.findByRole("dialog", { name: purchased.title });
+      expect(within(page).getByRole("link", { name: "View files" }).getAttribute("href"))
+        .toContain(encodeURIComponent(`document_share_request:${REQUEST}`));
+      expect(within(page).queryByRole("button", { name: /^Buy/ })).toBeNull();
+      expect(within(page).queryByRole("heading", { name: "Price" })).toBeNull();
+      await closePage(page); view.unmount();
+      if (visit === 0) view = render(<Catalog />);
+    }
+    expect(state.request).not.toHaveBeenCalled(); expect(state.checkout).not.toHaveBeenCalled();
+  });
   it("shows one history row per listed packet: name, what it covers and price, with no buttons", async () => {
     render(<Catalog />);
     const list = screen.getByRole("region", { name: "Available document packets" });

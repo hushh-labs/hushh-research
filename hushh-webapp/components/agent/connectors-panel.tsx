@@ -832,12 +832,15 @@ function OwnerConnectorsPanel({
   const drivePageActive = open && activeConnector === "google_drive" && !!vaultOwnerToken;
   const collectionActive = drivePageActive && overview?.driveAgentPackagesEnabled === true &&
     overview.features.drive_document_indexing === true && drive?.profile === "live" && drive.status === "connected";
+  const packetCatalogActive = drivePageActive && (overview?.driveAgentPackagesEnabled === true || overview?.features.drive_period_packets === true) &&
+    drive?.profile === "live" && drive.status === "connected";
   const driveCollection = useDriveCollectionModel(liveBackground, collectionActive);
   const groupsActive = drivePageActive && overview?.features.drive_four_group_index === true &&
     drive?.profile === "live" && drive.status === "connected";
   const driveGroups = useDriveDataPackets(groupsActive, `${drive?.accountLabel ?? ""}:${drive?.connectedAt ?? ""}`, liveBackground);
-  const drivePackets = useDrivePacketCatalogModel({ enabled: collectionActive && !!driveCollection.status,
-    refreshKey: driveCollection.revision, preparationPaused: driveCollection.paused || !driveCollection.status?.enabled });
+  const drivePackets = useDrivePacketCatalogModel({ enabled: packetCatalogActive,
+    periodPackets: overview?.features.drive_period_packets === true,
+    refreshKey: driveCollection.revision, preparationPaused: overview?.features.drive_period_packets !== true && (driveCollection.paused || !driveCollection.status?.enabled) });
   const ownerPacket = useOwnerPacketPageModel({ packet: drivePageActive && drivePackets.opened ? drivePackets.live ?? (drivePackets.cursor ? drivePackets.opened : null) : null,
     token: drivePackets.session.token, guard: drivePackets.session.guard, onChanged: () => { void drivePackets.load(); } });
   const documentTrust = useTrustedDocumentRules(vaultOwnerToken, drivePageActive);
@@ -2800,7 +2803,8 @@ function OwnerConnectorsPanel({
               )}
               {overview?.driveAgentPackagesEnabled === true && overview.features.drive_document_indexing === true &&
                 drive?.profile === "live" && drive.status === "connected" &&
-                <DriveCollectionView model={driveCollection} packets={<DrivePacketCatalogView model={drivePackets} ownerModel={ownerPacket} />} />}
+                <DriveCollectionView model={driveCollection} packets={null} />}
+              {packetCatalogActive && <DrivePacketCatalogView model={drivePackets} ownerModel={ownerPacket} />}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <details className="group rounded-2xl bg-foreground/5 text-sm">
                   <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-normal [&::-webkit-details-marker]:hidden">

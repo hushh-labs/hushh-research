@@ -287,6 +287,7 @@ class DrivePacketStore(DriveDocumentFactsStore):
                 text("""WITH empty AS (
                   SELECT h.packet_id FROM drive_packet_heads h
                   WHERE h.user_id=:user AND h.connection_generation=:generation
+                    AND h.packet_kind='content_facts'
                     AND NOT EXISTS(SELECT 1 FROM drive_packet_members m WHERE m.packet_id=h.packet_id)
                     AND (h.dirty OR h.awaiting_collection OR h.lease_id IS NOT NULL OR EXISTS(
                       SELECT 1 FROM drive_packet_versions v WHERE v.packet_id=h.packet_id AND v.available))
@@ -998,29 +999,17 @@ class DrivePacketStore(DriveDocumentFactsStore):
             raise DriveReadError("invalid_argument")
         if decision == "allow" and disclosure != LISTING_DISCLOSURE:
             raise DriveReadError("listing_disclosure_required")
-        from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
+        from hushh_mcp.services.drive_packet_listing_authority import require_listing
 
         def operation(connection):
-            if decision == "allow":
-                self._access(connection, viewer=user_id, owner=user_id)
-            else:
-                lock_connection_graph_users(connection, user_ids=[user_id])
+            lock_connection_graph_users(connection, user_ids=[user_id])
             row = self._row(
                 connection,
                 """SELECT h.*,v.* FROM drive_packet_heads h JOIN drive_packet_versions v
               ON v.packet_id=h.packet_id AND v.version=:version WHERE h.packet_id=:id AND h.user_id=:user FOR UPDATE OF h""",
                 {"id": str(UUID(packet_id)), "user": user_id, "version": version},
             )
-            if (
-                not row
-                or decision == "allow"
-                and (
-                    row["current_version"] != version
-                    or not 0 < row["document_count"] <= 120
-                    or not self._available(connection, row, facts_policy_version())
-                )
-            ):
-                raise DriveReadError("packet_unavailable")
+            require_listing(self, connection, row, user_id, decision, price_cents)
             listing = self._row(
                 connection,
                 "SELECT * FROM drive_packet_listings WHERE packet_id=:id AND version=:version FOR UPDATE",
@@ -1057,7 +1046,13 @@ class DrivePacketStore(DriveDocumentFactsStore):
         self, connection, *, owner_user_id, packet_id, version, viewer_user_id=None
     ):
         from hushh_mcp.services.drive_packet_intelligence import facts_policy_version
+        from hushh_mcp.services.drive_period_packet_reader import resolve_period_manifest
 
+        period = resolve_period_manifest(
+            self, connection, owner_user_id, packet_id, version, viewer_user_id
+        )
+        if period is not None:
+            return period
         viewer = viewer_user_id or owner_user_id
         self._access(connection, viewer=viewer, owner=owner_user_id)
         row = self._row(
