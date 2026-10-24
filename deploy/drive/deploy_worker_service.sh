@@ -103,10 +103,13 @@ print(tag)
 PY
 )"
 traffic_flags=(--tag="${traffic_tag}")
+prior_worker_url=""
 if [[ "${service_exists}" == true ]]; then
-  serving_state="$(gcloud run services describe "${SERVICE}" \
-    --project="${PROJECT_ID}" --region="${REGION}" --format=json \
-    | python3 -c 'import json,sys; data=json.load(sys.stdin); traffic=(data.get("status") or {}).get("traffic") or []; positive=[item for item in traffic if item.get("percent",0)>0]; print("empty" if not positive else "serving:"+str(positive[0].get("revisionName")) if len(positive)==1 and positive[0].get("percent")==100 and positive[0].get("revisionName") else "ambiguous")')"
+  # Bind rollback traffic and scheduler capture to one service snapshot.
+  service_snapshot="$(gcloud run services describe "${SERVICE}" \
+    --project="${PROJECT_ID}" --region="${REGION}" --format=json)"
+  serving_state="$(python3 -c 'import json,sys; data=json.load(sys.stdin); traffic=(data.get("status") or {}).get("traffic") or []; positive=[item for item in traffic if item.get("percent",0)>0]; print("empty" if not positive else "serving:"+str(positive[0].get("revisionName")) if len(positive)==1 and positive[0].get("percent")==100 and positive[0].get("revisionName") else "ambiguous")' <<< "${service_snapshot}")"
+  prior_worker_url="$(python3 -c 'import json,sys; print((json.load(sys.stdin).get("status") or {}).get("url") or "")' <<< "${service_snapshot}")"
   case "${serving_state}" in
     serving:*)
       previous_revision="${serving_state#serving:}"
@@ -121,12 +124,6 @@ if [[ "${service_exists}" == true ]]; then
       exit 1
       ;;
   esac
-fi
-prior_worker_url=""
-if [[ "${service_exists}" == true ]]; then
-  prior_worker_url="$(gcloud run services describe "${SERVICE}" \
-    --project="${PROJECT_ID}" --region="${REGION}" \
-    --format='value(status.url)')"
 fi
 scheduler_snapshot="$(mktemp)"
 capture_args=(capture --snapshot "${scheduler_snapshot}")

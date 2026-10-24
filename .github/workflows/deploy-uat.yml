@@ -1371,11 +1371,55 @@ jobs:
           fi
           echo "names=${names}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare frontend rollout and reuse a ready image
+        id: prepare-frontend-rollout
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        env:
+          FRONTEND_BUILD_SUBSTITUTIONS: ${{ steps.start-frontend-image-build.outputs.build_substitutions }}
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+          FRONTEND_IMAGE_TAG: ${{ steps.start-frontend-image-build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_FRONTEND_RUNTIME_SERVICE_ACCOUNT=${{ env.FRONTEND_RUNTIME_SERVICE_ACCOUNT }},_REGION=${{ env.GCP_REGION }},_HUSHH_TECH_CLIENT_ENABLED=${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }},_HUSHH_TECH_PROXY_AUDIENCE=${{ env.CONSENT_API_RUNTIME_ORIGIN }},_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${{ vars.HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS || '0' }},_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI,_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }},_CLOUD_RUN_MEMORY=1Gi,_CLOUD_RUN_TIMEOUT_SECONDS=300,_CLOUD_RUN_CONCURRENCY=10,_CLOUD_RUN_MIN_INSTANCES=2,_CLOUD_RUN_MAX_INSTANCES=10,_CLOUD_RUN_NO_TRAFFIC=true,_DEPLOY_SOURCE=deploy-uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
+          if [ -z "${FRONTEND_BUILD_SUBSTITUTIONS}" ]; then
+            echo "Refusing frontend deploy: the frontend build substitutions were not resolved." >&2
+            exit 1
+          fi
+          SUBSTITUTIONS="${SUBSTITUTIONS},${FRONTEND_BUILD_SUBSTITUTIONS}"
+          echo "substitutions=${SUBSTITUTIONS}" >> "$GITHUB_OUTPUT"
+          echo "parallel=false" >> "$GITHUB_OUTPUT"
+          echo "wait_seconds=0" >> "$GITHUB_OUTPUT"
+          # Do not delay backend readiness for a cold frontend build. A ready
+          # image may deploy at zero traffic in the same required Cloud Build.
+          if [[ "${{ steps.scope.outputs.deploy_backend }}" == "true" &&
+                "${{ steps.start-frontend-image-build.outputs.prebuilt }}" == "true" ]]; then
+            status="$(gcloud builds describe "${FRONTEND_IMAGE_BUILD_ID}" \
+              --project="${{ env.GCP_PROJECT_ID }}" --format='value(status)')"
+            if [[ "$status" == "SUCCESS" ]]; then
+              started_at="$(date +%s)"
+              image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
+                --project "${{ env.GCP_PROJECT_ID }}" \
+                --build-id "${FRONTEND_IMAGE_BUILD_ID}" \
+                --image-repository "gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp" \
+                --image-tag "${FRONTEND_IMAGE_TAG}" \
+                --sha "${{ steps.resolve-sha.outputs.sha }}" \
+                --manifest-json /tmp/uat-frontend-image-manifest.json \
+                --json-output /tmp/uat-frontend-image.json)"
+              echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+              echo "parallel=true" >> "$GITHUB_OUTPUT"
+              echo "wait_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
+          FRONTEND_PARALLEL: ${{ steps.prepare-frontend-rollout.outputs.parallel || 'false' }}
+          FRONTEND_DEPLOY_SUBSTITUTIONS: ${{ steps.prepare-frontend-rollout.outputs.substitutions }}
+          FRONTEND_PARALLEL_IMAGE: ${{ steps.prepare-frontend-rollout.outputs.image_reference }}
           STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
           STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
           DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED || 'true' }}
@@ -1458,8 +1502,13 @@ jobs:
           # Migrations have passed. The private candidate can now warm alongside
           # both probes; the same build's required aggregate still joins all
           # three before this step or any later promotion can succeed.
-          "${{ env.PROTOCOL_PYTHON }}" scripts/ci/uat_backend_build_config.py \
-            --output /tmp/uat-backend-parallel.cloudbuild.json
+          config_args=(--output /tmp/uat-backend-parallel.cloudbuild.json)
+          if [[ "$FRONTEND_PARALLEL" == "true" ]]; then
+            config_args+=(--frontend-source deploy/frontend.cloudbuild.yaml
+              --backend-substitutions "$SUBSTITUTIONS"
+              --frontend-substitutions "${FRONTEND_DEPLOY_SUBSTITUTIONS},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${FRONTEND_PARALLEL_IMAGE}")
+          fi
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ci/uat_backend_build_config.py "${config_args[@]}"
           build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=/tmp/uat-backend-parallel.cloudbuild.json \
@@ -1660,24 +1709,29 @@ jobs:
         env:
           FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
           FRONTEND_IMAGE_TAG: ${{ steps.start-frontend-image-build.outputs.image_tag }}
+          FRONTEND_PARALLEL_IMAGE: ${{ steps.prepare-frontend-rollout.outputs.image_reference }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
           image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
-          image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
-            --project "${{ env.GCP_PROJECT_ID }}" \
-            --build-id "${FRONTEND_IMAGE_BUILD_ID}" \
-            --image-repository "${image_repository}" \
-            --image-tag "${FRONTEND_IMAGE_TAG}" \
-            --sha "${{ steps.resolve-sha.outputs.sha }}" \
-            --manifest-json /tmp/uat-frontend-image-manifest.json \
-            --json-output /tmp/uat-frontend-image.json)"
+          if [[ -n "$FRONTEND_PARALLEL_IMAGE" ]]; then
+            image_reference="$FRONTEND_PARALLEL_IMAGE"
+          else
+            image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
+              --project "${{ env.GCP_PROJECT_ID }}" \
+              --build-id "${FRONTEND_IMAGE_BUILD_ID}" \
+              --image-repository "${image_repository}" \
+              --image-tag "${FRONTEND_IMAGE_TAG}" \
+              --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --manifest-json /tmp/uat-frontend-image-manifest.json \
+              --json-output /tmp/uat-frontend-image.json)"
+          fi
           if [[ ! "${image_reference}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
             echo "Frontend image did not pin to an immutable sha256 digest." >&2
             exit 1
           fi
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
-          echo "wait_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
+          echo "wait_seconds=$(( $(date +%s) - started_at + ${{ steps.prepare-frontend-rollout.outputs.wait_seconds || '0' }} ))" >> "$GITHUB_OUTPUT"
 
       - name: Deploy frontend using Cloud Build
         id: deploy-frontend
@@ -1686,16 +1740,26 @@ jobs:
         env:
           FRONTEND_PREBUILT: ${{ steps.start-frontend-image-build.outputs.prebuilt }}
           FRONTEND_IMAGE_REFERENCE: ${{ steps.build-frontend-image.outputs.image_reference }}
-          FRONTEND_BUILD_SUBSTITUTIONS: ${{ steps.start-frontend-image-build.outputs.build_substitutions }}
+          FRONTEND_DEPLOY_SUBSTITUTIONS: ${{ steps.prepare-frontend-rollout.outputs.substitutions }}
+          FRONTEND_PARALLEL: ${{ steps.prepare-frontend-rollout.outputs.parallel || 'false' }}
+          SHARED_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
-          SUBSTITUTIONS="_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_FRONTEND_RUNTIME_SERVICE_ACCOUNT=${{ env.FRONTEND_RUNTIME_SERVICE_ACCOUNT }},_REGION=${{ env.GCP_REGION }},_HUSHH_TECH_CLIENT_ENABLED=${{ vars.HUSSH_TECH_CLIENT_ENABLED || 'false' }},_HUSHH_TECH_PROXY_AUDIENCE=${{ env.CONSENT_API_RUNTIME_ORIGIN }},_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${{ vars.HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS || '0' }},_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI,_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }},_CLOUD_RUN_MEMORY=1Gi,_CLOUD_RUN_TIMEOUT_SECONDS=300,_CLOUD_RUN_CONCURRENCY=10,_CLOUD_RUN_MIN_INSTANCES=2,_CLOUD_RUN_MAX_INSTANCES=10,_CLOUD_RUN_NO_TRAFFIC=true,_DEPLOY_SOURCE=deploy-uat,_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
-          if [ -z "${FRONTEND_BUILD_SUBSTITUTIONS}" ]; then
-            echo "Refusing frontend deploy: the frontend build substitutions were not resolved." >&2
+          SUBSTITUTIONS="${FRONTEND_DEPLOY_SUBSTITUTIONS}"
+          if [ -z "${SUBSTITUTIONS}" ]; then
+            echo "Refusing frontend deploy: rollout substitutions were not resolved." >&2
             exit 1
           fi
-          SUBSTITUTIONS="${SUBSTITUTIONS},${FRONTEND_BUILD_SUBSTITUTIONS}"
+          if [[ "$FRONTEND_PARALLEL" == "true" ]]; then
+            # The synchronous backend step joined all required frontend steps.
+            # Record the shared build instead of reporting this no-op as rollout time.
+            [[ "$SHARED_BUILD_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]
+            [[ "$FRONTEND_PREBUILT" == "true" && "$FRONTEND_IMAGE_REFERENCE" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]
+            echo "shared_build_id=${SHARED_BUILD_ID}" >> "$GITHUB_OUTPUT"
+            echo "Frontend rollout completed in required Cloud Build ${SHARED_BUILD_ID}."
+            exit 0
+          fi
           source_arg="."
           case "${FRONTEND_PREBUILT}" in
             true)
@@ -3532,6 +3596,11 @@ jobs:
                   # zero means the build was fully hidden behind the backend path.
                   "frontend_image_wait": "${{ steps.build-frontend-image.outputs.wait_seconds || '0' }}",
               },
+              "build_execution": {
+                  "backend_cloud_build_id": "${{ steps.deploy-backend.outputs.build_id }}",
+                  "frontend_shared_build_id": "${{ steps.deploy-frontend.outputs.shared_build_id }}",
+                  "frontend_mode": "${{ steps.prepare-frontend-rollout.outputs.parallel == 'true' && 'shared_backend_build' || 'separate_build' }}",
+              },
           }
           payload["backend_image_source"] = "${{ steps.build-backend-image.outputs.image_source }}"
           predecessor = Path("/tmp/uat-predecessor-acceptance.json")
@@ -3707,8 +3776,12 @@ jobs:
             echo "### Deploy Timing"
             echo ""
             echo "- Total job time so far: \`${total_seconds}s\`"
-            echo "- Backend Cloud Build: \`${backend_build_seconds}s\`"
-            echo "- Frontend Cloud Build: \`${frontend_build_seconds}s\`"
+            echo "- Backend/shared Cloud Build: \`${backend_build_seconds}s\`"
+            if [[ "${{ steps.prepare-frontend-rollout.outputs.parallel }}" == "true" ]]; then
+              echo "- Frontend rollout: included in [shared Cloud Build](https://console.cloud.google.com/cloud-build/builds/${{ steps.deploy-frontend.outputs.shared_build_id }}?project=${{ env.GCP_PROJECT_ID }}); not an additional serial build."
+            else
+              echo "- Frontend Cloud Build: \`${frontend_build_seconds}s\`"
+            fi
             echo "- Non-build gates and verification: \`${non_build_seconds}s\`"
             echo ""
             echo "### Revision Maintenance"

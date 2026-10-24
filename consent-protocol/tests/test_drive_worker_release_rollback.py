@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.drive_worker_gcloud import write_executables
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKER_RELEASE = ROOT / "deploy" / "drive" / "deploy_worker_service.sh"
 API_ORIGIN = "https://api.uat.hushh.ai"
@@ -204,6 +206,14 @@ elif args[:3] == ["scheduler", "jobs", "delete"]:
     save()
 elif args[:3] in (["scheduler", "jobs", "pause"], ["scheduler", "jobs", "resume"]):
     jobs[args[3]]["state"] = "PAUSED" if args[2] == "pause" else "ENABLED"
+    if args[2] == "resume":
+        mutation = os.environ.get("MOCK_RESUME_DRIFT", "")
+        if mutation == "state":
+            jobs[args[3]]["state"] = "PAUSED"
+        elif mutation == "audience":
+            jobs[args[3]]["httpTarget"]["oidcToken"]["audience"] = "https://foreign.invalid"
+        elif mutation == "body":
+            jobs[args[3]]["httpTarget"]["body"] = base64.b64encode(b'{"stage":"documents"}').decode()
     save()
 elif args[:3] == ["scheduler", "jobs", "run"]:
     state.setdefault("triggered", []).append(args[3])
@@ -269,12 +279,9 @@ if count == 2 and os.environ.get("MOCK_TERMINATE_AFTER_SETUP", "true") == "true"
 """
 
 
-def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_gcloud = fake_bin / "gcloud"
-    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
-    fake_gcloud.chmod(0o755)
+@pytest.mark.parametrize("resume_drift", ["", "state", "audience", "body"])
+def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path, resume_drift):
+    fake_bin = write_executables(tmp_path / "bin", {"gcloud": FAKE_GCLOUD})
     name = "drive-work-suggestions-uat"
     paused = _job(name, "suggestions", "* * * * *", "240s")
     paused["state"] = "PAUSED"
@@ -290,6 +297,7 @@ def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
             "JOB_NAME": name,
             "STAGE": "suggestions",
             "CRON": "* * * * *",
+            "MOCK_RESUME_DRIFT": resume_drift,
         }
     )
     result = subprocess.run(  # noqa: S603 - fixed repository-owned release helper
@@ -301,9 +309,9 @@ def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
         text=True,
         timeout=20,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert (result.returncode == 0) is (not resume_drift), result.stdout + result.stderr
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["jobs"][name]["state"] == "ENABLED"
+    assert state["jobs"][name]["state"] == ("PAUSED" if resume_drift == "state" else "ENABLED")
 
 
 @pytest.mark.parametrize(
@@ -326,9 +334,7 @@ def test_mock_cloud_logging_requires_quoted_filter_and_json(
     json_output: bool,
     valid: bool,
 ):
-    fake_gcloud = tmp_path / "gcloud"
-    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
-    fake_gcloud.chmod(0o755)
+    fake_gcloud = write_executables(tmp_path, {"gcloud": FAKE_GCLOUD}) / "gcloud"
     job_name = "drive-work-drain-uat"
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(
@@ -373,14 +379,7 @@ def test_mock_cloud_logging_requires_quoted_filter_and_json(
 def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
     tmp_path: Path, existing_new_jobs: bool, restore_succeeds: bool
 ):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_gcloud = fake_bin / "gcloud"
-    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
-    fake_gcloud.chmod(0o755)
-    fake_bash = fake_bin / "bash"
-    fake_bash.write_text(FAKE_BASH, encoding="utf-8")
-    fake_bash.chmod(0o755)
+    fake_bin = write_executables(tmp_path / "bin", {"gcloud": FAKE_GCLOUD, "bash": FAKE_BASH})
     initial_jobs = {
         "drive-work-drain-uat": _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
     }
@@ -439,12 +438,7 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
 
 
 def _release_probe_binaries(tmp_path: Path) -> Path:
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    for name, source in (("gcloud", FAKE_GCLOUD), ("bash", FAKE_BASH)):
-        executable = fake_bin / name
-        executable.write_text(source, encoding="utf-8")
-        executable.chmod(0o755)
+    fake_bin = write_executables(tmp_path / "bin", {"gcloud": FAKE_GCLOUD, "bash": FAKE_BASH})
     fake_sleep = fake_bin / "sleep"
     fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     fake_sleep.chmod(0o755)

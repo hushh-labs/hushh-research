@@ -67,6 +67,21 @@ duplicate build; actual deployment duration still requires hosted measurement.
 See [the repository-scoped IAM plan](iam/README.md#uat-image-promotion) before
 enabling cross-project image reads. IAM grants require separate authorization.
 
+After migrations and preservation checks, a completed, pinned frontend image
+can roll out at zero traffic in the same Cloud Build as the backend candidate
+and provider probes. The UAT scheduling adapter derives every frontend check,
+secret binding and deploy step from the shared frontend template, with separate
+substitutions for its runtime identity, image and capacity. The whole build must
+succeed before candidate verification, paired analytics smoke or exact-revision
+traffic promotion. Cold image builds and frontend-only scopes retain the serial
+frontend deploy. Release receipts and summaries identify the shared build so
+overlapped rollout time is not reported as a zero-second deployment.
+
+Worker rollback captures and scheduler verification use one response per
+observation. A paused scheduler is resumed and read again before its state,
+target, OIDC identity, audience and stage body are verified. These reads retain
+the existing worker startup, trigger-completion and rollback gates.
+
 UAT keeps the backend's maximum concurrency at 20 and sets
 `_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20`. The default 60% target seeks about
 12 concurrent requests per instance, while one Feed worker admits only six
