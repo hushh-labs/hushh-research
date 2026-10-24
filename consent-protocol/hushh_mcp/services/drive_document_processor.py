@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import os
 import signal
@@ -23,7 +24,11 @@ from hushh_mcp.services.document_index_service import (
     IndexedChunk,
     PreparedIndex,
 )
-from hushh_mcp.services.drive_document_embedding import PROFILE, prepare_payload
+from hushh_mcp.services.drive_document_embedding import (
+    PROFILE,
+    PUBLIC_ADMISSION_QUERY,
+    prepare_payload,
+)
 from hushh_mcp.services.drive_document_pages import (
     MAX_BATCH_PAGES,
     MAX_SOURCE_BYTES,
@@ -32,6 +37,7 @@ from hushh_mcp.services.drive_document_pages import (
 from hushh_mcp.services.drive_document_parser import MAX_TEXT_BYTES, ParsedText
 from hushh_mcp.services.drive_worker_limits import page_extraction_slots
 from hushh_mcp.services.embedding_client_leaf import (
+    ADMISSION_TIMING_PHASES,
     BAKED_MODEL_DIR,
     BAKED_MODEL_DIR_ENV,
     EmbeddingClient,
@@ -48,6 +54,34 @@ PARSE_CODES = frozenset(
     }
 )
 _EMBEDDING_ADMISSION: WeakKeyDictionary = WeakKeyDictionary()
+logger = logging.getLogger(__name__)
+
+
+def _log_admission_timings(values: object) -> None:
+    # The child response is untrusted. Only closed phase names and bounded
+    # integers may enter logs, after the public probe's vector passed validation.
+    if (
+        not isinstance(values, dict)
+        or set(values) != set(ADMISSION_TIMING_PHASES)
+        or any(
+            not isinstance(metrics, dict)
+            or set(metrics) != {"wall_ms", "cpu_ms"}
+            or any(
+                type(value) is not int or not 0 <= value <= 105_000 for value in metrics.values()
+            )
+            for metrics in values.values()
+        )
+    ):
+        # Diagnostics are not a new readiness gate.
+        logger.info("drive_worker_embedding_admission timings=unavailable")
+        return
+    for phase in ADMISSION_TIMING_PHASES:
+        logger.info(
+            "drive_worker_embedding_admission phase=%s wall_ms=%d cpu_ms=%d",
+            phase,
+            values[phase]["wall_ms"],
+            values[phase]["cpu_ms"],
+        )
 
 
 def _embedding_admission() -> asyncio.Semaphore:
@@ -335,6 +369,13 @@ class IsolatedDocumentEmbedding:
     profile = PROFILE
 
     async def query(self, query: str) -> tuple[float, ...]:
+        return await self._query(query, admission=False)
+
+    async def admit(self) -> None:
+        """The existing mandatory public probe, with no private-query telemetry."""
+        await self._query(PUBLIC_ADMISSION_QUERY, admission=True)
+
+    async def _query(self, query: str, *, admission: bool) -> tuple[float, ...]:
         if not query.strip() or len(query.encode()) > 2048:
             raise DriveReadError("invalid_argument")
         # The pinned E5 model was measured at ~71s from a cold start on the
@@ -343,7 +384,7 @@ class IsolatedDocumentEmbedding:
         async with asyncio.timeout(105), _embedding_admission():
             result = await _private_process(
                 "embedding",
-                "query",
+                "admit" if admission else "query",
                 json.dumps({"query": query}).encode(),
                 timeout=100,
                 limit=16384,
@@ -362,6 +403,13 @@ class IsolatedDocumentEmbedding:
             or not 0.9 <= sum(value * value for value in values) <= 1.1
         ):
             raise DriveReadError("processor_unavailable")
+        if admission:
+            try:
+                _log_admission_timings(result.get("admission_timings"))
+            except Exception:
+                # Logging cannot turn a valid public probe into a readiness
+                # failure. Model/transport/vector failures remain outside this.
+                pass
         return tuple(values)
 
     async def prepare(self, parsed: ParsedText) -> PreparedIndex:

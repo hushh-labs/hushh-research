@@ -34,6 +34,7 @@ tests/services/test_drive_groups.py
 tests/services/test_drive_group_inventory.py
 tests/services/test_drive_group_index_job.py
 tests/services/test_drive_group_index_postgres.py
+tests/services/test_drive_document_embedding.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
