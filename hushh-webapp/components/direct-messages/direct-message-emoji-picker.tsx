@@ -117,6 +117,7 @@ type DirectMessageEmojiPickerProps = {
   dismissSignal?: number;
   restoreTriggerFocusOnSelect?: boolean;
   triggerIcon?: ReactNode;
+  messagesLane?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 };
@@ -130,6 +131,7 @@ export function DirectMessageEmojiPicker({
   dismissSignal,
   restoreTriggerFocusOnSelect = true,
   triggerIcon,
+  messagesLane = false,
   open: controlledOpen,
   onOpenChange,
 }: DirectMessageEmojiPickerProps) {
@@ -218,6 +220,7 @@ export function DirectMessageEmojiPicker({
         </button>
       </PopoverTrigger>
       <PopoverContent
+        data-messages-type-scale={messagesLane || undefined}
         side="top"
         align="end"
         sideOffset={10}

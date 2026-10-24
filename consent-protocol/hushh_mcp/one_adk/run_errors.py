@@ -125,10 +125,15 @@ def transient_model_run_error(event: BaseEvent) -> RunErrorEvent | None:
     """
     if not isinstance(event, RunErrorEvent) or is_authored_run_error(event):
         return None
-    from hushh_mcp.runtime_providers.azure_call_lifecycle import AZURE_RATE_LIMITED_MESSAGE
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+        AZURE_PROTOCOL_MESSAGES,
+        AZURE_RATE_LIMITED_MESSAGE,
+    )
 
     if event.code in _BRIDGE_ERROR_CODES and event.message == AZURE_RATE_LIMITED_MESSAGE:
         return MODEL_CAPACITY_RUN_ERROR
+    if event.code in _BRIDGE_ERROR_CODES and event.message in AZURE_PROTOCOL_MESSAGES:
+        return MODEL_UNAVAILABLE_RUN_ERROR
     status = _provider_status(event.message)
     return _for_status(status) if status is not None else None
 
@@ -181,10 +186,15 @@ def transient_model_error_for_exception(error: BaseException) -> RunErrorEvent |
     """The same mapping for an exception that escaped the bridge."""
     if not isinstance(error, Exception):
         return None
-    from hushh_mcp.runtime_providers.azure_call_lifecycle import AzureRateLimitedError
+    from hushh_mcp.runtime_providers.azure_call_lifecycle import (
+        AzureProtocolError,
+        AzureRateLimitedError,
+    )
 
     if all(isinstance(leaf, AzureRateLimitedError) for leaf in _leaf_exceptions(error)):
         return MODEL_CAPACITY_RUN_ERROR
+    if all(isinstance(leaf, AzureProtocolError) for leaf in _leaf_exceptions(error)):
+        return MODEL_UNAVAILABLE_RUN_ERROR
     for leaf in _leaf_exceptions(error):
         from openai import APIConnectionError, APIStatusError, APITimeoutError
 

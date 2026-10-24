@@ -199,6 +199,7 @@ async def test_explicit_search_answer_agui_live_and_recovered_history_agree(monk
         assert sum(e.type == EventType.RUN_FINISHED for e in events) == 1
         assert not any(e.type == EventType.RUN_ERROR for e in events)
         search_wire = client.requests[1]
+        assert search_wire["tools"][0]["search_context_size"] == "low"
         assert "Find the public source" in str(search_wire["input"])
         assert "finish_turn" not in str(search_wire["input"])
     else:
@@ -207,6 +208,14 @@ async def test_explicit_search_answer_agui_live_and_recovered_history_agree(monk
     assert client.closed == len(client.requests)
     assert all(r["store"] is False for r in client.requests)
     fallback.assert_not_called()
+    original = next(tool for tool in root.tools if tool.name == "google_search")
+    assert original.agent.model.web_search_context_size is None
+    if control in {"ordinary", "prior_tool", "external_search_override"}:
+        assert all(
+            "search_context_size" not in tool
+            for wire in client.requests
+            for tool in wire.get("tools", [])
+        )
 
 
 async def test_search_answer_wrapper_closes_sdk_stream_on_reader_cancellation(monkeypatch):
@@ -229,3 +238,50 @@ async def test_search_answer_wrapper_closes_sdk_stream_on_reader_cancellation(mo
     await anext(stream)
     await stream.aclose()
     assert closed == [True] and _ANSWER.get() is None
+
+
+async def test_compact_and_ordinary_searches_share_no_mutable_model_configuration(monkeypatch):
+    import asyncio
+
+    from google.adk.tools.agent_tool import AgentTool
+
+    from hushh_mcp.one_adk.search_answer import _ANSWER, SearchAnswerTool, _Answer
+    from hushh_mcp.runtime_providers.managed_text import ManagedTextAgent
+
+    wrapped, _, _, _, _ = _provider_case(monkeypatch, "finish")
+    tool = SearchAnswerTool(agent=ManagedTextAgent(name="google_search", model=wrapped))
+    barrier = asyncio.Barrier(2)
+    observed = {}
+
+    async def dispatch(self, *, args, tool_context):
+        await barrier.wait()
+        observed[args["request"]] = self.agent.model.web_search_context_size
+        return "unpublished synthetic result"
+
+    monkeypatch.setattr(AgentTool, "run_async", dispatch)
+
+    async def invoke(finish):
+        event = SimpleNamespace(
+            invocation_id="i",
+            partial=False,
+            author="one",
+            content=None,
+            get_function_calls=lambda: [SimpleNamespace(name="google_search")],
+        )
+        ctx = SimpleNamespace(
+            state={},
+            _invocation_context=SimpleNamespace(
+                invocation_id="i", session=SimpleNamespace(events=[event])
+            ),
+        )
+        token = _ANSWER.set(_Answer("i"))
+        try:
+            await tool.run_async(
+                args={"request": str(finish), "finish_turn": finish}, tool_context=ctx
+            )
+        finally:
+            _ANSWER.reset(token)
+
+    await asyncio.gather(invoke(True), invoke(False))
+    assert observed == {"True": "low", "False": None}
+    assert tool.agent.model.web_search_context_size is None

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ShellActionSurface } from '@/components/app-ui/shell-action-surface';
 import { isVaultSessionEpochCurrent } from '@/lib/vault/session-epoch';
 import type { GoogleConnectorTransitionReview } from '@/lib/one/google-native-connect';
+import calendarPresentation from '@/components/calendar/calendar-presentation.module.css';
 
 const LABELS = { gmail: 'Gmail', calendar: 'Calendar', drive: 'Drive', contacts: 'Contacts' } as const;
 
@@ -13,7 +14,7 @@ export function useGoogleConnectorTransitionReview(ownerId: string | undefined, 
   const identity = useRef({ ownerId, vaultEpoch });
   useLayoutEffect(() => { identity.current = { ownerId, vaultEpoch }; }, [ownerId, vaultEpoch]);
   const pending = useRef<{ ownerId: string; vaultEpoch: number; resolve: (approved: boolean) => void } | null>(null);
-  const [terms, setTerms] = useState<GoogleConnectorTransitionReview | null>(null);
+  const [terms, setTerms] = useState<{ review: GoogleConnectorTransitionReview; presentation?: 'calendar' } | null>(null);
   const settle = useCallback((approved: boolean) => {
     const request = pending.current;
     pending.current = null;
@@ -30,24 +31,24 @@ export function useGoogleConnectorTransitionReview(ownerId: string | undefined, 
     };
   }, [ownerId, vaultEpoch]);
   useEffect(() => { setTerms(null); }, [ownerId, vaultEpoch]);
-  const confirmTransition = useCallback((review: GoogleConnectorTransitionReview): Promise<boolean> => {
+  const confirmTransition = useCallback((review: GoogleConnectorTransitionReview, presentation?: 'calendar'): Promise<boolean> => {
     if (!ownerId || identity.current.ownerId !== ownerId || identity.current.vaultEpoch !== vaultEpoch ||
         !isVaultSessionEpochCurrent(vaultEpoch) || pending.current) return Promise.resolve(false);
     return new Promise((resolve) => {
       pending.current = { ownerId, vaultEpoch, resolve };
-      setTerms(review);
+      setTerms({ review, presentation });
     });
   }, [ownerId, vaultEpoch]);
   const transitionDialog = <Dialog open={terms !== null} onOpenChange={(open) => { if (!open) settle(false); }}>
-    <DialogContent>
+    <DialogContent className={terms?.presentation === 'calendar' ? calendarPresentation.portal : undefined} data-calendar-presentation={terms?.presentation === 'calendar' || undefined}>
       <DialogHeader className="pr-8 text-left">
         <DialogTitle>Replace Google access?</DialogTitle>
         <DialogDescription>This replaces all Google grants in the affected Google projects. Existing Google connections, including your private agent, will need sign-in again.</DialogDescription>
       </DialogHeader>
-      {terms && <p className="text-sm">{terms.services.map((service) => LABELS[service]).join(', ')}</p>}
+      {terms && <p className="text-sm">{terms.review.services.map((service) => LABELS[service]).join(', ')}</p>}
       <DialogFooter>
-        <ShellActionSurface variant="pill" className="min-h-11" onClick={() => settle(false)}>Not now</ShellActionSurface>
-        <ShellActionSurface variant="pill" className="min-h-11" onClick={() => settle(true)}>Replace and sign in</ShellActionSurface>
+        <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? `${calendarPresentation.utility} !border-transparent !bg-transparent !shadow-none` : 'min-h-11'} onClick={() => settle(false)}>Not now</ShellActionSurface>
+        <ShellActionSurface variant="pill" className={terms?.presentation === 'calendar' ? 'min-h-11 !border-transparent !bg-[color:var(--app-accent)] !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]' : 'min-h-11'} rippleEffect={terms?.presentation === 'calendar' ? 'fill' : 'glass'} onClick={() => settle(true)}>Replace and sign in</ShellActionSurface>
       </DialogFooter>
     </DialogContent>
   </Dialog>;

@@ -220,6 +220,9 @@ set `google_search.finish_turn=true` when that isolated child's complete cited
 answer fulfills the entire public request unchanged. This is One's semantic
 decision, authored in its manifest; the host never classifies intent. Ordinary,
 compound, private-information and action requests retain root synthesis.
+The explicit short-answer choice uses compact LOW search context on a local
+child/model copy. Ordinary/deeper searches retain their existing context, with
+the same reasoning, receipt validation and native-call budgets.
 
 The host admits the handoff only for the invocation's sole tool call, with fresh
 grounding, current managed owner authority, no preceding answer, no pending

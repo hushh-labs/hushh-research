@@ -1,7 +1,7 @@
 # Location UI Contract
 
-Status: **Implementation complete / acceptance pending**, 22 October 2026.
-Initial full-audit main baseline: `b34d1e93d291cfa106b08893a9587973867044f2`. Latest composition review: `901838b512c426656c30a87c4f61f09760d1b09e`; see [verification](./location-verification.md) for bounded refreshes and evidence provenance.
+Status: **Implementation complete / acceptance pending**, 24 October 2026, for the CTA presentation pass initially developed from fetched `origin/main` `dcc4f611e39c80a0001df0ada3f47e85b445421e`. PR #8409 was first based on `6e6563f32ed2360bdb008cc6daaf82e180b7e598` and then merged with `22507a43575a14badf29af4e77de7b34b249c725` for combined review. The source passed in the request, `9af321d2a95610d7a90ecc8f80ee9d54bd8171b6`, is an ancestor with no scoped Location/Connect/CSS/doc delta up to the initial checkout. GitHub delivery and merge status are tracked by the PR.
+Initial full-audit main baseline: `b34d1e93d291cfa106b08893a9587973867044f2`. Earlier composition review: `901838b512c426656c30a87c4f61f09760d1b09e`; see [verification](./location-verification.md) for bounded refreshes and evidence provenance.
 The fresh mounted inventory and typography evidence supersede the earlier
 `47026022e873ac03f62423eda5122e4f3f117945` source review; unchanged functional chapters remain below.
 Owner: frontend architecture with Location, onboarding, consent, native and
@@ -34,11 +34,19 @@ included.
 
 Sizes are CSS pixels at a default 16px root unless stated. Per-site ledger fields distinguish authored cascade candidates from measured computed values. Native points, OS text sizing, keyboard and safe-area behavior require separate acceptance. A changed source declaration alone is not rendered proof.
 
+## 24 October 2026 mounted CTA revision
+
+The production return in `app/one/location/page.tsx` still mounts `LocationRedesignHub` under `data-location-type-scale="connect"`; the visible hub tabs remain Now, People and Links. The shared `TopAppBar` breadcrumb supplies Back, the 17/22/600 Location title and Profile at the root. The body retains its screen-reader-only H1 and status row. No shared header or global typography owner needed a change. Focused flows keep their authored breadcrumb titles and full-page headings; the existing `Save My Soul` breadcrumb and H1 are intentional navigation context plus screen heading, with Back still resolved by the route graph.
+
+The confirmed presentation gaps were the People Share/Ask filled pills, Links Share/Copy and active-link Copy, embedded contact Request, onboarding contact Request, an invite handoff pair, small recovery/saved-place/private Check-In targets and a few full-flow buttons outside the shared owner. These now use [the CTA classification and outcomes](./location-action-coverage.md) and [the existing site ledger with its current-revision supplement](./location-coverage.md). The Connect row recipe is a 44px transparent Morphy target around a 44px neutral, accent-border pill. Full-flow commits, utility links, destructive actions, selectors, map controls, Circle task controls and the SOS hold ring retain their distinct roles. No service, payload, consent, encryption, persistence, timer, emergency send or Back handler was changed.
+
+The October 22 coverage JSON and screenshot counts below are historical evidence for their recorded source hashes. They do not prove rendering of the CTA changes at `dcc4f611` plus this local diff. Current checks and the unverified branches are stated in [verification](./location-verification.md). The implementation status means the bounded source changes are present; live, native and full mounted-route acceptance remain pending.
+
 ## Mounted typography pass — current authority
 
 This pass was rebuilt from the actual `OneLocationAgentPage → LocationRedesignHub` production returns, then all mounted children, routes and actual body portals. Visible tabs are **Now**, **People**, **Links**; semantic metadata “Overview” does not rename Now. Onboarding, standalone map/check-in and public invite/view roots have their own scoped DOM host. The later legacy page JSX, `components/location/**`, unmounted places-history and unavailable Location Circle chat/photo/custom-type branches are explicitly excluded.
 
-The source was refreshed from main during implementation. The concurrent Chat/Messages changes through `b34d1e93d291cfa106b08893a9587973867044f2` were inspected and rebased locally; they did not change Location/Connect typography owners. Existing work in the primary checkout was preserved. This expanded candidate is local only: it has not been pushed, merged or deployed.
+For the historical October 22 pass, the source was refreshed from main during implementation. The concurrent Chat/Messages changes through `b34d1e93d291cfa106b08893a9587973867044f2` were inspected and rebased locally; they did not change Location/Connect typography owners. That candidate was local at the time of its report; its publication status is not inferred here.
 
 Functional chapters retain their existing layout and wire contracts. Any local class/font declaration there is an authored source declaration; the effective role comparison and fresh per-site ledger below take precedence over those declarations because the actual important cascade can supersede them.
 
@@ -838,7 +846,7 @@ These are source anchors, not device measurements; typography/native sizing lane
 - Map tray bottom centered at max12px/safe-bottom. Collapsed56×56; expanded width min544px/viewport minus24+safe sides, content-measured height capped min472px/100dvh−104px−safe top/bottom. Header72px expanded; body scroll owns long content; collapsed body inert. Person buttons44px high horizontal strip, private/incoming/ghost rows min52px. No global scrim for tray.
 - Nearby main sheet nonmodal, no overlay/scrim; outside interaction explicitly prevented, map remains live. X/shared Back/handle drag dismiss to map without checkout. Body drag disabled, inner content scroll. Phone maxheight `100dvh-safeTop-136px-keyboard`; md right rail26rem, full height. Add-time nested Sheet is independently modal/controlled, not same outside rule. Map's desktop camera padding reserves436px while panel constant is26rem=416px: preserve distinction.
 - Check-in surface hides sharing badge belowmd while sheet open, hides redundant reopen pill at every width while open, keeps self/venue/radius legend. Legend top `max(16px,safeTop)+72px`, left/right16px, max288px; **You are here**, **Checking in at {place}**, **Checked in at {place}**, optional `{M} m / {K.1} km from you`, **500 m around you** / **500 m around your place**.
-- Settings scope Dialog max420px/viewport−32, rounded24px,p20/24, no X; stacked decision group max244px. Saved rows min56px, expanded actions36px visual buttons; do not falsely claim all authored controls here are44px. Favorite Add place uses expanded pseudo hit region.
+- Settings scope Dialog max420px/viewport−32, rounded24px,p20/24, no X; stacked decision group max244px. Saved rows min56px; the October 24 presentation pass gives expanded Retry/Find address/Edit/Remove controls a transparent 44px minimum target, while the Favorite selector retains its existing 44px target. Favorite Add place uses expanded pseudo hit region.
 - Save modal phone width100%, maxheight92% of keyboard-available viewport; own details header/footer pinned and body scroll; desktop base Dialog effective512px from primitive with cap min92dvh/760px (no contradictory420px width). Standard shared overlay layers, no onboarding takeover elevation for Settings/reminder. Native map showing makes overlay/background transparent; native lifecycle owns actual map placement. [Modal layout](../../components/one-location/onboarding/save-location-sheet-layout.ts#L46).
 
 ### Reachability and actual gaps

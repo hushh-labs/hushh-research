@@ -13,6 +13,7 @@ from unittest.mock import patch
 import release_cadence as core
 import release_cadence_github as github
 import release_cadence_monitor as monitor
+import release_cadence_native as testflight
 
 REPOSITORY = "org/repo"
 POLICY = {"enabled": True, "testflight_every": 4, "production_every": 8,
@@ -515,7 +516,9 @@ class ReconciliationTest(unittest.TestCase):
                             child["state"] = audit["previous_state"]
                 self.assertEqual(restored, before)
                 self.assertEqual(len(ledger.saves), 1)
-                with patch.object(github, "run_info", side_effect=lambda repo, identity: inventory[identity]) as info:
+                with patch.object(github, "run_info", side_effect=lambda repo, identity: inventory[identity]) as info, \
+                        patch.object(github, "artifact_json", return_value=None), \
+                        patch.object(testflight, "completion", side_effect=core.UnsafeRelease("no upload")):
                     github.reconcile_children(ledger, first)
                 # Only latest non-retired failed/successful children can be polled.
                 self.assertNotIn(first, [call.args[1] for call in info.call_args_list])
@@ -566,6 +569,7 @@ class ReconciliationTest(unittest.TestCase):
                 patch.object(monitor, "run_info", return_value=observed), \
                 patch.object(monitor, "runs", return_value=[]), \
                 patch.object(monitor, "git", return_value=observed["created_at"]), \
+                patch.object(testflight, "completion", return_value={}), \
                 patch.object(monitor, "evidence", return_value="Verified receipt"):
             with self.assertRaisesRegex(core.UnsafeRelease, "retry actor"):
                 github.reconcile_children(ledger)

@@ -504,6 +504,12 @@ targets, and action sizing remain owned by the
 [design system](../../../docs/reference/quality/design-system.md).
 The shared top bar owns the single Connect title; the existing tab/search
 bands and focused circle flow own their authored layout.
+Calendar reuses this top-bar composition and the ordinary person-row action
+recipe through a scoped Calendar seam. Its agent-width Board remains880px and
+its full-flow/confirmation controls keep their own hierarchy. See the
+[mounted Calendar presentation reconciliation](./calendar.md#mounted-presentation-reconciliation--24-october-2026)
+for branch, portal, action and evidence boundaries.
+
 The mounted [Memory workspace](./profile-memory.md#mounted-memory-workspace-and-handoff)
 consumes these row, section, form, action and header roles through its own
 bounded CSS/portal markers. Connect retains ownership of its directory layout
@@ -812,8 +818,10 @@ memberships.
 The Messages subagent retains its existing theme and viewport-centered composer
 and dock. Its name/photo opens the existing
 [person profile](./person-profile.md), whose Back returns to the selected conversation.
-The conversation menu retains Contact info and message search.
-The existing call capability remains gated.
+The selected-person header exposes peer identity and message search directly;
+there is no conversation-level Contact info menu. The call control is visible
+but disabled. The mounted Messages families are in the
+[Messages UI contract](./messages.md).
 
 Message timestamps and delivery ticks occupy a separate row below the message
 text, aligned to the right inside the bubble, including for short messages.

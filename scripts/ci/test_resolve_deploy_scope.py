@@ -51,6 +51,26 @@ def with_git_repo():
     return tempdir, repo
 
 
+def test_automatic_production_source_is_forward_only_under_serving_lock() -> None:
+    tempdir, repo = with_git_repo()
+    with tempdir:
+        base = commit_file(repo, "README.md", "base\n")
+        serving = commit_file(repo, "README.md", "serving\n")
+        target = commit_file(repo, "README.md", "target\n")
+        run_git(repo, "checkout", "--detach", base)
+        divergent = commit_file(repo, "other.md", "other lineage\n")
+        cases = [(target, serving, "true", True), (serving, serving, "true", True),
+                 (base, serving, "true", False), (divergent, serving, "true", False),
+                 (target, "", "true", False), (base, serving, "false", True)]
+        for candidate, current, automatic, allowed in cases:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT_PATH), "--requested-scope", "all", "--target-sha", candidate,
+                 "--backend-base-sha", current, "--frontend-base-sha", current, "--forward-only", automatic],
+                cwd=repo, text=True, capture_output=True,
+            )
+            assert (result.returncode == 0) is allowed, result.stderr
+
+
 def test_explicit_scope_overrides_paths() -> None:
     resolver = load_module()
     decision = resolver.explicit_decision("frontend")
@@ -315,6 +335,7 @@ def test_frontend_image_build_config_is_frontend_scoped() -> None:
 
 def main() -> int:
     tests = [
+        test_automatic_production_source_is_forward_only_under_serving_lock,
         test_explicit_scope_overrides_paths,
         test_narrow_explicit_scope_rejects_account_lifecycle_boundary,
         test_all_explicit_scope_accepts_account_lifecycle_boundary,

@@ -162,6 +162,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/resolve-deploy-scope.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
           # The deployment SHA may predate this verifier; always use main's.
@@ -366,11 +367,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/ci/resolve-deploy-scope.py \
+          python3 "${RUNNER_TEMP}/release-tools/resolve-deploy-scope.py" \
             --requested-scope "${{ github.event.inputs.scope }}" \
             --target-sha "${{ github.event.inputs.sha }}" \
             --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+            --forward-only "${{ inputs.cadence_origin != '' }}" \
             --github-output "$GITHUB_OUTPUT" \
             --json
 

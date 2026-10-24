@@ -608,8 +608,8 @@ for (const width of [320, 393, 1100, 1440]) {
     const heading = page.getByRole("heading", { name: "Messages", exact: true });
     await expect(heading).toBeVisible();
     const geometry = await readCircleInboxGeometry(heading);
-    expect(geometry.fontSize).toBe("20px");
-    expect(geometry.lineHeight).toBe("24px");
+    expect(geometry.fontSize).toBe("17px");
+    expect(geometry.lineHeight).toBe("22px");
     expect(geometry.weight).toBe("600");
     expect(geometry.headerHeight).toBe(width < 380 ? 120 : width >= 768 && width < 1280 ? 96 : 68);
     if (width >= 768) {

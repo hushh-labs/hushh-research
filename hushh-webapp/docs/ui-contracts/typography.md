@@ -7,8 +7,10 @@ and the [Mail font schema](./mail.md#font-schema-what-to-use-where-and-actual-ov
 Mail scopes those roles at the actual route and portal hosts; this page remains
 the cross-product usage map, not another Mail token authority.
 
-Calendar's Inter family exception, heading cascade, controls, overlays and
-responsive dimensions are recorded in the [Calendar contract](./calendar.md).
+Calendar's mounted workspace now uses the product family and scoped Connect
+roles; its former Inter exception is a [historical baseline](./calendar.md#prior-inspected-font-baseline-superseded).
+The current heading cascade, controls, overlays and responsive dimensions are
+recorded in the [Calendar reconciliation](./calendar.md#mounted-presentation-reconciliation--24-october-2026).
 
 Drive's Profile-context typography, portaled confirmations, packet/share cards,
 native differences and phone/desktop measurements are recorded in the
@@ -64,8 +66,9 @@ infer the result from a JSX `text-sm` class.
 ## Family and weight schema
 
 Shared web and WebView product text defaults to self-hosted **Plus Jakarta Sans**.
-Calendar's connected content and invitation portal have the explicit Inter
-exception documented in its [font schema](./calendar.md#font-schema-what-to-use-where-and-resolved-overrides).
+Calendar's connected content, invitation portal and Insights now use the
+product family through their local presentation context. Its prior Inter
+overrides are recorded for comparison in the Calendar contract.
 Display
 and body aliases resolve to that same family. Shipped normal and italic faces
 are 400, 600, and 700 with `font-display: swap`. Emoji/unsupported glyphs use
@@ -230,6 +233,8 @@ not those comments or an isolated fixture's absent context.
 | Connect form label |15/22/550. |
 | Connect input |14/22/400; workspace token16px at≤620. |
 | Connect action |Explicit action role12/18/550; utility controls13/21/550→12≤620. |
+| Calendar ordinary action |Scoped transparent44px target and neutral accent44px pill, label12/18/550. Full-flow and final confirmation controls retain their shared owner. |
+| Calendar body and portal |Plus Jakarta Sans via product aliases; section14/22/600, row14/21/550, support12/18/400, modal title20/28/600. Calendar semantic Input14/22 above620 and16/22 at≤620. |
 | Mounted `/one/pkm` Memory |Consumes the same compact row/section/form/action tokens within `data-pkm-workspace` and `data-pkm-overlay`; the two Saved/Add tabs remain15/20/550. Its category/leaf content title is28/36/600 and Memory Dialog title20/28/600. This opt-in does not change Profile's nested detail scale; see [Memory contract](./profile-memory.md#memory-header-type-and-cta-presentation). |
 | Connect person layout |Settings slots; identity and actions siblings;36avatar/min72 desktop/70≤620; one column. |
 | Connect remove Dialog |Portalled explicit empty Profile type scope; its own dialog scale, not inherited workspace tokens. |

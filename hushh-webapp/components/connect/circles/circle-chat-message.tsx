@@ -39,9 +39,10 @@ function toggleReaction(current: Reaction[], emoji: string, active: boolean): Re
   return current.map((item) => item.emoji === emoji ? { ...item, count, reactedByViewer: active } : item);
 }
 
-export function CircleChatMessage({ message, previous, session, visible, layoutBlocked, scrollRoot, onMediaError, onViewerChange, onReply, onAction, replyTarget, onJump, replyDisabled }: {
+export function CircleChatMessage({ message, previous, session, visible, layoutBlocked, scrollRoot, messagesLane = false, onMediaError, onViewerChange, onReply, onAction, replyTarget, onJump, replyDisabled }: {
   message: OpenChatMessage | OutgoingChatMessage; previous?: OpenChatMessage; session: CircleChatSession;
   visible: boolean; layoutBlocked: boolean; scrollRoot: RefObject<HTMLDivElement | null>; onMediaError: (error: unknown) => void;
+  messagesLane?: boolean;
   onViewerChange: (id: string, open: boolean) => void;
   onReply?: (message: OpenChatMessage) => void;
   onAction?: (message: OpenChatMessage, action: CircleMessageAction) => void;
@@ -115,7 +116,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
               {confirmed && message.replyToMessageId ? replyTarget?.content && !replyTarget.deletedForEveryoneAt && !replyTarget.failed ? <button type="button" className={styles.quote} aria-label={`View original message from ${replyName}`} onClick={() => onJump?.(replyTarget)} disabled={!visible || layoutBlocked}>
                 <strong><bdi>{replyName}</bdi></strong><span dir="auto">{replyTarget.content.text || replyTarget.content.attachment?.name || replyTarget.content.image?.name || "Attachment"}</span>
               </button> : <div className={styles.quote}>Original message unavailable</div> : null}
-              {image ? <ChatImage session={session} message={confirmed ? message : undefined} type={image.type} localImage={message.localImage} thumbnail={image.thumbnail}
+              {image ? <ChatImage session={session} message={confirmed ? message : undefined} type={image.type} localImage={message.localImage} thumbnail={image.thumbnail} messagesLane={messagesLane}
                 visible={visible} layoutBlocked={layoutBlocked} scrollRoot={scrollRoot} onError={onMediaError} onViewerChange={(open) => onViewerChange(viewerId, open)} /> : null}
               {file && confirmed ? <ChatSharedFile session={session} message={message} type={file.type} name={file.name} onError={onMediaError} /> : null}
               {message.content?.text ? <p dir="auto" className={`${styles.text} ${image || file ? styles.caption : ""}`}>{message.content.text}</p> : null}
@@ -127,7 +128,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
                 : <span role="status">{message.delivery === "sending" ? "Sending…" : "Delivery unconfirmed"}</span> : null}
             </div>
           </div>
-          {confirmed && !deleted ? <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked}
+          {confirmed && !deleted ? <DirectMessageEmojiPicker label="React to message" disabled={busy || !visible || layoutBlocked} messagesLane={messagesLane}
             open={pickerOpen} onOpenChange={setPickerOpen}
             triggerClassName={styles.addReaction}
             dismissSignal={layoutBlocked || !visible ? 1 : 0} onEmojiSelect={(emoji) => void react(emoji)} /> : null}
@@ -135,7 +136,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             <DropdownMenuTrigger asChild><ShellActionSurface wrapperClassName={styles.messageOptions} className="size-11" aria-label="Message options" disabled={!visible || layoutBlocked}>
               <ChevronDown className="size-4" aria-hidden="true" />
             </ShellActionSurface></DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className="min-w-52 motion-reduce:animate-none"
+            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className="min-w-52 motion-reduce:animate-none" data-messages-type-scale={messagesLane || undefined}
               onCloseAutoFocus={(event) => { if (selecting.current) { event.preventDefault(); selecting.current = false; } }}>
               {!deleted ? <>
                 <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }} />

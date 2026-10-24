@@ -441,13 +441,13 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     current_paths = [
         *old_paths,
         "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/resolve-deploy-scope.py",
         "scripts/ops/runtime_config_retention.py",
         "scripts/ops/scope_commerce_runtime_policy.py",
         "scripts/ops/shared_files_runtime_policy.py",
         "scripts/ops/passkey_domain_policy.py",
         "scripts/ops/upsert_gcp_secret.py",
-        "deploy/email-auth/bind_secrets.sh",
-        "deploy/plg/bind_secrets.sh",
+        *(f"deploy/{name}/bind_secrets.sh" for name in ("email-auth", "plg")),
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/process_group.py",
@@ -490,21 +490,23 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     subprocess.run(  # noqa: S603 - execute the repo-authored release steps in an isolated fixture
         ["bash", "-c", checkout], cwd=repo, env=env, capture_output=True, text=True, check=True
     )
+    scope_tool = runner / "release-tools/resolve-deploy-scope.py"
+    assert scope_tool.read_text() == (ROOT / "scripts/ci/resolve-deploy-scope.py").read_text()
     for path in current_paths:
-        # These two existing helpers are consumed directly from RUNNER_TEMP.
+        # Main-owned helpers are consumed directly from RUNNER_TEMP.
         if path.endswith(
             (
                 "resolve-cloud-run-deploy-revision.py",
                 "resolve-uat-verified-image.py",
                 "verify-predecessor-acceptance.py",
+                "resolve-deploy-scope.py",
                 "verify-prod-places-readiness.py",
                 "passkey-domain-aliases.json",
             )
         ):
             continue
         assert (repo / path).read_text() == (ROOT / path).read_text()
-    # Exercise the file-relative policy imports in the restored old checkout.
-    # No cloud command or credential read is admitted by this probe.
+    # Import the restored policies without cloud access.
     subprocess.run(  # noqa: S603 - pure restored policy helpers, synthetic checkout
         [
             sys.executable,
@@ -553,8 +555,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     )
     assert upload_filter.match_file(".env"), "Keep secret-file upload exclusion intact"
 
-    # The current Cloud Build gate sources this helper even for an older app SHA.
-    # Production must remain a no-op: preserving tooling cannot enable email OTP.
+    # Current tooling on an older app SHA must keep production email OTP disabled.
     subprocess.run(  # noqa: S603 - fixed authored shell helper in the synthetic checkout
         [
             "bash",

@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useVault } from '@/lib/vault/vault-context';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import calendarPresentation from '@/components/calendar/calendar-presentation.module.css';
 import { Button } from '@/components/ui/button';
 import { ApiService } from '@/lib/services/api-service';
 import { ROUTES } from '@/lib/navigation/routes';
@@ -68,7 +69,7 @@ export function NativePrivateGoogleConnectorHandoff() {
     setBusy(true); setMessage('');
     try {
       const outcome = await connectGoogleConnector(connector, { isCurrent: current, vaultOwnerCapability: vaultOwnerToken,
-        confirmLegacyTransition: confirmTransition });
+        confirmLegacyTransition: terms => confirmTransition(terms, connector === 'calendar' ? 'calendar' : undefined) });
       if (!current()) return;
       if (!outcome.ok) { setMessage(connectRefusalMessage(outcome.code, connector)); return; }
       const response = await ApiService.ownerPodRequest(`connectors/${connector}`, { method: 'GET' });
@@ -81,7 +82,7 @@ export function NativePrivateGoogleConnectorHandoff() {
     finally { if (current()) setBusy(false); }
   };
   return <><Dialog open={connector !== null && !paused && !transitionPending} onOpenChange={(open) => { if (!open && !busy) { intentEpoch.current += 1; setConnector(null); setMessage(''); } }}>
-    <DialogContent>
+    <DialogContent className={connector === 'calendar' ? calendarPresentation.portal : undefined} data-calendar-presentation={connector === 'calendar' || undefined}>
       <DialogTitle>Connect {connector === 'gmail' ? 'Gmail' : `Google ${connector ?? ''}`}</DialogTitle>
       <DialogDescription>This phone connects to the private agent of the account signed in here. The scanned link carries only the connector name.</DialogDescription>
       {!Capacitor.isNativePlatform() && connector ? <GoogleConnectorPhoneHandoff handoff={phoneHandoff(connector)} /> : !loading && !user ? <Button onClick={() => { setPaused(true); router.push(ROUTES.LOGIN); }}>Sign in on this phone</Button> :

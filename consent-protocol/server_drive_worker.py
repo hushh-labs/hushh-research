@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from time import monotonic
 
 from hushh_mcp.runtime_settings import hydrate_runtime_environment
 from mcp_modules.log_redaction import install_sensitive_log_filter
@@ -41,10 +43,51 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError  # noqa: E402
 # Leave headroom inside the worker's 220s Gunicorn / 240s startup-probe bounds.
 # Model admission, its single retry and scanner attestation share this budget.
 STARTUP_TIMEOUT_SECONDS = 180
+logger = logging.getLogger(__name__)
 
 
 def _indexing_active() -> bool:
     return connector_feature_owner_cohort("drive_document_indexing") != ()
+
+
+async def _admit_embedding() -> None:
+    embedding = IsolatedDocumentEmbedding()
+    try:
+        await embedding.query("synthetic statement")
+    except DriveReadError as error:
+        # The failed child is reaped before its one eligible retry. Preserve
+        # the existing per-query isolation, deadline and resource limits.
+        if not error.retryable or str(error) != "processing_timeout":
+            raise
+        await embedding.query("synthetic statement")
+
+
+async def _admit_scanner() -> None:
+    scanner = ClamAvScanner()
+    while True:
+        try:
+            await scanner.check_ready()
+            return
+        except DriveReadError:
+            await asyncio.sleep(3)
+
+
+async def _timed_admission(stage: str, check: Callable[[], Awaitable[None]]) -> None:
+    started = monotonic()
+    outcome = "failed"
+    try:
+        await check()
+        outcome = "ready"
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    finally:
+        logger.info(
+            "drive_worker_startup stage=%s outcome=%s duration_ms=%d",
+            stage,
+            outcome,
+            round((monotonic() - started) * 1000),
+        )
 
 
 @asynccontextmanager
@@ -56,27 +99,25 @@ async def lifespan(_app: FastAPI):
         raise RuntimeError("Drive worker image is missing its pinned local model")
     # This is synthetic content only. Failure keeps the candidate revision
     # unready and prevents the scheduler from being retargeted to it.
+    tasks: list[asyncio.Task[None]] = []
     try:
         async with asyncio.timeout(STARTUP_TIMEOUT_SECONDS):
-            embedding = IsolatedDocumentEmbedding()
-            try:
-                await embedding.query("synthetic statement")
-            except DriveReadError as error:
-                # A cold local model can hit its existing child deadline. The
-                # failed child is reaped by the processor before retrying; keep
-                # all per-query isolation and resource limits unchanged.
-                if not error.retryable or str(error) != "processing_timeout":
-                    raise
-                await embedding.query("synthetic statement")
-            scanner = ClamAvScanner()
-            while True:
-                try:
-                    await scanner.check_ready()
-                    break
-                except DriveReadError:
-                    await asyncio.sleep(3)
+            # Scanner reload/freshness and isolated model admission are
+            # independent. Both must finish within the same startup budget.
+            tasks = [
+                asyncio.create_task(_timed_admission("embedding", _admit_embedding)),
+                asyncio.create_task(_timed_admission("scanner", _admit_scanner)),
+            ]
+            await asyncio.gather(*tasks)
     except TimeoutError:
         raise RuntimeError("Drive worker exceeded its startup readiness budget") from None
+    finally:
+        # Disarm the admission deadline before teardown, so a hard failure near
+        # it cannot interrupt child reaping or replace the original failure.
+        for task in tasks:
+            if not task.done() and not task.cancelling():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
     yield
 
 
