@@ -52,6 +52,7 @@ import {
   SettingsRow,
 } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
+import { publicProfileUrls } from "@/lib/world-model/public-profile-urls";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { useCoarseClock } from "@/lib/perf/use-periodic-task";
@@ -408,6 +409,8 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const [readRevision, setReadRevision] = useWorldModelSessionState(session, 0);
   // Each claim moves the inviter's preview into this owner's sources.
   const [claims, setClaims] = useWorldModelSessionState(session, 0);
+  const [findMoreRequest, setFindMoreRequest] = useWorldModelSessionState(session, 0);
+  const refreshAllowed = useRef(false);
   const [keyed, setKeyed] = useWorldModelSessionState<{
     source: Offered | readonly PwmValidatedFact[];
     facts: WorldModelDraftFact[];
@@ -440,8 +443,16 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     if (scopeCurrent()) setDetailState(value);
   }, [scopeCurrent, setDetailState]);
   const reload = useCallback((confirmed?: PwmPreferences) => { if (scopeCurrent()) reloadResearch(confirmed); }, [scopeCurrent, reloadResearch]);
-  const refresh = useCallback(() => { if (scopeCurrent()) refreshResearch(); }, [scopeCurrent, refreshResearch]);
-  const researchPublicProfiles = useCallback((urls: readonly string[]) => { if (scopeCurrent()) researchProfiles(urls); }, [scopeCurrent, researchProfiles]);
+  const refresh = useCallback(() => {
+    if (!scopeCurrent() || !refreshAllowed.current || session.decisions.size) return;
+    refreshAllowed.current = false;
+    refreshResearch();
+  }, [scopeCurrent, refreshResearch, session]);
+  const researchPublicProfiles = useCallback((urls: readonly string[]) => {
+    if (!scopeCurrent() || !refreshAllowed.current || session.decisions.size) return;
+    refreshAllowed.current = false;
+    researchProfiles(urls);
+  }, [scopeCurrent, researchProfiles, session]);
   const memory =
     ready && loaded && loaded.owner === user?.uid && loaded.key === vaultKey
       ? loaded.memory
@@ -742,6 +753,14 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
       ? keyed.facts.filter((fact) => !memory.decidedKeys.has(fact.key))
       : [], [memory, draftsReady, keyed]);
   const saved = memory?.saved ?? [];
+  // A tick confirms a statement; permission to reuse its public citations is
+  // requested separately. Private statement text never becomes a search lead.
+  const publicSourceCandidates = publicProfileUrls([
+    ...sourcedFacts.flatMap((fact) => fact.sources.map((source) => source.url)),
+    ...(offered?.research.provider === "azure_openai_tavily" ? keyed?.facts ?? [] : [])
+      .filter((fact) => saved.some((claim) => claim.key === fact.key))
+      .flatMap((fact) => fact.sources.map((source) => source.url)),
+  ]);
   const matchStatus = offered?.report.match_status;
   const usable =
     saved.length > 0 || sourcedFacts.length > 0 || matchStatus === "matched";
@@ -842,11 +861,21 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     (result?.status !== "pending" && result?.status !== "paused") ||
     (result.status === "pending" && result.restart_required &&
       result.progress === undefined && result.validated_facts === undefined)
-  );
+  ) && memory !== null && draftsReady && drafts.length === 0 && pending.size === 0;
+  const canCheckForUpdates = canResearchPublicProfiles && result?.status !== "pending" && result?.status !== "paused";
+  useLayoutEffect(() => {
+    refreshAllowed.current = canResearchPublicProfiles && preferences?.enabled === true && !preferenceBusy;
+    return () => { refreshAllowed.current = false; };
+  }, [canResearchPublicProfiles, preferences?.enabled, preferenceBusy, session]);
+  const canFindMore = status.kind === "done" && canCheckForUpdates &&
+    preferences?.enabled === true && usesAzurePwm(preferences.research_provider) && !preferenceBusy;
+  const findMore = () => {
+    if (scopeCurrent() && canFindMore) setFindMoreRequest((value) => value + 1);
+  };
   const checkpoint = !preparing && (retry || spent || retrying) ? progress : null;
   const StatusIcon = STATUS_ICON[status.kind];
 
-  return { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory };
+  return { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, sections, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, canResearchPublicProfiles, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory, canFindMore, findMore, findMoreRequest, publicSourceCandidates, canCheckForUpdates };
 }
 export type PersonalWorldModelModel = ReturnType<typeof usePersonalWorldModelModel>;
 
@@ -860,7 +889,7 @@ export function PersonalWorldModelPage({ model, ...props }: PersonalWorldModelPa
 }
 
 function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAccount }: PersonalWorldModelPageOptions & { model: PersonalWorldModelModel }) {
-  const { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, result, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory } = model;
+  const { ready, mounted, user, vaultKey, vaultOwnerToken, statusRegion, status, freshness, StatusIcon, preparing, stalled, shownProgress, checkpoint, preferenceFailed, matchStatus, namesakesFound, namesakeNotice, retry, readFailed, focusStatus, setReadRevision, reload, retryDue, preferences, preferenceBusy, turnOn, identityLabel, identity, drafts, saved, pending, errors, actions, setDetail, sourcedFacts, offered, usable, spent, pathname, claims, setClaims, present, paneState, updatePreferences, refresh, researchPublicProfiles, detail, detailTitle, closeDetail, memory } = model;
   const content = (
     <SurfaceStack compact data-pwm-page>
       <SettingsPresentationProvider density="compact">
@@ -899,6 +928,13 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               icon={StatusIcon}
               iconTone="capability"
               title={status.title}
+              stackTrailingOnMobile
+              trailing={model.canFindMore ? (
+                <Button type="button" size="compact" variant="none" effect="fade"
+                  data-voice-control-id="pwm_public_sources_open" onClick={model.findMore}>
+                  Find more about me
+                </Button>
+              ) : undefined}
               // The one live line: a state or step change is announced, the
               // counts and the freshness line tick quietly.
               description={
@@ -1133,10 +1169,9 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               failed={retry || spent}
               preferences={preferences}
               sourcesRequest={claims}
-              canCheckForUpdates={
-                result?.status !== "pending" && result?.status !== "paused" &&
-                (!spent || status.kind === "exhausted")
-              }
+              findMoreRequest={model.findMoreRequest}
+              publicSourceCandidates={model.publicSourceCandidates}
+              canCheckForUpdates={model.canCheckForUpdates}
               pathname={pathname}
               embedded={embedded}
               present={present}
