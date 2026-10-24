@@ -56,6 +56,17 @@ def turn_target(provider: str, model: str, mode: str) -> TurnTarget:
     and for every specialist that inherits the head's provider. Every other mode keeps
     the provider and model it was given.
     """
+    from hushh_mcp.runtime_providers.processing_terms import (
+        ProcessingTermsUnverifiedError,
+        require_verified_gemini_processing,
+    )
+
+    try:
+        require_verified_gemini_processing(provider, mode)
+    except ProcessingTermsUnverifiedError as exc:
+        raise HTTPException(
+            409, detail={"code": exc.code, "message": str(exc), "retryable": False}
+        ) from None
     if mode != azure_openai.USER_AZURE_MI_MODE:
         return provider, model, mode
     owner = owner_azure_model()
@@ -116,7 +127,7 @@ def owner_selected_turn(
         }
     )
     target_model = selection_model(selection.provider, selection.model, gemini_default=model)
-    return owned, (selection.provider, target_model, OWNER_SELECTION_MODE)
+    return owned, turn_target(selection.provider, target_model, OWNER_SELECTION_MODE)
 
 
 def owner_ai_refusal(exc: BaseException, provider: str) -> dict[str, str] | None:

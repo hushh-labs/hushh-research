@@ -107,6 +107,12 @@ export function OwnerKeyContent({
         Your private agent isn’t ready yet. Your own key works once it is.
       </HelperText>
     );
+  } else if (readiness.kind === "processing_terms_unverified") {
+    body = (
+      <HelperText role="status">
+        {`${providerName} keys are unavailable because their processing terms have not been verified. Use your verified Google Cloud connection.`}
+      </HelperText>
+    );
   } else if (readiness.kind === "needs_update") {
     const { installable, working } = readiness.update;
     body = (

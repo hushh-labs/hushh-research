@@ -4079,8 +4079,7 @@
       },
       "credential_policy": {
         "allowed": [
-          "hushh_managed_vertex",
-          "byok"
+          "hushh_managed_vertex"
         ],
         "default": "hushh_managed_vertex"
       },

@@ -6,6 +6,7 @@ export type PersonalAgentStatus = {
   aiSelection?: {
     version: number;
     providers: string[];
+    unavailableProviders?: Record<string, "processing_terms_unverified">;
     defaultVerification?: true;
   } | null;
   state?: string | null;

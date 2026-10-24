@@ -1,6 +1,7 @@
 # Gmail Google Verification Readiness
 
-> **Status:** source and Console review on 2026-10-12. This is a short engineering
+> **Status:** updated source and live evidence on 2026-10-24; earlier checkpoints
+> below are historical. This is a short engineering
 > gap assessment, not a Google approval decision, legal advice, or a CASA report.
 
 ## Visual Context
@@ -9,8 +10,9 @@ This is a Gmail-specific readiness note under the [IAM reference](./README.md).
 
 ## Bottom line
 
-Hussh currently uses Google restricted Gmail access and persists Gmail-derived
-receipt records on its servers. The application is therefore not ready to claim
+Hussh uses Google restricted Gmail access and may retain historical Gmail-derived
+receipt records. Current source disables new writes to the legacy receipt cache;
+that does not prove historical records have been purged. The application is not ready to claim
 Google verification readiness until the confirmed product gaps below are closed
 and the Google Cloud Console submission, privacy policy, and any required CASA
 assessment are independently verified.
@@ -23,8 +25,8 @@ requires a security assessment. [Gmail scopes](https://developers.google.com/wor
 
 | Priority | Current evidence | Why it matters | Smallest next step |
 | --- | --- | --- | --- |
-| Shipped in this working tree | The backend base/read purpose requests `openid`, `email`, `profile` and `gmail.readonly`. Explicit `send`, `compose` and `modify` purposes add their respective scope; the current web Connectors entry defaults to `send`. The HMAC-bound connection records the returned grant. | Requested permissions depend on the invoking feature. Existing read-only grants need incremental consent before sending; native purpose parity must be checked independently. | Keep draft and mailbox-management permissions out of the initial read/send flow. Confirm each enabled purpose against Console submission and its user-facing demonstration; do not infer the submitted scope list from code. |
-| P0 | `kai_gmail_receipts` stores Gmail message IDs, subject, snippet, sender name/email, and purchase fields. The receipt upsert writes those values. | This is durable server-side storage of Gmail-derived information, not an in-memory view. Google requires transparent disclosure, secure handling, and honoring deletion requests. | Define and implement a documented retention/deletion policy for raw receipt fields, including an automatic purge. |
+| Shipped in this working tree | The backend base/read purpose requests `openid`, `email`, `profile` and `gmail.readonly`. Explicit `send`, `compose` and `modify` purposes add their respective scope; the web Connectors and Mail entries now default to `read`; explicit sending/draft/management upgrades remain separate. The HMAC-bound connection records the returned grant. | Requested permissions depend on the invoking feature. Existing read-only grants need incremental consent before sending; native purpose parity must be checked independently. | Keep draft and mailbox-management permissions out of the initial read flow. Confirm each enabled purpose against Console submission and its user-facing demonstration; do not infer the submitted scope list from code. |
+| P0 | Legacy `kai_gmail_receipts` rows contain message IDs, subject, snippet, sender details and purchase fields. Current source gates receipt upserts with `receipt_storage_writes_enabled()`, which is false. | Disabled new writes do not establish that historical server records were removed. Google requires transparent disclosure, secure handling and deletion. | Verify deployed write behavior and historical retention/purge evidence; distinguish private saved memories and encrypted device snapshots. |
 | Shipped in this working tree | Disconnect first disables the connection, cancels active syncs, revokes the refresh token, deletes `kai_gmail_receipts`, `kai_receipt_memory_artifacts`, and sync-run records, and clears browser receipt cache. | A disconnect is now a clear deletion action for provider-derived receipt data. Explicitly saved private-memory records remain outside this deletion boundary. | Verify this against the deployed database and update the live privacy policy and deletion-help text before submitting review material. |
 | Changed 2026-09-27 (pending founder and legal review) | The app now serves its own Privacy Policy and Terms of Use at `https://one.hushh.ai/privacy` and `https://one.hushh.ai/terms` from `hushh-webapp/lib/legal/legal-documents.ts`. The policy describes Gmail, Calendar and Drive access, stored receipt fields, disconnect, and model processing, and carries the Google API Services User Data Policy Limited Use statement. | Google requires a public privacy policy plus an in-context disclosure that explains Gmail information access, collection, use, sharing, and deletion. | Point the OAuth consent screen privacy and terms URLs at those pages once the text is approved. The standalone pre-OAuth disclosure with an affirmative continue action is still open. |
 | P1 | Gmail-derived content can reach managed Gemini through the optional receipt fallback, inbox chat, and personal-Gmail KYC flows. | The exact deployed configuration and provider terms need separate confirmation, and user-facing disclosures must cover every enabled flow. | Inventory the flows, prove the provider configuration complies with Limited Use, add or document prompt-injection protection, and disclose the processing before consent. |
@@ -129,3 +131,55 @@ These are required review inputs, but code inspection cannot confirm them:
 The workspace had in-progress Gmail-related changes during this review. This
 document describes the current working tree, not a deployed release; recheck it
 before a submission.
+
+## OAuth closure candidate — 24 October 2026
+
+Initial shared and private Gmail authorization is read-only in this candidate.
+Explicit private management intent survives the phone handoff; a bare legacy
+Gmail link never requests mailbox changes. Shared native reconnect reads current
+owner status and retains previous send, compose and modify grants, including
+reauthentication records with false capability flags. Provider readback still
+owns upgrade success. This is source evidence, not a production deployment.
+
+Production remains at `904fbd215c661dd376a57ff712b11f12b9eec23c`. The live
+24 October Console read showed only homepage and branding complete, with the
+other five sections in progress. This supersedes the 12 October checkpoint.
+Seven entries remain identity, selected-file Drive, full Drive, Contacts read-only
+and Gmail read-only. Gmail writes and Calendar require separate submission
+alignment; a read-first connection does not verify those upgrades.
+
+Authenticated 24 October reads of managed Vertex project `hushh-gemini-bridge`
+returned `retentionConfig.retentionType=DURABLE`. Publisher configuration for
+`gemini-3.8-flash` at global, `gemini-live-2.5-flash-native-audio` at us-central1
+and `gemini-embedding-001` at global returned 404: resources are absent, consistent
+with default-off request/response logging, rather than explicit disabled flags.
+Current Google guidance describes durable caching as encrypted, project-scoped
+and deleted within 24 hours. Global caching has no single-region guarantee.
+No-training does not mean no retention; abuse-monitoring exemption is unproved.
+
+Arbitrary Gemini Developer API and Vertex API keys have no verified account-terms
+admission. Billing, no-training eligibility and potential Express restrictions
+must be established before a blanket Workspace-processing claim. History and
+saved context can contain derived information; blocking only a fresh connector
+read is insufficient. Two inspected receipt-fallback/ADK exception sinks now
+emit error class only, without raw exception text or traceback. This bounded fix
+is not an audit of every logging sink. No CASA Letter of Assessment was inspected.
+
+Google reviewers need ordinary provider sign-in, completed onboarding, their own
+vault and harmless test information. The internal review bridge is not that
+login. Staged full Drive/indexing/sharing uses existing exact-UID
+`CONNECTOR_PRODUCTION_OWNER_COHORT` plus feature switches. That admission never
+grants Google permissions, vault access or private information. Do not activate
+all-users rollout to provision one reviewer; rehearse the actual selected identity.
+
+The operator approved blocking unverified Gemini-key processing for One on
+24 October. The candidate removes BYOK from One’s hosted credential policy and
+refuses Gemini key transports at the resolved private inference target (including sealed selections, commands and Memory proposals), shared/private text-model construction
+boundary before model creation, history replay or tool dispatch. Key-based Live model
+construction is refused too. Both Developer
+API and unknown Vertex API keys are rejected. This does not silently route an
+owner key request through Hussh credentials. Existing standard workload ADC
+processing is retained; other provider products are not newly certified by this
+restriction. Runtime/deployment acceptance remains separate from source tests.
+
+The candidate privacy policy v2.12 requires explicit prior consent for merger, acquisition or asset-sale transfers of Google information. This wording is not deployed yet.

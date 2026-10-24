@@ -1,5 +1,6 @@
 "use client";
 
+import { planGmailNativeConnect } from "@/lib/services/gmail-oauth-contract";
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
@@ -253,6 +254,8 @@ export default function GmailReceiptsPage({
   const settledGmailPopupAttemptRef = useRef<string | null>(null);
   const gmailPopupRef = useRef<Window | null>(null);
   const gmailOwnerIdRef = useRef<string | null>(user?.uid ?? null);
+  const gmailConnectGenerationRef = useRef(0);
+  useLayoutEffect(() => () => { gmailConnectGenerationRef.current += 1; }, []);
   const sealedReceiptAccessRef = useRef({
     isUnlocked: isVaultUnlocked,
     ownerToken: vaultOwnerToken,
@@ -261,6 +264,7 @@ export default function GmailReceiptsPage({
   useLayoutEffect(() => {
     const owner = user?.uid ?? null;
     const previousAccess = sealedReceiptAccessRef.current;
+    if (gmailOwnerIdRef.current !== owner) gmailConnectGenerationRef.current += 1;
     if (gmailOwnerIdRef.current !== owner || previousAccess.ownerToken !== vaultOwnerToken || previousAccess.isUnlocked !== isVaultUnlocked) {
       receiptLoadSequenceRef.current += 1;
       receiptScanAbortRef.current?.abort();
@@ -927,31 +931,35 @@ export default function GmailReceiptsPage({
     onConnectionStateChange?.(isConnected);
   }, [isConnected, onConnectionStateChange]);
 
-  const preserveGmailModify = gmail.status?.modify_permission_granted === true;
-  const handleConnectGmail = useCallback((purpose: "read" | "send" = "send"): Promise<boolean> => {
+  const handleConnectGmail = useCallback((purpose: "read" | "send" = "read"): Promise<boolean> => {
     const operationDeadline = Date.now() + GMAIL_OAUTH_POPUP_TIMEOUT_MS;
     if (!user?.uid || gmailActionBusy !== null) return Promise.resolve(false);
     const operationOwner = user.uid;
+    const operationGeneration = ++gmailConnectGenerationRef.current;
+    const isCurrentConnect = () => gmailOwnerIdRef.current === operationOwner &&
+      gmailConnectGenerationRef.current === operationGeneration;
     const privateConnect = async (): Promise<boolean | null> => {
       const privateAgent = await ownerContentIsPrivate();
-      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!isCurrentConnect()) return false;
       if (!privateAgent) return null;
       if (!vaultKey || !vaultOwnerToken || !isVaultUnlocked) { toast.error('Unlock your vault to connect Google.'); return false; }
       const outcome = await connectGoogleConnector('gmail', {
+        gmailAccessLevel: purpose === 'send' ? 'manage' : 'read',
         vaultOwnerCapability: vaultOwnerToken,
         confirmLegacyTransition: confirmTransition,
-        isCurrent: () => gmailOwnerIdRef.current === operationOwner,
+        isCurrent: isCurrentConnect,
       });
-      if (gmailOwnerIdRef.current !== operationOwner) return false;
+      if (!isCurrentConnect()) return false;
       if (!outcome.ok) {
-        if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('gmail');
+        if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('gmail', purpose === 'send' ? 'manage' : 'read');
         else toast.error(connectRefusalMessage(outcome.code, 'Gmail'));
         return false;
       }
       const current = await refreshGmailStatus({ force: true });
-      if (gmailOwnerIdRef.current !== operationOwner) return false;
-      if (current?.connected) toast.success('Gmail connected to your private agent.');
-      return current?.connected === true;
+      if (!isCurrentConnect()) return false;
+      const granted = current?.connected === true && (purpose !== 'send' || current.send_permission_granted === true);
+      if (granted) toast.success('Gmail connected to your private agent.');
+      return granted;
     };
 
 
@@ -960,6 +968,7 @@ export default function GmailReceiptsPage({
       return (async () => {
         try {
           const privateOutcome = await privateConnect();
+          if (!isCurrentConnect()) return false;
           if (privateOutcome !== null) return privateOutcome;
           // The normal Gmail workspace has no setup state to persist. Do not
           // leave its trusted popup on a placeholder while an unrelated
@@ -970,6 +979,7 @@ export default function GmailReceiptsPage({
                   force: true,
                 }).catch(() => null), operationDeadline)
               : null;
+          if (!isCurrentConnect()) return false;
           const fromSetup = Boolean(
             journeyVariant === "onboarding" &&
             journey &&
@@ -977,11 +987,18 @@ export default function GmailReceiptsPage({
             journey.onboardingActiveCapability === "gmail",
           );
           const idToken = await withDeadline(user.getIdToken(), operationDeadline);
+          if (!isCurrentConnect()) return false;
+          const before = await withDeadline(GmailReceiptsService.getStatus({
+            idToken, userId: user.uid, force: true,
+          }), operationDeadline);
+          if (!isCurrentConnect()) return false;
+          const nativePlan = planGmailNativeConnect(purpose, before);
           const nativeStart = await withDeadline(GmailReceiptsService.startNativeConnect({
             idToken,
             userId: user.uid,
-            purpose,
+            purpose: nativePlan.purpose,
           }), operationDeadline);
+          if (!isCurrentConnect()) return false;
           if (!nativeStart.configured || !nativeStart.server_client_id) {
             throw new Error(
               "Mail OAuth is not configured for this environment.",
@@ -992,17 +1009,20 @@ export default function GmailReceiptsPage({
           try {
             ({ serverAuthCode } = await withDeadline(HushhAuth.connectGmail({
               serverClientId: nativeStart.server_client_id,
+              ...nativePlan,
               purpose: nativeStart.purpose,
-              preserveModify: preserveGmailModify,
             }), operationDeadline));
           } catch (error) {
+            if (!isCurrentConnect()) return false;
             GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
           }
+          if (!isCurrentConnect()) return false;
           if (!serverAuthCode?.trim()) {
             const error = new Error(
               "Google did not return a Mail authorization code.",
             );
+            if (!isCurrentConnect()) return false;
             GmailReceiptsService.recordConsentFailure(error, user.uid);
             throw error;
           }
@@ -1013,8 +1033,10 @@ export default function GmailReceiptsPage({
             serverAuthCode,
             purpose,
           }), operationDeadline);
-          await withDeadline(refreshGmailStatus({ force: true }), operationDeadline);
+          if (!isCurrentConnect()) return false;
+          const connected = await withDeadline(refreshGmailStatus({ force: true }), operationDeadline);
 
+          if (!isCurrentConnect()) return false;
           if (fromSetup && journey) {
             await withDeadline(PreVaultUserStateService.syncOnboardingJourney({
               userId: user.uid,
@@ -1025,21 +1047,25 @@ export default function GmailReceiptsPage({
             }).catch(() => undefined), operationDeadline);
           }
 
-          toast.success("Mail connected. You can read and send after reviewing each email.");
+          if (!isCurrentConnect()) return false;
+          toast.success(connected?.send_permission_granted
+            ? "Mail connected. You can read and send after reviewing each email."
+            : "Mail connected. You can read your messages and receipts.");
           return true;
         } catch (error) {
+          if (!isCurrentConnect()) return false;
           const message = sanitizeGmailUserMessage(error, {
             fallback:
               "We couldn't connect Mail right now. Please try again in a moment.",
           });
           console.warn(
             "[ProfileReceiptsPage] Failed to connect Gmail from native:",
-            error instanceof Error ? error.message : error,
+            error instanceof Error ? error.name : "UnknownError",
           );
           toast.error(message);
           return false;
         } finally {
-          setGmailActionBusy(null);
+          if (isCurrentConnect()) setGmailActionBusy(null);
         }
       })();
     }
@@ -1153,7 +1179,7 @@ export default function GmailReceiptsPage({
         return false;
       }
     })();
-  }, [confirmTransition, gmailActionBusy, journeyVariant, preserveGmailModify, refreshGmailStatus, user, vaultKey, vaultOwnerToken, isVaultUnlocked]);
+  }, [confirmTransition, gmailActionBusy, journeyVariant, refreshGmailStatus, user, vaultKey, vaultOwnerToken, isVaultUnlocked]);
 
   const handleEnableGmailSend = useCallback(() => {
     void handleConnectGmail("send");

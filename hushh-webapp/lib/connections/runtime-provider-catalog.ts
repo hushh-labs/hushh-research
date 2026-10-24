@@ -17,7 +17,7 @@ export const RUNTIME_PROVIDER_CATALOG: readonly RuntimeProviderCatalogEntry[] = 
     id: "gemini",
     name: "Google Gemini",
     availability: "available",
-    description: "Use Hussh managed Gemini or your own Gemini API key.",
+    description: "Use verified Google Cloud processing. Unverified Gemini keys are unavailable.",
   },
   {
     id: "openai",

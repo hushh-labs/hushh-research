@@ -60,8 +60,8 @@ def _runtime_with_verifier(verifier=None):
         consent_token="pod-session:sid",  # noqa: S106 - a session marker, not a credential
         provider="gemini",
         model="m",
-        runtime_mode="byok",
-        credential="k",
+        runtime_mode="user_adc",
+        credential=None,
         credential_transport="developer_api",
         vertex_project=None,
         vertex_location=None,
@@ -192,8 +192,8 @@ def _runtime(**over):
         consent_token="owner-" + "grant",
         provider="gemini",
         model="synthetic-model",
-        runtime_mode="byok",
-        credential="owner-" + "key",
+        runtime_mode="user_adc",
+        credential=None,
         credential_transport="developer_api",
         vertex_project=None,
         vertex_location=None,
@@ -430,9 +430,13 @@ def _bind_client(monkeypatch, client):
     from hushh_mcp.runtime_providers import factory
 
     monkeypatch.setattr(factory, "build_runtime_client", lambda *a, **kw: client)
+    monkeypatch.setattr(factory, "build_managed_runtime_client", lambda *_: client)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.owner_gemini.build_owner_gemini_client", lambda: client
+    )
 
 
-@pytest.mark.parametrize("mode", ["byok", "user_adc"])
+@pytest.mark.parametrize("mode", ["hushh_managed_vertex", "user_adc"])
 async def test_model_call_rechecks_access_after_generation(pod_identity, monkeypatch, mode):
     seen = []
 
@@ -442,13 +446,8 @@ async def test_model_call_rechecks_access_after_generation(pod_identity, monkeyp
 
     monkeypatch.setattr(pod_consent_client, "verify_consent", counting)
     client = _Client(SimpleNamespace(text="answer", function_calls=[]))
-    if mode == "user_adc":
-        from hushh_mcp.runtime_providers import owner_gemini
-
-        monkeypatch.setattr(owner_gemini, "build_owner_gemini_client", lambda: client)
-    else:
-        _bind_client(monkeypatch, client)
-    runtime = _runtime(runtime_mode=mode, credential=None if mode == "user_adc" else "key")
+    _bind_client(monkeypatch, client)
+    runtime = _runtime(runtime_mode=mode, credential=None)
     # The runtime exposes model_call only through service_for; reach it the way
     # the Location service does, via the closure the runtime built.
     service = await _runtime_location_service(runtime, monkeypatch)

@@ -1,5 +1,6 @@
 "use client";
 
+import { planGmailNativeConnect } from "@/lib/services/gmail-oauth-contract";
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 import { Capacitor } from "@capacitor/core";
@@ -142,10 +143,10 @@ async function connectPrivate(connector: 'gmail' | 'calendar', current: () => bo
   if (!current() || controls.cancelSignal?.aborted) return false;
   const { connectGoogleConnector } = await import('@/lib/one/google-native-connect');
   if (!current() || controls.cancelSignal?.aborted) return false;
-  const outcome = await connectGoogleConnector(connector, { isCurrent: () => current() && !controls.cancelSignal?.aborted,
+  const outcome = await connectGoogleConnector(connector, { gmailAccessLevel: connector === 'gmail' ? 'manage' : 'read', isCurrent: () => current() && !controls.cancelSignal?.aborted,
     vaultOwnerCapability: controls.vaultOwnerCapability, confirmLegacyTransition: controls.confirmLegacyTransition });
   if (!current() || controls.cancelSignal?.aborted) return false;
-  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector); return 'phone_handoff'; }
+  if (!outcome.ok && outcome.code === 'PHONE_HANDOFF_REQUIRED') { requestGoogleConnectorPhoneHandoff(connector, connector === 'gmail' ? 'manage' : 'read'); return 'phone_handoff'; }
   if (!outcome.ok && outcome.code === 'PRIVATE_AGENT_UNLOCK_REQUIRED') return 'unlock_required';
   if (!outcome.ok && outcome.code !== 'SIGN_IN_CANCELLED') throw new Error('Google connection could not be completed.');
   if (outcome.ok && outcome.legacyCleanup === 'unconfirmed') return 'cleanup_unconfirmed';
@@ -194,12 +195,13 @@ export function connectGmailInPlace(
           idToken,
           userId: owner.uid,
           force: true,
-        }).catch(() => null);
+        });
         if (!current()) return "stale";
+        const nativePlan = planGmailNativeConnect("send", before);
         const start = await GmailReceiptsService.startNativeConnect({
           idToken,
           userId: owner.uid,
-          purpose: "send",
+          purpose: nativePlan.purpose,
         });
         if (!current()) return "stale";
         if (!start.configured) return "failed";
@@ -207,8 +209,8 @@ export function connectGmailInPlace(
         try {
           result = await HushhAuth.connectGmail({
             serverClientId: start.server_client_id,
+            ...nativePlan,
             purpose: start.purpose,
-            preserveModify: before?.modify_permission_granted === true,
           });
         } catch (error) {
           GmailReceiptsService.recordConsentFailure(error, owner.uid);

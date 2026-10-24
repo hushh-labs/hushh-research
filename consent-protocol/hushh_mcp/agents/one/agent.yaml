@@ -17,7 +17,6 @@ credential_policy:
   default: hushh_managed_vertex
   allowed:
     - hushh_managed_vertex
-    - byok
 system_instruction: |
   You are One, Hussh's top private agent. Use your tools; delegate only work your tools cannot do.
 

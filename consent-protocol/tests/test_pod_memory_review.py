@@ -15,10 +15,8 @@ What is pinned here:
   a tombstone, ``remember`` adds and ``propose_pkm_fact`` writes nothing, and the
   authority to retire is DEFAULT-DENY, so a call site that says nothing gets a
   review that can add and can destroy nothing;
-* what a review does when it HAD to deny a retirement: it writes nothing at all,
-  so a correction the caller may not apply never lands beside the fact it was
-  meant to replace, and the denial is named rather than counted as an anonymous
-  refusal.
+* a denied retirement writes nothing, preventing an unauthorized correction
+  from landing beside the held fact, and reports the denial explicitly.
 """
 
 from __future__ import annotations
@@ -635,10 +633,11 @@ def route_enabled(monkeypatch):
     set_active_pod_config(None)
 
 
-async def test_the_close_route_reviews_on_the_turns_model_builder(route_enabled):
+async def test_the_close_route_reviews_on_the_turns_model_builder(route_enabled, monkeypatch):
     from api.routes.one.pod_memory import PodConversationCloseRequest, run_conversation_close
     from hushh_mcp.one_adk.memory_review import MemoryReviewResult
 
+    monkeypatch.setenv("HUSSH_POD_MANAGED_MODEL_ENABLED", "true")
     built: dict = {}
 
     def _model_builder(**kwargs):
@@ -664,14 +663,14 @@ async def test_the_close_route_reviews_on_the_turns_model_builder(route_enabled)
 
     result = await run_conversation_close(
         conversation_id="conv-1",
-        payload=PodConversationCloseRequest(runtime_credential="owner-key"),
+        payload=PodConversationCloseRequest(runtime_credential=None),
         consent_token="t",
         review_fn=_review,
         memory_service=object(),
         model_builder=_model_builder,
     )
-    assert built["runtime_mode"] == "byok"
-    assert built["runtime_credential"] == "owner-key"
+    assert built["runtime_mode"] == "hushh_managed_vertex"
+    assert built["runtime_credential"] is None
     assert seen["model"] == "the-model-object"
     assert seen["reason"] == "close"
     assert seen["budget_seconds"] == 45.0 and seen["max_records"] == 12
@@ -689,8 +688,8 @@ async def test_the_close_route_reviews_on_the_turns_model_builder(route_enabled)
             "delegateAgentId": None,
         }
     ]
-    assert result["runtimeMode"] == "byok"
-    assert "owner-key" not in str(result)
+    assert result["runtimeMode"] == "hushh_managed_vertex"
+    assert "runtime_credential" not in result
 
 
 async def test_the_close_route_refuses_without_a_token_and_honours_the_config(route_enabled):

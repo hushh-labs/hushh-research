@@ -31,8 +31,9 @@ def provider_catalog() -> dict[str, Any]:
             {
                 "id": "gemini",
                 "name": "Google Gemini",
-                "availability": "available",
-                "methods": ["own_key"],
+                "availability": "unavailable",
+                "reason": "processing_terms_unverified",
+                "methods": [],
                 "agentCapability": "gemini",
             },
             {

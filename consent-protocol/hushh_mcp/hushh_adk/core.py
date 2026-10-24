@@ -217,8 +217,10 @@ class HushhAgent(LlmAgent):
         ):
             try:
                 return await self._execute_adk_turn(prompt=prompt, user_id=user_id)
-            except Exception:
-                logger.exception("Agent turn failed agent=%s", self.hushh_name)
+            except Exception as exc:
+                logger.error(
+                    "Agent turn failed agent=%s error_type=%s", self.hushh_name, type(exc).__name__
+                )
                 raise
 
     async def _execute_adk_turn(self, *, prompt: str, user_id: str) -> str:

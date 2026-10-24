@@ -261,7 +261,9 @@ async def test_fenced_grounding_cannot_degrade_into_an_ungrounded_provider_turn(
 ):
     from hushh_mcp.services import pod_pkm_resolver
     from hushh_mcp.services.pod_commit_log import PodLogFenced
+    from tests.helpers.one_processing import enable_managed_vertex
 
+    enable_managed_vertex(monkeypatch)
     monkeypatch.setenv("HUSSH_ID", "synthetic-pod")
 
     async def verifier(*args, **kwargs):
@@ -279,9 +281,7 @@ async def test_fenced_grounding_cannot_degrade_into_an_ungrounded_provider_turn(
     monkeypatch.setattr(pod_pkm_resolver, "local_grounding", fenced)
     with pytest.raises(HTTPException) as caught:
         await pod_turn.run_pod_turn(
-            payload=pod_turn.PodTurnRequest(
-                message="synthetic", runtime_credential="synthetic-model-credential"
-            ),
+            payload=pod_turn.PodTurnRequest(message="synthetic"),
             consent_token="synthetic",
             verifier=verifier,
             stream_fn=forbidden_runner,

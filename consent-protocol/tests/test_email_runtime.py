@@ -391,3 +391,33 @@ async def test_delivery_service_rejects_missing_owner_authority() -> None:
         )
 
     assert error.value.code == "OWNER_AUTHORITY_REQUIRED"
+
+
+async def test_receipt_model_failure_keeps_provider_error_content_out_of_logs(monkeypatch, caplog):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import gmail_receipts_service as gmail_receipts_service_module
+    from hushh_mcp.services.gmail_receipts_service import GmailReceiptsService
+
+    canary = "synthetic-private-receipt-payload-canary"
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "_llm_fallback_enabled", lambda: True)
+    monkeypatch.setattr(
+        gmail_receipts_service_module, "run_email_gene", AsyncMock(side_effect=RuntimeError(canary))
+    )
+    with caplog.at_level("WARNING"):
+        assert (
+            await service._llm_extract_candidate(
+                SimpleNamespace(
+                    subject="Synthetic",
+                    from_email="demo@example.com",
+                    snippet="Synthetic",
+                    labels=[],
+                )
+            )
+            is None
+        )
+    assert "error_type=RuntimeError" in caplog.text
+    assert canary not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)

@@ -30,6 +30,7 @@ from hushh_mcp.runtime_providers import (
     build_runtime_client,
 )
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+from hushh_mcp.runtime_providers.processing_terms import one_runtime_mode_refusal
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.chat_key import (
@@ -1113,10 +1114,7 @@ class AgentChatService:
             runtime_credential_mode or self.runtime_manifest.credential_policy.default
         )
         if mode not in self.runtime_manifest.credential_policy.allowed:
-            raise AgentRuntimeContractError(
-                error_code="AGENT_RUNTIME_MODE_INVALID",
-                message="Agent runtime credential mode is invalid.",
-            )
+            raise AgentRuntimeContractError(**one_runtime_mode_refusal(mode))
 
         secret = (runtime_credential or "").strip()
         transport = _parse_gemini_byok_transport(runtime_credential_transport)

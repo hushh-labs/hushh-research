@@ -87,6 +87,7 @@ vi.mock("@/components/consent/trusted-document-rules", () => ({
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
   GmailReceiptsService: {
     startConnect: state.gmailStartConnect,
+    getStatus: vi.fn(async () => state.gmailStatus),
     startNativeConnect: state.startNativeConnect,
     completeNativeConnect: state.completeNativeConnect,
     recordConsentFailure: vi.fn(),

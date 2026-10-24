@@ -1,15 +1,8 @@
-/**
- * Risk 2 (unpaid Gemini key in a private agent). Google's Gemini API terms say
- * unpaid use may improve Google products and may be read by human reviewers.
- * Hussh cannot tell a paid key from an unpaid one, so the note is shown for
- * every Google AI Studio Gemini key and never claims a check. What these pin:
- * the note is on the Gemini key entry, it leaves with the Vertex endpoint (a
- * billed Google Cloud project), and another provider's key never carries it.
- */
-import { fireEvent, render, screen } from "@testing-library/react";
+/** One refuses unverified Gemini-key processing; other provider controls remain independent. */
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GEMINI_FREE_TIER_NOTE } from "@/components/connections/gemini-free-tier-note";
+import { UNVERIFIED_GEMINI_KEY_MESSAGE } from "@/lib/one/ai-selection-agent";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { OpenAiKeyCard } from "@/components/connections/openai-key-card";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -78,20 +71,13 @@ beforeEach(() => {
   mocks.hasSavedOpenAiKey.mockResolvedValue(false);
 });
 
-describe("Gemini free-tier note", () => {
-  it("shows the paid-key note where a Gemini key is entered, and drops it for a Vertex key", async () => {
-    render(
-      <GeminiRuntimeSettingsCard userId="owner-1" {...VAULT_PROPS} requiresExplicitSelection
-        initiallyConfigured initialSetupChoice="byok_pending_vault" />,
-    );
-    fireEvent.click((await screen.findAllByRole("radio"))[1]);
-    expect(await screen.findByLabelText("Gemini API key")).toBeInTheDocument();
-    expect(screen.getByTestId("gemini-free-tier-note")).toHaveTextContent(GEMINI_FREE_TIER_NOTE);
-    // Honest, not a guess: the note never claims Hussh checked the key's tier.
-    expect(GEMINI_FREE_TIER_NOTE).not.toMatch(/detect|checked|your key is (free|unpaid)/i);
-    expect(GEMINI_FREE_TIER_NOTE).not.toContain(String.fromCharCode(0x2014));
-
-    fireEvent.change(screen.getByLabelText("API endpoint"), { target: { value: "vertex_api_key" } });
+describe("Gemini processing policy", () => {
+  it("explains unverified processing and exposes no Gemini key selection", async () => {
+    render(<GeminiRuntimeSettingsCard userId="owner-1" {...VAULT_PROPS} requiresExplicitSelection
+      initiallyConfigured initialSetupChoice="byok_pending_vault" />);
+    expect(await screen.findByText(UNVERIFIED_GEMINI_KEY_MESSAGE)).toBeVisible();
+    expect(screen.queryByLabelText("Gemini API key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check and use" })).toBeNull();
     expect(screen.queryByTestId("gemini-free-tier-note")).toBeNull();
   });
 
@@ -99,6 +85,6 @@ describe("Gemini free-tier note", () => {
     render(<OpenAiKeyCard userId="owner-1" {...VAULT_PROPS} defaultModel={null} />);
     expect(await screen.findByLabelText("OpenAI API key")).toBeInTheDocument();
     expect(screen.queryByTestId("gemini-free-tier-note")).toBeNull();
-    expect(screen.queryByText(GEMINI_FREE_TIER_NOTE)).toBeNull();
+    expect(screen.queryByText(UNVERIFIED_GEMINI_KEY_MESSAGE)).toBeNull();
   });
 });

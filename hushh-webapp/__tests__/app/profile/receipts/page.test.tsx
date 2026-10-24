@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => {
       // assertions in this broad page suite migrate to the live scan name.
       listReceipts: receiptScan,
       getSavedHistory: vi.fn(),
+      getStatus: vi.fn(),
       scanReceipts: receiptScan,
       getReceiptDetail: vi.fn(),
       listNudges: vi.fn(),
@@ -740,10 +741,11 @@ describe("ProfileReceiptsPage", () => {
       redirect_uri: "http://localhost:3000/one/profile/gmail/oauth/return",
       expires_at: "2026-04-01T00:00:00Z",
     });
+    vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue(buildGmailView().status!);
     vi.mocked(GmailReceiptsService.startNativeConnect).mockResolvedValue({
       configured: true,
       server_client_id: "native-client-id",
-      purpose: "send",
+      purpose: "read",
     });
     vi.mocked(GmailReceiptsService.completeNativeConnect).mockResolvedValue(
       buildGmailView().status,
@@ -1853,29 +1855,7 @@ describe("ProfileReceiptsPage", () => {
   });
 
   it("shows one clear Gmail connect action when Gmail is not connected", async () => {
-    mocks.useGmailConnectorStatus.mockReturnValue(
-      makeGmailView({
-        status: {
-          configured: true,
-          connected: false,
-          status: "disconnected",
-          scope_csv: null,
-          last_sync_status: null,
-          auto_sync_enabled: false,
-          revoked: false,
-          latest_run: null,
-          google_email: null,
-        },
-        presentation: {
-          state: "disconnected",
-          badgeLabel: "Not connected",
-          description: "Gmail not connected.",
-          latestSyncText: "Connect once to sync receipts.",
-          latestSyncBadge: null,
-          isConnected: false,
-        },
-      }),
-    );
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
 
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
@@ -1902,7 +1882,7 @@ describe("ProfileReceiptsPage", () => {
         userId: "user-123",
         loginHint: "akshat@example.com",
         includeGrantedScopes: true,
-        purpose: "send",
+        purpose: "read",
       });
     });
     expect(mocks.gmailOAuthPopup.navigate).toHaveBeenCalledWith(
@@ -2084,29 +2064,7 @@ describe("ProfileReceiptsPage", () => {
   });
 
   it("keeps a connect recovery action visible in every disconnected Gmail workspace", async () => {
-    mocks.useGmailConnectorStatus.mockReturnValue(
-      makeGmailView({
-        status: {
-          configured: true,
-          connected: false,
-          status: "disconnected",
-          scope_csv: null,
-          last_sync_status: null,
-          auto_sync_enabled: false,
-          revoked: false,
-          latest_run: null,
-          google_email: null,
-        },
-        presentation: {
-          state: "disconnected",
-          badgeLabel: "Not connected",
-          description: "Gmail not connected.",
-          latestSyncText: "Connect once to sync receipts.",
-          latestSyncBadge: null,
-          isConnected: false,
-        },
-      }),
-    );
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
 
     render(<ProfileReceiptsPage />);
 
@@ -2166,7 +2124,7 @@ describe("ProfileReceiptsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /^connect mail$/i }));
     await waitFor(() =>
       expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: "user-123", purpose: "send" }),
+        expect.objectContaining({ userId: "user-123", purpose: "read" }),
       ),
     );
     expect(mocks.routerPush).not.toHaveBeenCalled();
@@ -2283,29 +2241,7 @@ describe("ProfileReceiptsPage", () => {
     const retainedPopup = mocks.gmailOAuthPopup.popup;
     (mocks.gmailOAuthPopup as { popup: typeof retainedPopup | null }).popup =
       null;
-    mocks.useGmailConnectorStatus.mockReturnValue(
-      makeGmailView({
-        status: {
-          configured: true,
-          connected: false,
-          status: "disconnected",
-          scope_csv: null,
-          last_sync_status: null,
-          auto_sync_enabled: false,
-          revoked: false,
-          latest_run: null,
-          google_email: null,
-        },
-        presentation: {
-          state: "disconnected",
-          badgeLabel: "Not connected",
-          description: "Gmail not connected.",
-          latestSyncText: "Connect once to sync receipts.",
-          latestSyncBadge: null,
-          isConnected: false,
-        },
-      }),
-    );
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
 
     try {
       render(<ProfileReceiptsPage initialWorkspace="receipts" />);
@@ -2318,7 +2254,7 @@ describe("ProfileReceiptsPage", () => {
           userId: "user-123",
           loginHint: "akshat@example.com",
           includeGrantedScopes: true,
-          purpose: "send",
+          purpose: "read",
         });
         expect(assignWindowLocation).toHaveBeenCalledWith(
           "https://accounts.google.com/o/oauth2/v2/auth",
@@ -2338,29 +2274,7 @@ describe("ProfileReceiptsPage", () => {
 
   it("uses native Gmail OAuth without launching browser OAuth inside the native iOS shell", async () => {
     mocks.capacitor.isNativePlatform.mockReturnValue(true);
-    mocks.useGmailConnectorStatus.mockReturnValue(
-      makeGmailView({
-        status: {
-          configured: true,
-          connected: false,
-          status: "disconnected",
-          scope_csv: null,
-          last_sync_status: null,
-          auto_sync_enabled: false,
-          revoked: false,
-          latest_run: null,
-          google_email: null,
-        },
-        presentation: {
-          state: "disconnected",
-          badgeLabel: "Not connected",
-          description: "Gmail not connected.",
-          latestSyncText: "Connect once to sync receipts.",
-          latestSyncBadge: null,
-          isConnected: false,
-        },
-      }),
-    );
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
 
     render(<ProfileReceiptsPage journeyVariant="onboarding" />);
 
@@ -2370,22 +2284,23 @@ describe("ProfileReceiptsPage", () => {
       expect(GmailReceiptsService.startNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
-        purpose: "send",
+        purpose: "read",
       });
       expect(mocks.hushhAuth.connectGmail).toHaveBeenCalledWith({
         serverClientId: "native-client-id",
-        purpose: "send",
+        purpose: "read",
+        preserveSend: false,
         preserveModify: false,
       });
       expect(GmailReceiptsService.completeNativeConnect).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
         serverAuthCode: "native-auth-code",
-        purpose: "send",
+        purpose: "read",
       });
     });
     await waitFor(() => expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Mail connected. You can read and send after reviewing each email.",
+      "Mail connected. You can read your messages and receipts.",
     ));
     expect(mocks.toast.error).not.toHaveBeenCalled();
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();
@@ -2397,31 +2312,34 @@ describe("ProfileReceiptsPage", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("retires pending native grant planning when the signed-in owner changes", async () => {
+    mocks.capacitor.isNativePlatform.mockReturnValue(true);
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
+    let resolveStatus!: (value: ReturnType<typeof buildGmailView>["status"]) => void;
+    vi.mocked(GmailReceiptsService.getStatus).mockImplementationOnce(() =>
+      new Promise((resolve) => { resolveStatus = resolve; }),
+    );
+    const rendered = render(<ProfileReceiptsPage forceWorkspace="kyc" />);
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
+    await waitFor(() => expect(GmailReceiptsService.getStatus).toHaveBeenCalled());
+    mocks.useAuth.mockReturnValue({
+      user: { uid: "owner-b", email: "demo-b@example.com", providerData: [],
+        getIdToken: vi.fn().mockResolvedValue("token-b") },
+      loading: false,
+    });
+    rendered.rerender(<ProfileReceiptsPage forceWorkspace="kyc" />);
+    await act(async () => { resolveStatus(buildGmailView().status); });
+    expect(GmailReceiptsService.startNativeConnect).not.toHaveBeenCalled();
+    expect(mocks.hushhAuth.connectGmail).not.toHaveBeenCalled();
+    expect(GmailReceiptsService.completeNativeConnect).not.toHaveBeenCalled();
+    expect(mocks.preVaultUserStateService.syncOnboardingJourney).not.toHaveBeenCalled();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
   it("records a dismissed native Gmail consent sheet as a terminal outcome", async () => {
     mocks.capacitor.isNativePlatform.mockReturnValue(true);
-    mocks.useGmailConnectorStatus.mockReturnValue(
-      makeGmailView({
-        status: {
-          configured: true,
-          connected: false,
-          status: "disconnected",
-          scope_csv: null,
-          last_sync_status: null,
-          auto_sync_enabled: false,
-          revoked: false,
-          latest_run: null,
-          google_email: null,
-        },
-        presentation: {
-          state: "disconnected",
-          badgeLabel: "Not connected",
-          description: "Gmail not connected.",
-          latestSyncText: "Connect once to sync receipts.",
-          latestSyncBadge: null,
-          isConnected: false,
-        },
-      }),
-    );
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
     const cancellation = { code: "USER_CANCELLED" };
     mocks.hushhAuth.connectGmail.mockRejectedValueOnce(cancellation);
 
@@ -2440,29 +2358,7 @@ describe("ProfileReceiptsPage", () => {
     const consoleWarn = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
-    mocks.useGmailConnectorStatus.mockReturnValue(
-      makeGmailView({
-        status: {
-          configured: true,
-          connected: false,
-          status: "disconnected",
-          scope_csv: null,
-          last_sync_status: null,
-          auto_sync_enabled: false,
-          revoked: false,
-          latest_run: null,
-          google_email: null,
-        },
-        presentation: {
-          state: "disconnected",
-          badgeLabel: "Not connected",
-          description: "Gmail not connected.",
-          latestSyncText: "Connect once to sync receipts.",
-          latestSyncBadge: null,
-          isConnected: false,
-        },
-      }),
-    );
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
     mocks.preVaultUserStateService.bootstrapState.mockResolvedValue({
       setupCompleted: false,
       onboardingPhase: "capability_setup",
@@ -2554,12 +2450,12 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
   });
 
-  it("reconnects through the combined reading/sending consent flow", async () => {
+  it("reconnects through read authorization while retaining existing provider grants", async () => {
     render(<ProfileReceiptsPage />);
     fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
     fireEvent.click(await screen.findByRole("menuitem", { name: /^reconnect$/i }));
     await waitFor(() => expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
-      expect.objectContaining({ purpose: "send", userId: "user-123" }),
+      expect.objectContaining({ purpose: "read", userId: "user-123" }),
     ));
     expect(mocks.gmailOAuthPopup.open).toHaveBeenCalledOnce();
   });

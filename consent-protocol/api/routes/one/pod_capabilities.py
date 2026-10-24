@@ -130,6 +130,29 @@ def own_model_provider() -> str:
     return AZURE_OPENAI_PROVIDER if azure_openai_configured() else "gemini"
 
 
+def _gemini_processing_reason(mode: str) -> str:
+    from hushh_mcp.runtime_providers.processing_terms import (
+        ProcessingTermsUnverifiedError,
+        require_verified_gemini_processing,
+    )
+
+    try:
+        require_verified_gemini_processing("gemini", mode)
+    except ProcessingTermsUnverifiedError:
+        return "processing_terms_unverified"
+    except (RuntimeError, ValueError):
+        return "model_configuration_unavailable"
+    return ""
+
+
+def _own_gemini_processing_reason() -> str:
+    from hushh_mcp.services.pod_ai_selection import current_ai_selection
+
+    return _gemini_processing_reason(
+        "byok" if current_ai_selection() is not None else "hushh_managed_vertex"
+    )
+
+
 def web_search_capability() -> dict[str, Any]:
     """Web search for this pod's OWN model, from the predicate One's head is built with.
 
@@ -139,7 +162,7 @@ def web_search_capability() -> dict[str, Any]:
     from hushh_mcp.one_adk.web_search import provider_supports_web_search  # noqa: PLC0415
 
     supported = provider_supports_web_search(own_model_provider())
-    return _capability("" if supported else "requires_gemini_model")
+    return _capability(_own_gemini_processing_reason() if supported else "requires_gemini_model")
 
 
 def private_commands_capability() -> dict[str, Any]:
@@ -153,16 +176,26 @@ def private_commands_capability() -> dict[str, Any]:
     decided by that request, never by this report. This does not enable Azure
     transcription: the separate hosting policy refuses all Azure voice.
     """
-    return _capability("" if own_model_provider() == "gemini" else "requires_gemini_model")
+    return _capability(
+        _own_gemini_processing_reason()
+        if own_model_provider() == "gemini"
+        else "requires_gemini_model"
+    )
 
 
 def ai_selection_capability() -> dict[str, Any]:
     """The "Bring your own AI" providers this image runs turns on (contract C3)."""
     from hushh_mcp.services.pod_ai_selection_seal import SUPPORTED_PROVIDERS  # noqa: PLC0415
 
+    unavailable = {
+        provider: reason
+        for provider in SUPPORTED_PROVIDERS
+        if provider == "gemini" and (reason := _gemini_processing_reason("byok"))
+    }
     return {
         "version": AI_SELECTION_VERSION,
-        "providers": list(SUPPORTED_PROVIDERS),
+        "providers": [provider for provider in SUPPORTED_PROVIDERS if provider not in unavailable],
+        **({"unavailableProviders": unavailable} if unavailable else {}),
         "defaultVerification": True,
     }
 
@@ -184,9 +217,22 @@ def ai_selection_advert(value: Any) -> dict[str, Any] | None:
         isinstance(item, str) and _PROVIDER_ID_RE.fullmatch(item) for item in providers
     ):
         return None
+    unavailable = value.get("unavailableProviders")
+    reasons = (
+        {
+            key: reason
+            for key, reason in unavailable.items()
+            if isinstance(key, str)
+            and _PROVIDER_ID_RE.fullmatch(key)
+            and reason == "processing_terms_unverified"
+        }
+        if isinstance(unavailable, dict) and len(unavailable) <= _MAX_ADVERTISED_PROVIDERS
+        else {}
+    )
     return {
         "version": version,
         "providers": list(dict.fromkeys(providers)),
+        **({"unavailableProviders": reasons} if reasons else {}),
         **({"defaultVerification": True} if value.get("defaultVerification") is True else {}),
     }
 

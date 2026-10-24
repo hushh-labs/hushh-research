@@ -107,7 +107,7 @@ describe("google native connect", () => {
       code_challenge_method: "S256",
       access_type: "offline",
       include_granted_scopes: "false",
-      scope: "openid email https://www.googleapis.com/auth/gmail.modify",
+      scope: "openid email https://www.googleapis.com/auth/gmail.readonly",
     });
     expect(url.searchParams.has("client_secret")).toBe(false);
   });
@@ -138,6 +138,29 @@ describe("google native connect", () => {
     }));
     expect(JSON.stringify(apiFetch.mock.calls)).not.toContain('4/0Acode');
     expect(sent.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
+  });
+
+  it.each(['read', 'manage'] as const)('keeps explicit Gmail %s intent identical in Google consent and sealed delivery', async (gmailAccessLevel) => {
+    let requested: string[] = [];
+    const openAuthSession = async (url: string) => {
+      const authorization = new URL(url);
+      requested = authorization.searchParams.get('scope')!.split(' ');
+      return `${nativeGoogleClient('ios')!.redirectUri}?code=synthetic&state=${authorization.searchParams.get('state')}`;
+    };
+    await connectGoogleConnector('gmail', { platform: 'ios', gmailAccessLevel, vaultOwnerCapability: CAPABILITY, openAuthSession });
+    const [, init] = ownerPodRequest.mock.calls.find(([, init]) => init.method === 'PUT')!;
+    const sent = JSON.parse(String(init.body));
+    expect(sent.scopes).toEqual(requested);
+    expect(requested).toEqual(['openid', 'email', `https://www.googleapis.com/auth/gmail.${gmailAccessLevel === 'manage' ? 'modify' : 'readonly'}`]);
+  });
+
+  it('keeps a bare Gmail handoff read-only and rejects ambiguous management intents', () => {
+    expect(googleConnectorIntent('hushh://one/connect/google/gmail')).toEqual({ connector: 'gmail', gmailAccessLevel: 'read' });
+    expect(googleConnectorIntent('hushh://one/connect/google/gmail?access=manage')).toEqual({ connector: 'gmail', gmailAccessLevel: 'manage' });
+    for (const suffix of ['?access=manage&access=read', '?access=all', '?access=manage&owner=other']) {
+      expect(googleConnectorIntent(`hushh://one/connect/google/gmail${suffix}`)).toBeNull();
+    }
+    expect(googleConnectorIntent('hushh://one/connect/google/drive?access=manage')).toBeNull();
   });
 
   it("passes the agent's refusal code through and words it plainly", async () => {
@@ -173,7 +196,7 @@ describe("google native connect", () => {
     expect(ownerPodRequest.mock.calls.some(([, init]) => init.method === 'PUT')).toBe(false);
   });
   it('accepts only connector intent in a QR, without any owner, endpoint or OAuth material', () => {
-    expect(googleConnectorIntent('hushh://one/connect/google/drive')).toBe('drive');
+    expect(googleConnectorIntent('hushh://one/connect/google/drive')).toEqual({ connector: 'drive', gmailAccessLevel: 'read' });
     for (const suffix of ['?code=secret', '?owner=user', '?endpoint=https://evil', '#verifier']) {
       expect(googleConnectorIntent(`hushh://one/connect/google/drive${suffix}`)).toBeNull();
     }

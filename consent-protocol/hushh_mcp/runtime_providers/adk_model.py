@@ -109,6 +109,9 @@ class ProviderAdkModel(BaseLlm):
         )
 
     def _client(self) -> Any:
+        from .processing_terms import require_verified_gemini_processing
+
+        require_verified_gemini_processing(self.provider, self.runtime_mode)
         from .owner_openai import is_owner_model, owner_model_client
 
         if is_owner_model(self.provider, self.runtime_mode):

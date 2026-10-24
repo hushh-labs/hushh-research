@@ -3316,7 +3316,7 @@ class GmailReceiptsService:
                 "source": "llm",
             }
         except Exception as exc:
-            logger.warning("gmail.sync.llm_fallback_failed reason=%s", exc)
+            logger.warning("gmail.sync.llm_fallback_failed error_type=%s", type(exc).__name__)
             return None
 
     def _extract_receipt_fields(

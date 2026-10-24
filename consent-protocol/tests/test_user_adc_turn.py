@@ -119,3 +119,53 @@ def test_only_the_byoc_renderer_grants_user_adc():
 def _env_names(cfg: dict) -> set[str]:
     container = cfg["spec"]["template"]["spec"]["containers"][0]
     return {e["name"] for e in container.get("env", [])}
+
+
+@pytest.mark.parametrize("transport", ["developer_api", "vertex_api_key"])
+def test_one_refuses_unverified_gemini_keys_before_model_construction(monkeypatch, transport):
+    from unittest.mock import Mock
+
+    from hushh_mcp.one_adk import text_runtime
+    from hushh_mcp.runtime_providers import factory
+
+    construct = Mock(side_effect=AssertionError("unverified provider construction"))
+    monkeypatch.setattr(factory, "build_gemini_byok_adk_model", construct)
+    with pytest.raises(ValueError, match="verified Google Cloud processing"):
+        text_runtime._runtime_model(
+            runtime_model="gemini-test",
+            runtime_provider="gemini",
+            runtime_mode="byok",
+            runtime_credential="synthetic-key",
+            runtime_credential_transport=transport,
+        )
+    construct.assert_not_called()
+
+
+@pytest.mark.parametrize("entry", ["text", "adapter", "shared_head"])
+def test_local_one_refuses_managed_developer_key_compatibility_before_construction(
+    monkeypatch, entry
+):
+    from hushh_mcp.one_adk import agent_tree, text_runtime
+    from hushh_mcp.runtime_providers import adk_model
+    from hushh_mcp.runtime_providers.processing_terms import ProcessingTermsUnverifiedError
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
+    monkeypatch.setenv("HUSSH_POD_USER_ADC_ENABLED", "false")
+    monkeypatch.setenv("TESTING", "true")
+    with pytest.raises(ProcessingTermsUnverifiedError):
+        if entry == "text":
+            text_runtime._runtime_model(
+                runtime_model="synthetic",
+                runtime_mode="hushh_managed_vertex",
+                runtime_credential=None,
+            )
+        elif entry == "adapter":
+            adk_model.ProviderAdkModel(
+                model="synthetic",
+                provider="gemini",
+                runtime_mode="hushh_managed_vertex",
+                credential="",
+            )._client()
+        else:
+            agent_tree._resolve_text_model(None)
