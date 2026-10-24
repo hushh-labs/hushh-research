@@ -18,6 +18,7 @@ from hushh_mcp.services.drive_packet_worker import DrivePacketWorker
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from tests.drive_postgres_test_support import apply_drive_fixture_migration
 from tests.services.test_drive_ingestion import (
     collection,
     collection_pages,
@@ -141,10 +142,7 @@ async def reusable(sharing, collection, ingestion, monkeypatch):
         "hushh_mcp.services.drive_packet_intelligence.facts_policy_version", lambda: POLICY
     )
     with collection.db.engine.connect() as connection:
-        connection.exec_driver_sql(
-            (MIGRATIONS / "334_drive_reusable_packets.sql").read_text(),
-            execution_options={"no_parameters": True},
-        )
+        apply_drive_fixture_migration(connection, "334_drive_reusable_packets.sql")
     facts = DriveDocumentFactsStore(db=collection.db, cipher=collection.cipher)
     packets = DrivePacketStore(db=collection.db, cipher=collection.cipher)
     worker = DrivePacketWorker(

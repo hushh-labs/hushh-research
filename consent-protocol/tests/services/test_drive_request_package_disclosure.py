@@ -5,6 +5,7 @@ from copy import deepcopy
 import pytest
 
 from hushh_mcp.services.drive_request_package_disclosure import (
+    PackageDisclosure,
     build_package_disclosure,
     buyer_package_disclosure,
     manual_buyer_disclosure,
@@ -131,6 +132,21 @@ def test_current_sealed_disclosure_projects_exactly():
         )
         == disclosure()
     )
+
+
+def test_provider_search_terms_survive_only_without_content_coverage_claims():
+    private = private_allowed()
+    terms = private["owner_allowed"]["buyer_disclosure"]
+    terms.update(confidenceBasis="provider_search", coverageStatus="unknown", periods=[])
+    result = buyer_package_disclosure(private, request_revision=4, owner_allowed_at="2026-10-13")
+    assert result["confidenceBasis"] == "provider_search"
+    assert result["periods"] == []
+    for changed in (
+        {"coverageStatus": "complete"},
+        {"periods": [{"start": "2026-01-01", "end": "2026-02-28"}]},
+    ):
+        with pytest.raises(ValueError):
+            PackageDisclosure.model_validate({**terms, **changed})
 
 
 def test_trusted_selection_has_buyer_coverage_without_claiming_owner_allow():
