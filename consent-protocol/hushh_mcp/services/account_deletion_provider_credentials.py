@@ -363,7 +363,7 @@ def read_grants(conn, owner: str, inventory: dict) -> dict[str, CleanupGrant]:
             FROM public.{source} source_row WHERE user_id=:owner{pending}
             AND encode(sha256(convert_to(jsonb_build_array(CAST(:source AS text),CAST(:owner AS text),
                 source_row.{identity}::text)::text,'UTF8')),'hex')=ANY(CAST(:references AS text[]))
-            LIMIT 129 FOR SHARE""")
+            LIMIT 129 FOR SHARE""")  # nosec B608 - Identifiers are _SOURCES literals; owner/references are bound.
         for record in conn.execute(
             query, {"source": source, "owner": owner, "references": list(inventory)}
         ).mappings():

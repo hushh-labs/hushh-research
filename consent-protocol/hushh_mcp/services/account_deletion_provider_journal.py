@@ -386,7 +386,7 @@ def capture_refresh(operation: CleanupRefreshOperation, *, grant, encrypted_upda
             WHERE retained.user_id=:owner AND retained.{identity}::text=:identity
               AND encode(sha256(convert_to(to_jsonb(retained)::text,'UTF8')),'hex')=:revision
             RETURNING to_jsonb(retained) AS row,
-              encode(sha256(convert_to(to_jsonb(retained)::text,'UTF8')),'hex') AS revision"""),
+              encode(sha256(convert_to(to_jsonb(retained)::text,'UTF8')),'hex') AS revision"""),  # nosec B608 - _SOURCES and migration416 allowlist constrain identifiers; values are bound.
                 {
                     "owner": claim.owner_id,
                     "identity": str(grant.row[identity]),

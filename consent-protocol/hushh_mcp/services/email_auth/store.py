@@ -295,7 +295,7 @@ class PostgresEmailAuthStore:
                         destination_ciphertext,
                         expires_at{columns})
                        VALUES ($1,$2,$3,$4,$5,$6,$7,'v1',$8,'v1',$9,$10,
-                               $11{values}) RETURNING *""",
+                               $11{values}) RETURNING *""",  # nosec B608 - Both suffixes are fixed literals; row values remain positional parameters.
                     row["challenge_id"],
                     row["destination_hash"],
                     row["domain"],
