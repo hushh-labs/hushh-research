@@ -86,6 +86,19 @@ jobs:
             --internal-group-id "$ASC_INTERNAL_GROUP_ID" --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
             --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
             --output-json "$RUNNER_TEMP/testflight-distribution.json"
+      - name: Bind recovery evidence to the original upload
+        run: |
+          PYTHONPATH=scripts/ci python - <<'PY'
+          import json, os, pathlib
+          from release_cadence_native import bind_recovery
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          path = root / 'testflight-distribution.json'
+          value = bind_recovery(json.loads((root / 'upload-run.json').read_text()),
+                                json.loads((root / 'receipt/testflight-upload-receipt.json').read_text()),
+                                int(os.environ['GITHUB_RUN_ID']), int(os.environ['GITHUB_RUN_ATTEMPT']),
+                                json.loads(path.read_text()))
+          path.write_text(json.dumps(value, sort_keys=True) + '\n')
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:

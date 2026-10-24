@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -241,7 +242,16 @@ def resolve_decision(
     target_sha: str,
     backend_base_sha: str,
     frontend_base_sha: str,
+    forward_only: bool = False,
 ) -> ScopeDecision:
+    if forward_only:
+        for serving in (backend_base_sha, frontend_base_sha):
+            if not all(re.fullmatch(r"[0-9a-f]{40}", value) for value in (serving, target_sha)):
+                raise ValueError("Automatic production requires both serving source SHAs")
+            result = subprocess.run(["git", "merge-base", "--is-ancestor", serving, target_sha], check=False)
+            if result.returncode == 1:
+                raise ValueError("Automatic production cannot move behind or away from a serving source")
+            result.check_returncode()
     if requested_scope == AUTO_SCOPE:
         return auto_decision(
             target_sha=target_sha,
@@ -294,6 +304,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-sha", required=True)
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
+    parser.add_argument("--forward-only", choices=("true", "false"), default="false")
     parser.add_argument("--github-output", default="")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
@@ -308,6 +319,7 @@ def main() -> int:
             target_sha=args.target_sha.strip(),
             backend_base_sha=args.backend_base_sha.strip(),
             frontend_base_sha=args.frontend_base_sha.strip(),
+            forward_only=args.forward_only == "true",
         )
     except (ValueError, subprocess.CalledProcessError) as exc:
         print(str(exc), file=sys.stderr)
