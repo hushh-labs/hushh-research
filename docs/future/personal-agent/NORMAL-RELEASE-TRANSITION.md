@@ -10,8 +10,8 @@ new dev-only pod image. Existing pods are unchanged.
 UAT accepted the preceding `713981942c` application through
 [run 40035573169](https://github.com/hushh-labs/hushh-research/actions/runs/40035573169).
 [Promotion 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175)
-now selects exact dev-accepted `ca83c0bf5a`; terminal acceptance and serving
-readback remain pending. Its workflow definition may come from newer main;
+accepted exact dev-verified `ca83c0bf5a`; corporate ADC confirms both services
+at 100% traffic, with schema, provenance, semantic and worker-attestation receipts. Its workflow definition may come from newer main;
 that does not change the selected application. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
 revision evidence and retained journey boundaries.
@@ -51,8 +51,8 @@ execution unavailable. This supersedes the broader acceptance gate below whereve
 it would delay the MVP. Production remains outside this authorization.
 
 The current correction has completed local verification, exact-head validation,
-Admin landing, landed smoke and dev acceptance. Finish the selected UAT promotion
-and read back its application SHA and traffic. The earlier 15-second email-readiness
+Admin landing, landed smoke and dev acceptance. The selected UAT promotion and corporate-ADC serving
+readback are complete. The earlier 15-second email-readiness
 refusal is historical; the bounded operator correction is merged and preserves
 strict capability admission. A workflow head alone is insufficient.
 The source recovery controller observes one exact execution; provider cancellation

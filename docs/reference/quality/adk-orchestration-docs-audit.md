@@ -2,15 +2,16 @@
 
 ## Current decision — 24 October 2026
 
-**The application correction is on main and accepted on dev. Its exact UAT
-promotion is running. Installed-pod and desktop acceptance remain separate.**
+**The application correction is on main and accepted on dev and UAT.
+Installed-pod and desktop acceptance remain separate.**
 
 | Surface | Verified state |
 | --- | --- |
 | Main | [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as `ca83c0bf5a` through authorized Admin queue bypass; [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/40037466640) and [landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40040728656) passed |
 | Dev | [Run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106) accepted `ca83c0bf5a`, both services; schema, provenance and semantic checks passed. Accepted revisions: backend `00214-nn5`, frontend `00181-mpz`, both 100% |
-| UAT | [Run 40035573169](https://github.com/hushh-labs/hushh-research/actions/runs/40035573169) accepted `713981942c`; [promotion 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175) selected `ca83c0bf5a` and is in progress |
+| UAT | [Run 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175) accepted `ca83c0bf5a`; schema, provenance, semantics and Drive-worker attestation passed. Corporate ADC confirms backend `02497-zic` / frontend `02054-lkq`, both 100% |
 | Pod image | Genuine Dev29 image `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by dev run `40041198106`; no eligible existing-owner upgrades or Browser qualification pins |
+| Current dev | Corporate ADC at 00:49 UTC confirms peer run `40043378889` advanced both services to `e4840d1915`, containing these fixes; backend `00216-ssx` / frontend `00183-tg9`, both 100% |
 | Desktop | [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23): approved CI review and passing Nix checks; broader Python failures prevent merge. Five introduced failures have a focused local correction; seven affected checks pass and the old keychain fixture fails four negative controls |
 
 The current release preserves earlier Hosting/AI/cleanup and provider-correct
@@ -24,7 +25,10 @@ operator’s 15-second deadline. The merged repair permits two bounded 30-second
 read-only attempts; disabled or malformed capabilities still refuse promotion.
 A later peer rollout accepted the prior application; the original failure remains
 historical evidence. Workflow head, selected application and installed pod are
-separate identities. Peer main and the active ADK tree remain preserved.
+separate identities. Peer main through `dcc4f611e3`, including Azure-search, public-source research
+and lost-vault changes, is inherited on the preserved branch. Those later changes
+are not claimed as part of UAT’s `ca83c0bf5a` acceptance. The active ADK tree remains
+preserved.
 
 The combined local core passed in 783 seconds: 25,018 backend tests, 143 skips,
 and frontend/security/governance/MCP/integration checks. Exact-head hosted
@@ -32,8 +36,13 @@ Protocol completed in 28m15s. The accepted dev rollout took 20m20s, including
 497 seconds for backend/image construction and 114 seconds for frontend build.
 These are individual observations, not completion-time guarantees.
 
-The new image requires exact-predecessor recovery before an approved update
-offer and normal owner installation. Installed Browser and full Puppy inference
+Synthetic recovery from predecessor `8b846022…68ac07` to Dev29 passed on both
+clouds, preserving identity, records, Files and 15 encrypted objects. Disposable
+services/resource groups, vault and temporary images were removed and read back;
+GCP’s seven-day object soft-delete retention is reported separately. These are
+format-recovery receipts, not normal startup, active-work drain or Browser proof.
+Other predecessors remain unqualified. An approved offer and normal owner
+installation are still required. Installed Browser and full Puppy inference
 are not established by application deployment. Production, stable publication
 and automatic owner upgrades remain held.
 
@@ -185,7 +194,7 @@ own the operating procedures and retained acceptance gates.
 | Files | Dedicated specialist/explorer; personal and fresh Shared Move, exact download and Undo; earlier interrupted 4,195,328-byte transfer and selected analysis passed | Current-image organization, fresh setup and retained Shared erasure |
 | Updates | Azure Dev 28: normal Browser setup approval and Microsoft handoff, one verified operation and exact installed digest; both predecessor recovery fixtures pass | Active-work overlap remains unproven; finish GCP installation and current-image continuity/Feed checks |
 | Puppy | Existing Hermes identity, signed binding, sealed WSS and streamed Gemma 12B; prior Stop, withdrawal/refusal and re-enable passed | Repeat affected paths only. Phone testing waived; independent-network acceptance is unclaimed |
-| Browser | Immutable-image native research passes on both clouds. The deployed 971/replay repair clears Azure's initial review failure; a fresh task accepted screen-processing consent and active takeover, then failed Phone resize before initialization | Release the locally verified startup/resize repair, then finish the installed journey. Hidden owner tabs intentionally do not paint frames. Additional interactive policy and GCP acceptance remain unverified |
+| Browser | Immutable-image native research passes on both clouds. The deployed 971/replay repair clears Azure's initial review failure; a fresh task accepted screen-processing consent and active takeover, then failed Phone resize before initialization | The repair is in the published Dev29 image; finish exact execution qualification, the approved offer and the installed journey. Hidden owner tabs intentionally do not paint frames. Additional interactive policy and GCP acceptance remain unverified |
 | Scheduled tasks / connectors | Local One occurrence/review/checkpoint continuity and authenticated HTTP have controlled proof; active worker registration remains Files-only | Preserve existing schedules; all-family expansion is deferred. Current-image connector refresh/review and supported continuation still need acceptance |
 | Voice | App selects GCP recorded commands; Azure capture disabled. Stronger private-pod guards are source-qualified | Fresh image and owner approval; GCP recorded audio remains live-unverified. Live needs compatible native transport, never a shared key |
 | Erasure / transitions | Earlier Shared erasure verified object/Firebase absence; retained fixture gets safe 409 on deployed source | Reconcile the uncertain write through the product path before erasure; cloud/external-grant cleanup and hosting transfers need their own receipts |
