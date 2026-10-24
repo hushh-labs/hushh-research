@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -164,3 +165,31 @@ def executable_manifest() -> tuple[str, str]:
         }
     )
     return manifest, "sha256:" + hashlib.sha256(manifest.encode()).hexdigest()
+
+
+def frontend_deploy_script(steps: list[dict], project: str, tmp_path: Path) -> tuple[str, Path]:
+    """Render the authored serial deploy with a synthetic Cloud Build transport."""
+    run = next(step["run"] for step in steps if step.get("id") == "deploy-frontend")
+    preparation = next(
+        (step for step in steps if step.get("id") == "prepare-frontend-rollout"), None
+    )
+    if preparation:
+        prepare = preparation["run"]
+        # Exercise the shared rollout settings and original serial fallback.
+        # The ready-image combined-build path has its own DAG/admission tests.
+        prepare = prepare[: prepare.index("# Do not delay")]
+        run = (
+            prepare + '\nexport FRONTEND_DEPLOY_SUBSTITUTIONS="$SUBSTITUTIONS"; '
+            "export FRONTEND_PARALLEL=false;\n" + run
+        )
+    run = run.replace("${{ env.GCP_PROJECT_ID }}", project)
+    run = re.sub(r"\$\{\{[^}]*\}\}", "fixture", run)
+    assert "${{" not in run
+    capture = tmp_path / "gcloud.txt"
+    guards = (
+        f"export GITHUB_OUTPUT='{tmp_path / 'github-output'}';\n"
+        "gcloud() { "
+        f'if [ "$1 $2" = "builds submit" ]; then printf "%s\\n" "$@" > "{capture}"; return 0; fi; '
+        "echo UNEXPECTED_CLOUD_COMMAND >&2; return 95; };\n"
+    )
+    return guards + run, capture

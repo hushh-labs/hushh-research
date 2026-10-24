@@ -4,6 +4,16 @@ import os
 from pathlib import Path
 
 
+def write_executables(directory: Path, sources: dict[str, str]) -> Path:
+    """Keep synthetic CLI creation identical across release and resume probes."""
+    directory.mkdir(exist_ok=True)
+    for name, source in sources.items():
+        executable = directory / name
+        executable.write_text(source, encoding="utf-8")
+        executable.chmod(0o755)
+    return directory
+
+
 def write_worker_gcloud_fixture(fake_bin: Path) -> None:
     import shlex
     import sys
@@ -52,7 +62,7 @@ elif command[:3] == ["run", "services", "describe"]:
     if "--format=value(status.url)" in command:
         print("https://consent-protocol-drive-worker-abc.a.run.app")
     else:
-        print(json.dumps({"status": {"traffic": traffic}}))
+        print(json.dumps({"status": {"traffic": traffic, "url": "https://consent-protocol-drive-worker-abc.a.run.app"}}))
 elif command[:3] == ["scheduler", "jobs", "list"]:
     print(os.environ["MOCK_SCHEDULER_JOB"])
 elif command[:3] == ["scheduler", "jobs", "describe"]:

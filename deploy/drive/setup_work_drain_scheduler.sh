@@ -146,28 +146,38 @@ fi
 # Editing a paused Cloud Scheduler job keeps it paused. A full UAT worker
 # rollout requires the ordinary document, suggestion and sharing drains to run.
 # The maintenance-preserving release path does not call this helper.
-JOB_STATE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
-  --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
-  --format='value(state)')"
+job_snapshot="$(gcloud scheduler jobs describe "${JOB_NAME}" \
+  --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --format=json)"
+JOB_STATE="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("state") or "")' <<< "${job_snapshot}")"
 if [[ "${JOB_STATE}" == "PAUSED" ]]; then
   gcloud scheduler jobs resume "${JOB_NAME}" \
     --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --quiet >/dev/null
+  job_snapshot="$(gcloud scheduler jobs describe "${JOB_NAME}" \
+    --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --format=json)"
 elif [[ "${JOB_STATE}" != "ENABLED" ]]; then
   echo "Cloud Scheduler job is not ready to resume: ${JOB_NAME}" >&2
   exit 1
 fi
 
-JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
-  --project="${PROJECT_ID}" \
-  --location="${SCHEDULER_LOCATION}" \
-  --format='value(state,schedule,httpTarget.uri,httpTarget.httpMethod,httpTarget.oidcToken.serviceAccountEmail,httpTarget.oidcToken.audience)')"
+# Verify state, target, identity and body from the same post-update snapshot.
+# A resumed job is read again above before any verification can succeed.
+JOB_EVIDENCE="$(python3 -c '
+import json, sys
+job = json.load(sys.stdin)
+target = job.get("httpTarget") or {}
+oidc = target.get("oidcToken") or {}
+values = [job.get("state"), job.get("schedule"), target.get("uri"),
+          target.get("httpMethod"), oidc.get("serviceAccountEmail"), oidc.get("audience")]
+if not all(isinstance(value, str) for value in values):
+    raise SystemExit("Drive scheduler verification fields are missing")
+print("\t".join(values))
+' <<< "${job_snapshot}")"
 EXPECTED="ENABLED"$'\t'"${CRON}"$'\t'"${URI}"$'\t'"POST"$'\t'"${SCHEDULER_SERVICE_ACCOUNT_EMAIL}"$'\t'"${OIDC_AUDIENCE}"
 if [[ "${JOB_EVIDENCE}" != "${EXPECTED}" ]]; then
   echo "Cloud Scheduler verification failed for ${JOB_NAME}" >&2
   exit 1
 fi
-if ! gcloud scheduler jobs describe "${JOB_NAME}" \
-  --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --format=json \
+if ! printf '%s' "${job_snapshot}" \
   | EXPECTED_STAGE="${STAGE}" python3 -c '
 import base64, json, os, sys
 job = json.load(sys.stdin)
