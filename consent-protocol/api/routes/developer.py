@@ -111,6 +111,7 @@ from hushh_mcp.services.hushh_tech_client_service import (
     HushhTechClientError,
     HushhTechClientService,
 )
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.user_identifier_service import resolve_lookup_identifier
 
@@ -1476,7 +1477,9 @@ def _resolve_firebase_owner_profile(firebase_uid: str) -> OwnerProfile:
 
         firebase_app = get_firebase_auth_app()
         if firebase_app is not None:
-            user_record = firebase_auth.get_user(firebase_uid, app=firebase_app)
+            user_record = firebase_auth.get_user(
+                firebase_uid_for_owner_read(firebase_uid), app=firebase_app
+            )
             owner_email = getattr(user_record, "email", None)
             owner_display_name = getattr(user_record, "display_name", None)
             owner_provider_ids = sorted(

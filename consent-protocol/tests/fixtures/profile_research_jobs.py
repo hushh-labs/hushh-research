@@ -22,7 +22,7 @@ RESULT = {
 
 
 @pytest.fixture(autouse=True)
-def authority(monkeypatch):
+def authority(monkeypatch, shared_hub_owner):
     from hushh_mcp.services import owner_placement_guard
 
     monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)

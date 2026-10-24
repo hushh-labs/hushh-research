@@ -31,6 +31,7 @@ from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
 from hushh_mcp.services.support_email_service import AccountNoticeKind, get_support_email_service
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
@@ -66,7 +67,8 @@ async def _send_vault_change_notice(user_id: str, kind: AccountNoticeKind) -> No
             raise RuntimeError("account lookup unavailable")
         from firebase_admin import auth as firebase_auth
 
-        account = await run_in_threadpool(firebase_auth.get_user, user_id, app=app)
+        identity_uid = await run_in_threadpool(firebase_uid_for_owner_read, user_id)
+        account = await run_in_threadpool(firebase_auth.get_user, identity_uid, app=app)
         if not getattr(account, "email_verified", False) or not getattr(account, "email", None):
             logger.warning(
                 "account_security_email.skipped reason=verified_email_required kind=%s", kind

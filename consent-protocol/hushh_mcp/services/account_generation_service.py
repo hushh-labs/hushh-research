@@ -390,6 +390,40 @@ class AccountGenerationService:
         return owner_id
 
     @staticmethod
+    def firebase_identities_for_owners(owner_ids: list[str]) -> dict[str, str]:
+        """Bounded batch of exact active owners for SDK reads, never UID→latest.
+
+        Filtering retirement precedes SDK/cache projection. Returned records
+        must still be keyed by their captured application owner.
+        """
+        owners = list(dict.fromkeys(owner_ids))
+        if len(owners) > 10_000 or any(
+            not isinstance(owner, str) or not 1 <= len(owner) <= 128 for owner in owners
+        ):
+            raise AccountGenerationRefused("identity_read_batch_invalid")
+        if not owners:
+            return {}
+        with get_db_connection() as conn:
+            conn.execute(text("SET LOCAL statement_timeout='5000ms'"))
+            installed = conn.execute(
+                text("SELECT to_regclass('public.account_generations') IS NOT NULL")
+            ).scalar_one()
+            if installed is not True:
+                raise AccountGenerationRefused("generation_schema_unavailable")
+            rows = conn.execute(
+                text("""SELECT requested.owner,
+              CASE WHEN g.owner_id=requested.owner THEN g.identity_uid ELSE requested.owner END AS identity_uid
+              FROM unnest(CAST(:owners AS text[])) AS requested(owner)
+              LEFT JOIN public.account_generations g ON g.owner_hash='sha256:'||encode(sha256(convert_to(requested.owner,'UTF8')),'hex')
+              LEFT JOIN public.account_deletion_tombstones t ON t.user_id_hash='sha256:'||encode(sha256(convert_to(requested.owner,'UTF8')),'hex')
+              WHERE t.user_id_hash IS NULL AND
+               ((g.owner_id=requested.owner AND g.retired_at IS NULL) OR
+                (g.owner_hash IS NULL AND requested.owner !~ '^acct_[0-9a-f]{32}$'))"""),
+                {"owners": owners},
+            ).mappings()
+            return {row["owner"]: row["identity_uid"] for row in rows}
+
+    @staticmethod
     def custom_session_binding(owner_id: str, *, lane: str) -> tuple[str, dict[str, str]]:
         """Stamp captured authority, never infer a latest owner at token exchange.
 

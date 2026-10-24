@@ -1343,3 +1343,46 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
         lifecycle_override.stop()
         await pool.close()
         engine.dispose()
+
+
+async def test_exact_owner_identity_batch_reads_do_not_rebind_retired_or_unknown_generations():
+    """Exercise the bounded SQL projection; lifecycle guard qualification is above."""
+    from hushh_mcp.services import account_generation_service as generations
+
+    server = postgres_harness.TempPostgres()
+    engine = None
+    try:
+        with patch.object(postgres_harness, "MIGRATIONS", []):
+            server.start()
+        engine = create_engine(f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}")
+        owner = "acct_" + "a" * 32
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE account_generations(owner_hash text PRIMARY KEY, owner_id text, identity_uid text, retired_at timestamptz); CREATE TABLE account_deletion_tombstones(user_id_hash text PRIMARY KEY)"
+                )
+            )
+            conn.execute(
+                text("INSERT INTO account_generations VALUES(:hash,:owner,'external-uid',NULL)"),
+                {"hash": lifecycle.account_deletion_user_hash(owner), "owner": owner},
+            )
+            conn.execute(
+                text("INSERT INTO account_deletion_tombstones VALUES(:hash)"),
+                {"hash": lifecycle.account_deletion_user_hash("external-uid")},
+            )
+        with patch.object(generations, "get_db_connection", engine.begin):
+            assert generations.AccountGenerationService.firebase_identities_for_owners(
+                ["external-uid", owner, "acct_" + "b" * 32, "legacy-active"]
+            ) == {owner: "external-uid", "legacy-active": "legacy-active"}
+            with engine.begin() as conn:
+                conn.execute(
+                    text("INSERT INTO account_deletion_tombstones VALUES(:hash)"),
+                    {"hash": lifecycle.account_deletion_user_hash(owner)},
+                )
+            assert (
+                generations.AccountGenerationService.firebase_identities_for_owners([owner]) == {}
+            )
+    finally:
+        if engine is not None:
+            engine.dispose()
+        server.stop()

@@ -36,6 +36,7 @@ _GLOBAL_LIMIT = "600/minute"
 _MESSAGES = {
     "sso_not_available": "Single sign-on is not available for this address.",
     "sso_unavailable": "Single sign-on is temporarily unavailable.",
+    "sso_generation_unavailable": "Single sign-on is not available for this account setup. Use another sign-in method.",
     "sso_provider_unavailable": "Single sign-on is temporarily unavailable.",
     "sso_state_invalid": "This sign-in attempt expired. Start again.",
     "sso_code_invalid": "This sign-in attempt expired. Start again.",

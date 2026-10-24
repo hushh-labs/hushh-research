@@ -14,6 +14,7 @@ from hushh_mcp.runtime_settings import (
     one_magic_intelligence_cohorts,
     one_magic_intelligence_phase,
 )
+from hushh_mcp.services.one_owner_admission import firebase_record_matches_owner
 
 PILOT_EMAIL = "parth.mawai.12@gmail.com"
 _EMAIL = re.compile(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+", re.ASCII)
@@ -55,7 +56,7 @@ def magic_intelligence_owner_admitted(user_id: str, record: Any) -> bool:
     """
     email = _email(getattr(record, "email", None))
     return (
-        getattr(record, "uid", None) == user_id
+        firebase_record_matches_owner(user_id, record)
         and getattr(record, "disabled", True) is False
         and getattr(record, "email_verified", False) is True
         and email is not None
