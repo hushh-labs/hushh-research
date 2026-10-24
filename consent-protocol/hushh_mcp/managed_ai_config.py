@@ -107,6 +107,47 @@ def selected_managed_provider() -> str:
     return selected
 
 
+def _validate_managed_azure_bindings(azure: dict, required: list[str]) -> None:
+    legacy_bindings = {
+        "realtime",
+        "transcription",
+        "speech",
+        "embedding",
+        "embedding_dimensions",
+        "voice",
+    }
+    if not isinstance(azure, dict) or set(azure) not in (
+        legacy_bindings,
+        legacy_bindings | {"compact_public_search"},
+    ):
+        raise ValueError("Invalid managed Azure capability bindings")
+    compact = "compact_public_search" in azure
+    if compact != ("compact_public_search" in required):
+        raise ValueError("Compact public search requires matching capability qualification")
+    kinds = ("realtime", "transcription", "speech", "embedding")
+    for kind in (*kinds, *(("compact_public_search",) if compact else ())):
+        binding = azure[kind]
+        fields = {"deployment", "model", "version"}
+        if kind == "compact_public_search":
+            fields |= {"reasoning_effort", "text_verbosity"}
+        if not isinstance(binding, dict) or set(binding) != fields:
+            raise ValueError("Invalid managed Azure deployment descriptor")
+        if any(
+            not isinstance(binding[key], str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", binding[key])
+            for key in ("deployment", "model", "version")
+        ):
+            raise ValueError("Invalid managed Azure deployment descriptor")
+        if kind == "compact_public_search" and (
+            binding["reasoning_effort"] != "none" or binding["text_verbosity"] != "low"
+        ):
+            raise ValueError("Invalid compact public search generation budget")
+    if type(azure["embedding_dimensions"]) is not int or azure["embedding_dimensions"] != 768:
+        raise ValueError("Managed Location embeddings require 768 dimensions")
+    if azure["voice"] not in {"coral"}:
+        raise ValueError("Unsupported managed Azure voice")
+
+
 def load_managed_runtime_policy(
     path: Path = PROFILE_PATH, *, environment: str | None = None
 ) -> dict | None:
@@ -144,29 +185,7 @@ def load_managed_runtime_policy(
         or len(set(required)) != len(required)
     ):
         raise ValueError("Invalid managed capability inventory")
-    azure = value["azure"]
-    if not isinstance(azure, dict) or set(azure) != {
-        "realtime",
-        "transcription",
-        "speech",
-        "embedding",
-        "embedding_dimensions",
-        "voice",
-    }:
-        raise ValueError("Invalid managed Azure capability bindings")
-    for kind in ("realtime", "transcription", "speech", "embedding"):
-        binding = azure[kind]
-        if not isinstance(binding, dict) or set(binding) != {"deployment", "model", "version"}:
-            raise ValueError("Invalid managed Azure deployment descriptor")
-        if any(
-            not isinstance(v, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", v)
-            for v in binding.values()
-        ):
-            raise ValueError("Invalid managed Azure deployment descriptor")
-    if type(azure["embedding_dimensions"]) is not int or azure["embedding_dimensions"] != 768:
-        raise ValueError("Managed Location embeddings require 768 dimensions")
-    if azure["voice"] not in {"coral"}:
-        raise ValueError("Unsupported managed Azure voice")
+    _validate_managed_azure_bindings(value["azure"], required)
     selected = selected_managed_provider()
     digest = profile_hash(
         {

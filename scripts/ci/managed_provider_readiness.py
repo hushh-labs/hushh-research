@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
 import time
+from functools import cache
 from pathlib import Path
 from uuid import UUID, uuid5
 
@@ -21,6 +23,15 @@ ROOT = Path(__file__).resolve().parents[2]
 SCOPES = {"one_text_chat", "drive_document_requests"}
 PROVIDERS = {"azure_openai", "vertex"}
 PROVIDER_SCOPES = {"azure_openai": SCOPES, "vertex": {"drive_document_requests"}}
+
+
+@cache
+def _capability_proof():
+    path = Path(__file__).with_name("managed_capability_proof.py")
+    spec = importlib.util.spec_from_file_location("managed_capability_proof", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def fingerprint(value):
@@ -143,7 +154,8 @@ def valid_pwm_proof(proof, document):
     return (
         isinstance(proof, dict)
         and [proof.get("azure_pwm_" + key) for key in counts] == [4, 8, 2]
-        and proof.get("deployment") == document["pwm_research_uat"]["azure"]["primary_deployment"]
+        and proof.get("deployment")
+        == document["pwm_research_uat"]["azure"]["primary_deployment"]
         and bool(re.fullmatch(r"[0-9a-f]{64}", str(proof.get("policy_sha256", ""))))
     )
 
@@ -156,90 +168,8 @@ def valid_capabilities(proof, provider, expected, document):
     generation = str(
         uuid5(UUID(policy["policy_id"]), policy["version"] + digest + provider)
     )
-    if not isinstance(proof, dict) or set(proof) != {
-        "schema",
-        "provider",
-        "config_fingerprint",
-        "policy_generation",
-        "synthetic_only",
-        "capabilities",
-        "ready",
-        "elapsed_ms",
-    }:
-        return False
-    capabilities = proof["capabilities"]
-    return (
-        proof["schema"] == "managed_capabilities_probe.v1"
-        and proof["provider"] == provider
-        and proof["synthetic_only"] is True
-        and proof["ready"] is True
-        and proof["config_fingerprint"] == expected["config_fingerprint"]
-        and proof["policy_generation"] == generation
-        and type(proof["elapsed_ms"]) is int
-        and 0 <= proof["elapsed_ms"] <= 600_000
-        and isinstance(capabilities, dict)
-        and set(capabilities) == set(policy["required_capabilities"])
-        and all(
-            isinstance(value, dict)
-            and value.get("ready") is True
-            and type(value.get("elapsed_ms")) is int
-            and 0 <= value["elapsed_ms"] <= 65_000
-            and set(value)
-            <= {
-                "ready",
-                "elapsed_ms",
-                "cited_sources",
-                "fresh_page_retrieval_claimed",
-                "http_receipts",
-                "audio_bytes",
-                "sample_rate",
-                "chunks",
-                "synthetic_phrase_verified",
-                "dimensions",
-                "function_round_trip",
-                "input_sample_rate",
-                "input_transcription_verified",
-                "synthetic_content_verified",
-                "streaming_observed",
-                "steps",
-            }
-            and all(
-                type(item) is bool
-                if key
-                in {
-                    "ready",
-                    "fresh_page_retrieval_claimed",
-                    "synthetic_phrase_verified",
-                    "function_round_trip",
-                    "input_transcription_verified",
-                    "synthetic_content_verified",
-                    "streaming_observed",
-                }
-                else type(item) is int and 0 <= item <= 10_000_000
-                for key, item in value.items()
-            )
-            for value in capabilities.values()
-        )
-        and all(
-            capabilities[name].get("synthetic_content_verified") is True
-            for name in ("structured_text", "image_input", "pdf_input")
-        )
-        and capabilities["structured_text"].get("streaming_observed") is True
-        and capabilities["public_search"].get("cited_sources", 0) > 0
-        and capabilities["public_search"].get("fresh_page_retrieval_claimed") is False
-        and capabilities["public_source"].get("http_receipts") == 1
-        and capabilities["location_transcription"].get("synthetic_phrase_verified")
-        is True
-        and capabilities["location_semantics"].get("steps") == 1
-        and capabilities["narration"].get("audio_bytes", 0) > 0
-        and capabilities["narration"].get("chunks", 0) > 0
-        and capabilities["narration"].get("sample_rate") == 24000
-        and capabilities["live_audio"].get("audio_bytes", 0) > 0
-        and capabilities["live_audio"].get("sample_rate") == 24000
-        and capabilities["live_audio"].get("input_sample_rate") == 16000
-        and capabilities["live_audio"].get("function_round_trip") is True
-        and capabilities["live_audio"].get("input_transcription_verified") is True
-        and capabilities["embeddings"].get("dimensions") == 768
+    return _capability_proof().valid_capabilities(
+        proof, provider, expected, document, generation=generation
     )
 
 
@@ -646,7 +576,10 @@ def candidate(service, expected, tag):
 
 
 def select(result, expected, folder):
-    if result.get("ready") is not True or result.get("selected_provider") != "azure_openai":
+    if (
+        result.get("ready") is not True
+        or result.get("selected_provider") != "azure_openai"
+    ):
         raise ValueError("One UAT requires qualified Azure processing")
     service = os.environ["READINESS_SERVICE"]
     tag = os.environ["READINESS_TAG"]

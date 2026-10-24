@@ -127,7 +127,14 @@
         "version": "1"
       },
       "embedding_dimensions": 768,
-      "voice": "coral"
+      "voice": "coral",
+      "compact_public_search": {
+        "deployment": "one-search-gpt-54-mini-eval",
+        "model": "gpt-5.4-mini",
+        "version": "2026-03-17",
+        "reasoning_effort": "none",
+        "text_verbosity": "low"
+      }
     },
     "required_capabilities": [
       "structured_text",
@@ -139,7 +146,8 @@
       "location_semantics",
       "narration",
       "live_audio",
-      "embeddings"
+      "embeddings",
+      "compact_public_search"
     ]
   }
 }

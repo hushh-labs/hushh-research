@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 _BACKEND_RELEASE_TOOL_FIXTURES = (
     "deploy/backend.cloudbuild.yaml",
     "scripts/ci/managed_provider_readiness.py",
+    "scripts/ci/managed_capability_proof.py",
     "scripts/deploy/backend-deploy.sh",
     "scripts/deploy/backend-capacity-settings.sh",
     "scripts/deploy/verify-managed-vertex-runtime.sh",
@@ -1904,6 +1905,35 @@ def _managed_provider_gate():
     return module
 
 
+def _capability_results_fixture(policy):
+    capabilities = {
+        name: {"ready": True, "elapsed_ms": 1} for name in policy["required_capabilities"]
+    }
+    for name in ("structured_text", "image_input", "pdf_input"):
+        capabilities[name]["synthetic_content_verified"] = True
+    capabilities["structured_text"]["streaming_observed"] = True
+    capabilities["public_search"].update(cited_sources=1, fresh_page_retrieval_claimed=False)
+    if "compact_public_search" in capabilities:
+        capabilities["compact_public_search"].update(
+            cited_sources=1,
+            fresh_page_retrieval_claimed=False,
+            synthetic_content_verified=True,
+        )
+    capabilities["public_source"]["http_receipts"] = 1
+    capabilities["location_transcription"]["synthetic_phrase_verified"] = True
+    capabilities["location_semantics"]["steps"] = 1
+    capabilities["narration"].update(audio_bytes=4800, sample_rate=24000, chunks=2)
+    capabilities["live_audio"].update(
+        function_round_trip=True,
+        audio_bytes=4800,
+        sample_rate=24000,
+        input_sample_rate=16000,
+        input_transcription_verified=True,
+    )
+    capabilities["embeddings"]["dimensions"] = 768
+    return capabilities
+
+
 def _provider_fixture(module, provider):
     from uuid import UUID, uuid5
 
@@ -1963,25 +1993,7 @@ def _provider_fixture(module, provider):
     }
     policy = document["managed_runtime_uat"]
     digest = module.fingerprint({"policy": policy, "azure": document["pwm_research_uat"]["azure"]})
-    capabilities = {
-        name: {"ready": True, "elapsed_ms": 1} for name in policy["required_capabilities"]
-    }
-    for name in ("structured_text", "image_input", "pdf_input"):
-        capabilities[name]["synthetic_content_verified"] = True
-    capabilities["structured_text"]["streaming_observed"] = True
-    capabilities["public_search"].update(cited_sources=1, fresh_page_retrieval_claimed=False)
-    capabilities["public_source"]["http_receipts"] = 1
-    capabilities["location_transcription"]["synthetic_phrase_verified"] = True
-    capabilities["location_semantics"]["steps"] = 1
-    capabilities["narration"].update(audio_bytes=4800, sample_rate=24000, chunks=2)
-    capabilities["live_audio"].update(
-        function_round_trip=True,
-        audio_bytes=4800,
-        sample_rate=24000,
-        input_sample_rate=16000,
-        input_transcription_verified=True,
-    )
-    capabilities["embeddings"]["dimensions"] = 768
+    capabilities = _capability_results_fixture(policy)
     receipt["capability_proof"] = {
         "schema": "managed_capabilities_probe.v1",
         "provider": provider,
@@ -2025,7 +2037,20 @@ def test_provider_release_admission_requires_azure(azure, vertex, selected):
 
 @pytest.mark.parametrize("provider", ["azure_openai", "vertex"])
 @pytest.mark.parametrize(
-    "defect", ["missing", "failed", "generation", "stream", "extra_body", "bool_count"]
+    "defect",
+    [
+        "missing",
+        "failed",
+        "generation",
+        "stream",
+        "extra_body",
+        "bool_count",
+        "compact_missing",
+        "compact_failed",
+        "compact_uncited",
+        "compact_fact",
+        "compact_page_claim",
+    ],
 )
 def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(provider, defect):
     module = _managed_provider_gate()
@@ -2041,6 +2066,16 @@ def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(pro
         proof["capabilities"]["structured_text"]["streaming_observed"] = False
     elif defect == "extra_body":
         proof["capabilities"]["structured_text"]["response_body"] = "not admissible"
+    elif defect == "compact_missing":
+        proof["capabilities"].pop("compact_public_search")
+    elif defect == "compact_failed":
+        proof["capabilities"]["compact_public_search"]["ready"] = False
+    elif defect == "compact_uncited":
+        proof["capabilities"]["compact_public_search"]["cited_sources"] = 0
+    elif defect == "compact_fact":
+        proof["capabilities"]["compact_public_search"]["synthetic_content_verified"] = False
+    elif defect == "compact_page_claim":
+        proof["capabilities"]["compact_public_search"]["fresh_page_retrieval_claimed"] = True
     else:
         proof["capabilities"]["public_source"]["http_receipts"] = True
     assert module.evaluate({provider: receipt}, expected)["ready"] is False

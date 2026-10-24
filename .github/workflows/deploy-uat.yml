@@ -311,6 +311,8 @@ jobs:
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp scripts/ci/managed_provider_readiness.py \
               "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py"
+            cp scripts/ci/managed_capability_proof.py \
+              "${RUNNER_TEMP}/release-tools/managed_capability_proof.py"
             cp deploy/backend.cloudbuild.yaml \
               "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
             printf '%s\n' \
@@ -356,6 +358,8 @@ jobs:
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
             cp "${RUNNER_TEMP}/release-tools/managed_provider_readiness.py" \
               scripts/ci/managed_provider_readiness.py
+            cp "${RUNNER_TEMP}/release-tools/managed_capability_proof.py" \
+              scripts/ci/managed_capability_proof.py
             cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
               deploy/backend.cloudbuild.yaml
             while IFS= read -r tool; do

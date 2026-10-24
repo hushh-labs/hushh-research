@@ -103,3 +103,38 @@ DRIVE_PRODUCTION_TOOLS = (
     "work_drain_scheduler_snapshot_prod.py",
     "restore_prod_after_release_failure.sh",
 )
+
+
+def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str]:
+    """Pinned current tools must survive checkout of a historical application."""
+    return [
+        *old_paths,
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ci/resolve-deploy-scope.py",
+        "scripts/ops/runtime_config_retention.py",
+        "scripts/ops/scope_commerce_runtime_policy.py",
+        "scripts/ops/shared_files_runtime_policy.py",
+        "scripts/ops/passkey_domain_policy.py",
+        "scripts/ops/upsert_gcp_secret.py",
+        *(f"deploy/{name}/bind_secrets.sh" for name in ("email-auth", "plg")),
+        "scripts/ci/verify-prod-places-readiness.py",
+        "scripts/ci/cloudrun-retention.py",
+        "scripts/ci/process_group.py",
+        "scripts/ci/account-deletion-fence-decision.py",
+        "scripts/ci/managed_provider_readiness.py",
+        "scripts/ci/managed_capability_proof.py",
+        "scripts/ops/verify-env-secrets-parity.py",
+        *(f"deploy/drive/{name}" for name in DRIVE_PRODUCTION_TOOLS),
+        *(
+            f"scripts/deploy/{name}"
+            for name in (
+                "backend-deploy.sh",
+                "verify-managed-vertex-runtime.sh",
+                *(path.name for path in (root / "scripts/deploy").glob("backend-*-settings.sh")),
+                "commerce-preview-bindings.sh",
+                "scope-commerce-secrets.sh",
+                "pod-release-env.sh",
+                "preserve-pod-release.py",
+            )
+        ),
+    ]

@@ -32,6 +32,8 @@ def _azure_uat(monkeypatch):
 
 
 def _provider_case(monkeypatch, control):
+    from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+
     monkeypatch.setattr(RegisteredMcpToolset, "get_tools", AsyncMock(return_value=[]))
     authority = {"valid": True}
 
@@ -68,6 +70,7 @@ def _provider_case(monkeypatch, control):
         fallback_factory=fallback,
         policy_generation=managed.managed_text_policy()["generation"],
         processing_scope="one_text_chat",
+        runtime_binding=ManagedAzureBinding.from_environment(),
     )
     return wrapped, adapter, client, fallback, authority
 
@@ -200,6 +203,9 @@ async def test_explicit_search_answer_agui_live_and_recovered_history_agree(monk
         assert not any(e.type == EventType.RUN_ERROR for e in events)
         search_wire = client.requests[1]
         assert search_wire["tools"][0]["search_context_size"] == "low"
+        assert search_wire["model"] == "one-search-gpt-54-mini-eval"
+        assert search_wire["reasoning"] == {"effort": "none"}
+        assert client.requests[0]["model"] == wrapped.model
         assert "Find the public source" in str(search_wire["input"])
         assert "finish_turn" not in str(search_wire["input"])
     else:
@@ -211,6 +217,7 @@ async def test_explicit_search_answer_agui_live_and_recovered_history_agree(monk
     original = next(tool for tool in root.tools if tool.name == "google_search")
     assert original.agent.model.web_search_context_size is None
     if control in {"ordinary", "prior_tool", "external_search_override"}:
+        assert all(wire["model"] == adapter.model for wire in client.requests)
         assert all(
             "search_context_size" not in tool
             for wire in client.requests
@@ -255,7 +262,11 @@ async def test_compact_and_ordinary_searches_share_no_mutable_model_configuratio
 
     async def dispatch(self, *, args, tool_context):
         await barrier.wait()
-        observed[args["request"]] = self.agent.model.web_search_context_size
+        observed[args["request"]] = (
+            self.agent.model.model,
+            self.agent.model.web_search_context_size,
+            self.agent.model.default_reasoning_effort,
+        )
         return "unpublished synthetic result"
 
     monkeypatch.setattr(AgentTool, "run_async", dispatch)
@@ -283,5 +294,8 @@ async def test_compact_and_ordinary_searches_share_no_mutable_model_configuratio
             _ANSWER.reset(token)
 
     await asyncio.gather(invoke(True), invoke(False))
-    assert observed == {"True": "low", "False": None}
+    assert observed == {
+        "True": ("one-search-gpt-54-mini-eval", "low", "none"),
+        "False": (wrapped.model, None, wrapped.default_reasoning_effort),
+    }
     assert tool.agent.model.web_search_context_size is None

@@ -105,6 +105,7 @@ tests/services/test_drive_request_package_service.py
 tests/services/test_azure_adk.py
 tests/test_azure_web_receipts.py
 tests/services/test_one_azure_chat_contract.py
+tests/services/test_one_compact_search_readiness.py
 tests/services/test_one_search_answer_contract.py
 tests/test_model_preference_resolution.py
 tests/test_one_adk_text_runtime.py
