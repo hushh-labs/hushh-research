@@ -1,4 +1,5 @@
 import { AuthService } from "./auth-service";
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { markAgentAnswered, sendChatTurn } from "./pod-chat-turn-transport";
 export { forgetAgentAnswers } from "./pod-chat-turn-transport";
 import {
@@ -20,6 +21,18 @@ type AccessPorts = {
   onChatAdmission?: (hushhId: string) => void;
   isCurrent?: () => boolean;
 };
+
+function capturePodOwner() {
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (!principal || AuthService.getCurrentUser()?.uid !== principal.firebaseUid)
+    throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+  return principal;
+}
+
+function podOwnerIsCurrent(principal: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionPrincipal>>): boolean {
+  return isValidatedAuthSessionOwnerCurrent(principal)
+    && AuthService.getCurrentUser()?.uid === principal.firebaseUid;
+}
 function refuseRetiredOwner(isCurrent?: () => boolean): void {
   if (isCurrent && !isCurrent()) throw new Error("POD_OWNER_CHANGED");
 }
@@ -106,8 +119,8 @@ export async function ownerPodRequest(
   const route = path.split("?")[0] ?? "";
   if (!isOwnerPodRoute(route) || path.includes("#"))
     throw new Error("POD_APP_ROUTE_REFUSED");
-  const uid = AuthService.getCurrentUser()?.uid;
-  if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+  const admittedOwner = capturePodOwner();
+  const uid = admittedOwner.ownerId;
   if (expectedUserId && expectedUserId !== uid)
     throw new Error("POD_OWNER_CHANGED");
   const ownerPod = await import("./owner-pod-endpoint");
@@ -137,7 +150,7 @@ export async function ownerPodRequest(
   let { endpoint, session, directVerifiedAt } = connection;
   if (expectedHushhId && endpoint.hushhId !== expectedHushhId)
     throw new Error("POD_DIRECT_OWNER_MISMATCH");
-  if (AuthService.getCurrentUser()?.uid !== uid)
+  if (!podOwnerIsCurrent(admittedOwner))
     throw new Error("POD_OWNER_CHANGED");
   let body = init.body;
   if (chatTurn) {
@@ -150,7 +163,7 @@ export async function ownerPodRequest(
       init.signal,
     );
     ({ endpoint, session, directVerifiedAt } = admitted);
-    if (AuthService.getCurrentUser()?.uid !== uid)
+    if (!podOwnerIsCurrent(admittedOwner))
       throw new Error("POD_OWNER_CHANGED");
     turn.forwardedProps = {
       ...(turn.forwardedProps && typeof turn.forwardedProps === "object"
@@ -220,7 +233,7 @@ export async function ownerPodRequest(
         route.slice("connectors/".length),
         { userId: uid, endpoint, session, transport },
       );
-      if (AuthService.getCurrentUser()?.uid !== uid)
+      if (!podOwnerIsCurrent(admittedOwner))
         throw new Error("POD_OWNER_CHANGED");
     }
   }
@@ -242,7 +255,7 @@ export async function ownerPodRequest(
       session,
       transport,
     });
-    if (AuthService.getCurrentUser()?.uid !== uid)
+    if (!podOwnerIsCurrent(admittedOwner))
       throw new Error("POD_OWNER_CHANGED");
   }
   refuseCancelled();
@@ -265,13 +278,13 @@ export async function ownerPodRequest(
     ? await sendChatTurn(endpoint.url, request, ports.fetch, directVerifiedAt, session, () => {
         refuseCancelled();
         refuseRetiredOwner(ports.isCurrent);
-        if (AuthService.getCurrentUser()?.uid !== uid || !isVaultSessionEpochCurrent(vaultEpoch))
+        if (!podOwnerIsCurrent(admittedOwner) || !isVaultSessionEpochCurrent(vaultEpoch))
           throw new Error("POD_OWNER_CHANGED");
       })
     : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
   if (!isAgentStillWaking(response))
     markAgentAnswered(endpoint.url);
-  if (AuthService.getCurrentUser()?.uid !== uid)
+  if (!podOwnerIsCurrent(admittedOwner))
     throw new Error("POD_OWNER_CHANGED");
   if (response.ok && route === "agent-chat")
     ports.onChatAdmission?.(endpoint.hushhId);
@@ -462,9 +475,10 @@ export async function reconnectOwnerPod(
     }>;
   },
 ): Promise<void> {
-  const uid = AuthService.getCurrentUser()?.uid;
-  if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+  const admittedOwner = capturePodOwner();
+  const uid = admittedOwner.ownerId;
   const status = await ports.hosting();
+  if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
   if (status.hostingMode !== "byoc" || status.state !== "active") {
     throw new Error("POD_DIRECT_BYOC_REQUIRED");
   }
@@ -480,6 +494,7 @@ export async function reconnectOwnerPod(
     await ports.transport(),
     true,
   );
+  if (!podOwnerIsCurrent(admittedOwner)) throw new Error("POD_OWNER_CHANGED");
   const probe = await ports.fetch(`${endpoint.url}/api/one/pod/status`, {
     method: "GET",
     credentials: "omit",
@@ -519,23 +534,25 @@ export async function agentChatRequest(
 export async function introMayReachHub(
   hosting: () => Promise<{ hostingMode?: string }>,
 ): Promise<boolean> {
-  const uid = AuthService.getCurrentUser()?.uid;
-  if (!uid) return true;
+  if (!AuthService.getCurrentUser()) return true;
+  const admittedOwner = snapshotValidatedAuthSessionPrincipal();
+  if (!admittedOwner || !podOwnerIsCurrent(admittedOwner)) return false;
+  const uid = admittedOwner.ownerId;
   const ownerPod = await import("./owner-pod-endpoint");
   if (await ownerPod.loadPinnedEndpoint(uid).catch(() => null)) return false;
   const mode = await hosting().then(
     (status) => status.hostingMode,
     () => undefined,
   );
-  return mode === "shared" || mode === "hussh_pods";
+  return podOwnerIsCurrent(admittedOwner) && (mode === "shared" || mode === "hussh_pods");
 }
 
 /** Shared by chat and review; a direct failure must never fall back to the hub. */
 export async function usesOwnerPod(
   hosting: () => Promise<{ hostingMode?: string }>,
 ): Promise<boolean> {
-  const uid = AuthService.getCurrentUser()?.uid;
-  if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+  const admittedOwner = capturePodOwner();
+  const uid = admittedOwner.ownerId;
   const ownerPod = await import("./owner-pod-endpoint");
   let usePod = Boolean(await ownerPod.loadPinnedEndpoint(uid));
   if (!usePod) {
@@ -552,7 +569,7 @@ export async function usesOwnerPod(
       });
     }
   }
-  if (AuthService.getCurrentUser()?.uid !== uid)
+  if (!podOwnerIsCurrent(admittedOwner))
     throw new Error("POD_OWNER_CHANGED");
   return usePod;
 }

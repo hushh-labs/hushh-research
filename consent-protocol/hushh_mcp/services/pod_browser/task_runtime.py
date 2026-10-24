@@ -127,7 +127,9 @@ class BrowserTaskRuntime:
         return BrowserCapability(
             available=True,
             code="BROWSER_QUALIFIED",
-            remembered_sessions_available=self._sessions_factory is not None,
+            remembered_sessions_available=(
+                self._sessions_factory is not None and not self._public_research_only
+            ),
             public_research_only=self._public_research_only,
             **identity,
         )
@@ -551,6 +553,8 @@ class BrowserTaskRuntime:
     ) -> dict:
         task = await self._task(access, task_id)
         async with task.operation:
+            if operation != "forget" and self._public_research_only:
+                raise BrowserRefused("BROWSER_SESSION_NOT_QUALIFIED")
             if (
                 task.sessions is None
                 or task.request is None

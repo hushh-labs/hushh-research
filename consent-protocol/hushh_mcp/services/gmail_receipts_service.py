@@ -2154,6 +2154,50 @@ class GmailReceiptsService:
 
         return await revoke(refresh_token)
 
+    async def stop_watch_for_account_cleanup(
+        self, row: dict[str, Any], *, user_id: str, verified_access_token: str | None = None
+    ) -> str:
+        """Stop only the retained owner's watch; never revoke or publish a grant.
+
+        The cleanup worker owns the exact inventory/dispatch claim. Missing or
+        unreadable custody raises instead of masquerading as an absent watch.
+        OAuth project/account verification remains the cleanup adapter's duty.
+        """
+        if row.get("user_id") != user_id:
+            raise GmailApiError("Account cleanup owner changed", status_code=409)
+        refresh = self._decrypt_token(
+            row.get("refresh_token_ciphertext"),
+            row.get("refresh_token_iv"),
+            row.get("refresh_token_tag"),
+        )
+        if not refresh:
+            raise GmailApiError("Connection needs cleanup authorization", status_code=409)
+        if verified_access_token:
+            await self._http_post_json(
+                _GMAIL_STOP_URL, token=verified_access_token, payload={}, expected_status=200
+            )
+            return "stopped"
+        access = None
+        if any(
+            row.get(key)
+            for key in ("access_token_ciphertext", "access_token_iv", "access_token_tag")
+        ):
+            access = self._decrypt_token(
+                row.get("access_token_ciphertext"),
+                row.get("access_token_iv"),
+                row.get("access_token_tag"),
+            )
+            if not access:
+                raise GmailApiError("Connection needs cleanup authorization", status_code=409)
+        expires_at = _parse_iso(row.get("access_token_expires_at"))
+        if not access or not expires_at or expires_at <= _utcnow():
+            refreshed = await self._refresh_access_token(refresh_token=refresh)
+            access = _clean_text(refreshed.get("access_token"))
+            if not access:
+                raise GmailApiError("Connection needs cleanup authorization", status_code=409)
+        await self._http_post_json(_GMAIL_STOP_URL, token=access, payload={}, expected_status=200)
+        return "stopped"
+
     async def stop_watch_and_revoke_for_erasure(self, row: dict[str, Any]) -> dict[str, str]:
         """Release an erased account's Gmail grant at Google, best effort.
 

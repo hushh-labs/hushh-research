@@ -1,3 +1,5 @@
+import { boundAgentResponse } from "./agent-event-boundary";
+
 /**
  * How long a turn's stream may be silent before the turn is treated as lost.
  * The server writes a `: ping` comment every 15 s while a model or tool call is
@@ -73,7 +75,7 @@ export function createAgentStreamLiveness(
       touch();
       onBytes();
       refuseStaleResponse();
-      if (!response.ok || !response.body) return response;
+      if (!response.ok || !response.body) return boundAgentResponse(response);
       timer = setInterval(() => {
         if (!current() || Date.now() - lastBytesAtMs < AGENT_CHAT_STREAM_IDLE_MS) return;
         stop();
@@ -95,11 +97,11 @@ export function createAgentStreamLiveness(
           }, 500);
         },
       }), { signal: init?.signal ?? undefined });
-      return new Response(body, {
+      return boundAgentResponse(new Response(body, {
         status: response.status,
         statusText: response.statusText,
         headers: response.headers,
-      });
+      }));
     },
     start: () => {
       stop();

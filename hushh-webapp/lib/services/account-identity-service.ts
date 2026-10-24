@@ -1,7 +1,7 @@
 "use client";
 
 import type { User } from "firebase/auth";
-import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 import { ApiError, apiJson } from "@/lib/services/api-client";
 import {
@@ -26,6 +26,16 @@ const identityPublications = new Map<string, IdentityWork>();
 
 function beginIdentityWork(userId: string): IdentityWork {
   return { userId, generation: getAuthSessionGeneration(), sequence: ++identityWorkSequence };
+}
+
+function ownerForFirebaseUser(user: User | null | undefined): string | null {
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  return user && principal?.firebaseUid === user.uid ? principal.ownerId : null;
+}
+
+function beginUserIdentityWork(user: User | null | undefined): IdentityWork | null {
+  const owner = ownerForFirebaseUser(user);
+  return owner ? beginIdentityWork(owner) : null;
 }
 
 function identityWorkIsCurrent(work: IdentityWork): boolean {
@@ -128,11 +138,12 @@ export class AccountIdentityService {
   static async getIdentitySwr(
     user: User | null | undefined
   ): Promise<{ identity: AccountIdentity | null; isStale: boolean }> {
-    if (!user?.uid) {
+    const ownerId = ownerForFirebaseUser(user);
+    if (!user || !ownerId) {
       return { identity: null, isStale: false };
     }
 
-    const snapshot = this.peekCachedIdentity(user.uid);
+    const snapshot = this.peekCachedIdentity(ownerId);
     if (snapshot) {
       if (snapshot.isStale) {
         // Revalidate in the background; do not await.
@@ -191,7 +202,8 @@ export class AccountIdentityService {
     }
 
     const force = options?.force === true;
-    const uid = user.uid;
+    const uid = ownerForFirebaseUser(user);
+    if (!uid) return null;
     const requestKey = JSON.stringify([uid, getAuthSessionGeneration()]);
 
     // Coalesce concurrent non-forced reads onto a single network round-trip.
@@ -237,23 +249,24 @@ export class AccountIdentityService {
     if (!user) {
       return null;
     }
-    const work = beginIdentityWork(user.uid);
+    const work = beginUserIdentityWork(user);
+    if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken || !identitySessionIsCurrent(user.uid, work.generation)) {
+    if (!idToken || !identitySessionIsCurrent(work.userId, work.generation)) {
       return null;
     }
 
-    const response = await ApiService.claimAccountPhone(phoneIdToken, idToken, user.uid);
-    if (!identitySessionIsCurrent(user.uid, work.generation)) return null;
+    const response = await ApiService.claimAccountPhone(phoneIdToken, idToken, work.userId);
+    if (!identitySessionIsCurrent(work.userId, work.generation)) return null;
     const identity = response.identity ?? null;
-    if (identity?.user_id !== user.uid) {
+    if (identity?.user_id !== work.userId) {
       throw new Error("Phone verification could not be completed for this account.");
     }
     // Write through so guards immediately see the newly verified phone.
     // A committed phone save outranks every read started before it completed,
     // including reads whose caller already timed out.
     work.sequence = ++identityWorkSequence;
-    this.cacheIdentity(user.uid, identity, work);
+    this.cacheIdentity(work.userId, identity, work);
     return identity;
   }
 
@@ -268,18 +281,19 @@ export class AccountIdentityService {
     if (!user?.uid) {
       return null;
     }
-    const work = beginIdentityWork(user.uid);
+    const work = beginUserIdentityWork(user);
+    if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken || !identitySessionIsCurrent(user.uid, work.generation)) {
+    if (!idToken || !identitySessionIsCurrent(work.userId, work.generation)) {
       return null;
     }
     const { identity } = await ApiService.uploadAvatar(imageDataUrl, idToken);
-    if (!identitySessionIsCurrent(user.uid, work.generation) || (identity && identity.user_id !== user.uid)) return null;
+    if (!identitySessionIsCurrent(work.userId, work.generation) || (identity && identity.user_id !== work.userId)) return null;
     if (!identityWorkIsCurrent(work)) return this.refreshCurrentUserIdentity(user, { force: true });
     if (identity) {
-      this.cacheIdentity(user.uid, identity, work);
+      this.cacheIdentity(work.userId, identity, work);
     } else {
-      this.invalidateCachedIdentity(user.uid);
+      this.invalidateCachedIdentity(work.userId);
     }
     return identity;
   }
@@ -291,18 +305,19 @@ export class AccountIdentityService {
     if (!user?.uid) {
       return null;
     }
-    const work = beginIdentityWork(user.uid);
+    const work = beginUserIdentityWork(user);
+    if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken || !identitySessionIsCurrent(user.uid, work.generation)) {
+    if (!idToken || !identitySessionIsCurrent(work.userId, work.generation)) {
       return null;
     }
     const { identity } = await ApiService.removeAvatar(idToken);
-    if (!identitySessionIsCurrent(user.uid, work.generation) || (identity && identity.user_id !== user.uid)) return null;
+    if (!identitySessionIsCurrent(work.userId, work.generation) || (identity && identity.user_id !== work.userId)) return null;
     if (!identityWorkIsCurrent(work)) return this.refreshCurrentUserIdentity(user, { force: true });
     if (identity) {
-      this.cacheIdentity(user.uid, identity, work);
+      this.cacheIdentity(work.userId, identity, work);
     } else {
-      this.invalidateCachedIdentity(user.uid);
+      this.invalidateCachedIdentity(work.userId);
     }
     return identity;
   }
@@ -326,13 +341,14 @@ export class AccountIdentityService {
     if (!user?.uid) {
       return null;
     }
-    const userId = user.uid;
-    const work = beginIdentityWork(user.uid);
+    const work = beginUserIdentityWork(user);
+    if (!work) return null;
+    const userId = work.userId;
     const idToken = await user.getIdToken(true).catch(() => undefined);
     if (!idToken) {
       throw new ApiError("Sign in again to change your name.", 401);
     }
-    if (!identitySessionIsCurrent(user.uid, work.generation)) return null;
+    if (!identitySessionIsCurrent(work.userId, work.generation)) return null;
     const payload = await apiJson<{
       success?: boolean;
       user_id?: string;
@@ -384,7 +400,7 @@ export class AccountIdentityService {
     // Reload the Firebase user so `user.displayName` reflects the new name on
     // every surface that reads it directly from the auth object.
     await user.reload().catch(() => undefined);
-    return identitySessionIsCurrent(user.uid, work.generation) ? identity : null;
+    return identitySessionIsCurrent(work.userId, work.generation) ? identity : null;
   }
 
   static async startUatTestPhoneVerification(
@@ -416,9 +432,10 @@ export class AccountIdentityService {
     if (!user) {
       return null;
     }
-    const work = beginIdentityWork(user.uid);
+    const work = beginUserIdentityWork(user);
+    if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
-    if (!idToken || !identitySessionIsCurrent(user.uid, work.generation)) {
+    if (!idToken || !identitySessionIsCurrent(work.userId, work.generation)) {
       return null;
     }
 
@@ -427,15 +444,15 @@ export class AccountIdentityService {
       params.verificationCode,
       params.verificationId,
       idToken,
-      user.uid
+      work.userId
     );
-    if (!identitySessionIsCurrent(user.uid, work.generation)) return null;
+    if (!identitySessionIsCurrent(work.userId, work.generation)) return null;
     const identity = response.identity ?? null;
-    if (identity?.user_id !== user.uid) {
+    if (identity?.user_id !== work.userId) {
       throw new Error("Phone verification could not be completed for this account.");
     }
     work.sequence = ++identityWorkSequence;
-    this.cacheIdentity(user.uid, identity, work);
+    this.cacheIdentity(work.userId, identity, work);
     return identity;
   }
 
@@ -450,9 +467,10 @@ export class AccountIdentityService {
     if (!user?.uid || !expectedPhone || linkedPhone !== expectedPhone) {
       throw new Error("Phone verification completed but the linked phone could not be confirmed.");
     }
-    const work = beginIdentityWork(user.uid);
+    const work = beginUserIdentityWork(user);
+    if (!work) throw new Error("Verify your account before saving this phone.");
     const token = await user.getIdToken(true);
-    if (!identitySessionIsCurrent(user.uid, work.generation)) {
+    if (!identitySessionIsCurrent(work.userId, work.generation)) {
       throw new Error("Your account changed. Please retry phone verification.");
     }
     const response = await ApiService.refreshAccountIdentityShadow(token, {
@@ -462,15 +480,15 @@ export class AccountIdentityService {
     });
     const identity = await this.identityFromResponse(response);
     if (
-      !identitySessionIsCurrent(user.uid, work.generation) ||
-      identity?.user_id !== user.uid ||
+      !identitySessionIsCurrent(work.userId, work.generation) ||
+      identity?.user_id !== work.userId ||
       identity.phone_verified !== true ||
       String(identity.phone_number ?? "").trim() !== expectedPhone
     ) {
       throw new Error("Phone verification could not be saved to your account. Please retry or use a different phone number.");
     }
     work.sequence = ++identityWorkSequence;
-    this.cacheIdentity(user.uid, identity, work);
+    this.cacheIdentity(work.userId, identity, work);
   }
 
   static async syncCurrentUser(
@@ -479,7 +497,8 @@ export class AccountIdentityService {
     if (!user) {
       return null;
     }
-    const work = beginIdentityWork(user.uid);
+    const work = beginUserIdentityWork(user);
+    if (!work) return null;
     const idToken = await user.getIdToken(true).catch(() => undefined);
     if (!idToken || !identityWorkIsCurrent(work)) {
       return null;
@@ -487,7 +506,7 @@ export class AccountIdentityService {
 
     const [, identityResult] = await Promise.allSettled([
       ApiService.createSession({
-        userId: user.uid,
+        userId: work.userId,
         email: user.email || "",
         idToken,
         displayName: user.displayName || undefined,
@@ -500,8 +519,8 @@ export class AccountIdentityService {
 
     if (identityResult.status === "fulfilled") {
       const identity = await this.identityFromResponse(identityResult.value);
-      if (identity?.user_id !== user.uid || !identityWorkIsCurrent(work)) return null;
-      this.cacheIdentity(user.uid, identity, work);
+      if (identity?.user_id !== work.userId || !identityWorkIsCurrent(work)) return null;
+      this.cacheIdentity(work.userId, identity, work);
       return identity;
     }
 

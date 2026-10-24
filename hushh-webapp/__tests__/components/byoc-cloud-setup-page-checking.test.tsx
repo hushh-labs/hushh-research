@@ -11,7 +11,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import {
   ByocCloudSetupPage,
   CLOUD_CHECK_TIMEOUT_MS,
@@ -87,7 +87,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     fixture.savedHosting = false;
     fixture.search = ""; fixture.completed = false;
     fixture.replace.mockReset();
-    publishValidatedAuthSessionOwner(fixture.user.uid);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: fixture.user.uid, ownerId: fixture.user.uid, accountGeneration: 0 });
     mockStatus.mockReset();
     mockAgentStatus.mockReset();
     mockAgentStatus.mockResolvedValue({ hostingMode: "shared" } as never);
@@ -96,6 +96,19 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
   afterEach(() => {
     publishValidatedAuthSessionOwner(null);
     vi.useRealTimers();
+  });
+
+  it("finishes a replacement owner's verified hosting without confusing its Firebase identity", async () => {
+    const ownerId = "acct_" + "b".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: fixture.user.uid, ownerId, accountGeneration: 1 });
+    fixture.savedHosting = true;
+    fixture.search = "?return_to=%2Fone%2Fprofile%2Fhosting";
+    render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    fireEvent.click(screen.getByRole("button", { name: "Save AI access" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish agent setup" }));
+    expect(fixture.replace).toHaveBeenLastCalledWith("/one/profile/hosting");
+    expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
   });
 
   it.each(["", "?return_to=%2Fone%2Fprofile%2Fhosting"])("returns verified setup to its entry destination (%s)", async (search) => {
@@ -116,6 +129,18 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
   });
 
+  it("keeps management Back and Finish aligned for a return-only Hosting link", async () => {
+    fixture.savedHosting = true;
+    fixture.search = "?return_to=%2Fone%2Fprofile%2Fhosting";
+    render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(fixture.replace).toHaveBeenCalledWith("/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting&from=%2Fone%2Fprofile%2Fhosting");
+    expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Save AI access" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish agent setup" }));
+    expect(fixture.replace).toHaveBeenLastCalledWith("/one/profile/hosting");
+  });
+
   it("keeps AI behind verified hosting and drops both proofs on an owner switch", async () => {
     const view = render(<ByocCloudSetupPage />);
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
@@ -131,7 +156,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     expect(screen.getByRole("button", { name: "Finish agent setup" })).toBeEnabled();
     fixture.user = { uid: "different-owner" };
     fixture.savedHosting = false;
-    publishValidatedAuthSessionOwner(fixture.user.uid);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: fixture.user.uid, ownerId: fixture.user.uid, accountGeneration: 0 });
     mockAgentStatus.mockReturnValue(new Promise(() => {}));
     readyView.rerender(<ByocCloudSetupPage />);
     expect(screen.queryByRole("button", { name: "Save AI access" })).toBeNull();

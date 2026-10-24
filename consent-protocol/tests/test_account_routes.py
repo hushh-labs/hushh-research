@@ -101,6 +101,125 @@ def _configure_firebase_verifier(monkeypatch, *, uid: str) -> None:
     )
 
 
+def test_cleanup_status_preserves_real_identity_verification_without_account_admission(monkeypatch):
+    from uuid import uuid4
+
+    from firebase_admin import auth as firebase_auth
+
+    from api.utils import firebase_auth as verifier
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    operation_id = str(uuid4())
+    _configure_firebase_verifier(monkeypatch, uid="cleanup-identity")
+    verifier._clear_revocation_cache_for_tests()
+
+    verified = []
+
+    def verify(_token, *, app, check_revoked):
+        verified.append(check_revoked)
+        return {"uid": "cleanup-identity"}
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", verify)
+
+    def fenced(_uid):
+        raise AccountDeletionInProgressError("cleanup pending")
+
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", fenced)
+
+    def inspect(uid, *, operation_id=None):
+        if uid != "cleanup-identity" or operation_id not in {None, selected}:
+            raise journal.CleanupOperationNotFound()
+        return {
+            "id": selected,
+            "state": "cleaning_up",
+            "credential_count": 1,
+            "retry_after_seconds": 3,
+        }
+
+    selected = operation_id
+    monkeypatch.setattr(journal, "inspect_for_identity", inspect)
+    with TestClient(_build_app()) as client:
+        ordinary = client.get(
+            "/api/account/session-status", headers={"Authorization": "Bearer fixture-token"}
+        )
+        assert ordinary.status_code == 423
+        status = client.get(
+            "/api/account/deletion-cleanup", headers={"Authorization": "Bearer fixture-token"}
+        )
+        assert status.status_code == 200
+        assert status.json()["operation"]["id"] == operation_id
+        assert status.headers["cache-control"] == "private, no-store"
+        assert status.headers["retry-after"] == "3"
+        wrong = client.get(
+            "/api/account/deletion-cleanup",
+            params={"operation_id": str(uuid4())},
+            headers={"Authorization": "Bearer fixture-token"},
+        )
+        assert wrong.status_code == 404
+        assert client.get("/api/account/deletion-cleanup").status_code == 401
+    assert True in verified, "cleanup status must retain remote revocation enforcement"
+    verifier._clear_revocation_cache_for_tests()
+
+
+def test_cleanup_continuation_uses_verified_identity_and_exact_review(monkeypatch):
+    from uuid import uuid4
+
+    from api.utils import firebase_auth as verifier
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    operation_id = str(uuid4())
+    _configure_firebase_verifier(monkeypatch, uid="cleanup-identity")
+    verifier._clear_revocation_cache_for_tests()
+    monkeypatch.setattr(
+        journal,
+        "inspect_for_identity",
+        lambda *_args, **_kwargs: {
+            "id": operation_id,
+            "state": "action_required",
+            "retry_after_seconds": None,
+        },
+    )
+    calls = []
+
+    def authorize(identity, **kwargs):
+        calls.append((identity, kwargs))
+        if kwargs["inventory_sha256"] != "a" * 64:
+            raise journal.ProviderCleanupNotReady()
+
+    monkeypatch.setattr(journal, "authorize_continuation", authorize)
+    with TestClient(_build_app()) as client:
+        payload = {
+            "operation_id": operation_id,
+            "inventory_sha256": "a" * 64,
+            "accept_local_erasure": True,
+        }
+        assert (
+            client.post("/api/account/deletion-cleanup/continue", json=payload).status_code == 401
+        )
+        response = client.post(
+            "/api/account/deletion-cleanup/continue",
+            json=payload,
+            headers={"Authorization": "Bearer fixture-token"},
+        )
+        assert response.status_code == 200
+        assert calls == [("cleanup-identity", payload)]
+        changed = client.post(
+            "/api/account/deletion-cleanup/continue",
+            json={**payload, "inventory_sha256": "b" * 64},
+            headers={"Authorization": "Bearer fixture-token"},
+        )
+        assert changed.status_code == 409
+        assert (
+            client.post(
+                "/api/account/deletion-cleanup/continue",
+                json={**payload, "owner_id": "other-owner"},
+                headers={"Authorization": "Bearer fixture-token"},
+            ).status_code
+            == 422
+        )
+    verifier._clear_revocation_cache_for_tests()
+
+
 def test_refresh_account_identity_requires_firebase_auth():
     client = TestClient(_build_app())
     response = client.post("/api/account/identity/refresh")
@@ -115,27 +234,34 @@ def test_account_session_status_is_read_only_and_requires_firebase_auth(monkeypa
     assert unauthorized.status_code == 401
     assert unauthorized.headers["cache-control"] == "private, no-store"
 
-    app.dependency_overrides[account._require_session_status_auth] = lambda: "firebase_uid_123"
+    app.dependency_overrides[account._require_session_status_auth] = lambda: (
+        account.AccountPrincipal("firebase_uid_123", "firebase_uid_123", 0)
+    )
     monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: False)
     response = client.get("/api/account/session-status")
 
     assert response.status_code == 200
-    assert response.json() == {"active": True}
+    assert response.json() == {
+        "active": True,
+        "firebase_uid": "firebase_uid_123",
+        "owner_id": "firebase_uid_123",
+        "account_generation": 0,
+    }
     assert response.headers["cache-control"] == "private, no-store"
 
 
 def test_account_session_status_scopes_remote_revocation_check(monkeypatch):
     async def _run(func, *args, **kwargs):
-        assert func is account.verify_firebase_bearer
+        assert func is account.verify_firebase_principal
         assert args == ("Bearer firebase-token",)
         assert kwargs == {"check_revoked": True}
-        return "firebase_uid_123"
+        return account.AccountPrincipal("firebase_uid_123", "firebase_uid_123", 0)
 
     monkeypatch.setattr(account, "run_in_threadpool", _run)
 
     authenticated_uid = asyncio.run(account._require_session_status_auth("Bearer firebase-token"))
 
-    assert authenticated_uid == "firebase_uid_123"
+    assert authenticated_uid == account.AccountPrincipal("firebase_uid_123", "firebase_uid_123", 0)
 
 
 def test_account_session_status_uses_local_uat_liveness_budget(monkeypatch):
@@ -201,7 +327,12 @@ def test_account_session_status_performs_one_lifecycle_query(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"active": True}
+    assert response.json() == {
+        "active": True,
+        "firebase_uid": "single_lifecycle_uid",
+        "owner_id": "single_lifecycle_uid",
+        "account_generation": 0,
+    }
     assert lifecycle_queries == 1
 
 

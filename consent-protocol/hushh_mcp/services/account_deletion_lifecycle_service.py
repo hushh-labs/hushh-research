@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import cast
+from typing import TYPE_CHECKING, cast
+from uuid import uuid4
 
 from sqlalchemy import text
 
@@ -35,6 +37,26 @@ from hushh_mcp.services.account_deletion_cleanup_policy import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.account_deletion_provider_journal import ProviderCleanupClaim
+
+
+async def settle_cleanup_database_call(operation: Callable, *args, **kwargs):
+    """Join an owned database call before propagating caller cancellation."""
+    task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
+    cancellation = None
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError as exc:
+            if task.cancelled():
+                raise
+            cancellation = exc
+    if cancellation is not None:
+        raise cancellation
+    return result
 
 
 class AccountDeletionInProgressError(RuntimeError):
@@ -93,6 +115,15 @@ class ClaimedCleanupIntent:
     claim_token: str
     intent_kind: CleanupIntentKind = "full_account"
     expected_phone_digest: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedProviderCleanup:
+    """Opaque continuation for the existing lifecycle, never credential custody."""
+
+    cleanup_id: str
+    state: str
+    credential_count: int
 
 
 def account_deletion_user_hash(user_id: str) -> str:
@@ -319,6 +350,144 @@ class AccountDeletionLifecycleService:
         return persisted_all
 
     @staticmethod
+    def prepare_provider_cleanup_in_transaction(
+        conn,
+        *,
+        user_id: str,
+        firebase_uid: str,
+        table_exists: Callable,
+        describe_inventory: Callable | None = None,
+        requested_target: str = "both",
+    ) -> PreparedProviderCleanup:
+        """Fence the exact owner and preserve its current encrypted source rows.
+
+        The existing read-only cloud absence/review preflight runs under the
+        owner barriers. No provider call or local erasure happens here. The
+        caller owns the transaction and its SQL deadlines.
+        Migration 412 is required; an unavailable schema fails closed.
+        """
+        owner = AccountDeletionLifecycleService._normalize_user_ids((user_id,))[0]
+        identity = AccountDeletionLifecycleService._normalize_user_ids((firebase_uid,))[0]
+        if len(identity) > 128 or len(owner) > 128:
+            raise ValueError("account cleanup principal is invalid")
+        if requested_target not in {"investor", "ria", "both"}:
+            raise ValueError("account cleanup target is invalid")
+        AccountDeletionLifecycleService._lock_user_ids_in_transaction(conn, user_ids=(owner,))
+        from hushh_mcp.services.account_personal_agent_erasure import (
+            assert_external_resources_absent,
+        )
+
+        assert_external_resources_absent(
+            conn, params={"user_id": owner}, table_exists=table_exists, finalize_erasure=False
+        )
+        params = {
+            "user_id_hash": account_deletion_user_hash(owner),
+            "owner": owner,
+            "firebase_uid": identity,
+        }
+        previous = (
+            conn.execute(
+                text("""SELECT provider_cleanup_id,erasure_phase,provider_cleanup_inventory,
+                cleanup_intent_kind,firebase_uid,account_owner_id,provider_cleanup_requested_target
+                FROM account_deletion_tombstones
+                WHERE user_id_hash=:user_id_hash FOR UPDATE"""),
+                params,
+            )
+            .mappings()
+            .first()
+        )
+        if previous is not None:
+            if (
+                previous["cleanup_intent_kind"] != "full_account"
+                or previous["erasure_phase"] != "provider_cleanup"
+                or previous["firebase_uid"] != identity
+                or previous["account_owner_id"] != owner
+                or previous["provider_cleanup_requested_target"] != requested_target
+                or previous["provider_cleanup_id"] is None
+            ):
+                raise AccountDeletionInProgressError("account requires historical cleanup review")
+            return PreparedProviderCleanup(
+                str(previous["provider_cleanup_id"]),
+                "cleaning_up",
+                len(previous["provider_cleanup_inventory"]),
+            )
+
+        inventory_row = (
+            conn.execute(
+                text("""WITH prepared AS MATERIALIZED (
+                SELECT public.account_provider_cleanup_live_inventory(:owner) AS inventory)
+                SELECT inventory,encode(sha256(convert_to(inventory::text,'UTF8')),'hex')
+                    AS inventory_sha256 FROM prepared"""),
+                params,
+            )
+            .mappings()
+            .one()
+        )
+        inventory = inventory_row["inventory"]
+        if not isinstance(inventory, dict) or len(inventory) > 128:
+            raise RuntimeError("provider cleanup inventory is unavailable")
+        if describe_inventory is None:
+            from hushh_mcp.services.account_deletion_provider_credentials import (
+                describe_inventory as describe_inventory,
+            )
+        if describe_inventory is not None:
+            metadata = describe_inventory(conn, owner, inventory)
+            if not isinstance(metadata, dict) or set(metadata) != set(inventory):
+                raise RuntimeError("provider cleanup metadata is unavailable")
+            for ref, extra in metadata.items():
+                if not isinstance(extra, dict) or set(extra) - {"groupDigest", "revocationSupport"}:
+                    raise ValueError("provider cleanup metadata is invalid")
+                if extra.get("revocationSupport") not in {"required", "unsupported", "unverified"}:
+                    raise ValueError("provider cleanup support is invalid")
+                if "groupDigest" in extra and not re.fullmatch(
+                    r"[0-9a-f]{64}", extra["groupDigest"]
+                ):
+                    raise ValueError("provider cleanup group is invalid")
+                inventory[ref].update(extra)
+            # PostgreSQL's canonical JSON representation owns the digest used
+            # by the transition guard; Python serialization is not equivalent.
+            inventory_row = {
+                "inventory_sha256": conn.execute(
+                    text("""SELECT encode(sha256(
+                convert_to(CAST(:inventory AS jsonb)::text,'UTF8')),'hex')"""),
+                    {"inventory": json.dumps(inventory)},
+                ).scalar_one()
+            }
+        cleanup_id = str(uuid4())
+        receipt = {
+            "version": 1,
+            "cleanupId": cleanup_id,
+            "ownerHash": params["user_id_hash"],
+            "inventorySha256": inventory_row["inventory_sha256"],
+            "items": {
+                ref: {
+                    **item,
+                    "watchOutcome": "pending" if item["watchRequired"] else "not_required",
+                    "revocation": "pending",
+                }
+                for ref, item in inventory.items()
+            },
+        }
+        conn.execute(
+            text("""INSERT INTO account_deletion_tombstones
+                (user_id_hash,firebase_uid,account_owner_id,provider_cleanup_id,provider_cleanup_inventory,
+                 provider_cleanup_requested_target,
+                 provider_cleanup_receipt,provider_cleanup_next_attempt_at,
+                 cleanup_last_classification)
+                VALUES(:user_id_hash,:firebase_uid,:owner,CAST(:cleanup_id AS uuid),CAST(:inventory AS jsonb),
+                 :requested_target,
+                 CAST(:receipt AS jsonb),now(),'provider_cleanup_prepared')"""),
+            {
+                **params,
+                "cleanup_id": cleanup_id,
+                "requested_target": requested_target,
+                "inventory": json.dumps(inventory),
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return PreparedProviderCleanup(cleanup_id, "cleaning_up", len(inventory))
+
+    @staticmethod
     def _guarded_identity_inventory_in_transaction(
         conn,
     ) -> tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...]:
@@ -500,7 +669,9 @@ class AccountDeletionLifecycleService:
         )
 
     @staticmethod
-    def record_backend_only_erasure_in_transaction(conn, *, user_id: str) -> None:
+    def record_backend_only_erasure_in_transaction(
+        conn, *, user_id: str
+    ) -> ProviderCleanupClaim | None:
         """Keep resurrection suppression without scheduling external identity cleanup.
 
         Only the maintainer UAT backend-erasure path uses this seam. Never
@@ -509,6 +680,72 @@ class AccountDeletionLifecycleService:
         """
         normalized = AccountDeletionLifecycleService._normalize_user_ids((user_id,))
         AccountDeletionLifecycleService._lock_user_ids_in_transaction(conn, user_ids=normalized)
+        staged_schema = conn.execute(
+            text("""SELECT to_regprocedure(
+            'public.account_provider_cleanup_live_inventory(text)') IS NOT NULL""")
+        ).scalar_one()
+        if staged_schema is True:
+            from hushh_mcp.services import account_deletion_provider_journal as journal
+            from hushh_mcp.services.account_service import AccountService
+            from hushh_mcp.services.hushh_tech_uat_database_attestation import (
+                UAT_DATABASE_ATTESTATION_SQL,
+                is_attested_hushh_tech_uat_database,
+                parse_connected_database_identity,
+            )
+
+            identity = conn.execute(text(UAT_DATABASE_ATTESTATION_SQL)).mappings().first()
+            if not identity or not is_attested_hushh_tech_uat_database(
+                parse_connected_database_identity(identity)
+            ):
+                raise ValueError("backend_erasure_connected_database_not_uat")
+            live = conn.execute(
+                text("SELECT public.account_provider_cleanup_live_inventory(:owner)"),
+                {"owner": user_id},
+            ).scalar_one()
+            if live != {}:
+                raise RuntimeError("backend_erasure_requires_provider_cleanup")
+            firebase_identity = user_id
+            if AccountService()._table_exists(conn, "account_generations"):
+                from hushh_mcp.services.account_generation_service import AccountGenerationService
+
+                firebase_identity = AccountGenerationService.identity_in_transaction(conn, user_id)
+            prepared = AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                conn,
+                user_id=user_id,
+                firebase_uid=firebase_identity,
+                table_exists=AccountService()._table_exists,
+            )
+            row = (
+                conn.execute(
+                    text("""UPDATE account_deletion_tombstones SET cleanup_status='running',
+                cleanup_claim_token=gen_random_uuid(),cleanup_claimed_at=now(),
+                cleanup_attempt_count=cleanup_attempt_count+1
+                WHERE user_id_hash=:owner_hash AND provider_cleanup_id=CAST(:cleanup_id AS uuid)
+                  AND cleanup_status IN ('pending','retry_pending')
+                  AND provider_cleanup_inventory='{}'::jsonb
+                RETURNING cleanup_claim_token::text,provider_cleanup_inventory,
+                  provider_cleanup_receipt,provider_cleanup_requested_target"""),
+                    {
+                        "owner_hash": account_deletion_user_hash(user_id),
+                        "cleanup_id": prepared.cleanup_id,
+                    },
+                )
+                .mappings()
+                .first()
+            )
+            if row is None:
+                raise RuntimeError("backend_erasure_conflicting_provider_cleanup")
+            claim = journal.ProviderCleanupClaim(
+                owner_id=user_id,
+                firebase_uid=firebase_identity,
+                cleanup_id=prepared.cleanup_id,
+                claim_token=row["cleanup_claim_token"],
+                inventory=row["provider_cleanup_inventory"],
+                receipt=row["provider_cleanup_receipt"],
+                requested_target=row["provider_cleanup_requested_target"],
+            )
+            journal.begin_local_erasure(conn, claim)
+            return claim
         result = conn.execute(
             text(
                 """
@@ -705,14 +942,16 @@ class AccountDeletionLifecycleService:
             row = conn.execute(
                 text(
                     """
-                    SELECT 1
-                    FROM account_deletion_tombstones
+                    SELECT COALESCE(to_jsonb(tombstone)->>'erasure_phase','erased')
+                    FROM account_deletion_tombstones tombstone
                     WHERE user_id_hash = :user_id_hash
                     LIMIT 1
                     """
                 ),
                 {"user_id_hash": user_hash},
             ).first()
+        if row is not None and row[0] in {"provider_cleanup", "local_erasure"}:
+            raise AccountDeletionInProgressError("approved account cleanup is still running")
         return row is not None
 
     @staticmethod
@@ -1146,12 +1385,19 @@ async def drain_account_deletion_cleanup_intents(
     service: AccountDeletionLifecycleService | None = None,
     limit: int = 10,
 ) -> int:
+    # The injected service is the existing Firebase-only test/operator port.
+    # Normal startup and authenticated scheduler delivery own both stages.
+    provider_settled = 0
+    if service is None:
+        from hushh_mcp.services.account_deletion_provider_worker import drain
+
+        provider_settled = await drain(limit=min(limit, 5))
     lifecycle = service or AccountDeletionLifecycleService()
     intents = await asyncio.wait_for(
         asyncio.to_thread(lifecycle.claim_due_cleanup_intents, limit=limit),
         timeout=_CLEANUP_DATABASE_TIMEOUT_SECONDS,
     )
-    settled = 0
+    settled = provider_settled
     for intent in intents:
         try:
             attempt = await lifecycle.delete_or_quarantine_firebase_identity(

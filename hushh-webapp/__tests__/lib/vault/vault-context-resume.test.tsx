@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   getIdToken: vi.fn(),
   unlockWarmRun: vi.fn(),
   queueLocationRecipientKeyBootstrap: vi.fn(),
+  ownerId: "vault-owner" as string | null,
   authUser: {
     uid: "vault-owner",
     displayName: "Vault Owner",
@@ -46,6 +47,7 @@ vi.mock("@capacitor/core", () => ({
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({
     user: mocks.authUser,
+    userId: mocks.authUser ? mocks.ownerId : null,
     loading: mocks.authLoading,
     sessionVerificationRequired: mocks.sessionVerificationRequired,
   }),
@@ -198,6 +200,7 @@ beforeEach(() => {
   mocks.issueVaultOwnerToken.mockRejectedValue(new Error("offline"));
   mocks.publishIMessageSession.mockResolvedValue({ published: true });
   mocks.clearIMessageSession.mockResolvedValue({ cleared: true, sessionGeneration: 1 });
+  mocks.ownerId = "vault-owner";
   mocks.authUser = {
     uid: "vault-owner",
     displayName: "Vault Owner",
@@ -216,6 +219,23 @@ afterEach(() => {
 });
 
 describe("VaultProvider app-resume expiry recovery", () => {
+  it("keeps replacement-owner custody separate from the unchanged Firebase UID", async () => {
+    mocks.ownerId = "acct_" + "1".repeat(32);
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    expect(currentVault.getVaultOwnerToken()).toBe("vault-token");
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
+      detail: { reason: "owner-revoked", userId: "vault-owner" },
+    })));
+    expect(currentVault.getVaultKey()).toBe("vault-key");
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
+      detail: { reason: "owner-revoked", userId: mocks.ownerId },
+    })));
+    expect(currentVault.getVaultKey()).toBeNull();
+    expect(currentVault.getVaultOwnerToken()).toBeNull();
+  });
+
   it("renews authority before expiry without another local unlock", async () => {
     vi.useFakeTimers();
     vi.spyOn(Date, "now").mockRestore();
@@ -758,6 +778,7 @@ describe("VaultProvider app-resume expiry recovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
     expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
 
+    mocks.ownerId = "different-user";
     mocks.authUser = {
       uid: "different-user",
       displayName: "Different User",

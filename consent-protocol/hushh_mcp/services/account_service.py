@@ -18,12 +18,14 @@ from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     _postgres_sqlstate,
+    settle_cleanup_database_call,
 )
 from hushh_mcp.services.account_deletion_provider_cleanup import (
     ProviderCredentialSnapshot,
     release_provider_grants_after_erasure,
     snapshot_provider_credentials_in_transaction,
 )
+from hushh_mcp.services.account_deletion_provider_journal import ProviderCleanupClaim
 from hushh_mcp.services.account_export_stream import EXPORT_SECTIONS, AccountExportStream
 from hushh_mcp.services.account_external_connector_erasure import (
     ACCOUNT_ERASURE_RETAINED_TABLES as ACCOUNT_ERASURE_RETAINED_TABLES,
@@ -1936,61 +1938,99 @@ class AccountService:
         requested_target: DeleteAccountTarget,
         backend_only: bool = False,
     ) -> Dict[str, Any]:
-        """Attempt one cleanup outside the transaction, then revalidate once."""
+        """Prepare durable cleanup, or execute the attested UAT-only local reset."""
         if backend_only and (
             os.getenv("ENVIRONMENT", "").strip().lower() == "production"
             or os.getenv("APP_RUNTIME_PROFILE", "").strip().lower() == "production"
             or os.getenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", "") != UAT_INSTANCE
         ):
             raise ValueError("backend_only_erasure_requires_uat_database")
+        if not backend_only:
+            return await self._prepare_full_account_cleanup(
+                user_id, requested_target=requested_target
+            )
         cleanup = await self._erase_shared_files_if_present(user_id, backend_only=backend_only)
         if cleanup is not None:
             return cleanup
-        result = await self._settle_full_account_transaction(
-            user_id, requested_target=requested_target, backend_only=backend_only
-        )
-        if result.get("error_code") != PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
-            return result
-        if backend_only:
-            # A backend-only erasure must not delete, quarantine, or revoke an
-            # authority outside the UAT database. Tearing down the private agent's
-            # cloud resources is exactly that, so it fails closed and leaves the
-            # deprovision to an explicit operator step.
-            return result
-        from hushh_mcp.services.compute_backend import resolve_compute_backend
-        from hushh_mcp.services.personal_agent_owner_access_erasure import owner_access_backend
-        from hushh_mcp.services.personal_agent_provisioning_service import (
-            PersonalAgentProvisioningService as Service,
-        )
-        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
-
-        try:  # built as the route builds it; a bare Service() raised TypeError from 2026-09-08
-            registry = PersonalAgentRegistryRepo()
-            service = Service(registry=registry, backend=resolve_compute_backend())
-            owner_row = await registry.get(user_id)
-            if owner_access_backend(service, owner_row) is not None:
-                # This backend needs fresh cloud consent and explicit whole-parent
-                # cleanup terms. A failed ordinary account DELETE must not destroy
-                # pod keys before that review. The cleanup flow owns preparation.
-                return {**result, "cleanup_provider": (owner_row or {}).get("deployment_target")}
-            # A failed Azure setup can own resources before its pod coordinates
-            # publish. Only the SQL-qualified, fully joined original history
-            # enables the same owner-reviewed cleanup; never infer from an error.
-            from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
-
-            if owner_row and await AzureTeardownStore(registry).can_offer_failed_setup_cleanup(
-                user_id, owner_row
-            ):
-                return {**result, "cleanup_provider": "user_azure"}
-            await service.deprovision(user_id=user_id)
-        except Exception as exc:
-            logger.warning("account.erasure_pending error_type=%s", type(exc).__name__)
-            return result
-        # The first transaction has rolled back. The second independently checks
-        # completion and archives evidence; a provider result cannot bypass it.
         return await self._settle_full_account_transaction(
             user_id, requested_target=requested_target, backend_only=backend_only
         )
+
+    async def _prepare_full_account_cleanup(
+        self, user_id: str, *, requested_target: DeleteAccountTarget
+    ) -> Dict[str, Any]:
+        """Persist approval and custody before returning; the existing worker continues."""
+
+        def prepare():
+            with get_db_connection() as conn:
+                conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
+                self._lock_fabric_receipt_users(conn, user_ids=(user_id,))
+                guard_answer_erasure(conn, user_id=user_id)
+                identity = user_id
+                if self._table_exists(conn, "account_generations"):
+                    from hushh_mcp.services.account_generation_service import (
+                        AccountGenerationService,
+                    )
+
+                    identity = AccountGenerationService.identity_in_transaction(conn, user_id)
+                return AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                    conn,
+                    user_id=user_id,
+                    firebase_uid=identity,
+                    table_exists=self._table_exists,
+                    requested_target=requested_target,
+                )
+
+        try:
+            prepared = await settle_cleanup_database_call(prepare)
+        except PersonalAgentDeprovisioningRequiredError:
+            from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+            provider = None
+            try:
+                registry = PersonalAgentRegistryRepo()
+                owner = await registry.get(user_id)
+                provider = (owner or {}).get("deployment_target")
+                if provider not in {"user_gcp", "user_azure"} and owner:
+                    from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
+
+                    if await AzureTeardownStore(registry).can_offer_failed_setup_cleanup(
+                        user_id, owner
+                    ):
+                        provider = "user_azure"
+            except Exception as exc:
+                logger.warning(
+                    "account_deletion.cloud_review_unavailable error=%s", type(exc).__name__
+                )
+            return {
+                "success": False,
+                "account_deleted": False,
+                "error_code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+                "error": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+                "cleanup_provider": provider,
+            }
+        except Exception as exc:
+            logger.warning("account_deletion.preparation_refused error=%s", type(exc).__name__)
+            return {
+                "success": False,
+                "account_deleted": False,
+                "error_code": ACCOUNT_DELETION_PAUSED_CODE
+                if _is_release_fence_refusal(exc)
+                else "ACCOUNT_DELETION_CLEANUP_UNAVAILABLE",
+                "error": type(exc).__name__,
+            }
+        return {
+            "success": True,
+            "account_deleted": False,
+            "cleanup_pending": True,
+            "requested_target": requested_target,
+            "cleanup_operation": {
+                "id": prepared.cleanup_id,
+                "owner_id": user_id,
+                "state": prepared.state,
+                "credential_count": prepared.credential_count,
+            },
+        }
 
     async def _settle_full_account_transaction(
         self,
@@ -1998,18 +2038,24 @@ class AccountService:
         *,
         requested_target: DeleteAccountTarget,
         backend_only: bool = False,
+        provider_cleanup: ProviderCleanupClaim | None = None,
     ) -> Dict[str, Any]:
         # Keep the connection, locks, erasure and commit/rollback on one worker
         # thread. Blocking the event loop here previously killed the UAT worker
         # for a missed Gunicorn heartbeat and left the HTTP outcome uncertain.
         async def erase_and_release() -> Dict[str, Any]:
+            extra = {"provider_cleanup": provider_cleanup} if provider_cleanup is not None else {}
             result, provider_credentials = await asyncio.to_thread(
                 self._delete_full_account_transaction,
                 user_id,
                 requested_target=requested_target,
                 backend_only=backend_only,
+                **extra,
             )
-            if result["success"]:
+            if result["success"] and provider_cleanup is not None:
+                result["details"]["provider_grant_release"] = {"status": "confirmed_before_erasure"}
+                result["details"]["cleanup_operation_id"] = provider_cleanup.cleanup_id
+            elif result["success"]:
                 result["details"]["provider_grant_release"] = (
                     {"status": "preserved_backend_only"}
                     if backend_only
@@ -2034,12 +2080,28 @@ class AccountService:
             raise cancellation
         return result
 
+    async def finalize_provider_cleanup(self, claim: ProviderCleanupClaim) -> Dict[str, Any]:
+        """Settle the already-approved operation after durable provider proof."""
+        from hushh_mcp.services import account_deletion_provider_journal as journal
+
+        if not await settle_cleanup_database_call(journal.is_ready, claim):
+            raise journal.ProviderCleanupNotReady("provider cleanup remains unconfirmed")
+        cleanup = await self._erase_shared_files_if_present(claim.owner_id, backend_only=False)
+        if cleanup is not None:
+            return cleanup
+        return await self._settle_full_account_transaction(
+            claim.owner_id,
+            requested_target=self._normalized_target(claim.requested_target),
+            provider_cleanup=claim,
+        )
+
     def _delete_full_account_transaction(
         self,
         user_id: str,
         *,
         requested_target: DeleteAccountTarget,
         backend_only: bool = False,
+        provider_cleanup: ProviderCleanupClaim | None = None,
     ) -> tuple[Dict[str, Any], ProviderCredentialSnapshot]:
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
         results = {
@@ -2167,6 +2229,7 @@ class AccountService:
         }
 
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
+        backend_cleanup = None
         graph_viewer_ids: set[str] = set()
         try:
             with get_db_connection() as conn:
@@ -2190,9 +2253,18 @@ class AccountService:
                     conn,
                     user_ids=all_cleanup_user_ids,
                 )
-                if backend_only:
-                    AccountDeletionLifecycleService.record_backend_only_erasure_in_transaction(
-                        conn, user_id=user_id
+                if provider_cleanup is not None:
+                    if backend_only or provider_cleanup.owner_id != user_id:
+                        raise ValueError("provider cleanup owner changed")
+                    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+                    journal.begin_local_erasure(conn, provider_cleanup)
+                    cleanup_user_ids = ()
+                elif backend_only:
+                    backend_cleanup = (
+                        AccountDeletionLifecycleService.record_backend_only_erasure_in_transaction(
+                            conn, user_id=user_id
+                        )
                     )
                     cleanup_user_ids = ()
                 else:
@@ -2212,7 +2284,7 @@ class AccountService:
                 )
                 # Copy encrypted provider credentials before their rows go, so
                 # the grants can be released at the provider after commit.
-                if not backend_only:
+                if not backend_only and provider_cleanup is None:
                     provider_credentials = snapshot_provider_credentials_in_transaction(
                         conn,
                         user_id=user_id,
@@ -2554,6 +2626,12 @@ class AccountService:
                     results["shared_files_storage"] = True
                 conn.execute(text("DELETE FROM vault_keys WHERE user_id = :user_id"), params)
                 results["vault_keys"] = True
+                if provider_cleanup is not None:
+                    journal.settle_local_erasure(conn, provider_cleanup)
+                elif backend_cleanup is not None:
+                    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+                    journal.settle_local_erasure(conn, backend_cleanup)
 
             logger.info("✅ FULL ACCOUNT DELETION completed for %s", user_id)
         except PersonalAgentDeprovisioningRequiredError:
@@ -2573,7 +2651,7 @@ class AccountService:
                 "details": results,
             }, provider_credentials
         except Exception as exc:
-            logger.exception("❌ Full account deletion failed for %s", user_id)
+            logger.error("Full account deletion failed error=%s", type(exc).__name__)
             return {
                 "success": False,
                 "error": str(exc),

@@ -2,19 +2,93 @@
 
 ## Current decision — 24 October 2026
 
-**The application correction is on main and accepted on dev and UAT.
+**The prior application correction is accepted on dev and UAT. The surgical
+lifecycle follow-up is local; it has not been merged or deployed.
 Installed-pod and desktop acceptance remain separate.**
+
+The preserved infrastructure branch inherited main through `48ac08a2b422`
+without overwriting peer edits. Fresh main `2548bbc901cd` is fetched for the final
+integration. The former ADK checkout is no longer present; its local branch
+`feat/adk-orchestration-runtime` retains 20 unique commits at `48140fcd70`.
+Do not describe that checkout as active or assume the remote ADK ref contains its
+local work. Local changes add truthful
+pod connection metadata and replayable cloud-default verification, fence stale
+settings reads, bound AG-UI input before SDK validation, strengthen GCP adoption,
+refuse unconfirmed owner-token revocation checks and bind Admin preflight to an
+exact source attempt. Compatible mail/Python dependency patches are local too;
+the standalone mail deployment remains a separate target.
+
+Focused validation passed 363 backend cases, 90 frontend cases and TypeScript
+checking. Hermes's corrected aggregate passed 68 classifier/aggregate cases.
+These checks are not the final core mirror, hosted candidate validation or
+installed-owner acceptance. The subsequent collection-count refinement has its
+own affected verification; it does not dismiss the constrained Zod advisory.
+
+The cleanup worker, ordinary-use fences and atomic erasure consumer are now
+composed locally. Refresh intent and replacement custody survive cancellation
+and lease recovery; watch-before-revoke and uncertain-effect refusal remain
+enforced. Purpose-bound status and the privacy UI preserve identity during
+cleanup and require exact local-erasure terms. Latest affected checks passed
+**260 backend** and **167 frontend** cases, including real PostgreSQL and
+API/auth/UI continuity. The draft migration remains unregistered and unapplied;
+replacement-account authority and combined installed acceptance remain on the
+critical path. Bounded Hermes source repairs
+also passed their affected suites; successful local Python checks do not replace
+exact-candidate hosted Python/Nix or an installed Puppy journey.
+
+The local generation authority now passed two real PostgreSQL erase/enroll cycles
+with clock-skew fencing, concurrent enrollment, immutable history and retired
+UPDATE refusal. Its deliberate missing-guard negative control fails. Firebase
+admission preserves the verified identity separately from the captured application
+owner; session status exposes both plus generation. The latest affected backend
+suite passed 262 cases. Frontend admission now separates the unchanged Firebase
+identity from the application owner across AuthProvider, vault custody, identity
+cache, pod transport, model selection and sign-in navigation. Focused checks cover
+same-UID replacement, late observers/token responses, scoped revocation and recovery;
+143 auth/identity/vault cases, 10 API cases, 7 sign-in cases and 34 pod-transport cases
+passed. The vault entry, Hosting/setup and mounted One runtime now use the admitted
+application owner too. Additional focused suites passed 148 vault-entry/auth,
+75 onboarding and 39 runtime/recovery cases; these overlap and are not an additive
+total. Pending identities without an application owner stay on recovery. TypeScript
+and changed-source lint passed. Enrollment stays disabled: connector/deletion and
+remaining application callers, custom/email authentication and generation-bound
+external-identity mutation still need integration. The Hosting return-only
+Back/Finish regression passes 16 focused navigation cases. These are source checks,
+not installed or serving acceptance.
+
+Cloud-only removal now has a draft forward recovery contract (414): approval,
+execution admission and unapproved cancellation serialize on the existing owner
+locks. Cancellation restores only the exact inert snapshot and retains history;
+the legacy restoration and deprovision paths cannot bypass the review. Azure
+checks dispatch before owner-access destruction and at SQL worker admission;
+GCP carries the captured attempt. The affected backend suite passed 212 cases,
+including real PostgreSQL cancellation/approval concurrency; the cleanup interface
+passed 14 cases. Migrations 412–414 remain unregistered and unapplied. Installed
+provider removal and final combined acceptance are still required.
+
+The native upstream autofix workflow separately failed to open its generated PR
+because Actions cannot create PRs in this repository. Main stayed unchanged.
+Its unreviewed `bot/js-autofix` branch is not part of the accepted native image;
+retain the patch for manual review. Do not broaden repository permissions. A
+canonical-repository guard with artifact-only output is the bounded follow-up.
+
+The remaining critical path is durable provider cleanup before local erasure,
+cancel-safe cloud removal, environment-local account generations, then installed
+Browser/Puppy acceptance and the governed main → dev → UAT sequence. Keep the
+Firebase identity stable; replacement-account authority must never be inferred
+from an email or by clearing a retired account's tombstone. The existing
+[deletion runbook](../operations/account-deletion-rollout.md) retains this boundary.
 
 | Surface | Verified state |
 | --- | --- |
-| Main | [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as `ca83c0bf5a` through authorized Admin queue bypass; [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/40037466640) and [landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40040728656) passed |
+| Prior accepted release | [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as `ca83c0bf5a` through authorized Admin queue bypass; [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/40037466640) and [landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40040728656) passed |
 | Dev | [Run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106) accepted `ca83c0bf5a`, both services; schema, provenance and semantic checks passed. Accepted revisions: backend `00214-nn5`, frontend `00181-mpz`, both 100% |
 | UAT | [Run 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175) accepted `ca83c0bf5a`; schema, provenance, semantics and Drive-worker attestation passed. Corporate ADC confirms backend `02497-zic` / frontend `02054-lkq`, both 100% |
 | Pod image | Genuine Dev29 image `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by dev run `40041198106`; no eligible existing-owner upgrades or Browser qualification pins |
-| Current dev | Corporate ADC at 00:49 UTC confirms peer run `40043378889` advanced both services to `e4840d1915`, containing these fixes; backend `00216-ssx` / frontend `00183-tg9`, both 100% |
-| Desktop | [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23): approved CI review and passing Nix checks; broader Python failures prevent merge. Five introduced failures have a focused local correction; seven affected checks pass and the old keychain fixture fails four negative controls |
+| Last verified serving state | Corporate ADC at 08:58 UTC confirms dev and UAT both serve `2548bbc901cd`. Dev: backend `00221-gcf` / frontend `00188-bw5`; UAT: backend `02516-rav` / frontend `02078-dwf`; all 100%. Provenance identifies [dev run 40069550013](https://github.com/hushh-labs/hushh-research/actions/runs/40069550013) and [UAT run 40072782188](https://github.com/hushh-labs/hushh-research/actions/runs/40072782188). Deployed backend configuration fingerprints differ between environments; this is configuration evidence, not a new live schema query or acceptance of our local follow-up |
+| Desktop | [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23) merged by the normal path at `d42ced4d5f70`. Exact-head [CI 40083504664](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40083504664) and [Nix](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40083504327) passed; Python completed in 26m23s with the full discovered suite. [Landed fresh-sync](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40085556487) passed in 3m28s, logged the exact landed checkout and passed 450 guard tests. The native checkout now tracks main with the identical file tree; the finished feature branch was deleted after ancestry proof. No runtime restart or installed Puppy acceptance is claimed |
 
-The current release preserves earlier Hosting/AI/cleanup and provider-correct
+The accepted application preserves earlier Hosting/AI/cleanup and provider-correct
 model routing. It fixes the Puppy picker’s 12-second presentation deadline versus
 the desktop’s 15-second activation poll: cached choices remain usable while one
 bounded foreground readiness request continues. Owner/view changes cancel stale
@@ -175,8 +249,10 @@ verified; original-token revocation remains separately unverified.
 
 AG-UI's nested Zod 3 remains affected even though root Zod 4 is patched. A forced
 major override is incompatible with the current SDK contracts. No compatible
-published dependency-only fix was found; pre-parser frame bounding remains a
-mitigation follow-up, not an implemented patch or a reason to dismiss the alert.
+published dependency-only fix was found. Local pre-parser byte/depth/collection
+and SSE-frame bounds passed their affected SDK-consumer checks; this is a
+mitigation awaiting candidate deployment, not an upstream fix or a reason to
+dismiss the alert.
 
 Earlier accepted application receipts remain historical evidence:
 [PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) and
@@ -347,11 +423,15 @@ paid work; spending thresholds warn without stopping service.
    clearance through the governed command. Keep current receipts on the canonical
    task; successful application suites remain retained during a gate-only retry.
    PR #8395 is on main and dev acceptance includes owner Back/Finish, removal
-   review and an actual One answer. Complete the corrected exact-application UAT
-   promotion, read back serving state, then reconcile board and Wiki evidence.
-2. **Security owner:** retain the two ADK-constrained OTEL records and Zod #507;
-   seven patched records are closed. Original-token revocation
-   remains separately unverified; the exposed repository secret is retired.
+   review and an actual One answer. The later dated serving receipt above covers
+   dev/UAT `e4840d1915`; complete the surgical follow-up's own candidate validation
+   and acceptance before replacing that evidence.
+2. **Security owner:** the refreshed research-repository inventory has 15 open
+   records; local compatible patches cover 12, with two ADK-constrained OTEL
+   records and nested Zod remaining tracked. Earlier closed alerts are historical
+   evidence, not clearance for this inventory. Original-token revocation remains
+   separately unverified; the exposed repository secret is retired. The native
+   Hermes fork's 314 records are a separate inventory.
 3. **Browser owner:** exact installed-image public research, review, preview,
    takeover, resume, reconnect and Stop remain separate acceptance on each cloud.
    Keep unqualified capabilities unavailable; no expanded feature work blocks this correction.
@@ -360,11 +440,11 @@ Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
-Main integration and landed-SHA smoke are verified through `9af321d2a9`.
-The current application correction has healthy dev provenance/schema/semantic
-receipts and real owner Back/Finish acceptance. Exact-SHA UAT acceptance
-requires the corrected candidate after rollback; earlier receipts do not replace
-its successful terminal result. Production, stable publication,
+Earlier main integration and landed-SHA smoke were verified through `9af321d2a9`.
+The current serving application is `2548bbc901cd`, as dated above. The local
+surgical candidate has not landed or deployed; its own main/dev/UAT validation
+and installed-owner acceptance remain required. Earlier provenance, schema,
+semantic and owner Back/Finish receipts do not replace those checks. Production, stable publication,
 automatic owner upgrades, managed Hussh provisioning and unqualified hosting moves
 remain unavailable. Broader Files/connector/voice/update/erasure lifecycle evidence,
 general schedules and economic qualification stay tracked in the

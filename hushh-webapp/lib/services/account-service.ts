@@ -77,6 +77,8 @@ export interface AccountDeletionResult {
   requested_target?: AccountDeletionTarget;
   deleted_target?: AccountDeletionTarget;
   account_deleted?: boolean;
+  cleanup_pending?: boolean;
+  cleanup_operation?: { id: string; owner_id: string; state: string; credential_count: number };
   remaining_personas?: Array<"investor" | "ria">;
   details?: Record<string, unknown>;
   /** Only true after the old Firebase identity is removed. */
@@ -221,7 +223,7 @@ export class AccountServiceImpl {
         } catch (error) {
           throw nativeAccountDeletionApiError(error) ?? error;
         }
-        trackEvent("account_delete_completed", {
+        if (!result.cleanup_pending) trackEvent("account_delete_completed", {
           result: result.success ? "success" : "error",
           status_bucket: result.success ? "2xx" : "5xx",
         });
@@ -238,7 +240,7 @@ export class AccountServiceImpl {
             body: JSON.stringify({ target }),
           }
         );
-        trackEvent("account_delete_completed", {
+        if (!result.cleanup_pending) trackEvent("account_delete_completed", {
           result: result.success ? "success" : "error",
           status_bucket: result.success ? "2xx" : "5xx",
         });

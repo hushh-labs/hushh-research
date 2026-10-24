@@ -139,7 +139,7 @@ def test_backend_only_erasure_retains_barrier_without_external_cleanup():
     )
 
     insert = conn.execute.call_args_list[-1]
-    assert conn.execute.call_count == 3
+    assert conn.execute.call_count == 4  # owner locks, schema admission, legacy receipt
     assert conn.execute.call_args_list[0].args[1]["lock_namespace"] == 171
     assert conn.execute.call_args_list[1].args[1]["lock_namespace"] == 198
     assert insert.args[1] == {"user_id_hash": account_deletion_user_hash("user_123")}

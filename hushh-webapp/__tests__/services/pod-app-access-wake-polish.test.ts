@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 /**
  * Three honest-failure gaps on the direct chat path, found in review of the
  * 2026-10-06 wake work:
@@ -70,6 +71,16 @@ beforeEach(() => {
   pod.currentPodConnection.mockResolvedValue({ endpoint: PIN, session: { session: "pst1.cached" } });
 });
 afterEach(() => vi.restoreAllMocks());
+
+it("uses the admitted owner for pod pins while Firebase keeps the original UID", async () => {
+  const ownerId = "acct_" + "9".repeat(32);
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId, accountGeneration: 1 });
+  const { fetch, ports } = harness(async () => grants(), async () => new Response("synthetic-stream"));
+  await expect(ownerPodRequest("agent-chat", turnInit(), ports)).resolves.toBeInstanceOf(Response);
+  expect(pod.loadPinnedEndpoint).toHaveBeenCalledWith(ownerId);
+  expect(pod.currentPodConnection).toHaveBeenCalledWith(ownerId, expect.anything());
+  expect(fetch.mock.calls.filter(([url]) => url === TURN)).toHaveLength(1);
+});
 
 describe("a hub 409 on chat grants says which 409 it is", () => {
   const shown = async (hubAnswer: Response) => {
@@ -211,3 +222,6 @@ describe("a sleeping agent whose first contact would be the turn itself", () => 
     expect(formatAgentChatErrorMessage(error.message, error.code)).toMatch(/^This device is offline, so your message was not sent/);
   });
 });
+
+// Fixtures represent an admitted application owner, not merely an SDK identity.
+beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 }));

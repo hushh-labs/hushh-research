@@ -289,3 +289,158 @@ def test_manual_branch_verdict_cannot_satisfy_pr_protection() -> None:
     assert _gate()["name"] == (
         "${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || 'CI Status Gate' }}"
     )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [None, "pending", "cancelled", "head", "missing", "neutral", "newer_failure", "run_attempt"],
+)
+def test_operator_preflight_refuses_unproven_exact_head(fault):
+    import copy
+    import importlib.util
+
+    path = ROOT / ".agents/skills/repo-operations/scripts/ci_preflight.py"
+    spec = importlib.util.spec_from_file_location("operator_ci_monitor", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    check = {
+        "name": "CI Status Gate",
+        "workflowName": "PR Validation",
+        "status": "COMPLETED",
+        "conclusion": "SUCCESS",
+        "startedAt": "2026-10-23T01:00:00Z",
+        "detailsUrl": "https://github.com/hushh-labs/hushh-research/actions/runs/100/job/200",
+    }
+    pr = {
+        "headRefOid": HEAD_SHA,
+        "state": "OPEN",
+        "isDraft": False,
+        "mergeable": "MERGEABLE",
+        "statusCheckRollup": [check],
+    }
+    run = {
+        "headSha": HEAD_SHA,
+        "name": "PR Validation",
+        "status": "completed",
+        "conclusion": "success",
+        "databaseId": 100,
+    }
+    if fault == "pending":
+        check["status"] = "IN_PROGRESS"
+    elif fault == "cancelled":
+        check["conclusion"] = "CANCELLED"
+    elif fault == "head":
+        pr["headRefOid"] = "f" * 40
+    elif fault == "missing":
+        pr["statusCheckRollup"] = []
+    elif fault == "neutral":
+        check["conclusion"] = "NEUTRAL"
+    elif fault == "newer_failure":
+        failed = copy.deepcopy(check)
+        failed.update(startedAt="2026-10-23T02:00:00Z", conclusion="FAILURE")
+        pr["statusCheckRollup"].append(failed)
+    elif fault == "run_attempt":
+        run["conclusion"] = "failure"
+    if fault is None:
+        module.require_successful_head(
+            pr, expected_sha=HEAD_SHA, required_contexts={"CI Status Gate"}, run=run
+        )
+    else:
+        with pytest.raises(RuntimeError):
+            module.require_successful_head(
+                pr, expected_sha=HEAD_SHA, required_contexts={"CI Status Gate"}, run=run
+            )
+
+
+@pytest.mark.parametrize("fault", [None, "old_attempt", "changed_attempt", "wrong_workflow"])
+def test_operator_preflight_binds_gate_to_current_canonical_attempt(monkeypatch, fault):
+    import copy
+    import importlib
+
+    monkeypatch.syspath_prepend(str(ROOT / ".agents/skills/repo-operations/scripts"))
+    module = importlib.import_module("ci_preflight")
+    prefix = "repos/hushh-labs/hushh-research"
+    pr = {
+        "number": 1,
+        "baseRefName": "main",
+        "headRefOid": HEAD_SHA,
+        "state": "OPEN",
+        "isDraft": False,
+        "mergeable": "MERGEABLE",
+        "statusCheckRollup": [
+            {
+                "name": "CI Status Gate",
+                "workflowName": "PR Validation",
+                "status": "COMPLETED",
+                "conclusion": "SUCCESS",
+                "startedAt": "2026-10-23T01:00:00Z",
+                "detailsUrl": "https://github.com/hushh-labs/hushh-research/actions/runs/100/job/200",
+            }
+        ],
+    }
+    source = {
+        "id": 100,
+        "run_attempt": 2,
+        "head_sha": HEAD_SHA,
+        "workflow_id": 10,
+        "repository": {"id": 1, "full_name": "hushh-labs/hushh-research"},
+        "path": ".github/workflows/ci.yml",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    job = {
+        "id": 200,
+        "run_id": 100,
+        "head_sha": HEAD_SHA,
+        "name": "CI Status Gate",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    source_reads = 0
+
+    def gh_json(args):
+        nonlocal source_reads
+        if args[:2] == ["run", "view"]:
+            return {
+                "databaseId": 100,
+                "headSha": HEAD_SHA,
+                "name": "PR Validation",
+                "status": "completed",
+                "conclusion": "success",
+                "attempt": 2,
+            }
+        path = args[1]
+        if path.endswith("/protection"):
+            return {"required_status_checks": {"contexts": ["CI Status Gate"]}}
+        if path == prefix:
+            return source["repository"]
+        if path.endswith("/workflows/ci.yml"):
+            return {"id": 10, "path": ".github/workflows/ci.yml"}
+        if path.endswith("/runs/100"):
+            source_reads += 1
+            observed = copy.deepcopy(source)
+            if fault == "wrong_workflow":
+                observed["path"] = ".github/workflows/untrusted.yml"
+            if fault == "changed_attempt" and source_reads > 1:
+                observed["run_attempt"] = 3
+                observed["status"] = "in_progress"
+            return observed
+        if path.endswith("/attempts/2/jobs?per_page=100"):
+            return (
+                {"total_count": 0, "jobs": []}
+                if fault == "old_attempt"
+                else {"total_count": 1, "jobs": [job]}
+            )
+        if path.endswith("/jobs/200"):
+            return job
+        raise AssertionError(f"Unexpected authority read: {path}")
+
+    def run():
+        return module.preflight(1, None, HEAD_SHA, resolve_pr=lambda *_: pr, gh_json=gh_json)
+
+    if fault:
+        with pytest.raises((RuntimeError, ValueError)):
+            run()
+    else:
+        assert run()["attempt"] == 2

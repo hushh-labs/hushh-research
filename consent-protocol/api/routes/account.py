@@ -31,6 +31,7 @@ import os
 import re
 import time
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from anyio import CancelScope, fail_after
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
@@ -54,7 +55,8 @@ from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
     carries_review_mint,
     refuse_foreign_review_mint,
-    verify_firebase_bearer,
+    verify_account_cleanup_bearer,
+    verify_firebase_principal,
 )
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
@@ -63,6 +65,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     drain_account_deletion_cleanup_intents,
 )
 from hushh_mcp.services.account_export_stream import AccountExportBusy, AccountExportStream
+from hushh_mcp.services.account_generation_service import AccountPrincipal
 from hushh_mcp.services.account_service import (
     ACCOUNT_DELETION_FAILED_CODE,
     ACCOUNT_DELETION_PAUSED_CODE,
@@ -108,6 +111,75 @@ router = APIRouter(prefix="/api/account", tags=["Account"])
 # Terms and Privacy acceptance lives in its own module, mounted under this prefix.
 router.include_router(legal_acceptance_router)
 router.include_router(lost_vault_router)
+
+
+@router.get("/deletion-cleanup")
+async def account_deletion_cleanup_status(
+    response: Response,
+    authorization: str | None = Header(None),
+    operation_id: UUID | None = Query(None),
+):
+    """Discover only this identity's durable cleanup, including after refresh."""
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    response.headers["Cache-Control"] = "private, no-store"
+    selected = str(operation_id) if operation_id is not None else None
+    identity = await run_in_threadpool(
+        verify_account_cleanup_bearer, authorization, operation_id=selected
+    )
+    operation = await run_in_threadpool(
+        journal.inspect_for_identity, identity, operation_id=selected
+    )
+    if operation["retry_after_seconds"] is not None:
+        response.headers["Retry-After"] = str(operation["retry_after_seconds"])
+    return {"operation": operation}
+
+
+class AccountCleanupContinuation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    operation_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    inventory_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    accept_local_erasure: bool = False
+
+
+@router.post("/deletion-cleanup/continue")
+async def continue_account_deletion_cleanup(
+    payload: AccountCleanupContinuation,
+    response: Response,
+    authorization: str | None = Header(None),
+):
+    """Confirm local-only erasure or retry safe work for the exact inventory."""
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        operation_id = str(UUID(payload.operation_id))
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail={"code": "ACCOUNT_CLEANUP_OPERATION_INVALID"}
+        ) from None
+    identity = await run_in_threadpool(
+        verify_account_cleanup_bearer, authorization, operation_id=operation_id
+    )
+    try:
+        await run_in_threadpool(
+            journal.authorize_continuation,
+            identity,
+            operation_id=operation_id,
+            inventory_sha256=payload.inventory_sha256,
+            accept_local_erasure=payload.accept_local_erasure,
+        )
+    except journal.CleanupOperationNotFound:
+        raise HTTPException(status_code=404, detail={"code": "ACCOUNT_CLEANUP_NOT_FOUND"}) from None
+    except journal.ProviderCleanupNotReady:
+        raise HTTPException(
+            status_code=409, detail={"code": "ACCOUNT_CLEANUP_REVIEW_REQUIRED"}
+        ) from None
+    return {
+        "operation": await run_in_threadpool(
+            journal.inspect_for_identity, identity, operation_id=operation_id
+        )
+    }
 
 
 @router.post("/welcome")
@@ -291,14 +363,14 @@ async def drain_account_deletion_cleanup(
 
 async def _require_session_status_auth(
     authorization: str | None = Header(None, description="Bearer token with Firebase ID token"),
-) -> str:
+) -> AccountPrincipal:
     try:
         # This lifecycle probe keeps the global revoked/disabled-token
         # guarantee explicit and adds an endpoint-level request budget. The
         # shared verifier deduplicates and bounds the remote Firebase lookup.
         return await asyncio.wait_for(
             run_in_threadpool(
-                verify_firebase_bearer,
+                verify_firebase_principal,
                 authorization,
                 check_revoked=True,
             ),
@@ -326,11 +398,16 @@ async def _require_session_status_auth(
 @router.get("/session-status")
 async def get_account_session_status(
     response: Response,
-    _firebase_uid: str = Depends(_require_session_status_auth),
+    principal: AccountPrincipal = Depends(_require_session_status_auth),
 ):
     """Read-only liveness probe after the auth dependency's lifecycle check."""
     response.headers["Cache-Control"] = "private, no-store"
-    return {"active": True}
+    return {
+        "active": True,
+        "firebase_uid": principal.firebase_uid,
+        "owner_id": principal.owner_id,
+        "account_generation": principal.generation,
+    }
 
 
 class TrustedDeviceAuthorizationRequest(BaseModel):
@@ -2134,6 +2211,13 @@ async def _perform_account_deletion(user_id: str, *, target: str):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
     result = await _delete_account_result(user_id, target=target)
+
+    if result.get("success") is True and result.get("cleanup_pending") is True:
+        return JSONResponse(
+            status_code=202,
+            content=result,
+            headers={"Cache-Control": "private, no-store", "Retry-After": "2"},
+        )
 
     if not result["success"]:
         if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:

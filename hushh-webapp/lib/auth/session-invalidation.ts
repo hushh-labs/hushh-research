@@ -52,6 +52,8 @@ export type AuthSessionInvalidationDetail = Readonly<{
   path?: string;
   /** Scope delayed cross-tab signals so they cannot sign out another account. */
   userId?: string;
+  /** Browser-local episode fence; never compared across sibling tabs. */
+  generation?: number;
 }>;
 
 export type AuthSessionLandingNotice = Readonly<{

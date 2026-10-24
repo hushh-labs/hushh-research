@@ -4052,6 +4052,14 @@
             "mode": "push",
             "transitionMode": "full"
           }
+        },
+        {
+          "href": "/one/setup/cloud?return_to=%2Fone%2Fprofile%2Fhosting",
+          "expected": {
+            "href": "/one/profile/hosting",
+            "mode": "push",
+            "transitionMode": "full"
+          }
         }
       ]
     }

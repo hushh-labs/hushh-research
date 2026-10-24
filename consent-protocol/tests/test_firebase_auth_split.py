@@ -59,6 +59,67 @@ def test_verify_firebase_bearer_preserves_global_revocation_check(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "mode", ["active", "old_authentication", "old_custom_token", "database_outage"]
+)
+def test_generation_admission_captures_owner_and_refuses_stale_authority(monkeypatch, mode):
+    import firebase_admin.auth as firebase_auth
+
+    from hushh_mcp.services import account_generation_service as generations
+
+    identity, owner = "stable_firebase_uid", "acct_" + "a" * 32
+    claims = {"uid": identity, "auth_time": 1000, "firebase": {"sign_in_provider": "google.com"}}
+    row = {
+        "identity_hash": generations.account_deletion_user_hash(identity),
+        "owner_hash": generations.account_deletion_user_hash(owner),
+        "owner_id": owner,
+        "identity_uid": identity,
+        "generation": 1,
+        "retired_at": None,
+        "admitted_after": 900,
+    }
+    if mode == "old_authentication":
+        claims["auth_time"] = 899
+        claims["iat"] = 1000
+    if mode == "old_custom_token":
+        claims["firebase"] = {"sign_in_provider": "custom"}
+        claims["hussh_account_owner"] = identity
+        claims["hussh_account_lane"] = "development"
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test"))
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    verification_modes = []
+
+    def verified(_token, *, app, check_revoked):
+        verification_modes.append(check_revoked)
+        return claims
+
+    def resolve(verified_claims, *, lane):
+        if mode == "database_outage":
+            raise ConnectionError("synthetic generation storage outage")
+        return generations.validate_principal(verified_claims, row, lane=lane, now=1000)
+
+    guards = []
+    monkeypatch.setattr(firebase_auth, "verify_id_token", verified)
+    monkeypatch.setattr(generations.AccountGenerationService, "resolve_verified_identity", resolve)
+    monkeypatch.setattr(
+        AccountDeletionLifecycleService,
+        "is_tombstoned",
+        lambda candidate: guards.append(candidate) or False,
+    )
+    if mode == "active":
+        principal = firebase_auth_module.verify_firebase_principal("Bearer generation-fixture")
+        assert principal == generations.AccountPrincipal(identity, owner, 1)
+        assert guards == [owner]
+    else:
+        with pytest.raises(HTTPException) as raised:
+            firebase_auth_module.verify_firebase_principal("Bearer generation-fixture")
+        assert raised.value.status_code == (503 if mode == "database_outage" else 401)
+        assert guards == []
+    assert verification_modes == [False, True]
+
+
+@pytest.mark.parametrize(
     "origin,provider,method,deprovisioned,allowed",
     [
         ("created", "microsoft.com", None, None, True),

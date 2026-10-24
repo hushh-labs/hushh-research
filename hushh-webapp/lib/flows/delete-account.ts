@@ -24,6 +24,7 @@ import {
   markAccountDeletionActive,
 } from "@/lib/auth/account-deletion-activity";
 import { withDeadline } from "@/lib/utils/with-deadline";
+import { snapshotValidatedAuthSessionOwner, dispatchAuthSessionVerificationRequired } from "@/lib/auth/session-owner";
 import {
   AccountDeletionNotCompletedError,
   isReportedAccountDeletionFailure,
@@ -124,6 +125,14 @@ export class AccountDeletionOutcomeUncertainError extends Error {
   }
 }
 
+export class AccountDeletionPendingError extends Error {
+  readonly code = "ACCOUNT_DELETION_PENDING";
+  constructor() {
+    super("Cleaning up your account. This continues if you close the app.");
+    this.name = "AccountDeletionPendingError";
+  }
+}
+
 /**
  * Outcomes the deletion UI already explains to the person. Callers log these as
  * warnings: they are expected results, not crashes, and the Next.js dev overlay
@@ -132,6 +141,7 @@ export class AccountDeletionOutcomeUncertainError extends Error {
 export function isHandledAccountDeletionOutcome(error: unknown): boolean {
   return (
     error instanceof AccountDeletionOutcomeUncertainError ||
+    error instanceof AccountDeletionPendingError ||
     error instanceof AccountDeletionNotCompletedError ||
     error instanceof AccountErasureBanksNotDisconnectedError ||
     isRecoverableAccountDeletionPrecondition(error)
@@ -139,6 +149,7 @@ export function isHandledAccountDeletionOutcome(error: unknown): boolean {
 }
 
 export function accountDeletionErrorMessage(error: unknown): string {
+  if (error instanceof AccountDeletionPendingError) return error.message;
   if (error instanceof AccountDeletionOutcomeUncertainError) {
     return DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE;
   }
@@ -380,6 +391,18 @@ async function executeAccountDeletion(params: {
     result = await params.performDeletion();
   } catch (error) {
     submissionFailure = error;
+  }
+
+  if (result?.success === true && result.cleanup_pending === true && result.account_deleted === false &&
+      result.cleanup_operation?.owner_id === params.userId &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(result.cleanup_operation.id)) {
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (owner?.userId === params.userId) {
+      dispatchAuthSessionVerificationRequired(owner, "AUTH_ACCOUNT_DELETION_IN_PROGRESS");
+    }
+    // No terminal cleanup, success toast, sign-out, or DELETE retry. The
+    // centralized privacy gate discovers and follows the durable operation.
+    throw new AccountDeletionPendingError();
   }
 
   if (

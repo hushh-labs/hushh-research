@@ -98,6 +98,10 @@ async def admit_hub_content(
     if not owner:
         logger.info("hub_content_admission.admitted surface=%s mode=%s", surface, "anonymous")
         return "anonymous"
+    from api.utils.firebase_auth import _assert_account_not_deleted
+    from hushh_mcp.services.account_deletion_lifecycle_service import settle_cleanup_database_call
+
+    await settle_cleanup_database_call(_assert_account_not_deleted, owner)
     mode = await _read_mode(owner, resolve_mode)
     if mode == SHARED_MODE:
         logger.info("hub_content_admission.admitted surface=%s mode=%s", surface, mode)

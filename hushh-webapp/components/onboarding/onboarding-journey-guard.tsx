@@ -126,13 +126,12 @@ export function OnboardingJourneyGuard({
   const normalizedGuardPathname = normalizeStaticExportPathname(pathname);
   const router = useRouter();
   const {
-    user,
+    userId,
     loading: authLoading,
     sessionVerificationRequired,
     retrySessionVerification,
     signOut,
   } = useAuth();
-  const userId = user?.uid ?? null;
   const initialContacts = useSyncExternalStore(InitialContacts.subscribe, InitialContacts.getSnapshot, InitialContacts.getServerSnapshot);
   const exempt = isOnboardingAdmissionExemptRoute(pathname);
   const setupSurface = isOneSetupSurfaceRoute(pathname);
@@ -433,9 +432,9 @@ export function OnboardingJourneyGuard({
   ]);
 
   const sessionRecoveryActive = Boolean(
-    !exempt && userId && sessionVerificationRequired,
+    !exempt && sessionVerificationRequired,
   );
-  const passThrough = exempt || (!authLoading && !userId);
+  const passThrough = exempt || (!authLoading && !userId && !sessionVerificationRequired);
   const loaderActive =
     !passThrough &&
     (shouldEjectSetupSurface ||

@@ -56,7 +56,14 @@ export async function DELETE(request: NextRequest) {
 
     try {
       const data = JSON.parse(responseText);
-      return NextResponse.json(data);
+      const retryAfter = response.headers.get("Retry-After");
+      return NextResponse.json(data, {
+        status: response.status,
+        headers: {
+          "Cache-Control": "private, no-store",
+          ...(retryAfter ? { "Retry-After": retryAfter } : {}),
+        },
+      });
     } catch {
       return NextResponse.json({ success: true, raw: responseText });
     }

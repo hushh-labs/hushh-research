@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ApiService } from "@/lib/services/api-service";
 import { LegalAcceptanceService } from "@/lib/services/legal-acceptance-service";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -137,11 +138,13 @@ export function AuthStep({
   const router = useRouter();
   const {
     user,
+    userId,
     loading: authLoading,
     sessionVerificationRequired,
     retrySessionVerification,
     signOut,
     beginPostAuthSettlement,
+    admitPostAuthSettlement,
     completePostAuthSettlement,
   } = useAuth();
   const { registerSteps, completeStep, reset } = useStepProgress();
@@ -411,7 +414,7 @@ export function AuthStep({
   useEffect(() => {
     if (authLoading || sessionVerificationRequired) return;
     completeStep();
-    if (user && !providerAttemptRef.current) {
+    if (user && userId && !providerAttemptRef.current) {
       if (growthJourney) {
         trackGrowthFunnelStepCompleted({
           journey: growthJourney,
@@ -423,11 +426,15 @@ export function AuthStep({
         });
       }
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
-      void resolveAndNavigate(user.uid, undefined, user.phoneNumber);
+      const owner = snapshotValidatedAuthSessionOwner();
+      if (!owner || owner.userId !== userId) return;
+      void resolveAndNavigate(userId, undefined, user.phoneNumber, undefined,
+        () => isValidatedAuthSessionOwnerCurrent(owner));
     }
   }, [
     redirectPath,
     user,
+    userId,
     authLoading,
     sessionVerificationRequired,
     completeStep,
@@ -511,10 +518,16 @@ export function AuthStep({
         }
         const settlementId = beginPostAuthSettlement(authenticatedUser);
         try {
+          const ownerId = await admitPostAuthSettlement(settlementId);
+          if (!ownerId) return;
+          const owner = snapshotValidatedAuthSessionOwner();
+          if (!owner || owner.userId !== ownerId) return;
           await resolveAndNavigate(
-            authenticatedUser.uid,
+            ownerId,
             await authenticatedUser.getIdToken(),
             authenticatedUser.phoneNumber,
+            undefined,
+            () => isValidatedAuthSessionOwnerCurrent(owner),
           );
         } finally {
           completePostAuthSettlement(settlementId);
@@ -543,6 +556,7 @@ export function AuthStep({
     }
   }, [
     beginPostAuthSettlement,
+    admitPostAuthSettlement,
     completePostAuthSettlement,
     growthEntrySurface,
     growthJourney,
@@ -610,8 +624,13 @@ export function AuthStep({
     if (!ownsAttempt()) throw new Error("The active sign-in session changed.");
     const settlementId = beginPostAuthSettlement(result.user);
     try {
+      const ownerId = await admitPostAuthSettlement(settlementId);
+      if (!ownerId || !ownsAttempt()) return undefined;
+      const owner = snapshotValidatedAuthSessionOwner();
+      if (!owner || owner.userId !== ownerId) return undefined;
+      const canContinue = () => ownsAttempt() && isValidatedAuthSessionOwnerCurrent(owner);
       const idToken = result.idToken || await result.user.getIdToken();
-      if (!ownsAttempt()) throw new Error("The active sign-in session changed.");
+      if (!canContinue()) throw new Error("The active sign-in session changed.");
       trackEvent("auth_succeeded", { action: method, result: "success" });
       void ApiService.notifyFirstWelcome({ idToken });
       void LegalAcceptanceService.recordSignInAcceptance(result.user, true);
@@ -625,10 +644,10 @@ export function AuthStep({
           dedupeKey: `growth:${growthJourney}:auth_completed:${method}`, dedupeWindowMs: 5_000 });
       }
       if (signal?.aborted) return undefined;
-      return await resolveAndNavigate(result.user.uid, idToken, result.user.phoneNumber, resumeRoute,
-        () => !signal?.aborted && ownsAttempt());
+      return await resolveAndNavigate(ownerId, idToken, result.user.phoneNumber, resumeRoute,
+        () => !signal?.aborted && canContinue());
     } finally { completePostAuthSettlement(settlementId); }
-  }, [beginPostAuthSettlement, completePostAuthSettlement, initialContactsEnabled, findInitialContacts, growthEntrySurface, growthJourney, resolveAndNavigate]);
+  }, [beginPostAuthSettlement, admitPostAuthSettlement, completePostAuthSettlement, initialContactsEnabled, findInitialContacts, growthEntrySurface, growthJourney, resolveAndNavigate]);
 
   const handleEmailAuthenticated = useCallback(async (customToken: string) => {
     if (providerAttemptRef.current) throw new Error("Another sign-in is in progress.");

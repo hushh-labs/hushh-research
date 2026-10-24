@@ -602,7 +602,10 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         .split("/")
         .filter(Boolean)[0];
       const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
-      const setupBackHref = originHref || ROUTES.ONE_SETUP;
+      const managementReturn = pathname === ROUTES.ONE_SETUP_CLOUD
+        && searchParams?.get("return_to") === ROUTES.PROFILE_HOSTING
+        ? ROUTES.PROFILE_HOSTING : undefined;
+      const setupBackHref = originHref || managementReturn || ROUTES.ONE_SETUP;
       return {
         backHref: setupBackHref,
         width: "content",

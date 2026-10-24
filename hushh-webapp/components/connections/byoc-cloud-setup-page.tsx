@@ -28,8 +28,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   isValidatedAuthSessionOwnerCurrent,
-  snapshotValidatedAuthSessionOwner,
-  type AuthSessionOwnerSnapshot,
+  snapshotValidatedAuthSessionPrincipal,
 } from "@/lib/auth/session-owner";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import {
@@ -82,18 +81,19 @@ export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
 
 export function ByocCloudSetupPage() {
   const { user } = useAuth();
-  const owner = snapshotValidatedAuthSessionOwner();
+  const owner = snapshotValidatedAuthSessionPrincipal();
   return <OwnerCloudSetupPage key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} />;
 }
 
 function OwnerCloudSetupPage({ user, owner }: {
   user: ReturnType<typeof useAuth>["user"];
-  owner: AuthSessionOwnerSnapshot | null;
+  owner: ReturnType<typeof snapshotValidatedAuthSessionPrincipal>;
 }) {
+  const ownerId = owner?.ownerId ?? null;
   const router = useRouter();
   const searchParams = useSearchParams();
-  const ownerCurrent = useCallback(() => Boolean(owner && owner.userId === user?.uid && isValidatedAuthSessionOwnerCurrent(owner)), [owner, user?.uid]);
-  useCloudSetupManagementReturn(user?.uid, ownerCurrent);
+  const ownerCurrent = useCallback(() => Boolean(owner && owner.firebaseUid === user?.uid && isValidatedAuthSessionOwnerCurrent(owner)), [owner, user?.uid]);
+  useCloudSetupManagementReturn(ownerId ?? undefined, ownerCurrent);
   const [saving, setSaving] = useState(false);
   const [aiReady, setAiReady] = useState(false);
   const authorizationStarting = useRef(false);
@@ -155,7 +155,7 @@ function OwnerCloudSetupPage({ user, owner }: {
   // "Checking your agent home..." must end. If placement or setup state cannot
   // be read, the page offers refresh and keeps every existing assignment intact.
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!ownerId) return;
     if (checked && hostingStatusChecked) {
       setCheckTimedOut(false);
       return;
@@ -165,10 +165,10 @@ function OwnerCloudSetupPage({ user, owner }: {
       setChecked(true);
     }, CLOUD_CHECK_TIMEOUT_MS);
     return () => clearTimeout(ceiling);
-  }, [user?.uid, checked, hostingStatusChecked]);
+  }, [ownerId, checked, hostingStatusChecked]);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!ownerId) return;
     let cancelled = false;
     void ApiService.getPersonalAgentStatus()
       .then((status) => {
@@ -209,7 +209,7 @@ function OwnerCloudSetupPage({ user, owner }: {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid, agentStatusNonce]);
+  }, [ownerId, agentStatusNonce]);
   const refreshAgent = useCallback(() => setAgentStatusNonce((value) => value + 1), []);
   // A recorded job is read once; an attach outcome (attachBlocked) needs both re-read.
   const refreshAttach = useCallback(() => {
@@ -218,7 +218,7 @@ function OwnerCloudSetupPage({ user, owner }: {
   }, [refreshAgent]);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!ownerId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -240,7 +240,7 @@ function OwnerCloudSetupPage({ user, owner }: {
           if (hostingMode === "byoc" && setupJobProvider(status) === "gcp") {
             // The durable marker just landed server-side; refresh the shared
             // bootstrap and restore the BYOC project shown to the person.
-            await PreVaultUserStateService.bootstrapState(user.uid, {
+            await PreVaultUserStateService.bootstrapState(ownerId, {
               force: true,
             }).catch(() => undefined);
             if (cancelled) return;
@@ -279,18 +279,18 @@ function OwnerCloudSetupPage({ user, owner }: {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [user?.uid, hostingMode, setupPollNonce]);
+  }, [ownerId, hostingMode, setupPollNonce]);
 
   useEffect(() => {
-    if (!user?.uid || (hostingMode !== "shared" && (hostingMode !== "byoc" || ownerProvider === "azure"))) return;
+    if (!ownerId || (hostingMode !== "shared" && (hostingMode !== "byoc" || ownerProvider === "azure"))) return;
     // A saved Shared choice cannot conceal an interrupted own-cloud setup.
     if (hostingMode === "shared" && (!setupStatusReadOk || job !== null)) return;
     let cancelled = false;
     void (async () => {
       try {
         const state =
-          PreVaultUserStateService.getCachedBootstrapState(user.uid) ??
-          (await PreVaultUserStateService.bootstrapState(user.uid));
+          PreVaultUserStateService.getCachedBootstrapState(ownerId) ??
+          (await PreVaultUserStateService.bootstrapState(ownerId));
         if (cancelled || !PreVaultUserStateService.hasOneCloudProject(state)) {
           return;
         }
@@ -312,7 +312,7 @@ function OwnerCloudSetupPage({ user, owner }: {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid, hostingMode, ownerProvider, setupStatusReadOk, job]);
+  }, [ownerId, hostingMode, ownerProvider, setupStatusReadOk, job]);
 
   usePublishVoiceSurfaceMetadata({ screenId: "one_setup_cloud" });
 
@@ -388,11 +388,11 @@ function OwnerCloudSetupPage({ user, owner }: {
       const result = await ApiService.selectHostedCloud();
       if (!ownerCurrent()) return;
       setHosted(result);
-      if (user?.uid) {
+      if (ownerId) {
         // The server just wrote the durable `cloud` marker; refresh the shared
         // bootstrap so the hub and every other surface flip to the truth
         // without a reload — the same refresh the BYOC path does on its proof.
-        await PreVaultUserStateService.bootstrapState(user.uid, {
+        await PreVaultUserStateService.bootstrapState(ownerId, {
           force: true,
         }).catch(() => undefined);
       }
@@ -412,7 +412,7 @@ function OwnerCloudSetupPage({ user, owner }: {
     } finally {
       setHostedSaving(false);
     }
-  }, [ownerCurrent, user?.uid]);
+  }, [ownerCurrent, ownerId]);
 
   const chooseShared = useCallback(async () => {
     if (!ownerCurrent()) return;
@@ -424,8 +424,8 @@ function OwnerCloudSetupPage({ user, owner }: {
       setHostingMode(result.hostingMode);
       setSharedChosen(true);
       setJob(null); // a begun setup's intent is cleared by the choice
-      if (user?.uid) {
-        await PreVaultUserStateService.bootstrapState(user.uid, {
+      if (ownerId) {
+        await PreVaultUserStateService.bootstrapState(ownerId, {
           force: true,
         }).catch(() => undefined);
       }
@@ -436,7 +436,7 @@ function OwnerCloudSetupPage({ user, owner }: {
     } finally {
       setSharedSaving(false);
     }
-  }, [ownerCurrent, user?.uid]);
+  }, [ownerCurrent, ownerId]);
 
   // A durable connected project or a selected hosting mode completes this step.
   const connectedBefore = existing !== null && reservedProjectId === null;
@@ -489,8 +489,8 @@ function OwnerCloudSetupPage({ user, owner }: {
       return { status: "blocked" as const, summary: "Finish your hosting and AI selection first." };
     }
     const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
-    const completed = !!user?.uid && (OneSetupCompletionHintService.isResolved(user.uid) ||
-      PreVaultUserStateService.getCachedBootstrapState(user.uid)?.setupCompleted === true);
+    const completed = !!ownerId && (OneSetupCompletionHintService.isResolved(ownerId) ||
+      PreVaultUserStateService.getCachedBootstrapState(ownerId)?.setupCompleted === true);
     const href = returnTo === ROUTES.PROFILE_HOSTING || (!returnTo && completed)
       ? ROUTES.PROFILE_HOSTING
       : buildOneSetupRoute({ returnTo });
@@ -503,7 +503,7 @@ function OwnerCloudSetupPage({ user, owner }: {
     });
     if (!requested) router.replace(href);
     return { status: "started" as const, summary: "Your agent setup is saved.", routeAfter: href };
-  }, [aiReady, authorized, hostingSaving, ownerCurrent, router, searchParams, user?.uid]);
+  }, [aiReady, authorized, hostingSaving, ownerCurrent, router, searchParams, ownerId]);
   useLocalOnboardingActionHandler("setup.finish_cloud", finish);
 
   return (
@@ -785,7 +785,7 @@ function OwnerCloudSetupPage({ user, owner }: {
 
         {authorized ? (
           <GeminiRuntimeConfigurationPage
-            key={user?.uid}
+            key={ownerId}
             setupMode
             embeddedInCloudSetup
             onSetupReadyChange={setAiReady}

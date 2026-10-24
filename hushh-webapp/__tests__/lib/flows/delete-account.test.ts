@@ -84,6 +84,7 @@ import {
   AccountDeletionNotCompletedError,
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE,
   AccountDeletionOutcomeUncertainError,
+  AccountDeletionPendingError,
   AccountErasureBanksNotDisconnectedError,
   DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE,
   accountDeletionErrorMessage,
@@ -102,6 +103,24 @@ function makeSessionUser(uid = "user_123") {
 
 describe("executeVerifiedAccountDeletion", () => {
   afterEach(() => vi.useRealTimers());
+
+  it("retains retry authority and local receipts when durable cleanup is accepted", async () => {
+    mockDeleteAccount.mockResolvedValue({
+      success: true, account_deleted: false, cleanup_pending: true,
+      cleanup_operation: { id: "b99efb85-c1f2-4714-8a63-614d774a25a3", owner_id: "user_123", state: "cleaning_up", credential_count: 1 },
+    });
+    await expect(executeVerifiedAccountDeletion({
+      userId: "user_123", vaultOwnerToken: "vault-token", sessionUser: makeSessionUser(),
+    })).rejects.toBeInstanceOf(AccountDeletionPendingError);
+    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+    expect(mockGetAccountSessionStatus).not.toHaveBeenCalled();
+    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+    expect(mockPublishAccountDeletionToSiblingTabs).not.toHaveBeenCalled();
+    expect(mockClearForUser).not.toHaveBeenCalled();
+    expect(mockClearDeviceSecrets).not.toHaveBeenCalled();
+    expect(mockOnAccountDeleted).not.toHaveBeenCalled();
+    expect(isAccountDeletionActive("user_123")).toBe(true);
+  });
 
   it("never submits deletion after a token-read timeout, even if the bridge later returns", async () => {
     vi.useFakeTimers();

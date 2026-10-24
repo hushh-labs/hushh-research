@@ -62,7 +62,7 @@ function OwnerRuntimeConfigurationPage({
 }: GeminiRuntimeConfigurationPageProps & { auth: ReturnType<typeof useAuth> }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, loading: authLoading } = auth;
+  const { user, userId: ownerId, loading: authLoading } = auth;
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -95,13 +95,13 @@ function OwnerRuntimeConfigurationPage({
       setHasVault(true);
       return;
     }
-    if (authLoading || !user?.uid) return;
+    if (authLoading || !ownerId) return;
     if (isVaultUnlocked) {
       setHasVault(true);
       return;
     }
     let active = true;
-    void VaultService.checkVault(user.uid)
+    void VaultService.checkVault(ownerId)
       .then((exists) => {
         if (active) setHasVault(exists);
       })
@@ -111,22 +111,22 @@ function OwnerRuntimeConfigurationPage({
     return () => {
       active = false;
     };
-  }, [authLoading, isVaultUnlocked, setupMode, user?.uid]);
+  }, [authLoading, isVaultUnlocked, setupMode, ownerId]);
 
   useEffect(() => {
     if (!setupMode) {
       setHasRuntimeChoice(true);
       return;
     }
-    if (authLoading || !user?.uid) return;
+    if (authLoading || !ownerId) return;
     let active = true;
-    const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    const cached = PreVaultUserStateService.getCachedBootstrapState(ownerId);
     if (cached) {
       setHasRuntimeChoice(PreVaultUserStateService.hasOneRuntimeChoice(cached));
       setSetupChoice(cached.oneRuntimeSetupChoice);
       return;
     }
-    void PreVaultUserStateService.bootstrapState(user.uid)
+    void PreVaultUserStateService.bootstrapState(ownerId)
       .then((state) => {
         if (active) {
           setHasRuntimeChoice(
@@ -141,7 +141,7 @@ function OwnerRuntimeConfigurationPage({
     return () => {
       active = false;
     };
-  }, [authLoading, setupMode, user?.uid]);
+  }, [authLoading, setupMode, ownerId]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -223,7 +223,7 @@ function OwnerRuntimeConfigurationPage({
 
   const resumeSavedKey = Boolean(
     setupMode && setupChoice === "byok_pending_vault" && !isVaultUnlocked &&
-    user?.uid && !PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid),
+    ownerId && !PreVaultSensitiveDraftService.hasGeminiRuntime(ownerId),
   );
   const runtimeSettings = (
     <>
@@ -233,7 +233,7 @@ function OwnerRuntimeConfigurationPage({
       </Button>
     ) : null}
     <GeminiRuntimeSettingsCard
-      userId={user?.uid}
+      userId={ownerId}
       vaultKey={vaultKey}
       vaultOwnerToken={vaultOwnerToken}
       needsVaultCreation={needsVaultCreation}
@@ -245,20 +245,20 @@ function OwnerRuntimeConfigurationPage({
         hasRuntimeChoice === true &&
         (setupChoice !== "byok_pending_vault" ||
           Boolean(
-            user?.uid &&
-            PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid),
+            ownerId &&
+            PreVaultSensitiveDraftService.hasGeminiRuntime(ownerId),
           ))
       }
       onCanContinueChange={setupMode ? setCanContinue : undefined}
       initialSetupChoice={setupChoice}
       onSelectionReadyChange={
-        setupMode && user?.uid
+        setupMode && ownerId
           ? async (choice) => {
               const owner = snapshotValidatedAuthSessionOwner();
-              if (!mountedRef.current || !owner || owner.userId !== user.uid)
+              if (!mountedRef.current || !owner || owner.userId !== ownerId)
                 return;
               const state = await PreVaultUserStateService.markOneRuntimeChoice(
-                user.uid,
+                ownerId,
                 choice,
               );
               if (
@@ -269,20 +269,20 @@ function OwnerRuntimeConfigurationPage({
               setSetupChoice(state.oneRuntimeSetupChoice);
               setHasRuntimeChoice(true);
               if (choice === "hushh_managed_vertex") {
-                PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
+                PreVaultSensitiveDraftService.clearGeminiRuntime(ownerId);
               }
             }
           : undefined
       }
       onPreVaultDraftStaged={
-        setupMode && user?.uid
+        setupMode && ownerId
           ? (draft) =>
-              PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
+              PreVaultSensitiveDraftService.stageGeminiRuntime(ownerId, draft)
           : undefined
       }
       onPreVaultDraftCleared={
-        setupMode && user?.uid
-          ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
+        setupMode && ownerId
+          ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(ownerId)
           : undefined
       }
     />

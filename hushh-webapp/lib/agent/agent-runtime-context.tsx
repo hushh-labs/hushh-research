@@ -166,7 +166,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   // export. Never wrap History: Next owns its insertion-effect settlement and
   // native post-auth routing must not acquire a second route publisher.
   const routeQuery = searchParams.toString();
-  const { user } = useAuth();
+  const { userId: uid } = useAuth();
   const {
     isVaultUnlocked,
     vaultOwnerToken,
@@ -189,7 +189,6 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
   const oneVoiceState = useAgentVoiceState((state) => state.oneVoiceState);
   const lastVoiceTransition = useAgentVoiceState((state) => state.lastTransition);
 
-  const uid = user?.uid ?? null;
   const signedIn = Boolean(uid);
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const hasVaultAccess = Boolean(isVaultUnlocked && vaultOwnerToken && tokenIsFresh);

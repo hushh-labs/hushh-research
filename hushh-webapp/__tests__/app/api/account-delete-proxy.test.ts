@@ -33,6 +33,17 @@ async function proxiedError(backend: Response) {
 }
 
 describe("account delete proxy", () => {
+  it("preserves accepted cleanup without reporting terminal deletion", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(
+      { success: true, cleanup_pending: true, account_deleted: false },
+      { status: 202, headers: { "Retry-After": "3" } },
+    )));
+    const response = await DELETE(deleteRequest());
+    expect(response.status).toBe(202);
+    expect(response.headers.get("retry-after")).toBe("3");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toMatchObject({ account_deleted: false, cleanup_pending: true });
+  });
   it.each([
     "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
     "FILES_ERASURE_IN_PROGRESS",

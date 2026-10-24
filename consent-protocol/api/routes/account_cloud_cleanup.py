@@ -28,7 +28,7 @@ class AccountCloudCleanupRequest(_CloudCleanupTerms):
 
 
 class CloudRemovalRequest(_CloudCleanupTerms):
-    action: Literal["inspect", "status", "approve", "execute", "finalize"]
+    action: Literal["inspect", "status", "approve", "execute", "finalize", "cancel"]
     operationId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,128}$")
 
 
@@ -44,6 +44,10 @@ async def remove_owner_cloud(owner: str, request: CloudRemovalRequest) -> dict:
     store = CloudRemovalStore(PersonalAgentRegistryRepo())
     try:
         await store.require_completion_contract()
+        if request.action == "cancel":
+            if not request.operationId:
+                raise AzureTeardownRefused("CLOUD_REMOVAL_OPERATION_REQUIRED")
+            return await store.cancel(owner, request.operationId)
         if request.action == "finalize":
             if not request.operationId or not request.planDigest:
                 raise AzureTeardownRefused("CLOUD_REMOVAL_APPROVAL_REQUIRED")
@@ -182,6 +186,14 @@ async def complete_azure_cleanup(
                 status="cleanup_review_required",
                 operationId=selection.erasure_attempt,
                 cleanupPurpose="remove_cloud" if cloud_only else None,
+            )
+        if cloud_only:
+            from hushh_mcp.services.personal_agent_cloud_removal import CloudRemovalStore
+
+            cloud_store = CloudRemovalStore(store.registry)
+            operation = await cloud_store.operation(owner)
+            await cloud_store.require_execution(
+                owner, selection.erasure_attempt, operation.get("approved") or ""
             )
         await store.mark_authorization(owner, selection, "execute", "running", "STARTED")
         spawn(azure_owner_cleanup.run_cleanup(store, owner, selection, token))

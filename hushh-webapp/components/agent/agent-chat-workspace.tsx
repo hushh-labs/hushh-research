@@ -41,6 +41,7 @@ import {
 import { isCommittedPkmSave, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 import { OnePresenceAvatar, resolveOnePresenceState } from "@/components/agent/one-presence-avatar";
+import { OneModelConnection } from "@/components/agent/one-model-connection";
 import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { ComputerUseActiveTasks } from "@/components/computer-use/computer-use-active-tasks";
 import { useOneDisplayName } from "@/lib/agent/use-one-display-name";
@@ -2487,8 +2488,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }), [agentDockFrame, nativeDockPorts]);
   const searchParams = useSearchParams();
   const localCrmEnabled = isLocalCrmBuildEnabled();
-  const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
-  const renderedWorkspaceOwnerId = user?.uid ?? null;
+  const { user, userId: applicationOwnerId, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
+  const renderedWorkspaceOwnerId = applicationOwnerId ?? null;
   const workspaceOwnerIdRef = useRef<string | null>(renderedWorkspaceOwnerId);
   workspaceOwnerIdRef.current = renderedWorkspaceOwnerId;
   useEffect(() => {
@@ -2512,7 +2513,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   if (emailScopeRef.current.ownerId !== renderedWorkspaceOwnerId || emailScopeRef.current.epoch !== vaultSessionEpoch) {
     emailScopeRef.current = { ownerId: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch };
   }
-  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, vaultSessionEpoch);
+  const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(applicationOwnerId ?? undefined, vaultSessionEpoch);
   // Authority changes retire chrome; a selector's value uses ordered updates.
   const chatChromeContext = `${pathname}:${isVaultUnlocked}:${vaultSessionEpoch}`;
   // Chat history is sealed with a key derived from this; read it at call time so
@@ -2542,7 +2543,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // on the owner's machine.
   const [agentSurface, setAgentSurface] = useState<AgentChatSurface>("one");
   const isPuppySurface = agentSurface === "puppy";
-  useChatAgentWake(user?.uid ?? null, isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired);
+  useChatAgentWake(applicationOwnerId ?? null, isCanonicalChatRoute && isVaultUnlocked && !authLoading && !sessionVerificationRequired);
   // Puppy One is mounted on FIRST use and hidden thereafter, never unmounted.
   // Unmounting it destroyed the whole on-device conversation and its Hermes
   // session on every glance at One, which is exactly what the comment beside
@@ -2653,7 +2654,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     draftContext: string | undefined;
     observedLock: boolean;
   } | null>(null);
-  const composerDraft = useOneComposerDraft(isCanonicalChatRoute, isVaultUnlocked ? user?.uid ?? null : null);
+  const composerDraft = useOneComposerDraft(isCanonicalChatRoute, isVaultUnlocked ? applicationOwnerId ?? null : null);
   const { input, setInput: writeInput, attachment: longPromptAttachment, setAttachment: writeAttachment,
     expanded: composerExpanded, setExpanded: setComposerExpandedState } = composerDraft;
   const currentComposerContext = useRef(composerDraft.context);
@@ -2676,7 +2677,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     writeAttachment(value);
   }, [cancelRetryForDraftEdit, writeAttachment]);
   const [textAttachmentEditorOpen, setTextAttachmentEditorOpen] = useState(false);
-  useEffect(() => { setTextAttachmentEditorOpen(false); }, [composerDraft.context, user?.uid, isVaultUnlocked, isPuppySurface]);
+  useEffect(() => { setTextAttachmentEditorOpen(false); }, [composerDraft.context, applicationOwnerId, isVaultUnlocked, isPuppySurface]);
   // A selected search result is session-only; chat receives its opaque reference
   // separately from the human prompt and rechecks it against live Drive.
   const [pendingDriveSearchSelection, setPendingDriveSearchSelection] = useState<
@@ -2698,7 +2699,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [editingQueuedPromptText, setEditingQueuedPromptText] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const activeDriveSearchSelection = pendingDriveSearchSelection &&
-    pendingDriveSearchSelection.ownerUid === user?.uid && isVaultUnlocked &&
+    pendingDriveSearchSelection.ownerUid === applicationOwnerId && isVaultUnlocked &&
     isVaultSessionEpochCurrent(pendingDriveSearchSelection.vaultEpoch)
       ? pendingDriveSearchSelection : null;
   useEffect(() => {
@@ -2707,7 +2708,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const generated = generatedDriveSearchDraftRef.current;
     generatedDriveSearchDraftRef.current = false;
     if (generated) setInput(current => clearGeneratedDriveSearchDraft(current, generated));
-  }, [conversationId, user?.uid, isVaultUnlocked, vaultSessionEpoch, setInput]);
+  }, [conversationId, applicationOwnerId, isVaultUnlocked, vaultSessionEpoch, setInput]);
   // Ratings for this conversation, keyed by message id. Durable, so a reload
   // and a conversation switch both keep what the person said about an answer.
   const [messageRatings, setMessageRatings] = useState<
@@ -2722,7 +2723,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     [],
   );
   const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
-  const puppyHistory = usePuppyConversations(user?.uid ?? null, isPuppySurface);
+  const puppyHistory = usePuppyConversations(applicationOwnerId ?? null, isPuppySurface);
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
@@ -2739,17 +2740,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!privateMessages.length) return;
     if (privateMessages.some(message => {
       const scope = message.receiptPrivate!;
-      return scope.ownerId !== user?.uid || !isVaultUnlocked || !vaultKey || scope.vaultEpoch !== vaultSessionEpoch || scope.conversationId !== conversationId || scope.expiresAt <= Date.now();
+      return scope.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || scope.vaultEpoch !== vaultSessionEpoch || scope.conversationId !== conversationId || scope.expiresAt <= Date.now();
     })) { clearReceiptAnswers(); return; }
     const expiresAt = Math.min(...privateMessages.map(message => message.receiptPrivate!.expiresAt));
     const timer = window.setTimeout(clearReceiptAnswers, Math.max(1, expiresAt - Date.now()));
     return () => window.clearTimeout(timer);
-  }, [messages, user?.uid, isVaultUnlocked, vaultKey, vaultSessionEpoch, conversationId, clearReceiptAnswers]);
+  }, [messages, applicationOwnerId, isVaultUnlocked, vaultKey, vaultSessionEpoch, conversationId, clearReceiptAnswers]);
   useEffect(() => subscribeDurableOwnerReset(owner => {
-    if (owner !== user?.uid) return;
+    if (owner !== applicationOwnerId) return;
     clearReceiptAnswers();
     clearAgentPkmContext(owner);
-  }), [user?.uid, clearReceiptAnswers]);
+  }), [applicationOwnerId, clearReceiptAnswers]);
   const compiledDriveMarkdownRef = useRef(new Map<string, string>());
   const driveCompilationAbortRef = useRef<AbortController | null>(null);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
@@ -2763,7 +2764,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [calendarSlot, setCalendarSlot] = useState<{ selection: CalendarSlotHandoff; conversationId: string | null; needsContext: boolean } | null>(null);
   const pendingEntryWelcome = useOneConversationSession((state) => state.pendingEntryWelcome);
   const postSetupWelcomeContext = useEntryWelcome({
-    userId: user?.uid, isVaultUnlocked, vaultKey, vaultOwnerToken,
+    userId: applicationOwnerId ?? undefined, isVaultUnlocked, vaultKey, vaultOwnerToken,
   });
   const consumeHandoff = useOneConversationSession(
     (state) => state.consumeHandoff,
@@ -2781,7 +2782,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
   const [historyConnectorsReady, setHistoryConnectorsReady] = useState<string | null>(null);
   const [historyConnectorExternalModal, setHistoryConnectorExternalModal] = useState(false);
-  const historyConnectorsOwner = JSON.stringify([user?.uid, vaultSessionEpoch]);
+  const historyConnectorsOwner = JSON.stringify([applicationOwnerId, vaultSessionEpoch]);
   useLayoutEffect(() => {
     if (!isHistoryDrawerOpen || drawerMode !== "connections") setHistoryConnectorsReady(null);
   }, [isHistoryDrawerOpen, drawerMode]);
@@ -2837,11 +2838,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
   };
   useEffect(() => {
-    if (!user?.uid || !vaultKey) {
+    if (!applicationOwnerId || !vaultKey) {
       pendingDriveRecoveryRef.current = null;
       setRecoveryCheckedForUid(null);
     }
-  }, [user?.uid, vaultKey]);
+  }, [applicationOwnerId, vaultKey]);
   useEffect(() => {
     const onReturn = () => setRecoveryCheckedForUid(null);
     window.addEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
@@ -2920,21 +2921,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }>>(new Map());
   const [checkingEmailActionId, setCheckingEmailActionId] = useState<string | null>(null);
   const emailStatusOperationRef = useRef<{ scope: typeof emailScopeRef.current } | null>(null);
-  const emailHistoryOwnerRef = useRef<string | null>(user?.uid ?? null);
+  const emailHistoryOwnerRef = useRef<string | null>(applicationOwnerId ?? null);
   useEffect(() => {
     emailStatusOperationRef.current = null;
     setCheckingEmailActionId(null);
-    if (emailHistoryOwnerRef.current === (user?.uid ?? null)) return;
-    emailHistoryOwnerRef.current = user?.uid ?? null;
+    if (emailHistoryOwnerRef.current === (applicationOwnerId ?? null)) return;
+    emailHistoryOwnerRef.current = applicationOwnerId ?? null;
     emailDeliveryActionByAttemptRef.current.clear();
     setEmailDeliveryHistory([]);
-  }, [user?.uid, vaultSessionEpoch]);
+  }, [applicationOwnerId, vaultSessionEpoch]);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
   const [visiblePkmToolCount, setVisiblePkmToolCount] = useState(0);
   const [walletWidgets, setWalletWidgets] = useState<AgentWalletWidget[]>([]);
   const pkmCaptureEnabledRef = useRef(false);
-  pkmCaptureEnabledRef.current = Boolean(user?.uid && isVaultUnlocked && vaultKey && vaultOwnerToken);
+  pkmCaptureEnabledRef.current = Boolean(applicationOwnerId && isVaultUnlocked && vaultKey && vaultOwnerToken);
   const pkmCaptureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
   pkmCaptureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
   // A specialist (e.g. agent_location) can return a directive that must be
@@ -3021,14 +3022,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     { ownerId: null, epoch: vaultSessionEpoch, count: 0 },
   );
   const onDriveNeedsReviewChange = useCallback((count: number) => {
-    const ownerId = user?.uid ?? null;
+    const ownerId = applicationOwnerId ?? null;
     setDriveReviewSignal(current => current.ownerId === ownerId && current.epoch === vaultSessionEpoch && current.count === count
       ? current : { ownerId, epoch: vaultSessionEpoch, count });
-  }, [user?.uid, vaultSessionEpoch]);
-  const driveReviewsPending = user && isVaultUnlocked && driveReviewSignal.ownerId === user.uid &&
+  }, [applicationOwnerId, vaultSessionEpoch]);
+  const driveReviewsPending = user && isVaultUnlocked && driveReviewSignal.ownerId === applicationOwnerId &&
     driveReviewSignal.epoch === vaultSessionEpoch ? driveReviewSignal.count : 0;
   const [driveActivityPage, setDriveActivityPage] = useState<{ owner: string | null; epoch: number; open: boolean }>({ owner: null, epoch: -1, open: false });
-  const driveActivityPageOpen = driveActivityPage.open && driveActivityPage.owner === user?.uid &&
+  const driveActivityPageOpen = driveActivityPage.open && driveActivityPage.owner === applicationOwnerId &&
     driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface;
   const [getAppOpen, setGetAppOpen] = useState(false);
   const getAppReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -3075,8 +3076,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // memory only: they hold the owner's words and are dropped with the turn.
   const pkmNeedsOwnerCardsRef = useRef(new Map<string, { cards: AgentPkmPreviewCard[]; sourceMessage: string }>());
   const pkmCaptureScopeRef = useRef(0);
-  const pkmCaptureOwnerRef = useRef(user?.uid);
-  pkmCaptureOwnerRef.current = user?.uid;
+  const pkmCaptureOwnerRef = useRef(applicationOwnerId);
+  pkmCaptureOwnerRef.current = applicationOwnerId;
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
   // Set by the FCM effect below; lets a server tool result (pending requests
@@ -3090,12 +3091,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ? { ...current, conversationId: nextConversationId } : null);
       conversationIdRef.current = nextConversationId;
       setConversationId(nextConversationId);
-      if (remember && user?.uid) rememberInAppChat(user.uid, nextConversationId);
+      if (remember && applicationOwnerId) rememberInAppChat(applicationOwnerId, nextConversationId);
     },
-    [user?.uid],
+    [applicationOwnerId],
   );
   const oneLocationConsentActions = useOneLocationConsentActions({
-    userId: user?.uid,
+    userId: applicationOwnerId,
     onActionComplete: () => {
       setPendingSpecialistDirective(null);
     },
@@ -3104,7 +3105,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // the Consent Center rows and the Feed (lib/consent/deferred-consent-decline.ts).
   const { schedule: scheduleConsentDecline } = useDeferredConsentDeclines();
   const consentActions = useConsentActions({
-    userId: user?.uid,
+    userId: applicationOwnerId,
     onActionComplete: (detail) => {
       const requestId = detail.requestId;
       if (!requestId || detail.action === "revoke") return;
@@ -3181,21 +3182,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [vaultOwnerToken, isVaultUnlocked, authLoading, sessionVerificationRequired]);
 
   useEffect(() => {
-    if (user?.uid && isVaultUnlocked && vaultKey) {
+    if (applicationOwnerId && isVaultUnlocked && vaultKey) {
       return;
     }
-    clearAgentPkmContext(user?.uid);
+    clearAgentPkmContext(applicationOwnerId ?? undefined);
     setEmailDraftOpen(false);
     setEmailDraftInitialValue(null);
     setEmailDraftAnchorMessageId(null);
     setEmailDeliveryHistory([]);
-  }, [isVaultUnlocked, user?.uid, vaultKey]);
+  }, [isVaultUnlocked, applicationOwnerId, vaultKey]);
 
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+    if (!applicationOwnerId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
       return undefined;
     }
-    if (peekAgentPkmContext({ userId: user.uid })?.text) {
+    if (peekAgentPkmContext({ userId: applicationOwnerId })?.text) {
       performance.mark("hushh:agent-chat:pkm-warm-ready");
       return undefined;
     }
@@ -3205,7 +3206,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // routes and interrupted unlock warmups still prepare the first turn.
     const timeoutId = window.setTimeout(() => {
       void warmAgentPkmContext({
-        userId: user.uid,
+        userId: applicationOwnerId,
         vaultKey,
         vaultOwnerToken,
       })
@@ -3213,7 +3214,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         .catch(() => undefined);
     }, 180);
     return () => window.clearTimeout(timeoutId);
-  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [isVaultUnlocked, applicationOwnerId, vaultKey, vaultOwnerToken]);
 
   const routeQuery = searchParams?.toString() || "";
   const pathnameWithQuery = routeQuery
@@ -3222,41 +3223,41 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const routeInfo = useMemo(
     () =>
       deriveVoiceRouteScreen(pathname || "", routeQuery, {
-        authenticated: Boolean(user?.uid),
+        authenticated: Boolean(applicationOwnerId),
       }),
-    [pathname, routeQuery, user?.uid],
+    [pathname, routeQuery, applicationOwnerId],
   );
   const activeAnalysisTask = useMemo(() => {
-    if (!user?.uid) return null;
+    if (!applicationOwnerId) return null;
     return (
       backgroundTaskState.tasks.find(
         (task) =>
-          task.userId === user.uid &&
+          task.userId === applicationOwnerId &&
           task.kind === "stock_analysis_stream" &&
           task.status === "running" &&
           !task.dismissedAt,
       ) || null
     );
-  }, [backgroundTaskState.tasks, user?.uid]);
+  }, [backgroundTaskState.tasks, applicationOwnerId]);
   const runningImportTask = useMemo(() => {
-    if (!user?.uid) return null;
+    if (!applicationOwnerId) return null;
     return (
       backgroundTaskState.tasks.find(
         (task) =>
-          task.userId === user.uid &&
+          task.userId === applicationOwnerId &&
           task.kind === "portfolio_import_stream" &&
           task.status === "running" &&
           !task.dismissedAt,
       ) || null
     );
-  }, [backgroundTaskState.tasks, user?.uid]);
+  }, [backgroundTaskState.tasks, applicationOwnerId]);
   const activeAnalysisTicker = useMemo(() => {
     const ticker = activeAnalysisTask?.metadata?.ticker;
     return typeof ticker === "string" && ticker.trim() ? ticker.trim() : null;
   }, [activeAnalysisTask]);
   const hasChatAccess = Boolean(
     !authLoading &&
-    user?.uid &&
+    applicationOwnerId &&
     isVaultUnlocked &&
     vaultOwnerToken &&
     tokenIsFresh,
@@ -3267,7 +3268,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     driveCompilationAbortRef.current = null;
     compiledDriveMarkdownRef.current.clear();
     setMessages(clearDriveCompilationFromMessages);
-  }, [hasChatAccess, user?.uid]);
+  }, [hasChatAccess, applicationOwnerId]);
 
   useEffect(() => () => {
     driveCompilationAbortRef.current?.abort();
@@ -3293,8 +3294,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // computing the same shape locally.
     const base: AppRuntimeState = sharedRuntime?.appRuntimeState ?? {
       auth: {
-        signed_in: Boolean(user?.uid),
-        user_id: user?.uid ?? null,
+        signed_in: Boolean(applicationOwnerId),
+        user_id: applicationOwnerId ?? null,
       },
       vault: {
         unlocked: isVaultUnlocked,
@@ -3376,7 +3377,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     routeInfo.screen,
     routeInfo.subview,
     tokenIsFresh,
-    user?.uid,
+    applicationOwnerId,
     vaultOwnerToken,
     voiceActive,
     voiceState,
@@ -3389,7 +3390,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // full agent, otherwise it runs the pre-vault informational tier. Voice and
   // vault-backed tools stay gated separately by hasChatAccess.
   const recoveryInspectionPending = Boolean(
-    user?.uid && vaultKey && vaultOwnerToken && recoveryCheckedForUid !== user.uid,
+    applicationOwnerId && vaultKey && vaultOwnerToken && recoveryCheckedForUid !== applicationOwnerId,
   );
   const canSend =
     !recoveryInspectionPending &&
@@ -3449,7 +3450,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return null;
     }
     if (authLoading) return "Checking access";
-    if (!user?.uid) return "Sign in required";
+    if (!applicationOwnerId) return "Sign in required";
     if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh)
       return "Vault locked";
     if (activeActionRun) return activeActionRun.message;
@@ -3482,7 +3483,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     isVaultUnlocked,
     queuedPrompts.length,
     tokenIsFresh,
-    user?.uid,
+    applicationOwnerId,
     vaultOwnerToken,
     voiceState,
     voiceActive,
@@ -3617,7 +3618,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   useEffect(() => {
     const token = getVaultOwnerToken();
     if (
-      !user?.uid ||
+      !applicationOwnerId ||
       !vaultKey ||
       !token ||
       shouldSkipReviewerBackgroundWritesForAutomation()
@@ -3626,7 +3627,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     void (async () => {
       try {
         await OneKycClientZkService.ensureConnector({
-          userId: user.uid,
+          userId: applicationOwnerId,
           vaultKey,
           vaultOwnerToken: token,
         });
@@ -3639,7 +3640,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       cancelled = true;
       void cancelled;
     };
-  }, [user?.uid, vaultKey, getVaultOwnerToken]);
+  }, [applicationOwnerId, vaultKey, getVaultOwnerToken]);
 
   useEffect(() => {
     const textarea = composerTextareaRef.current;
@@ -3759,7 +3760,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, []);
 
   useEffect(() => {
-    if (!user?.uid) {
+    if (!applicationOwnerId) {
       setHasPortfolioData(false);
       return;
     }
@@ -3768,10 +3769,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const computeHasPortfolioData = () => {
       const cachedPortfolio =
         cache.get<Record<string, unknown>>(
-          CACHE_KEYS.PORTFOLIO_DATA(user.uid),
+          CACHE_KEYS.PORTFOLIO_DATA(applicationOwnerId),
         ) ??
         cache.get<Record<string, unknown>>(
-          CACHE_KEYS.DOMAIN_DATA(user.uid, "financial"),
+          CACHE_KEYS.DOMAIN_DATA(applicationOwnerId, "financial"),
         );
       const nestedPortfolio =
         cachedPortfolio?.portfolio &&
@@ -3800,7 +3801,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     });
     return () => unsubscribe();
-  }, [user?.uid]);
+  }, [applicationOwnerId]);
 
   const welcomePrompts = useMemo(
     () => getWelcomePrompts(welcomePromptSetIndex),
@@ -3808,12 +3809,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   );
   // One's conversational onboarding replaces the old post-setup tile card.
   const chatOnboarding = useChatOnboarding({
-    userId: user?.uid,
+    userId: applicationOwnerId ?? undefined,
     displayName: formatAgentDisplayName(user?.displayName, user?.email),
     vaultKey,
     vaultOwnerToken,
     isVaultUnlocked,
-    startSignal: Boolean(user?.uid && pendingEntryWelcome?.userId === user.uid) || Boolean(postSetupWelcomeContext),
+    startSignal: Boolean(applicationOwnerId && pendingEntryWelcome?.userId === applicationOwnerId) || Boolean(postSetupWelcomeContext),
     messages,
     conversationId,
     onFocusComposer: () => composerTextareaRef.current?.focus(),
@@ -3821,7 +3822,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   });
   const onboardingToken = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
   const onboardingGmail = useGmailConnectorStatus({
-    userId: user?.uid,
+    userId: applicationOwnerId,
     enabled: isVaultUnlocked && chatOnboarding.turns.some((turn) =>
       turn.action?.kind === "connector" && turn.action.provider === "gmail"),
     idTokenProvider: user ? onboardingToken : null,
@@ -3875,7 +3876,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     clearTranscriptProgrammaticScroll,
     isVaultUnlocked,
     updateConversationId,
-    user?.uid,
+    applicationOwnerId,
   ]);
 
   const handleCreateNewChat = useCallback(() => {
@@ -3963,7 +3964,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const loadGmailInformationRequestPreview = useCallback(
     async (workflowId: string): Promise<GmailInformationRequestSourcePreview> => {
       const token = getVaultOwnerToken();
-      if (!user?.uid || !token) {
+      if (!user || !applicationOwnerId || !token) {
         throw new Error("Vault access expired.");
       }
       return GmailInformationRequestsService.getSourcePreview({
@@ -3972,7 +3973,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         workflowId,
       });
     },
-    [getVaultOwnerToken, user],
+    [getVaultOwnerToken, user, applicationOwnerId],
   );
 
   useEffect(() => {
@@ -4036,9 +4037,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   const handleEmailDeliveryPrepared = (actionId: string, attemptId: string | null) => {
-    if (!attemptId || !user?.uid) return;
-    emailDeliveryActionByAttemptRef.current.set(attemptId, { actionId, ownerId: user.uid });
-    rememberPendingEmailSendAction(user.uid, actionId);
+    if (!attemptId || !applicationOwnerId) return;
+    emailDeliveryActionByAttemptRef.current.set(attemptId, { actionId, ownerId: applicationOwnerId });
+    rememberPendingEmailSendAction(applicationOwnerId, actionId);
     setEmailDeliveryHistory((current) => current.map((item) =>
       item.id === attemptId ? { ...item, actionId } : item));
   };
@@ -4105,8 +4106,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    */
   const handleEnableGmailSend = (item?: EmailDeliveryHistoryItem) => {
     const owner = user;
-    if (!owner?.uid || !owner.getIdToken) return;
-    const ownerId = owner.uid;
+    if (!owner?.uid || !owner.getIdToken || !applicationOwnerId) return;
+    const ownerId = applicationOwnerId;
     const started = gmailSendConnect.start(
       item?.id ?? "gmail_send",
       (controls) =>
@@ -4139,8 +4140,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    */
   const runDirectiveConnect = (kind: "gmail_modify" | "calendar") => {
     const owner = user;
-    if (!owner?.uid) return;
-    const ownerId = owner.uid;
+    if (!owner?.uid || !applicationOwnerId) return;
+    const ownerId = applicationOwnerId;
     const originConversation = conversationIdRef.current;
     const payload = (pendingSpecialistDirective?.directive.payload ?? {}) as Record<
       string,
@@ -4273,7 +4274,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const compileOwnerDriveNotes = async (
     messageId: string, query: string, window: DriveOwnerCompileWindow,
   ) => {
-    if (!hasChatAccess || !user?.uid || !query || !window) return;
+    if (!hasChatAccess || !applicationOwnerId || !query || !window) return;
     const token = getVaultOwnerToken();
     if (!token) return;
     driveCompilationAbortRef.current?.abort();
@@ -4281,7 +4282,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     driveCompilationAbortRef.current = controller;
     compiledDriveMarkdownRef.current.clear();
     setMessages(clearDriveCompilationFromMessages);
-    const ownerId = user.uid;
+    const ownerId = applicationOwnerId;
     const sourceKey = driveOwnerCompileKey(query, window);
     const eventId = `owner-compile:${messageId}`;
     let lastProgress: DriveBatchProgress = {
@@ -4370,8 +4371,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // Calendar continues the selected chat after its history is restored.
     // Other handoff owners retain their existing new-chat behavior.
     if (handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest || handoff.calendarAttendance) {
-      if ((handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest || handoff.calendarAttendance)?.ownerId !== user?.uid) { consumeHandoff(handoff.id); return; }
-      if (!hasChatAccess || isChatLoading || isLoadingHistory || (!conversationIdRef.current && (!historyReadyForSlot || recoveryCheckedForUid !== user?.uid))) return;
+      if ((handoff.calendarSlot || handoff.calendarInvitation || handoff.calendarRequest || handoff.calendarAttendance)?.ownerId !== applicationOwnerId) { consumeHandoff(handoff.id); return; }
+      if (!hasChatAccess || isChatLoading || isLoadingHistory || (!conversationIdRef.current && (!historyReadyForSlot || recoveryCheckedForUid !== applicationOwnerId))) return;
     }
     consumedHandoffIdRef.current = handoff.id;
     // Every handoff is One speaking. Landing one behind the Puppy surface
@@ -4458,7 +4459,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const resultSummary = handoff.resultSummary?.trim();
       const gmailInformationRequest = handoff.gmailInformationRequest ?? null;
       if (handoff.reason === "user_requested" && gmailInformationRequest) {
-      if (!hasChatAccess || !user?.uid || !vaultKey || !vaultOwnerToken) {
+      if (!hasChatAccess || !applicationOwnerId || !vaultKey || !vaultOwnerToken) {
         consumedHandoffIdRef.current = null;
         if (user) setVaultDialogOpen(true);
         else router.push(ROUTES.LOGIN);
@@ -4553,6 +4554,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setMessages((current) => [...current, ...nextMessages]);
     consumeHandoff(handoff.id);
   }, [
+    applicationOwnerId,
     consumeHandoff,
     handoff,
     isLoadingHistory,
@@ -4570,7 +4572,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked || !rootChatReady) return;
+    if (!applicationOwnerId || !isVaultUnlocked || !rootChatReady) return;
 
     let cancelled = false;
 
@@ -4592,7 +4594,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
       try {
         const result = await ConsentCenterService.lookupPendingRequests({
-          userId: user.uid,
+          userId: applicationOwnerId,
           vaultOwnerToken: token,
           requestIds: [normalizedRequestId],
         });
@@ -4734,7 +4736,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const token = getVaultOwnerToken();
       if (!token) return;
       try {
-        const response = await ApiService.getPendingConsents(user.uid, token);
+        const response = await ApiService.getPendingConsents(applicationOwnerId, token);
         const payload = (await response.json().catch(() => ({}))) as {
           pending?: Array<{ id?: string; request_id?: string }>;
         };
@@ -4776,7 +4778,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
     };
-  }, [getVaultOwnerToken, isVaultUnlocked, rootChatReady, user?.uid]);
+  }, [getVaultOwnerToken, isVaultUnlocked, rootChatReady, applicationOwnerId]);
 
   const appendDebugEvent = useCallback(
     (
@@ -4800,7 +4802,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   const restorePendingMcpReviews = useCallback(async (thread: string, token: string, effectCurrent: () => boolean) => {
-    const ownerId = user?.uid;
+    const ownerId = applicationOwnerId;
     const key = vaultKeyRef.current;
     if (!ownerId || !key || isPuppySurface) return;
     const current = () => effectCurrent() && workspaceOwnerIdRef.current === ownerId &&
@@ -4901,16 +4903,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return [...retained, ...reviews.filter(review => !retained.some(item =>
         item.reference.directiveId === review.reference.directiveId)).map(bindReview)];
     });
-  }, [isPuppySurface, user?.uid]);
+  }, [isPuppySurface, applicationOwnerId]);
 
   useEffect(() => {
     if (
       !hasChatAccess ||
-      !user?.uid ||
+      !applicationOwnerId ||
       !vaultOwnerToken ||
-      recoveryCheckedForUid !== user.uid
+      recoveryCheckedForUid !== applicationOwnerId
     ) return;
-    const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;
+    const loadKey = `${applicationOwnerId}:${vaultOwnerToken.slice(0, 12)}`;
     if (skipInitialHistoryLoadRef.current) {
       skipInitialHistoryLoadRef.current = false;
       historyLoadKeyRef.current = loadKey;
@@ -4923,25 +4925,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const historyVaultEpoch = snapshotVaultSessionEpoch();
     const historyChatEpoch = chatSessionRef.current.value;
     let cancelled = false;
-    const cached = peekAgentChatHistoryCache(user.uid);
+    const cached = peekAgentChatHistoryCache(applicationOwnerId);
     const authorityCurrent = () => !cancelled && Boolean(historyOwner) &&
-      historyOwner?.userId === user.uid && workspaceOwnerIdRef.current === user.uid &&
+      historyOwner?.userId === applicationOwnerId && workspaceOwnerIdRef.current === applicationOwnerId &&
       isValidatedAuthSessionOwnerCurrent(historyOwner!) && isVaultSessionEpochCurrent(historyVaultEpoch);
     const restoreCurrent = () => authorityCurrent() && restoreEpoch === historyRestoreEpochRef.current &&
       chatSessionRef.current.isCurrent(historyChatEpoch);
 
     const applySnapshot = async (snapshot: NonNullable<typeof cached>, refresh = false) => {
-      const current = () => restoreCurrent() && isAgentChatHistorySnapshotCurrent(user.uid, snapshot);
+      const current = () => restoreCurrent() && isAgentChatHistorySnapshotCurrent(applicationOwnerId, snapshot);
       if (!current()) return;
       historyListOwner.current = { auth: historyOwner!, epoch: historyVaultEpoch };
       setConversations(snapshot.conversations);
-      const selectedId = selectedInAppChat(user.uid);
+      const selectedId = selectedInAppChat(applicationOwnerId);
       // A first turn the person left may not be in a cached list yet; its
       // history load below is still owner-checked by the server.
       if (
         !selectedId ||
         (!snapshot.conversations.some((item) => item.id === selectedId) &&
-          !isAgentTurnWatched(user.uid, selectedId))
+          !isAgentTurnWatched(applicationOwnerId, selectedId))
       ) {
         updateConversationId(null, false);
         setMessages((current) =>
@@ -4951,9 +4953,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       // A turn the person left is still running server-side: read fresh
       // history rather than the cache, and show it as in progress.
-      const reattaching = isAgentTurnWatched(user.uid, selectedId);
+      const reattaching = isAgentTurnWatched(applicationOwnerId, selectedId);
       const loadSelected = () => loadAgentChatConversationHistory({
-        userId: user.uid, conversationId: selectedId, vaultOwnerToken, vaultKey: vaultKeyRef.current ?? "",
+        userId: applicationOwnerId, conversationId: selectedId, vaultOwnerToken, vaultKey: vaultKeyRef.current ?? "",
         force: refresh,
       });
       let stored = !refresh && selectedId === snapshot.latestConversationId && snapshot.latestMessages.length > 0
@@ -4961,10 +4963,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         : await loadSelected();
       if (!current()) return;
       // It may have settled while that read was in flight; read the answer.
-      if (refresh && reattaching && !isAgentTurnWatched(user.uid, selectedId)) stored = await loadSelected();
+      if (refresh && reattaching && !isAgentTurnWatched(applicationOwnerId, selectedId)) stored = await loadSelected();
       if (!current()) return;
       const restored = storedMessagesToAgentMessages(stored);
-      const stillRunning = isAgentTurnWatched(user.uid, selectedId);
+      const stillRunning = isAgentTurnWatched(applicationOwnerId, selectedId);
       updateConversationId(selectedId, false);
       setMessages((current) =>
         mergePendingConsentMessages(
@@ -5009,10 +5011,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       let retainedCache = false;
       try {
         if (cached) {
-          const needsRefresh = !cached.isFresh || isAgentTurnWatched(user.uid, selectedInAppChat(user.uid) || "");
+          const needsRefresh = !cached.isFresh || isAgentTurnWatched(applicationOwnerId, selectedInAppChat(applicationOwnerId) || "");
           await applySnapshot(cached);
           if (!restoreCurrent()) return;
-          if (!isAgentChatHistorySnapshotCurrent(user.uid, cached)) throw new Error("Chat history was invalidated.");
+          if (!isAgentChatHistorySnapshotCurrent(applicationOwnerId, cached)) throw new Error("Chat history was invalidated.");
           retainedCache = true;
           setHistoryReadyForSlot(true);
           setIsLoadingHistory(false);
@@ -5021,7 +5023,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           if (!needsRefresh) return;
         }
         const next = await warmAgentChatHistoryCache({
-          userId: user.uid,
+          userId: applicationOwnerId,
           vaultOwnerToken,
           vaultKey: vaultKeyRef.current ?? "",
           force: Boolean(cached),
@@ -5029,7 +5031,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // List warming may finish before its transcript fetch. Join that
         // service-owned flight so background reconciliation publishes new text.
         await applySnapshot(next, Boolean(cached));
-        if (restoreCurrent() && isAgentChatHistorySnapshotCurrent(user.uid, next)) setHistoryReadyForSlot(true);
+        if (restoreCurrent() && isAgentChatHistorySnapshotCurrent(applicationOwnerId, next)) setHistoryReadyForSlot(true);
       } catch {
         if (restoreCurrent() && !retainedCache) {
           historyLoadKeyRef.current = null;
@@ -5057,7 +5059,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [hasChatAccess, recoveryCheckedForUid, restorePendingMcpReviews, slotHistoryRetry, updateConversationId, user?.uid, vaultOwnerToken]);
+  }, [hasChatAccess, recoveryCheckedForUid, restorePendingMcpReviews, slotHistoryRetry, updateConversationId, applicationOwnerId, vaultOwnerToken]);
 
   // A restored connector step carries only its opaque id. Label it with the
   // owner's own connector name from the vault, as the live row did; the
@@ -5068,7 +5070,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   [messages]);
   const attemptedConnectorNamesRef = useRef<string>("");
   useEffect(() => {
-    const ownerId = user?.uid;
+    const ownerId = applicationOwnerId;
     if (!unresolvedConnectorIds || !ownerId || !vaultKey || !vaultOwnerToken) return;
     const attemptKey = `${ownerId}:${unresolvedConnectorIds}`;
     if (attemptedConnectorNamesRef.current === attemptKey) return;
@@ -5082,7 +5084,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [unresolvedConnectorIds, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [unresolvedConnectorIds, applicationOwnerId, vaultKey, vaultOwnerToken]);
 
   const restoreConversationMessages = useCallback(
     async (
@@ -5091,13 +5093,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       isCurrent: () => boolean = () => true,
       preservePresentations = false,
     ) => {
-      if (!user?.uid) return;
+      if (!applicationOwnerId) return;
       const chatEpoch = chatSessionRef.current.value;
       clearTranscriptProgrammaticScroll();
       transcriptUserScrollRef.current = false;
       oneScrollTopRef.current = 0;
       const history = await loadAgentChatConversationHistory({
-        userId: user.uid,
+        userId: applicationOwnerId,
         conversationId: nextConversationId,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
@@ -5127,20 +5129,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       clearTranscriptProgrammaticScroll,
       restorePendingMcpReviews,
       updateConversationId,
-      user?.uid,
+      applicationOwnerId,
     ],
   );
 
   useEffect(() => {
     if (
       !rootChatReady ||
-      !user?.uid ||
+      !applicationOwnerId ||
       !vaultKey ||
       !vaultOwnerToken ||
-      recoveryCheckedForUid === user.uid
+      recoveryCheckedForUid === applicationOwnerId
     ) return;
     let cancelled = false;
-    const ownerUid = user.uid;
+    const ownerUid = applicationOwnerId;
     void (async () => {
       const existing = pendingDriveRecoveryRef.current;
       const state = existing?.ownerUid === ownerUid
@@ -5214,7 +5216,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput,
     setLongPromptAttachment,
     updateConversationId,
-    user?.uid,
+    applicationOwnerId,
     vaultKey,
     vaultOwnerToken,
   ]);
@@ -5225,7 +5227,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     customConnector?: { connectorId: string; revision: string };
   }): Promise<"ready" | "busy" | "unavailable"> => {
     if (
-      !user?.uid ||
+      !applicationOwnerId ||
       !vaultKey ||
       !hasChatAccess ||
       isPuppySurface ||
@@ -5251,7 +5253,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         drawerMode,
       };
       await saveDriveChatRecovery({
-        ownerUserId: user.uid,
+        ownerUserId: applicationOwnerId,
         vaultKey,
         attemptId: request.attemptId,
         reason: request.reason,
@@ -5270,7 +5272,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         live.drawerMode !== state.drawerMode ||
         (transcriptRef.current?.scrollTop ?? oneScrollTopRef.current) !== state.scrollTop
       ) {
-        await clearDriveChatRecovery(user.uid);
+        await clearDriveChatRecovery(applicationOwnerId);
         return "unavailable";
       }
       return "ready";
@@ -5283,13 +5285,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     hasChatAccess, historyInteractionDisabled, input,
     isHistoryDrawerOpen, isLoadingHistory, isPkmMemoryWorking,
     isPuppySurface, longPromptAttachment, pendingAppAction, pendingMcpReviews.length,
-    pendingSpecialistDirective, queuedHandoffPrompt, user?.uid, vaultKey,
+    pendingSpecialistDirective, queuedHandoffPrompt, applicationOwnerId, vaultKey,
   ]);
   const customConnectorChat = useMemo(() => ({ prepareRecovery: prepareDriveChatRecovery }), [prepareDriveChatRecovery]);
 
   const clearPreparedDriveChatRecovery = useCallback(async () => {
-    if (user?.uid) await clearDriveChatRecovery(user.uid);
-  }, [user?.uid]);
+    if (applicationOwnerId) await clearDriveChatRecovery(applicationOwnerId);
+  }, [applicationOwnerId]);
   // Connectors opens in the Profile pane over this chat. Lend it this chat's
   // draft saver, so a sign-in that leaves the app brings the draft back.
   useEffect(() => {
@@ -5304,9 +5306,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const historyActionRequest = useRef(new Map<string, number>());
   const loadConversationList = useCallback(
     async (force = false) => {
-      if (!user?.uid) return [];
+      if (!applicationOwnerId) return [];
       const owner = snapshotValidatedAuthSessionOwner();
-      if (!owner || owner.userId !== user.uid) return [];
+      if (!owner || owner.userId !== applicationOwnerId) return [];
       const epoch = snapshotVaultSessionEpoch();
       const token = getVaultOwnerToken();
       if (!token) return [];
@@ -5319,7 +5321,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsLoadingHistory(true);
       try {
         const next = await warmAgentChatHistoryCache({
-          userId: user.uid,
+          userId: applicationOwnerId,
           vaultOwnerToken: token,
           vaultKey: vaultKeyRef.current ?? "",
           force,
@@ -5332,7 +5334,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         if (stillCurrent()) setIsLoadingHistory(false);
       }
     },
-    [getVaultOwnerToken, user?.uid],
+    [getVaultOwnerToken, applicationOwnerId],
   );
 
   const handleSelectConversation = useCallback(
@@ -5369,7 +5371,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // A turn this chat stopped reading has written its answer: show it in place.
   useEffect(() => {
     return subscribeAgentTurnSettled((turn) => {
-      if (turn.ownerId !== user?.uid || turn.conversationId !== conversationIdRef.current) return;
+      if (turn.ownerId !== applicationOwnerId || turn.conversationId !== conversationIdRef.current) return;
       const token = getVaultOwnerToken();
       setIsChatLoading(false);
       setIsStreaming(false);
@@ -5385,15 +5387,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         true,
       ).catch(() => undefined);
     });
-  }, [getVaultOwnerToken, restoreConversationMessages, user?.uid]);
+  }, [getVaultOwnerToken, restoreConversationMessages, applicationOwnerId]);
 
   // "Open" on a One replied notice, or a push tap, while this chat is mounted.
   useEffect(() => {
     return subscribeOpenAgentConversation(({ ownerId, conversationId: requestedId }) => {
-      if (ownerId !== user?.uid) return;
+      if (ownerId !== applicationOwnerId) return;
       void handleSelectConversation(requestedId);
     });
-  }, [handleSelectConversation, user?.uid]);
+  }, [handleSelectConversation, applicationOwnerId]);
 
   const handleCreateNewPuppyChat = puppyHistory.create;
   const handleSelectPuppyConversation = puppyHistory.select;
@@ -5531,13 +5533,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const handleWalletWidgetReveal = useCallback(
     async (listWidgetId: string, summary: WalletCardSummary) => {
       const token = getVaultOwnerToken();
-      if (!user?.uid || !vaultKey || !token) {
+      if (!applicationOwnerId || !vaultKey || !token) {
         setVaultDialogOpen(true);
         return;
       }
       try {
         const full = await WalletService.getCard({
-          userId: user.uid,
+          userId: applicationOwnerId,
           vaultKey,
           vaultOwnerToken: token,
           cardId: summary.cardId,
@@ -5557,7 +5559,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setVaultDialogOpen(true);
       }
     },
-    [getVaultOwnerToken, user?.uid, vaultKey],
+    [getVaultOwnerToken, applicationOwnerId, vaultKey],
   );
 
   /**
@@ -5644,17 +5646,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         params.kycInformationSaveConfirmed === true && Boolean(params.kycInformationRequestWorkflowId);
       const explicitRequest = params.explicitRequest === true;
       const userRequestedSave = explicitRequest || ownerConfirmedKycSave;
-      if (explicitRequest && (!user?.uid || !vaultKey || !token)) {
+      if (explicitRequest && (!applicationOwnerId || !vaultKey || !token)) {
         const locked: AgentPkmCaptureStatus = { phase: "needs_unlock", saved: 0 };
         setMessages((current) => current.map((message) =>
           message.id === params.assistantMessageId ? { ...message, memoryCapture: locked } : message,
         ));
         return Promise.resolve(locked);
       }
-      if (!user?.uid || !vaultKey || !token || (!pkmCaptureEnabledRef.current && !ownerConfirmedKycSave && !explicitRequest)) {
+      if (!applicationOwnerId || !vaultKey || !token || (!pkmCaptureEnabledRef.current && !ownerConfirmedKycSave && !explicitRequest)) {
         return Promise.resolve({ phase: "review", saved: 0 });
       }
-      const userId = user.uid;
+      const userId = applicationOwnerId;
       const scope = pkmCaptureScopeRef.current;
       const scopeIsCurrent = () => pkmCaptureScopeRef.current === scope && pkmCaptureOwnerRef.current === userId;
       const controller = new AbortController();
@@ -5839,7 +5841,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       pkmCaptureJobsRef.current.set(jobKey, job);
       return job;
     },
-    [appendDebugEvent, getVaultOwnerToken, user, vaultKey],
+    [appendDebugEvent, getVaultOwnerToken, applicationOwnerId, vaultKey],
   );
 
   // The owner tapped "Save these too" on a memory receipt card: their direct
@@ -5850,7 +5852,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ) => {
     const pending = pkmNeedsOwnerCardsRef.current.get(messageId);
     const token = getVaultOwnerToken();
-    if (!pending || !user?.uid || !vaultKey || !token) {
+    if (!pending || !applicationOwnerId || !vaultKey || !token) {
       throw new Error("Unlock your vault to save these details.");
     }
     if (pending.cards !== reviewedCards ||
@@ -5858,7 +5860,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       throw new Error("The proposed details changed. Review them again before saving.");
     }
     const scope = pkmCaptureScopeRef.current;
-    const userId = user.uid;
+    const userId = applicationOwnerId;
     const scopeIsCurrent = () => scope === pkmCaptureScopeRef.current && pkmCaptureOwnerRef.current === userId;
     const guard = createAgentPkmCaptureGuard({
       userId, signal: new AbortController().signal,
@@ -5866,7 +5868,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
     await guard.assertCurrent();
     const result = await saveOwnerConfirmedCards({
-      userId: user.uid, cards: pending.cards, sourceMessage: pending.sourceMessage,
+      userId: applicationOwnerId, cards: pending.cards, sourceMessage: pending.sourceMessage,
       vaultKey, vaultOwnerToken: token, beforeEffect: guard.assertCurrent, mayPublish: guard.isCurrent,
     });
     if (!scopeIsCurrent() || !guard.isCurrent()) return;
@@ -5881,7 +5883,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       latestPkmSaveReceiptRef.current = next;
       return { ...message, memoryCapture: { ...message.memoryCapture, receipt: next, saved: pkmSaveReceiptWrote(next) } };
     }));
-  }, [getVaultOwnerToken, user?.uid, vaultKey]);
+  }, [getVaultOwnerToken, applicationOwnerId, vaultKey]);
 
   // Continue a persisted memory save job: on unlock, on reconnect, after a
   // reload, or when the owner taps Retry. The job's Web Lock keeps a second
@@ -5891,8 +5893,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     options: { retry?: boolean; messageId?: string } = {},
   ) => {
     const token = getVaultOwnerToken();
-    if (!user?.uid || !vaultKey || !token) throw new Error("Unlock your vault to continue saving.");
-    const userId = user.uid;
+    if (!applicationOwnerId || !vaultKey || !token) throw new Error("Unlock your vault to continue saving.");
+    const userId = applicationOwnerId;
     const scope = pkmCaptureScopeRef.current;
     const scopeIsCurrent = () => scope === pkmCaptureScopeRef.current && pkmCaptureOwnerRef.current === userId;
     const guard = createAgentPkmCaptureGuard({
@@ -5932,13 +5934,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
         }
       : message));
-  }, [getVaultOwnerToken, user?.uid, vaultKey]);
+  }, [getVaultOwnerToken, applicationOwnerId, vaultKey]);
 
   // The vault key changes exactly when the vault unlocks (vault-context
   // dispatches "vault-unlocked" alongside it): resume paused jobs then, and
   // again whenever the device comes back online.
   useEffect(() => {
-    const userId = user?.uid;
+    const userId = applicationOwnerId;
     if (!userId || !vaultKey) return;
     let active = true;
     const resumeAll = () => {
@@ -5955,7 +5957,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       active = false;
       window.removeEventListener("online", resumeAll);
     };
-  }, [resumeMemorySaveJob, user?.uid, vaultKey]);
+  }, [resumeMemorySaveJob, applicationOwnerId, vaultKey]);
 
   /**
    * A bare "yes"/"no" typed while a review card is still actionable. Typed text
@@ -6019,17 +6021,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const turnOwner = snapshotValidatedAuthSessionOwner();
     const turnDraftContext = composerDraft.context;
     const turnDraftGeneration = composerEditGeneration.current;
-    const meetingOrigin = options.calendarMeeting && user?.uid ? { ownerId: user.uid, conversationId: conversationIdRef.current } : undefined;
-    const slotContext = !options.calendarMeeting && calendarSlot?.needsContext && calendarSlot.selection.ownerId === user?.uid &&
+    const meetingOrigin = options.calendarMeeting && applicationOwnerId ? { ownerId: applicationOwnerId, conversationId: conversationIdRef.current } : undefined;
+    const slotContext = !options.calendarMeeting && calendarSlot?.needsContext && calendarSlot.selection.ownerId === applicationOwnerId &&
       calendarSlot.conversationId === conversationIdRef.current
       ? calendarSlotInstruction(calendarSlot.selection) : null;
-    if (!options.calendarMeeting && calendarSlot?.needsContext && calendarSlot.selection.ownerId === user?.uid &&
+    if (!options.calendarMeeting && calendarSlot?.needsContext && calendarSlot.selection.ownerId === applicationOwnerId &&
         calendarSlot.conversationId === conversationIdRef.current && !slotContext) {
       setCalendarSlot(null);
       appendMessage({ id: `calendar-window-expired-${Date.now()}`, role: "assistant", text: "That free window has passed. What time would work for you?", ...stampNow(), status: "done", renderAsPlainAssistantMessage: true });
       return;
     }
-    const invitationContext = !options.calendarMeeting && calendarInvitationContext?.needsContext && calendarInvitationContext.selection.ownerId === user?.uid &&
+    const invitationContext = !options.calendarMeeting && calendarInvitationContext?.needsContext && calendarInvitationContext.selection.ownerId === applicationOwnerId &&
       calendarInvitationContext.conversationId === conversationIdRef.current
       ? calendarInvitationInstruction(calendarInvitationContext.selection) : null;
     let meetingAttachment: AgentTextAttachment | null = null;
@@ -6037,7 +6039,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (!user || !vaultOwnerToken || !hasChatAccess) return;
       const meetingEpoch = snapshotVaultSessionEpoch();
       const meetingConversation = conversationIdRef.current;
-      const meetingOwner = user.uid;
+      const meetingOwner = applicationOwnerId;
       const controller = new AbortController();
       pkmAbortControllersRef.current.add(controller);
       const isCurrent = () => !controller.signal.aborted &&
@@ -6065,7 +6067,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const attachments = [...(meetingAttachment ? [meetingAttachment] : []), ...(options.attachments ?? []), ...(invitationContext
       ? [createAgentTextAttachment(invitationContext, "Selected Calendar invitation.txt")] : []), ...(slotContext
       ? [createAgentTextAttachment(slotContext, "Selected Calendar time.txt")] : [])];
-    if ((!text && attachments.length === 0) || !hasChatAccess || !user?.uid) return;
+    if ((!text && attachments.length === 0) || !hasChatAccess || !applicationOwnerId) return;
     // The whole turn as the person supplied it (typed text, then any pasted
     // attachment). On-device lanes that read the turn whole -- private-memory
     // lookup and memory capture -- use this. The wire and the transcript keep
@@ -6102,7 +6104,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     pendingMcpReviewsRef.current = [];
     setPendingMcpReviews([]);
 
-    const userId = user.uid;
+    const userId = applicationOwnerId;
     const token = getVaultOwnerToken();
     const appendUserMessage = options.appendUserMessage ?? true;
     const { timestamp, sentAtMs } = stampNow();
@@ -7180,7 +7182,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   useEffect(() => {
     const pending = pendingChatKeyRetryRef.current;
     if (!pending) return;
-    if (pending.owner.userId !== user?.uid || !isValidatedAuthSessionOwnerCurrent(pending.owner)) {
+    if (pending.owner.userId !== applicationOwnerId || !isValidatedAuthSessionOwnerCurrent(pending.owner)) {
       pendingChatKeyRetryRef.current = null;
       return;
     }
@@ -7209,7 +7211,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     setInput("");
     void runAgentTurnRef.current(pending.text, pending.options);
-  }, [hasChatAccess, isVaultUnlocked, conversationId, user?.uid, composerDraft.ready,
+  }, [hasChatAccess, isVaultUnlocked, conversationId, applicationOwnerId, composerDraft.ready,
     composerDraft.context, setInput, setLongPromptAttachment]);
 
   /**
@@ -7236,7 +7238,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       communicationPreferences?: OwnerStyleSettings;
     } = {},
   ): Promise<FollowUpTurnResult> => {
-    if (!hasChatAccess || !user?.uid) return "failed";
+    if (!hasChatAccess || !applicationOwnerId) return "failed";
     const chatEpoch = chatSessionRef.current.value;
     const updateMessage: typeof updateWorkspaceMessage = (...args) => {
       if (chatSessionRef.current.isCurrent(chatEpoch)) updateWorkspaceMessage(...args);
@@ -7244,7 +7246,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const appendMessage = (message: AgentMessage) => {
       if (chatSessionRef.current.isCurrent(chatEpoch)) appendWorkspaceMessage(message);
     };
-    const userId = user.uid;
+    const userId = applicationOwnerId;
     const token = getVaultOwnerToken();
     if (!token) {
       addErrorMessage("Vault access expired. Unlock again to continue.");
@@ -7610,7 +7612,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           const result = await executeAgentGatewayAction({
             actionId: toolEvent.actionId!,
             slots: toolEvent.slots,
-            userId: user?.uid ?? "",
+            userId: applicationOwnerId ?? "",
             router,
             appRuntimeState: appRuntimeStateRef.current,
             surfaceMetadata: getVoiceSurfaceMetadata(),
@@ -7859,7 +7861,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         if (hasChatAccess) {
           // One is still finishing a turn the app left: queue behind it and its
           // reload rather than start a second run in the same conversation.
-          await waitForWatchedAgentTurn(user?.uid, conversationIdRef.current);
+          await waitForWatchedAgentTurn(applicationOwnerId, conversationIdRef.current);
           await reattachRestoreRef.current;
           // A disconnected stream can end before a drained message finishes
           // sealing. Never start another turn until its receipt is terminal.
@@ -8179,7 +8181,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     : EMPTY_CONSENT_OUTCOMES;
 
   useEffect(() => {
-    const ownerId = user?.uid;
+    const ownerId = applicationOwnerId;
     const threadId = conversationId;
     const token = vaultOwnerToken;
     const key = vaultKey;
@@ -8205,10 +8207,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     return () => {
       active = false;
     };
-  }, [conversationId, hasChatAccess, outgoingRequestKey, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [conversationId, hasChatAccess, outgoingRequestKey, applicationOwnerId, vaultKey, vaultOwnerToken]);
 
   // Each outgoing card reads "Reading…" then "Answered" from the continuation.
-  const consentCardPhaseFor = useInformationRequestPhaseReader(user?.uid);
+  const consentCardPhaseFor = useInformationRequestPhaseReader(applicationOwnerId);
 
   const consentTags = useMemo(() => tagConsentContinuationMessages({
     messages,
@@ -8253,7 +8255,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // Another request's access that is still live bounds what this one hides.
       liveOutcomes: liveBundleOutcomesRef.current,
     }));
-    const ownerId = user?.uid;
+    const ownerId = applicationOwnerId;
     const threadId = conversationIdRef.current;
     const key = vaultKeyRef.current;
     if (!ownerId || !threadId || !key) return;
@@ -8268,7 +8270,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const server = storedMessagesToAgentMessages(history);
       setMessages((current) => mergeServerRedactionFlags(current, server));
     }).catch(() => undefined);
-  }, [user?.uid]);
+  }, [applicationOwnerId]);
 
   // Answers from shared information: watch that access while it is live,
   // through the one app-wide live-access watch (about 5s for a minute after
@@ -8412,13 +8414,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const chatEpoch = chatSessionRef.current.value;
     const token = getVaultOwnerToken();
     const key = vaultKeyRef.current;
-    const ownerId = user?.uid;
+    const ownerId = applicationOwnerId;
     if (!hasChatAccess || !ownerId || !token || !key) return false;
     setInformationRequestPhase(ownerId, input.bundleId, "reading");
     let prepared: Awaited<ReturnType<typeof prepareConsentContinuation>>;
     try {
       prepared = await prepareConsentContinuation({
-        userId: ownerId,
+        userId: applicationOwnerId,
         vaultKey: key,
         vaultOwnerToken: token,
         ...input,
@@ -8473,7 +8475,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // "One has something for you": a fresh chat, the fixed status chip, then One
   // writes its message about that one update, grounded in it and in memory.
   useFeedAttentionTurn({
-    ownerId: user?.uid ?? null,
+    ownerId: applicationOwnerId ?? null,
     ready: hasChatAccess && Boolean(vaultKey),
     start: (itemId) => {
       // Same as a handoff: One is speaking, never behind the on-device Puppy
@@ -8494,7 +8496,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         id: `feed-attention-${itemId}`,
         run: async () => {
           const chatEpoch = chatSessionRef.current.value;
-          const userId = user?.uid;
+          const userId = applicationOwnerId;
           const token = getVaultOwnerToken();
           const key = vaultKeyRef.current;
           const memory = userId && token && key
@@ -8563,7 +8565,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     scrollToSubmittedTurnRef.current = true;
     const selectedDriveFile = pendingDriveSearchSelectionRef.current;
     const driveSearchSelection = selectedDriveFile &&
-      selectedDriveFile.ownerUid === user?.uid && isVaultUnlocked &&
+      selectedDriveFile.ownerUid === applicationOwnerId && isVaultUnlocked &&
       isVaultSessionEpochCurrent(selectedDriveFile.vaultEpoch)
       ? { jobId: selectedDriveFile.jobId, position: selectedDriveFile.position }
       : undefined;
@@ -8600,7 +8602,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (plan.captures.length === 0) return texts;
     const identifiers = plan.captures.filter(capture => !isNonPersistableCredentialKind(capture.kind));
     const saved = identifiers.length ? await SecretsVaultService.saveCaptures({
-      userId: user?.uid ?? "", vaultKey, vaultOwnerToken: getVaultOwnerToken(),
+      userId: applicationOwnerId ?? "", vaultKey, vaultOwnerToken: getVaultOwnerToken(),
       captures: identifiers, surface: "chat",
     }) : null;
     if (saved && !saved.ok) {
@@ -8760,18 +8762,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // signed in but the vault is locked, offering an in-place unlock to upgrade
   // to the full agent. Anonymous visitors get a quiet sign-in nudge instead.
   const needsVaultUnlock = Boolean(
-    user?.uid && (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh),
+    applicationOwnerId && (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh),
   );
   const accessMessage = authLoading
     ? null
-    : !user?.uid
+    : !applicationOwnerId
       ? "You're chatting with One. Sign in and unlock your vault for personalized help."
       : needsVaultUnlock
         ? "You're chatting with One. Unlock your vault to work with your private information."
         : null;
   const accessAction = authLoading
     ? null
-    : !user?.uid
+    : !applicationOwnerId
       ? {
           label: "Sign in",
           icon: LogIn,
@@ -8795,7 +8797,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     (message) => message.id !== "agent-greeting",
   );
   const visibleMessages = dedupeAdjacentAgentMessages(
-    messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== user?.uid || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? {
+    messages.map(message => message.receiptPrivate && (message.receiptPrivate.ownerId !== applicationOwnerId || !isVaultUnlocked || !vaultKey || message.receiptPrivate.vaultEpoch !== vaultSessionEpoch || message.receiptPrivate.conversationId !== conversationId || message.receiptPrivate.expiresAt <= Date.now()) ? {
       ...message, receiptRedacted: true, text: "Receipt analysis was shown for that turn. Ask again for a fresh analysis.",
       structuredExperience: null, structuredExperiences: [], streamEvents: [], sources: [], followUps: [],
     } : message).filter((message) => {
@@ -9060,7 +9062,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ? consentTags.get(previousUserMessage.id) ?? null
       : null;
     if (continuationRetry && wireOutcomeForSentLabel(previousUserMessage.text)) {
-      const ownerId = user?.uid;
+      const ownerId = applicationOwnerId;
       const card = outgoingRequestCards.find((entry) => entry.bundleId === continuationRetry.bundleId);
       if (!ownerId || !card) {
         toast.info("Open the request card above to try again.");
@@ -9120,15 +9122,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           lostTurn, retryText, vaultOwnerToken: token, vaultKey: vaultKeyRef.current,
         });
         if (!stillInSameChat() || !canRetry()) return;
-        if (plan === "restore" && lostTurn && token && user?.uid) {
+        if (plan === "restore" && lostTurn && token && applicationOwnerId) {
           const expectedMessages = retryPresentationRef.current.messages;
-          dispatchAgentChatHistoryInvalidated(user.uid);
+          dispatchAgentChatHistoryInvalidated(applicationOwnerId);
           await restoreConversationMessages(lostTurn.conversationId, token,
             () => stillInSameChat() && canRetry() &&
               retryPresentationRef.current.messages === expectedMessages, true);
           return;
         }
-        if (plan === "reattach" && lostTurn && user?.uid) {
+        if (plan === "reattach" && lostTurn && applicationOwnerId) {
           // The settled-turn effect reloads the saved answer in place.
           updateConversationId(lostTurn.conversationId);
           updateMessage(messageId, (message) => ({
@@ -9142,7 +9144,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           setHasResponseOutput(false);
           setIsStreaming(true);
           watchDetachedAgentTurn({
-            ownerId: user.uid,
+            ownerId: applicationOwnerId,
             conversationId: lostTurn.conversationId,
             startedAtMs: lostTurn.startedAtMs,
           });
@@ -9205,7 +9207,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   });
   const countMessagesBelow = useCallback(() => {
     messagesBelowFrameRef.current = null;
-    const scope = JSON.stringify([user?.uid, vaultSessionEpoch]);
+    const scope = JSON.stringify([applicationOwnerId, vaultSessionEpoch]);
     seenTranscriptMessagesRef.current = prepareSeenTranscriptMessages(
       seenTranscriptMessagesRef.current, scope, conversationId,
     );
@@ -9240,7 +9242,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     }
     setMessagesBelow(current => current === count ? current : count);
-  }, [agentDockOccluder, conversationId, isCanonicalChatRoute, isPuppySurface, user?.uid, vaultSessionEpoch]);
+  }, [agentDockOccluder, conversationId, isCanonicalChatRoute, isPuppySurface, applicationOwnerId, vaultSessionEpoch]);
   const countMessagesBelowRef = useRef(countMessagesBelow);
   useLayoutEffect(() => {
     countMessagesBelowRef.current = countMessagesBelow;
@@ -9392,8 +9394,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const checkEmailDeliveryStatus = async (item: EmailDeliveryHistoryItem) => {
     const scope = emailScopeRef.current;
-    if (!item.actionId || !user?.uid || emailStatusOperationRef.current?.scope === scope) return;
-    const ownerId = user.uid;
+    if (!item.actionId || !applicationOwnerId || emailStatusOperationRef.current?.scope === scope) return;
+    const ownerId = applicationOwnerId;
     const actionId = item.actionId;
     const operation = { scope };
     emailStatusOperationRef.current = operation;
@@ -9434,8 +9436,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked || !tokenIsFresh) return;
-    const actionIds = pendingEmailSendActionIds(user.uid);
+    if (!user || !applicationOwnerId || !isVaultUnlocked || !tokenIsFresh) return;
+    const actionIds = pendingEmailSendActionIds(applicationOwnerId);
     if (!actionIds.length) return;
     const owner = user;
     const scope = emailScopeRef.current;
@@ -9443,7 +9445,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!token) return;
     let active = true;
     const isCurrent = () => active && emailScopeRef.current === scope &&
-      workspaceOwnerIdRef.current === owner.uid && isVaultSessionEpochCurrent(scope.epoch);
+      workspaceOwnerIdRef.current === applicationOwnerId && isVaultSessionEpochCurrent(scope.epoch);
     const emptyDraft: EmailDraft = { to: "", cc: "", bcc: "", subject: "", body: "" };
     setEmailDeliveryHistory((current) => {
       const known = new Set(current.map((item) => item.actionId));
@@ -9466,7 +9468,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           });
           if (!isCurrent()) return;
           const terminal = ["sent", "failed", "expired", "cancelled"].includes(result.state);
-          if (terminal) forgetPendingEmailSendAction(owner.uid, actionId);
+          if (terminal) forgetPendingEmailSendAction(applicationOwnerId, actionId);
           setEmailDeliveryHistory((current) => current.map((item) =>
             item.actionId === actionId
               ? {
@@ -9482,7 +9484,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }));
     }).catch(() => undefined);
     return () => { active = false; };
-  }, [user, isVaultUnlocked, tokenIsFresh, getVaultOwnerToken]);
+  }, [user, applicationOwnerId, isVaultUnlocked, tokenIsFresh, getVaultOwnerToken]);
   const editorPurpose = `${composerExpanded}:${longPromptAttachment?.isExpanded ?? false}`;
   const nativeEditor = useRef({ text: input, purpose: editorPurpose, revision: 0, echo: null as string | null });
   if (nativeEditor.current.text !== input || nativeEditor.current.purpose !== editorPurpose) {
@@ -9597,9 +9599,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const renderDriveMemoryReview = (message: AgentMessage) => {
     const experiences = [...(message.structuredExperiences || []).map(item => item.experience),
       ...(message.structuredExperience ? [message.structuredExperience] : [])];
-    if (message.receiptPrivate || !hasChatAccess || !user?.uid || !vaultKey || !vaultOwnerToken || message.role !== "assistant" ||
+    if (message.receiptPrivate || !hasChatAccess || !applicationOwnerId || !vaultKey || !vaultOwnerToken || message.role !== "assistant" ||
       !canReviewDriveMemory(message.status, message.text, experiences)) return undefined;
-    const ownerId = user.uid;
+    const ownerId = applicationOwnerId;
     const threadId = conversationId;
     return <DriveReadMemoryAction key={`${ownerId}:${message.id}:${vaultSessionEpoch}:${threadId || "draft"}`}
       ownerId={ownerId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken} answer={message.text}
@@ -9779,6 +9781,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   rewrite the other agent's model with no visible consequence
                   on the screen being looked at. Gated, not merely hidden: the
                   write must not stay reachable from the on-device surface. */}
+              {modelPreference?.source === "owner_pod" && !isPuppySurface && hasInlineModelPicker
+                ? <OneModelConnection connection={modelPreference} /> : null}
               {canPickOneModel && modelPreference && !isPuppySurface && hasInlineModelPicker ? (
                 <Select
                   value={modelPreference.effective_model}
@@ -9891,7 +9895,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
           <OneAgentProfileSheet presenceState={onePresenceState} open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef}
             nativeReady={isCanonicalChatRoute && hasChatAccess && isVaultUnlocked}
-            modelControl={canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
+            modelControl={modelPreference?.source === "owner_pod" && !isPuppySurface && !hasInlineModelPicker
+              ? <OneModelConnection connection={modelPreference} />
+              : canPickOneModel && modelPreference && !isPuppySurface && !hasInlineModelPicker ? (
               <Select value={modelPreference.effective_model} disabled={modelPreferenceSaving} onValueChange={handleOneModelChange}>
                 <SelectTrigger aria-label="One's model" aria-busy={modelPreferenceSaving || undefined} className="h-11 w-full">
                   <SelectValue />
@@ -9915,7 +9921,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               the two: no message, no history row. */}
           {puppyEverOpened ? (
             <PuppyOneSurface
-              key={user?.uid ?? "signed-out"}
+              key={applicationOwnerId ?? "signed-out"}
               active={isPuppySurface}
               sharedDock={isCanonicalChatRoute}
               composerDisabled={isHistoryDrawerOpen}
@@ -10085,7 +10091,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       canConfirmMemoryNeedsOwner={isVaultUnlocked && Boolean(vaultKey && vaultOwnerToken)}
                       onUnlockVault={() => setVaultDialogOpen(true)}
                       onInformationRequestSubmitted={async (activityId, receipt) => {
-                        const ownerUid = user?.uid;
+                        const ownerUid = applicationOwnerId;
                         const threadId = conversationIdRef.current;
                         const ownerToken = vaultOwnerToken;
                         const epoch = historyRestoreEpochRef.current;
@@ -10212,7 +10218,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         // The hook returns without throwing when the vault is
                         // locked, which would mark the card approved for an
                         // approval that never went out. Refuse here instead.
-                        if (!user?.uid || !isVaultUnlocked || !vaultKey) {
+                        if (!applicationOwnerId || !isVaultUnlocked || !vaultKey) {
                           addErrorMessage(
                             "Unlock your vault to approve this request.",
                           );
@@ -10224,7 +10230,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           // member is looked up again so Approve wraps the key
                           // in that request's own metadata.
                           const targets = await resolvePendingConsentCardTargets({
-                            userId: user.uid,
+                            userId: applicationOwnerId,
                             vaultOwnerToken: getVaultOwnerToken(),
                             item,
                           });
@@ -10265,7 +10271,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       onPendingConsentDeny={async (item) => {
                         // Same guard as approve: the hook returns silently
                         // without a signed-in owner or an unlocked vault.
-                        if (!user?.uid || !isVaultUnlocked) {
+                        if (!applicationOwnerId || !isVaultUnlocked) {
                           addErrorMessage(
                             "Unlock your vault to decline this request.",
                           );
@@ -10276,7 +10282,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           // Same shape as approve: a folded card declines every
                           // request in it, and only those still pending.
                           const targets = await resolvePendingConsentCardTargets({
-                            userId: user.uid,
+                            userId: applicationOwnerId,
                             vaultOwnerToken: getVaultOwnerToken(),
                             item,
                           });
@@ -10361,7 +10367,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </Fragment>
               ))}
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
-              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest || handoff?.calendarAttendance)?.ownerId === user?.uid && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
+              {(handoff?.calendarSlot || handoff?.calendarInvitation || handoff?.calendarRequest || handoff?.calendarAttendance)?.ownerId === applicationOwnerId && slotHistoryFailed ? <div role="alert" className="space-y-2 text-sm">
                 <p>Your conversation could not be restored. Your Calendar selection is retained.</p>
                 <Button variant="secondary" disabled={isLoadingHistory} onClick={() => setSlotHistoryRetry(value => value + 1)}>Retry conversation</Button>
               </div> : null}
@@ -10373,10 +10379,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     items={widget.items}
                     onUnlock={() => setVaultDialogOpen(true)}
                     onOffer={(secretId, offer) => {
-                      if (!user?.uid) return;
+                      if (!applicationOwnerId) return;
                       // A reference only, in memory: the target screen decrypts
                       // the value itself and the owner commits there.
-                      stageSecretOffer({ ownerUserId: user.uid, secretId, fileTo: offer.fileTo });
+                      stageSecretOffer({ ownerUserId: applicationOwnerId, secretId, fileTo: offer.fileTo });
                       router.push(SECRET_OFFER_ROUTES[offer.fileTo]);
                     }}
                   />
@@ -10427,17 +10433,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     artworkEnabled={false}
                     getNetworkContext={() => {
                       const token = getVaultOwnerToken();
-                      return user?.uid && token ? { userId: user.uid, vaultOwnerToken: token } : null;
+                      return applicationOwnerId && token ? { userId: applicationOwnerId, vaultOwnerToken: token } : null;
                     }}
                     key={widget.id}
                     compact
                     onSubmit={async (card) => {
                       const token = getVaultOwnerToken();
-                      if (!user?.uid || !vaultKey || !token) {
+                      if (!applicationOwnerId || !vaultKey || !token) {
                         throw new Error("Unlock your vault to save a card.");
                       }
                       const saved = await WalletService.addCard({
-                        userId: user.uid,
+                        userId: applicationOwnerId,
                         vaultKey,
                         vaultOwnerToken: token,
                         card,
@@ -10476,8 +10482,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ),
               )}
 
-              {hasChatAccess && !isPuppySurface && user?.uid ? (
-                <ComputerUseActiveTasks key={user.uid} ownerId={user.uid} refreshKey={browserTasksRefresh} route={pathname || "/"} getVaultOwnerToken={getVaultOwnerToken} />
+              {hasChatAccess && !isPuppySurface && applicationOwnerId ? (
+                <ComputerUseActiveTasks key={applicationOwnerId} ownerId={applicationOwnerId} refreshKey={browserTasksRefresh} route={pathname || "/"} getVaultOwnerToken={getVaultOwnerToken} />
               ) : null}
 
               {pendingMcpReviews.slice(0, 1).map((review) => (
@@ -10775,10 +10781,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       unknown
                     >;
                     const type = String(payload.type ?? "");
-                    if (type === "calendar.invitations" && user) {
-                      return <CalendarInvitationChat key={`${user.uid}:${vaultSessionEpoch}:${conversationId}:${String(payload.eventId || "list")}:${String(payload.startAt || "")}`}
-                        owner={user} payload={payload} vaultOwnerCapability={vaultOwnerToken} confirmLegacyTransition={terms => confirmTransition(terms, 'calendar')}
-                        expectedAccountEmail={calendarInvitationContext && calendarInvitationContext.selection.ownerId === user.uid && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountEmail : undefined}
+                    if (type === "calendar.invitations" && user && applicationOwnerId) {
+                      return <CalendarInvitationChat key={`${applicationOwnerId}:${vaultSessionEpoch}:${conversationId}:${String(payload.eventId || "list")}:${String(payload.startAt || "")}`}
+                        owner={user} ownerId={applicationOwnerId} payload={payload} vaultOwnerCapability={vaultOwnerToken} confirmLegacyTransition={terms => confirmTransition(terms, 'calendar')}
+                        expectedAccountEmail={calendarInvitationContext && calendarInvitationContext.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountEmail : undefined}
                         onBusyChange={setSpecialistBusy} onClose={() => { setPendingSpecialistDirective(null); setCalendarInvitationContext(null); }}
                         onResult={result => appendMessage({ id: `calendar-rsvp-${crypto.randomUUID()}`, role: "assistant", ...stampNow(),
                           text: attendanceResultMessage(result), status: result.calendar === "failed" || result.calendar === "unknown" ? "error" : "done",
@@ -10817,7 +10823,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       : [];
                     const onConfirm = async () => {
                       if (type === "calendar.connect") {
-                        if (!user?.uid) {
+                        if (!applicationOwnerId) {
                           addErrorMessage(
                             "Sign in again before connecting Google Calendar.",
                           );
@@ -10836,19 +10842,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         return;
                       }
                       const token = getVaultOwnerToken();
-                      if (!token || !user?.uid) {
+                      if (!token || !applicationOwnerId) {
                         addErrorMessage(
                           "Vault access expired. Unlock again to continue.",
                         );
                         return;
                       }
                       if (calendarSlot) {
-                        const constraintError = calendarSlot.selection.ownerId !== user.uid || calendarSlot.conversationId !== conversationIdRef.current
+                        const constraintError = calendarSlot.selection.ownerId !== applicationOwnerId || calendarSlot.conversationId !== conversationIdRef.current
                           ? "This selection belongs to a different conversation. Choose a time again."
                           : calendarSlotProposalError(calendarSlot.selection, payload);
                         if (constraintError) { addErrorMessage(constraintError); return; }
                       }
-                      enqueueCalendarDirective(directive, token, user.uid);
+                      enqueueCalendarDirective(directive, token, applicationOwnerId);
                     };
                     const onCancel = () => {
                       directiveConnect.cancel();
@@ -10879,7 +10885,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           onCancel={onCancel}
                           validationError={calendarSlot ? calendarSlotProposalError(calendarSlot.selection, payload) : null}
                           timeOptions={calendarSlot ? calendarSlotStarts(calendarSlot.selection) : []}
-                          onChangeTime={calendarSlot && calendarSlot.selection.ownerId === user?.uid && calendarAction === "create" ? start => {
+                          onChangeTime={calendarSlot && calendarSlot.selection.ownerId === applicationOwnerId && calendarAction === "create" ? start => {
                             setPendingSpecialistDirective(null);
                             enqueuePrompt(`Change this meeting to ${start}, ending ${new Date(Date.parse(start) + calendarSlot.selection.durationMinutes * 60000).toISOString()} (${calendarSlot.selection.timeZone}). Keep the ${calendarSlot.selection.durationMinutes}-minute duration, title ${JSON.stringify(payload.title)} and attendees ${JSON.stringify(attendees)}. Check availability again and show a fresh proposal for confirmation; do not schedule yet.`);
                           } : undefined}
@@ -10932,7 +10938,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     onConfirm={async () => {
                       const directive = pendingSpecialistDirective;
                       const token = getVaultOwnerToken();
-                      if (!token || !user?.uid) {
+                      if (!token || !applicationOwnerId) {
                         addErrorMessage(
                           "Vault access expired. Unlock again to continue.",
                         );
@@ -10956,7 +10962,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         const result = await runDriveReviewDirective(
                           directive.directive,
                           token,
-                          user.uid,
+                          applicationOwnerId,
                         );
                         appendMessage({
                           id: `msg-${crypto.randomUUID()}-drive-result`,
@@ -11024,7 +11030,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       }
                       if (type === "gmail.create_todos") {
                         const vaultOwnerToken = getVaultOwnerToken();
-                        if (!vaultOwnerToken || !vaultKey || !user?.uid) {
+                        if (!vaultOwnerToken || !vaultKey || !applicationOwnerId) {
                           addErrorMessage(
                             "Vault access expired. Unlock again to continue.",
                           );
@@ -11032,7 +11038,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }
                         enqueueGmailTodoDirective(
                           directive,
-                          user.uid,
+                          applicationOwnerId,
                           vaultKey,
                           vaultOwnerToken,
                         );
@@ -11224,7 +11230,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         const result = await runLocationDirective(
                           directive.directive,
                           token,
-                          user?.uid ?? null,
+                          applicationOwnerId ?? null,
                         );
                         setPendingSpecialistDirective(null);
                         // view_envelope fetches a coordinate-free result here; the
