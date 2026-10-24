@@ -21,14 +21,17 @@ type WorldModelSourcesProps = {
   ownerId: string; vaultKey: string; vaultOwnerToken: string; name: string;
   embedded?: boolean; present?: boolean; backQuery?: Readonly<Record<string, string>>; onSaved?: () => void;
   onResearchPublicProfiles?: (urls: readonly string[]) => void;
+  discovery?: boolean;
+  initialUrls?: readonly string[];
+  onRefresh?: () => void;
 };
 
 /** The same source reader/preparer backs the web form and native scene. A
  * prepared review is not a confirmed fact or a successful memory write. */
-export function useWorldModelSources({ ownerId, vaultKey, vaultOwnerToken, name, present = true }: WorldModelSourcesProps) {
+export function useWorldModelSources({ ownerId, vaultKey, vaultOwnerToken, name, present = true, initialUrls, discovery = false }: WorldModelSourcesProps) {
   const session = useMemo(() => ({ live: false, pending: false, ownerId, vaultKey, vaultOwnerToken }), [ownerId, vaultKey, vaultOwnerToken]);
   useLayoutEffect(() => { session.live = !!ownerId && !!vaultKey && !!vaultOwnerToken; return () => { session.live = false; }; }, [session, ownerId, vaultKey, vaultOwnerToken]);
-  const [urls, setUrls] = useWorldModelOwnerState(session, ""), [permitted, setPermitted] = useWorldModelOwnerState(session, false);
+  const [urls, setUrls] = useWorldModelOwnerState(session, initialUrls?.join("\n") ?? ""), [permitted, setPermitted] = useWorldModelOwnerState(session, false);
   const [result, setResult] = useWorldModelOwnerState<ProfileResearchResult | null>(session, null),
     [busy, setBusy] = useWorldModelOwnerState(session, false), [message, setMessage] = useWorldModelOwnerState(session, "");
   const current = useRef({ ownerId, vaultKey, vaultOwnerToken, present });
@@ -42,13 +45,13 @@ export function useWorldModelSources({ ownerId, vaultKey, vaultOwnerToken, name,
   [ownerId, vaultKey, vaultOwnerToken, session]);
   useEffect(() => {
     lifetime.current = new AbortController();
-    if (!present || !ownerId || !vaultKey || !vaultOwnerToken) return;
+    if (discovery || !present || !ownerId || !vaultKey || !vaultOwnerToken) return;
     const guard = authority(), generation = ++requestGeneration.current;
     void WorldModelSourceService.read(guard).then(next => {
       if (guard.isCurrent() && generation === requestGeneration.current) setResult(next);
     }).catch(() => undefined);
     return () => lifetime.current.abort();
-  }, [authority, present, ownerId, vaultKey, vaultOwnerToken, setResult]);
+  }, [authority, present, ownerId, vaultKey, vaultOwnerToken, setResult, discovery]);
   const canPrepare = present && !busy && permitted && !!name.trim() && !!urls.trim();
   async function prepare(snapshot = { urls, permitted }) {
     if (session.pending || !present || !snapshot.permitted || !name.trim() || !snapshot.urls.trim()) return false;
@@ -79,17 +82,19 @@ export function WorldModelSources({
   backQuery,
   onSaved,
   onResearchPublicProfiles,
+  discovery = false,
+  initialUrls,
+  onRefresh,
 }: WorldModelSourcesProps) {
   const { urls, setUrls, permitted, setPermitted, result, setResult, busy, message, prepare } =
-    useWorldModelSources({ ownerId, vaultKey, vaultOwnerToken, name, present });
+    useWorldModelSources({ ownerId, vaultKey, vaultOwnerToken, name, present, initialUrls, discovery });
   const pathname = usePathname();
   return (
     <>
       <SettingsGroup title="Pages you choose">
         <div className="space-y-3 px-4 py-3">
           <HelperText>
-            Add your website or public profiles. You review every detail before
-            it’s saved.
+            {discovery ? "Choose public links from details you confirmed, or add your own. Your saved choices stay unchanged. New findings arrive in To review. Existing search details reuse your name, verified contacts and previously approved links." : "Add your website or public profiles. You review every detail before it’s saved."}
           </HelperText>
           <div className="block space-y-1">
             <FormLabel as="span">Your name</FormLabel>
@@ -112,17 +117,17 @@ export function WorldModelSources({
               onCheckedChange={(v) => setPermitted(v === true)}
             />
             <RowDescription as="span">
-              These are public pages I chose myself, not search results.
+              {discovery ? "I approve using these public links for this research." : "These are public pages I chose myself, not search results."}
             </RowDescription>
           </label>
-          <Button
+          {!discovery ? <Button
             size="compact"
             data-voice-control-id="pwm_sources_prepare"
             disabled={busy || !permitted || !name.trim() || !urls.trim()}
             onClick={() => void prepare()}
           >
             {busy ? "Reading pages…" : "Read these pages"}
-          </Button>
+          </Button> : null}
           {onResearchPublicProfiles && <>
             <HelperText>Use these profiles as starting links for GPT-5 mini research. Azure and the search provider shown in Research and email receive the public links. You review findings before saving.</HelperText>
             <Button size="compact" data-voice-control-id="pwm_public_profiles_research"
@@ -131,13 +136,20 @@ export function WorldModelSources({
                 if (present && !busy && permitted && name.trim() && urls.trim())
                   onResearchPublicProfiles(urls.split("\n").map(value => value.trim()).filter(Boolean));
               }}>
-              Research these profiles
+              {discovery ? "Find more about me" : "Research these profiles"}
             </Button>
           </>}
+          {discovery && onRefresh ? (
+            <Button type="button" size="compact" variant="none"
+              data-voice-control-id="pwm_refresh" disabled={busy || !name.trim() || !present}
+              onClick={() => { if (present && !busy && name.trim()) onRefresh(); }}>
+              Use my existing search details
+            </Button>
+          ) : null}
           {message && <HelperText role="status">{message}</HelperText>}
         </div>
       </SettingsGroup>
-      {result?.status === "offered" && (
+      {!discovery && result?.status === "offered" && (
         <ProfileResearchCard
           key={result.draft_id}
           initialResult={result}

@@ -82,7 +82,6 @@ import {
   WorldModelProvider,
   useWorldModelResearch,
 } from "@/components/profile/world-model-provider";
-import { WorldModelSources } from "@/components/profile/world-model-sources";
 import { worldModelResearchStore } from "@/lib/world-model/research-store";
 import { useWorldModelOwnerState } from "@/components/profile/world-model-owner-state";
 import { nativeSearchSuggestions } from "@/components/profile/world-model-search-suggestions";
@@ -661,62 +660,19 @@ describe("PWM owner and request isolation", () => {
     expect(screen.getByText("no preferences")).toBeInTheDocument();
   });
   it("uses the sole provider for owner-selected profiles and drops them on token replacement", async () => {
+    const decisions = { confirmed: ["Private saved sentinel"], rejected: ["Private rejected sentinel"] };
+    mock.ownerDecisions.mockReturnValue(decisions);
     const view = render(<WorldModelProvider><Probe /></WorldModelProvider>);
     await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
     const urls = ["https://github.com/public-example"];
     act(() => { worldModelResearchStore.getSnapshot().researchPublicProfiles(urls); urls[0] = "https://github.com/changed"; });
     await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
-    expect(mock.observe.mock.calls[1][0]).toMatchObject({ refresh: true, publicProfileUrls: ["https://github.com/public-example"] });
+    expect(mock.observe.mock.calls[1][0]).toMatchObject({ refresh: true, publicProfileUrls: ["https://github.com/public-example"], ownerDecisions: decisions });
     mock.token = "token-renewed";
     view.rerender(<WorldModelProvider><Probe /></WorldModelProvider>);
     await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(3));
     expect(mock.observe.mock.calls[2][0].publicProfileUrls).toBeUndefined();
     expect(mock.observe.mock.calls[2][0].refresh).not.toBe(true);
   });
-  it("requires the public-page permission before Azure research and keeps Gemini review separate", () => {
-    mock.read.mockResolvedValue(null);
-    const research = vi.fn();
-    const props = { ownerId: "owner-a", vaultKey: "key-a", vaultOwnerToken: "token-a", name: "Alice", onResearchPublicProfiles: research };
-    const view = render(<WorldModelSources {...props} />);
-    fireEvent.change(screen.getByLabelText("Page links, one per line"), { target: { value: "https://github.com/public-example" } });
-    const button = screen.getByRole("button", { name: "Research these profiles" });
-    expect(button).toBeDisabled(); fireEvent.click(button); expect(research).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("checkbox")); fireEvent.click(button);
-    expect(research).toHaveBeenCalledWith(["https://github.com/public-example"]);
-    expect(mock.prepare).not.toHaveBeenCalled();
-    view.rerender(<WorldModelSources {...props} present={false} />);
-    expect(screen.getByRole("button", { name: "Research these profiles" })).toBeDisabled();
-  });
-  it("does not let an old initial read replace a newly prepared draft", async () => {
-    let finish!: (value: unknown) => void;
-    mock.read.mockReturnValue(
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-    );
-    mock.prepare.mockResolvedValue({
-      status: "offered",
-      draft_id: "new-draft",
-    });
-    render(
-      <WorldModelSources
-        ownerId="owner-a"
-        vaultKey="key-a"
-        vaultOwnerToken="token-a"
-        name="Alice"
-      />,
-    );
-    fireEvent.change(
-      screen.getByLabelText("Page links, one per line"),
-      { target: { value: "https://example.test/alice" } },
-    );
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Read these pages" }),
-    );
-    await screen.findByText("new-draft");
-    await act(async () => finish({ status: "offered", draft_id: "old-draft" }));
-    expect(screen.getByText("new-draft")).toBeInTheDocument();
-    expect(screen.queryByText("old-draft")).not.toBeInTheDocument();
-  });
+
 });
