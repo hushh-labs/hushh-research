@@ -1,19 +1,29 @@
 # Mail Subagent Product UI Contract
 
-Status: maintained current-source contract, inspected at
-`5a894a2adf3e80b5a6d20acb46a4d97eccf54b75` on 21 October 2026.
+Status: maintained current-source contract, refreshed from `origin/main`
+`dcc4f611e39c80a0001df0ada3f47e85b445421e` on 24 October 2026.
+The intervening commits since the initial `f68bb44c8dd8` inspection did not
+change mounted Mail owners; the presentation changes below are local to this task.
 Classification: `canonical`. This is the Mail product interaction contract;
 executable route, consent, provider, agent, schema and storage owners retain
 authority. Values describe source behavior, not measurements of a deployed
 account or physical device.
 
-## Connect alignment and warm-return refinement — 21 October 2026
+## Visual Context
 
-This implementation refinement is based on fetched main `c3f27e1f7f3a` and
-supersedes older visual measurements and loading descriptions below where they
-conflict. Backend endpoints, payloads, permissions, feature gates, approved
-reply/send outcomes, receipt capture/grouping and encrypted storage authority
-are unchanged.
+The [web app visual map](../../README.md#visual-map) owns shared shell context.
+The current Mail journey is diagrammed below; the state and action ledger carries
+the exact copy and behavior.
+
+## Connect alignment and mounted presentation audit — 24 October 2026
+
+This pass refreshed the earlier 21 October comparison against the current
+production mounts. The previous `Start sync` hero and manual provider-page
+controls are retained source, not connected Receipts UI. The state and layout
+tables in this section and the updated sections below supersede older historical
+notes where they conflict. Backend endpoints, payloads, permissions, feature
+gates, approved reply/send outcomes, receipt capture/grouping and encrypted
+storage authority are unchanged.
 
 - The shared top shell owns the visible **Mail** breadcrumb beside its existing
   Back control. Existing authored Back targets and Profile remain unchanged.
@@ -62,14 +72,65 @@ Owners: [Mail scope](../../components/gmail/mail-workspace.module.css),
 [Back hierarchy](../../lib/navigation/back-navigation-graph.ts), and
 [source-coupled rendered fixture](../../e2e/mail-overview.layout.spec.ts).
 
-Verification uses the mounted Mail page, actual shared header and navigation,
-production-compiled CSS and shipped font binaries with synthetic identity/provider
-boundaries. Light/dark screenshots cover Overview/KYC/Receipts at 360, 393, 430,
-768, 1024 and 1440 CSS pixels, at device scale 1. Connect is captured at the same
-sizes for the role/frame comparison. This is rendered WebKit proof; it does not
-claim authenticated Gmail/OAuth acceptance, physical-device keyboard/Dynamic Type
-or native frame-pacing certification. See the delivery verification report for
-executed checks and precise limits.
+The source-coupled mounted fixture compiles Tailwind and local CSS, minifies the
+result with Lightning CSS, and loads the shipped Plus Jakarta Sans binaries.
+WebKit light/dark screenshots and computed assertions cover Overview/KYC/Receipts,
+setup introduction/body and OAuth cancellation recovery at 360, 393, 430, 768,
+1024 and 1440 CSS pixels, plus frame edges at 350/351, 620/621 and 767/768,
+device scale 1. KYC queue/review, monitoring confirmation, receipt detail and
+updates dialog are exercised at 393/1024; OAuth waiting status is exercised at
+393/1024; long synthetic account and receipt values are checked at 360/1024.
+This is fixture-based rendered proof with synthetic identity, a saved
+receipt snapshot and provider boundaries. It does not claim authenticated
+Gmail/OAuth acceptance, physical-device keyboard/Dynamic Type or native frame
+pacing certification. The receipt fixture supplies five paid saved rows and a
+stable resource snapshot; its screenshots do not certify pagination, earlier
+history, failed restore, partial scan, provider refresh or uncertain delivery.
+Those states retain the existing source owners and focused behavior contracts
+below. Cloud setup's shared OAuth return keeps its prior presentation outside
+the Mail scoped callback roles.
+
+### Mounted page, state, text and action ledger
+
+The rows below route the current mount. The detailed literal inventories and
+wire bodies remain in the matching sections of this contract; app-owned dynamic
+values appear in braces. A local action has no request until its named
+destination mounts and performs its own read.
+
+| Mount/state | App text, action and next state | Request/authority |
+| --- | --- | --- |
+| Setup introduction | **One · Mail**, **Your mail, made useful.**, **Connected only with your yes.**, **Continue**. Continue marks the session introduction seen and focuses setup. Back follows the authored setup graph. | Local session flag; no provider consent or completion write. |
+| Setup prerequisite/loading | Vault create/unlock keeps the shared private-vault flow. **Preparing Mail setup…** and **Opening setup…** preserve their current recovery routes; setup skeleton exposes accessible progress. | Vault and setup owners; no Mail typography applied to shared vault credentials. |
+| Disconnected setup | Status card gives source-owned title/detail/helper and **Connect Mail** or **Reconnect Mail**; optional **Retry Mail status** rechecks status. Footer **Skip Mail setup** and its explanatory copy are separate from a verified connection. | Status GET/reconcile as selected by caller; Connect starts consent, Retry only rechecks, Skip settles setup without claiming a grant. |
+| Connected setup | Status/header **Sync receipts**, **Syncing receipts…** or **Sync unavailable**, shared **Disconnect** confirmation, footer **Finish Mail setup**. Busy/disabled states retain caller guards. | Existing receipt resource and connector service; Finish verifies readiness then writes setup completion, Disconnect alone calls connector disconnect. |
+| Google popup/native/callback | Waiting, cancellation, blocked popup, timeout, verified/unverified success and failed return keep their exact [OAuth outcome table](#oauth-each-affirmative-negative-and-uncertain-outcome). The return route owns its genuine full-page title and loader; provider/OS captions belong to Google/OS. | Attempt/source/origin/owner correlation, native server code and status verification. Opening a provider window is not completion. |
+| Connected workspace shell | Shared Back + **Mail** breadcrumb/avatar; connected account/email, **Manage**, and **Overview / KYC / Receipts**. A hidden H1 preserves document semantics. Tabs retain swipe/keyboard/inactive-pane behavior. | Shell/tab selection local; connection status comes from shared connector store. |
+| Manage menu | **Reconnect** opens a deliberate new authorization. **Disconnect** opens **Disconnect Mail?**; **Keep connected** cancels; confirm disconnect closes reads, aborts scan and calls the service. Escape/outside restores Manage focus; nested confirmation takes focus when selected. | Reconnect OAuth or connector disconnect only after the explicit action. Existing success/failure copy and retained encrypted snapshot distinctions are in [Overview](#overview-and-connection-management). |
+| Overview | **Draft with One.**, **Instant drafts & replies**, **Ready for your 1-tap review**, decorative Reply/Follow up/Write stack, **Chat with One**. No receipt metric card is currently mounted here. | Chat navigation only; no model call or email send from opening chat. |
+| KYC intake check/vault | **KYC requests / Getting your KYC workspace ready.** skeleton; locked state **Set up KYC**, vault explanation and **Open private vault**. | Existing intake display read and vault unlock; no disclosed profile in skeleton. |
+| KYC profile | **Build your KYC profile**, supporting copy and decorative Name/Address/Employment preview; **Paste details** opens the controlled dialog. The preview is not editable data. | Opening is local. |
+| Paste dialog | **Paste your profile details**, explanation, **KYC details** textarea/placeholder, **Copy AI prompt**→**Copied**, **Save profile**, **Skip for now**, privacy footnote, Close/Escape/outside. Closing returns focus to Paste details while it remains mounted. | Copy writes clipboard; Save explicitly authorizes encrypted PKM intake and proceeds optimistically with success/failure toast; Skip defers locally. Neither closing nor copying sends mail. |
+| KYC monitoring off/on | Source-owned **KYC requests** empty/status content; **Start monitoring**→**Start monitoring?** / **Not now** / confirmation; enabled status and **Check now** / **Turn off**→**Turn off monitoring?** / cancel / **Turn off and delete activity**. Busy and alert states retain exact [KYC inventory](#monitoring-active-requests-and-activity-every-control). | Preference GET/PATCH and explicit inbox scan only; no automatic send. Confirmations, not opening them, mutate preference. |
+| KYC queue/review | Request and activity cards show requested fields/time/status, **Open mail** external handoff, **Review**, **Draft with One**, **Ignore** and local pagination. Fullscreen phone/desktop modal **Review request** contains selected scope pills, editable private reply, prepare/review/send and negative outcomes. | List/scan/prepare/send/ignore use the exact [wire table](#kyc-request-wire-and-streaming); local scope choice/draft edits do not disclose. Final Send needs explicit reviewed approval; unknown outcome never retries automatically. |
+| Receipts entry | Restore encrypted current-account snapshot before stale automatic update. Toolbar **Saved receipts** or **Your receipts** and the exact opening/checking/checked/saving/updated/error text above. Header Sync remains a distinct manual action; failed restore has a separate recovery. | Device snapshot/resource, then consented Gmail read only when eligible; five-minute freshness owner, signed continuation and owner/vault fences remain. |
+| Receipt updates dialog | Conditional **View details** opens **Receipt updates** with disabled/migration description and earlier-history note. **Manage Mail** opens Profile connector settings with focus handoff; **Got it**, Back, Escape and outside close without a request. | Local dialog/navigation. No consent or sync on acknowledgement. |
+| Receipt collection | Current **Overview** / **Categories** cards: saved count, Paid/Needs attention/Coming up, sample note, category count/percentage/bars. Archived/unresolved rows are excluded from current counts; no mixed-currency spend. | Pure projection of verified saved rows. Cards are not navigation. |
+| Recent receipts | **Recent receipts**, vault/setup/reconnect/loading/empty/partial/error branches, **Search receipts**, All/Paid/Due/Overdue/Upcoming/Cancelled, month groups, merchant/status/amount rows and local Previous/Next. Due currently matches no records. | Search/filter/page are local over ten-row display pages. Row click opens detail; provider scan pagination is separate. Background insertion retains current row/page anchor. |
+| Receipt detail | Phone adaptive sheet/desktop 520px modal, **Receipt details**, loading/**Try again**, conditional saved fallback, Amount/Status/Attention/Category/Document/Recurrence/identifiers, optional dates/sender/subject, Activity/excerpt/Source evidence, conditional **Visit merchant**. Close/Back/Escape/outside restore row focus as supported by surface. | Live detail GET only when usable; encrypted saved fallback stays available without fabricating original email evidence. Visit merchant opens verified external URL, not Gmail or payment. |
+| Earlier saved history | Separate **Earlier saved receipts** with opening/retry/unverified-origin copy; same grouped list/detail owner without current-account overview. No original Mail account attribution, live email excerpt or current-account count. | Existing owner-authorized encrypted history read. It is never merged by a matching label. |
+| One and compatibility | `/one/email` connection/handoff and the editable One Mail draft keep their separate send/review owner. `/one/setup/email` is the legacy platform-mailbox preference route. Inline Chat/Nudges and old receipt hero remain source-only at this mount. | Opening chat/draft does not send; only the final approved delivery path can. |
+
+### Presentation decisions and action classification
+
+| Surface/control | Classification | Verified presentation boundary |
+| --- | --- | --- |
+| Shared header, Back, avatar, three tabs, Overview Chat, Manage menu | Already aligned | Header 17/22/600, tabs 15/20/550, existing 44px MailActionButton and focus/keyboard/swipe owners are reused. No duplicate shell or button primitive. |
+| Mail root/skeleton/return | Changed | Mail role variables now reach skeleton/return mounts; callback title uses the full-flow rung. The shared setup intro/footer retain their own full-primary owner. |
+| Disconnected connection status | Changed | Narrow Gmail source eyebrow, support copy and full-width inner pill now match the scoped roles while status/badge/scope logic stays in the connector owner. |
+| Paste/monitor/review | Changed | Paste title, form label/input, Copy/Skip utilities, KYC row/status text, selected scope contrast, quiet Open mail, full-width actions and Task portal description inherit the intended role. The ref-forwarding MailActionButton remains the trigger, and paste close returns focus. |
+| Receipts toolbar/collection/list/detail | Changed | Toolbar Manage Mail uses the utility role; collection headings obey 14/22/600; month heading is 12/18/600 without mono uppercase; detail portal title/description, source blocks, values, retry and local pagination use their matching roles. The saved-first state machine is untouched. |
+| Disconnect/grant/vault confirmations | Justified shared exception | Destructive confirmation, grant-replacement consent and vault credentials retain shared security primitives/copy. They are not normalized into ordinary Mail pills; portals receive scope only where Mail owns the surface. |
+| Saved-count metric, badges, tabular amounts, filter labels, decorative preview, provider/OS captions | Justified role/authority exception | Preserve the matching metric, count, control or external owner; no global descendant font/button reset. |
 
 ## Visual Map
 
@@ -95,7 +156,8 @@ flowchart TD
   review --> direct["Select scopes, private draft, Review send"]
   direct --> send
   request -->|Draft with One| one
-  receipts --> scan["Start sync and bounded continuation"]
+  receipts --> restore["Open encrypted saved receipts"]
+  restore --> scan["Automatic stale update or explicit retry/header Sync"]
   scan --> list["Search, filters, receipt and source detail"]
   scan --> saved["Encrypted device snapshot"]
   saved --> memory["Assessed aggregate observations in private memory"]
@@ -243,17 +305,20 @@ Sources: [Overview and Manage](../../components/gmail/mail-overview.tsx),
 | State/control | Exact content and result |
 | --- | --- |
 | No connection | Shared connection card and Connect/Reconnect actions. Saved encrypted receipts can still render after disconnect when authority and snapshot exist. |
-| Connected hero | `GmailReceiptOnboardingHero` owns the sync illustration, CTA and progress. **Start sync** triggers current live receipt scan, not legacy server background-sync enqueue. |
+| Connected entry | `ReceiptSyncToolbar` shows **Saved receipts** when a verified device snapshot exists, otherwise **Your receipts**. Open the encrypted saved snapshot first. An eligible connected, unlocked workspace automatically refreshes a stale snapshot after successful restore; online/visibility/lifecycle wakes use the existing resource freshness gate. A failed restore stays unknown and never starts a scan. |
+| Toolbar status | **Opening saved receipts…** during restore/opening, **Checking Mail for receipts…** before progress, **{checked} mail messages checked · {found} receipts found** while reading, **Saving {N} receipt(s)…** while saving, **Some Mail remains unchecked · Updated {date/time}** for partial saved coverage, **Updated {date/time}** for complete saved coverage, **New receipt updates aren’t available with this setup yet.** when disabled, **Ready to check for receipts.** when idle without a saved snapshot. Resource error takes precedence over idle/updated text. Progress counts describe the scan, not a durable saved-collection count. |
+| Toolbar **Try again** | Present only with a recovery callback. `onRestore` takes precedence over `onRefresh`: restore failure retries device hydration; update failure retries the provider update. Disabled/busy during refresh or restore. No new polling owner or automatic retry after failed hydration. |
+| **View details** | Present only for migration or disabled updates. Opens **Receipt updates** dialog. Disabled description: **New receipt updates aren’t supported by your current setup yet. You can still open saved receipts found on this device.** Other migration description: **Your receipt sync continues while private receipt processing is prepared. New Mail is checked automatically when you return.** Shared note: **Earlier saved history is kept separately when its original Mail account can’t be verified.** **Manage Mail** closes and opens the Profile connector destination with focus handoff; **Got it**, outside, Escape or Back closes without a request. Inactive tab closes it. |
 | **Recent receipts** | Section renders when Receipts is active and connected or saved rows exist. Missing authority shows **Set up or open your private vault to view synced receipts.** / **Set up vault**. |
 | Cold loading | Busy/live skeleton **Loading receipts** with screen-reader sentence **Loading your receipts. Mail remains available while the list is prepared.** Eight placeholder rows; placeholders are not records. |
 | In progress | **Looking through your recent purchases…**. Percentage is clamped to 5–95 while active from `(page−1)/maxPages`; it is not provider-wide completion. |
-| No scan yet | **Start sync to find receipts in your Mail.** |
-| Completed empty | **No receipts are available for this account yet.** If run reports matches still settling: **Your receipts are still finishing up. Please try again in a moment.** If 50-page bound hit: **No receipts were found within the 50 Mail pages checked.** |
+| No current saved account | **No current-account receipts are saved on this device yet.** after successful empty restore with no verified scan. |
+| Completed empty | **No receipts were found in the Mail checked.** after a verified empty scan. The source-owned partial/limit and still-finishing notices qualify scan coverage without fabricating an empty purchase history. |
 | Failed scan | **Couldn’t finish scanning your receipts.** / **Try again** retries recorded failed page; keep existing records when available. No unconditional reset of saved receipts. |
 | Lost provider authorization | **Mail needs to be reconnected before it can sync your receipts.** / **Reconnect Mail**; another ordinary read is not offered as the repair. |
-| More provider pages | **Load older receipts** if collection has rows, else **Check older Mail**. Calls the next bounded scan page; disabled while loading. Failure **We couldn't load older receipts right now. Please try again.** |
+| More provider pages | **Load older receipts** / **Check older Mail** JSX remains for compatibility, but current `hasMore` stays false and the resource owns signed-cursor continuation. The manual provider-page control is unmounted at this baseline. |
 | Unavailable scan | **Receipt sync is not available for this account right now.** or **Open your private vault before scanning Mail receipts.** |
-| Setup sync action | **Sync receipts**, **Syncing receipts…**, **Sync unavailable** selected from connection/authority/busy state. This is distinct from display-table pagination. |
+| Header sync action | **Sync receipts**, **Syncing receipts…**, **Sync unavailable** selected from connection/authority/busy state; the setup variant retains its own caller. Manual header Sync, toolbar recovery and automatic lifecycle refresh are separate entries. |
 
 `handleSyncNow` admits only current owner, connected inbox, unlocked owner token
 and open receipt-read admission. An abort-controller ref closes the double-click
@@ -266,7 +331,8 @@ partial coverage as a complete inbox or purchase history.
 
 Sources: [scan orchestration and collection states](../../components/gmail/gmail-receipts-page.tsx),
 [scan protocol validation](../../lib/services/gmail-receipts-service.ts),
-[sync hero](../../components/gmail/gmail-receipt-onboarding-hero.tsx).
+[toolbar](../../components/gmail/receipt-sync-toolbar.tsx),
+[saved resource](../../lib/services/mail-receipt-resource-service.ts).
 
 ### Every table control and row projection
 
@@ -279,7 +345,7 @@ Sources: [scan orchestration and collection states](../../components/gmail/gmail
 | **Overdue** | `status === overdue`; local. |
 | **Upcoming** | `status === renewal_due` or `trial`; local. |
 | **Cancelled** | `status === cancelled` or `refunded`; local. |
-| Month group | Receipt date descending, localized month/year uppercased; invalid/missing date **DATE UNAVAILABLE**. Group only the current display page. |
+| Month group | Receipt date descending, localized month/year (or **DATE UNAVAILABLE** for invalid/missing date); source label is preserved, with 12/18/600 source-group typography rather than old uppercase/monospace decoration. Group only the current display page. |
 | Merchant title/logo | `buildRecentReceiptRows`/saved row projection: verified merchant identity, brand/category/generic fallback. Logo failure falls back locally. An arbitrary merchant label does not become a trusted external domain. |
 | Row status/secondary | Projected `status,category,recurrence,attentionState,attentionReason,attentionIsPrediction,receiptDate`. Exact status/document/identifier vocabulary comes from [presentation owner](../../lib/profile/gmail-receipt-presentation.ts). |
 | Amount | Projected `currency,amount`; missing **—**, tooltip **Amount not found**. Zero must remain an amount rather than disappear. |
@@ -333,8 +399,8 @@ Sources: [table, filters and detail](../../components/gmail/gmail-recent-receipt
 
 | Placement | Literal values |
 | --- | --- |
-| Sync hero | **Your receipts**; **Find receipts in your mail.**; **Automatically organized into smart categories.** at the wider container query; decorative **Shopping**, **Dining**, **Travel**, accessible **Receipt categories**. These sample category captions are not the response category enum. |
-| Sync CTA/progress | **Start sync** → **Scanning**; accessible **Receipt sync progress**, value text **Scanning**. Voice label remains **Start sync**, action `profile.gmail.sync_now`. |
+| Retained unmounted sync hero | **Your receipts**, **Start sync**, **Scanning** and the decorative category examples remain in `GmailReceiptOnboardingHero` source, but the connected Receipts mount renders `ReceiptSyncToolbar`. They are not current first-visit controls or progress. |
+| Mounted toolbar/status | **Saved receipts** / **Your receipts** with the state-specific status, **Try again**, and conditional **View details** above. `profile.gmail.restore_saved_receipts` and `profile.gmail.sync_now` remain distinct voice actions. |
 | Successful acknowledgement | Inline **Receipts updated.**; toast **Receipts updated**. |
 | Device persistence failure | **Receipts are visible for this session, but couldn't be saved on this device. Sync again before reloading.** No automatic provider rescan. |
 | Table empty/filter accessibility | **No receipts match this view.**; tablist **Receipt status filters**, list **{selectedFilterLabel} receipts**. |
@@ -344,12 +410,12 @@ Sources: [table, filters and detail](../../components/gmail/gmail-recent-receipt
 | Identifier | **Order**, **Invoice**, **Receipt**, **PNR**, fallback **Identifier**; payment array entry **Payment reference**. |
 | Detail fallback | **We couldn't load this receipt right now.**; excerpt label **Email preview**. |
 
-Ordinary first visits, tab revisits and remounts of normal Receipts restore
-memory/device state and **do not scan Gmail**. Start sync, continuation, retry,
-and onboarding's initial connected read are the explicit scan entries. A running
-scan can continue across Mail tabs. `receiptSyncAvailable` is currently derived
-from connected + unlocked owner-token state; do not substitute the separately
-declared status `receipt_sync_available` as that CTA's actual frontend guard.
+Ordinary connected Receipts restores memory/device state first. After successful
+restore, a connected and unlocked stale resource refreshes automatically. Fresh
+entries do not rescan; wake/return uses the five-minute resource gate. A running
+scan can continue across Mail tabs. `receiptSyncAvailable` is derived from
+connected + unlocked owner-token + account + `receipt_sync_available !== false`;
+do not equate displayed rows with a durable write or a completed provider pass.
 
 ## Mail onboarding, Google authorization and status copy
 
@@ -390,7 +456,7 @@ Sources: [Gmail setup route](../../app/one/setup/gmail/gmail-onboarding-setup-cl
 | Provider cancellation/failure | **Mail connection was cancelled.** / **Mail connection could not be completed.**; no disconnect or completed-setup claim. Provider-owned captions are not authored Yes/No buttons. |
 | Popup manually closed | Force-check actual connection and reconcile setup attempt before settling. If still unverified: **The Mail window closed. You can try again whenever you are ready.** |
 | Popup two-minute timeout | Close popup, reconcile: **Mail is taking longer than expected. Check your connection and try again.** |
-| Callback pending | **Connecting your Mail…**; after routing **Opening Mail…**. Missing authenticated owner goes to login; mismatched popup owner closes. |
+| Callback pending | **Connecting your Gmail…**; after routing **Opening Gmail…**. BYOC callback displays **Setting up your cloud. This can take a few minutes…**. Missing authenticated owner goes to login; mismatched popup owner closes. |
 | Callback missing code/state | **Missing OAuth code or state. Start Connect Mail again from Mail.** |
 | Explicit provider error | **Mail connection needs attention**; provider `error_description` or `error`, fallback **Google OAuth authorization was denied.** Access denied is cancellation. |
 | Direct callback completion | Exchange can continue after immediate Mail navigation. At 35s timeout reconcile status up to five times, two seconds apart. Recoverable replay/used-code errors check actual status before another claim. Reload/cold callback does not preserve memory-only unlocked vault authority. |
@@ -925,9 +991,9 @@ mutation did not happen.
 | Start/continue/retry scan | POST `/api/kai/gmail/receipts/scan`; F+V; `{user_id,page,per_page:6,cursor?}` | `items,page,per_page,returned_count,has_more,next_cursor,coverage`. Loaded item count, continuation and limit state drive list; no server-wide total claim. |
 | Receipt detail read | POST `/api/kai/gmail/receipts/detail`; F+V; `{user_id,source_id}` | `item,email_excerpt,source_evidence`; exact field-to-row mapping above. Often bypassed for already extracted row or saved/offline fallback. |
 | Legacy cache list, not current scan CTA | GET `/api/kai/gmail/receipts/{uid}?page={p}&per_page={n}`; F+V | `items,page,per_page,total,has_more`; read-only old server cache. Bounds page1–1000/per_page1–100. |
-| Legacy background Sync, not current Start sync | POST `/api/kai/gmail/sync`; F; `{user_id}` | During current storage cutover200 `accepted:false,reason:"receipt_storage_migration",message,run:null`; not current live scan failure. |
-| Forced connection reconcile | POST `/api/kai/gmail/reconcile`, F, `{user_id}` | Mounted native connection success and other store forced refreshes default to reconcile, with GET-status fallback. Retry Mail status explicitly sets `reconcile:false`. This is not receipt Start sync. |
-| Conditional legacy run polling | GET `/api/kai/gmail/sync/{runId}?user_id={uid}`; F → `{run}` | Connector store can poll a reported active legacy run. Missing owner run404. Current Start sync does not enqueue that legacy mechanism. |
+| Legacy background Sync, not mounted Receipts update | POST `/api/kai/gmail/sync`; F; `{user_id}` | During current storage cutover200 `accepted:false,reason:"receipt_storage_migration",message,run:null`; not current saved-first resource failure. |
+| Forced connection reconcile | POST `/api/kai/gmail/reconcile`, F, `{user_id}` | Mounted native connection success and other store forced refreshes default to reconcile, with GET-status fallback. Retry Mail status explicitly sets `reconcile:false`. This is distinct from a receipt resource update. |
+| Conditional legacy run polling | GET `/api/kai/gmail/sync/{runId}?user_id={uid}`; F → `{run}` | Connector store can poll a reported active legacy run. Missing owner run404. The mounted Receipts resource does not enqueue that legacy mechanism. |
 | Feed-used nudges read, no Mail tab | GET `/api/kai/gmail/nudges/{uid}?limit=10`; F+V | `user_id,account_email,nudges[]`; mounted Feed briefing uses this endpoint. Only Mail's standalone nudges component is unmounted. Limit1–50 applies to separate reply/meeting derivations, not guaranteed global combined count. |
 | Compatibility memory preview/artifact | POST `/api/kai/gmail/receipts-memory/preview`, `{user_id,force_refresh:false}`; GET `/api/kai/gmail/receipts-memory/artifacts/{artifactId}?user_id={uid}`; F+V | Existing artifact contract; no current device-snapshot or hidden-memory-save CTA calls this simply because its service exists. |
 
@@ -1045,10 +1111,10 @@ X/Y are formulas/anchors; there are no invented screenshot coordinates.
 
 | Surface | Width, X/Y, layout and scroll ownership |
 | --- | --- |
-| Main Mail workspace | Outer centered `S=min(V,880px)`, inner content `C=min(820px,S−2G)`. Gutter `G=16px` below640,20px640–1023,24px1024–1279,28px≥1280. Content X=`(V−C)/2`. |
-| Setup Gmail, Email handoff, setup Email | Reading cap864px; content `min(V,864)−2G`. They do not inherit Mail's inner820 cap. |
-| Initial body Y | Standard shell `T=effectiveSafeTop+4+barHeight`; bar56 below1280,64≥1280. Mail local offset−24 on standard32 start gap →`T+8`; other three `T+32`, without a global contextual tab rail. Scrolling/chrome collapse changes visible coordinates. |
-| Header/stack | Compact header→content margin0 below640,6px≥640; compact SurfaceStack gap14/16px. Mail tabs are in body, not another fixed top rail. |
+| Main Mail workspace | Connect reading shell `S=min(V,728px)`, centered; content `C=S−2G`, with `G=16px` at ≤350, `20px` at 351–620, `24px` above620. The shared header and bottom navigation own independent frames. |
+| Setup Gmail, Email handoff, setup Email | Separate setup/handoff shells and footer; they do not inherit the 728px workspace cap. The Mail-specific setup skeleton and OAuth return are scoped at their existing route roots. |
+| Initial body Y | Standard signed-in shell content offset applies; local Mail content and the body's tabs scroll beneath the independent top app bar. Scrolling/chrome collapse changes visible coordinates. |
+| Header/stack | Shared top app bar owns Back, `Mail` breadcrumb at 17/22/600 and avatar. The workspace's hidden PageHeader supplies accessible H1 without a second visible title. Tabs are in the body, not another fixed top rail. |
 | Page bottom | Resolved `.app-page-shell` bottom padding24px outranks ordinary route `pb-*` utility. Scroll root separately owns measured bottom-chrome clearance. Do not add these as if one fixed120px rule always wins. |
 | Scroll owner | `[data-app-scroll-root]`: Y auto, X hidden, measured bottom clearance. Page is not a separate100vh scroller. |
 | Three-tab rail | Row56px; track36px, radius10, inner pad2; equal thirds, button radius8. Horizontal button padding4 below360,8≥360,12≥640. |
@@ -1056,11 +1122,16 @@ X/Y are formulas/anchors; there are no invented screenshot coordinates.
 
 | CSS viewport width | Main Mail content width | Reading-shell content width |
 | ---: | ---: | ---: |
-| 320 |288|288|
-| 390 |358|358|
-| 768 |728|728|
-| 1024 |820|816|
-| 1440 |820|808|
+| 350 |318|318|
+| 351 |311|311|
+| 360 |320|320|
+| 393 |353|353|
+| 430 |390|390|
+| 620 |580|580|
+| 621 |573|573|
+| 768 |680|680|
+| 1024 |680|680|
+| 1440 |680|680|
 
 These are arithmetic examples, not rendered screenshots or evidence that the
 reading column must grow monotonically across a gutter breakpoint.
@@ -1069,14 +1140,13 @@ reading column must grow monotonically across a gutter breakpoint.
 
 | Element | Source geometry and responsive behavior |
 | --- | --- |
-| Connected account | Pad16, at≥1024 vertical12; radius22, gap12, icon48/radius16. Manage min-height44. |
-| Overview hero below640 | Still **two columns**,1.45:1, gap4, min-height232, bottom pad20. Illustration max154. |
-| Overview640–1023 | Columns1.2:1, gap32, min-height280, bottom32; illustration max220. |
-| Overview≥1024 | Columns1:1.1, gap24, min-height0, bottom8; illustration max300. |
+| Connected account | Flex row with 12px gap and 12px block padding, bottom separator; icon36. Manage 44px target. Account email is the separate page description. |
+| Overview | Vertical stack with 24px gaps and block padding; compact section title, benefits and decorative card stack. The draft stack's own 640/1024 media queries change height and card spacing; it is not a page grid. |
 | Decorative stack | Heights224/280/200, fan Y-step76/94/66 and tilt3/3/2° at base/640/1024. Fine pointer resting transform Y46+22i, rotate−6+6i°, scale1−.04i; hover fans,450ms transition/35i ms delay. Touch/reduced motion keeps fan. Local layers stay inside isolated stack. |
-| Chat/Paste/Save prominent CTA | Max244px×50; centered in its authored slot. Label shared prominent role. |
-| Receipt hero | Container-query, not viewport-responsive. Base columns1.15:.85,pad16,gap12; `@md`1:1,pad32,gap32; `@lg`pad40. Tailwind default container thresholds28rem/32rem are implementation defaults; compiled/custom query values require verification before treating them as measured breakpoints. |
-| KYC profile hero | Base stacked,pad20,gap24; `@lg` container columns1.1:1,pad32,column gap32. Preview max352. |
+| Ordinary Mail CTA | Outer transparent 44px target; inner neutral-surface 44px pill, 1px border mixed 32% accent/neutral, full radius, accent 12/18/550 label. Compact variants retain the same owner. Wide Connect/Paste/Save/Sync controls fill their authored container to max244px; utility actions stay unfilled, 44px target, 13/21/550 desktop and 12px phone. Destructive confirmation uses the shared destructive control. |
+| Receipt collection | Two 256px-high, internally scrolling cards: stacked below `md` (768px), two equal columns at `md`. Overview saved-count metric remains 28/34/600; category rows are count and percentage, not spend. |
+| Retained receipt hero | Container-query layout remains in source but is not the mounted connected Receipts layout. |
+| KYC profile hero | `@container` owns the stack-to-side-by-side `@lg` switch based on its own slot width, not viewport alone; preview max352 and action max244. |
 | Receipt table row | Grid flexible left/auto amount, min58 high,padY10,padX `max(10,tableCellPx−2)`,gap12. Logo36/radius10. Merchant truncates, amount nowrap/tabular. Filters horizontally scroll; ten grouped rows per display page. |
 | Receipt detail rows | Two columns .36:.64,gap12,padY12; value right-aligned with wrapping. Absent values omit whole row. Timeline/evidence blocks flow with content, no fixed Y. |
 | KYC queue card | Pad16,gap16; phone vertical,≥640 horizontal. Action grid two equal columns phone,312px desktop with flexible/132px tracks,gap8. |
@@ -1140,37 +1210,41 @@ Sources: [page shell](../../components/app-ui/app-page-shell.tsx),
 ### Font schema: what to use where and actual override boundaries
 
 Use existing [Typography](./typography.md) semantic roles and [design-system
-authority](../../../docs/reference/quality/design-system.md). Product family
-is self-hosted **Plus Jakarta Sans**, normal/italic400/600/700. Requested
-550/650/800 does not mean a matching font binary ships. Emoji/OS/provider text
-uses its own fallback. Mail does not opt the whole page into Profile compact
-scale merely because it reuses Settings components.
+authority](../../../docs/reference/quality/design-system.md). The optimized
+WebKit fixture loaded the shipped **Plus Jakarta Sans** through
+`--font-app-body`/`--font-app-display`; requested 550/650 are effective CSS
+weights, not a claim that separate 550/650 files ship. Emoji/OS/provider text
+uses its own fallback. Mail scopes the Connect role variables at the mounted
+root and each actual portal; it does not opt the whole app into this scale.
 
 | Meaning/placement | Source-derived size / line height / weight and use |
 | --- | --- |
-| PageHeader H1 | Winning base-layer heading lock: `clamp(28px,23.36px+1.2vw,40px)` /1.107 /600,tracking−.02em. Semantic28/34 alone is not final computed truth. |
-| Ordinary in-shell H2 | Foundation title3 `clamp(20px,18.88px+.3vw,22px)` /1.2 /600,tracking−.012em. |
-| Overview account Mail | Explicit variables17 /1.3 /700. |
-| Overview hero | Explicit variables `clamp(28px,8.2vw,34px)` phone,44px≥640 /1.08 /800. |
-| Workspace tabs | AgentTabLabel15 /20 /550. |
-| Primary/ordinary CTA | ButtonLabel17 /22 /650; prominent50 high,standard44. Compact15 /20 /650. |
-| Page subtitle/supporting text | Semantic15 /20 /400. |
-| Group/section label |15 /20 /600,compact14 /18 /600 when owning density opts in. |
-| Row name |17 /22 /400,compact16 /21 /400 when owning density opts in. |
-| Helper/caption |Helper13 /18 /400; Caption12 /16 /400. Do not copy tiny metadata styling into body text. |
-| Muted text inside app shell | Matching muted `text-sm` resolves15 /20 /400; muted text-xs/10/11/12px resolves13 /18 /400 with normalized tracking. Raw utility class is not final size. |
-| Receipt row/amount | Authored text-sm14/20,merchant400/amount600; secondary text-xs12/16 but shell muted rules can resolve13/18. Use actual element/selector ancestry when redesigning. |
-| Portaled title | Dialog/Sheet/Drawer H2 outside shell can resolve global foundation title2 `clamp(22px,20px+.5vw,28px)` /1.182 /600. Task-authored20,NavigationTitle17/22 and Paste text24/bold are lower-priority intent where important base heading lock applies. |
-| Task controls | Boundary authors button13 /20 /600,input16 phone/14 desktop; inspect semantic/control important rules before calling these measured. |
-| Rich editor / Paste quiet actions | Editor authored15px; Paste text actions14.45 /18.7 /500,min44; Skip15/400; footer11px. Portaled subtree lacks app-shell muted selectors. |
-| Phone input floor | Generic input/textarea/select16px important≤767; semantic/task rules can also participate. Textarea radius bounded18 token. |
+| Shared top bar | Visible Mail breadcrumb 17 / 22 / 600; the accessible workspace PageHeader H1 remains visually hidden. Back/avatar keep the shared shell owner. |
+| Agent-top tabs | Overview/KYC/Receipts 15 / 20 / 550. |
+| Full flow title | Setup/callback genuine full-page title 28 / 36 / 600 where the owning route uses that role; no giant Overview hero. |
+| In-page section | Draft with One, KYC profile/requests, Receipts/Overview/Categories/history/recent headings 14 / 22 / 600. Semantic heading variables win the base-layer locks. |
+| Source group | Gmail/status eyebrow and receipt month/evidence labels 12 / 18 / 600 with normal tracking; month `h3` has a narrowly scoped global base rule. |
+| Primary row text | KYC request/activity, receipt detail values and equivalent row names 14 / 21 / 550. |
+| Ordinary supporting copy | 12 / 18 / 400; do not promote every support line to the distinct 13px helper role. |
+| Form label | 15 / 22 / 550. The former Mail override was 14 / 21 / 550. |
+| Workspace semantic input | 16 / 22 / 400 at ≤620px; 14 / 22 / 400 above620. The KYC paste and reply textareas opt into this role directly. Shared Task/raw controls can have their own phone breakpoint. |
+| Ordinary MailActionButton | 12 / 18 / 550 label; transparent outer44 and neutral pill44. `prominent` on this wrapper does not restore a 17px label. |
+| Utility action | Copy AI prompt, Skip, Manage Mail, Open mail and local paging 13 / 21 / 550 above620; 12 / 21 / 550 at ≤620, with ≥44px target. |
+| Status and helper | Status 13 / 18 / 600; genuine helper 13 / 18 / 400. Toast title 13 / 20 / 500 and description 12 / 20 remain shared toast roles. |
+| Portaled title | Mail-scoped Dialog/AlertDialog and AdaptiveDetailSurface title 20 / 28 / 600. The paste dialog's former `text-2xl font-bold` override is removed. Receipt/KYC Task descriptions are 14 / 20 / 400 in the actual Task context. |
+| Metrics and content emphasis | Saved count remains `ui-text-large-page-title` 28 / 34 / 600; tabular amount/count, filter labels, badges, provider text, illustrations and authored document passages retain their matching owners. The KYC preview is decorative, not a second form. |
+| Shared full-primary | Setup/footer or vault controls using the unscoped shared primary remain 17 / 22 / 650 where that primitive actually owns them; destructive AlertDialog controls keep their shared variant. |
 
-CSS layer precedence matters: base-layer important heading locks outrank
-unlayered important semantic declarations. Context variables can change values
-consumed by the winning rule. Portal children do not inherit `.app-page-shell`
-ancestor selectors; inherited variables and direct important rules still apply.
-The table distinguishes declarations and source-resolved conclusions; no fresh
-full-app computed-style or physical accessibility measurements were made.
+CSS layer precedence matters: the base-layer important heading locks consume
+context variables, and the prior global receipt-month selector beat local
+utilities. The correction changes only that Mail month selector. A portalled
+child does not inherit `.app-page-shell` ancestry, so Paste, Manage, monitoring,
+receipt updates, KYC review and receipt detail place Mail scope on their actual
+portal content. Rendered assertions check the header, tabs, Paste title/input/
+utility, collection headings and month group after Lightning CSS optimization.
+Shared grant-replacement and vault surfaces keep their security owner and are
+separate from Mail's ordinary CTA normalization. Physical accessibility and
+native OS/provider typography still need device evidence.
 
 Sources: [family, tokens, cascade and route CSS](../../app/globals.css),
 [semantic wrappers](../../components/app-ui/typography.tsx),
@@ -1286,13 +1360,13 @@ Read-only specialist evidence checked mounted frontend routes/tabs, exact copy,
 API callers/proxies/backend schemas, request/delivery state, storage and
 layout/type owners at the pinned revision. No Gmail account, real message,
 provider grant, credential, deployed flag, scheduler or native device was used.
-This document changes no UI, endpoint, consent policy, generated action contract,
-schema, provider state or deployment.
+This presentation pass changes Mail UI and this contract, while leaving endpoint,
+consent policy, action semantics, schema, provider state and deployment unchanged.
 
 ### Existing authoritative tests and what they cover
 
-These files were inspected as the nearest executable evidence owners; their
-presence is not a claim that all tests ran during this documentation change.
+These files are the nearest executable evidence owners. The dated results below
+identify those actually run for this presentation pass.
 
 | Contract | Existing verification owner |
 | --- | --- |
@@ -1307,7 +1381,7 @@ presence is not a claim that all tests ran during this documentation change.
 | Atomic provider boundary and source-derived reply | [delivery routes](../../../consent-protocol/tests/test_one_gmail_delivery_routes.py), [delivery ledger](../../../consent-protocol/tests/services/test_gmail_delivery_service.py) |
 | Voice draft/offered-open/schedule races | [bridge](../../components/one-voice/__tests__/one-voice-mail-draft-bridge.test.tsx), [tool-result card](../../components/one-voice/__tests__/tool-result-card.test.tsx), [open layout](../../e2e/one-voice-mail-open.layout.spec.ts), [Mail tools](../../../consent-protocol/tests/one_voice/test_tools_mail.py), [schedule](../../../consent-protocol/tests/one_voice/test_mail_schedule.py) |
 
-Documentation-only verification completed on 21 October 2026: Tier-A,
+Earlier documentation-only verification completed on 21 October 2026: Tier-A,
 stale-candidate and folder inventories; local source-link, Markdown table/fence
 and whitespace checks; and the full `./bin/hushh docs verify` in a clean
 verification worktree carrying the same five documentation files. The full
@@ -1316,12 +1390,22 @@ shareable links, encryption compliance and its smoke check. The original
 workspace's shareable-links stage encounters unrelated temporary PostgreSQL
 HTML; those files were preserved.
 
-Initial authoring verification was source/documentation-only. The test owners
-above were inspected; live provider/device acceptance remains unverified and
-must be tied to its exact revision/environment. Pre-push core and hosted CI
-outcomes belong to the publishing PR and its exact head. A redesign should
-reuse shared primitives and update this contract with actual behavior; it
-should not create a second route/action/schema/font registry.
+For the 24 October 2026 presentation pass, the mounted WebKit fixture passed
+96 tests with optimized CSS and real product fonts. Seven focused unit files
+passed 84 tests, including setup, callback, workspace navigation, KYC intake,
+request actions, receipt rows and saved-state behavior; six adjacent route,
+connector, request-wire and receipt-storage files passed another 73 tests. Typecheck, changed-file
+ESLint, Back/Search regeneration, `ui:doctor`, cache checks (102 tests),
+`verify:docs`, the full `./bin/hushh docs verify` runner, and the
+render-performance check passed. Design-system structure,
+accent, hierarchy and restraint checks passed; the aggregate design-system
+command still fails at its brand-assets stage, which reports unrelated generated
+SVG/native assets as stale. Those assets were not changed in this Mail pass.
+Live provider/device acceptance remains unverified and must be tied to its exact
+revision/environment. Pre-push core and hosted CI outcomes belong to the
+publishing PR and its exact head. Future changes should reuse shared primitives
+and update this contract with actual behavior, without creating a second
+route/action/schema/font registry.
 
 
 ## Receipt continuity during processing migration
