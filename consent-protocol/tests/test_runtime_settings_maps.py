@@ -504,7 +504,8 @@ def test_managed_capability_policy_is_uat_only_versioned_and_rejects_conflicting
         load_managed_runtime_policy(path, environment="uat")
 
 
-def test_compact_public_search_descriptor_and_qualification_are_one_policy(monkeypatch, tmp_path):
+@pytest.mark.parametrize("capability", ["compact_public_search", "one_text_root"])
+def test_text_descriptor_and_qualification_are_one_policy(monkeypatch, tmp_path, capability):
     import copy
     import json
 
@@ -518,9 +519,7 @@ def test_compact_public_search_descriptor_and_qualification_are_one_policy(monke
     baseline = load_managed_runtime_policy(environment="uat")
     path = tmp_path / "profile.json"
     changed = copy.deepcopy(original)
-    changed["managed_runtime_uat"]["azure"]["compact_public_search"]["deployment"] = (
-        "another-admitted-search"
-    )
+    changed["managed_runtime_uat"]["azure"][capability]["deployment"] = "another-admitted-search"
     path.write_text(json.dumps(changed))
     updated = load_managed_runtime_policy(path, environment="uat")
     assert updated["config_fingerprint"] != baseline["config_fingerprint"]
@@ -529,20 +528,18 @@ def test_compact_public_search_descriptor_and_qualification_are_one_policy(monke
         value = copy.deepcopy(original)
         policy = value["managed_runtime_uat"]
         if defect == "unqualified":
-            policy["required_capabilities"].remove("compact_public_search")
+            policy["required_capabilities"].remove(capability)
         elif defect == "unbound":
-            policy["azure"].pop("compact_public_search")
+            policy["azure"].pop(capability)
         elif defect == "wrong_budget":
-            policy["azure"]["compact_public_search"]["reasoning_effort"] = "minimal"
+            policy["azure"][capability]["reasoning_effort"] = "minimal"
         else:
-            policy["azure"]["compact_public_search"]["endpoint"] = "https://untrusted.test"
+            policy["azure"][capability]["endpoint"] = "https://untrusted.test"
         path.write_text(json.dumps(value))
         with pytest.raises(ValueError):
             load_managed_runtime_policy(path, environment="uat")
     legacy = copy.deepcopy(original)
-    legacy["managed_runtime_uat"]["azure"].pop("compact_public_search")
-    legacy["managed_runtime_uat"]["required_capabilities"].remove("compact_public_search")
+    legacy["managed_runtime_uat"]["azure"].pop(capability)
+    legacy["managed_runtime_uat"]["required_capabilities"].remove(capability)
     path.write_text(json.dumps(legacy))
-    assert (
-        "compact_public_search" not in load_managed_runtime_policy(path, environment="uat")["azure"]
-    )
+    assert capability not in load_managed_runtime_policy(path, environment="uat")["azure"]

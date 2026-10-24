@@ -6,6 +6,7 @@ select tools, retry requests, or grant invocation/data/action authority.
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
 from typing import Any, Literal
@@ -356,6 +357,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     default_reasoning_effort: Literal["none", "minimal", "low"] | None = None
     text_verbosity: Literal["low", "medium", "high"] | None = None
     web_search_context_size: Literal["low", "medium", "high"] | None = None
+    call_role: Literal["root", "search", "specialist", "unbound"] = "unbound"
 
     @field_validator("endpoint")
     @classmethod
@@ -407,7 +409,12 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
-        counters: dict[str, Any] = {"auth_ms": 0, "first_output_ms": None}
+        counters: dict[str, Any] = {
+            "auth_ms": 0,
+            "first_output_ms": None,
+            "role": self.call_role,
+            "stream": stream,
+        }
         source = self._generate_azure_content(llm_request, stream, counters)
         async with aclosing(observe_call(source, self.model, counters)) as results:
             async for result in results:
@@ -448,8 +455,13 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
         ) as client:
             if self.require_current is not None:
                 await self.require_current()
+            request_started = time.perf_counter()
+            counters["dispatches"] = 1
             if not stream:
                 response = await client.responses.create(**kwargs)
+                counters["wire_completed_ms"] = round(
+                    (time.perf_counter() - request_started) * 1000
+                )
                 record_response_metadata(response, counters)
                 if self.require_current is not None:
                     await self.require_current()
@@ -458,49 +470,78 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                 )
                 return
             events = await client.responses.create(**kwargs, stream=True)
-            completed = False
-            try:
-                async for event in events:
-                    kind = _value(event, "type")
-                    if kind in {
-                        "response.output_text.delta",
-                        "response.reasoning_summary_text.delta",
-                    }:
-                        delta = _value(event, "delta")
-                        if not isinstance(delta, str):
-                            raise ValueError("Invalid Azure streaming text")
-                        if delta:
-                            if self.require_current is not None:
-                                await self.require_current()
-                            yield LlmResponse(
-                                content=types.Content(
-                                    role="model",
-                                    parts=[
-                                        types.Part(
-                                            text=delta,
-                                            thought=True
-                                            if kind == "response.reasoning_summary_text.delta"
-                                            else None,
-                                        )
-                                    ],
-                                ),
-                                partial=True,
+            counters["headers_ms"] = round((time.perf_counter() - request_started) * 1000)
+            async with aclosing(
+                self._stream_responses(
+                    events, allowed=allowed, counters=counters, request_started=request_started
+                )
+            ) as responses:
+                async for response in responses:
+                    yield response
+
+    async def _stream_responses(self, events, *, allowed, counters, request_started):
+        completed = False
+        try:
+            async for event in events:
+                counters.setdefault(
+                    "wire_first_event_ms", round((time.perf_counter() - request_started) * 1000)
+                )
+                kind = _value(event, "type")
+                if kind in {
+                    "response.output_text.delta",
+                    "response.reasoning_summary_text.delta",
+                }:
+                    delta = _value(event, "delta")
+                    if not isinstance(delta, str):
+                        raise ValueError("Invalid Azure streaming text")
+                    if delta:
+                        if kind == "response.output_text.delta":
+                            counters.setdefault(
+                                "wire_first_text_ms",
+                                round((time.perf_counter() - request_started) * 1000),
                             )
-                    elif kind == "response.completed":
-                        record_response_metadata(_value(event, "response"), counters)
                         if self.require_current is not None:
                             await self.require_current()
-                        final = _response(
-                            _value(event, "response"),
-                            allowed_names=allowed,
-                            allow_web_search=self.allow_web_search,
+                        yield LlmResponse(
+                            custom_metadata={
+                                "azure_text_part": [
+                                    _value(event, "output_index"),
+                                    _value(event, "content_index"),
+                                ]
+                            }
+                            if kind == "response.output_text.delta"
+                            else None,
+                            content=types.Content(
+                                role="model",
+                                parts=[
+                                    types.Part(
+                                        text=delta,
+                                        thought=True
+                                        if kind == "response.reasoning_summary_text.delta"
+                                        else None,
+                                    )
+                                ],
+                            ),
+                            partial=True,
                         )
-                        completed = True
-                        yield final
-                        return
-                    elif kind in {"error", "response.failed", "response.incomplete"}:
-                        _raise_stream_error(event)
-                if not completed:
-                    raise ValueError("Azure streaming response ended before completion")
-            finally:
-                await events.close()
+                elif kind == "response.completed":
+                    counters["wire_completed_ms"] = round(
+                        (time.perf_counter() - request_started) * 1000
+                    )
+                    record_response_metadata(_value(event, "response"), counters)
+                    if self.require_current is not None:
+                        await self.require_current()
+                    final = _response(
+                        _value(event, "response"),
+                        allowed_names=allowed,
+                        allow_web_search=self.allow_web_search,
+                    )
+                    completed = True
+                    yield final
+                    return
+                elif kind in {"error", "response.failed", "response.incomplete"}:
+                    _raise_stream_error(event)
+            if not completed:
+                raise ValueError("Azure streaming response ended before completion")
+        finally:
+            await events.close()

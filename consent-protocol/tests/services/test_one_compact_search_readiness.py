@@ -64,3 +64,46 @@ async def test_compact_readiness_qualifies_exact_selected_model_and_public_facts
         assert client.requests[0]["model"] == "one-search-gpt-54-mini-eval"
         assert client.requests[0]["reasoning"] == {"effort": "none"}
         assert client.requests[0]["tools"][0]["search_context_size"] == "low"
+
+
+async def test_admitted_root_model_preserves_full_tool_schemas_and_specialist_models(monkeypatch):
+    from google.adk.agents.invocation_context import InvocationContext
+    from google.adk.agents.readonly_context import ReadonlyContext
+    from google.adk.sessions import InMemorySessionService, Session
+
+    from hushh_mcp.one_adk import agent_tree as _tree
+    from tests.services.test_one_search_answer_contract import _provider_case
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    model, _, _, _, _ = _provider_case(monkeypatch, "finish")
+    candidate = _tree.build_one_text_agent(model=model, allow_workspace_tools=True)
+    with monkeypatch.context() as control:
+        control.setattr(_tree, "one_chat_root_model", lambda value: value)
+        baseline = _tree.build_one_text_agent(model=model, allow_workspace_tools=True)
+    assert candidate.model.model == "one-search-gpt-54-mini-eval"
+    assert candidate.model.default_reasoning_effort == "none"
+    assert baseline.model.model == model.model
+    context = ReadonlyContext(
+        InvocationContext(
+            invocation_id="synthetic",
+            agent=candidate,
+            session_service=InMemorySessionService(),
+            session=Session(id="synthetic", app_name="root_inventory", user_id="synthetic"),
+        )
+    )
+
+    async def inventory(root):
+        return [
+            t._get_declaration().model_dump(exclude_none=True)
+            for t in await root.canonical_tools(context)
+            if t._get_declaration() is not None
+        ]
+
+    inventory_before = await inventory(baseline)
+    assert len(inventory_before) >= 60 and await inventory(candidate) == inventory_before
+    for name in ("google_search", "finance", "wallet"):
+        tool = next(t for t in candidate.tools if getattr(t, "name", "") == name)
+        assert tool.agent.model.model == model.model

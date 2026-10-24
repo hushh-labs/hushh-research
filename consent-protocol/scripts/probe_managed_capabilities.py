@@ -486,6 +486,10 @@ async def probe_managed_capabilities(provider: str) -> dict:
         await check(name, operation)
     if "compact_public_search" in policy["required_capabilities"]:
         await check("compact_public_search", lambda: _probe_public_search(compact=True))
+    if "one_text_root" in policy["required_capabilities"]:
+        from scripts.probe_one_text_root import probe_one_text_root
+
+        await check("one_text_root", probe_one_text_root)
     report["ready"] = set(report["capabilities"]) == set(policy["required_capabilities"]) and all(
         item["ready"] for item in report["capabilities"].values()
     )
