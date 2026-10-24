@@ -38,18 +38,6 @@ pool modifiers and enabled `DB_SQLALCHEMY_USE_NULL_POOL` fail closed: they canno
 establish the reviewed finite pool ceiling. A passing connection check does not
 establish adequate database CPU, IO, query latency or lock headroom.
 
-Retained revisions with a direct `gunicorn` launcher and different finite `WEB_CONCURRENCY` and CLI
-worker counts reserves the larger declaration and reports both values. This is
-a conservative connection bound while historical candidates drain. Unknown
-launchers, shell wrappers, secret-backed values, malformed counts and conflicting
-CLI counts still block admission. Normal backend deploys clear inherited command
-and argument overrides, restoring the selected image's launcher and reviewed
-worker environment. Retained revisions, reserve and the admission limit remain
-part of every budget calculation.
-Fixed bridge qualification and inherited-candidate checks still require
-consistent declarations; conservative retained accounting does not qualify a
-new launcher configuration.
-
 The checker currently counts pooled connections. Session-scoped advisory work
 uses `dedicated_connection()` outside those pools; its connections are not yet
 included in that calculation or bounded by a shared dedicated-session budget.

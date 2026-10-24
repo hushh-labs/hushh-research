@@ -357,6 +357,23 @@ def test_container_takes_its_worker_count_from_the_deploy() -> None:
     dockerfile = (BACKEND_ROOT / "Dockerfile").read_text(encoding="utf-8")
     command = next(line for line in dockerfile.splitlines() if line.startswith("CMD "))
     assert "-w ${WEB_CONCURRENCY:-" in command
+    # Execute the actual deploy argument construction against a synthetic
+    # inherited launcher. Both fields must reset before the image CMD can use
+    # the declared process bound; no cloud command runs in this regression.
+    source = BACKEND_DEPLOY.read_text(encoding="utf-8")
+    start = source.index("cmd=(\n  gcloud run deploy")
+    block = source[start : source.index("\n)\n", start) + 3]
+    variables = dict.fromkeys(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", block), "synthetic")
+    output = _run_bash(
+        block
+        + '\nlauncher=gunicorn; arguments="server:app -w 1"\n'
+        + 'for option in "${cmd[@]}"; do\n'
+        + 'case "$option" in --command=) launcher="";; --args=) arguments="";; esac\n'
+        + "done",
+        variables,
+        "${launcher}:${arguments}",
+    )
+    assert output == ":"
 
 
 def test_preview_oauth_returns_to_one_process_without_changing_shared_lanes() -> None:

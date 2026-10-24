@@ -59,14 +59,6 @@ def revision(
     }
 
 
-def job_document(name: str, env: list[dict], connection: str = CONNECTION, *, task_count: int = 1, parallelism: int = 1) -> dict:
-    task = {"taskCount": task_count, "parallelism": parallelism,
-            "template": {"spec": {"containers": [{"env": copy.deepcopy(env)}]}}}
-    template = {"metadata": {"annotations": {"run.googleapis.com/cloudsql-instances": connection}},
-                "spec": task}
-    return {"metadata": {"name": name}, "spec": {"template": template}}
-
-
 class RuntimeCapacityBudgetTest(unittest.TestCase):
     def test_effective_async_pool_capacity_matches_minimum_override(self) -> None:
         for minimum, maximum, expected in (
@@ -248,40 +240,6 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         with self.assertRaises(budget.BudgetError):
             budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)
 
-    def test_direct_gunicorn_mismatch_reserves_larger_count_and_reports_it(self) -> None:
-        row = revision("consent-protocol-retained")
-        container = row["spec"]["containers"][0]
-        container["command"] = ["gunicorn"]
-        for environment_workers, launcher_workers in ((2, 1), (1, 3)):
-            with self.subTest(environment=environment_workers, launcher=launcher_workers):
-                container["env"] = [e for e in container["env"] if e["name"] != "WEB_CONCURRENCY"]
-                container["env"].append({"name": "WEB_CONCURRENCY", "value": str(environment_workers)})
-                container["args"] = ["server:app", "-w", str(launcher_workers)]
-                report = budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION,
-                                                     allow_gunicorn_bound=True)
-                self.assertEqual(report["workers_per_instance"], max(environment_workers, launcher_workers))
-                self.assertEqual(report["connections"], 35 * max(environment_workers, launcher_workers))
-                self.assertEqual(report["worker_declarations"], sorted([environment_workers, launcher_workers]))
-                self.assertEqual(report["worker_reservation_basis"], "conservative_direct_gunicorn_bound")
-                with self.assertRaisesRegex(budget.BudgetError, "conflicting worker"):
-                    budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION)
-        for command in (["python", "wrapper.py"], ["custom-launcher"], ["sh", "-c"], []):
-            with self.subTest(command=command), self.assertRaises(budget.BudgetError):
-                container["command"] = command
-                budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION,
-                                            allow_gunicorn_bound=True)
-        container["command"] = ["gunicorn"]
-        for args in (["-w", "1", "--workers", "2"], ["-w", "0"], ["-w", "${WORKERS}"]):
-            with self.subTest(args=args), self.assertRaises(budget.BudgetError):
-                container["args"] = args
-                budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION,
-                                            allow_gunicorn_bound=True)
-        container["args"] = ["-w", "2"]
-        container["env"][-1] = {"name": "WEB_CONCURRENCY", "valueFrom": {"secretKeyRef": {"name": "workers", "key": "latest"}}}
-        with self.assertRaisesRegex(budget.BudgetError, "must be inspectable"):
-            budget.revision_connections(row, "consent-protocol", SETTINGS, CONNECTION,
-                                        allow_gunicorn_bound=True)
-
     def test_environment_policy_is_atomic_and_live_limit_stays_strict(self) -> None:
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
         # UAT admits up to 900 projected (reserve included) of 1000 since
@@ -370,13 +328,31 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
                 "run.googleapis.com/cloudsql-instances"
             ] = connection
             retained["spec"]["containers"][0]["env"][1]["value"] = "4"
-        # A retained direct Gunicorn mismatch reserves the larger value; it
-        # does not make an over-budget release admissible.
-        container = revisions[0]["spec"]["containers"][0]
-        container["command"] = ["gunicorn"]
-        container["args"] = ["server:app", "-w", "1"]
-        container["env"].append({"name": "WEB_CONCURRENCY", "value": "2"})
-        job = job_document("consent-protocol-genai-readiness", revisions[0]["spec"]["containers"][0]["env"], connection)
+        job = {
+            "metadata": {"name": "consent-protocol-genai-readiness"},
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "run.googleapis.com/cloudsql-instances": connection
+                        }
+                    },
+                    "spec": {
+                        "taskCount": 1,
+                        "parallelism": 1,
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {"env": copy.deepcopy(
+                                        revisions[0]["spec"]["containers"][0]["env"]
+                                    )}
+                                ]
+                            }
+                        },
+                    },
+                }
+            },
+        }
         inventory = {
             "database_max_connections": 400,
             "services": {
@@ -608,11 +584,41 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             budget.revision_connections(source, "app", SETTINGS, CONNECTION)
 
     def test_job_parallelism_and_overlap_are_conservative(self) -> None:
-        job = job_document("db-job", [
-            {"name": "DB_POOL_MAX_SIZE", "value": "5"},
-            {"name": "DB_SQLALCHEMY_POOL_SIZE", "value": "4"},
-            {"name": "DB_SQLALCHEMY_MAX_OVERFLOW", "value": "1"},
-        ], task_count=4, parallelism=3)
+        job = {
+            "metadata": {"name": "db-job"},
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "run.googleapis.com/cloudsql-instances": CONNECTION
+                        }
+                    },
+                    "spec": {
+                        "taskCount": 4,
+                        "parallelism": 3,
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "env": [
+                                            {"name": "DB_POOL_MAX_SIZE", "value": "5"},
+                                            {
+                                                "name": "DB_SQLALCHEMY_POOL_SIZE",
+                                                "value": "4",
+                                            },
+                                            {
+                                                "name": "DB_SQLALCHEMY_MAX_OVERFLOW",
+                                                "value": "1",
+                                            },
+                                        ]
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                }
+            },
+        }
         row = budget.job_budget(
             job, {"connections_per_task": 8, "concurrent_executions": 2}, CONNECTION
         )

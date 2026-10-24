@@ -1115,6 +1115,26 @@ Retained database-connected revisions remain in admission accounting until safe
 retirement. Zero minimum instances and aggregate SQL peaks do not prove that older
 generations have finished their admitted requests. A shortage defers deployment.
 
+The manual production capacity bridge has a narrowly pinned `serving_backend_clone_v3`
+recovery for healthy revision `consent-protocol-00280-toz` and the failed launcher in
+`consent-protocol-00283-ges`. It verifies the exact failed run's attempt-2 upload window,
+artifact digest and successful rollback receipt. Only that immutable failed spec receives
+a conservative two-worker reservation in maintenance accounting; ordinary worker conflicts
+still refuse deployment. SQL limits, every retained revision, jobs and administrative reserve
+remain counted. The clone preserves the healthy image, authority and traffic, with unchanged
+secret-history verification. A verified old bridge can transition only after it and its
+predecessor are absent and unreferenced; its full receipt and checksum remain archived.
+Unresolved intents cannot be discarded. Existing tag retirement and the full timeout drain
+must finish before ordinary deployment admission can pass. Backend deployment clears inherited
+command and argument overrides so the accepted image's launcher honors `WEB_CONCURRENCY`.
+
+Production CRM qualification uses the application's `crm_product_available` authority.
+The hosted CRM product is paused, so its gateway-only credentials and transport probe are
+explicitly `not_applicable_product_paused`, without claiming gateway verification. If that
+authority admits the product, required credential parity and the no-record gateway handshake
+remain mandatory. Missing or malformed qualification blocks both paths; no product flag,
+registry row, credential or other integration gate changes to obtain a passing release.
+
 Both UAT admission observers stop within five minutes and poll at most once a minute.
 Direct inventory checks under deployment locks also bound the entire process group
 to 295 seconds, with two seconds for forced teardown. Their timeouts remain verification

@@ -59,25 +59,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
-def test_backend_deploy_restores_image_launcher_after_explicit_capacity_override() -> None:
-    source = (Path(__file__).resolve().parents[2] / "scripts/deploy/backend-deploy.sh").read_text()
-    start = source.index("cmd=(\n")
-    command_array = source[start : source.index("\n)\n", start) + 2]
-    variables = set(re.findall(r"\$\{([A-Za-z_][A-Za-z_0-9]*)\}", command_array))
-    result = subprocess.run(  # noqa: S603 - fixed repository array; no cloud command executed
-        ["bash", "-c", command_array + '\nprintf "%s\\0" "${cmd[@]}"'],
-        env={**os.environ, **{name: "synthetic" for name in variables}},
-        capture_output=True,
-        check=True,
-    )
-    arguments = result.stdout.decode().rstrip("\0").split("\0")
-    for option in ("command", "args"):
-        assert arguments.count(f"--{option}=") == 1, (
-            f"Inherited {option} would survive the normal deploy"
-        )
-
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Cloud Build's hard cap on a single build-step arg.
@@ -284,6 +265,28 @@ def test_substituted_backend_deploy_body_fits_every_lane(workflow_path: str) -> 
         f"deploy lane. Keep the step body in scripts/deploy/backend-deploy.sh and "
         f"pass values through the step's env: field, one substitution per entry."
     )
+
+
+CLOUD_BUILD_MAX_STEP_ENV = 100
+
+
+def test_no_cloud_build_step_exceeds_the_env_entry_cap() -> None:
+    """Cloud Build rejects a step with more than 100 env entries before anything runs.
+
+    Seen live 2026-09-02 on the dev lane: `invalid .steps.env field: build step 3 too
+    many envs (max: 100)` after the September main merge pushed deploy-backend to 101.
+    The five Cloud Run capacity knobs now travel as one packed _CLOUD_RUN_CAPACITY entry.
+    """
+    for rel in ("deploy/backend.cloudbuild.yaml", "deploy/frontend.cloudbuild.yaml"):
+        config = _load(rel)
+        if config is None:
+            continue
+        for step in config.get("steps") or []:
+            count = len(step.get("env") or [])
+            assert count <= CLOUD_BUILD_MAX_STEP_ENV, (
+                f"{rel} step {step.get('id') or step.get('name')} carries {count} env entries; "
+                f"Cloud Build refuses more than {CLOUD_BUILD_MAX_STEP_ENV}"
+            )
 
 
 def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env() -> None:
