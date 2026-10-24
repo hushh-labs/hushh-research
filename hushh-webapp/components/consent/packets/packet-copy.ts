@@ -84,7 +84,7 @@ export function packetPeriod(packet: DrivePacket): DrivePacketPeriod | null {
 }
 
 export type OwnerPacketStatus = {
-  word: "Ready to list" | "Listed" | "Not listed" | "Checking" | "Needs attention" | "Couldn’t check" | "Too large to list" | "Paused" | "Building" | "No files";
+  word: "Ready to list" | "Listed" | "Not listed" | "Checking" | "Needs attention" | "Couldn’t check" | "Too large to list" | "Paused" | "Building" | "No shareable files";
   tone: PacketTone;
   detail: string;
   /** Lower sorts first: decisions, then live listings, then work in progress. */
@@ -94,7 +94,7 @@ export type OwnerPacketStatus = {
 export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
   if (packet.kind === "provider_discovery") {
     if (packet.state === "building") return { word: "Building", tone: "waiting", order: 4, detail: "Updates until this period closes." };
-    if (packet.state === "empty") return { word: "No files", tone: "paused", order: 3, detail: "No matching files this period." };
+    if (packet.state === "empty") return { word: "No shareable files", tone: "paused", order: 3, detail: "No files from this search are currently available to share." };
     if (packet.state === "unable_to_verify") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Files couldn’t be confirmed." };
     if (packet.freshness !== "current") return { word: "Paused", tone: "paused", order: 5, detail: "This packet isn’t available now." };
     if (packet.listingEnabled) return { word: "Listed", tone: "listed", order: 1, detail: "Connections can ask to buy. You approve each buyer." };
@@ -160,7 +160,9 @@ const PARTIAL_DRIVE = "this is not a complete inventory of matching records.";
 
 /** What a packet may leave out, in plain words, for its buyers and for its owner's "What buyers see". */
 export function buyerNotes(packet: DrivePacket): string[] {
-  if (packet.kind === "provider_discovery") return ["Files matched a Drive search. Their contents were not read."];
+  if (packet.kind === "provider_discovery") return [packet.state === "ready"
+    ? "Files matched a Drive search. Their contents were not read."
+    : "Packets use Drive search results. File contents are not read."];
   return packet.description.includes(PARTIAL_DRIVE) ? ["It may not include every matching file."] : [];
 }
 
