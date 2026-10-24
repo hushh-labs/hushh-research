@@ -2,8 +2,8 @@
 
 ## Status and evidence
 
-**2026-10-22 UTC — qualified image published; Azure owner installation verified,
-Browser acceptance still open.**
+**2026-10-24 UTC — application repair accepted on dev/UAT; Dev29 synthetic
+format recovery passed on both clouds. Installed Browser acceptance stays open.**
 One and Browser now share one owner container, non-root UID and lifecycle. GCP
 uses Cloud Run with Chromium's internal sandbox enabled; Azure uses Container
 Apps with it explicitly disabled. The whole owner pod is the compromise boundary.
@@ -22,16 +22,23 @@ Full takeover, handback, reconnect and Stop remain unverified on the owner image
 GCP inventory/domain repair is recorded; its exact Browser activation and installed
 owner acceptance remain pending. Source implementation never grants activation.
 
-Application Hosting/AI/cleanup corrections PR #8386 and #8391 and the private
-model/Puppy readiness correction PR #8395 are on main. On 23 October 2026 both dev
-services accepted `713981942c`; UAT retains accepted older `4868571487` after the following
-`713981942c` promotion safely rolled back at email readiness. The request returned
-200 in 19.2 seconds beyond a 15-second verifier timeout; its bounded operator
-repair is local. This is not installed Browser acceptance. The provider-receipt collector
-repair PR #8398 has passed real UAT capture.
-These application deployments do not install a new Browser image or
-complete the owner journeys above. The readiness memo records dev/UAT serving and
-installation outcomes separately.
+Application Hosting/AI/cleanup and provider-correct model routing remain on main.
+On 24 October 2026, PR #8401 landed as `ca83c0bf5a`; exact CI, landed smoke and
+[dev acceptance](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106)
+passed. UAT also accepted `ca83c0bf5a` in
+[run 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175);
+schema, provenance, semantics and worker attestation passed. Corporate ADC confirms
+both serving revisions at 100% traffic.
+The earlier email-readiness timeout and collector defects have merged repairs.
+
+The new Dev29 image is `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by
+that governed dev run. Synthetic format recovery from `8b846022…68ac07` passed
+on GCP and Azure, with identity/records/Files preserved and task-owned resources
+cleaned. GCP object soft-delete retention remains explicit. Other predecessors,
+normal startup/drain and installed Browser still require their own proof.
+Existing-owner eligibility remains empty and Browser execution pins are withheld.
+This publication does not install a pod or complete an owner Browser journey.
+The readiness memo records source, serving and installation outcomes separately.
 
 The current qualified policy covers Python documentation public research only.
 Login, submissions, selected PKM production and Files transfers retain their
