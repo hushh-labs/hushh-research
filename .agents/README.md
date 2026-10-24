@@ -64,6 +64,14 @@ Runtime product agents remain in
 [`consent-protocol/hushh_mcp/agents`](../consent-protocol/hushh_mcp/agents/).
 They are separate from development subagents.
 
+## Machine-local settings
+
+Portable instructions, skills and subagents remain authored in this tree. Personal
+host overrides belong in ignored `.agents/.local/`, outside the shared framework.
+An existing native `settings.local.json` may link to that local file; preserve its
+bytes, permissions and live connections during migration. Do not commit private
+settings or recreate host-specific policy. Native discovery paths remain thin links.
+
 ## Imports and compatibility
 
 Pinned imports retain their original bytes, licenses and review classification.
