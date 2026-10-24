@@ -30,6 +30,7 @@ from hushh_mcp.services.scope_commerce import ScopeCommerceService
 from hushh_mcp.services.scope_commerce import sync_bridge as commerce_bridge
 
 SERVICE_ROOT = pathlib.Path(__file__).resolve().parents[2]
+pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
 MIGRATIONS = SERVICE_ROOT / "db" / "migrations"
 DRIVE_ERASE = drive_sharing_retention.erase_drive_account_in_transaction
 

@@ -445,9 +445,19 @@ user-keyed tables with the production erasure path, checked cascades and explici
 retention reasons. A feature that adds an unaccounted user-keyed table fails this
 gate.
 
-The database regression uses slow synthetic segment removal under a short SQL
-statement deadline. It proves bounded batches complete in one transaction,
-a later failure restores every segment, and another owner's history survives.
+The `feature_account_deletion` / `@feature_account_deletion` tag identifies this
+pack; run `bash scripts/ci/account-deletion-check.sh` for its complete mandatory
+selection. Tags aid discovery; the required gate runs explicit files so removing
+a marker cannot silently deselect a regression.
+
+The database regression sends HTTP through the production router, service and
+transaction into disposable PostgreSQL. It includes hundreds of parent revisions,
+multiple segment batches in one parent, and slow deletes on both tables under a
+short SQL statement deadline. A failure at final vault cleanup restores both
+recovery tables; another owner's history survives. The existing request context
+is asserted across the HTTP response and database worker. Client tests cover
+delayed status replies and pending-lock recovery without another DELETE or a
+premature uncertain sign-out.
 Recovery-reference indexes are replayed, validated and rolled back on the same
 disposable database. This establishes these contracts with synthetic information;
 it does not measure deletion time for a real person's full recovery history.

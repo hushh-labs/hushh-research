@@ -29,6 +29,8 @@ from fastapi.testclient import TestClient
 import api.routes.account as account_module
 from api.middleware import require_vault_owner_token
 
+pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
+
 
 def _stub_vault_owner():
     return {"user_id": "test-uid", "token": "fake-token", "scope": "vault.owner"}

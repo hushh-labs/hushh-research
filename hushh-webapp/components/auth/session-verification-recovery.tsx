@@ -1,5 +1,8 @@
 "use client";
 
+import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
+import { useAuth } from "@/hooks/use-auth";
+
 export function SessionVerificationRecovery({
   onRetry,
   onSignOut,
@@ -7,6 +10,9 @@ export function SessionVerificationRecovery({
   onRetry: () => void;
   onSignOut: () => void;
 }) {
+  const { user } = useAuth();
+  const deletionPending = isAccountDeletionActive(user?.uid);
+
   return (
     <main className="flex min-h-[70vh] items-center justify-center bg-background px-6 py-12">
       <section
@@ -24,11 +30,12 @@ export function SessionVerificationRecovery({
           id="session-verification-title"
           className="text-xl font-semibold tracking-tight text-foreground"
         >
-          Reconnect to continue securely
+          {deletionPending ? "Checking your account deletion" : "Reconnect to continue securely"}
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          We couldn&apos;t verify this account, so your private information
-          stayed hidden. Check your connection and try again.
+          {deletionPending
+            ? "Your account deletion is still being checked. Your private information stays hidden until we confirm the result."
+            : "We couldn't verify this account, so your private information stayed hidden. Check your connection and try again."}
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <button
@@ -36,7 +43,7 @@ export function SessionVerificationRecovery({
             onClick={onRetry}
             type="button"
           >
-            Try again
+            {deletionPending ? "Check status" : "Try again"}
           </button>
           <button
             className="min-h-11 rounded-full border border-border px-6 text-sm font-semibold text-foreground"

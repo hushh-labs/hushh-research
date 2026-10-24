@@ -62,11 +62,9 @@ import {
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
   authSessionInvalidationFromSiblingTabStorageEvent,
-  authSessionLandingCodeFromBackendPayload,
   authSessionInvalidationCodeFromFirebaseError,
   buildLoginRouteWithAuthSessionNotice,
   dispatchAuthSessionInvalidated,
-  isAccountDeletionInProgressBackendPayload,
   isAuthSessionInvalidationCode,
   type AuthSessionInvalidationDetail,
   type AuthSessionInvalidationCode,
@@ -75,10 +73,14 @@ import {
   publishValidatedAuthSessionOwner,
   AUTH_SESSION_VERIFICATION_REQUIRED_EVENT,
   snapshotValidatedAuthSessionOwner,
+  isValidatedAuthSessionOwnerCurrent,
   getAuthSessionGeneration,
   type AuthSessionVerificationRequiredDetail,
+  type AuthSessionOwnerSnapshot,
 } from "@/lib/auth/session-owner";
+import { inspectAccountSessionStatusResponse, waitForAccountDeletionReprobe, withinAccountSessionValidationBudget } from "@/lib/auth/account-session-status";
 import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
+import { clearAccountDeletionActive, markAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
@@ -92,190 +94,10 @@ const SESSION_VERIFICATION_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000] as c
 const PHONE_RECOVERY_RETRY_DELAYS_MS = [2_000, 5_000, 15_000] as const;
 const PHONE_RECOVERY_REQUEST_BUDGET_MS = 10_000;
 const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
-const ACCOUNT_DELETION_REPROBE_DEFAULT_DELAY_MS = 2_000;
-const ACCOUNT_DELETION_REPROBE_MAX_DELAY_MS = 2_000;
-const ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES = 4_096;
 
 type AccountSessionValidationResult =
   | { outcome: "active" | "unavailable" }
   | { outcome: "terminal"; code: AuthSessionInvalidationCode };
-
-type AccountSessionStatusInspection =
-  | { outcome: "active" }
-  | { outcome: "credential_rejected" }
-  | { outcome: "unavailable" }
-  | { outcome: "deletion_in_progress"; response: Response }
-  | {
-      outcome: "terminal";
-      code: "account_not_found" | "account_deleted" | "session_invalid";
-    };
-
-function withinAccountSessionValidationBudget<T>(
-  promise: Promise<T>,
-  deadlineMs: number,
-): Promise<T> {
-  const remainingMs = Math.max(0, deadlineMs - Date.now());
-  if (remainingMs === 0) {
-    return Promise.reject(
-      Object.assign(new Error("Account session validation timed out."), {
-        name: "TimeoutError",
-      }),
-    );
-  }
-
-  return new Promise<T>((resolve, reject) => {
-    const timeout = globalThis.setTimeout(() => {
-      reject(
-        Object.assign(new Error("Account session validation timed out."), {
-          name: "TimeoutError",
-        }),
-      );
-    }, remainingMs);
-    promise.then(
-      (value) => {
-        globalThis.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        globalThis.clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
-
-function hasJsonResponseContentType(response: Response): boolean {
-  const contentType = response.headers.get("Content-Type")?.toLowerCase() ?? "";
-  const mediaType = contentType.split(";", 1)[0]?.trim() ?? "";
-  return mediaType === "application/json" || mediaType.endsWith("+json");
-}
-
-async function readBoundedAccountSessionStatusBody(
-  response: Response,
-  deadlineMs: number,
-): Promise<string> {
-  const declaredLength = Number(response.headers.get("Content-Length"));
-  if (
-    Number.isFinite(declaredLength) &&
-    declaredLength > ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES
-  ) {
-    throw new Error("Account session status response is too large.");
-  }
-
-  const payload = await withinAccountSessionValidationBudget(
-    response.clone().text(),
-    deadlineMs,
-  );
-  if (
-    new TextEncoder().encode(payload).byteLength >
-    ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES
-  ) {
-    throw new Error("Account session status response is too large.");
-  }
-  return payload;
-}
-
-function isAuthoritativeActiveSessionPayload(payload: string): boolean {
-  try {
-    const parsed: unknown = JSON.parse(payload);
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed) &&
-      (parsed as { active?: unknown }).active === true
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function inspectAccountSessionStatusResponse(
-  response: Response,
-  deadlineMs: number,
-): Promise<AccountSessionStatusInspection> {
-  if (response.status === 200) {
-    if (!hasJsonResponseContentType(response)) {
-      return { outcome: "unavailable" };
-    }
-    try {
-      const payload = await readBoundedAccountSessionStatusBody(
-        response,
-        deadlineMs,
-      );
-      return isAuthoritativeActiveSessionPayload(payload)
-        ? { outcome: "active" }
-        : { outcome: "unavailable" };
-    } catch {
-      return { outcome: "unavailable" };
-    }
-  }
-
-  let payload = "";
-  try {
-    payload = await readBoundedAccountSessionStatusBody(response, deadlineMs);
-  } catch {
-    // A 423 is exclusive to the session-status lifecycle lock contract. Even
-    // if a broken transport prevents reading its body, releasing Vault would
-    // be less safe than treating the deletion outcome as unresolved.
-    if (response.status === 423) {
-      return { outcome: "deletion_in_progress", response };
-    }
-    return { outcome: "unavailable" };
-  }
-
-  if (response.status === 401) {
-    const code = authSessionLandingCodeFromBackendPayload(payload);
-    return code
-      ? { outcome: "terminal", code }
-      : { outcome: "credential_rejected" };
-  }
-
-  if (
-    response.status === 423 &&
-    isAccountDeletionInProgressBackendPayload(payload)
-  ) {
-    return { outcome: "deletion_in_progress", response };
-  }
-
-  return { outcome: "unavailable" };
-}
-
-function accountDeletionReprobeDelayMs(response: Response): number {
-  const retryAfter = response.headers.get("Retry-After");
-  const retryAfterSeconds =
-    retryAfter === null ? Number.NaN : Number(retryAfter);
-  if (
-    retryAfter !== "" &&
-    Number.isFinite(retryAfterSeconds) &&
-    retryAfterSeconds >= 0
-  ) {
-    return Math.min(
-      retryAfterSeconds * 1_000,
-      ACCOUNT_DELETION_REPROBE_MAX_DELAY_MS,
-    );
-  }
-  return ACCOUNT_DELETION_REPROBE_DEFAULT_DELAY_MS;
-}
-
-async function waitForAccountDeletionReprobe(
-  response: Response,
-  deadlineMs: number,
-): Promise<void> {
-  const remainingMs = deadlineMs - Date.now();
-  if (remainingMs <= 1) {
-    throw Object.assign(new Error("Account deletion re-probe timed out."), {
-      name: "TimeoutError",
-    });
-  }
-
-  const delayMs = Math.min(
-    accountDeletionReprobeDelayMs(response),
-    remainingMs - 1,
-  );
-  await new Promise<void>((resolve) => {
-    globalThis.setTimeout(resolve, delayMs);
-  });
-}
 
 function authInvalidationUserIdFromError(error: unknown): string | null {
   let current: unknown = error;
@@ -402,6 +224,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const nativeCompositionRevision = useSyncExternalStore(subscribeNativeProfilePreparation, nativeProfilePreparationRevision, () => 0);
   const nativePrivacyReconcileRef = useRef<() => void>(() => undefined);
   const authGateRef = useRef({ loading, sessionVerificationRequired });
+  const observedDeletionOwnerRef = useRef<AuthSessionOwnerSnapshot | null>(null);
   authGateRef.current = { loading, sessionVerificationRequired };
   const [confirmationResult, setConfirmationResult] =
     useState<ConfirmationResult | null>(null);
@@ -780,12 +603,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const validateAccountSession = useCallback(
     async (candidateUser: User): Promise<AccountSessionValidationResult> => {
       const deadlineMs = Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS;
+      const validationOwner = snapshotValidatedAuthSessionOwner();
       let cachedToken: string | null = null;
+      const activeResult = (): AccountSessionValidationResult => {
+        const observed = observedDeletionOwnerRef.current;
+        if (observed?.userId === candidateUser.uid && validationOwner &&
+            observed.generation === validationOwner.generation &&
+            observed.userId === validationOwner.userId &&
+            isValidatedAuthSessionOwnerCurrent(validationOwner)) {
+          clearAccountDeletionActive(candidateUser.uid);
+          observedDeletionOwnerRef.current = null;
+        }
+        return { outcome: "active" };
+      };
 
       const resolveDeletionInProgress = async (
         idToken: string,
         response: Response,
       ): Promise<AccountSessionValidationResult> => {
+        if (validationOwner?.userId === candidateUser.uid &&
+            isValidatedAuthSessionOwnerCurrent(validationOwner)) {
+          observedDeletionOwnerRef.current = validationOwner;
+          markAccountDeletionActive(candidateUser.uid);
+        }
         try {
           // The backend waited on the deletion transaction before returning
           // 423. Honor its bounded Retry-After once, while the auth/native
@@ -803,7 +643,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (retryInspection.outcome === "active") {
             // The deletion transaction rolled back; the still-live session is
             // safe to retain.
-            return { outcome: "active" };
+            return activeResult();
           }
           if (retryInspection.outcome === "terminal") {
             return retryInspection;
@@ -813,7 +653,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // loss, or unreadable follow-up is an uncertain destructive outcome
           // and must never reopen cached authenticated UI.
         }
-        return { outcome: "terminal", code: "account_deletion_uncertain" };
+        // An exclusive lifecycle lock is positive evidence of pending work.
+        // Preserve identity behind the sealed recovery gate and let its
+        // existing backoff observer discover commit or rollback. Signing out
+        // here would latch an uncertain notice before the transaction settles.
+        return { outcome: "unavailable" };
       };
 
       try {
@@ -838,7 +682,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             response,
             deadlineMs,
           );
-          if (inspection.outcome === "active") return inspection;
+          if (inspection.outcome === "active") return activeResult();
           if (inspection.outcome === "terminal") return inspection;
           if (inspection.outcome === "deletion_in_progress") {
             return resolveDeletionInProgress(cachedToken, inspection.response);
@@ -880,7 +724,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               response,
               deadlineMs,
             );
-            if (inspection.outcome === "active") return inspection;
+            if (inspection.outcome === "active") return activeResult();
             if (inspection.outcome === "terminal") return inspection;
             if (inspection.outcome === "deletion_in_progress") {
               return resolveDeletionInProgress(
@@ -1463,6 +1307,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const owner = snapshotValidatedAuthSessionOwner();
       if (!detail || !owner || detail.userId !== owner.userId ||
           detail.generation !== owner.generation || detail.userId !== userRef.current?.uid) return;
+      if (detail.reason === "account_deletion_in_progress") {
+        observedDeletionOwnerRef.current = owner;
+      }
       setSessionVerificationRequired(true);
       // Parallel protected requests can all report the same transport outage.
       // One current account check owns recovery for that identity generation.
