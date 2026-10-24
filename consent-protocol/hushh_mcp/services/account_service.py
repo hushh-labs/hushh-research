@@ -76,6 +76,7 @@ _ACCOUNT_ERASURE_SQL_LIMITS = text(
     "SELECT set_config('lock_timeout', '3000ms', TRUE), "
     "set_config('statement_timeout', '20000ms', TRUE)"
 )
+_RECOVERY_ERASURE_BATCH_SIZE = 100
 
 
 def _is_release_fence_refusal(exc: BaseException) -> bool:
@@ -441,10 +442,16 @@ class AccountService:
             "pkm_domain_commits": text("DELETE FROM pkm_domain_commits WHERE user_id = :user_id"),
             "pkm_domain_revision_segments": text(
                 """
-                DELETE FROM pkm_domain_revision_segments
-                WHERE revision_id IN (
-                  SELECT revision_id FROM pkm_domain_revisions WHERE user_id = :user_id
+                WITH batch AS MATERIALIZED (
+                  SELECT segments.ctid
+                  FROM pkm_domain_revision_segments AS segments
+                  JOIN pkm_domain_revisions AS revisions USING (revision_id)
+                  WHERE revisions.user_id = :user_id
+                  LIMIT 100
+                  FOR UPDATE OF segments
                 )
+                DELETE FROM pkm_domain_revision_segments AS segments
+                USING batch WHERE segments.ctid = batch.ctid
                 """
             ),
             "pkm_domain_revisions": text(
@@ -970,7 +977,20 @@ class AccountService:
             raise ValueError(f"Unsafe or unsupported cleanup table requested: {table_name}")
         started = monotonic()
         try:
-            conn.execute(query, params)
+            result = conn.execute(query, params)
+            if table_name == "pkm_domain_revision_segments":
+                # Recovery ciphertext can occupy gigabytes for one owner. Keep
+                # every statement under the SQL deadline without committing a
+                # partial erasure or releasing the account's writer barriers.
+                batches = 1
+                while result.rowcount == _RECOVERY_ERASURE_BATCH_SIZE:
+                    result = conn.execute(query, params)
+                    batches += 1
+                logger.info(
+                    "account.erasure_recovery_segments_complete batches=%d elapsed_ms=%d",
+                    batches,
+                    (monotonic() - started) * 1000,
+                )
         except Exception:
             logger.error(
                 "account.erasure_statement_failed table=%s elapsed_ms=%d",
@@ -2787,19 +2807,9 @@ class AccountService:
                     conn, table_name="pkm_domain_commits", params=params
                 )
                 results["pkm_domain_commits"] = True
-                if self._table_exists(conn, "pkm_domain_revision_segments"):
-                    conn.execute(
-                        text(
-                            """
-                            DELETE FROM pkm_domain_revision_segments
-                            WHERE revision_id IN (
-                              SELECT revision_id FROM pkm_domain_revisions
-                              WHERE user_id = :user_id
-                            )
-                            """
-                        ),
-                        params,
-                    )
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_domain_revision_segments", params=params
+                )
                 results["pkm_domain_revision_segments"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="pkm_domain_revisions", params=params

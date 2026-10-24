@@ -430,6 +430,28 @@ request. Missing or expired source evidence blocks recertification. Set the
 policy's `enabled` switch to false to stop new
 automatic releases; existing manual workflows remain available.
 
+## Account deletion regression gate
+
+Every frontend or backend PR runs `scripts/ci/account-deletion-check.sh` in the
+required Integration lane. It exercises the production client flow, proxy error
+contract, backend route, cancellation settlement, and disposable PostgreSQL
+recovery-history erasure. Missing PostgreSQL fails this gate; it cannot silently
+skip the database proof. `CI Status Gate` rejects a failed or skipped required
+Integration lane. The protected-behavior registry pins the essential regression
+cases so deleting their coverage also fails governance.
+
+The existing full-account inventory test also compares migration-authored
+user-keyed tables with the production erasure path, checked cascades and explicit
+retention reasons. A feature that adds an unaccounted user-keyed table fails this
+gate.
+
+The database regression uses slow synthetic segment removal under a short SQL
+statement deadline. It proves bounded batches complete in one transaction,
+a later failure restores every segment, and another owner's history survives.
+Recovery-reference indexes are replayed, validated and rolled back on the same
+disposable database. This establishes these contracts with synthetic information;
+it does not measure deletion time for a real person's full recovery history.
+
 ## Monitoring Rule
 
 After any merge to `main`, bypass merge, deploy trigger, or manual workflow dispatch, keep monitoring the resulting GitHub workflow chain until it reaches a terminal state.

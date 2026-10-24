@@ -251,6 +251,7 @@ def test_lane_discovery_finds_every_path_filtered_lane() -> None:
     }
     assert _job_scripts("integration-check") >= {
         "scripts/ci/integration-check.sh",
+        "scripts/ci/account-deletion-check.sh",
         "scripts/ci/resolve-uat-verification-plan.py",
         "scripts/ci/pkm-upgrade-gate.sh",
         "scripts/ci/pkm-runtime-audit.sh",

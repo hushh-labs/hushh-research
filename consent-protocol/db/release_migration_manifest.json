@@ -347,7 +347,11 @@
     "408_validate_plg_memory_revision_index.sql",
     "409_mcp_oauth_client_registration.sql",
     "410_drive_group_index.sql",
-    "411_drive_period_packets.sql"
+    "411_drive_period_packets.sql",
+    "412_pkm_recovery_erasure_indexes.sql",
+    "413_pkm_recovery_erasure_index.sql",
+    "414_pkm_recovery_erasure_index.sql",
+    "415_validate_pkm_recovery_erasure_indexes.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -737,6 +741,10 @@
     "408_validate_plg_memory_revision_index.sql": "rollback/408_validate_plg_memory_revision_index.rollback.sql",
     "409_mcp_oauth_client_registration.sql": "rollback/409_mcp_oauth_client_registration.rollback.sql",
     "410_drive_group_index.sql": "rollback/410_drive_group_index.rollback.sql",
-    "411_drive_period_packets.sql": "rollback/411_drive_period_packets.rollback.sql"
+    "411_drive_period_packets.sql": "rollback/411_drive_period_packets.rollback.sql",
+    "412_pkm_recovery_erasure_indexes.sql": "rollback/412_pkm_recovery_erasure_indexes.rollback.sql",
+    "413_pkm_recovery_erasure_index.sql": "rollback/413_pkm_recovery_erasure_index.rollback.sql",
+    "414_pkm_recovery_erasure_index.sql": "rollback/414_pkm_recovery_erasure_index.rollback.sql",
+    "415_validate_pkm_recovery_erasure_indexes.sql": "rollback/415_validate_pkm_recovery_erasure_indexes.rollback.sql"
   }
 }
