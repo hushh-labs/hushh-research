@@ -1,12 +1,14 @@
 # Profile Memory and World Model UI Contract
 
-Status: current product and UI reference at source revision `3ff2620b48567177dce5c667e77a70203e4a8c35`,
-20 October 2026. Owner: frontend architecture. Classification: `canonical`,
-package-local. This is the Memory/World Model depth of the
-[Profile contract](./profile.md), including the immediate Browse all memory
-workspace. Vault, PKM, consent and source owners retain mutation authority.
-Use the [Profile detail type scale](./typography.md) for settings rows and
-existing document readers for long text.
+Status: current product and UI reference. The Profile/World Model inventory was
+checked at `3ff2620b48567177dce5c667e77a70203e4a8c35` on 20 October 2026;
+the mounted `/one/pkm` workspace was refreshed against origin/main
+`dcc4f611e39c80a0001df0ada3f47e85b445421e` on 24 October 2026. Owner:
+frontend architecture. Classification: `canonical`, package-local. This is
+the Memory/World Model depth of the [Profile contract](./profile.md). Vault,
+PKM, consent and source owners retain mutation authority. Profile detail rows
+use their [own type scale](./typography.md); `/one/pkm` opts into the scoped
+Connect role mapping below. Existing document readers retain long-text rules.
 
 ## Visual Map
 
@@ -123,32 +125,93 @@ Sources: [group](../../components/secrets/secrets-list-group.tsx),
 [reveal model](../../components/secrets/use-secrets-list-model.ts),
 [secret panel](../../components/secrets/secret-items-panel.tsx).
 
-## Browse all memory handoff
+## Mounted Memory workspace and handoff
 
-`/one/pkm` is a separate workspace reached explicitly from Profile, with
-swipeable **memory.md**, **Saved**, **Add**, **Sharing** tabs. This bounded
-inventory records its immediate editors so that Browse all memory is a useful
-handoff rather than an unexplained CTA.
+`/one/pkm` mounts `PkmSettingsShell`, `PkmSharingPriceReview`, and
+`PkmNaturalPanel`. Its **two** visible tabs are **Saved** and **Add**, owned by
+`SegmentedTabs` and `SwipeViews` with one selected state and active pane height.
+`memory.md`, Live memory, search, earnings, recent, categories, export and the
+Sharing settings accordion are inside Saved. `memory.md` and Sharing are not
+tabs. The retained `soul`/`sharing` model union members do not add DOM tabs.
+There is no Memory setup route, compulsory setup step, separate native renderer
+for this web route, new private-agent specialist, or auto-saving Add wizard.
 
-| Tab / CTA | Effect and save boundary |
+| Route or state / entry | Visible text and action result | Owner, request and return |
+| --- | --- | --- |
+| One roster, direct or Profile **Browse all memory** → `/one/pkm` | Shared Back, **Memory**, shared avatar; Saved selected, Add available. Protected admission can show **Opening Memory…**, **Sign in to open Memory** / **Your saved details stay connected to your account.**, or **Unlock your vault to open Memory** / unlocked-session explanation. | `app/one/pkm/page.tsx`, `pkm-settings-shell.tsx`, `back-navigation-graph.ts`, auth/vault owner. No Memory-only wizard or request from tapping an inactive tab; first protected read begins after current authority. Back uses overlay → route feature layer → authored `/one` parent. |
+| Saved initial, retained refresh, empty and search | **Search Memory** / accessible **Clear Memory search**; **Recently learned**, **Categories**, **Add Memory**; **One hasn’t saved anything yet.**, **Some saved details couldn’t be opened.** / **Try again**, **Some saved details couldn’t be loaded.** / Try again, retained rows with **Some saved details couldn’t be refreshed. Your available details are still here.** / Retry; `No memories match “{query}”.` | `pkm-natural-panel.tsx`, `use-pkm-natural-model.ts`. Search/clear/category selection/Add Memory have no write; search is local, category/leaf may start the selective protected reads below. Retry forces the failed reader only. Empty success does not stand in for failed hydration. |
+| Inline `memory.md` reader/edit inside Saved | Live preview above the document while reading, hidden during edit. **Reconnect your account to open memory.md.**, **Opening memory.md…**, **memory.md couldn’t be opened.** / Try again, **The memory One uses in every conversation.**; Edit memory.md → Legal name, Date of birth, Sex, 18-row Markdown draft, 18,000-character counter, password-omission helper. Cancel restores original; Save changes/Saving… commits only a changed, valid draft; conflict keeps the draft and **Reload latest version** explicitly discards it. Retry sync flushes queued authorized work, never an unsaved draft. | `soul-memory-panel.tsx`, `use-soul-memory-model.ts`, `soul-memory-document.tsx`. Editor field changes and Cancel have no API. Save uses expected-document CAS via encrypted `one_memory` store-domain; Try again/reload read latest; sync flushes its existing queue. Markdown headings, lists, code, links, 64ch reader and unbroken financial tables remain intact. |
+| Live memory preview and source handoff | **Live memory**, boundary explanation, locked/checking/current/updating/stale/partial/conflict/empty headline; fact/source claims, badges and disagreements show each side. **See all** enters Profile `my-data`; source correction enters its actual owner. No Open Memory row while already in Memory. | `live-mirror-preview.tsx`, `use-live-mirror-view.ts`, `live-mirror-presentation.ts`. Shared owner/epoch-fenced read; navigation has no mutation. Facts/History/Preview and Source details are Profile destination controls, not `/one/pkm` tabs. |
+| Category, nested group and leaf | Dynamic category/group title and count, one-level breadcrumb and Back; immediate group/leaf children; **Opening {title}…**, **This couldn’t be opened** / **Go back and try again.**, **This memory moved** / **Go back and open it again.**, or **Nothing is saved in {title} yet.** Leaf shows primary label, value, optional context and Sharing Checking…/Shared/Not available/Private. | `pkm-memory-level.tsx`, `pkm-memory-row.tsx`, `pkm-memory-detail.tsx`. Category/path/search navigation is local; selected encrypted domain data/manifest/impact may read. Back unwinds leaf → path segment → category, never raw history fallback. No fabricated per-memory source or timestamp. |
+| Leaf edit, forget, reserved owner and sharing | **Edit** opens **Edit Memory** with dynamic **New value for {label}**, Input or multiline Textarea, Cancel/Save. **Forget Memory** opens **Forget this memory?** and irreversible text, Cancel/Forget Memory. **Sharing** opens Ask before sharing switch with private/ask-first explanation, loading/error and Done; section price is conditional. Reserved records show **Open in {appName}** and the app-owned edit/removal explanation. | `pkm-memory-detail.tsx`; ordinary Dialogs cap 380px at `sm`, omit X; Forget uses small AlertDialog. Cancel/outside/Escape/Back when permitted have no write; pending save blocks close. Impact failure blocks protected mutation. Confirmed update/deletion versus failed readback/unknown outcome stay distinct; sharing switch writes exact scope posture immediately, Done only closes. Reserved handoff has no generic edit/delete. |
+| `/one/pkm/recent` | Bounded **Recently learned** list or **Nothing learned yet.**; row opens leaf, shell Back returns to Memory. | Same model/row owners. Current snapshot read, row opening itself no mutation. Child PageHeader title is already visually hidden. |
+| `/one/pkm/location` and `/one/pkm/location/detail?memory={selector}` | Search Location memory / accessible Clear; grouped readable fields and counts, Opening/error/Try again/empty/no-match; partial projection warns saved Memory is unchanged. Selected detail shows value/context/Sharing. Invalid/deleted selector shows **This detail is no longer available.** / **Open Location memory**. | `location-memory-view.tsx`, `location-memory-presentation.ts`, nested pages. Selector is an opaque field selector, never a private value. Ambiguous fields remain non-clickable. Search/clear no request; retry rereads existing owner. Child breadcrumb/Back retain parent semantics. No map or live tracking. |
+| Add note and review | **Memory note**, example placeholder, 50,000-character bound; oversize paste leaves note unchanged. Exact note/epoch processing checkbox permits the private agent's configured model to process personal identifiers including SSN; sharing still needs separate approval. **Review memory** prepares read-only proposed detail/destination/privacy rows, ignored notice, unresolved section/reason and retryable **Retry this section**. Edit note or approval invalidates preparation. | `pkm-natural-panel.tsx`, model and proposal adapter. Preparation POST below, no storage commit. Proposed rows cannot Keep/Edit/Dismiss. Retry reruns only its unresolved source block; busy/disabled and partial coverage are preserved. |
+| Add explicit save | Shared-recipient checkbox acknowledges updates without changing recipients; **Save to Memory** is enabled only for saveable review with required acknowledgment and no conflicting busy state. Full success clears note/review; partial/no-save/failure/timeout keep remaining note and honest receipt, including **Check Memory before preparing this note again.** | `use-pkm-natural-model.ts`, `pkm-write-coordinator.ts`. Explicit encrypted domain commit below, source/revision/idempotency bindings retained. Preparation is evidence, not grant or write permission. No Add Cancel stage or implicit save. |
+| Saved Sharing accordion/category section/bundle | **Checking sharing settings…**, **Sharing settings**, sections people can request, ask-first/private switches, section price and conditional whole-bundle price. Whole bundle and sections have separate terms. Failure offers **Retry sharing settings** or **Retry bundle availability**; missing manifest/scope/catalog does not silently expose. **Nothing to share yet.** is a successful empty state. | `pkm-saved-sharing.tsx`, `pkm-domain-sharing.tsx`, exact-scope exposure owner. Accordion/Back collapse is local; switches commit expected-manifest-version private/consent_required. Private may revoke matching grants. Review and tariff pricing remain separate from listing, access approval and payment. |
+| Section/whole-bundle price and private-agent review bridge | Trigger **Sharing price**, **Check sharing price**, **Free · Set price**, or saved amount/term → **Price for {label}**; USD base price, base access term (1/3/7/30 days), free/approval/proration/cost explanation. **Review sharing price** stages **Confirm free sharing terms** or **Confirm sharing price**; Cancel closes confirmation only; **Confirm free** / **Save price** commits exact tariff, **Sharing terms saved.** only after acknowledgement. **Close price review** closes editor when allowed. Bundle review title **{bundle}: sharing and price**, listing/approval/payment separation and **Close bundle review**. | `scope-tariff-editor.tsx`, `pkm-sharing-price-review.tsx`. Existing tariff/readiness requests and explicit idempotent POST below. Nested Back closes confirmation before editor; busy prevents dismissal. Review-only opening has no listing/price mutation. Payments link hands off to existing owner. |
+| Earnings, export and source/payment links | Conditional Pending/Available earnings, Unrecovered costs, Withdrawal in progress, **Checking earnings…**/error and payouts/wallet link. **Download Memory** / Preparing… row; **Readable file. Keep it private.** or **Unlock to download.**, status/error. | `memory-commerce-summary.tsx`, `pkm-saved-sharing.tsx`, `pkm-export-service.ts`. Canonical commerce read, no Memory funding action. Export validates current account envelope/completeness and guarded browser download or native share; cancellation is not a saved file. Readable-only backup fallback is explicit, secrets/audit information excluded. No real information is exported for visual verification. |
+
+The exact transport payloads and response projections for proposals, encrypted
+domain saves, metadata, manifest, selected data and scope exposure are in
+[Row-to-API provenance](#row-to-api-provenance-and-response-contract) and
+[the workspace wire table](#memory-workspace-complete-prepare-review-save-and-leaf-wire).
+The duplicate warning still literally says “Open Browse”; this is copy drift
+against the current Saved label, not a hidden Browse tab. Compatibility links,
+Profile, Payments and source-owner pages are handoffs, not extra Memory tabs.
+
+### Memory header, type and CTA presentation
+
+The shared shell owns the 44px Back and profile targets, 32px avatar and the
+17/22/600 **Memory** breadcrumb beside Back. The root body PageHeader remains
+semantic but visually hidden through `titleVisuallyHidden`; nested route
+breadcrumb/parent labels stay authored. Agent-width root and reading-width
+children retain their shell measures, gutters, scroll and safe-area owners.
+Neither a second header nor Connect's 728px directory width is applied.
+
+| Role in mounted Memory | Previous source default → scoped target, px/line/weight | Effective owner or exception |
+| --- | --- | --- |
+| Saved/Add labels and header | Agent tab 15/20/550 → unchanged; shared final crumb 17/22/600 → unchanged | `top-shell-tabs.tsx`, `back-navigation-graph.ts`; two real tracks at all widths. Removed legacy four-track mobile override. |
+| Category/row, description, section, source group | 17/22/400 → 14/21/550; 13/18/400 → 12/18/400; 15/20/600 → 14/22/600; explicit source group 12/18/600 | Scoped workspace/portal variables and Settings slot cascade in `app/globals.css`; source-group role only when mounted. |
+| Content title, value, document | Foundation h2 about 20–22/1.2/600 → category/leaf 28/36/600; saved value 14/21/400; Markdown prose 14/21/400 | Content title is not duplicate root chrome. Document h1 20/28/600, h2 16/24/600, deeper headings 14/22/600; 64ch prose, code mono, lists/links and table scroll retained. |
+| Form label, input, helper, status | 15/20/600 → 15/22/550; 17/22/400 → 14/22/400 above 620, 16/22/400 at ≤620; helper 13/18/400; status 13/18/600 | Scoped raw Input/Textarea/Select, labels and status hooks; native date picker retains platform formatting and at least 44px target. |
+| Compact/utility/full primary | Generic compact 15/20/650 → 12/18/550; utility 13/21/550 → 12/21/550 ≤620; full primary 17/22/650 remains | `data-pkm-action` role on actual Morphy/stock callers. Save to Memory remains the full-flow filled primary. |
+| Memory overlay title, description and confirmation action | Raw Dialog/AlertDialog text-lg/leading-none or text-sm → 20/28/600, 14/20/400, 13/20/600 | `data-pkm-overlay` on Edit/Sharing/Forget/tariff/bundle hosts and select portal; actual Dialog geometry/keyboard/safe-area constraints remain primitive-owned. Shared toast 13/20/500 title and 12/20 description unchanged. |
+
+Ordinary matched actions have a transparent, frameless outer **≥44px** Button
+that retains ripple/focus/busy/disabled behavior and an inner **≥44px** neutral
+pill: accent ink, 1px accent/32%-on-neutral border, full radius, 88px minimum
+and 15px horizontal padding (78/11 at ≤620; 72/9 at ≤350). Long labels wrap;
+full-width Review memory keeps its full measure. Try again/retry and editor
+Save changes/Save use this role. Cancel, Done, price triggers, close and
+payment/source links remain quiet utility roles. Forget's destructive
+AlertDialogAction, its shared Cancel/ripple, switches, checkboxes, tab selector,
+entire Settings rows, search clear, shell Back/avatar, native picker/share
+controls and the final Save to Memory retain their owning semantics. Pending,
+disabled and error colors are not changed to success or broader permission.
+
+Portals sit under `document.body`, outside `[data-pkm-workspace]`. The Memory
+overlay marker is set on actual Edit/Sharing/Forget, section tariff, tariff
+confirmation, tariff Select and bundle-review hosts; shared primitives are not
+restyled for unrelated routes. Leaf Edit/Sharing stay ordinary Dialogs with
+`sm:max-w-[380px]` and no X; Forget keeps small AlertDialog. Pricing and
+bundle review keep their own dimensions. Popup height, overflow, keyboard and
+safe-area behavior are owned by Dialog/Select/AlertDialog.
+
+Verification of this presentation refresh on `origin/main`
+`dcc4f611e39c80a0001df0ada3f47e85b445421e` (2026-10-24):
+
+| Evidence | Result and boundary |
 | --- | --- |
-| memory.md · Edit memory.md | Local Markdown draft with labelled Legal name/Date of birth/Sex fields and preview. **Save changes** commits; **Cancel** restores original. Unchanged/oversize/busy disables Save; passwords are omitted. |
-| Reload latest / Retry sync / Try again | Conflict, locally latest unsynced version, or load recovery respectively. |
-| Saved search/clear/category | Local nested hierarchy to group levels then leaf; Back pops leaf, path segment, then category. Loading, partial/stale, failed and empty have authored recovery. |
-| Recently learned / Add Memory | Recent-memory route / Add tab. |
-| Leaf Sharing | Immediate ask/private scope change through existing sharing owner. |
-| Leaf Edit / Forget Memory | Cancel/Save editor or destructive confirmation. Requires editable record and verified sharing impact; fresh coordinator state governs commit. Reserved branches instead offer **Open in owning app**. |
-| Add · Review memory | Note up to 50,000 characters; prepares proposed/ignored/unresolved detail cards, without saving. |
-| Retry this section | Retryable preparation failures only. Affected already-shared details need acknowledgment. |
-| Save to Memory | Only explicit save persists reviewed saveable cards. Partial/failed save retains remaining note/review. |
-| Sharing · Download Memory | Readable private export plus the encrypted backup when complete. Browser assembly validates the streamed account envelope and EOF, retains encrypted history as Blob parts and excludes consent audit. A readable-only fallback explicitly says the encrypted backup could not be included. Native share cancellation is distinguished from a saved file; native bridge/base64 handling remains buffered. |
-| Bundle switch / Ask for all / Make all private | Immediate expected-manifest-version exposure update; private also revokes matching active grants. |
-| Location memory / selected detail | Existing `/one/pkm/location` and detail selector. Invalid/deleted selection fails closed with return; Retry reloads selected information. |
+| Static and contract checks | Typecheck, focused lint, docs verification, cache coherence, UI doctor, generated Back/Search and route/surface checks pass. Focused Memory behavior and pricing/export tests pass without changing their service owners. Design-system, accent, hierarchy, restraint and rendering checks pass; the separate brand-asset generator reports stale assets already present at this source revision. |
+| Optimized rendered layout | 112/112 Chromium and WebKit cases pass. The synthetic layout fixture compiles shipped Tailwind/CSS with Lightning CSS and loads the product font. It covers Saved reader/editor and Add note/review at 350, 351, 360, 393, 430, 620, 621, 639, 640, 767, 768, 1024 and 1440px in light/dark, and Location/detail/Edit/Sharing/Forget portals at 390/1440px in light/dark. These checks measure computed type, target boxes, 620/640 transitions, wrapping and horizontal overflow with synthetic records, at 100% zoom and reduced motion. |
+| Protected and platform acceptance | No canonical local reviewer account or vault key is wired for this isolated checkout, and its backend/proxy are not running. The browser fixture supplies a synthetic model, so it does not prove protected same-session navigation, live Add/price/export writes, native accessibility, keyboard/safe-area behavior on a physical device, or an OS file-save/share outcome. Those checks remain pending. No real Memory, tariff or grant was changed for visual proof. |
 
 Owners: [workspace](../../components/profile/pkm-natural-panel.tsx),
 [memory.md model](../../components/profile/use-soul-memory-model.ts),
 [capture/browse/sharing model](../../components/profile/use-pkm-natural-model.ts),
-[location memory](../../components/profile/location-memory-view.tsx).
+[location memory](../../components/profile/location-memory-view.tsx),
+[Connect roles](./connect.md), [typography](./typography.md).
 
 ## Personal World Model
 
@@ -376,6 +439,22 @@ placed in an endpoint URL.
 | Forget → Cancel | No API | Keeps leaf and exits confirmation. |
 | Forget → Forget Memory | Same domain writer, deleted exact fingerprint, delete operation | `Forget this memory?` / `One will no longer remember “{primary}”. This can’t be undone.` Successful acknowledgement `Memory forgotten.`; it is not merely hiding a row. |
 | Sharing switch | Immediate scope-exposure mutation from the read/write table above | `Done` only dismisses. Null/unavailable controls do not guess a permission. Reserved application-owned details instead offer `Open in {appName}`; `{appName} manages this. Edit or remove it there.` |
+
+### Mounted read, commerce and export provenance
+
+All examples here are field names or synthetic labels; they contain no owner
+information. Warm cache may project the same validated response before a
+background refresh. It must not be documented as a fresh request per row.
+
+| Mounted control or initial read | Web path, input and consumed response | Negative, return and no-request boundary |
+| --- | --- | --- |
+| First unlocked Saved read | `getMetadata(uid,force,ownerToken)` → GET `/api/pkm/metadata/<uid>`; `domains[].key/displayName/attributeCount/lastUpdated/readable*`, contract versions drive visible categories, counts and preparation states. `PkmDomainResourceService.getManyStaleFirst` uses per-domain encrypted GET `/api/pkm/domain-data/<uid>/<domain>`; client decrypts into bounded card snapshot (400 total, 80/domain) and location projection. | Stale validated rows can appear while refreshing; failed domain sets partial/error without a false empty success. Search, tab switch, Add Memory, card-row click and document disclosure have **no request by themselves**; selected category/leaf may trigger a domain/manifest/impact read. No plaintext value in URL. |
+| Recent and Location | Same owner-scoped snapshot; Recent takes the bounded newest subset. Location projects saved places/visits and resolves the `memory` selector locally from the safe projection. | `/one/pkm/recent`, `/location`, `/location/detail` reuse current owner; search/clear no API. Invalid selector renders unavailable; no cold URL payload carries a saved address/note. |
+| Sharing availability and listing | GET `/api/pkm/manifest/<uid>/<domain>` → manifest scope handles, top-level paths, `manifest_version`, `visibility_posture`; GET `/api/pkm/scopes/<uid>` → `scope_entries` for exact section/whole-bundle tariff targets. GET `/api/consent/center?actor=investor&view=active` supplies active grant context. POST scope-exposure is specified in the table above. | Accordion open/collapse and price-review navigation do not list or grant. Missing manifest/catalog, owner mismatch and failed scope discovery leave controls unavailable. Private may revoke matching active grants; ask-first never grants automatically. |
+| Memory earnings and Payments handoff | Firebase bearer GET `/api/scope-commerce/account`; validated `earnings.pending_cents/available_cents/debt_cents/withdrawing_cents`, `readiness.capabilities.start_onboarding`, `seller.eligible` feed amounts and one conditional Profile Payments link. | The link navigates to Payments and earnings; no withdrawal/funding request in Memory. Error/loading is not zero earnings. |
+| Sharing-price trigger/editor | Firebase bearer GET `/api/scope-commerce/tariffs?scope_handle=<handle>&machine_scope=<scope>` → exact `price_cents/base_duration_seconds` or null; GET `/api/scope-commerce/readiness` → capabilities. Fields are local until second confirmation. | Trigger, field edits, term select, Review sharing price, Cancel, Close and Back make **no price POST**. Tariff/readiness failure blocks unsafe save and retains recovery copy. Payment link leaves for Profile without saving a tariff. |
+| Confirm free / Save price | POST `/api/scope-commerce/tariffs` `{scope_handle,machine_scope,price_cents,base_duration_seconds,idempotency_key}` from the reviewed exact section/bundle. | Same operation key guards retry; only confirmed response updates shown saved terms. Failed/unknown response never becomes a saved-price success or access grant. Cancel of confirmation has no POST. |
+| Download Memory | Current owner/vault-key protected domain reads → client-readable projection; browser GET `/api/account/export` streams encrypted account envelope and validates EOF/current owner before assembling optional restorable Blob. Native uses existing buffered export/share bridge. | Guard blocks lock/account/epoch retirement and late completion; no console or tracked fixture gets plaintext. Browser completion and accepted native share report saved; native cancellation reports `Nothing was saved. You can try again whenever you like.` Missing encrypted backup is explicitly named. |
 
 | Workspace state | Exact English copy |
 | --- | --- |

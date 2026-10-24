@@ -15,13 +15,13 @@ export function MemoryCommerceSummary() {
   const content = (
     <div className="space-y-2 px-4 py-3">
       {hasEarnings && data?.earnings ? <dl className="grid grid-cols-2 gap-3 text-sm">
-        <div><dt className="text-muted-foreground">Pending earnings</dt><dd>{formatCommerceMoney(data.earnings.pending_cents)}</dd></div>
-        <div><dt className="text-muted-foreground">Available earnings</dt><dd>{formatCommerceMoney(data.earnings.available_cents)}</dd></div>
-        {(data.earnings.debt_cents ?? 0) > 0 ? <div className="col-span-2"><dt className="text-muted-foreground">Unrecovered costs</dt><dd>{formatCommerceMoney(data.earnings.debt_cents!)}</dd></div> : null}
-        {(data.earnings.withdrawing_cents ?? 0) > 0 ? <div className="col-span-2"><dt className="text-muted-foreground">Withdrawal in progress</dt><dd>{formatCommerceMoney(data.earnings.withdrawing_cents!)}</dd></div> : null}
+        <div><dt data-pkm-row-description="true" className="text-muted-foreground">Pending earnings</dt><dd className="tabular-nums">{formatCommerceMoney(data.earnings.pending_cents)}</dd></div>
+        <div><dt data-pkm-row-description="true" className="text-muted-foreground">Available earnings</dt><dd className="tabular-nums">{formatCommerceMoney(data.earnings.available_cents)}</dd></div>
+        {(data.earnings.debt_cents ?? 0) > 0 ? <div className="col-span-2"><dt data-pkm-row-description="true" className="text-muted-foreground">Unrecovered costs</dt><dd className="tabular-nums">{formatCommerceMoney(data.earnings.debt_cents!)}</dd></div> : null}
+        {(data.earnings.withdrawing_cents ?? 0) > 0 ? <div className="col-span-2"><dt data-pkm-row-description="true" className="text-muted-foreground">Withdrawal in progress</dt><dd className="tabular-nums">{formatCommerceMoney(data.earnings.withdrawing_cents!)}</dd></div> : null}
       </dl> : null}
       {error || (loading && !data) ? <p className="text-xs text-muted-foreground" role="status">{error || "Checking earnings…"}</p> : null}
-      <ProfilePaymentsLink className="inline-flex min-h-11 items-center text-sm underline">{data?.readiness?.capabilities.start_onboarding && !data.seller?.eligible ? "Set up payouts and view your wallet" : "View payments and earnings"}</ProfilePaymentsLink>
+      <ProfilePaymentsLink data-pkm-utility="true" className="inline-flex min-h-11 items-center text-sm underline">{data?.readiness?.capabilities.start_onboarding && !data.seller?.eligible ? "Set up payouts and view your wallet" : "View payments and earnings"}</ProfilePaymentsLink>
     </div>
   );
   return hasEarnings ? <SettingsGroup title="Memory earnings">{content}</SettingsGroup> : content;

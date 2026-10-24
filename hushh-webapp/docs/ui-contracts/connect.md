@@ -498,6 +498,10 @@ targets, and action sizing remain owned by the
 [design system](../../../docs/reference/quality/design-system.md).
 The shared top bar owns the single Connect title; the existing tab/search
 bands and focused circle flow own their authored layout.
+The mounted [Memory workspace](./profile-memory.md#mounted-memory-workspace-and-handoff)
+consumes these row, section, form, action and header roles through its own
+bounded CSS/portal markers. Connect retains ownership of its directory layout
+and relationship behavior; Memory retains its Saved/Add pager and PKM writers.
 
 ## Per-row read and mutation contract
 
