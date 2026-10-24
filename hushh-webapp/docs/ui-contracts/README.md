@@ -12,6 +12,7 @@ flowchart LR
   index --> consent["Consent: requests, grants and reviews"]
   index --> mail["Mail: setup, Overview, KYC and Receipts"]
   index --> calendar["Calendar: setup, Schedule, Invitations and Insights"]
+  index --> wallet["Wallet: Cards, Add, Sharing and readers"]
   index --> nav["Shared navigation and typography"]
   connect --> person["Person profile and requests"]
   profile --> memory["Memory and World Model"]
@@ -42,6 +43,7 @@ owning implementation.
 | Location | [Location](./location.md): actual mounted onboarding, Now/People/Links, sharing/Ask/review, SOS, Circles, maps, nearby/private check-in, public routes, every text/CTA and effective typography |
 | Mail | [Mail subagent](./mail.md): setup and OAuth, Overview/KYC/Receipts, exact copy and every CTA branch, private drafts and reviewed Send, mailbox/voice handoffs, API and response-field provenance, encrypted device snapshots, phone/desktop geometry and typography |
 | Calendar | [Calendar subagent](./calendar.md): onboarding and OAuth, Schedule/Invitations/Insights, every authored CTA and response branch, API fields and authority, conversation and recipient handoffs, phone/desktop geometry and fonts |
+| Wallet | [Wallet](./wallet.md): mounted Cards/Add/Sharing, Profile/NWS/referral, temporary grants, requests, public/anonymous readers and One chat widgets, with presentation and authority boundaries |
 | Drive | [Drive connector and private-agent tools](./drive.md): first connection and OAuth, every mounted connector/nested page and CTA, selected files, preparation, packets, trust, conversations, sharing and payment handoffs, exact copy, API fields, phone/desktop geometry and fonts |
 | Navigation | [Shared navigation](./navigation.md): top bar, bottom tabs, contextual rails, Profile entry, Back and native admission |
 | Font schema | [Typography](./typography.md): when to use each semantic role, Profile home/detail scale, nav and Feed differences, CSS precedence and native limits |

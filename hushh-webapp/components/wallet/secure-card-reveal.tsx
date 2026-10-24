@@ -24,6 +24,7 @@ import type {
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
 import { formatCardExpiry, formatCardNumber } from "@/lib/wallet/wallet-card-presentation";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 
 const AUTO_HIDE_SECONDS = 45;
 const COPIED_MS = 2000;
@@ -147,12 +148,12 @@ export function SecureCardReveal({
   if (hidden) {
     return (
       <div
-        className="flex min-h-14 w-full max-w-[26.5rem] items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] pl-4 pr-2"
+        className={cn(presentationStyles.walletSurface, "flex min-h-14 w-full max-w-[26.5rem] items-center justify-between gap-3 rounded-[var(--app-radius-lg)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] pl-4 pr-2")}
         data-testid="secure-card-reveal-hidden"
       >
         <span className={TYPOGRAPHY_CLASSNAMES.helperText}>Hidden again.</span>
         {onDismiss ? (
-          <Button variant="secondary" size="compact" onClick={onDismiss}>
+          <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={onDismiss}>
             Dismiss
           </Button>
         ) : null}
@@ -166,7 +167,7 @@ export function SecureCardReveal({
   return (
     <section
       aria-label={`${title} details`}
-      className="flex w-full max-w-[26.5rem] flex-col gap-4"
+      className={cn(presentationStyles.walletSurface, "flex w-full max-w-[26.5rem] flex-col gap-4")}
       data-testid="secure-card-reveal"
     >
       {showFace ? (
@@ -231,7 +232,7 @@ export function SecureCardReveal({
         <span className={TYPOGRAPHY_CLASSNAMES.helperText} data-testid="secure-card-countdown">
           Hides in {secondsLeft}s
         </span>
-        <Button variant="secondary" size="compact" onClick={hide} data-testid="secure-card-hide">
+        <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={hide} data-testid="secure-card-hide">
           Hide
         </Button>
       </div>

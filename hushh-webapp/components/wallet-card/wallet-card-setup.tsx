@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import {
   WALLET_CARD_COPY,
   WALLET_CARD_OWNER_COPY,
@@ -59,7 +60,7 @@ function DraftField({
           rows={3}
           maxLength={WALLET_CARD_FIELD_LIMITS[definition.key]}
           placeholder={definition.placeholder}
-          className="min-h-24 rounded-[12px] border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] text-[13px] leading-[1.3] shadow-none"
+          className="min-h-24 rounded-[12px] border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] shadow-none"
           aria-invalid={error ? true : undefined}
           aria-describedby={help ? describedBy : undefined}
           onChange={(event) => onChange(event.target.value)}
@@ -87,7 +88,7 @@ function DraftField({
           id={describedBy}
           role={error ? "alert" : undefined}
           className={cn(
-            "text-[12px] leading-[1.3]",
+            "",
             error
               ? "text-destructive"
               : "text-[color:var(--app-secondary-label)]",
@@ -175,7 +176,7 @@ export function WalletCardSetup({
   return (
     <form
       ref={formRef}
-      className="w-full space-y-6 font-[family-name:var(--font-app-body)] [--type-input-value-size:13px] [--type-button-label-size:13px]"
+      className={`${presentationStyles.profileForm} w-full space-y-6 font-[family-name:var(--font-app-body)]`}
       data-testid="wallet-card-setup-form"
       onSubmit={(event) => {
         event.preventDefault();
@@ -297,7 +298,7 @@ export function WalletCardSetup({
       <div className="space-y-2 pt-1" data-wallet-grid-item="actions">
         <Button
           type="submit"
-          className="min-h-[52px] w-full rounded-2xl text-[13px] font-semibold leading-[1.2]"
+          className={`${presentationStyles.profilePrimary} min-h-[52px] w-full rounded-2xl`}
           loading={saving}
           disabled={saving}
         >
@@ -309,7 +310,8 @@ export function WalletCardSetup({
           type="button"
           variant="none"
           effect="fade"
-          className="min-h-11 w-full text-[13px] font-semibold leading-[1.2] text-[color:var(--app-accent)]"
+          size="compact"
+          className={`${presentationStyles.quietAction} min-h-11 w-full`}
           disabled={saving}
           onClick={onCancel}
         >

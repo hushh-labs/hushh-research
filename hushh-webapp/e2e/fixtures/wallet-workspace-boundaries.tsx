@@ -36,6 +36,7 @@ type Scenario = {
   sharingHistory?: boolean;
   revokeFailure?: boolean;
   cardRequest?: boolean;
+  walletWideDetails?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [
@@ -321,7 +322,7 @@ export class ConsentCenterService {
     return { user_id: "fixture-owner", page, has_more: false, items: [{
       kind: surface === "pending" ? "incoming_request" : "active_grant", status: surface === "pending" ? "pending" : "active", action: "request", counterpart_type: "person",
       id: `fixture-${surface}`, request_id: `fixture-${surface}`,
-      scope: surface === "pending" ? "attr.wallet.secrets.*" : "attr.wallet.summary.*",
+      scope: surface === "pending" || scenario().walletWideDetails ? "attr.wallet.secrets.*" : "attr.wallet.summary.*",
       counterpart_label: surface === "pending" ? "Sample requester" : "Sample recipient",
       expires_at: "2030-01-01T00:00:00Z",
     }] };

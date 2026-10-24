@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./wallet-sharing.module.css";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -177,15 +178,15 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       {!current && !failed ? <SettingsRow title="Loading shared cards..." /> : null}
       {current && !current.page.items.length ? <SettingsRow title={direction === "outgoing" ? "No cards shared yet" : "No cards received yet"} /> : null}
     </SettingsGroup>
-    {failed ? <div role="alert"><p className="ui-text-row-description">{unavailable ? "Card sharing is unavailable. Automatic refresh is paused." : "Could not refresh card sharing."}</p><Button variant="ghost" size="compact" onClick={retry}>Try again</Button></div> : null}
-    {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares..." : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
+    {failed ? <div role="alert"><p className="ui-text-row-description">{unavailable ? "Card sharing is unavailable. Automatic refresh is paused." : "Could not refresh card sharing."}</p><Button variant="ghost" size="compact" className={presentationStyles.quietAction} onClick={retry}>Try again</Button></div> : null}
+    {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares..." : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
     <SettingsDetailPanel open={Boolean(detail)} onOpenChange={open => { if (!open && !busy) { setSelection(null); setOpened(null); } }}
       onCloseAutoFocus={event => { if (opened || selection) { event.preventDefault(); return; } restoreFocus(event, returnTarget.current?.element ?? null); }}
       title={detail ? direction === "outgoing" ? detail.recipientName : detail.senderName : "Share details"}
       description={detail?.displayLabel} eyebrow={direction === "outgoing" ? "Shared card" : "Received card"}
-      leading={<Button ref={detailBack} variant="ghost" size="icon-touch" aria-label="Back to sharing history" disabled={Boolean(busy)} onClick={() => { setSelection(null); setOpened(null); }}><ArrowLeft aria-hidden="true" className="size-5 text-[var(--app-accent)]" /></Button>} showCloseButton={false} headerTextOverflow="wrap" surfaceClassName={`${styles.history} ${styles.historyDetail}`}
+      leading={<Button ref={detailBack} variant="ghost" size="icon-touch" aria-label="Back to sharing history" disabled={Boolean(busy)} onClick={() => { setSelection(null); setOpened(null); }}><ArrowLeft aria-hidden="true" className="size-5 text-[var(--app-accent)]" /></Button>} showCloseButton={false} headerTextOverflow="wrap" surfaceClassName={`${styles.history} ${styles.historyDetail} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`}
       bodyClassName="space-y-5"
-      footer={detail && direction === "outgoing" && detail.status === "active" ? <Button ref={revokeButton} size="compact" variant="secondary" aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => { revoked.current = false; setSelection(detail); }}>Revoke access</Button> : undefined}>
+      footer={detail && direction === "outgoing" && detail.status === "active" ? <Button ref={revokeButton} size="compact" variant="destructive" className={presentationStyles.modalAction} aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => { revoked.current = false; setSelection(detail); }}>Revoke access</Button> : undefined}>
       {detail ? <>
         <SettingsGroup title="Share details">
           <SettingsRow title="Status" description={detail.status === "revoked" ? "Revoked" : detail.status === "expired" ? "Expired" : "Active"} />
@@ -204,7 +205,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       </> : null}
     </SettingsDetailPanel>
     <AlertDialog open={Boolean(selection && current)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
-      <AlertDialogContent className={profileStyles.accountDialog} onCloseAutoFocus={event => {
+      <AlertDialogContent className={`${profileStyles.accountDialog} ${presentationStyles.walletDialog}`} onCloseAutoFocus={event => {
         if (selection || !detail) { event.preventDefault(); return; }
         restoreFocus(event, revoked.current ? detailBack.current : revokeButton.current ?? detailBack.current);
       }}><AlertDialogHeader><AlertDialogTitle>Revoke this card share?</AlertDialogTitle><AlertDialogDescription>This stops future access for {selection?.recipientName}. Information already viewed cannot be taken back.</AlertDialogDescription></AlertDialogHeader>

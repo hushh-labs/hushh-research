@@ -191,13 +191,13 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("keeps Wallet's existing page hero while removing only its compact title", () => {
+  it("gives Wallet a single current crumb beside the shared Back control", () => {
     expect(resolveTopShellBreadcrumb("/one/wallet")).toEqual({
       backHref: "/one",
       width: "content",
       align: "center",
       suppressFallbackTitle: true,
-      items: [{ label: "One", href: "/one" }],
+      items: [{ label: "One", href: "/one" }, { label: "Wallet" }],
     });
   });
 

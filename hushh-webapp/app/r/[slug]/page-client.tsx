@@ -6,6 +6,7 @@ import { Users } from "@/components/icons";
 
 import { CardTitle, RowDescription } from "@/components/app-ui/typography";
 import { Button } from "@/components/ui/button";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import { useAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -93,6 +94,8 @@ export default function ReferralLandingPageClient({ slug }: { slug: string }) {
       <RowDescription>One moment.</RowDescription>
       <Button
         variant="secondary"
+        size="compact"
+        className={presentationStyles.quietAction}
         onClick={() => router.replace(user ? ROUTES.ONE_HOME : signInHref())}
       >
         Continue

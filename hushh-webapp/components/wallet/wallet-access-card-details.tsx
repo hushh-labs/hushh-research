@@ -10,6 +10,7 @@ import { openWalletCardShare, type SharedPaymentCard } from "@/lib/wallet/wallet
 import type { CardAccessView } from "@/lib/services/wallet-card-access-service";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { WalletCardFace } from "./wallet-card-face";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 
 /** Mounted only while the server-authorized grant is active. No decrypted persistence. */
 export function WalletAccessCardDetails({ grantId, data }: { grantId: string; data: CardAccessView }) {
@@ -46,14 +47,14 @@ export function WalletAccessCardDetails({ grantId, data }: { grantId: string; da
   }, [scope, vaultKey, user?.uid, data.encryptedCard, data.senderUserId, data.card?.last4, data.card?.brand, data.card?.expiryMonth, data.card?.expiryYear]);
   const shown = opened?.scope === scope && opened.key === vaultKey ? opened.card : null;
   if (!data.card) return null;
-  return <>
+  return <div className={`${presentationStyles.walletSurface} space-y-2`}>
     <WalletCardFace summary={{ cardId: grantId, nickname: "Shared card", brand: data.card.brand as WalletCardSummary["brand"],
       last4: data.card.last4, expiryMonth: data.card.expiryMonth, expiryYear: data.card.expiryYear, issuingRegion: data.card.issuingRegion, createdAt: "" }}
       revealed={shown ? { pan: shown.pan, cardholderName: shown.cardholderName } : null} />
-    {data.encryptedCard && !vaultKey ? <Button variant="secondary" onClick={() => setUnlock(true)}>Unlock to view card number</Button> : null}
-    {data.encryptedCard && vaultKey && !shown && !failed ? <p role="status">Opening encrypted card…</p> : null}
-    {failed ? <p role="alert">Could not open the card number. Ask the sender to share again.</p> : null}
-    {!data.encryptedCard ? <p className="mt-2 text-xs text-muted-foreground">This share includes only the last four digits. Ask the sender to share again for the full number.</p> : null}
+    {data.encryptedCard && !vaultKey ? <Button variant="secondary" size="standard" onClick={() => setUnlock(true)}>Unlock to view card number</Button> : null}
+    {data.encryptedCard && vaultKey && !shown && !failed ? <p role="status" className="text-[13px] leading-[18px]">Opening encrypted card…</p> : null}
+    {failed ? <p role="alert" className="text-[13px] leading-[18px] text-destructive">Could not open the card number. Ask the sender to share again.</p> : null}
+    {!data.encryptedCard ? <p className="mt-2 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">This share includes only the last four digits. Ask the sender to share again for the full number.</p> : null}
     {user ? <VaultUnlockDialog user={user} open={unlock} onOpenChange={setUnlock} onSuccess={() => setUnlock(false)} title="Unlock to view card number" description="Card details open only on your device." /> : null}
-  </>;
+  </div>;
 }

@@ -259,12 +259,11 @@ for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 900],
         expect(state.bottom).toBeLessThanOrEqual(height + 1);
         expect(state.width).toBeCloseTo(width < 768 ? width : 480, 0);
         expect(state.consentPresentation).toBe(intent !== "card");
-        const ordinaryTitleSize = width < 768 ? "22px" : "24px";
-        const ordinaryTitleLine = width < 768 ? "30px" : "32px";
         expect(state).toMatchObject({
-          size: intent === "card" ? ordinaryTitleSize : "20px",
-          line: intent === "card" ? ordinaryTitleLine : "28px",
-          weight: "600", duplicateIds: false,
+          size: "20px",
+          line: "28px",
+          weight: "600",
+          duplicateIds: false,
         });
         expect(state.blur).toBe(width < 640 ? "blur(4px)" : "blur(12px)");
         expect(state.surface).toMatch(/^rgb\(/);
