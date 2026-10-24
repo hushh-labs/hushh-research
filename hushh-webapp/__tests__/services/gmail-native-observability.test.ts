@@ -23,6 +23,7 @@ vi.mock("@/lib/services/auth-service", () => ({
   },
 }));
 
+import { planGmailNativeConnect, parseGmailNativeConnectStartPayload } from "@/lib/services/gmail-oauth-contract";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
 function response(body: unknown, status = 200) {
@@ -38,6 +39,13 @@ describe("native Gmail observability", () => {
     mocks.currentUserId = "owner";
     // Provider-observability cases run only after explicit Shared admission.
     mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "shared" });
+  });
+
+  it('keeps first native consent read-only and preserves existing grants through reauthentication', () => {
+    expect(planGmailNativeConnect('read', {})).toEqual({ purpose: 'read', preserveSend: false, preserveModify: false });
+    expect(planGmailNativeConnect('read', { scope_csv: 'https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.modify', send_permission_granted: false })).toEqual({ purpose: 'compose', preserveSend: true, preserveModify: true });
+    expect(parseGmailNativeConnectStartPayload({ configured: true, server_client_id: 'synthetic', purpose: 'compose' }).purpose).toBe('compose');
+    expect(() => parseGmailNativeConnectStartPayload({ configured: true, server_client_id: 'synthetic', purpose: 'all' })).toThrow();
   });
 
   it("does not accept a read-only native result for a send upgrade", async () => {

@@ -127,9 +127,7 @@ def test_private_live_cannot_use_a_shared_developer_key(monkeypatch):
 
     monkeypatch.setattr(_tree, "pod_mode", lambda: True)
     monkeypatch.setattr(_tree, "_ONE_MODEL", "gemini-3.1-flash-live-preview")
-    monkeypatch.setattr(
-        _tree, "_managed_live_api_key", lambda: pytest.fail("private Live read shared key")
-    )
+    monkeypatch.setenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY", "synthetic-unverified-key")
     with pytest.raises(RuntimeError, match="private_live_requires_vertex"):
         _tree._build_one_live_model()
 

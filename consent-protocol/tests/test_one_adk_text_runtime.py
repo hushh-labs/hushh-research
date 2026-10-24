@@ -608,8 +608,8 @@ async def test_text_runtime_stamps_the_reported_model_on_token_events(
             pkm_context=None,
             runtime_provider=provider,
             runtime_model="gemini-test",
-            runtime_mode="byok",
-            runtime_credential="k",
+            runtime_mode="hushh_managed_vertex",
+            runtime_credential=None,
         )
     ]
     tokens = [event for event in events if event.kind == "token"]
@@ -656,8 +656,8 @@ async def test_text_runtime_leaves_model_version_empty_when_unreported_negative_
             pkm_context=None,
             runtime_provider=provider,
             runtime_model="gemini-test",
-            runtime_mode="byok",
-            runtime_credential="k",
+            runtime_mode="hushh_managed_vertex",
+            runtime_credential=None,
         )
     ]
     assert [event.model_version for event in events if event.kind == "token"] == [""]

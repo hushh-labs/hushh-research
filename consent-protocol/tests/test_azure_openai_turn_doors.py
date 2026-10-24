@@ -59,8 +59,7 @@ def _never(*_a: Any, **_k: Any) -> Any:
 def no_managed_or_key_builder(monkeypatch):
     from hushh_mcp.one_adk import text_runtime
 
-    for name in ("build_gemini_byok_adk_model", "build_managed_gemini_adk_model"):
-        monkeypatch.setattr(text_runtime, name, _never)
+    monkeypatch.setattr(text_runtime, "build_managed_gemini_adk_model", _never)
     for name in (
         "build_gemini_byok_adk_model",
         "build_managed_gemini_adk_model",
@@ -75,7 +74,8 @@ def no_managed_or_key_builder(monkeypatch):
 
 @pytest.mark.parametrize("mode", ["byok", "puppy_relay", "user_adc", "hushh_managed_vertex"])
 def test_every_other_mode_keeps_the_target_it_was_given(azure_pod, mode) -> None:
-    assert turn_target("gemini", "gemini-test", mode) == ("gemini", "gemini-test", mode)
+    provider = "openai" if mode == "byok" else "gemini"
+    assert turn_target(provider, "model-test", mode) == (provider, "model-test", mode)
 
 
 def test_the_azure_mode_carries_the_deployment_as_the_model(azure_pod) -> None:
@@ -288,17 +288,19 @@ def _record_command_builders(monkeypatch) -> list[tuple[str, Any]]:
     return calls
 
 
-async def test_an_owner_key_still_wins_for_commands_on_an_azure_pod(azure_pod, monkeypatch) -> None:
+async def test_unverified_gemini_commands_refuse_without_azure_fallback(
+    azure_pod, monkeypatch
+) -> None:
     from api.routes.one import pod_commands
 
     calls = _record_command_builders(monkeypatch)
     model = pod_commands.CommandModel(runtimeCredential="AIza-own-key")
 
-    brain = await pod_commands._brain(model, "owner-uid", "location.assess", {"hushh_id": "p"})
-
-    assert brain["client"] == "build_runtime_client"
-    assert {name for name, _ in calls} == {"build_runtime_client", "build_gemini_byok_adk_model"}
-    assert ("build_runtime_client", "gemini") in calls
+    with pytest.raises(HTTPException) as refused:
+        await pod_commands._brain(model, "owner-uid", "location.assess", {"hushh_id": "p"})
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "AGENT_RUNTIME_PROVIDER_TERMS_UNVERIFIED"
+    assert calls == []
 
 
 async def test_commands_on_a_gcp_pod_keep_the_managed_builders_negative_control(

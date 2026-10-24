@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from api.routes.one import pod_turn
 from api.routes.one.pod_turn import PodTurnRequest
 from hushh_mcp.hushh_adk.events import AdkEventCleanupError, AdkEventTimeoutError
+from tests.helpers.one_processing import enable_managed_vertex, owner_vertex_session
 
 
 class _Event:
@@ -36,15 +37,12 @@ def _stream(events, *, boom: Exception | None = None):
 def enabled(monkeypatch):
     monkeypatch.setattr(pod_turn, "pod_mode", lambda: True)
     monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: True)
+    enable_managed_vertex(monkeypatch)
     monkeypatch.setattr(pod_turn, "_resolve_model", lambda: ("gemini", "gemini-test"))
 
 
 def _consent_ok(monkeypatch, user_id="u1"):
-    # NOTE: this stubs `_validate_consent` wholesale, so it bypasses the owner
-    # binding by construction. The binding itself is tested below against the real
-    # function with a stubbed verifier.
-    # `verifier` is the injectable seam the turn route threads to the consent
-    # authority client; a stub without it diverges from the real call site.
+    # Generic units stub consent; binding tests below use the real validator.
     async def _validate(_token, *, verifier=None):
         return {"user_id": user_id, "scope": "pkm.read"}
 
@@ -52,9 +50,6 @@ def _consent_ok(monkeypatch, user_id="u1"):
 
 
 def _payload(message="hello", **kw):
-    # A pod serves turns on the OWNER'S key. Every normal turn carries one; the
-    # tests that omit it are asserting the refusal, not taking a shortcut.
-    kw.setdefault("runtime_credential", "owner-key")
     return PodTurnRequest(message=message, **kw)
 
 
@@ -309,9 +304,7 @@ def test_the_route_is_mounted_in_the_pod(monkeypatch):
 # -- whose model answers -------------------------------------------------------
 
 
-async def test_a_turn_runs_on_the_owners_key(enabled, monkeypatch):
-    """ "Own your AI" is a cost boundary, not a slogan: the person's key, their
-    quota, their spend."""
+async def test_a_turn_runs_on_the_owners_verified_cloud_identity(enabled, monkeypatch):
     _consent_ok(monkeypatch)
     seen: dict = {}
 
@@ -319,33 +312,25 @@ async def test_a_turn_runs_on_the_owners_key(enabled, monkeypatch):
         seen.update(kwargs)
         yield _Event("token", "ok")
 
-    result = await pod_turn.run_pod_turn(payload=_payload(), consent_token="t", stream_fn=_run)
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(),
+        consent_token="t",
+        stream_fn=_run,
+        session=owner_vertex_session(monkeypatch),
+    )
+    assert seen["runtime_credential"] is None
+    assert result["runtimeMode"] == "user_adc"
 
-    assert seen["runtime_credential"] == "owner-key"
-    assert result["runtimeMode"] == "byok"
 
-
-def test_the_runtime_mode_is_one_the_model_builder_actually_accepts():
-    """The two ends of this handoff must speak one vocabulary.
-
-    This route returned `"gemini_byok"` while `text_runtime._runtime_model`
-    branches on `"byok"`, so a pod turn carrying a credential matched neither BYOK
-    branch and raised. The BYOK pod path failed on every turn, and no test saw it
-    because the route test above injects a stub `stream_fn` — it asserts the
-    string this function returns, never what the next function does with it.
-
-    So this asserts the AGREEMENT rather than either value: whatever
-    `_resolve_runtime_mode` produces must be a member of the canonical mode set
-    the builder dispatches on. Restating the expected literal here would just be a
-    third copy to drift.
-    """
+def test_the_runtime_mode_is_one_the_model_builder_actually_accepts(enabled):
+    """Credential probe modes remain in the generic request schema."""
     from typing import get_args
 
     from hushh_mcp.services.agent_chat_service import AgentRuntimeCredentialMode
 
     accepted = set(get_args(AgentRuntimeCredentialMode))
 
-    byok = pod_turn._resolve_runtime_mode(_payload())
+    byok = pod_turn._resolve_runtime_mode(_payload(runtime_credential="synthetic-key"))
     assert byok in accepted, f"{byok!r} is not a mode the model builder can dispatch on"
 
 
@@ -356,6 +341,7 @@ async def test_no_key_and_no_managed_fallback_is_a_clear_400(enabled, monkeypatc
     import hushh_mcp.runtime_settings as settings
 
     monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: False)
+    monkeypatch.setenv("HUSSH_POD_USER_ADC_ENABLED", "false")
 
     with pytest.raises(HTTPException) as exc:
         await pod_turn.run_pod_turn(
@@ -372,6 +358,7 @@ async def test_the_managed_fallback_is_only_reached_when_explicitly_enabled(enab
     import hushh_mcp.runtime_settings as settings
 
     monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: True)
+    monkeypatch.setenv("HUSSH_POD_USER_ADC_ENABLED", "false")
 
     result = await pod_turn.run_pod_turn(
         payload=_payload(runtime_credential=None),
@@ -384,12 +371,14 @@ async def test_the_managed_fallback_is_only_reached_when_explicitly_enabled(enab
 async def test_the_owners_key_is_never_echoed_back(enabled, monkeypatch):
     """It arrives with the turn and leaves with it. Nothing stores or returns it."""
     _consent_ok(monkeypatch)
-    result = await pod_turn.run_pod_turn(
-        payload=_payload(runtime_credential="super-secret-key"),
-        consent_token="t",
-        stream_fn=_stream([_Event("token", "hi")]),
-    )
-    assert "super-secret-key" not in str(result)
+    with pytest.raises(HTTPException) as refused:
+        await pod_turn.run_pod_turn(
+            payload=_payload(runtime_credential="super-secret-key"),
+            consent_token="t",
+            stream_fn=_stream([_Event("token", "hi")]),
+        )
+    assert refused.value.status_code == 409
+    assert "super-secret-key" not in str(refused.value.detail)
 
 
 # -- whose turn is this --------------------------------------------------------
@@ -482,6 +471,7 @@ def test_the_credential_bound_matches_the_hubs():
     assert str(pod_max) == str(hub_max)
 
 
+@pytest.mark.usefixtures("enabled")
 async def test_pod_ingress_runs_shared_location_loop_and_recovers_history(tmp_path, monkeypatch):
     """Real ingress/dispatch/tool/store; only authority and model transports are synthetic."""
     from types import SimpleNamespace
@@ -554,7 +544,7 @@ async def test_pod_ingress_runs_shared_location_loop_and_recovers_history(tmp_pa
         return next(responses)
 
     client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
-    monkeypatch.setattr(factory, "build_runtime_client", lambda *a, **kw: client)
+    monkeypatch.setattr(factory, "build_managed_runtime_client", lambda *_a, **_k: client)
     # Neither the old summary nor a shared conversation/provider service may serve this turn.
     from hushh_mcp.one_adk import pod_data_door_specialist
 

@@ -205,3 +205,21 @@ def test_sync_hushh_tool_rejects_db_revoked_token():
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.asyncio
+async def test_agent_failure_keeps_provider_error_content_out_of_logs(monkeypatch, caplog):
+    from hushh_mcp.hushh_adk.core import HushhAgent
+
+    canary = "synthetic-private-provider-payload-canary"
+
+    async def fail(self, **kwargs):
+        raise RuntimeError(canary)
+
+    monkeypatch.setattr(HushhAgent, "_execute_adk_turn", fail)
+    agent = HushhAgent(name="privacy_probe", model="gemini-test")
+    with caplog.at_level("ERROR"), pytest.raises(RuntimeError):
+        await agent.run_turn(prompt=canary, user_id="synthetic", consent_token="synthetic")  # noqa: S106 - synthetic privacy regression
+    assert "error_type=RuntimeError" in caplog.text
+    assert canary not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)

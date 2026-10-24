@@ -23,6 +23,8 @@ type AgentStatus = Awaited<
   ReturnType<typeof ApiService.getPersonalAgentStatus>
 >;
 
+export const UNVERIFIED_GEMINI_KEY_MESSAGE = "Gemini keys are unavailable for your private agent because their processing terms have not been verified. Use your verified Google Cloud connection.";
+
 export type AgentAiUpdateOffer = {
   releaseId: string | null;
   deploymentTarget: string | null;
@@ -34,6 +36,7 @@ export type AgentAiReadiness =
   | { kind: "unknown" }
   | { kind: "no_agent" }
   | { kind: "agent_pending" }
+  | { kind: "processing_terms_unverified" }
   | { kind: "needs_update"; update: AgentAiUpdateOffer }
   | { kind: "ready" };
 
@@ -112,6 +115,8 @@ export function agentAiReadiness(
   if (mode === "pending") return { kind: "agent_pending" };
   if (mode === "shared" || !mode) return { kind: "no_agent" };
   if (mode !== "byoc" && mode !== "hussh_pods") return { kind: "unknown" };
+  if (status.aiSelection?.unavailableProviders?.[provider] === "processing_terms_unverified")
+    return { kind: "processing_terms_unverified" };
   if (advertisedAiProviders(status)?.includes(provider))
     return { kind: "ready" };
   if (status.state && status.state !== "active")
@@ -361,6 +366,8 @@ export async function shareGeminiSelectionWithAgent(
   if (!isCurrent()) return "Your account changed. Try again.";
   const status = await readAgentStatus();
   if (!isCurrent()) return "Your account changed. Try again.";
+  if (status?.aiSelection?.unavailableProviders?.gemini === "processing_terms_unverified")
+    return UNVERIFIED_GEMINI_KEY_MESSAGE;
   if (!advertisedAiProviders(status)?.includes("gemini")) return null;
   const outcome = await sendAiSelectionToAgent({
     provider: "gemini",

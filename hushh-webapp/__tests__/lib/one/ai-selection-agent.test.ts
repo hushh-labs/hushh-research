@@ -128,6 +128,10 @@ describe("ai-selection agent client", () => {
     expect(agentAiReadiness(CAPABLE as never, "openai")).toEqual({
       kind: "ready",
     });
+    const blocked = { ...CAPABLE, aiSelection: { ...CAPABLE.aiSelection,
+      unavailableProviders: { gemini: "processing_terms_unverified" as const } } };
+    expect(agentAiReadiness(blocked as never, "gemini")).toEqual({ kind: "processing_terms_unverified" });
+    expect(agentAiReadiness(blocked as never, "openai")).toEqual({ kind: "ready" });
   });
 
   it("maps C2 refusals to stable codes", async () => {
@@ -216,6 +220,12 @@ describe("ai-selection agent client", () => {
     });
     expect(await shareGeminiSelectionWithAgent(input)).toBeNull();
     expect(mocks.pod).not.toHaveBeenCalled();
+
+    mocks.status.mockResolvedValueOnce({ ...CAPABLE, aiSelection: { ...CAPABLE.aiSelection,
+      unavailableProviders: { gemini: "processing_terms_unverified" } } });
+    expect(await shareGeminiSelectionWithAgent(input)).toContain("processing terms have not been verified");
+    expect(mocks.pod).not.toHaveBeenCalled();
+    expect(mocks.record).not.toHaveBeenCalled();
 
     mocks.status.mockResolvedValueOnce(CAPABLE);
     mocks.pod.mockResolvedValueOnce(

@@ -50,9 +50,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-10-16";
 const LAST_UPDATED_LABEL = "October 16, 2026";
 const VERSION = "2.4";
-const PRIVACY_LAST_UPDATED = "2026-10-22";
-const PRIVACY_LAST_UPDATED_LABEL = "October 22, 2026";
-const PRIVACY_VERSION = "2.11";
+const PRIVACY_LAST_UPDATED = "2026-10-24";
+const PRIVACY_LAST_UPDATED_LABEL = "October 24, 2026";
+const PRIVACY_VERSION = "2.12";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -288,7 +288,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
       list(
         "We use information from Google APIs only to provide and improve the features you use in One that rely on it.",
-        "We transfer it to others only to provide those features, as the law requires, for security, or as part of a merger or acquisition with your notice.",
+        "We transfer it to others only to provide those features with your consent, as the law requires, for security, or as part of a merger, acquisition, or sale of assets only after obtaining your explicit prior consent.",
         "We do not use it for advertising, including retargeting or personalized ads.",
         "We do not sell it, and we do not use it to determine creditworthiness or for lending.",
         "No person at Hussh reads it unless you ask us to for specific messages or files, it is needed for security or to investigate abuse, the law requires it, or it has been aggregated and anonymized for internal operations.",
@@ -370,7 +370,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Providers you choose. When you connect a service, add your own tool, use your own model key, or run your private agent in your own cloud (your own Google Cloud project or Microsoft Azure subscription), information goes to that provider to do what you asked.",
         "People and businesses you approve, as described above.",
         "Legal reasons. If we reasonably believe disclosure is needed to comply with law, legal process, or an enforceable government request, to protect the safety or rights of any person, or to detect and prevent fraud or security problems. Information encrypted with your vault key cannot be read by us, so we cannot disclose it in readable form.",
-        "Business transfers. If Hussh is involved in a merger, acquisition, or sale of assets, information may be transferred, and this policy will continue to apply to it. We will tell you before that happens.",
+        "Business transfers. If Hussh is involved in a merger, acquisition, or sale of assets, information may be transferred, and this policy will continue to apply to it. We will tell you before that happens. Information received from Google APIs will be transferred as part of such a transaction only after obtaining your explicit prior consent.",
       ),
     ],
   },

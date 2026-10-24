@@ -21,7 +21,8 @@ with pytest.MonkeyPatch.context() as _pod_import_env:
 
 ADVERT = {
     "version": 1,
-    "providers": ["gemini", "openai", "azure_openai"],
+    "providers": ["openai", "azure_openai"],
+    "unavailableProviders": {"gemini": "processing_terms_unverified"},
     "defaultVerification": True,
 }
 
@@ -152,8 +153,9 @@ def test_the_provider_catalog_is_server_owned_and_signed_in_only():
             {
                 "id": "gemini",
                 "name": "Google Gemini",
-                "availability": "available",
-                "methods": ["own_key"],
+                "availability": "unavailable",
+                "reason": "processing_terms_unverified",
+                "methods": [],
                 "agentCapability": "gemini",
             },
             {

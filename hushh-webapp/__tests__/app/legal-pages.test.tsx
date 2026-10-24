@@ -86,6 +86,10 @@ describe("Privacy Policy and Terms of Use pages", () => {
     expect(section.textContent).toContain(
       "develop, improve, or train generalized AI or machine learning models",
     );
+    expect(section.textContent).toContain("only after obtaining your explicit prior consent");
+    expect(plainText(LEGAL_DOCUMENTS.privacy)).toContain(
+      "Information received from Google APIs will be transferred as part of such a transaction only after obtaining your explicit prior consent.",
+    );
   });
 
   it("identifies the canonical application and retained addresses without promising all processing is offline", () => {
@@ -157,8 +161,8 @@ describe("Privacy Policy and Terms of Use pages", () => {
   it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
     const privacy = LEGAL_DOCUMENTS.privacy;
     const text = plainText(privacy);
-    expect(privacy.version).toBe("2.11");
-    expect(privacy.lastUpdated).toBe("2026-10-22");
+    expect(privacy.version).toBe("2.12");
+    expect(privacy.lastUpdated).toBe("2026-10-24");
     expect(text).toContain("Hussh selects Microsoft Azure AI or Google Gemini as the primary processor");
     expect(text).toContain("before any output");
     expect(text).toContain("No model-settings toggle or personal pilot approval is required or created");

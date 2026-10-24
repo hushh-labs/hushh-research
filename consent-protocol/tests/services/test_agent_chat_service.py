@@ -50,109 +50,36 @@ def test_agent_chat_runtime_contract_defaults_to_hushh_managed(test_vault_key):
     assert contract.credential_supplied is False
 
 
-def test_agent_chat_runtime_contract_accepts_byok_with_runtime_credential(
+@pytest.mark.parametrize("transport", ["developer_api", "vertex_api_key"])
+@pytest.mark.parametrize("credential", ["", "synthetic-unverified-key"])
+def test_one_refuses_unverified_gemini_processing_before_provider_construction(
+    monkeypatch,
     test_vault_key,
+    transport,
+    credential,
 ):
+    calls = []
+    monkeypatch.setattr("google.genai.Client", lambda **kwargs: calls.append(kwargs))
     service = AgentChatService(cipher=static_chat_cipher(test_vault_key))
-
-    contract = service.prepare_runtime_contract(
-        runtime_credential=" USER_GEMINI_KEY ",
-        runtime_credential_mode="byok",
-    )
-
-    assert contract.mode == "byok"
-    assert contract.credential_supplied is True
-
-
-def test_agent_chat_runtime_contract_rejects_missing_byok_credential(test_vault_key):
-    service = AgentChatService(cipher=static_chat_cipher(test_vault_key))
-
-    try:
+    with pytest.raises(AgentRuntimeContractError) as error:
         service.prepare_runtime_contract(
-            runtime_credential=" ",
+            runtime_credential=credential,
             runtime_credential_mode="byok",
+            runtime_credential_transport=transport,
+            runtime_vertex_project="declared-customer-project"
+            if transport == "vertex_api_key"
+            else None,
+            runtime_vertex_location="us-central1" if transport == "vertex_api_key" else None,
         )
-    except AgentRuntimeContractError as error:
-        assert error.error_code == "AGENT_RUNTIME_CREDENTIAL_MISSING"
-        assert "Gemini key" in error.message
-    else:  # pragma: no cover - defensive assertion clarity
-        raise AssertionError("Expected AgentRuntimeContractError")
+    assert error.value.error_code == "AGENT_RUNTIME_PROVIDER_TERMS_UNVERIFIED"
+    assert calls == []
 
 
 def test_agent_chat_runtime_contract_rejects_invalid_mode(test_vault_key):
     service = AgentChatService(cipher=static_chat_cipher(test_vault_key))
-
-    try:
-        service.prepare_runtime_contract(
-            runtime_credential="USER_GEMINI_KEY",
-            runtime_credential_mode="unsupported",
-        )
-    except AgentRuntimeContractError as error:
-        assert error.error_code == "AGENT_RUNTIME_MODE_INVALID"
-        assert error.message == "Agent runtime credential mode is invalid."
-    else:  # pragma: no cover - defensive assertion clarity
-        raise AssertionError("Expected AgentRuntimeContractError")
-
-
-def test_agent_chat_runtime_contract_accepts_a_vertex_api_key_with_explicit_endpoint(
-    test_vault_key,
-):
-    service = AgentChatService(cipher=static_chat_cipher(test_vault_key))
-
-    contract = service.prepare_runtime_contract(
-        runtime_credential="USER_VERTEX_KEY",
-        runtime_credential_mode="byok",
-        runtime_credential_transport="vertex_api_key",
-        runtime_vertex_project="customer-vertex-project",
-        runtime_vertex_location="us-central1",
-    )
-
-    assert contract.gemini_byok_transport == "vertex_api_key"
-    assert contract.vertex_project == "customer-vertex-project"
-    assert contract.vertex_location == "us-central1"
-
-
-def test_agent_chat_runtime_contract_rejects_vertex_key_without_endpoint_metadata(test_vault_key):
-    service = AgentChatService(cipher=static_chat_cipher(test_vault_key))
-
-    with pytest.raises(AgentRuntimeContractError, match="Google Cloud Vertex") as error:
-        service.prepare_runtime_contract(
-            runtime_credential="USER_VERTEX_KEY",
-            runtime_credential_mode="byok",
-            runtime_credential_transport="vertex_api_key",
-        )
-
-    assert error.value.error_code == "AGENT_RUNTIME_VERTEX_CONFIGURATION_INVALID"
-
-
-@pytest.mark.anyio
-async def test_agent_chat_service_prepares_byok_runtime_from_pkm_secret(
-    monkeypatch,
-    test_vault_key,
-    caplog,
-):
-    calls: list[dict] = []
-    sample_runtime_value = "_".join(["USER", "BYOK", "VALUE", "SHOULD", "NOT", "LEAK"])
-
-    def fake_client(**kwargs):
-        calls.append(kwargs)
-        return SimpleNamespace(kind="client")
-
-    monkeypatch.setenv("GOOGLE_API_KEY", "BACKEND_KEY_SHOULD_NOT_BE_USED")
-    monkeypatch.setattr("google.genai.Client", fake_client)
-    service = AgentChatService(cipher=static_chat_cipher(test_vault_key))
-
-    prepared = await service.prepare_agent_runtime(
-        runtime_credential=sample_runtime_value,
-        runtime_credential_mode="byok",
-    )
-
-    assert prepared.mode == "byok"
-    assert prepared.model == GEMINI_MODEL
-    assert prepared.client.kind == "client"
-    assert calls == [{"vertexai": False, "api_key": sample_runtime_value}]
-    assert sample_runtime_value not in str(prepared.evidence)
-    assert sample_runtime_value not in caplog.text
+    with pytest.raises(AgentRuntimeContractError) as error:
+        service.prepare_runtime_contract(runtime_credential_mode="unsupported")
+    assert error.value.error_code == "AGENT_RUNTIME_MODE_INVALID"
 
 
 def test_create_runtime_client_uses_byok_key_without_env_fallback(monkeypatch):

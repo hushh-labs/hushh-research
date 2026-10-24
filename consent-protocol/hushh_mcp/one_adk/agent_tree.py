@@ -141,6 +141,16 @@ from hushh_mcp.one_adk.finance_market_tools import (
 )
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
+from hushh_mcp.one_adk.model_processing import (
+    ProcessingTermsUnverifiedError,
+    require_verified_gemini_processing,
+)
+from hushh_mcp.one_adk.model_processing import (
+    managed_model as build_managed_gemini_adk_model,
+)
+from hushh_mcp.one_adk.model_processing import (
+    regional_model as build_managed_regional_gemini_adk_model,
+)
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.owner_style import owner_style_instruction, propose_style_settings
 from hushh_mcp.one_adk.pending_email_draft import pending_email_draft_instruction
@@ -170,8 +180,6 @@ from hushh_mcp.one_adk.workspace_mcp_tools import (
 )
 from hushh_mcp.runtime_providers import (
     bind_managed_vertex_project,
-    build_managed_gemini_adk_model,
-    build_managed_regional_gemini_adk_model,
     live_compatibility,
     thinking_config_for,
 )
@@ -398,23 +406,13 @@ def _onboarding_goals_enabled(user_id: str) -> bool:
     return not allowlist or user_id in allowlist
 
 
-def _managed_live_api_key() -> str:
-    """Return the managed Developer API key for the native-audio head."""
-    return (os.getenv("HUSHH_MANAGED_GEMINI_LIVE_API_KEY") or "").strip()
-
-
 def _build_one_live_model() -> Any:
     """Build the native-audio model using its declared transport contract."""
     if pod_mode() and not live_compatibility.private_live_model_supported(_ONE_MODEL):
         raise RuntimeError("private_live_requires_vertex")
     compatibility = live_compatibility.GEMINI_LIVE_COMPATIBILITY.get(_ONE_MODEL)
     if compatibility is not None and compatibility.transport == "developer_api":
-        key = _managed_live_api_key()
-        if not key:
-            raise RuntimeError("managed_live_key_missing")
-        from hushh_mcp.runtime_providers import build_gemini_byok_adk_model
-
-        return build_gemini_byok_adk_model(_ONE_MODEL, key)
+        raise ProcessingTermsUnverifiedError()
     return build_managed_gemini_adk_model(_ONE_MODEL, vertex_location=_ONE_LIVE_LOCATION)
 
 
@@ -2342,6 +2340,7 @@ def _resolve_text_model(model: Any | None, *, vertex_project: str | None = None)
         if vertex_project is not None:
             raise ValueError("Explicit text model and Vertex project override are exclusive")
         return model
+    require_verified_gemini_processing("gemini", "hushh_managed_vertex")
     if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
         return _SPECIALIST_MODEL
     from hushh_mcp.runtime_providers.managed_text import (

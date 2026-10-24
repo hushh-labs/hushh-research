@@ -78,11 +78,16 @@ def _service(tmp_path: Path, **kw):
     return build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log, **kw)
 
 
-@pytest.fixture
-def enabled(monkeypatch):
+def _enable_pod(monkeypatch):
     monkeypatch.setattr(pod_turn, "pod_mode", lambda: True)
     monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: True)
     monkeypatch.setenv("HUSSH_ID", OWNER)
+    monkeypatch.setenv("HUSSH_POD_MANAGED_MODEL_ENABLED", "true")
+
+
+@pytest.fixture
+def enabled(monkeypatch):
+    _enable_pod(monkeypatch)
 
     async def _validate(_token, *, verifier=None):
         return {"user_id": "u1", "scope": "pkm.read"}
@@ -563,13 +568,10 @@ async def local_authority(tmp_path, monkeypatch):
     )
     token_signing.reset_caches()
 
-    # Pod mode on both doors, and the hub's own verifier replaced by a refusal: the
-    # owner-local path must never reach it, and the hub path is stubbed at
-    # `pod_turn._validate_consent` by the `enabled` fixture instead.
-    monkeypatch.setattr(pod_turn, "pod_mode", lambda: True)
-    monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: True)
+    # Both doors use pod mode. The local path must never reach the hub;
+    # the enabled fixture separately stubs the hub verdict.
+    _enable_pod(monkeypatch)
     monkeypatch.setattr(pod_session, "pod_mode", lambda: True)
-    monkeypatch.setenv("HUSSH_ID", OWNER)
 
     object_store = LocalObjectStore(str(tmp_path / "authority"))
     log = PodCommitLog(object_store, KEY, owner_id=OWNER)
@@ -722,7 +724,7 @@ async def test_the_close_door_opens_for_an_owner_local_session_with_no_hub(
     try:
         result = await pod_memory.run_conversation_close(
             conversation_id="conv-local",
-            payload=pod_memory.PodConversationCloseRequest(runtime_credential="owner-key"),
+            payload=pod_memory.PodConversationCloseRequest(runtime_credential=None),
             review_fn=_review,
             memory_service=object(),
             model_builder=lambda **_k: "the-model-object",
@@ -1086,7 +1088,7 @@ async def test_the_close_ROUTE_opens_the_local_door_on_a_pod_session_bearer(
 
     result = await pod_memory.pod_conversation_close_route(
         conversation_id="conv-http",
-        payload=pod_memory.PodConversationCloseRequest(runtime_credential="owner-key"),
+        payload=pod_memory.PodConversationCloseRequest(runtime_credential=None),
         x_consent_token=None,
         authorization=f"Bearer {token}",
     )
@@ -1148,7 +1150,7 @@ async def test_the_close_ROUTE_still_takes_the_hub_token_unchanged(
 
     result = await pod_memory.pod_conversation_close_route(
         conversation_id="conv-hub",
-        payload=pod_memory.PodConversationCloseRequest(runtime_credential="k"),
+        payload=pod_memory.PodConversationCloseRequest(runtime_credential=None),
         x_consent_token="hub-token",
         authorization="Bearer nonsense",
     )
@@ -1460,7 +1462,7 @@ async def test_a_close_on_a_binding_without_pod_revoke_records_nothing_at_all(
         ]
         result = await pod_memory.run_conversation_close(
             conversation_id="conv-narrowed",
-            payload=pod_memory.PodConversationCloseRequest(runtime_credential="owner-key"),
+            payload=pod_memory.PodConversationCloseRequest(runtime_credential=None),
             memory_service=service,
             model_builder=lambda **_k: "the-model-object",
             **_local(authority, claims),
@@ -1512,7 +1514,7 @@ async def test_a_narrowed_close_that_only_adds_is_untouched_by_the_narrowing(
         _ScriptedReviewRunner.script = [("remember", {"fact": "she prefers aisle seats"})]
         result = await pod_memory.run_conversation_close(
             conversation_id="conv-narrowed-additive",
-            payload=pod_memory.PodConversationCloseRequest(runtime_credential="owner-key"),
+            payload=pod_memory.PodConversationCloseRequest(runtime_credential=None),
             memory_service=service,
             model_builder=lambda **_k: "the-model-object",
             **_local(authority, claims),
@@ -1548,7 +1550,7 @@ async def test_a_close_on_the_binding_the_hub_actually_mints_still_retires(
         ]
         result = await pod_memory.run_conversation_close(
             conversation_id="conv-full",
-            payload=pod_memory.PodConversationCloseRequest(runtime_credential="owner-key"),
+            payload=pod_memory.PodConversationCloseRequest(runtime_credential=None),
             memory_service=service,
             model_builder=lambda **_k: "the-model-object",
             **_local(authority, claims),
@@ -1580,7 +1582,7 @@ async def test_a_hub_relayed_close_is_unchanged_by_the_narrowing(enabled, tmp_pa
         _ScriptedReviewRunner.script = [("forget", {"memory_id": held})]
         result = await pod_memory.run_conversation_close(
             conversation_id="conv-hub",
-            payload=pod_memory.PodConversationCloseRequest(runtime_credential="owner-key"),
+            payload=pod_memory.PodConversationCloseRequest(runtime_credential=None),
             memory_service=service,
             model_builder=lambda **_k: "the-model-object",
             consent_token="hub-token",
@@ -1650,7 +1652,7 @@ async def test_a_read_narrowed_session_cannot_retire_a_fact_by_any_route(
         ]
         closed = await pod_memory.run_conversation_close(
             conversation_id="conv-any-route",
-            payload=pod_memory.PodConversationCloseRequest(runtime_credential="owner-key"),
+            payload=pod_memory.PodConversationCloseRequest(runtime_credential=None),
             memory_service=service,
             model_builder=lambda **_k: "the-model-object",
             **_local(authority, claims),
@@ -1807,9 +1809,7 @@ async def test_the_turn_route_hands_the_catch_up_review_the_doors_own_verdict(
         assert "degraded" not in result, f"the turn degraded instead of streaming: {result!r}"
         return seen
 
-    payload = pod_turn.PodTurnRequest(
-        message="hello", runtimeCredential="owner-key", pkmContext="grounding"
-    )
+    payload = pod_turn.PodTurnRequest(message="hello", pkmContext="grounding")
 
     # The hub-relayed door: no binding at all, and the hub's verdict is the
     # authority, exactly as it is for a close and for the revoke route.

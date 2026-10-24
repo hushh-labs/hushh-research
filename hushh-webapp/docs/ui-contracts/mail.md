@@ -443,12 +443,12 @@ Sources: [Gmail setup route](../../app/one/setup/gmail/gmail-onboarding-setup-cl
 
 | Step | Actual request/effect and recovery |
 | --- | --- |
-| Connect/Reconnect click | `handleConnectGmail` defaults purpose `send`. The initial grant asks `gmail.readonly` and `gmail.send`; it does not authorize automatic sending. Compose/modify scopes remain deliberate separate upgrades. |
+| Connect/Reconnect click | `handleConnectGmail` defaults purpose `read`. A first connection requests `gmail.readonly`; sending, drafts and mailbox changes require deliberate upgrades. Native reconnect preserves the owner’s existing send/compose/modify grants. |
 | Web popup | Create safe attempt and open window synchronously from click, then start OAuth. With blocked popup, persist safe attempt and use full-page redirect. If correlation cannot be safely stored, **Mail sign-in could not be started safely. Please allow popups or try again.** No unsafe completion fallback. |
 | OAuth start inputs | Current owner, Google-provider email as optional login hint, `include_granted_scopes` true for send or Google sign-in; validated environment-derived redirect ending `/one/profile/gmail/oauth/return`. |
 | Setup provider departure | Bootstrap only onboarding, verify active unresolved Gmail capability, version-write external-connector journey and callback-attempt ID before persisting browser intent. Provider opening is not setup completion. |
-| Native | Start → `HushhAuth.connectGmail({serverClientId,purpose,preserveModify})` → server-auth-code completion → force-refresh status. Retain already granted modify permission. Missing config/code: **Mail OAuth is not configured for this environment.** / **Google did not return a Mail authorization code.** |
-| Native success/failure | **Mail connected. You can read and send after reviewing each email.**; fallback **We couldn't connect Mail right now. Please try again in a moment.** |
+| Native | Start → `HushhAuth.connectGmail({serverClientId,purpose,preserveSend,preserveModify})` → server-auth-code completion → force-refresh status. Retain already granted send, compose and modify permissions from a fresh status read. Missing config/code: **Mail OAuth is not configured for this environment.** / **Google did not return a Mail authorization code.** |
+| Native success/failure | **Mail connected. You can read your messages and receipts.** Read-and-send copy requires the returned sending capability; fallback **We couldn't connect Mail right now. Please try again in a moment.** |
 | Web start failure | Close popup, clear correlation/busy; sanitized fallback **We couldn't start Mail connection right now. Please try again in a moment.** |
 | Popup callback | Accept settlement only from same origin, exact popup and attempt. Storage fallback is attempt-bound too. Send-purpose success additionally requires `send_permission_granted:true`, not just Google returning successfully. |
 | Verified popup success | **Mail connected. You can finish setup when ready.** |
@@ -983,7 +983,7 @@ mutation did not happen.
 | CTA/read | Method/path; auth; request | Response feeding UI/effect |
 | --- | --- | --- |
 | Status / Retry / handoff page | GET `/api/kai/gmail/status/{uid}`; F; path owner | Shared connector fields below; service hot cache1min, force bypass. Not a request per title/badge. |
-| Connect/Reconnect/Enable sending | POST `/api/kai/gmail/connect/start`; F; `{user_id,login_hint,include_granted_scopes,purpose,redirect_uri}` | `configured,authorize_url,state,redirect_uri,expires_at` → provider. Purpose read/send/compose/modify at schema; Mail page defaults send. |
+| Connect/Reconnect/Enable sending | POST `/api/kai/gmail/connect/start`; F; `{user_id,login_hint,include_granted_scopes,purpose,redirect_uri}` | `configured,authorize_url,state,redirect_uri,expires_at` → provider. Purpose read/send/compose/modify at schema; Mail page defaults read. |
 | Provider complete | POST `/api/kai/gmail/connect/complete`; F; `{user_id,code,state,redirect_uri}` | Validated connected status; caller requires actual connected and required send grant. State10min, bound owner/redirect. |
 | Native start | POST `/api/kai/gmail/connect/native/start`; F; `{purpose}` | `configured,server_client_id,purpose` → native SDK. No provider token exposed. |
 | Native complete | POST `/api/kai/gmail/connect/native/complete`; F; `{user_id,server_auth_code}` | Validated connected status and send scope when requested. |
@@ -1352,7 +1352,7 @@ Sources: [setup state service](../../lib/services/pre-vault-user-state-service.t
 | Overview metrics | Calculated/passed but not consumed/rendered by current hero. |
 | Direct KYC review | Errors outside open modal; no universal busy dismissal guard, no displayed expiry, unavailable private-field labels ignored, partial scan counters not surfaced, incomplete direct-section race/dedupe protection. These are source findings, not fixes delivered by this contract. |
 | Disconnect wording | Server artifacts are cleared; verified encrypted device snapshot can remain, with distinct success text. Private-memory statements are separate. |
-| Native compose | Service type declares compose purpose but native-start parser accepts read/send; native compose is not verified supported merely from the type. |
+| Native compose | Native-start parser accepts read/send/compose. Reconnect preserves prior compose grants; actual provider grants and supported device execution remain required. |
 | Font/AlertDialog cascade | Source values and conflicts are documented. Definitive compiled max-width, full-product wrapping, long-content keyboard access, screen-reader and physical Dynamic Type need runtime proof. |
 | Founder Wiki | No authenticated Founder Wiki refresh/read capability was available in this task. No private wiki content was copied or future-state claim promoted. Current-source documentation does not depend on a wiki implementation claim. |
 

@@ -132,7 +132,7 @@ describe("connectGmailInPlace (web)", () => {
     try {
       const start = connectGmailInPlace({ owner, purpose: 'send' });
       await expect(start.result).resolves.toBe('phone_handoff');
-      expect(receive.mock.calls[0][0].detail).toBe('hushh://one/connect/google/gmail');
+      expect(receive.mock.calls[0][0].detail).toBe('hushh://one/connect/google/gmail?access=manage');
       expect(mocks.gmailStartConnect).not.toHaveBeenCalled();
       expect(mocks.gmailStartNative).not.toHaveBeenCalled();
     } finally { window.removeEventListener('hushh:google-connector-intent', receive); }
@@ -259,7 +259,7 @@ describe("connectGmailInPlace (native)", () => {
     const confirmLegacyTransition = vi.fn();
     const start = connectGmailInPlace({ owner, purpose: 'modify', vaultOwnerCapability: 'synthetic-capability', confirmLegacyTransition });
     await expect(start.result).resolves.toBe('connected');
-    expect(mocks.privateConnect).toHaveBeenCalledWith('gmail', { isCurrent: expect.any(Function),
+    expect(mocks.privateConnect).toHaveBeenCalledWith('gmail', { gmailAccessLevel: 'manage', isCurrent: expect.any(Function),
       vaultOwnerCapability: 'synthetic-capability', confirmLegacyTransition });
     expect(mocks.connectGmail).not.toHaveBeenCalled();
     expect(mocks.gmailStartNative).not.toHaveBeenCalled();
@@ -272,7 +272,7 @@ describe("connectGmailInPlace (native)", () => {
     const start = connectGmailInPlace({ owner, purpose: "send" });
     expect(start.surface).toBe("native");
     await expect(start.result).resolves.toBe("connected");
-    expect(mocks.connectGmail).toHaveBeenCalledWith({ serverClientId: "native-client", purpose: "send", preserveModify: true });
+    expect(mocks.connectGmail).toHaveBeenCalledWith({ serverClientId: "native-client", purpose: "send", preserveSend: true, preserveModify: true });
     expect(window.open).not.toHaveBeenCalled();
   });
 

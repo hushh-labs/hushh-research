@@ -132,7 +132,10 @@ provider/model receipt; old images refuse PATCH without clearing a working key.
 
 Selected foreground organization requires explicit analysis consent. Only the
 selected UTF-8 file (at most 256 KiB) and its explicitly selected metadata reach
-managed Gemini. Sibling folder names are excluded, including from older-client
+managed Gemini. One's processing admission rejects an unverified Gemini key
+before model construction; Shared analysis returns `409` with detail code
+`AGENT_RUNTIME_PROVIDER_TERMS_UNVERIFIED`. A successful synthetic key check does
+not authorize this processing. Sibling folder names are excluded, including from older-client
 requests; the server rejects a nonempty folder projection. The authored specialist proposes reversible changes; the browser rechecks
 consent, exclusions, revision and cancellation under the mutation lease before
 committing. Original bytes remain immutable. Closing/locking the browser interrupts

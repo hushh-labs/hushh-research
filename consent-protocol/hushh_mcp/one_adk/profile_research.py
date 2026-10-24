@@ -179,7 +179,7 @@ async def run_profile_research(
 
     from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
     from hushh_mcp.one_adk.agent_tree import _ONE_MANIFEST, build_google_search_agent
-    from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
+    from hushh_mcp.one_adk.model_processing import regional_model
     from hushh_mcp.runtime_providers.gemini_config import (
         build_generate_content_config,
         resolve_fleet_model_name,
@@ -190,7 +190,7 @@ async def run_profile_research(
         raise ValueError("Invalid research budget")
     task = next(child for child in _ONE_MANIFEST.subagents if child.id == "one_profile_research")
     model_name = resolve_fleet_model_name(task.model.name)
-    model = build_managed_regional_gemini_adk_model(model_name)
+    model = regional_model(model_name)
     generation = build_generate_content_config(
         types,
         model_name,

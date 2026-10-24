@@ -26,6 +26,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.routes.one import pod_turn as pt  # noqa: E402
+from tests.helpers.one_processing import enable_managed_vertex  # noqa: E402
 
 OWNER = "user-1"
 PROJECTION = "Owner prefers concise answers and lives in Seattle."
@@ -54,6 +55,7 @@ def enabled(monkeypatch):
     consent stubbed so these tests isolate grounding rather than re-testing auth."""
     monkeypatch.setattr(pt, "pod_mode", lambda: True)
     monkeypatch.setattr(pt, "pod_turn_enabled", lambda: True)
+    enable_managed_vertex(monkeypatch)
     monkeypatch.setattr(pt, "_resolve_model", lambda: ("gemini", "gemini-test"))
 
     async def _validate(_token, *, verifier=None):
@@ -63,7 +65,7 @@ def enabled(monkeypatch):
 
 
 def _payload(**kw) -> pt.PodTurnRequest:
-    kw.setdefault("runtime_credential", "owner-key")
+    kw.setdefault("runtime_credential", None)
     return pt.PodTurnRequest(message="hi", **kw)
 
 

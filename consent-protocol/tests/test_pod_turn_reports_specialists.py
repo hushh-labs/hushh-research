@@ -24,6 +24,7 @@ from hushh_mcp.one_adk.text_runtime import (
     OneTextSpecialistOutcome,
     _event_specialists,
 )
+from tests.helpers.one_processing import enable_managed_vertex
 
 
 class _Reply:
@@ -276,6 +277,7 @@ async def test_the_route_emits_per_specialist_dependencies_and_a_turn_level_roll
 
     monkeypatch.setattr(pod_turn, "pod_mode", lambda: True)
     monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: True)
+    enable_managed_vertex(monkeypatch)
     monkeypatch.setattr(pod_turn, "_resolve_model", lambda: ("gemini", "gemini-test"))
 
     async def _validate(_token, *, verifier=None):
@@ -315,7 +317,7 @@ async def test_the_route_emits_per_specialist_dependencies_and_a_turn_level_roll
             yield SimpleNamespace(kind="specialist", specialist=outcome)
 
     result = await pod_turn.run_pod_turn(
-        payload=pod_turn.PodTurnRequest(message="hi", runtime_credential="owner-key"),
+        payload=pod_turn.PodTurnRequest(message="hi"),
         consent_token="t",  # noqa: S106 - stubbed above
         stream_fn=_run,
     )

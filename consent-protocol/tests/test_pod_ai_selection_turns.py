@@ -24,6 +24,7 @@ from api.routes.one import pod_turn
 from api.routes.one.pod_turn import PodTurnRequest
 from hushh_mcp.runtime_providers import factory, owner_openai
 from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+from hushh_mcp.runtime_providers.processing_terms import ProcessingTermsUnverifiedError
 from hushh_mcp.services import pod_ai_selection
 from hushh_mcp.services.pod_ai_selection import AiSelection
 
@@ -114,24 +115,29 @@ async def test_the_stored_selection_wins_over_the_per_turn_key(enabled):
     assert SECRET not in str(result)
 
 
-async def test_without_a_selection_the_turn_keeps_todays_per_turn_key(enabled):
-    """Negative control for the test above."""
+async def test_unverified_per_turn_gemini_key_is_refused_before_dispatch(enabled):
     seen: dict[str, Any] = {}
-    await _turn(seen)
-    assert _target(seen) == ("gemini", "gemini-test", "byok", PER_TURN)
+    with pytest.raises(HTTPException) as refused:
+        await _turn(seen)
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "AGENT_RUNTIME_PROVIDER_TERMS_UNVERIFIED"
+    assert seen == {}
 
 
-async def test_a_gemini_selection_beats_the_owners_azure_and_the_fleet(enabled, monkeypatch):
+async def test_unverified_gemini_selection_is_refused_without_managed_fallback(
+    enabled, monkeypatch
+):
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://owner-ai.openai.azure.com/")
     monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5-mini")
     monkeypatch.setenv("HUSSH_POD_MANAGED_MODEL_ENABLED", "true")
     pod_ai_selection.set_active_ai_selection(_selection("gemini"))
     seen: dict[str, Any] = {}
-
-    await _turn(seen)
-
-    assert _target(seen) == ("gemini", "gemini-test", "byok", SECRET)
-    assert seen["runtime_credential_transport"] == "developer_api"
+    with pytest.raises(HTTPException) as refused:
+        await _turn(seen)
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "AGENT_RUNTIME_PROVIDER_TERMS_UNVERIFIED"
+    assert refused.value.detail["retryable"] is False
+    assert seen == {}
 
 
 def test_an_explicit_puppy_turn_keeps_the_owners_device():
@@ -170,10 +176,17 @@ async def test_a_refusal_mid_turn_is_typed_never_a_fallback(enabled, caplog, err
     assert SECRET not in caplog.text and SECRET not in str(refused.value.detail)
 
 
-async def test_without_a_selection_a_provider_error_stays_the_generic_failure(enabled):
-    """Negative control: a per-turn key's refusal is not reported as the sealed key's."""
+async def test_without_a_selection_a_provider_error_stays_the_generic_failure(enabled, monkeypatch):
+    """A verified ADC failure is not reported as a sealed key's failure."""
+    from tests.helpers.one_processing import enable_managed_vertex
+
+    enable_managed_vertex(monkeypatch)
     with pytest.raises(HTTPException) as failed:
-        await _turn({}, boom=_openai_error(openai.AuthenticationError, 401))
+        await pod_turn.run_pod_turn(
+            payload=PodTurnRequest(message="hello"),
+            consent_token="t",
+            stream_fn=_recording_runner({}, boom=_openai_error(openai.AuthenticationError, 401)),
+        )
     assert failed.value.status_code == 502
     assert pod_ai_selection.last_ai_selection_failure() is None
 
@@ -188,7 +201,7 @@ def _never(*_a: Any, **_k: Any) -> Any:
 def test_ones_head_on_openai_is_the_owner_responses_door(monkeypatch):
     from hushh_mcp.one_adk import text_runtime
 
-    monkeypatch.setattr(text_runtime, "build_gemini_byok_adk_model", _never)
+    monkeypatch.setattr(factory, "build_gemini_byok_adk_model", _never)
     monkeypatch.setattr(factory, "build_runtime_client", _never)
     monkeypatch.setenv("OPENAI_BASE_URL", "https://attacker.example/v1")
 
@@ -205,20 +218,14 @@ def test_ones_head_on_openai_is_the_owner_responses_door(monkeypatch):
     assert str(client._client.base_url) == "https://api.openai.com/v1/", "the key goes nowhere else"
 
 
-def test_the_byok_gemini_head_is_unchanged_negative_control(monkeypatch):
+def test_the_unverified_gemini_head_is_refused_before_construction(monkeypatch):
     from hushh_mcp.one_adk import text_runtime
 
-    built: list[str] = []
-    monkeypatch.setattr(
-        text_runtime, "build_gemini_byok_adk_model", lambda m, *_a, **_k: built.append(m) or "g"
-    )
-    assert (
+    monkeypatch.setattr(factory, "build_gemini_byok_adk_model", _never)
+    with pytest.raises(ProcessingTermsUnverifiedError):
         text_runtime._runtime_model(
             runtime_model="gemini-test", runtime_mode="byok", runtime_credential=PER_TURN
         )
-        == "g"
-    )
-    assert built == ["gemini-test"]
 
 
 @pytest.mark.parametrize(
@@ -325,30 +332,34 @@ async def test_commands_refuse_an_openai_selection_before_any_builder(monkeypatc
     assert refused.value.detail == {"code": "COMMAND_MODEL_UNAVAILABLE", "runtimeMode": "byok"}
 
 
-async def test_commands_run_a_gemini_selection_on_its_sealed_key(monkeypatch):
-    """Negative control for the refusal: Gemini commands work, on the sealed key."""
+async def test_commands_refuse_unverified_gemini_before_either_builder(monkeypatch):
     from api.routes.one import pod_commands
 
     monkeypatch.setattr(pod_turn, "_resolve_model", lambda *_a, **_k: ("gemini", "gemini-test"))
-    keys: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        factory, "build_runtime_client", lambda p, key, **_k: keys.append((p, key)) or "client"
-    )
-    monkeypatch.setattr(
-        factory, "build_gemini_byok_adk_model", lambda m, key, **_k: keys.append((m, key)) or "adk"
-    )
-    monkeypatch.setattr(pod_commands, "LocationCommandBrain", lambda **kw: kw)
+    for name in ("build_runtime_client", "build_gemini_byok_adk_model"):
+        monkeypatch.setattr(factory, name, _never)
     pod_ai_selection.set_active_ai_selection(_selection("gemini"))
+    with pytest.raises(HTTPException) as refused:
+        await pod_commands._brain(
+            pod_commands.CommandModel(runtimeCredential=PER_TURN),
+            "owner-uid",
+            "location.assess",
+            {"hushh_id": "p"},
+        )
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "AGENT_RUNTIME_PROVIDER_TERMS_UNVERIFIED"
 
-    brain = await pod_commands._brain(
-        pod_commands.CommandModel(runtimeCredential=PER_TURN),
-        "owner-uid",
-        "location.assess",
-        {"hushh_id": "p"},
-    )
 
-    assert brain["client"] == "client"
-    assert {key for _, key in keys} == {SECRET}, "never the per-turn key, never a fleet path"
+def test_memory_preparation_refuses_unverified_gemini_before_model_construction(monkeypatch):
+    from api.routes.one import pod_pkm_preparation
+
+    monkeypatch.setattr(pod_turn, "_resolve_model", lambda *_a, **_k: ("gemini", "gemini-test"))
+    monkeypatch.setattr(pod_pkm_preparation, "ProviderAdkModel", _never)
+    pod_ai_selection.set_active_ai_selection(_selection("gemini"))
+    with pytest.raises(HTTPException) as refused:
+        pod_pkm_preparation._owner_model()
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "AGENT_RUNTIME_PROVIDER_TERMS_UNVERIFIED"
 
 
 async def test_agent_chat_builds_one_and_its_specialists_on_the_selection(monkeypatch):

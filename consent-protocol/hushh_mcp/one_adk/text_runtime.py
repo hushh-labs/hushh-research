@@ -47,7 +47,6 @@ from hushh_mcp.one_adk.agent_tree import (
 )
 from hushh_mcp.runtime_providers import (
     ManagedGeminiRuntimeBinding,
-    build_gemini_byok_adk_model,
     build_managed_gemini_adk_model,
 )
 from hushh_mcp.runtime_providers.owner_openai import OWNER_HEADS, build_owner_adk_model
@@ -190,6 +189,9 @@ def _runtime_model(
     managed_location: str | None = None,
 ) -> Any:
     """Build a turn-local ADK model without persisting a BYOK secret."""
+    from hushh_mcp.runtime_providers.processing_terms import require_verified_gemini_processing
+
+    require_verified_gemini_processing(runtime_provider, runtime_mode)
     if runtime_mode == "user_azure_mi" or str(runtime_provider or "").lower() in OWNER_HEADS:
         return build_owner_adk_model(
             runtime_model, mode=runtime_mode, provider=runtime_provider, api_key=runtime_credential
@@ -211,16 +213,6 @@ def _runtime_model(
             credential=credential,
             device_id=puppy_device_id,
             puppy_catalog_version=puppy_catalog_version,
-        )
-    if runtime_mode == "byok" and not credential:
-        raise ValueError("One text BYOK credential is missing")
-    if runtime_mode == "byok":
-        return build_gemini_byok_adk_model(
-            model,
-            credential,
-            transport=runtime_credential_transport,
-            vertex_project=runtime_vertex_project,
-            vertex_location=runtime_vertex_location,
         )
     if runtime_mode == "user_adc":
         # Native owner ADC by default; an explicit dev bridge changes only the

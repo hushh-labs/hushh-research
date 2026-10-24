@@ -13,6 +13,27 @@ export interface GmailNativeConnectStartResponse {
   purpose: "read" | "send" | "compose";
 }
 
+export type GmailNativePurpose = GmailNativeConnectStartResponse["purpose"];
+
+/** Preserve only the owner's recorded grants while keeping first connection read-only. */
+export function planGmailNativeConnect(requested: GmailNativePurpose, status: {
+  scope_csv?: string | null;
+  send_permission_granted?: boolean;
+  compose_permission_granted?: boolean;
+  modify_permission_granted?: boolean;
+}) {
+  const scopes = new Set((status.scope_csv ?? "").split(/[\s,]+/));
+  const granted = (scope: string, flag: boolean | undefined) =>
+    flag === true || scopes.has(`https://www.googleapis.com/auth/gmail.${scope}`);
+  const send = requested === "send" || granted("send", status.send_permission_granted);
+  const compose = requested === "compose" || granted("compose", status.compose_permission_granted);
+  return {
+    purpose: compose ? "compose" as const : send ? "send" as const : "read" as const,
+    preserveSend: send,
+    preserveModify: granted("modify", status.modify_permission_granted),
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -25,7 +46,7 @@ export function parseGmailNativeConnectStartPayload(
     typeof payload.configured !== "boolean" ||
     typeof payload.server_client_id !== "string" ||
     payload.server_client_id.trim().length === 0 ||
-    (payload.purpose !== "read" && payload.purpose !== "send")
+    (payload.purpose !== "read" && payload.purpose !== "send" && payload.purpose !== "compose")
   ) {
     throw new Error("Mail OAuth start returned an invalid response.");
   }

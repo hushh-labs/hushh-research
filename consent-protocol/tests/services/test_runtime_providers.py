@@ -37,6 +37,7 @@ from hushh_mcp.runtime_providers.normalized import (
     NormalizedFunctionCall,
     NormalizedResponse,
 )
+from hushh_mcp.runtime_providers.processing_terms import ProcessingTermsUnverifiedError
 from hushh_mcp.runtime_providers.translate import to_neutral_request
 from hushh_mcp.runtime_providers.vertex_failover import VertexRegionalClient
 
@@ -1612,17 +1613,11 @@ async def test_provider_adk_model_never_fabricates_a_version_when_unreported(mon
     assert metadata_only == []
 
 
-def test_adk_adapter_preserves_owner_vertex_key_transport(monkeypatch):
+def test_adk_adapter_refuses_unverified_vertex_key_transport(monkeypatch):
     from hushh_mcp.runtime_providers import adk_model
 
     calls = []
-    sentinel = object()
-
-    def build(provider, credential, **options):
-        calls.append((provider, credential, options))
-        return sentinel
-
-    monkeypatch.setattr(adk_model, "build_runtime_client", build)
+    monkeypatch.setattr(adk_model, "build_runtime_client", lambda *a, **kw: calls.append(kw))
     model = adk_model.ProviderAdkModel(
         model="synthetic-model",
         provider="gemini",
@@ -1632,16 +1627,24 @@ def test_adk_adapter_preserves_owner_vertex_key_transport(monkeypatch):
         vertex_project="synthetic-owner-project",
         vertex_location="global",
     )
-    assert model._client() is sentinel
-    assert calls == [
-        (
-            "gemini",
-            "synthetic-key",
-            {
-                "puppy_device_id": None,
-                "gemini_byok_transport": "vertex_api_key",
-                "vertex_project": "synthetic-owner-project",
-                "vertex_location": "global",
-            },
-        )
-    ]
+    with pytest.raises(ProcessingTermsUnverifiedError):
+        model._client()
+    assert calls == []
+
+
+@pytest.mark.parametrize("provider", ["gemini", "google", "google_genai", "vertex"])
+@pytest.mark.parametrize("mode", [None, "byok"])
+def test_adk_adapter_refuses_unverified_gemini_aliases_before_client_construction(
+    monkeypatch, provider, mode
+):
+    from hushh_mcp.runtime_providers import adk_model
+
+    def never(*args, **kwargs):
+        raise AssertionError("Unverified Gemini key reached client construction")
+
+    monkeypatch.setattr(adk_model, "build_runtime_client", never)
+    adapter = adk_model.ProviderAdkModel(
+        model="gemini-test", provider=provider, runtime_mode=mode, credential="synthetic-unverified"
+    )
+    with pytest.raises(ProcessingTermsUnverifiedError):
+        adapter._client()

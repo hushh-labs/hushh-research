@@ -134,6 +134,20 @@ describe("supported connector catalog", () => {
     expect(screen.queryByText('Connected · reading only')).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['absent', 'Connect', 'hushh://one/connect/google/gmail'],
+    ['connected', 'Allow changes', 'hushh://one/connect/google/gmail?access=manage'],
+  ])('preserves explicit Gmail %s access intent in the phone handoff', async (gmailStatus, button, link) => {
+    state.privatePlacement.mockResolvedValue(true);
+    state.ownerPodRequest.mockImplementation(async (path: string) => new Response(JSON.stringify({
+      connectorId: path.split('/')[1], status: path === 'connectors/gmail' ? gmailStatus : 'connected',
+      capabilities: { read: true, manage: path !== 'connectors/gmail' }, accessLevel: 'read',
+    })));
+    render(<ConnectorsPanel open surface="profile" {...callbacks} />);
+    fireEvent.click(await screen.findByRole('button', { name: button, exact: true }));
+    expect(await screen.findByRole('link', { name: 'Open in the Hussh app' })).toHaveAttribute('href', link);
+  });
+
   it("explains app access alongside the existing guarded disconnect action", async () => {
     state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
     render(<ConnectorsPanel open surface="profile" showAccessDetails {...callbacks} />);
@@ -982,22 +996,22 @@ describe("supported connector catalog", () => {
     expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
   });
 
-  it("requests the Gmail send grant during the first native connection", async () => {
+  it("requests only Gmail reading during the first native connection", async () => {
     vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
-    state.startNativeConnect.mockResolvedValue({ configured: true, server_client_id: "native-client", purpose: "send" });
+    state.startNativeConnect.mockResolvedValue({ configured: true, server_client_id: "native-client", purpose: "read" });
     state.connectGmail.mockResolvedValue({ serverAuthCode: "one-time-code" });
     state.completeNativeConnect.mockResolvedValue(undefined);
     try {
       render(panel());
       fireEvent.click(await screen.findByRole("button", { name: "Connect Gmail" }));
       await waitFor(() => expect(state.startNativeConnect).toHaveBeenCalledWith({
-        idToken: "synthetic-firebase-token", userId: "owner-a", purpose: "send",
+        idToken: "synthetic-firebase-token", userId: "owner-a", purpose: "read",
       }));
       expect(state.connectGmail).toHaveBeenCalledWith({
-        serverClientId: "native-client", purpose: "send", preserveSend: false, preserveModify: false,
+        serverClientId: "native-client", purpose: "read", preserveSend: false, preserveModify: false,
       });
       expect(state.completeNativeConnect).toHaveBeenCalledWith({
-        idToken: "synthetic-firebase-token", userId: "owner-a", serverAuthCode: "one-time-code", purpose: "send",
+        idToken: "synthetic-firebase-token", userId: "owner-a", serverAuthCode: "one-time-code", purpose: "read",
       });
     } finally {
       vi.mocked(Capacitor.isNativePlatform).mockRestore();

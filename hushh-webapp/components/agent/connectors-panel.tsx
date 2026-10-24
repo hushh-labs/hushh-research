@@ -1,4 +1,5 @@
 "use client";
+import { planGmailNativeConnect } from "@/lib/services/gmail-oauth-contract";
 import { ConnectorRow } from "./connector-list-row";
 
 import {
@@ -1507,7 +1508,7 @@ function OwnerConnectorsPanel({
       }
     });
   };
-  const connectMail = (purpose: "send" | "compose" = "send") => {
+  const connectMail = (purpose: "read" | "send" | "compose" = "read") => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
@@ -1535,19 +1536,21 @@ function OwnerConnectorsPanel({
         const idToken = await user.getIdToken();
         if (signal.aborted) return;
         if (native) {
+          const before = await GmailReceiptsService.getStatus({ idToken, userId: user.uid, force: true });
+          if (signal.aborted) return;
+          const nativePlan = planGmailNativeConnect(purpose, before);
           const start = await GmailReceiptsService.startNativeConnect({
             idToken,
             userId: user.uid,
-            purpose,
+            purpose: nativePlan.purpose,
           });
           if (signal.aborted || !start.configured) return;
           let result: Awaited<ReturnType<typeof HushhAuth.connectGmail>>;
           try {
             result = await HushhAuth.connectGmail({
               serverClientId: start.server_client_id,
+              ...nativePlan,
               purpose: start.purpose,
-              preserveSend: purpose === "compose" && gmail.status?.send_permission_granted === true,
-              preserveModify: gmail.status?.modify_permission_granted === true,
             });
           } catch (error) {
             GmailReceiptsService.recordConsentFailure(error, user.uid);
@@ -1626,7 +1629,9 @@ function OwnerConnectorsPanel({
                   ? status.compose_permission_granted
                     ? "Gmail drafts enabled. Review your draft in Chat before saving."
                     : "Gmail drafts permission was not granted. Try again."
-                  : "Mail connected. You can send after reviewing each email."
+                  : status.send_permission_granted
+                    ? "Mail connected. You can send after reviewing each email."
+                    : "Mail connected. You can read your messages and receipts."
                 : "Mail is not connected yet. You can retry.",
             );
         }

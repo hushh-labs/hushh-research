@@ -19,8 +19,7 @@ from tests.helpers.pod_browser import (
 async def test_browser_resolves_owner_selection_and_fences_a_later_change(monkeypatch):
     from dataclasses import replace
 
-    from google.adk.models import Gemini
-
+    from hushh_mcp.runtime_providers.azure_browser_adk import AzureBrowserAdkModel
     from hushh_mcp.services import pod_ai_selection as selections
     from hushh_mcp.services.pod_browser.owner_model import resolve_owner_browser_model
 
@@ -28,15 +27,16 @@ async def test_browser_resolves_owner_selection_and_fences_a_later_change(monkey
     monkeypatch.setattr(selections, "_LOAD_FAILED", False)
     monkeypatch.setattr(selections, "_REVISION", 0)
     selected = selections.AiSelection(
-        provider="gemini",
-        model="gemini-3.8-flash",
+        provider="azure_openai",
+        model="owner-browser-deployment",
         api_key="synthetic-owner-key",
-        transport="developer_api",
+        transport=None,
         vertex_project=None,
         vertex_location=None,
         issued_at_ms=1,
         selection_id="synthetic-selection",
         checked_at_ms=1,
+        azure_endpoint="https://owner-browser.openai.azure.com/",
     )
     selections.set_active_ai_selection(selected)
 
@@ -44,7 +44,7 @@ async def test_browser_resolves_owner_selection_and_fences_a_later_change(monkey
         return None
 
     owned = resolve_owner_browser_model(held)
-    assert isinstance(owned.model, Gemini) and owned.model.model == selected.model
+    assert isinstance(owned.model, AzureBrowserAdkModel) and owned.model.model == selected.model
     await owned.require_current()
     # Equal values selected again still establish a new configuration revision.
     selections.set_active_ai_selection(selected)
@@ -52,6 +52,11 @@ async def test_browser_resolves_owner_selection_and_fences_a_later_change(monkey
         await owned.require_current()
     selections.set_active_ai_selection(replace(selected, provider="openai", model="other"))
     with pytest.raises(BrowserRefused, match="TRANSPORT_UNSUPPORTED"):
+        resolve_owner_browser_model(held)
+    selections.set_active_ai_selection(
+        replace(selected, provider="gemini", model="gemini-3.8-flash", transport="developer_api")
+    )
+    with pytest.raises(BrowserRefused, match="OWNER_MODEL_UNAVAILABLE"):
         resolve_owner_browser_model(held)
     monkeypatch.setattr(selections, "_LOAD_FAILED", True)
     with pytest.raises(BrowserRefused, match="OWNER_MODEL_UNAVAILABLE"):

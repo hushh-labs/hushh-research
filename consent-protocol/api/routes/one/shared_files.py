@@ -228,8 +228,11 @@ async def analyze(request: Request, token: dict = Depends(hub_content_owner)) ->
     from api.middleware import require_vault_owner_token  # noqa: PLC0415
     from hushh_mcp.one_adk.agent_tree import _load_product_agent_manifest  # noqa: PLC0415
     from hushh_mcp.one_adk.files_tools import foreground_tools  # noqa: PLC0415
-    from hushh_mcp.runtime_providers import build_managed_gemini_adk_model  # noqa: PLC0415
+    from hushh_mcp.one_adk.model_processing import managed_model  # noqa: PLC0415
     from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name  # noqa: PLC0415
+    from hushh_mcp.runtime_providers.processing_terms import (  # noqa: PLC0415
+        ProcessingTermsUnverifiedError,
+    )
     from hushh_mcp.services.pod_files.contracts import FilesRefused  # noqa: PLC0415
     from hushh_mcp.services.pod_files.foreground import (  # noqa: PLC0415
         ForegroundProjection,
@@ -260,9 +263,7 @@ async def analyze(request: Request, token: dict = Depends(hub_content_owner)) ->
     try:
         port = ForegroundProjection(projection_request, check)
         manifest = _load_product_agent_manifest("agent_files")
-        model = build_managed_gemini_adk_model(
-            resolve_fleet_model_name(manifest.model_config_for_runtime().name)
-        )
+        model = managed_model(resolve_fleet_model_name(manifest.model_config_for_runtime().name))
         with foreground_tools(port):
             await check()
             result = await _organize(port.file["id"], model=model)
@@ -277,6 +278,8 @@ async def analyze(request: Request, token: dict = Depends(hub_content_owner)) ->
                 "result": result.model_dump(),
             }
         )
+    except ProcessingTermsUnverifiedError as exc:
+        raise _refuse(exc.code, 409) from None
     except FilesRefused as exc:
         raise _refuse(exc.code, exc.status) from None
     except Exception:

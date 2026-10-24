@@ -17,14 +17,10 @@ from hushh_mcp.runtime_providers.gemini_config import (
 def build_files_agent(
     manifest: AgentManifestV2, *, model: Any = None, output_schema: Any = None
 ) -> LlmAgent:
-    from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+    from hushh_mcp.one_adk.model_processing import managed_model
 
     config = manifest.model_config_for_runtime()
-    selected = (
-        model
-        if model is not None
-        else build_managed_gemini_adk_model(resolve_fleet_model_name(config.name))
-    )
+    selected = model if model is not None else managed_model(resolve_fleet_model_name(config.name))
     model_name = selected if isinstance(selected, str) else selected.model
     return LlmAgent(
         name="files",

@@ -19,8 +19,10 @@ from fastapi import HTTPException
 
 from api.routes.one import pod_commands
 from api.routes.one.pod_capabilities import pod_capabilities, private_commands_capability
+from hushh_mcp.runtime_providers.processing_terms import ProcessingTermsUnverifiedError
 from hushh_mcp.services import pod_ai_selection
 from hushh_mcp.services.pod_ai_selection import AiSelection
+from tests.helpers.one_processing import owner_vertex_session
 
 AVAILABLE = {"available": True, "reason": None}
 UNAVAILABLE = {"available": False, "reason": "requires_gemini_model"}
@@ -86,7 +88,7 @@ def _sealed_gemini_key_on_an_azure_pod(monkeypatch) -> None:
 
 
 def _own_vertex(monkeypatch) -> None:
-    monkeypatch.setenv("HUSSH_POD_USER_ADC_ENABLED", "true")
+    owner_vertex_session(monkeypatch)
 
 
 def _managed_gemini(monkeypatch) -> None:
@@ -122,7 +124,15 @@ _REFUSED_ON_AZURE = {"code": "COMMAND_MODEL_UNAVAILABLE", "runtimeMode": "user_a
             UNAVAILABLE,
             {"code": "COMMAND_MODEL_UNAVAILABLE", "runtimeMode": "byok"},
         ),
-        (_sealed_gemini_key_on_an_azure_pod, AVAILABLE, None),
+        (
+            _sealed_gemini_key_on_an_azure_pod,
+            {"available": False, "reason": "processing_terms_unverified"},
+            {
+                "code": ProcessingTermsUnverifiedError.code,
+                "message": str(ProcessingTermsUnverifiedError()),
+                "retryable": False,
+            },
+        ),
         (_own_vertex, AVAILABLE, None),
         (_managed_gemini, AVAILABLE, None),
     ],

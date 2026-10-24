@@ -13,6 +13,7 @@
  * (a QR handoff). Native uses a separate public-client authorization adapter; the QR contains
  * only a connector intent.
  */
+import { googleConnectorDeepLink } from './google-connector-intent';
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from '@/lib/vault/session-epoch';
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
@@ -27,11 +28,19 @@ const IDENTITY = ["openid", "email"];
 
 /** What each connector asks for at sign-in; the agent narrows further per use. */
 export const GOOGLE_CONNECTOR_SCOPES: Record<GoogleConnector, string[]> = {
-  gmail: [...IDENTITY, `${G}gmail.modify`],
+  gmail: [...IDENTITY, `${G}gmail.readonly`],
   calendar: [...IDENTITY, `${G}calendar.events`, `${G}calendar.freebusy`],
   drive: [...IDENTITY, `${G}drive.readonly`],
   contacts: [...IDENTITY, `${G}contacts.readonly`],
 };
+
+export type GmailAccessLevel = "read" | "manage";
+
+function connectorScopes(connector: GoogleConnector, gmailAccessLevel: GmailAccessLevel = "read"): string[] {
+  return connector === "gmail" && gmailAccessLevel === "manage"
+    ? [...IDENTITY, `${G}gmail.modify`]
+    : [...GOOGLE_CONNECTOR_SCOPES[connector]];
+}
 
 export type NativeGoogleClient = { profile: GoogleClientProfile; clientId: string; redirectUri: string };
 
@@ -40,7 +49,7 @@ export type ConnectOutcome =
   | { ok: false; code: string }
   | { ok: false; code: "PHONE_HANDOFF_REQUIRED"; handoff: PhoneHandoff };
 
-export type PhoneHandoff = { connector: GoogleConnector; deepLink: string };
+export type PhoneHandoff = { connector: GoogleConnector; deepLink: string; gmailAccessLevel?: GmailAccessLevel };
 
 /** The injected native glue: open Google's sign-in sheet, resolve with the final redirect URL. */
 export type OpenAuthSession = (authorizationUrl: string, redirectUri: string) => Promise<string>;
@@ -52,6 +61,7 @@ export type GoogleConnectorTransitionReview = {
 export type GoogleConnectorConnectOptions = {
   openAuthSession?: OpenAuthSession;
   platform?: string;
+  gmailAccessLevel?: GmailAccessLevel;
   isCurrent?: () => boolean;
   /** Mounted, memory-only owner capability; never recovered from storage. */
   vaultOwnerCapability?: string | null;
@@ -108,6 +118,7 @@ export async function createPkce(): Promise<{ verifier: string; challenge: strin
 export function googleAuthorizationUrl(input: {
   client: NativeGoogleClient;
   connector: GoogleConnector;
+  gmailAccessLevel?: GmailAccessLevel;
   challenge: string;
   state: string;
 }): string {
@@ -115,7 +126,7 @@ export function googleAuthorizationUrl(input: {
     client_id: input.client.clientId,
     redirect_uri: input.client.redirectUri,
     response_type: "code",
-    scope: GOOGLE_CONNECTOR_SCOPES[input.connector].join(" "),
+    scope: connectorScopes(input.connector, input.gmailAccessLevel).join(" "),
     code_challenge: input.challenge,
     code_challenge_method: "S256",
     state: input.state,
@@ -181,8 +192,9 @@ export async function sendConnectorCredentialToAgent(
 }
 
 /** Intent only: the phone resolves its own owner and agent, never a QR-supplied endpoint. */
-export function phoneHandoff(connector: GoogleConnector): PhoneHandoff {
-  return { connector, deepLink: `hushh://one/connect/google/${connector}` };
+export function phoneHandoff(connector: GoogleConnector, gmailAccessLevel: GmailAccessLevel = "read"): PhoneHandoff {
+  return { connector, ...(connector === "gmail" ? { gmailAccessLevel } : {}),
+    deepLink: googleConnectorDeepLink(connector, gmailAccessLevel) };
 }
 
 /** Sign in on this phone, seal the code to the agent, and let the agent redeem it. */
@@ -191,7 +203,7 @@ export async function connectGoogleConnector(
   deps: GoogleConnectorConnectOptions = {},
 ): Promise<ConnectOutcome> {
   const platform = deps.platform ?? Capacitor.getPlatform();
-  if (platform === 'web') return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector) };
+  if (platform === 'web') return { ok: false, code: "PHONE_HANDOFF_REQUIRED", handoff: phoneHandoff(connector, deps.gmailAccessLevel) };
   const client = nativeGoogleClient(platform);
   if (!client) return { ok: false, code: platform === 'android' ? 'ANDROID_CONNECTOR_DEV_REQUIRED' : 'NATIVE_CLIENT_NOT_CONFIGURED' };
   const vaultEpoch = snapshotVaultSessionEpoch();
@@ -232,7 +244,7 @@ export async function connectGoogleConnector(
   let code: string;
   try {
     const redirect = await (deps.openAuthSession ?? openGoogleConnectorAuth)(
-      googleAuthorizationUrl({ client, connector, challenge, state }),
+      googleAuthorizationUrl({ client, connector, gmailAccessLevel: deps.gmailAccessLevel, challenge, state }),
       client.redirectUri,
     );
     if (!current()) throw new Error(changedCode());
@@ -247,7 +259,7 @@ export async function connectGoogleConnector(
     code,
     codeVerifier: verifier,
     redirectUri: client.redirectUri,
-    scopes: GOOGLE_CONNECTOR_SCOPES[connector],
+    scopes: connectorScopes(connector, deps.gmailAccessLevel),
     transition,
   }, owner);
   return current() ? delivered : { ok: false, code: changedCode() };

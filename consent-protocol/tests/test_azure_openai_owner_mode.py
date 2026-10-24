@@ -353,15 +353,19 @@ async def test_one_and_its_specialists_run_on_the_deployment(
     )
 
 
-async def test_byok_gemini_keeps_working_on_an_azure_pod(azure_pod, pod_turn_enabled) -> None:
+async def test_unverified_gemini_key_is_refused_without_azure_fallback(
+    azure_pod, pod_turn_enabled
+) -> None:
     seen: dict[str, Any] = {}
-    result = await pod_turn.run_pod_turn(
-        payload=_req(runtime_credential="AIza-own-key"),
-        consent_token="t",
-        stream_fn=_recording_runner(seen),
-    )
-    assert (seen["runtime_provider"], seen["runtime_mode"]) == ("gemini", "byok")
-    assert result["runtimeMode"] == "byok"
+    with pytest.raises(HTTPException) as refused:
+        await pod_turn.run_pod_turn(
+            payload=_req(runtime_credential="AIza-own-key"),
+            consent_token="t",
+            stream_fn=_recording_runner(seen),
+        )
+    assert refused.value.status_code == 409
+    assert refused.value.detail["code"] == "AGENT_RUNTIME_PROVIDER_TERMS_UNVERIFIED"
+    assert seen == {}
 
 
 async def test_a_half_rendered_pod_refuses_before_any_model_work(
