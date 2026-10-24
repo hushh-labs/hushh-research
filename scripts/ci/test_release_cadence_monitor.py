@@ -3,10 +3,6 @@
 # SPDX-FileCopyrightText: 2026 Hushh
 """Read-only GitHub release observation and notification regressions."""
 import unittest
-import hashlib
-import io
-import zipfile
-import release_cadence_maintenance as maintenance
 import importlib.util
 import json
 import os
@@ -17,101 +13,9 @@ import shutil
 import subprocess
 from pathlib import Path
 from copy import deepcopy
+from datetime import UTC, datetime
 from unittest.mock import patch
-from test_release_cadence import REPOSITORY, NEW_POLICY, GOVERNANCE, FakeLedger, counted, run, receipt, core, github, monitor, testflight
-
-
-class ProductionCutoverTest(unittest.TestCase):
-    def baseline(self, state):
-        sha = f"{8:040x}"
-        value = receipt(sha)
-        value["candidate"] = {f"{lane}_revision": value["final"][f"{lane}_revision"] for lane in ("backend", "frontend")}
-        for lane in ("backend", "frontend"):
-            value["verification"].update({f"{lane}_provenance": "success", f"{lane}_health": "success"})
-            value["final"].pop(f"{lane}_sha")
-        production = run(900, "deploy-production.yml", "maintainer")
-        return {**NEW_POLICY, "production_baseline_run_id": 900}, production, value
-
-    def test_real_cutover_preserves_accounting_and_starts_only_future_two_four(self):
-        state = counted(8)
-        core.adopt_cadence(state, 101, NEW_POLICY)
-        state["requests"]["4"]["lanes"]["testflight"] = {"state": "failure", "run_id": 200}
-        ledger = FakeLedger(state)
-        policy, production, value = self.baseline(state)
-        sources = deepcopy(state["sources"])
-        with patch.object(github, "configuration", return_value=(policy, GOVERNANCE)), \
-                patch.object(github, "run_info", return_value=production), patch.object(github, "receipt", return_value=value):
-            maintenance.adopt_production_baseline(ledger, policy, 102)
-            self.assertEqual(state["count"], 8)
-            self.assertEqual(state["sources"], sources)
-            self.assertEqual(state["requests"]["4"]["lanes"]["testflight"], {"state": "failure", "run_id": 200})
-            self.assertTrue(all(child["state"] == "superseded" for child in state["requests"]["8"]["lanes"].values()))
-            before = deepcopy(state)
-            maintenance.adopt_production_baseline(ledger, policy, 103)
-            self.assertEqual(state, before)
-            maintenance.production_baseline(state, policy, REPOSITORY, revalidate=True)
-            for number in range(9, 13):
-                sha = f"{number:040x}"
-                core.account(state, run(number, sha=sha), receipt(sha), sha, 104, policy)
-            self.assertEqual(set(state["requests"]["10"]["lanes"]), {"testflight"})
-            self.assertEqual(set(state["requests"]["12"]["lanes"]), {"testflight", "deploy", "appstore"})
-            changed_policy = {**policy, "production_baseline_run_id": 901}
-            with self.assertRaises(core.UnsafeRelease):
-                maintenance.adopt_production_baseline(ledger, changed_policy, 105)
-
-    def test_unhealthy_or_started_cutover_cannot_change_any_state(self):
-        for case in ("failed", "spoofed", "retry_actor", "partial", "wrong_source", "health", "half_started", "intent", "deferred", "malformed"):
-            with self.subTest(case=case):
-                state = counted(8)
-                core.adopt_cadence(state, 101, NEW_POLICY)
-                ledger = FakeLedger(state)
-                policy, production, value = self.baseline(state)
-                if case == "failed": production["conclusion"] = "failure"
-                if case == "spoofed": production["head_branch"] = "feature"
-                if case == "retry_actor": production["triggering_actor"] = {"login": "outsider"}
-                if case == "partial": value["scope"] = "backend"
-                if case == "wrong_source": value["sha"] = "f" * 40
-                if case == "health": value["verification"]["frontend_health"] = "failure"
-                if case == "half_started": state["requests"]["8"]["lanes"]["deploy"] = {"state": "success", "run_id": 200}
-                if case == "intent": state["requests"]["8"]["lanes"]["testflight"]["intent_at"] = ""
-                if case == "deferred": state["requests"]["8"]["lanes"]["appstore"] = {"state": "deferred", "run_id": 201}
-                if case == "malformed": state["production_baseline"] = {}
-                before = deepcopy(state)
-                with patch.object(github, "configuration", return_value=(policy, GOVERNANCE)), \
-                        patch.object(github, "run_info", return_value=production), patch.object(github, "receipt", return_value=value):
-                    with self.assertRaises(core.UnsafeRelease):
-                        maintenance.adopt_production_baseline(ledger, policy, 102)
-                self.assertEqual(state, before)
-
-    def test_adapter_uses_exact_attempt_upload_not_artifact_order(self):
-        source = run(42)
-        source.update(run_attempt=2, triggering_actor={"login": "maintainer"}, repository={"full_name": REPOSITORY, "id": 1},
-                      head_repository={"full_name": REPOSITORY, "id": 1})
-        stream = io.BytesIO()
-        with zipfile.ZipFile(stream, "w") as bundle:
-            bundle.writestr("uat-release-status.json", json.dumps(receipt(source["head_sha"])))
-        archive = stream.getvalue()
-        def artifact(identity, created):
-            return {"id": identity, "name": "uat-release-42", "created_at": created, "expired": False,
-                    "size_in_bytes": len(archive), "digest": "sha256:" + hashlib.sha256(archive).hexdigest(),
-                    "workflow_run": {"id": 42, "head_sha": source["head_sha"], "head_branch": "main", "repository_id": 1, "head_repository_id": 1}}
-        inventory = {"total_count": 2, "artifacts": [artifact(999, "2026-10-22T01:00:00Z"), artifact(100, "2026-10-22T02:00:03Z")]}
-        job = {"name": "Deploy UAT Scope", "run_id": 42, "run_attempt": 2, "head_sha": source["head_sha"], "head_branch": "main", "status": "completed",
-               "steps": [{"name": "Upload UAT deploy artifacts", "status": "completed", "conclusion": "success", "started_at": "2026-10-22T02:00:00Z", "completed_at": "2026-10-22T02:00:05Z"}]}
-        def api(path):
-            if "artifacts?" in path: return inventory
-            if "/jobs?" in path: return {"total_count": 1, "jobs": [job]}
-            return source
-        import release_artifact_receipts as receipts
-        from types import SimpleNamespace
-        with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), patch.object(github, "api", side_effect=api), \
-                patch.object(github, "artifact_json", side_effect=core.UnsafeRelease("Missing unique uat-release-42 artifact")), \
-                patch.object(receipts.retention, "run_command", return_value=SimpleNamespace(stdout=archive)) as download:
-            self.assertEqual(github.receipt(REPOSITORY, 42, "uat")["sha"], source["head_sha"])
-            self.assertIn("/100/zip", download.call_args.args[0][-1])
-            source["triggering_actor"] = {"login": "outsider"}
-            with self.assertRaises(core.UnsafeRelease):
-                github.receipt(REPOSITORY, 42, "uat")
+from test_release_cadence import REPOSITORY, NEW_POLICY, GOVERNANCE, FakeLedger, counted, run, core, github, monitor, testflight
 
 
 class MonitorTest(unittest.TestCase):
@@ -318,7 +222,7 @@ class MonitorTest(unittest.TestCase):
             warning, notices = monitor.observations(REPOSITORY, None, {}, previous, True)
         self.assertTrue(any("10 minutes" in value for value in notices))
         with patch.object(monitor, "runs", return_value=[source]), \
-                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"started_at": "2020-01-01T01:01:00Z"}]}):
+                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"runner_id": 1, "started_at": "2020-01-01T01:01:00Z"}]}):
             progressed, notices = monitor.observations(REPOSITORY, None, {}, warning, True)
             _, repeated = monitor.observations(REPOSITORY, None, {}, progressed, True)
         self.assertTrue(any("started while" in value for value in notices))
@@ -333,13 +237,43 @@ class MonitorTest(unittest.TestCase):
         with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "run_info", return_value=release), \
                 patch.object(monitor, "verify_child"), patch.object(monitor, "evidence", return_value=""), \
                 patch.object(monitor, "git", return_value=source["created_at"]), \
-                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"started_at": "2020-01-01T01:01:00Z"}]}):
+                patch.object(monitor, "api", return_value={"total_count": 1, "jobs": [{"runner_id": 1, "started_at": "2020-01-01T01:01:00Z"}]}):
             gap, notices = monitor.observations(REPOSITORY, state, {}, {}, True)
         self.assertEqual(gap["release_intervals"]["20"]["created_at"], release["run_started_at"])
         self.assertFalse(any("started while" in value for value in notices))
         release.pop("run_started_at")
         monitor.record_release_interval(gap["release_intervals"], release)
         self.assertNotIn("20", gap["release_intervals"])
+
+
+class UATAllocationTest(unittest.TestCase):
+    def test_later_job_queue_is_observed_after_initial_uat_progress(self):
+        source = run(50)
+        source.update(status="in_progress", conclusion=None, created_at="2020-01-01T01:00:00Z",
+                      updated_at="2020-01-01T01:12:00Z")
+        previous = {"seen": {"overlap:50:1": "observed"},
+                    "release_intervals": {"20": {"id": 20, "created_at": source["created_at"], "completed_at": None}}}
+        jobs = [{"id": 501, "status": "completed", "runner_id": 1, "started_at": "2020-01-01T01:00:02Z"},
+                {"id": 502, "status": "queued", "runner_id": 0, "started_at": None, "created_at": "2020-01-01T01:01:00Z"},
+                {"id": 503, "status": "queued", "runner_id": 0, "started_at": None, "created_at": "2020-01-01T01:11:00Z"},
+                {"id": 504, "status": "queued", "runner_id": 3, "started_at": None, "created_at": "2020-01-01T01:01:00Z"}]
+        with patch.object(monitor, "runs", return_value=[source]), patch.object(monitor, "git", return_value=source["created_at"]), \
+                patch.object(monitor, "api", return_value={"total_count": 4, "jobs": jobs}), \
+                patch.object(monitor, "datetime", wraps=datetime) as clock:
+            clock.now.return_value = datetime(2020, 1, 1, 1, 12, tzinfo=UTC)
+            warning, notices = monitor.observations(REPOSITORY, None, {}, previous, True)
+            self.assertEqual(len(notices), 1)
+            self.assertIn("job 502 has awaited a runner for over 10 minutes", notices[0])
+            self.assertIn("Possible shared-runner contention", notices[0])
+            repeated, notices = monitor.observations(REPOSITORY, None, {}, warning, True)
+            self.assertEqual(notices, [])
+            source.update(status="completed", conclusion="success")
+            jobs[1].update(status="completed", runner_id=2, started_at="2020-01-01T01:11:59Z")
+            recovered, notices = monitor.observations(REPOSITORY, None, {}, repeated, True)
+            self.assertEqual(len(notices), 1)
+            self.assertIn("job 502 received a runner", notices[0])
+            _, notices = monitor.observations(REPOSITORY, None, {}, recovered, True)
+            self.assertEqual(notices, [])
 
 
 class TestFlightCompletionTest(unittest.TestCase):

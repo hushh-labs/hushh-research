@@ -111,6 +111,57 @@ def observe_controller_health(observed: dict, healthy: bool, enabled: bool, note
             note("automation-status", "enabled", "Automatic releases resumed with verified accounting: TestFlight every 2 and production every 4 successful UAT source commits.")
 
 
+def observe_uat_jobs(repository: str, inventory: list[dict], intervals: dict, seen: dict, note) -> None:
+    """Observe each allocation separately from earlier UAT progress and dependencies."""
+    # Job timestamps are observational only. No queue or provider is mutated.
+    # Completed UAT events prove overlap; hourly checks can flag long queues.
+    for run in inventory:
+        if not intervals or not trusted_run(run, repository, "deploy-uat.yml"):
+            continue
+        attempt = run.get("run_attempt", 1)
+        key = f"overlap:{run['id']}:{attempt}"
+        allocation_prefix = f"allocation:{run['id']}:{attempt}:"
+        pending_allocation = any(name.startswith(allocation_prefix) and value == "queue-warning" for name, value in seen.items())
+        if seen.get(key) == "observed" and run["status"] == "completed" and not pending_allocation:
+            continue
+        now = datetime.now(UTC)
+        overlapping = [child for child in intervals.values()
+                       if timestamp(child["created_at"]) <= (timestamp(run["updated_at"]) if run["status"] == "completed" else now)
+                       and (not child["completed_at"] or timestamp(child["completed_at"]) >= timestamp(run["created_at"]))]
+        if not overlapping:
+            continue
+        jobs = api(f"repos/{repository}/actions/runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
+        require(jobs["total_count"] == len(jobs["jobs"]), "UAT job evidence is truncated")
+        for job in jobs["jobs"]:
+            allocation_key = allocation_prefix + str(job.get("id"))
+            if job.get("runner_id") and job.get("started_at"):
+                if seen.get(allocation_key) == "queue-warning":
+                    note(allocation_key, "allocated", f"UAT run {run['id']} job {job['id']} received a runner after its earlier queue warning. "
+                         "This confirms allocation; it does not attribute the earlier wait to a release.")
+            elif (job.get("status") == "queued" and not job.get("runner_id") and job.get("created_at")
+                  and (now - timestamp(job["created_at"])).total_seconds() > 600
+                  and any(not child["completed_at"] or timestamp(child["completed_at"]) >= timestamp(job["created_at"])
+                          for child in overlapping)):
+                note(allocation_key, "queue-warning", f"UAT run {run['id']} job {job['id']} has awaited a runner for over 10 minutes "
+                     "with recorded release activity overlapping its wait. Possible shared-runner contention; "
+                     "UAT concurrency and other organization jobs may also explain the delay.")
+        starts = [job["started_at"] for job in jobs["jobs"] if job.get("runner_id") and job.get("started_at")]
+        if starts:
+            start = timestamp(min(starts))
+            overlapping = [child for child in overlapping if timestamp(child["created_at"]) <= start and
+                           (not child["completed_at"] or timestamp(child["completed_at"]) >= start)]
+            if overlapping:
+                note(key, "observed", f"UAT run {run['id']} started while recorded release runs "
+                     f"{', '.join(str(child['id']) for child in overlapping)} were active. "
+                     "This demonstrates progress for this overlap, not reserved runner capacity.")
+            elif seen.get(key) == "queue-warning":
+                note(key, "observed", f"UAT run {run['id']} has started after its earlier queue warning. "
+                     "A release overlap at its start was not demonstrated; no causal delay claim is made.")
+        elif run["status"] != "completed" and attempt == 1 and (now - timestamp(run["created_at"])).total_seconds() > 600:
+            note(key, "queue-warning", f"UAT run {run['id']} has no started job after 10 minutes while recorded releases are active. "
+                 "Possible shared-runner contention; UAT concurrency and other organization jobs may also explain the delay.")
+
+
 def observations(repository: str, state: dict | None, event: dict, previous: dict, healthy: bool,
                  *, enabled: bool = True) -> tuple[dict, list[str]]:
     """Reuse certified accounting; bounded incremental reads supply observations."""
@@ -185,38 +236,7 @@ def observations(repository: str, state: dict | None, event: dict, previous: dic
     recent = sorted(intervals.values(), key=lambda item: item["created_at"], reverse=True)
     observed["release_intervals"] = {str(item["id"]): item for index, item in enumerate(recent)
                                      if index < 40 or not item["completed_at"]}
-    # Job timestamps are observational only. No queue or provider is mutated.
-    # Completed UAT events prove overlap; hourly checks can flag long queues.
-    for run in inventory:
-        if not intervals or not trusted_run(run, repository, "deploy-uat.yml"):
-            continue
-        attempt = run.get("run_attempt", 1)
-        key = f"overlap:{run['id']}:{attempt}"
-        if seen.get(key) == "observed":
-            continue
-        now = datetime.now(UTC)
-        overlapping = [child for child in intervals.values()
-                       if timestamp(child["created_at"]) <= (timestamp(run["updated_at"]) if run["status"] == "completed" else now)
-                       and (not child["completed_at"] or timestamp(child["completed_at"]) >= timestamp(run["created_at"]))]
-        if not overlapping:
-            continue
-        jobs = api(f"repos/{repository}/actions/runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
-        require(jobs["total_count"] == len(jobs["jobs"]), "UAT job evidence is truncated")
-        starts = [job["started_at"] for job in jobs["jobs"] if job.get("started_at")]
-        if starts:
-            start = timestamp(min(starts))
-            overlapping = [child for child in overlapping if timestamp(child["created_at"]) <= start and
-                           (not child["completed_at"] or timestamp(child["completed_at"]) >= start)]
-            if overlapping:
-                note(key, "observed", f"UAT run {run['id']} started while recorded release runs "
-                     f"{', '.join(str(child['id']) for child in overlapping)} were active. "
-                     "This demonstrates progress for this overlap, not reserved runner capacity.")
-            elif seen.get(key) == "queue-warning":
-                note(key, "observed", f"UAT run {run['id']} has started after its earlier queue warning. "
-                     "A release overlap at its start was not demonstrated; no causal delay claim is made.")
-        elif run["status"] != "completed" and attempt == 1 and (now - timestamp(run["created_at"])).total_seconds() > 600:
-            note(key, "queue-warning", f"UAT run {run['id']} has no started job after 10 minutes while recorded releases are active. "
-                 "Possible shared-runner contention; UAT concurrency and other organization jobs may also explain the delay.")
+    observe_uat_jobs(repository, inventory, intervals, seen, note)
     # Watermarks, plus explicit unfinished runs, prevent replay when old final
     # fingerprints leave this bounded window. Rerun completion events override
     # the watermark and still receive fresh verification.

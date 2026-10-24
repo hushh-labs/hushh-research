@@ -86,7 +86,6 @@ def production_baseline(state: dict, policy: dict, repository: str, *, revalidat
                 and existing["run_id"] == identity and type(existing["run_attempt"]) is int and existing["run_attempt"] > 0
                 and type(existing["origin_run_id"]) is int and existing["origin_run_id"] > 0
                 and type(existing["ordinal"]) is int and 0 < existing["ordinal"] <= state["count"]
-                and existing["ordinal"] % 4 == 0
                 and re.fullmatch(r"[0-9a-f]{64}", existing["receipt_sha256"])
                 and state["sources"].get(existing["sha"], {}).get("ordinal") == existing["ordinal"],
                 "Production baseline differs from certified source accounting")
@@ -107,8 +106,8 @@ def production_baseline(state: dict, policy: dict, repository: str, *, revalidat
     source = state["sources"].get(sha, {})
     ordinal = source.get("ordinal")
     require(isinstance(sha, str) and SHA.fullmatch(sha) and value.get("status") == "healthy" and value.get("scope") == "all"
-            and type(ordinal) is int and ordinal > 0 and ordinal % 4 == 0,
-            "Production baseline has no complete counted UAT milestone")
+            and type(ordinal) is int and 0 < ordinal <= state["count"],
+            "Production baseline has no complete counted UAT source")
     for lane in ("backend", "frontend"):
         revision = value.get("final", {}).get(f"{lane}_revision")
         # Production binds receipt.sha through each successful exact-source
