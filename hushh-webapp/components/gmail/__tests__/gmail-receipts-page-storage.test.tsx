@@ -238,12 +238,14 @@ describe("receipt sync durable completion", () => {
 
 
 it("quietly catches up from the 22nd on a 24th return, preserving receipts, focus and completed authority", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-22T12:00:00Z"));
   const checkpoint = "grc1_" + "a".repeat(40);
   fixture.scan.mockResolvedValueOnce({ ...response([receipt]), checkpoint });
   let view = open(); await sync(); await waitFor(() => expect(fixture.completion).toBe(1));
   expect(screen.queryByRole("button", { name: /Start sync|Refresh/ })).toBeNull();
   view.unmount(); clearCachedGmailReceipts(session.userId); fixture.success.mockClear();
-  vi.spyOn(Date, "now").mockReturnValue(new Date("2026-10-24T12:00:00Z").getTime());
+  vi.setSystemTime(new Date("2026-10-24T12:00:00Z"));
   let finish!: (value: ReturnType<typeof response> & { checkpoint: string; sync_mode: string }) => void;
   fixture.scan.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   view = open();
@@ -261,7 +263,6 @@ it("quietly catches up from the 22nd on a 24th return, preserving receipts, focu
   expect(screen.getByText("Plaid").closest("li")).toBe(oldRow);
   expect(search).toHaveFocus(); expect(fixture.success).not.toHaveBeenCalled();
   expect((await loadReceiptSnapshot(session, account))?.value.rows).toHaveLength(2);
-  vi.spyOn(Date, "now").mockRestore();
   view.unmount(); clearCachedGmailReceipts(session.userId); open();
   await waitFor(() => expect(screen.getByText("Amazon")).toBeVisible());
   expect(screen.getByText("Plaid")).toBeVisible();
