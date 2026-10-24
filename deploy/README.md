@@ -414,7 +414,14 @@ The Drive worker overlaps isolated E5 admission with scanner freshness/EICAR
 attestation, joins both before readiness, and settles cancelled tasks before exit.
 Its fixed `drive_worker_startup` timing fields identify each stage without logging
 document content. The shared 180-second startup budget and all isolation limits
-remain authoritative. Compare completed full-release timings before claiming a
+remain authoritative. The same public synthetic E5 admission emits fixed
+`drive_worker_embedding_admission` phases for Torch setup, SentenceTransformers
+import, model construction and encoding, with wall and child-process CPU
+milliseconds. The enclosing startup `embedding` wall time also includes semaphore,
+child startup, IPC, validation and any eligible retry. Private queries never emit these
+metrics; missing or malformed metrics do not change readiness. No extra model
+call is made. An eligible cold-start retry emits a fixed processing-timeout event.
+Compare completed full-release timings before claiming a
 deployment-duration improvement; cache seeding and infrastructure waits can vary.
 
 Worker scheduler capture validates the complete fixed-job records from one

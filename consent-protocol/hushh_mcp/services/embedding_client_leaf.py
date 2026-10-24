@@ -4,21 +4,56 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
+from time import monotonic_ns, process_time_ns
 from typing import Any, cast
 
 MODEL_ID = "intfloat/multilingual-e5-small"
 MODEL_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
 BAKED_MODEL_DIR = "/opt/hushh/models/multilingual-e5-small"
 BAKED_MODEL_DIR_ENV = "HUSHH_DRIVE_EMBEDDING_MODEL_DIR"
+ADMISSION_TIMING_PHASES = ("torch_setup", "sbert_import", "model_load", "encode")
+
+
+class EmbeddingAdmissionTimings:
+    """Fixed metrics for the public startup probe; never enabled for private queries."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, dict[str, int]] = {}
+
+    @contextmanager
+    def measure(self, phase: str):
+        try:
+            wall = monotonic_ns()
+            cpu = process_time_ns()
+        except Exception:
+            yield
+            return
+        try:
+            yield
+        finally:
+            # An observer failure must not replace model errors or readiness.
+            try:
+                self.values[phase] = {
+                    "wall_ms": (monotonic_ns() - wall) // 1_000_000,
+                    "cpu_ms": (process_time_ns() - cpu) // 1_000_000,
+                }
+            except Exception:
+                pass
 
 
 class EmbeddingClient:
     def __init__(
-        self, *, model_revision: str = MODEL_REVISION, local_files_only: bool = False
+        self,
+        *,
+        model_revision: str = MODEL_REVISION,
+        local_files_only: bool = False,
+        admission_timings: EmbeddingAdmissionTimings | None = None,
     ) -> None:
         self.model_revision = model_revision
         self.local_files_only = local_files_only
+        self._admission_timings = admission_timings
         self._model: Any = None
         # One load per process. Without it a chat turn that needed the model
         # while the startup warmup was still loading it began a second
@@ -37,7 +72,8 @@ class EmbeddingClient:
 
     def _load_locked(self) -> Any:
         if self._model is None:
-            from sentence_transformers import SentenceTransformer
+            with self._measure_admission("sbert_import"):
+                from sentence_transformers import SentenceTransformer
 
             model_source = MODEL_ID
             local_only = self.local_files_only
@@ -56,16 +92,22 @@ class EmbeddingClient:
                 # 2026-09-27). Use the baked copy and never touch the network.
                 model_source = baked_dir
                 local_only = True
-            self._model = SentenceTransformer(
-                model_source,
-                revision=self.model_revision,
-                local_files_only=local_only,
-                trust_remote_code=False,
-            )
+            with self._measure_admission("model_load"):
+                self._model = SentenceTransformer(
+                    model_source,
+                    revision=self.model_revision,
+                    local_files_only=local_only,
+                    trust_remote_code=False,
+                )
         return self._model
 
+    def _measure_admission(self, phase: str):
+        return self._admission_timings.measure(phase) if self._admission_timings else nullcontext()
+
     def embed_query(self, text: str) -> list[float]:
-        result = self._load().encode(f"query: {text}", normalize_embeddings=True)
+        model = self._load()
+        with self._measure_admission("encode"):
+            result = model.encode(f"query: {text}", normalize_embeddings=True)
         return cast(list[float], result.tolist())
 
     def embed_passages(self, passages: list[str]) -> list[list[float]]:
