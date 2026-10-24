@@ -10,7 +10,7 @@ export function ScopeCommerceHostedReturn({ fallback }: { fallback: ReactNode })
   useEffect(() => {
     setState(notifyCommercePopupReturn(window.location.pathname + window.location.search + window.location.hash) ? "returned" : "cold");
   }, []);
-  if (state === "checking") return <HushhLoader stage="session" label="Returning to your payment screen…" />;
+  if (state === "checking") return <div className="consent-presentation-surface"><HushhLoader stage="session" label="Returning to your payment screen…" /></div>;
   if (state === "cold") return <>{fallback}</>;
-  return <p role="status" className="p-4 text-sm">Return to your original One window. It will check payment status securely. You can close this window.</p>;
+  return <div className="consent-presentation-surface"><p role="status" className="p-4 text-sm">Return to your original One window. It will check payment status securely. You can close this window.</p></div>;
 }

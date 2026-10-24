@@ -713,8 +713,10 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
         backHref,
         width: "profile",
         align: "center",
-        suppressFallbackTitle: true,
-        items: [{ label: "One", href: ROUTES.ONE_HOME }],
+        items: [
+          { label: "One", href: ROUTES.ONE_HOME },
+          { label: "Consent Center" },
+        ],
       };
     },
   },

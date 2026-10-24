@@ -334,7 +334,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
 
   if (state?.role === "owner") {
     return (
-      <div className="space-y-4">
+      <div className="consent-presentation-surface space-y-4">
         <BodyText>{state.question}</BodyText>
         <HelperText as="p" role="status">
           {state.requestStatus === "answering"
@@ -379,7 +379,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         payment.orderStatus === "checkout_open");
 
     return (
-      <div className="min-w-0 space-y-4">
+      <div className="consent-presentation-surface min-w-0 space-y-4">
         {state?.question ? <BodyText>{state.question}</BodyText> : null}
         {coverage ? (
           <div className="space-y-1" aria-label="Priced answer coverage">
@@ -499,19 +499,19 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
             {error}
           </HelperText>
         ) : null}
-        <Button size="standard" variant="none" disabled={busy} onClick={() => void load()}>Refresh question</Button>
+        <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={busy} onClick={() => void load()}>Refresh question</Button>
         {user ? <VaultUnlockDialog user={user} open={unlockOpen}
           onOpenChange={(open) => { setUnlockOpen(open); if (!open) setPendingOpen(null); }}
           onSuccess={() => undefined} title="Unlock to read your answer"
           description="Your answer is sealed to your private key. Unlock to read it on this device."
-          allowVaultCreation={false} /> : null}
+          allowVaultCreation={false} presentationClassName="consent-presentation-surface" /> : null}
       </div>
     );
   }
 
   return (
-    <div><SettingsRow title="Request unavailable" description={error || "Open this question from the list again."} />
-      <Button size="standard" variant="none" onClick={() => void load()}>Refresh question</Button>
+    <div className="consent-presentation-surface"><SettingsRow title="Request unavailable" description={error || "Open this question from the list again."} />
+      <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => void load()}>Refresh question</Button>
     </div>
   );
 }

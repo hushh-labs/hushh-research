@@ -244,6 +244,7 @@ for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 900],
           const t = getComputedStyle(title), overlay = getComputedStyle(document.querySelector('[data-slot="dialog-overlay"]')!);
           return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width,
             size: t.fontSize, line: t.lineHeight, weight: t.fontWeight,
+            consentPresentation: el.classList.contains("consent-presentation-surface"),
             blur: overlay.backdropFilter, surface: getComputedStyle(el).backgroundColor,
             duplicateIds: [...el.querySelectorAll("[id]")].some(node => document.querySelectorAll(`[id="${CSS.escape(node.id)}"]`).length > 1),
             overflow: el.scrollWidth - el.clientWidth,
@@ -257,9 +258,10 @@ for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 900],
         expect(state.top).toBeGreaterThanOrEqual(-1);
         expect(state.bottom).toBeLessThanOrEqual(height + 1);
         expect(state.width).toBeCloseTo(width < 768 ? width : 480, 0);
+        expect(state.consentPresentation).toBe(intent !== "card");
         expect(state).toMatchObject({
-          size: intent === "card" ? "20px" : width < 768 ? "22px" : "24px",
-          line: intent === "card" ? "28px" : width < 768 ? "30px" : "32px",
+          size: "20px",
+          line: "28px",
           weight: "600",
           duplicateIds: false,
         });

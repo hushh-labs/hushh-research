@@ -10697,6 +10697,397 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
   font-weight: 400;
 }
 
+/* Consent uses Connect's type roles and ordinary command anatomy while its
+   880px manager, four-pane pager, decision colors and portal owners stay put.
+   Apply this scope to the route, each embedded review and actual portal content;
+   a route ancestor cannot reach a Radix dialog, select or Sonner portal. */
+@layer base {
+  :is([data-consent-presentation], .consent-presentation-surface) {
+    --type-section-label-size: 14px;
+    --type-section-label-line: 22px;
+    --type-section-label-weight: 600;
+    --type-section-label-compact-size: 14px;
+    --type-section-label-compact-line: 22px;
+    --type-section-label-compact-weight: 600;
+    --type-row-label-size: 14px;
+    --type-row-label-line: 21px;
+    --type-row-label-weight: 550;
+    --type-row-label-compact-size: 14px;
+    --type-row-label-compact-line: 21px;
+    --type-row-label-compact-weight: 550;
+    --type-row-description-size: 12px;
+    --type-row-description-line: 18px;
+    --type-row-description-weight: 400;
+    --type-row-description-compact-size: 12px;
+    --type-row-description-compact-line: 18px;
+    --type-form-label-size: 15px;
+    --type-form-label-line: 22px;
+    --type-form-label-weight: 550;
+    --type-input-value-size: 14px;
+    --type-input-value-line: 22px;
+    --type-compact-button-label-size: 12px;
+    --type-compact-button-label-line: 18px;
+    --type-compact-button-label-weight: 550;
+    font-family: var(--font-app-body), system-ui, sans-serif;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is([data-slot="settings-group-heading"], .ui-text-section-label, .ui-text-section-title) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 600 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is([data-slot="settings-row-title"], .ui-text-row-label, .ui-text-row-label-compact, [data-consent-role="row-title"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is([data-slot="settings-row-description"], [data-slot="settings-group-description"], .ui-text-row-description, .ui-text-row-description-compact) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+  }
+
+  /* Profile's pane and wallet receipt CSS has more specific important rules.
+     The composed arm wins only for a marked Consent consumer, including an
+     activity or receipt portal carrying the mark on its actual content. */
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation],
+    .consent-presentation-surface
+  ) [data-slot="settings-group-heading"][role="heading"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 600 !important;
+  }
+
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation],
+    .consent-presentation-surface
+  ) [data-row-layout] [data-slot="settings-row-title"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation],
+    .consent-presentation-surface
+  ) :is([data-row-layout] [data-slot="settings-row-description"], [data-settings-density] [data-slot="settings-group-description"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+  }
+
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation],
+    .consent-presentation-surface
+  ) .profile-account-inline-action {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 19px !important;
+    font-weight: 550 !important;
+  }
+
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation],
+    .consent-presentation-surface
+  ) .profile-account-inline-action[data-consent-role="utility"] {
+    font-size: 13px !important;
+    line-height: 21px !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is([data-consent-role="secondary-heading"], [data-consent-role="group-count"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 600 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is(.ui-text-body, [data-consent-role="body"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 400 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is(.ui-text-medium-row-label, .ui-text-row-label-emphasized) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is([data-consent-role="form-label"], .ui-text-form-label) {
+    font-family: var(--font-app-body) !important;
+    font-size: 15px !important;
+    line-height: 22px !important;
+    font-weight: 550 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is([data-consent-role="helper"], [data-consent-role="fact-label"], .ui-text-helper-text) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is([data-consent-role="fact-value"], [data-consent-role="body"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 400 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    [data-consent-facts] dt {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    [data-consent-facts] dd {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 400 !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    [data-consent-role="status"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+    font-weight: 600 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is([role="status"], [role="alert"]):not(.sr-only):not([data-consent-role="disclosure"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 18px !important;
+    font-weight: 600 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    [data-consent-role="disclosure"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    font-weight: 400 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    [data-consent-role="utility"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    [data-consent-role="task-title"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+  }
+
+  .consent-presentation-surface {
+    --type-navigation-title-size: 20px;
+    --type-navigation-title-line: 28px;
+    --type-navigation-title-weight: 600;
+    --type-page-subtitle-size: 14px;
+    --type-page-subtitle-line: 20px;
+    --foundation-title3-size: 20px;
+    --foundation-title3-line: 28px;
+    --foundation-title3-weight: 600;
+  }
+
+  .consent-presentation-surface
+    :is([data-slot="dialog-title"], [data-slot="sheet-title"], [data-slot="drawer-title"], [data-slot="alert-dialog-title"], .ui-text-navigation-title) {
+    font-family: var(--font-app-body) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+  }
+
+  .consent-presentation-surface
+    :is([data-slot="dialog-description"], [data-slot="sheet-description"], [data-slot="drawer-description"], [data-slot="alert-dialog-description"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    font-weight: 400 !important;
+  }
+
+  .consent-presentation-surface
+    :is([data-slot="dialog-footer"], [data-slot="sheet-footer"], [data-slot="alert-dialog-footer"]) :is(button, a) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    font-weight: 600 !important;
+  }
+
+  .consent-presentation-surface
+    :is([data-slot="alert-dialog-action"], [data-slot="alert-dialog-cancel"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    font-weight: 600 !important;
+  }
+
+  .consent-presentation-surface
+    :is([role="menuitemradio"], [data-slot="select-item"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+
+  [data-top-shell-tab-set="consent"] [data-ui-role="agent-tab-label"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 15px !important;
+    line-height: 20px !important;
+    font-weight: 550 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    [data-consent-input] {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 400 !important;
+  }
+
+  :is([data-consent-presentation], .consent-presentation-surface)
+    input[data-consent-input] {
+    min-height: 48px;
+    height: 48px;
+  }
+}
+
+/* Draw the inner pill behind each existing Button/Link. The button owns the
+   touch target, focus ring and ripple; a pseudo element adds no DOM or action. */
+:is([data-consent-presentation], .consent-presentation-surface)
+  :is(button, a)[data-consent-quiet-action] {
+  position: relative;
+  isolation: isolate;
+  min-height: 44px !important;
+  height: auto !important;
+  min-width: 88px;
+  padding-inline: 15px !important;
+  padding-block: 11px !important;
+  border: 0 !important;
+  border-radius: 999px;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--app-accent) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 12px !important;
+  line-height: 18px !important;
+  font-weight: 550 !important;
+  white-space: normal !important;
+  text-align: center;
+}
+:is([data-consent-presentation], .consent-presentation-surface)
+  :is(button, a)[data-consent-quiet-action]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
+  border-radius: 999px;
+  background: var(--app-card-surface-default-solid);
+}
+:is([data-consent-presentation], .consent-presentation-surface)
+  :is(button, a)[data-consent-quiet-action]:not(:disabled):not([aria-disabled="true"]):is(:hover, :focus-visible)::before {
+  border-color: color-mix(in srgb, var(--app-accent) 48%, var(--app-card-surface-default-solid));
+  background: color-mix(in srgb, var(--app-accent) 6%, var(--app-card-surface-default-solid));
+}
+:is([data-consent-presentation], .consent-presentation-surface)
+  :is(button, a)[data-consent-quiet-action][data-consent-action-context="task"] {
+  font-size: 13px !important;
+  line-height: 20px !important;
+  font-weight: 600 !important;
+}
+:is([data-consent-presentation], .consent-presentation-surface)
+  :is(button, a)[data-consent-quiet-action]:disabled {
+  opacity: 0.6;
+}
+
+@media (max-width: 620px) {
+  @layer base {
+    :is([data-consent-presentation], .consent-presentation-surface) {
+      --type-input-value-size: 16px;
+    }
+    :is([data-consent-presentation], .consent-presentation-surface)
+      [data-consent-input] {
+      font-size: 16px !important;
+    }
+    :is([data-consent-presentation], .consent-presentation-surface)
+      [data-consent-role="utility"] {
+      font-size: 12px !important;
+    }
+    :is(
+      .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+      [data-consent-presentation],
+      .consent-presentation-surface
+    ) .profile-account-inline-action[data-consent-role="utility"] {
+      font-size: 12px !important;
+    }
+  }
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is(button, a)[data-consent-quiet-action] {
+    min-width: 78px;
+    padding-inline: 11px !important;
+  }
+}
+@media (max-width: 350px) {
+  :is([data-consent-presentation], .consent-presentation-surface)
+    :is(button, a)[data-consent-quiet-action] {
+    min-width: 72px;
+    padding-inline: 9px !important;
+  }
+}
+
+html:has([data-consent-presentation="workspace"]) [data-sonner-toaster] {
+  font-family: var(--font-app-body);
+}
+html:has([data-consent-presentation="workspace"]) [data-sonner-toast] [data-title] {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+}
+html:has([data-consent-presentation="workspace"]) [data-sonner-toast] [data-description] {
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
 /* Calendar feedback is portalled beside its route and conversation cards. */
 html:has([data-calendar-presentation]) [data-sonner-toaster] {
   font-family: var(--font-app-body);

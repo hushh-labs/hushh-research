@@ -62,7 +62,7 @@ export function ConsentBundleChoice({
   const summary = bundleChoiceSummary(items, chosen);
   return (
     <fieldset className="min-w-0 space-y-1 sm:col-span-2" data-testid="consent-bundle-choice" disabled={disabled}>
-      <legend className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+      <legend data-consent-role="fact-label" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
         {count === items.length ? `Access · ${items.length} items` : `Access · ${count} of ${items.length} items`}
       </legend>
       <ul className="divide-y divide-border/50">
@@ -71,7 +71,7 @@ export function ConsentBundleChoice({
           const id = `consent-bundle-choice-${item.key}`;
           return (
             <li key={item.key}>
-              <label htmlFor={id} data-testid="consent-bundle-choice-row"
+              <label htmlFor={id} data-testid="consent-bundle-choice-row" data-consent-role="form-label"
                 className="flex min-h-11 cursor-pointer items-center gap-3 py-1.5 text-sm leading-5 text-foreground has-[:disabled]:cursor-default">
                 <Checkbox id={id} checked={on} disabled={disabled}
                   onCheckedChange={(next) => onToggle(item.key, next === true)} />
@@ -82,7 +82,7 @@ export function ConsentBundleChoice({
         })}
       </ul>
       {summary ? (
-        <p role="status" aria-live="polite" data-testid="consent-bundle-choice-summary"
+        <p role="status" aria-live="polite" data-testid="consent-bundle-choice-summary" data-consent-role="status"
           className="pt-1 text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
           {summary}
         </p>

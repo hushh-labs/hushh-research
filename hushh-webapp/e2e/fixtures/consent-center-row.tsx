@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Badge } from "../../components/ui/badge";
+import { Button } from "../../lib/morphy-ux/button";
 import {
   SettingsGroup,
   SettingsPresentationProvider,
+  SettingsRow,
 } from "../../components/app-ui/settings-ui";
 import {
   bundleEntryToOpen,
@@ -12,6 +14,7 @@ import {
 } from "../../components/consent/consent-pending-row";
 import { consentEntryInformationLabel } from "../../lib/consent/consent-owner-copy";
 import { bundleAllowLabel, ConsentBundleChoice } from "../../components/consent/consent-bundle-choice";
+import profileAccountStyles from "../../components/profile/profile-your-account.module.css";
 import type { ConsentCenterEntry } from "../../lib/services/consent-center-service";
 
 /**
@@ -107,7 +110,7 @@ function BundleChoiceFixture() {
 
 function Fixture() {
   return (
-    <main className="app-page-shell min-h-dvh bg-background py-4 text-foreground" data-app-density="compact" data-app-surface="one">
+    <main className="app-page-shell min-h-dvh bg-background py-4 text-foreground" data-app-density="compact" data-app-surface="one" data-consent-presentation="workspace">
       <div className="mx-auto max-w-[var(--app-page-max-w-reading,720px)]">
         <SettingsPresentationProvider density="compact">
           <SettingsGroup embedded separatorInset>
@@ -137,7 +140,20 @@ function Fixture() {
           </SettingsGroup>
         </SettingsPresentationProvider>
         <BundleChoiceFixture />
+        <div className="px-4 py-3">
+          <Button variant="none" effect="fade" size="sm" data-consent-quiet-action="true" data-testid="consent-quiet-action" onClick={() => record("opened", "payment")}>Review payment</Button>
+        </div>
       </div>
+      <section className="profile-pane-scroll-root mt-6" data-testid="consent-profile-composition">
+        <div className="app-page-shell" data-profile-type-scale="account">
+          <div data-profile-stack-content="true" className={profileAccountStyles.walletContent}>
+            <SettingsGroup className="consent-presentation-surface" title="Information access" description="Purchase balance and earnings">
+              <SettingsRow title="Payments and earnings" description="Sharing status stays available"
+                trailing={<span className="profile-account-inline-action">Review receipt</span>} />
+            </SettingsGroup>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

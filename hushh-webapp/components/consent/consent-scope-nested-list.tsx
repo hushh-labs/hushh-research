@@ -191,7 +191,7 @@ export function ConsentScopeNestedList({
 
   return (
     <div
-      className={cn("space-y-3", className)}
+      className={cn("consent-presentation-surface space-y-3", className)}
       data-testid={testIdPrefix}
       data-consent-scope-level="true"
     >
@@ -200,6 +200,7 @@ export function ConsentScopeNestedList({
           type="button"
           onClick={() => setPathStack((stack) => stack.slice(0, -1))}
           className="-ml-1 inline-flex min-h-11 items-center gap-1 text-[15px] font-normal text-muted-foreground transition-colors hover:text-foreground"
+          data-consent-role="utility"
           data-testid={`${testIdPrefix}-back`}
         >
           <ChevronLeft className="h-4 w-4" aria-hidden />
@@ -212,14 +213,15 @@ export function ConsentScopeNestedList({
           <p
             className="text-[13px] font-medium uppercase tracking-wide text-muted-foreground"
             data-consent-scope-breadcrumb="true"
+            data-consent-role="helper"
           >
             {level.crumbs.slice(0, -1).join(" › ")}
           </p>
-          <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">
+          <h2 data-consent-role="task-title" className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">
             {level.title}
           </h2>
           {categorySelectionInDetail && pathStack.length === 1 && selection ? (
-            <label className="inline-flex min-h-11 items-center gap-3 text-sm">
+            <label data-consent-role="form-label" className="inline-flex min-h-11 items-center gap-3 text-sm">
               <input type="checkbox" checked={allSelected(currentBranchIds)}
                 ref={(node) => { if (node) node.indeterminate = selectedCountIn(currentBranchIds) > 0 && !allSelected(currentBranchIds); }}
                 onChange={() => selection.onToggleMany(currentBranchIds, !allSelected(currentBranchIds))}
@@ -244,6 +246,7 @@ export function ConsentScopeNestedList({
             placeholder={searchPlaceholder}
             aria-label="Search this list"
             className="pl-9"
+            data-consent-input="true"
             data-testid={`${testIdPrefix}-search`}
           />
         </div>
@@ -255,7 +258,7 @@ export function ConsentScopeNestedList({
                 {domainFilter !== "__all" ? <span className="sr-only">Filter active</span> : null}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="consent-presentation-surface">
               <DropdownMenuRadioGroup value={domainFilter} onValueChange={(value) => { setDomainFilter(value); setPathStack([]); }}>
                 <DropdownMenuRadioItem value="__all">All categories</DropdownMenuRadioItem>
                 {domains.map(([key, label]) => <DropdownMenuRadioItem key={key} value={key}>{label}</DropdownMenuRadioItem>)}

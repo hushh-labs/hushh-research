@@ -11,7 +11,7 @@ export function ConsentSharingRevokeDialog({ open, onOpenChange, counterpartLabe
             open={open}
             onOpenChange={onOpenChange}
           >
-            <AlertDialogContent size="sm">
+            <AlertDialogContent size="sm" className="consent-presentation-surface">
               <AlertDialogHeader>
                 <AlertDialogTitle>
                   Stop sharing with {counterpartLabel}?

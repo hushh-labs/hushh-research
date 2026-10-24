@@ -89,7 +89,7 @@ export function PayoutActivitySheet({ open, onOpenChange, initialFilter = "all",
       title="Activity"
       mobilePresentation="sheet"
       desktopMaxWidthClassName="sm:!max-w-[520px]"
-      surfaceClassName={accountStyles.walletContent}
+      surfaceClassName={`${accountStyles.walletContent} consent-presentation-surface`}
     >
       {/* Mounted only while open, so each opening starts from its own filter. */}
       <ActivitySheetBody initialFilter={initialFilter} initialTestActivity={initialTestActivity} onAction={onAction} />
