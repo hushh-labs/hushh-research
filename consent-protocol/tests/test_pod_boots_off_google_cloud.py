@@ -102,8 +102,9 @@ def test_an_azure_pod_states_its_version_one_capabilities(monkeypatch):
         "privateCommands": {"available": False, "reason": "requires_gemini_model"},
         "aiSelection": {
             "version": 1,
-            "providers": ["gemini", "openai", "azure_openai"],
+            "providers": ["openai", "azure_openai"],
             "defaultVerification": True,
+            "unavailableProviders": {"gemini": "processing_terms_unverified"},
         },
     }
 
