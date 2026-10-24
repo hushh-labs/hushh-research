@@ -33,7 +33,7 @@
   transition: transform 150ms ease;
 }
 .composer :global([data-conversation-composer] button[type="submit"]:active) {
-  transform: scale(.92);
+  opacity: .82;
 }
 .composer :global([data-conversation-composer] button[type="submit"] svg) {
   animation: none;

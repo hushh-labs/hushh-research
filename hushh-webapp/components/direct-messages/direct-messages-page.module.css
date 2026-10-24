@@ -1169,12 +1169,19 @@ article[data-message-role="user"] .messageActionError {
 }
 @layer base {
   .shell[data-app-shell-width] .page .inboxHeading h1 {
-    font-size: 20px !important; line-height: 1.2 !important; font-weight: 600 !important;
-    font-family: var(--font-app-heading) !important;
+    font-size: 17px !important; line-height: 22px !important; font-weight: 600 !important;
+    font-family: var(--font-app-display) !important;
   }
   .shell[data-app-shell-width] .page .threadTitle h2 {
-    font-size: 16px !important; line-height: 1.25 !important; font-weight: 600 !important;
+    font-size: 17px !important; line-height: 22px !important; font-weight: 600 !important;
     font-family: var(--font-app-body) !important;
+  }
+  .shell[data-app-shell-width] .page :is(.emptyInbox, .selectThread, .emptyThread) h2,
+  .unauthenticated h1 {
+    font-family: var(--font-app-display) !important;
+    font-size: 17px !important;
+    line-height: 22px !important;
+    font-weight: 600 !important;
   }
 }
 
@@ -1567,10 +1574,10 @@ article[data-message-role="peer"] .messageCluster {
 }
 .inboxHeading h1,
 .shell[data-app-shell-width] .page .inboxHeading h1 {
-  font-family: var(--font-app-heading) !important;
-  font-size: 20px !important;
+  font-family: var(--font-app-display) !important;
+  font-size: 17px !important;
   font-weight: 600 !important;
-  line-height: 1.2 !important;
+  line-height: 22px !important;
   letter-spacing: -.02em !important;
   color: var(--chat-text);
 }
@@ -1598,11 +1605,12 @@ article[data-message-role="peer"] .messageCluster {
   background: var(--chat-surface-2);
 }
 .laneSwitcher button {
-  min-height: 34px;
+  min-height: 44px;
   border-radius: 10px;
   color: var(--chat-muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 550;
   transition: background-color .15s ease, color .15s ease;
 }
 .laneSwitcher button[aria-selected="true"] {
@@ -1613,15 +1621,16 @@ article[data-message-role="peer"] .messageCluster {
 .laneCount {
   display: inline-grid;
   min-width: 18px;
-  height: 17px;
+  height: 18px;
   margin-left: 4px;
   padding-inline: 4px;
   place-items: center;
   border-radius: 999px;
   background: var(--chat-surface-3);
   color: var(--chat-muted);
-  font-size: 10px;
-  line-height: 1;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 .laneSwitcher button[aria-selected="true"] .laneCount {
@@ -1658,9 +1667,9 @@ article[data-message-role="peer"] .messageCluster {
   .conversationOptions { opacity: 0; }
   .conversationItem:hover .conversationOptions, .conversationItem:focus-within .conversationOptions { opacity: 1; }
 }
-.conversationName { font-size: 14px; font-weight: 600; color: var(--chat-text); }
-.conversationPreview { font-size: 13px; color: var(--chat-muted); }
-.conversationMeta { font-size: 12px; color: var(--chat-muted); }
+.conversationName { font-size: 14px; line-height: 21px; font-weight: 550; color: var(--chat-text); }
+.conversationPreview { font-size: 12px; line-height: 18px; font-weight: 400; color: var(--chat-muted); }
+.conversationMeta { font-size: 12px; line-height: 18px; color: var(--chat-muted); }
 .threadHeader,
 .threadHeaderContent {
   min-height: 68px;
@@ -1674,9 +1683,9 @@ article[data-message-role="peer"] .messageCluster {
 .threadTitle h2,
 .shell[data-app-shell-width] .page .threadTitle h2 {
   font-family: var(--font-app-body) !important;
-  font-size: 16px !important;
+  font-size: 17px !important;
   font-weight: 600 !important;
-  line-height: 1.25 !important;
+  line-height: 22px !important;
   color: var(--chat-text);
 }
 .messageList { background: transparent; background-image: none; padding-inline: 16px; }
@@ -1718,7 +1727,7 @@ article[data-message-role="user"] .messageDeliveryState {
   box-shadow: 0 0 0 1px var(--chat-accent);
 }
 .sendButton { background: var(--chat-accent); transition: transform .18s ease-out, opacity .18s ease-out; }
-.sendButton:active { transform: scale(.92); }
+.sendButton:active { opacity: .82; }
 .composer { --chat-accent: var(--chat-ios-accent); font-family: var(--font-app-body); max-width: none; margin-inline: auto; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .threadHeader, .inboxHeader, .messageList, .attachmentMenu { backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; }
 .voiceButton, .sendButton { width: 44px; height: 44px; box-shadow: none; }
@@ -1746,7 +1755,7 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
   outline: none;
 }
 .attachButton:disabled { opacity: .45; cursor: not-allowed; }
-.threadStatus { margin: 2px 0 0; color: var(--chat-muted); font-size: 12px; line-height: 16px; }
+.threadStatus { margin: 2px 0 0; color: var(--chat-muted); font-size: 13px; line-height: 18px; font-weight: 600; }
 .headerAction { color: var(--chat-accent); }
 .backButton { display: inline-grid; color: var(--chat-accent); }
 .headerAction:disabled { color: var(--chat-muted); opacity: .5; cursor: not-allowed; }
@@ -1773,13 +1782,13 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 .messageAttachment a, .messageAttachment button { font-size: 13px; color: inherit; text-decoration: underline; text-align: left; }
 .messageAttachment .fileMessageCard button, .messageAttachment .voiceSpeedButton { color: var(--chat-accent); text-decoration: none; text-align: center; }
 .messageAttachment .voicePlayButton { color: #fff; text-decoration: none; }
-.newChatAction { margin-top: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; background: var(--chat-ios-accent); color: #fff; font-size: 13px; font-weight: 600; }
+.newChatAction { margin-top: 8px; }
 .newChatDialog { --chat-line: var(--border); --chat-surface: var(--app-card-surface-default-solid); --chat-text: var(--foreground); --chat-muted: var(--muted-foreground); --chat-ios-accent: var(--app-accent); width: min(440px, calc(100vw - 32px)); border: 1px solid var(--chat-line, var(--border)); background: var(--chat-surface, var(--background)); color: var(--chat-text); box-shadow: none; }
-.newChatSearch { width: 100%; min-height: 44px; padding: 0 14px; border: 1px solid var(--chat-line); border-radius: var(--app-input-radius); background: var(--chat-surface); color: var(--chat-text); font-size: 15px; outline-color: var(--chat-ios-accent); }
+.newChatSearch { width: 100%; min-height: 44px; padding: 0 14px; border: 1px solid var(--chat-line); border-radius: var(--app-input-radius); background: var(--chat-surface); color: var(--chat-text); font-size: 14px; line-height: 22px; font-weight: 400; outline-color: var(--chat-ios-accent); }
 .newChatSearch::placeholder { color: var(--chat-muted); }
 .newChatResults { max-height: min(50dvh, 420px); overflow-y: auto; display: grid; gap: 2px; }
 .newChatResults > p { padding: 16px; color: var(--chat-muted); font-size: 13px; }
-.newChatPerson { width: 100%; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px 10px; border-radius: 12px; text-align: left; font-size: 14px; font-weight: 600; }
+.newChatPerson { width: 100%; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px 10px; border-radius: 12px; text-align: left; font-size: 14px; line-height: 21px; font-weight: 550; }
 .newChatPerson:hover, .newChatPerson:focus-visible { background: color-mix(in srgb, var(--chat-ios-accent) 9%, transparent); outline: none; }
 .newChatPerson:disabled { opacity: .5; cursor: not-allowed; }
 .newChatMore { min-height: 44px; color: var(--chat-ios-accent); font-size: 13px; font-weight: 600; }
@@ -1888,6 +1897,45 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
   box-shadow: none;
 }
 
+/* Messages owns these roles in both the list and the selected thread. Keep
+   content, receipts and the two bubble palettes separate from navigation UI. */
+.page .inboxSearchField input,
+.page .threadSearchField input { font-family: var(--font-app-body); font-size: 14px; line-height: 22px; font-weight: 400; }
+.page :is(.loading, .emptyInbox p, .emptyThread p, .selectThread p, .threadError p, .errorState p, .readOnlyNotice, .composerError, .messageActionError) {
+  font-family: var(--font-app-body);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+}
+.page .unreadCount { min-height: 18px; font-size: 13px; line-height: 18px; font-weight: 600; }
+.page .replyPreview p { font-size: 12px; line-height: 18px; font-weight: 400; }
+.page .replyPreview span { font-size: 12px; line-height: 18px; font-weight: 600; }
+.page .threadSearchCount { font-size: 12px; line-height: 18px; font-weight: 600; }
+.page .fileMessageCard strong { font-size: 14px; line-height: 21px; font-weight: 550; }
+.page .fileMessageCard span, .page .attachmentPreview { font-size: 12px; line-height: 18px; }
+.page .voiceButton, .page .sendButton { min-width: 44px; min-height: 44px; height: 44px; }
+.page .threadIdentity { flex: 1 1 auto; }
+.page .threadTitle { min-width: 0; }
+.newChatDialog .newChatResults > p { font-size: 13px; line-height: 18px; font-weight: 400; }
+.attachmentMenu .attachmentLimit { font-size: 13px; line-height: 18px; font-weight: 400; }
+.messageMenu [role="menuitem"], .attachmentMenu [role="menuitem"] { font-size: 13px; line-height: 21px; font-weight: 550; }
+.newChatDialog .newChatSearch { font-family: var(--font-app-body); font-size: 14px; line-height: 22px; font-weight: 400; }
+.editDialog .messageEditInput { font-size: 16px; line-height: 24px; font-weight: 400; }
+
+@media (min-width: 768px) and (max-width: 1023px) and (min-height: 500px) {
+  /* Five 44px Circle actions need a real second row in the tablet sidebar. */
+  .page { --app-messages-sidebar-width: max(30vw, 272px); }
+}
+@media (max-width: 620px) {
+  .page .inboxSearchField input, .page .threadSearchField input,
+  .newChatDialog .newChatSearch { font-size: 16px; }
+}
+@media (max-width: 379px) {
+  .page .threadHeader, .page .threadHeaderContent { height: auto; min-height: 96px; }
+  .page .threadHeaderContent { flex-wrap: wrap; align-content: center; gap: 0; padding: 4px 12px; }
+  .page .threadHeaderActions { width: 100%; justify-content: flex-end; margin-left: 0; }
+}
+
 .photoDraftPreview { position: relative; flex-basis: 100%; width: 100%; max-width: 100%; }
 .photoDraftPreview img { display: block; max-width: min(240px, 100%); max-height: 180px; object-fit: contain; border-radius: 12px; }
 .photoDraftPreview > button { position: absolute; top: 4px; right: 8px; width: 44px; border-radius: 50%; background: var(--chat-surface, var(--background)); }
@@ -1930,4 +1978,72 @@ article[data-message-role="peer"] .messageActionError { grid-row: 3; }
   article[data-message-role="peer"] .messageActionError { max-width: min(calc(85% + 32.3px), calc(100% - 2px)); }
   .messageFeedItem article[data-message-role][data-actions-visible="true"] .messageActions { opacity: 1; pointer-events: auto; }
   .messageFeedItem article[data-message-role][data-actions-visible="true"] .messageActionButton { pointer-events: auto; }
+}
+
+/* Dialogs, menus, popovers and the dock portal are reparented outside .page.
+   A marker on the real content keeps their type local to Messages. */
+@layer base {
+  :global([data-messages-type-scale]) :global([data-slot="dialog-title"]),
+  :global([data-messages-type-scale]) :global([data-slot="alert-dialog-title"]),
+  :global([data-messages-type-scale][data-slot="dialog-content"]) :global([data-slot="dialog-title"]),
+  :global([data-messages-type-scale][data-slot="alert-dialog-content"]) :global([data-slot="alert-dialog-title"]) {
+    font-family: var(--font-app-display) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+  }
+  :global([data-messages-type-scale]) :global([data-slot="dialog-description"]),
+  :global([data-messages-type-scale]) :global([data-slot="alert-dialog-description"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    font-weight: 400 !important;
+  }
+  :global([data-messages-type-scale]) :global([data-slot="dialog-footer"] button),
+  :global([data-messages-type-scale]) :global([data-slot="alert-dialog-footer"] button) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    font-weight: 600 !important;
+  }
+  :global([data-messages-type-scale]) :global([role="menuitem"]),
+  :global([data-messages-type-scale][role="menu"]) :global([role="menuitem"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 21px !important;
+    font-weight: 550 !important;
+  }
+  :global([data-messages-type-scale][data-slot="dialog-content"]) :global(input[type="search"]),
+  :global([data-messages-type-scale][data-slot="popover-content"]) :global(input[type="search"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+    font-weight: 400 !important;
+  }
+  :global([data-messages-type-scale][data-slot="dialog-content"][data-profile-type-scale="circles"]) :global(textarea) {
+    font-family: var(--font-app-body) !important;
+    font-size: 16px !important;
+    line-height: 24px !important;
+    font-weight: 400 !important;
+  }
+  :global([data-messages-type-scale][data-circle-chat-lane]) :global([data-chat-bubble]) {
+    font-size: 16px !important;
+    line-height: 22px !important;
+    font-weight: 400 !important;
+  }
+  :global(.messages-wallet-access-panel) :global([data-slot="dialog-title"]),
+  :global(.messages-wallet-access-panel) :global([data-slot="sheet-title"]) {
+    font-family: var(--font-app-display) !important;
+    font-size: 20px !important;
+    line-height: 28px !important;
+    font-weight: 600 !important;
+  }
+}
+:global([data-messages-wallet]) > p:first-child { font-family: var(--font-app-body); font-size: 16px; line-height: 22px; font-weight: 400; }
+:global([data-messages-wallet]) > button { min-height: 44px; font-family: var(--font-app-body); font-size: 13px; line-height: 20px; font-weight: 600; }
+@media (max-width: 620px) {
+  @layer base {
+    :global([data-messages-type-scale]) :global(input:not([type="file"]):not([type="checkbox"]):not([type="radio"])),
+    :global([data-messages-type-scale]) :global(textarea) { font-size: 16px !important; }
+  }
 }

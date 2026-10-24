@@ -44,7 +44,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { OpenProfileAction } from "@/components/app-ui/open-profile-action";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,7 +64,6 @@ import {
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 
 import { getAgentSection } from "@/lib/navigation/agent-sections";
 import type { TopShellRouteModel } from "@/components/app-ui/top-shell-metrics";
@@ -1246,29 +1245,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                           </ShellActionSurface>
                         ) : null}
 
-                        <ShellActionSurface
-                          variant="avatar"
-                          aria-label="Open Profile"
-                          onClick={(event) => requestProfilePaneOpen("tap", event.currentTarget)}
-                        >
-                          <Avatar className="h-8 w-8">
-                            {effectiveAvatarUrl ? (
-                              <AvatarImage src={effectiveAvatarUrl} alt="" />
-                            ) : null}
-                            <AvatarFallback className="bg-transparent text-[15px] font-semibold leading-5 text-current">
-                              {user?.displayName ? (
-                                user.displayName
-                                  .split(" ")
-                                  .map((part) => part[0])
-                                  .join("")
-                                  .slice(0, 2)
-                                  .toUpperCase()
-                              ) : (
-                                <UserRound className="h-5 w-5" />
-                              )}
-                            </AvatarFallback>
-                          </Avatar>
-                        </ShellActionSurface>
+                        <OpenProfileAction avatarUrl={effectiveAvatarUrl} displayName={user?.displayName} />
                       </>
                     )}
                   </div>

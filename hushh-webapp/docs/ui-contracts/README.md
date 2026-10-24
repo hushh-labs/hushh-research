@@ -5,6 +5,7 @@
 ```mermaid
 flowchart LR
   index["Product UI contracts"] --> connect["Connect: Connections and Circles"]
+  index --> messages["Messages: People and Circles"]
   index --> profile["Profile and nested management"]
   index --> feed["Feed and decisions"]
   index --> location["Location: onboarding, Now, People, Links and maps"]
@@ -29,6 +30,7 @@ owning implementation.
 | --- | --- |
 | Finance | [Portfolio and Stocks](./finance.md): value/history charts, holdings, allocation, performance, sources, stock facts and saved analysis |
 | Connect | [Connections and Circles](./connect.md): people discovery, contact sync, invitations, nearby directories, circle setup/join, members, chat, and immediate shared-feature handoffs |
+| Messages | [People and Circles](./messages.md): first entry, inbox and directory, selected chats, composer, media, actions, Wallet handoffs, portals and native boundaries |
 | Person profile | [Person profile and requests](./person-profile.md): another person's identity, phone/desktop geometry, fonts, relationship, grants, catalog, every request dialog, verbatim English copy/CTAs, packets and history |
 | Profile | [Profile](./profile.md): home, account, phone, payouts/receipts, pricing, preferences, security/devices, support, invitations, Legal and compatibility entries |
 | Profile Memory | [Memory and World Model](./profile-memory.md): categories, live memory, sharing, received information, Secrets, memory workspace, research facts and invitations |

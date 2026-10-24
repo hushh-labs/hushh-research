@@ -24,6 +24,7 @@ import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import laneStyles from "./circle-chat-lane.module.css";
+import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { CircleMembershipEventPill, groupCircleMembershipEvents } from "./circle-chat-system-event";
 import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
@@ -163,7 +164,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       document.removeEventListener("visibilitychange", refresh); };
   }, [session, revision]);
 
-  return <><section data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
+  return <><section data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} data-messages-type-scale={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
     ? "flex h-full min-h-0 flex-col overflow-visible bg-transparent"
     : "overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card"}>
     {!chatLane ? <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
@@ -183,7 +184,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     {open && paneActive && state && !state.muted && !revoked ? <div className="px-3 pt-3"><FeedPushPrompt context="chat" /></div> : null}
     {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
-    {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
+    {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" className={chatLane ? quietStyles.action : undefined} onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
     {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : undefined}><CircleChatThread key={threadScope.current.revision} circleName={circleName} session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
@@ -614,7 +615,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       className={chatLane
         ? "overflow-y-auto overscroll-contain bg-transparent px-3 py-4 sm:px-6 sm:py-5"
         : "h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5"}>
-      {hasOlder ? <Button variant="ghost" size="sm" className="min-h-11" disabled={loadingOlder || refreshing || jumping} onClick={async () => {
+      {hasOlder ? <Button variant="ghost" size="sm" className={`min-h-11 ${chatLane ? quietStyles.action : ""}`} disabled={loadingOlder || refreshing || jumping} onClick={async () => {
         if (!messages.length || loadingOlder || running.current) return;
         running.current = true;
         setLoadingOlder(true);
@@ -651,7 +652,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
         ...groupCircleMembershipEvents(membershipEvents).map((events) => ({ kind: "event" as const, id: events[0]!.id, createdAt: events.at(-1)!.createdAt, events })),
       ].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
         .map((item) => item.kind === "event" ? <CircleMembershipEventPill key={`event:${item.id}`} events={item.events} /> : <CircleChatMessage key={`message:${item.id}`}
-          message={item.message} previous={item.previous} session={session} visible={visible} layoutBlocked={readingBlocked} scrollRoot={transcript}
+          message={item.message} previous={item.previous} session={session} visible={visible} layoutBlocked={readingBlocked} scrollRoot={transcript} messagesLane={chatLane}
           onReply={(message) => { if (!pending && !sending) { setReply(message); composerEditor.current?.focus(); } }}
           replyDisabled={Boolean(pending) || sending}
           onAction={(message, action) => setActionRequest({ message, action })}
@@ -661,8 +662,8 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       <div ref={bottom} className="h-1" />
     </div>
     <AgentDockPortal enabled={chatLane} visible={visible}>
-    <div className={chatLane ? laneStyles.composer : "relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4"} data-theme={chatLane ? chatLaneTheme : undefined} data-circle-chat-composer>
-    {anchored.current || !atBottom && messages.length ? <Button variant="ghost" size="sm" disabled={jumping} className="absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm" onClick={() => {
+    <div className={chatLane ? laneStyles.composer : "relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4"} data-theme={chatLane ? chatLaneTheme : undefined} data-circle-chat-composer data-messages-type-scale={chatLane || undefined}>
+    {anchored.current || !atBottom && messages.length ? <Button variant="ghost" size="sm" disabled={jumping} className={`absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm ${chatLane ? quietStyles.action : ""}`} onClick={() => {
       if (anchored.current) { void showWindow(); return; }
       atBottomRef.current = true;
       if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
@@ -694,7 +695,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
       sendDisabled={loading || jumping || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
       showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
-      trailingAction={chatLane ? <DirectMessageEmojiPicker restoreTriggerFocusOnSelect={false} disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
+      trailingAction={chatLane ? <DirectMessageEmojiPicker messagesLane restoreTriggerFocusOnSelect={false} disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
         const editor = composerEditor.current;
         const start = editor?.selectionStart ?? text.length;
         const end = editor?.selectionEnd ?? start;
@@ -706,7 +707,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
     </div>
     </AgentDockPortal>
-    {actionRequest && visible && !readingBlocked ? <CircleChatMessageActionDialog key={`${actionRequest.message.id}:${actionRequest.action}`} session={session} {...actionRequest}
+    {actionRequest && visible && !readingBlocked ? <CircleChatMessageActionDialog key={`${actionRequest.message.id}:${actionRequest.action}`} session={session} messagesLane={chatLane} {...actionRequest}
       onClose={() => setActionRequest(null)} onResult={mutationResult} onAccessError={(error) => { if (unavailable(error)) fail(error); }}
       onRestoreFocus={() => { const id = actionRequest.message.id; requestAnimationFrame(() => {
         if (!active.current || !visibleRef.current) return;
