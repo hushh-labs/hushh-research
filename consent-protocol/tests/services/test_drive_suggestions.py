@@ -42,6 +42,7 @@ async def test_flag_off_suggestions_skip_packages_but_historical_v1_still_runs(
     from hushh_mcp.services import drive_request_package_service, drive_suggestion_worker
 
     monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "false")
     legacy_store = SimpleNamespace(due_preparations=AsyncMock(return_value=[]))
     monkeypatch.setattr(
         drive_suggestion_worker,
@@ -71,6 +72,12 @@ async def test_flag_off_suggestions_skip_packages_but_historical_v1_still_runs(
     monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "true")
     assert (await worker.run(max_jobs=1, deadline_seconds=20))["outcomes"] == {"review_ready": 1}
     packages.run.assert_any_await(max_jobs=1, deadline_seconds=20)
+
+    monkeypatch.setenv("DRIVE_AGENT_PACKAGES_ENABLED", "false")
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
+    packages.run.reset_mock()
+    assert (await worker.run(max_jobs=1, deadline_seconds=20))["outcomes"] == {"review_ready": 1}
+    packages.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=20, provider_only=True)
 
 
 @pytest.fixture

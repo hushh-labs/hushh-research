@@ -75,10 +75,23 @@ def test_explicit_all_users_mode_accepts_enabled_uat_features():
     )
 
 
-@pytest.mark.parametrize("feature", ["gmail_chat_reads", "drive_four_group_index"])
+@pytest.mark.parametrize(
+    "feature", ["gmail_chat_reads", "drive_four_group_index", "drive_period_packets"]
+)
 def test_enabled_feature_requires_a_cohort_or_all_users_mode(feature):
     with pytest.raises(ValueError, match="require a lane-specific cohort or all-users mode"):
         _module()._validate_connector_rollout(_args(**{feature: "true"}))
+
+
+def test_period_packets_are_independent_and_refuse_non_uat_activation():
+    module = _module()
+    module._validate_connector_rollout(_args())
+    module._validate_connector_rollout(_args(all_users="true", drive_period_packets="true"))
+    for environment in ("dev", "production"):
+        with pytest.raises(ValueError, match="period packets rollout is limited to UAT"):
+            module._validate_connector_rollout(
+                _args(environment=environment, all_users="true", drive_period_packets="true")
+            )
 
 
 def test_four_group_hosted_compilers_default_off_and_require_explicit_uat_activation():
@@ -98,8 +111,9 @@ def test_four_group_hosted_compilers_default_off_and_require_explicit_uat_activa
 
 @pytest.mark.parametrize("lane,requested", [("dev", "false"), ("uat", "false"), ("uat", "true")])
 @pytest.mark.parametrize("supports_groups", [False, True])
+@pytest.mark.parametrize("feature", ["four-group-index", "period-packets-enabled"])
 def test_selected_sha_compiler_preserves_flag_compatibility(
-    tmp_path, lane, requested, supports_groups
+    tmp_path, lane, requested, supports_groups, feature
 ):
     # Execute the actual workflow guard against both parser generations. An
     # unconditional new CLI option used to make a supported old SHA undeployable.
@@ -110,15 +124,19 @@ def test_selected_sha_compiler_preserves_flag_compatibility(
         bash = str(candidate) if candidate and candidate.is_file() else None
     if not bash:
         pytest.skip("The deployment shell compatibility test requires bash")
-    workflow = (ROOT / f".github/workflows/deploy-{lane}.yml").read_text(encoding="utf-8")
-    guard = re.search(r"(?ms)^ +drive_group_args=\(\)\n.*?^ +fi$", workflow)
+    workflow_lane = "uat" if feature == "period-packets-enabled" else lane
+    workflow = (ROOT / f".github/workflows/deploy-{workflow_lane}.yml").read_text(encoding="utf-8")
+    variable = (
+        "drive_period_packet_args" if feature == "period-packets-enabled" else "drive_group_args"
+    )
+    guard = re.search(rf"(?ms)^ +{variable}=\(\)\n.*?^ +fi$", workflow)
     assert guard is not None
     script = tmp_path / "scripts/ops/sync_backend_runtime_secrets.py"
     script.parent.mkdir(parents=True)
     script.write_text(
         "import argparse,json\np=argparse.ArgumentParser()\n"
         + (
-            'p.add_argument("--drive-four-group-index", choices=["true","false"])\n'
+            f'p.add_argument("--drive-{feature}", choices=["true","false"])\n'
             if supports_groups
             else ""
         )
@@ -132,8 +150,15 @@ def test_selected_sha_compiler_preserves_flag_compatibility(
     )
     command = (
         "set -euo pipefail\n"
+        + f'UAT_DRIVE_PERIOD_PACKETS_ENABLED="{requested}"\n'
         + rendered_guard
-        + '\n"$COMPAT_PYTHON" scripts/ops/sync_backend_runtime_secrets.py "${drive_group_args[@]}"\n'
+        # Bash 3's nounset treats an empty array as unset; the hosted Bash 5
+        # expands it to zero arguments. Preserve that call shape on both hosts.
+        + f'\nif [ "${{#{variable}[@]}}" -eq 0 ]; then\n'
+        + '  "$COMPAT_PYTHON" scripts/ops/sync_backend_runtime_secrets.py\n'
+        + "else\n"
+        + f'  "$COMPAT_PYTHON" scripts/ops/sync_backend_runtime_secrets.py "${{{variable}[@]}}"\n'
+        + "fi\n"
     )
     import os
 
@@ -147,7 +172,7 @@ def test_selected_sha_compiler_preserves_flag_compatibility(
         timeout=10,
     )
     assert json.loads(result.stdout) == (
-        {"drive_four_group_index": requested} if supports_groups else {}
+        {f"drive_{feature.replace('-', '_')}": requested} if supports_groups else {}
     )
 
 

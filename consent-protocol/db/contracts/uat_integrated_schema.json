@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 410,
+  "expected_migration_version": 411,
   "migration_version_policy": "exact",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -1077,6 +1077,7 @@
       "matched",
       "next_at",
       "pages_scanned",
+      "period_packet_id",
       "request_digest",
       "retry_count",
       "revision",
@@ -1114,6 +1115,7 @@
       "awaiting_collection",
       "build_envelope",
       "build_phase",
+      "category",
       "connection_generation",
       "connector_id",
       "created_at",
@@ -1126,6 +1128,10 @@
       "lease_id",
       "next_at",
       "packet_id",
+      "packet_kind",
+      "period_end",
+      "period_start",
+      "period_timezone",
       "revision",
       "updated_at",
       "user_id"
@@ -3972,5 +3978,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 410
+  "expected_schema_head": 411
 }

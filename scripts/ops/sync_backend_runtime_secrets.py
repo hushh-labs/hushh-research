@@ -27,6 +27,7 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "drive_four_group_index",
     "drive_document_sharing",
     "drive_agent_packages_enabled",
+    "drive_period_packets",
     "gmail_chat_reads",
     "google_drive_chat_reads",
     "curated_mcp_connectors",
@@ -208,6 +209,8 @@ def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
 
 def _validate_connector_rollout(args: argparse.Namespace) -> None:
     """Fail before touching Secret Manager on an unsafe hosted rollout."""
+    if getattr(args, "drive_period_packets", "false") == "true" and args.environment != "uat":
+        raise ValueError("Drive period packets rollout is limited to UAT")
     enabled = any(getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS)
     uat_cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
     prod_cohort = str(getattr(args, "connector_production_owner_cohort", "") or "")
@@ -277,6 +280,16 @@ _retained_plg_config = _runtime_config_retention["_retained_plg_config"]
 _retained_dev_inference_bridge = _runtime_config_retention["_retained_dev_inference_bridge"]
 
 
+def _connector_rollout_config(args: argparse.Namespace) -> dict[str, str]:
+    return {
+        **{name: getattr(args, name, "false") for name in CONNECTOR_ROLLOUT_FLAGS},
+        "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
+        "connector_uat_all_users": getattr(args, "connector_uat_all_users", "false"),
+        "connector_production_owner_cohort": getattr(args, "connector_production_owner_cohort", ""),
+        "connector_production_all_users": getattr(args, "connector_production_all_users", "false"),
+    }
+
+
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "one_magic_intelligence_phase", "0") == "5" and args.environment != "uat":
         raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
@@ -315,21 +328,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "plaid_redirect_uri": args.plaid_redirect_uri,
         "plaid_tx_history_days": args.plaid_tx_history_days,
         "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
-        "connections_panel_v2": getattr(args, "connections_panel_v2", "false"),
-        "google_drive_connection": getattr(args, "google_drive_connection", "false"),
-        "google_drive_live": getattr(args, "google_drive_live", "false"),
-        "google_drive_picker": getattr(args, "google_drive_picker", "false"),
-        "drive_document_indexing": getattr(args, "drive_document_indexing", "false"),
-        "drive_four_group_index": getattr(args, "drive_four_group_index", "false"),
-        "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
-        "drive_agent_packages_enabled": getattr(args, "drive_agent_packages_enabled", "false"),
-        "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
-        "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
-        "curated_mcp_connectors": getattr(args, "curated_mcp_connectors", "false"),
-        "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
-        "connector_uat_all_users": getattr(args, "connector_uat_all_users", "false"),
-        "connector_production_owner_cohort": getattr(args, "connector_production_owner_cohort", ""),
-        "connector_production_all_users": getattr(args, "connector_production_all_users", "false"),
+        **_connector_rollout_config(args),
         "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
         "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
@@ -530,6 +529,10 @@ def main() -> int:
     parser.add_argument("--drive-four-group-index", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
     parser.add_argument("--drive-agent-packages-enabled", default="false", choices=["true", "false"])
+    parser.add_argument(
+        "--drive-period-packets-enabled", dest="drive_period_packets", default="false",
+        choices=["true", "false"],
+    )
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])

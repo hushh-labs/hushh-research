@@ -15,7 +15,11 @@ from sqlalchemy import text
 from hushh_mcp.runtime_settings import clear_runtime_settings_caches
 from hushh_mcp.services import owner_placement_guard
 from hushh_mcp.services.drive_packet_catalog_service import DrivePacketCatalogService
-from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose, VerifiedGoogleRecipient
+from hushh_mcp.services.drive_sharing_contract import (
+    DriveSharingError,
+    ShareRequestPurpose,
+    VerifiedGoogleRecipient,
+)
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_reusable_packets_postgres import (

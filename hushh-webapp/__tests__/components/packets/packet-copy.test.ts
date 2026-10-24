@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buyerNotes, buyerPacketStatus, dayRangeLabel, ownerPacketStatus } from "@/components/consent/packets/packet-copy";
-import type { DrivePacket } from "@/lib/services/drive-packet-service";
+import type { DiscoveryDrivePacket, DrivePacket } from "@/lib/services/drive-packet-service";
 
 // A synthetic listed packet, as a buyer's list receives it.
 const packet: DrivePacket = { packetId: "00000001-3333-4333-8333-333333333333", version: 2, listingRevision: 1,
@@ -9,6 +9,12 @@ const packet: DrivePacket = { packetId: "00000001-3333-4333-8333-333333333333", 
   coverageSummary: "January to June 2026", gaps: [], documentCount: 3, verifiedAt: null, freshness: "current",
   assessmentScore: 95, importance: 100, suggestedPriceCents: 1234, priceCents: 1234, listingEnabled: true,
   canRequest: true, canList: false };
+
+const emptyDiscovery: DiscoveryDrivePacket = { packetId: packet.packetId, version: 1, listingRevision: 0,
+  kind: "provider_discovery", category: "bank", periodStart: "2026-07-01", periodEnd: "2026-08-31", timezone: "UTC",
+  title: "Account statements", description: "Drive query results", coverageSummary: "July–August 2026", state: "empty",
+  documentCount: 0, freshness: "current", priceCents: 500, listingEnabled: false, canRequest: false, canList: false,
+  requestId: null, purchaseState: "none" };
 
 describe("buyer packet words", () => {
   it("reads a packet's state in one plain line", () => {
@@ -46,6 +52,18 @@ describe("owner packet words", () => {
   const owned: DrivePacket = { ...packet, listingRevision: 0, listingEnabled: false, canList: true, canRequest: false };
   const CHECKING = "The private agent is checking current evidence.";
   const notCurrent = { ...owned, freshness: "stale" as const, canList: false, gaps: [CHECKING] };
+
+  it("does not turn zero shareable results or unfinished discovery into a claim about search matches", () => {
+    // Empty also covers found files with absent or unconfirmed sharing authority.
+    expect(ownerPacketStatus(emptyDiscovery)).toMatchObject({ word: "No shareable files", tone: "paused",
+      detail: "No files from this search are currently available to share." });
+    expect(buyerPacketStatus(emptyDiscovery, null, "Avery").line).toBe("No shareable files");
+    for (const state of ["empty", "building", "unable_to_verify"] as const) {
+      expect(buyerNotes({ ...emptyDiscovery, state })).toEqual(["Packets use Drive search results. File contents are not read."]);
+    }
+    expect(buyerNotes({ ...emptyDiscovery, state: "ready", documentCount: 1 }))
+      .toEqual(["Files matched a Drive search. Their contents were not read."]);
+  });
 
   it("says why a packet can't be listed, and keeps Checking for one that is being checked", () => {
     expect(ownerPacketStatus({ ...notCurrent, state: "incomplete", gaps: ["Documents name different accounts"] }))
