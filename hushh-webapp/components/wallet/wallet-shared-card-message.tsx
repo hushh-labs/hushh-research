@@ -64,7 +64,7 @@ export function WalletSharedCardMessage({ content, peerPersonRef, senderIsViewer
     } catch { if (isCurrent()) morphyToast.error("Card unavailable. Ask the sender to share it again."); }
     finally { if (isCurrent()) setBusy(false); }
   };
-  return <section aria-label="Shared payment card" className="space-y-3 text-sm select-none print:hidden" onCopy={event => event.preventDefault()} onCut={event => event.preventDefault()} onDragStart={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>
+  return <section data-messages-wallet aria-label="Shared payment card" className="space-y-3 text-sm select-none print:hidden" onCopy={event => event.preventDefault()} onCut={event => event.preventDefault()} onDragStart={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>
     <p className="flex items-center gap-2"><Lock aria-hidden="true" className="size-4" />Shared payment card</p>
     {nativeViewerUnavailable ? <p className="text-xs">Open Messages in your browser to view this card.</p> : shown ? <>
       <WalletCardFace summary={{ cardId: "shared-card", nickname: "", brand: shown.brand, last4: shown.pan.slice(-4), expiryMonth: shown.expiryMonth, expiryYear: shown.expiryYear, issuingRegion: shown.issuingRegion, createdAt: "" }} revealed={{ pan: shown.pan, cardholderName: shown.cardholderName }} />

@@ -7,6 +7,7 @@
 .own .stack { align-items: flex-end; }
 .bubbleWrap { position: relative; max-width: 100%; }
 .bubble { max-width: 100%; min-width: 0; border-radius: 18px; padding: 9px 13px 7px; font-size: 15px; line-height: 1.48; overflow-wrap: anywhere; }
+:global([data-circle-chat-lane]) .bubble { font-family: var(--font-app-body); font-size: 16px; line-height: 22px; font-weight: 400; }
 .incoming { border-bottom-left-radius: 5px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
 .outgoing { border-bottom-right-radius: 5px; background: var(--app-accent-tint); color: var(--foreground); }
 .sender { margin-bottom: 3px; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--app-accent-deep); }

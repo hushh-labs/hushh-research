@@ -1,8 +1,8 @@
 .trigger {
   display: inline-grid;
-  width: 2rem;
-  min-width: 2rem;
-  height: 2rem;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
   padding: 0;
   place-items: center;
   border: 0;
@@ -26,9 +26,9 @@
 }
 
 .trigger[data-compact="true"] {
-  width: 1.75rem;
-  min-width: 1.75rem;
-  height: 1.75rem;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
   border: 1px solid color-mix(in oklab, var(--foreground) 7%, transparent);
   background: var(--one-chat-raised);
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
@@ -80,7 +80,8 @@
 .sectionLabel {
   padding-inline: 0.25rem;
   color: var(--muted-foreground);
-  font-size: 0.6875rem;
+  font-size: 12px;
+  line-height: 18px;
   font-weight: 600;
 }
 
@@ -160,7 +161,8 @@
   margin: 0;
   padding: 1.25rem 0.5rem;
   color: var(--muted-foreground);
-  font-size: 0.8125rem;
+  font-size: 13px;
+  line-height: 18px;
   text-align: center;
 }
 
