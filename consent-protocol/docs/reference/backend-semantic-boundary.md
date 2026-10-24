@@ -192,6 +192,9 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Output: the tool declaration exposes `request: string` and optional
   `finish_turn: boolean`. Only explicit `true` requests delegation; omission,
   false and unsupported search transports retain ordinary root synthesis.
+  The declared short-answer choice uses compact LOW native search context on a
+  local child/model copy; ordinary/deeper research and concurrent calls keep
+  their original configuration. The host never guesses research depth.
 - Validators in `one_adk/search_answer.py` admit only fresh grounded completed
   output, the invocation's sole tool call, no earlier visible answer or pending
   review, current managed owner authority and an atomic empty-input finish.

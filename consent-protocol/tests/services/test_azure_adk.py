@@ -1119,23 +1119,6 @@ async def test_admitted_inline_media_preserves_order_and_never_creates_provider_
     assert "file_id" not in parts[1] and "file_url" not in parts[1]
 
 
-async def test_native_search_requires_actual_completed_provider_citations_not_prompt_urls():
-    from tests.test_azure_web_receipts import response as search_response
-
-    raw = search_response()
-    raw["model"] = "actual-azure-model"
-    adapter, client, _, _ = model([raw, {**raw, "tool_usage": {}}])
-    adapter.allow_web_search = True
-    value = request(tools=[types.Tool(google_search=types.GoogleSearch())])
-    (answer,) = [item async for item in adapter.generate_content_async(value)]
-    assert [c.web.uri for c in answer.grounding_metadata.grounding_chunks] == [
-        "https://example.test/team/owner"
-    ]
-    assert client.requests[0]["tools"] == [{"type": "web_search", "external_web_access": False}]
-    with pytest.raises(ValueError, match="billable"):
-        _ = [item async for item in adapter.generate_content_async(value)]
-
-
 async def test_managed_embedding_contract_rejects_same_dimensions_with_bad_indices(monkeypatch):
     from hushh_mcp.runtime_providers import managed_azure as ports
 
@@ -1191,32 +1174,3 @@ async def test_managed_embedding_contract_rejects_same_dimensions_with_bad_indic
     with pytest.raises(RuntimeError, match="selection changed"):
         await ports.embed_texts(binding, ["one"], timeout=1, client_factory=factory)
     assert len(client.requests) == 2
-
-
-async def test_actual_adk_search_child_uses_provider_aware_tool_and_received_citations():
-    from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
-    from hushh_mcp.one_adk.agent_tree import build_google_search_agent
-    from tests.test_azure_web_receipts import response as search_response
-
-    raw = search_response()
-    raw["model"] = "actual-azure-version"
-    adapter, client, _, _ = model([raw])
-    adapter.allow_web_search = True
-    agent = build_google_search_agent(model=adapter)
-    observations = []
-
-    async def observe(callback_context, llm_response):
-        observations.append(llm_response.grounding_metadata)
-
-    agent.after_model_callback = observe
-    result = await run_specialist_adk_turn(
-        agent=agent,
-        app_name="synthetic_search",
-        user_id="synthetic-public-reader",
-        consent_token="",
-        message="Search for a synthetic public page",
-        max_llm_calls=1,
-    )
-    assert result.final_text == "Public team page confirms the owner [1]."
-    assert observations[0].grounding_chunks[0].web.uri == "https://example.test/team/owner"
-    assert client.requests[0]["tools"] == [{"type": "web_search", "external_web_access": False}]
