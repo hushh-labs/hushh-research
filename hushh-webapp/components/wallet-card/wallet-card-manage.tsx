@@ -18,6 +18,7 @@ import {
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import { RowDescription } from "@/components/app-ui/typography";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { WALLET_CARD_OWNER_COPY } from "@/components/wallet-card/wallet-card-copy";
@@ -130,7 +131,7 @@ export function WalletCardManage({
               {shareAction ?? <Button
                 type="button"
                 size="sm"
-                className="min-h-11 text-[13px]"
+                className={presentationStyles.quietAction}
                 variant="none"
                 effect="fade"
                 disabled={!shareLink}
@@ -143,7 +144,7 @@ export function WalletCardManage({
               <Button
                 type="button"
                 size="sm"
-                className="min-h-11 text-[13px]"
+                className={presentationStyles.quietAction}
                 variant="none"
                 effect="fade"
                 disabled={!shareLink}

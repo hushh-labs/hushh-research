@@ -18,6 +18,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./wallet-saved-card-sharing.module.css";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 
 // Present the existing API limit before the owner submits their selection.
 const MAX_CARD_SHARE_RECIPIENTS = 20;
@@ -190,7 +191,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
     finally { if (context.isCurrent()) setBusy(false); }
   };
   return <SettingsPresentationProvider separatorInset density="compact">
-    <section className={`${profileStyles.walletContent} space-y-4`} aria-label="Card sharing">
+    <section className={`${profileStyles.walletContent} ${presentationStyles.walletSurface} space-y-4`} aria-label="Card sharing">
       <SettingsGroup title="Sharing">
         <SettingsRow icon={ProfilePaneInviteIcon} iconTone="transparent" title="Share card"
           description="Temporary access for your connections."
@@ -202,11 +203,11 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
           title={grant.recipientName} description={<span>
             {grant.createdAt ? <time className="block" dateTime={grant.createdAt}>Shared {new Date(grant.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time> : null}
           </span>}
-          trailing={grant.status === "active" ? <Button variant="secondary" size="compact" disabled={busy} onClick={() => void revoke(grant.id)}>Revoke</Button> : undefined} />)
+          trailing={grant.status === "active" ? <Button variant="destructive" size="compact" disabled={busy} onClick={() => void revoke(grant.id)}>Revoke</Button> : undefined} />)
           : <SettingsRow icon={ProfilePaneAccountIcon} iconTone="transparent" title={stateFailed ? "Could not load shared access." : state ? "No active shares" : "Loading shares…"} />}
       </SettingsGroup> : null}
       {showHistory && state?.nextCursor ? <div ref={historyEnd} className="px-2 py-2" aria-live="polite">
-        <Button variant="ghost" size="compact" disabled={loadingMore} onClick={() => void loadMore()}>
+        <Button variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={loadingMore} onClick={() => void loadMore()}>
           {loadingMore ? "Loading more shares…" : moreFailed ? "Retry loading shares" : "Load more shares"}
         </Button>
       </div> : null}
@@ -220,12 +221,12 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
       </Accordion> : null}
       <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title={isProfile ? "Share Profile Card" : "Share card"} description={isProfile ? "Share your selected profile details with your connections." : "Share your full card number and details with selected connections."}
 
-        mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={styles.accessSurface} bodyClassName={styles.accessBody}
-        footer={<div className="mx-auto w-full max-w-[244px]"><Button size="prominent" className="w-full" disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button></div>}>
+        mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={`${styles.accessSurface} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={styles.accessBody}
+        footer={<div className="mx-auto w-full max-w-[244px]"><Button variant="secondary" size="compact" className={`w-full ${presentationStyles.quietAction}`} disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button></div>}>
         <div className="space-y-4">
           <Input aria-label="Search connections" placeholder="Search connections" value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
           <div className="max-h-64 overflow-y-auto" aria-label="Connections">
-            {loading ? <p role="status">Finding connections…</p> : failed ? <Button variant="secondary" onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-[13px]">
+            {loading ? <p role="status">Finding connections…</p> : failed ? <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-sm leading-[21px]">
               <Avatar className="size-8"><AvatarImage src={recipient.photoUrl || undefined} alt="" /><AvatarFallback>{recipient.displayName.slice(0, 1)}</AvatarFallback></Avatar>
               <span className="min-w-0 flex-1 break-words">{recipient.displayName}{recipient.trusted ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><ProfilePaneSecurityIcon size={14} />Trusted Circle</span> : null}</span>
               <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy || (selectedCount >= MAX_CARD_SHARE_RECIPIENTS && !selected[recipient.personRef])}
@@ -235,7 +236,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
             {hasMore ? <p className="text-xs text-muted-foreground">Search by name to find more connections.</p> : null}
           </div>
           <p role="status" className="text-xs text-muted-foreground">{selectedCount} of {MAX_CARD_SHARE_RECIPIENTS} connections selected. Share with up to {MAX_CARD_SHARE_RECIPIENTS} at a time.</p>
-          <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([15, 60, 120] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour" : "2 hours"}</Button>)}</div></fieldset>
+          <fieldset><legend className="mb-2 text-[15px] leading-[22px] font-medium">Access time</legend><div className="flex flex-wrap gap-2">{([15, 60, 120] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour" : "2 hours"}</Button>)}</div></fieldset>
           <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing. Security codes are never shared.</p>
         </div>
       </SettingsDetailPanel>

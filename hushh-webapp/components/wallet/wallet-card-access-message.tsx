@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { SettingsDetailPanel, SettingsPresentationProvider } from "@/components/profile/settings-ui";
 import { WalletAccessCardDetails } from "./wallet-access-card-details";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 import { WalletCardAccessService, type CardAccessView } from "@/lib/services/wallet-card-access-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { useSharedCardPrivacy } from "@/lib/wallet/use-shared-card-privacy";
@@ -97,23 +98,23 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
   const card = open && remaining > 0 && view?.data.status === "active" ? view.data.card : undefined;
   const profile = open && remaining > 0 && view?.data.status === "active" && view.data.profileCard ? normalizePublicWalletCard({ ...view.data.profileCard, updatedAt: view.data.profileCard.updatedOn }) : null;
   return <div className="space-y-2 print:hidden">
-    <p className="text-sm">{senderIsViewer ? "You shared a card." : "A card was shared with you."}</p>
-    {!senderIsViewer && !nativeViewerUnavailable ? <Button variant="secondary" size="compact" onClick={() => { setFailed(false); setOpen(true); }}>View card</Button> : null}
-    {!senderIsViewer && nativeViewerUnavailable ? <p className="text-xs">Open Messages in your browser to view this card.</p> : null}
-    <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Shared card" mobilePresentation="sheet" surfaceClassName={`${profileStyles.walletContent} print:hidden`} desktopMaxWidth="820px" contentClassName="!bg-[color:var(--app-glass-surface)] backdrop-blur-[var(--blur-standard)] [&_[data-slot=dialog-header]]:text-center [&_[data-slot=dialog-header]>div]:justify-center [&_[data-slot=dialog-header]>div>div]:text-center" bodyClassName="text-center">
+    <p className="text-sm leading-[21px] font-medium">{senderIsViewer ? "You shared a card." : "A card was shared with you."}</p>
+    {!senderIsViewer && !nativeViewerUnavailable ? <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => { setFailed(false); setOpen(true); }}>View card</Button> : null}
+    {!senderIsViewer && nativeViewerUnavailable ? <p className="text-[13px] leading-[18px]">Open Messages in your browser to view this card.</p> : null}
+    <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Shared card" mobilePresentation="sheet" surfaceClassName={`${profileStyles.walletContent} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog} print:hidden`} desktopMaxWidth="820px" contentClassName="!bg-[color:var(--app-glass-surface)] backdrop-blur-[var(--blur-standard)] [&_[data-slot=dialog-header]]:text-center [&_[data-slot=dialog-header]>div]:justify-center [&_[data-slot=dialog-header]>div>div]:text-center" bodyClassName="text-center">
       <SettingsPresentationProvider density="compact" separatorInset>
         <div className="select-none" onCopy={event => event.preventDefault()} onCut={event => event.preventDefault()} onDragStart={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>
-          {failed ? <p role="alert" className="text-xs">Card unavailable. Close and try again.</p> : !view ? <p role="status">Checking access…</p> : null}
-          {view?.data.status === "verification_required" ? <div className="space-y-3"><p className="text-xs">Verify your identity to view this card.</p><Button disabled={busy} onClick={() => void verify()}>{busy ? "Verifying…" : "Verify identity"}</Button></div> : null}
+          {failed ? <p role="alert" className="text-[13px] leading-[18px] text-destructive">Card unavailable. Close and try again.</p> : !view ? <p role="status">Checking access…</p> : null}
+          {view?.data.status === "verification_required" ? <div className="space-y-3"><p className="text-[13px] leading-[18px]">Verify your identity to view this card.</p><Button disabled={busy} onClick={() => void verify()}>{busy ? "Verifying…" : "Verify identity"}</Button></div> : null}
           {view?.data.status === "expired" || view?.data.status === "revoked" ? <p role="status">This access has ended.</p> : null}
           {view?.data.status === "unavailable" ? <p role="status">This card is currently unavailable.</p> : null}
           {profile ? <PublicWalletCardView embedded visualCard card={profile} /> : null}
           {card ? <>
-            <p className="text-xs">{view?.data.senderName} shared this card. {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} remaining.</p>
+            <p className="text-[13px] leading-[18px]">{view?.data.senderName} shared this card. {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} remaining.</p>
             <div className="mx-auto mt-4 w-full max-w-md">
               <WalletAccessCardDetails grantId={grantId} data={view!.data} />
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">For you only. Do not copy or share. This card closes when you leave this window. Browsers cannot block screenshots or photos.</p>
+            <p className="mt-3 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">For you only. Do not copy or share. This card closes when you leave this window. Browsers cannot block screenshots or photos.</p>
           </> : null}
         </div>
       </SettingsPresentationProvider>

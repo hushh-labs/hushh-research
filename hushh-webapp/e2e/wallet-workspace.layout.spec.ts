@@ -126,7 +126,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean; walletWideDetails?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -153,7 +153,7 @@ window.__sampleWallet = (ms) => {
     });
     window.__walletFrames.push({
       t: performance.now() - start,
-      title: rect('[data-slot="wallet-heading-line"]'),
+      title: rect('[data-testid="top-app-bar-breadcrumb-trail"]'),
       introduction: rect('[data-testid="one-wallet-loading"]'),
       face: rect('[data-testid="wallet-card-face"]'),
       cards,
@@ -281,55 +281,36 @@ for (const width of [390, 1024]) {
   });
 }
 
-for (const width of [320, 393, 1440]) {
-  test(`Wallet keeps compact mobile spacing and shared desktop geometry at ${width}px`, async ({ page }, testInfo) => {
-    const geometry = () => page.evaluate(() => {
-      const title = document.querySelector("h1")!;
-      const header = document.querySelector('[data-slot="page-header"]')!;
-      const tabs = document.querySelector('[role="tablist"]')!;
-      const box = (el: Element) => {
-        const r = el.getBoundingClientRect();
-        return { x: r.x, y: r.y, width: r.width, height: r.height };
-      };
-      return { header: box(header), tabs: box(tabs), titleY: box(title).y,
-        titleSize: getComputedStyle(title).fontSize,
-        tabWidths: Array.from(tabs.children).filter((el) => el.getAttribute("role") === "tab").map((el) => box(el).width) };
-    });
+for (const width of [320, 360, 390, 430, 768, 1024, 1440]) {
+  test(`Wallet uses one shell reserve and keeps its own column at ${width}px`, async ({ page }, testInfo) => {
     await open(page, width, "light", {}, { shell: true });
     await mount(page);
     await expect(page.getByRole("tab", { name: "Cards", exact: true })).toBeEnabled();
-    const wallet = await geometry();
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing ${selector}`);
+        const rect = element.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom };
+      };
+      const tabs = Array.from(document.querySelectorAll('[data-top-shell-tab-set="wallet"] [data-ui-role="agent-tab-label"]'));
+      return {
+        spacer: box('[data-app-shell-top-spacer]'),
+        workspace: box('[data-wallet-hub]'),
+        tablist: box('[role="tablist"]'),
+        tabStyles: tabs.map(tab => ({ size: getComputedStyle(tab).fontSize, line: getComputedStyle(tab).lineHeight })),
+        duplicateHeader: Boolean(document.querySelector('[data-wallet-hub] [data-slot="page-header"]')),
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+    expect(geometry.duplicateHeader).toBe(false);
+    expect(geometry.workspace.width).toBeLessThanOrEqual(820);
+    expect(Math.abs(geometry.workspace.x - (width - geometry.workspace.width) / 2)).toBeLessThanOrEqual(1);
+    expect(geometry.tablist.y).toBeGreaterThanOrEqual(geometry.spacer.bottom - 1);
+    expect(geometry.tabStyles).toEqual(Array(3).fill({ size: "15px", line: "20px" }));
+    expect(geometry.pageOverflow).toBeLessThanOrEqual(1);
     await expect(page.getByTestId("wallet-card-browser")).toHaveCSS("padding-top", width < 640 ? "20px" : "32px");
     await page.screenshot({ path: testInfo.outputPath(`wallet-${width}.png`) });
-    await open(page, width, "light", {}, { shell: true });
-    await page.addScriptTag({ content: "window.__workspaceHeaderReference=true;" });
-    await mount(page, false);
-    await expect(page.getByRole("heading", { name: "Reference", exact: true })).toBeVisible();
-    const reference = await geometry();
-    const referenceHeaderGap = reference.tabs.y - reference.header.y - reference.header.height;
-    // Wallet retains the shared compact workspace header contract. Location
-    // now places its title in the top shell and has a separate header contract.
-    // The 56px tab rail contributes 10px above its visible 36px pill.
-    expect(referenceHeaderGap).toBeCloseTo(width < 640 ? 10 : 16, 1);
-    if (width >= 640) {
-      const walletHeaderGap = wallet.tabs.y - wallet.header.y - wallet.header.height;
-      expect(walletHeaderGap).toBeCloseTo(16, 1);
-    }
-    if (width < 640) {
-      expect(wallet.header.height).toBe(44);
-      expect(wallet.header.y).toBe(reference.header.y);
-      expect(wallet.tabs.y - wallet.header.y - wallet.header.height).toBeGreaterThanOrEqual(6);
-      expect(wallet.tabs.y - wallet.header.y - wallet.header.height).toBeLessThanOrEqual(16);
-    }
-    for (const part of ["header", "tabs"] as const) {
-      for (const coordinate of ["x", "y", "width", "height"] as const) {
-        if (width < 640 && (coordinate === "y" || (part === "header" && coordinate === "height"))) continue;
-        expect(Math.abs(wallet[part][coordinate] - reference[part][coordinate]), `${part}.${coordinate}`).toBeLessThanOrEqual(0.5);
-      }
-    }
-    expect(wallet.titleSize).toBe(reference.titleSize);
-    if (width >= 640) expect(Math.abs(wallet.titleY - reference.titleY)).toBeLessThanOrEqual(0.5);
-    expect(wallet.tabWidths).toEqual(reference.tabWidths);
   });
 }
 
@@ -368,7 +349,7 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
     ))).toBeLessThan(1);
     await expect.poll(() => collection.evaluate((el) => el.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length)).toBe(0);
     const add = page.getByTestId("wallet-card-browser").getByRole("button", { name: count ? "Add another card" : "Add a payment card", exact: true });
-    await expectCompactPrimary(add);
+    await expectCompactPrimary(add, 44);
     {
       const stack = page.getByTestId("wallet-add-stack");
       const layers = stack.locator("li:not([inert])");
@@ -504,10 +485,14 @@ for (const [width, height] of [[320, 667], [390, 844], [714, 668], [1440, 900]])
     await expect.poll(() => image.evaluate((el) => (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0)).toBe(true);
     const next = page.getByRole("button", { name: "Continue", exact: true });
     await expect(next).toBeInViewport();
+    await expect(next).toHaveCSS("min-height", "44px");
+    await expect(next).toHaveCSS("border-top-width", "1px");
+    await expect(next).toHaveCSS("border-radius", "999px");
+    await expect(next).toHaveCSS("font-size", "12px");
     expect((await next.boundingBox())!.y + (await next.boundingBox())!.height).toBeLessThan(height! - BOTTOM_SHELL_HEIGHT_PX);
     await page.screenshot({ path: test.info().outputPath("wallet-introduction.png") });
     await next.click();
-    await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("wallet-add-collection")).toBeVisible();
     expect(errors).toEqual([]);
   });
@@ -515,7 +500,7 @@ for (const [width, height] of [[320, 667], [390, 844], [714, 668], [1440, 900]])
 
 async function assertWalletNavigationInViewport(page: Page) {
   await expect(page.getByRole("tab", { name: "Cards", exact: true })).toBeInViewport({ ratio: 1 });
-  await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole("heading", { name: "Wallet", exact: true })).toHaveCount(0);
 }
 
 async function awaitWalletCardsSettled(page: Page) {
@@ -647,6 +632,8 @@ for (const width of [320, 393, 1440]) {
     const number = form.getByLabel("Card number", { exact: true });
     const holder = form.getByLabel("Name on card", { exact: true });
     const expiry = form.getByLabel("Expiry (MM/YY)", { exact: true });
+    await expect(number).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
+    expect(await number.evaluate(node => getComputedStyle((node as HTMLInputElement).labels![0]).fontSize)).toBe("15px");
     await expect(form.getByLabel("CVV", { exact: true })).toHaveAttribute("type", "password");
     await expect(form.getByLabel("PIN (optional)", { exact: true })).toHaveCount(0);
     for (const field of [number, holder, expiry]) {
@@ -874,8 +861,8 @@ for (const width of [320, 390, 1440]) {
     await expect(received.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await expect(sharing.getByRole("button", { name: /^(Sent|Received) cards$/ })).toHaveCount(0);
     await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toBeVisible();
-    await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toHaveCSS("font-size", "13px");
-    await expect(received.getByRole("heading", { name: "Cards shared with you", exact: true })).toHaveCSS("font-size", "13px");
+    await expect(history.getByRole("heading", { name: "Shared cards | 1", exact: true })).toHaveCSS("font-size", "14px");
+    await expect(received.getByRole("heading", { name: "Cards shared with you", exact: true })).toHaveCSS("font-size", "14px");
     await expect(history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true })).toBeVisible();
     const profileFont = await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).getByText("Sample recipient", { exact: true }).evaluate(el => getComputedStyle(el).fontFamily);
     await expect(history.getByText(/15 minutes/)).toBeHidden();
@@ -883,7 +870,7 @@ for (const width of [320, 390, 1440]) {
     await received.getByRole("button", { name: "View Everyday •••• 4242 from Example Sender", exact: true }).click();
     const receivedDetail = page.getByRole("dialog", { name: "Example Sender", exact: true });
     await expect(receivedDetail.getByText(/15 minutes/)).toBeVisible();
-    await expect(receivedDetail.getByRole("heading", { name: "Example Sender", exact: true })).toHaveCSS("font-size", "13px");
+    await expect(receivedDetail.getByRole("heading", { name: "Example Sender", exact: true })).toHaveCSS("font-size", "20px");
     await expect(receivedDetail.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
     await receivedDetail.getByRole("button", { name: "Back to sharing history" }).click();
     await expect(receivedDetail).toBeHidden();
@@ -891,12 +878,12 @@ for (const width of [320, 390, 1440]) {
     const detail = page.getByRole("dialog", { name: "Sample recipient", exact: true });
     await expect(detail.getByText(/15 minutes/)).toBeVisible();
     const name = detail.getByRole("heading", { name: "Sample recipient", exact: true });
-    await expect(name).toHaveCSS("font-size", "13px");
-    await expect(name).toHaveCSS("font-weight", "550");
+    await expect(name).toHaveCSS("font-size", "20px");
+    await expect(name).toHaveCSS("font-weight", "600");
     await expect(name).toHaveCSS("font-family", /Plus Jakarta Sans/);
     await expect(name).toHaveCSS("font-family", profileFont);
-    await expect(detail.getByText("Shared card", { exact: true })).toHaveCSS("font-size", "12px");
-    await expect(detail.locator('[data-slot$="-header"] .ui-text-row-description')).toHaveCSS("font-size", "12px");
+    await expect(detail.getByText("Shared card", { exact: true })).toHaveCSS("font-size", "14px");
+    await expect(detail.locator('[data-slot$="-header"] .ui-text-row-description')).toHaveCSS("font-size", "14px");
     if (width < 768) {
       // WebKit rounds dvh to fractional CSS pixels.
       await expect.poll(async () => Math.abs((await detail.boundingBox())!.height - 844)).toBeLessThan(1);
@@ -905,6 +892,8 @@ for (const width of [320, 390, 1440]) {
     await page.screenshot({ path: test.info().outputPath("wallet-sharing-detail.png") });
     const revoke = detail.getByRole("button", { name: "Revoke Everyday •••• 4242 shared with Sample recipient", exact: true });
     await expect(revoke).toBeEnabled();
+    await expect(revoke).toHaveCSS("font-size", "13px");
+    await expect(revoke).toHaveCSS("line-height", "20px");
     await revoke.scrollIntoViewIfNeeded();
     const revokeBounds = (await revoke.boundingBox())!;
     expect(revokeBounds.height).toBeGreaterThanOrEqual(44);
@@ -986,6 +975,25 @@ for (const width of [320, 390, 1440]) {
 }
 
 for (const width of [390, 1440]) {
+  test(`Wallet-wide Manage explains the secrets projection at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { walletWideDetails: true }, { shell: true });
+    await mount(page);
+    await page.getByRole("tab", { name: "Sharing", exact: true }).click();
+    const manage = page.getByRole("region", { name: "Shared with" }).getByRole("button", { name: "Manage" });
+    await manage.click();
+    const dialog = page.getByRole("dialog", { name: "Manage access" });
+    await expect(dialog).toContainText("Card numbers and cardholder names. Saved security codes are not shared.");
+    await expect(dialog.getByText("What is included", { exact: true })).toHaveCSS("font-size", "12px");
+    await expect(dialog.getByRole("button", { name: "Revoke access" })).toHaveCSS("font-size", "13px");
+    await expect(dialog.getByRole("button", { name: "Revoke access" })).toHaveCSS("min-height", "44px");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(manage).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const width of [390, 1440]) {
   test(`Wallet card actions: tab highlight stays centered during form presses and tab switches at ${width}px`, async ({ page }) => {
     // Six tab switches and twelve press/release cycles share this budget.
     // Keep each alignment poll's default deadline and strict geometry check.
@@ -1061,6 +1069,10 @@ for (const width of [390, 1440]) {
     await page.getByRole("button", { name: "Everyday", exact: true }).click();
     const details = page.getByRole("region", { name: "Saved card details" });
     await expect(details).toContainText("•••• •••• •••• 4242");
+    await expect(details.locator('[data-slot="settings-group-heading"]').first()).toHaveCSS("font-size", "14px");
+    await expect(details.locator('[data-slot="settings-group-heading"]').first()).toHaveCSS("line-height", "22px");
+    await expect(details.locator('[data-slot="settings-row-title"]').first()).toHaveCSS("font-size", "14px");
+    await expect(details.locator('[data-slot="settings-row-title"]').first()).toHaveCSS("font-weight", "550");
     await expect(page.getByRole("button", { name: "Change card design", exact: true })).toHaveCount(0);
     await expect(page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
     await expect(details.getByRole("button", { name: "Copy card number" })).toBeVisible();
@@ -1107,7 +1119,11 @@ for (const width of [390, 1440]) {
     })).toBeLessThan(1);
     await page.screenshot({ path: test.info().outputPath("wallet-saved-card-actions.png") });
     await remove.click();
-    await expect(page.getByTestId("one-wallet-remove-confirm")).toBeVisible();
+    const confirmation = page.getByTestId("one-wallet-remove-confirm");
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation.locator('[data-slot="alert-dialog-title"]')).toHaveCSS("font-size", "20px");
+    await expect(confirmation.locator('[data-slot="alert-dialog-description"]')).toHaveCSS("line-height", "20px");
+    await expect(confirmation.getByRole("button", { name: "Keep card" })).toHaveCSS("font-size", "13px");
     await page.getByTestId("one-wallet-remove-cancel").click();
     await expect(details).toBeVisible();
   });
@@ -1127,11 +1143,14 @@ for (const width of [390, 1440]) {
     await page.getByRole("button", { name: "Share card Temporary access for your connections.", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("textbox", { name: "Search connections" })).toBeVisible();
+    await expect(dialog.locator('[data-slot="sheet-title"], [data-slot="dialog-title"]')).toHaveCSS("font-size", "20px");
+    await expect(dialog.getByRole("textbox", { name: "Search connections" })).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
     expect(await dialog.getByRole("tab", { name: "Anyone", exact: true }).count()).toBe(0);
     await dialog.getByRole("checkbox", { name: "Share with Test Recipient", exact: true }).check();
     await dialog.getByRole("checkbox", { name: "Share with Trusted Recipient", exact: true }).check();
     await expect(dialog.getByRole("button", { name: "Share with 2", exact: true })).toBeEnabled();
     await expectCompactPrimary(dialog.getByRole("button", { name: "Share with 2", exact: true }), 44);
+    await expect(dialog.getByRole("button", { name: "Share with 2", exact: true })).toHaveCSS("font-size", "13px");
     await expect(dialog).toContainText("Trusted Circle");
     await expect(dialog.getByRole("button", { name: "15 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
     await dialog.getByRole("button", { name: "1 hour", exact: true }).click();
@@ -1154,6 +1173,7 @@ for (const width of [320, 390, 1440]) {
     const file = await createEncryptedCardFile({ pan: "6200000000000001234", cardholderName: "SYNTHETIC RECIPIENT WITH A LONG NAME ".repeat(3).slice(0, 100), brand: "unionpay", expiryMonth: 4, expiryYear: 2030, issuingRegion: "US" }, "synthetic-long-password");
     await page.getByLabel("Encrypted card file").setInputFiles({ name: file.name, mimeType: file.type, buffer: Buffer.from(await file.arrayBuffer()) });
     await page.getByLabel("Password", { exact: true }).fill("wrong-password");
+    await expect(page.getByLabel("Password", { exact: true })).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
     await page.getByRole("button", { name: "Open card", exact: true }).click();
     await expect(page.getByRole("button", { name: "Open card", exact: true })).toBeEnabled();
     await expect(page.getByRole("region", { name: "Shared card details" })).not.toBeVisible();
@@ -1285,8 +1305,8 @@ for (const width of [320, 393, 1024]) {
     const overflowing = await card.locator('h1, p, a, figure').evaluateAll(nodes => nodes.filter(node => node.scrollWidth > node.clientWidth + 1).length);
     expect(overflowing).toBe(0);
     await expect(card.locator('h1')).toHaveCSS('font-size', '20px');
-    await expect(card.getByRole('heading', { name: 'About', exact: true })).toHaveCSS('font-size', '11px');
-    await expect(email).toHaveCSS('font-size', '13px');
+    await expect(card.getByRole('heading', { name: 'About', exact: true })).toHaveCSS('font-size', '12px');
+    await expect(email).toHaveCSS('font-size', '14px');
     expect(errors).toEqual([]);
     expect(consoleErrors).toEqual([]);
     await email.blur();
@@ -1363,7 +1383,7 @@ for (const width of [320, 1440]) {
         // Keep the authored height strict and allow only numerical noise.
         expect(action.cssHeight).toBeGreaterThanOrEqual(44);
         expect(action.height).toBeGreaterThanOrEqual(44 - 0.001);
-        expect(action.font).toBe("13px");
+        expect(action.font).toBe("12px");
         if (i % 2 === 1) {
           expect(action.y).toBeCloseTo(geometry.actions[i - 1].y, 0);
           expect(action.x).toBeGreaterThanOrEqual(geometry.actions[i - 1].right);
@@ -1379,6 +1399,10 @@ for (const width of [320, 1440]) {
         await expect(form.getByRole("heading", { name: "Shared information" })).toHaveCount(0);
         await expect(form.locator('[data-wallet-grid-item="photo-row"]')).toHaveCount(0);
         await expect(form.getByLabel("Name", { exact: true })).toBeVisible();
+        const name = form.getByLabel("Name", { exact: true });
+        await expect(name).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
+        expect(await name.evaluate(node => getComputedStyle((node as HTMLInputElement).labels![0]).fontSize)).toBe("15px");
+        await expect(form.getByRole("button", { name: "Save changes", exact: true })).toHaveCSS("font-size", "17px");
         await form.getByRole("button", { name: "Cancel", exact: true }).click();
       }
       const revoke = page.getByRole("button", { name: "Revoke access", exact: true });
@@ -1478,3 +1502,49 @@ test("Card request review selects a card, sends only to the requester, and clear
   await expect(dialog).not.toBeVisible();
   expect(errors).toEqual([]);
 });
+
+for (const width of [380, 440, 460, 480, 620, 639, 640, 767]) {
+  test(`Wallet controls stay reachable around responsive boundaries at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { cards: 3 }, { height: 600, shell: true, secure: true });
+    await mount(page);
+    await page.getByRole("tab", { name: "Add", exact: true }).click();
+    const form = page.getByTestId("secure-card-add-form");
+    await expect(form.getByLabel("Card number", { exact: true })).toHaveCSS("font-size", width <= 620 ? "16px" : "14px");
+    const save = form.getByRole("button", { name: "Add to Wallet", exact: true });
+    await save.scrollIntoViewIfNeeded();
+    await expect(save).toBeInViewport();
+    await page.getByRole("tab", { name: "Cards", exact: true }).click();
+    await page.getByRole("button", { name: "Everyday", exact: true }).click();
+    const selected = page.getByTestId("wallet-selected-card");
+    await expect(selected).toBeVisible();
+    await page.getByRole("button", { name: "Share card Temporary access for your connections.", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("textbox", { name: "Search connections" })).toBeVisible();
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const theme of ["light", "dark"]) {
+  test(`Wallet quiet command honors the user accent and interaction states in ${theme}`, async ({ page }) => {
+    const errors = await open(page, 390, theme, { cards: 0 }, { height: 844, shell: true });
+    await mount(page, false);
+    await page.evaluate(() => document.documentElement.style.setProperty("--app-accent", "#a52a7b"));
+    const action = page.getByRole("button", { name: "Continue", exact: true });
+    await expect(action).toHaveCSS("color", "rgb(165, 42, 123)");
+    await expect(action).toHaveCSS("border-top-width", "1px");
+    await expect(action).toHaveCSS("min-height", "44px");
+    const rest = await action.evaluate(element => getComputedStyle(element).backgroundColor);
+    await action.hover();
+    const hovered = await action.evaluate(element => getComputedStyle(element).backgroundColor);
+    expect(hovered).not.toBe(rest);
+    await page.keyboard.press("Tab");
+    await expect(action).toBeFocused();
+    await action.click();
+    await expect(page.getByRole("tab", { name: "Cards", exact: true })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
