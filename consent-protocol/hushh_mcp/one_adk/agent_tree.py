@@ -175,7 +175,11 @@ from hushh_mcp.runtime_providers import (
     live_compatibility,
     thinking_config_for,
 )
-from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel, managed_text_agent
+from hushh_mcp.runtime_providers.managed_text import (
+    ManagedPrimaryTextModel,
+    managed_text_agent,
+    one_chat_root_model,
+)
 from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
 from hushh_mcp.services.action_gateway import (
@@ -2813,7 +2817,7 @@ def build_one_text_agent(
         name="one",
         mode=execution_mode,
         output_schema=output_schema,
-        model=text_model,
+        model=one_chat_root_model(text_model) if execution_mode == "chat" else text_model,
         description=_ONE_MANIFEST.description,
         instruction=instruction_for_head(
             google_search_model if google_search_model is not None else text_model,

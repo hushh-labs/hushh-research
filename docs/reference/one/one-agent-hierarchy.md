@@ -223,8 +223,8 @@ compound, private-information and action requests retain root synthesis.
 The explicit short-answer choice uses compact LOW search context on a local
 child/model copy. When the administrator policy declares `compact_public_search`,
 that copy uses the admitted Azure GPT-5.4 mini deployment with NONE reasoning and
-low verbosity. The root and ordinary/deeper searches keep their existing model
-and reasoning budget. A matching required capability qualifies the exact compact
+low verbosity. Ordinary/deeper searches keep their existing model and reasoning
+budget. A matching required capability qualifies the exact compact
 deployment with native citation receipts and synthetic public facts before UAT
 promotion; the descriptor participates in policy generation and stale-binding
 rejection. Receipt validation and native-call budgets remain unchanged.
@@ -241,6 +241,17 @@ explicit delegation removes a stage; it is never reported as a root model answer
 Task, native, standalone profile-research and non-managed search defaults stay
 with their existing contracts. Rollback is the preceding application revision;
 no alternate provider or factual-answer cache is introduced.
+
+The separate `one_text_root` administrator descriptor selects only One's managed
+chat root model. The original model still supplies the full specialist roster
+and ordinary/deep Search. Tool declarations and authored instructions are not
+pruned or routed by host keywords. Required qualification exercises the exact
+root binding with the production tool inventory, a synthetic clock function
+round trip, image/PDF facts, structured output and actual text streaming. Drive,
+PWM, intro, task and other specialist model defaults retain their existing scope.
+Eligible Search drafts can stream before terminal citation validation; final
+publication and history still require the complete validated unchanged answer.
+See the streaming guide for queue cutover, draft failure and cancellation rules.
 
 ## Wiring Modes
 

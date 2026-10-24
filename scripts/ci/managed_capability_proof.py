@@ -30,6 +30,7 @@ def _valid_result(value: object) -> bool:
             "synthetic_content_verified",
             "streaming_observed",
             "steps",
+            "tools_sent",
         }
         and all(
             type(item) is bool
@@ -95,6 +96,16 @@ def valid_capabilities(
         and (
             "compact_public_search" not in policy["required_capabilities"]
             or _valid_compact_search(capabilities["compact_public_search"])
+        )
+        and (
+            "one_text_root" not in policy["required_capabilities"]
+            or (
+                capabilities["one_text_root"].get("synthetic_content_verified") is True
+                and capabilities["one_text_root"].get("streaming_observed") is True
+                and capabilities["one_text_root"].get("function_round_trip") is True
+                and capabilities["one_text_root"].get("steps") == 2
+                and capabilities["one_text_root"].get("tools_sent", 0) >= 60
+            )
         )
         and capabilities["public_source"].get("http_receipts") == 1
         and capabilities["location_transcription"].get("synthetic_phrase_verified")

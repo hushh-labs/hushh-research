@@ -139,13 +139,18 @@ def valid_core(core, provider, expected, document):
         if provider == "azure_openai"
         else document["environments"]["uat"]["text_locations"][0]
     )
+    root = document["managed_runtime_uat"]["azure"].get("one_text_root")
     return all(
         isinstance(value, dict)
         and value.get("ready") is True
         and value.get("provider") == provider
-        and value.get("model") == model
+        and value.get("model") == (
+            root["deployment"]
+            if provider == "azure_openai" and scope == "one_text_chat" and root is not None
+            else model
+        )
         and value.get("location") == location
-        for value in scopes.values()
+        for scope, value in scopes.items()
     )
 
 

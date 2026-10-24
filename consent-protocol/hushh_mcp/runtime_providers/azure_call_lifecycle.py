@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import time
 from contextlib import aclosing
 from typing import Any
+from uuid import uuid4
 
 logger = logging.getLogger("hushh_mcp.runtime_providers.azure_adk")
+_CALL: contextvars.ContextVar[str] = contextvars.ContextVar("azure_call_span", default="none")
 _PROVIDER_CODES = {
     "content_filter": "content.filter",
     "invalid_encrypted_content": "invalid.encrypted.content",
@@ -158,6 +161,13 @@ def _failure_details(error: Exception) -> tuple[str, int, str]:
 
 async def observe_call(source, model: str, counters: dict[str, Any]):
     started = time.perf_counter()
+    parent = _CALL.get()
+    call_id = uuid4().hex[:16]
+    token = _CALL.set(call_id)
+    from hushh_mcp.one_adk.queued_input import current_run
+
+    active = current_run()
+    run = active.run_id[:8] if active is not None else "unbound"
     outcome, error_kind, status = "cancelled", "none", 0
     try:
         async with aclosing(source) as results:
@@ -197,7 +207,9 @@ async def observe_call(source, model: str, counters: dict[str, Any]):
             "error_kind=%s status=%s auth_ms=%s first_output_ms=%s elapsed_ms=%s "
             "reasoning_effort=%s input_tokens=%s output_tokens=%s cached_tokens=%s "
             "reasoning_tokens=%s total_tokens=%s provider_code=%s "
-            "protocol_code=%s response_status=%s incomplete_reason=%s",
+            "protocol_code=%s response_status=%s incomplete_reason=%s "
+            "run=%s call_id=%s parent_call_id=%s role=%s stream=%s dispatches=%s "
+            "headers_ms=%s wire_first_event_ms=%s wire_first_text_ms=%s wire_completed_ms=%s",
             model,
             outcome,
             error_kind,
@@ -215,4 +227,15 @@ async def observe_call(source, model: str, counters: dict[str, Any]):
             counters.get("protocol_code", "none"),
             counters.get("response_status", "unknown"),
             counters.get("incomplete_reason", "unknown"),
+            run,
+            call_id,
+            parent,
+            counters.get("role", "unbound"),
+            counters.get("stream", False),
+            counters.get("dispatches", 0),
+            counters.get("headers_ms"),
+            counters.get("wire_first_event_ms"),
+            counters.get("wire_first_text_ms"),
+            counters.get("wire_completed_ms"),
         )
+        _CALL.reset(token)

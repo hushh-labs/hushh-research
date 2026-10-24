@@ -95,6 +95,9 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
     completion_observer: Callable[[dict[str, str]], None] | None = Field(
         default=None, exclude=True, repr=False
     )
+    response_observer: Callable[[Any], Awaitable[None]] | None = Field(
+        default=None, exclude=True, repr=False
+    )
     policy_generation: str
     processing_scope: str
     runtime_binding: Any = Field(default=None, exclude=True, repr=False)
@@ -147,6 +150,22 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                     "Text invocation authority validation failed"
                 ) from None
 
+    async def _observe_response(self, response, *, stream, deadline, observed):
+        terminal = (
+            response.partial is not True
+            and not response.error_code
+            and response.interrupted is not True
+        )
+        if not observed or terminal:
+            await self._require_current()
+        if (stream or self.response_observer is not None) and not observed:
+            deadline.reschedule(asyncio.get_running_loop().time() + 60)
+        if self.response_observer is not None:
+            await self.response_observer(response)
+        # AgentTool keeps its unary final result; genuine partials use its observer.
+        publish = not (self.response_observer is not None and response.partial and not stream)
+        return terminal, publish
+
     async def generate_content_async(self, llm_request, stream=False):
         current = self._require_current
         if self.require_current is None:
@@ -170,7 +189,9 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
             model_name, location = self.model, ""
             if provider == "azure_openai":
                 primary = self.model_copy(update={"require_current": current})
-                source = AzureOpenAIAdkModel.generate_content_async(primary, request, stream=stream)
+                source = AzureOpenAIAdkModel.generate_content_async(
+                    primary, request, stream=stream or self.response_observer is not None
+                )
                 seconds = self._primary_timeout(request)
             else:
                 vertex = self.fallback_model
@@ -207,18 +228,13 @@ class ManagedPrimaryTextModel(AzureOpenAIAdkModel):
                 async with asyncio.timeout(seconds) as deadline:
                     async with aclosing(source) as responses:
                         async for response in responses:
-                            terminal = (
-                                response.partial is not True
-                                and not response.error_code
-                                and response.interrupted is not True
+                            terminal, publish = await self._observe_response(
+                                response, stream=stream, deadline=deadline, observed=observed
                             )
-                            if not observed or terminal:
-                                await current()
-                            if stream and not observed:
-                                deadline.reschedule(asyncio.get_running_loop().time() + 60)
                             observed = True
                             completed = completed or terminal
-                            yield response
+                            if publish:
+                                yield response
                 if not completed:
                     raise ValueError("Managed model call did not complete")
                 if self.completion_observer is not None:
@@ -308,6 +324,26 @@ def build_managed_text_model(
     )
 
 
+def one_chat_root_model(model: Any) -> Any:
+    """Select only One's root; specialist and ordinary Search models stay intact."""
+    if not isinstance(model, ManagedPrimaryTextModel) or model.processing_scope != "one_text_chat":
+        return model
+    binding = model.runtime_binding
+    if binding is None:
+        return model
+    binding.require_current()
+    descriptor = binding.capabilities.get("one_text_root")
+    if descriptor is None:
+        return model
+    return model.model_copy(
+        update={
+            "model": descriptor["deployment"],
+            "default_reasoning_effort": descriptor["reasoning_effort"],
+            "text_verbosity": descriptor["text_verbosity"],
+        }
+    )
+
+
 async def probe_managed_text_model(
     *,
     scope: str,
@@ -330,6 +366,8 @@ async def probe_managed_text_model(
         provider=provider,
         completion_observer=completed.append,
     ).model_copy(update={"allow_fallback": allow_fallback})
+    if scope == "one_text_chat":
+        model = one_chat_root_model(model)
     request = LlmRequest(
         model=model.model,
         contents=[
@@ -371,7 +409,7 @@ async def probe_managed_text_model(
     }
 
 
-def managed_text_binding() -> dict:
+def managed_text_binding(*, scope: str = "drive_document_requests") -> dict:
     policy = managed_text_policy()
     if policy is None:
         raise ValueError("Managed text binding is UAT only")
@@ -379,6 +417,14 @@ def managed_text_binding() -> dict:
     provider = policy["selected_provider"]
     deployment = config["primary_deployment"]
     fingerprint = profile_hash(config)
+    if provider == "azure_openai" and scope == "one_text_chat":
+        from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
+        runtime = load_managed_runtime_policy()
+        root = runtime["azure"].get("one_text_root") if runtime else None
+        if root is not None:
+            deployment = root["deployment"]
+            fingerprint = profile_hash({"azure": config, "one_text_root": root})
     if provider == "vertex":
         from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
         from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
@@ -427,7 +473,16 @@ class ManagedTextAgent(LlmAgent):
             ):
                 raise ManagedTextAuthorityError("Current owner invocation authority ended")
 
-        return model.model_copy(update={"require_current": current})
+        return model.model_copy(
+            update={
+                "require_current": current,
+                "call_role": "root"
+                if self.name in {"one", "one_intro"}
+                else "search"
+                if self.name == "google_search"
+                else "specialist",
+            }
+        )
 
 
 def managed_text_agent(**kwargs) -> LlmAgent:

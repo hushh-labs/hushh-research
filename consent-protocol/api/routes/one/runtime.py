@@ -135,7 +135,7 @@ async def _managed_readiness() -> ManagedGeminiReadinessResponse:
         policy = managed_text_policy()
         cache_binding = ("vertex", "")
         if policy is not None:
-            descriptor = managed_text_binding()
+            descriptor = managed_text_binding(scope="one_text_chat")
             cache_binding = (policy["generation"], descriptor["config_fingerprint"])
     except Exception:
         raise HTTPException(

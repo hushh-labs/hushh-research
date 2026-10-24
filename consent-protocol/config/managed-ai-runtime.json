@@ -134,6 +134,13 @@
         "version": "2026-03-17",
         "reasoning_effort": "none",
         "text_verbosity": "low"
+      },
+      "one_text_root": {
+        "deployment": "one-search-gpt-54-mini-eval",
+        "model": "gpt-5.4-mini",
+        "version": "2026-03-17",
+        "reasoning_effort": "none",
+        "text_verbosity": "low"
       }
     },
     "required_capabilities": [
@@ -147,7 +154,8 @@
       "narration",
       "live_audio",
       "embeddings",
-      "compact_public_search"
+      "compact_public_search",
+      "one_text_root"
     ]
   }
 }

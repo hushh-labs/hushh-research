@@ -1174,3 +1174,45 @@ async def test_managed_embedding_contract_rejects_same_dimensions_with_bad_indic
     with pytest.raises(RuntimeError, match="selection changed"):
         await ports.embed_texts(binding, ["one"], timeout=1, client_factory=factory)
     assert len(client.requests) == 2
+
+
+async def test_wire_completion_excludes_consumer_hold_and_child_has_parent_span(
+    monkeypatch, caplog
+):
+    import logging
+    import re
+
+    from hushh_mcp.runtime_providers import azure_call_lifecycle
+
+    clock = {"now": 0.0}
+    monkeypatch.setattr(azure_call_lifecycle.time, "perf_counter", lambda: clock["now"])
+    adapter, _, _, _ = model(
+        [
+            Stream(
+                [
+                    {"type": "response.output_text.delta", "delta": "Public answer"},
+                    {"type": "response.completed", "response": response(message("Public answer"))},
+                ]
+            )
+        ]
+    )
+    child, _, _, _ = model([response(message("Child answer"))])
+    caplog.set_level(logging.INFO, logger="hushh_mcp.runtime_providers.azure_adk")
+    source = adapter.generate_content_async(request(), stream=True)
+    await anext(source)
+    await anext(source)
+    clock["now"] = 10.0
+    assert [r async for r in child.generate_content_async(request())]
+    with pytest.raises(StopAsyncIteration):
+        await anext(source)
+    lines = [
+        r.getMessage() for r in caplog.records if "azure_model_call_complete" in r.getMessage()
+    ]
+    assert len(lines) == 2
+    child_fields, root_fields = [dict(re.findall(r"([a-z_]+)=([^\s]+)", line)) for line in lines]
+    assert child_fields["parent_call_id"] == root_fields["call_id"]
+    assert root_fields["parent_call_id"] == "none"
+    assert root_fields["elapsed_ms"] == "10000"
+    assert root_fields["wire_completed_ms"] == root_fields["wire_first_text_ms"] == "0"
+    assert root_fields["dispatches"] == "1"
+    assert "Public answer" not in "\n".join(lines)
