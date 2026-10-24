@@ -32,7 +32,16 @@ async function proxiedError(backend: Response) {
   return { response, error: new ApiError("x", response.status, payload) };
 }
 
-describe("account delete proxy", () => {
+describe("@feature_account_deletion @trace_loop account delete proxy", () => {
+  it("preserves request correlation through the upstream call and response", async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ success: true, account_deleted: true }));
+    vi.stubGlobal("fetch", fetch);
+    const request = deleteRequest();
+    request.headers.set("x-request-id", "account-delete-trace-001");
+    const response = await DELETE(request);
+    expect(response.headers.get("x-request-id")).toBe("account-delete-trace-001");
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-request-id")).toBe("account-delete-trace-001");
+  });
   it.each([
     "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
     "FILES_ERASURE_IN_PROGRESS",

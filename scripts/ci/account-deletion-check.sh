@@ -11,7 +11,10 @@ echo '== Account deletion: client completion, proxy outcomes and atomic SQL eras
   cd "$REPO_ROOT/hushh-webapp"
   ./node_modules/.bin/vitest run \
     __tests__/lib/flows/delete-account.test.ts \
-    __tests__/app/api/account-delete-proxy.test.ts --maxWorkers=2
+    __tests__/app/api/account-delete-proxy.test.ts \
+    __tests__/lib/firebase/auth-context-session-invalidation.test.tsx \
+    __tests__/lib/profile-action-outcomes.test.ts \
+    __tests__/one-voice/account-lifecycle-step.test.ts --maxWorkers=2
 )
 (
   cd "$REPO_ROOT/consent-protocol"

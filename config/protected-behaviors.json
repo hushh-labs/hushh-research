@@ -433,7 +433,7 @@
     },
     {
       "name": "account-deletion-completes-with-large-recovery-history",
-      "summary": "Account deletion erases large encrypted recovery history in bounded statements in one transaction; failures roll back, other owners remain intact, and the client only clears a confirmed deleted account. The Integration gate exercises this across frontend and backend changes.",
+      "summary": "Account deletion keysets both recovery segments and parent revisions in bounded statements in one transaction. Real HTTP/PostgreSQL commit and rollback preserve other owners. Pending lifecycle locks seal the current session while the existing observer discovers completion, without retrying DELETE or a premature uncertain sign-out.",
       "fixed_by": "account-deletion-regression",
       "tests": [
         {
@@ -463,7 +463,10 @@
           "required_titles": [
             "clears owner state only after a confirmed full account deletion",
             "bounds uncertain-outcome verification when a backend read never settles",
-            "never submits deletion after a token-read timeout, even if the bridge later returns"
+            "never submits deletion after a token-read timeout, even if the bridge later returns",
+            "retains a reported rollback when authoritative status arrives after nine seconds",
+            "accepts a committed tombstone after nine seconds without an uncertain sign-out",
+            "hands a still-running deletion to the sealed owner gate without a second DELETE"
           ]
         },
         {
@@ -472,6 +475,15 @@
           "min_assertions": 7,
           "required_titles": [
             "keeps the rolled-back failure code on a backend 500"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 40,
+          "required_titles": [
+            "seals the session while deletion remains pending, then observes rollback",
+            "settles an in-flight deletion as %s after foreground validation"
           ]
         }
       ]

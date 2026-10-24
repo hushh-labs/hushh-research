@@ -14,6 +14,7 @@ from typing import Any, Dict, Literal
 from sqlalchemy import text
 
 from db.db_client import get_db, get_db_connection
+from hushh_mcp.consent.audit_logger import get_trace_id
 from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
@@ -48,6 +49,7 @@ from hushh_mcp.services.account_push_erasure import (
     erase_push_registrations,
     push_registration_erasure_queries,
 )
+from hushh_mcp.services.account_recovery_erasure import recovery_erasure_queries
 from hushh_mcp.services.connection_graph_service import (
     list_connection_graph_viewer_ids,
     lock_connection_graph_users,
@@ -440,23 +442,7 @@ class AccountService:
             "pkm_migration_state": text("DELETE FROM pkm_migration_state WHERE user_id = :user_id"),
             "pkm_upgrade_claims": text("DELETE FROM pkm_upgrade_claims WHERE user_id = :user_id"),
             "pkm_domain_commits": text("DELETE FROM pkm_domain_commits WHERE user_id = :user_id"),
-            "pkm_domain_revision_segments": text(
-                """
-                WITH batch AS MATERIALIZED (
-                  SELECT segments.ctid
-                  FROM pkm_domain_revision_segments AS segments
-                  JOIN pkm_domain_revisions AS revisions USING (revision_id)
-                  WHERE revisions.user_id = :user_id
-                  LIMIT 100
-                  FOR UPDATE OF segments
-                )
-                DELETE FROM pkm_domain_revision_segments AS segments
-                USING batch WHERE segments.ctid = batch.ctid
-                """
-            ),
-            "pkm_domain_revisions": text(
-                "DELETE FROM pkm_domain_revisions WHERE user_id = :user_id"
-            ),
+            **recovery_erasure_queries(),
             "pkm_upgrade_runs": text("DELETE FROM pkm_upgrade_runs WHERE user_id = :user_id"),
             "pkm_upgrade_steps": text(
                 """
@@ -977,23 +963,36 @@ class AccountService:
             raise ValueError(f"Unsafe or unsupported cleanup table requested: {table_name}")
         started = monotonic()
         try:
-            result = conn.execute(query, params)
-            if table_name == "pkm_domain_revision_segments":
-                # Recovery ciphertext can occupy gigabytes for one owner. Keep
-                # every statement under the SQL deadline without committing a
-                # partial erasure or releasing the account's writer barriers.
-                batches = 1
-                while result.rowcount == _RECOVERY_ERASURE_BATCH_SIZE:
-                    result = conn.execute(query, params)
+            if table_name in {"pkm_domain_revision_segments", "pkm_domain_revisions"}:
+                # Bound both ciphertext and parent/FK work in the same atomic
+                # transaction. Advance over the existing keys so later batches
+                # do not revisit all of this transaction's deleted tuples.
+                batch_params = {**params, "after_revision_id": None, "after_segment_id": ""}
+                batches = 0
+                while True:
+                    result = conn.execute(query, batch_params)
                     batches += 1
+                    if result.rowcount == 0:
+                        break
+                    rows = result.fetchall()
+                    if len(rows) < _RECOVERY_ERASURE_BATCH_SIZE:
+                        break
+                    batch_params["after_revision_id"] = str(rows[-1][0])
+                    batch_params["after_segment_id"] = rows[-1][1]
+                phase = "segments" if table_name.endswith("segments") else "revisions"
                 logger.info(
-                    "account.erasure_recovery_segments_complete batches=%d elapsed_ms=%d",
+                    "account.erasure_recovery_%s_complete feature=account_deletion trace_id=%s batches=%d elapsed_ms=%d",
+                    phase,
+                    get_trace_id(),
                     batches,
                     (monotonic() - started) * 1000,
                 )
+            else:
+                conn.execute(query, params)
         except Exception:
             logger.error(
-                "account.erasure_statement_failed table=%s elapsed_ms=%d",
+                "account.erasure_statement_failed feature=account_deletion trace_id=%s table=%s elapsed_ms=%d",
+                get_trace_id(),
                 table_name,
                 (monotonic() - started) * 1000,
             )
