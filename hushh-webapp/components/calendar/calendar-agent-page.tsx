@@ -6,8 +6,6 @@ import { useGoogleConnectorTransitionReview } from '@/components/connections/goo
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
-import type { CalendarInvitationHandoff, CalendarAttendanceHandoff } from "@/lib/calendar/calendar-invitation-handoff";
-import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
@@ -52,9 +50,8 @@ import {
   type GoogleCalendarStatus,
 } from "@/lib/services/google-calendar-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
-import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { trackEvent } from "@/lib/observability/client";
+import { openCalendarChat } from "@/lib/calendar/calendar-chat-handoff";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   createGoogleOAuthPopupAttempt,
@@ -620,25 +617,6 @@ export function CalendarAgentPage({
     </div>
   ) : null;
 
-  const openChat = (prompt?: string, calendarSlot?: CalendarSlotHandoff, calendarInvitation?: CalendarInvitationHandoff, calendarAttendance?: CalendarAttendanceHandoff) => {
-    trackEvent("one_calendar_action", { route_id: "one_calendar", action: "chat_opened", result: "success" });
-    if (!prompt && !calendarSlot && !calendarInvitation && !calendarAttendance) {
-      navigateToAgentChat();
-      return;
-    }
-    const createdAtMs = Date.now();
-    useOneConversationSession.getState().createHandoff({
-      id: `calendar-prompt-${createdAtMs}`,
-      reason: "user_requested",
-      transcript: prompt,
-      calendarSlot,
-      calendarInvitation,
-      calendarAttendance,
-      createdAtMs,
-    });
-    navigateToAgentChat();
-  };
-
   const disconnectDialog = (
       <AlertDialog
         open={disconnectConfirmOpen}
@@ -699,7 +677,7 @@ export function CalendarAgentPage({
         onAddAccount={() => { void connect("manage", true, true); }}
         onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
-        onChat={(prompt, slot, invitation, attendance) => openChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
+        onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
@@ -816,7 +794,7 @@ export function CalendarAgentPage({
                         <AskOneButton
                           disabled={busy}
                           showIcon={false}
-                          onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
+                          onClick={() => openCalendarChat("Summarize my calendar events and help me plan meetings")}
                           className="w-full rounded-full"
                         >
                           Try Calendar Agent with One

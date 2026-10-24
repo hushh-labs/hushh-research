@@ -30,7 +30,7 @@ import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
-import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, calendarResponse, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
+import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, calendarResponse, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, MAIN_TABS, SCHEDULE_TABS, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
 export { calendarDate } from "./calendar-schedule-presentation";
 import { earliestCalendarSlot, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
@@ -38,14 +38,6 @@ import { CacheService } from "@/lib/services/cache-service";
 import scheduleStyles from "./calendar-schedule.module.css";
 import presentationStyles from "./calendar-presentation.module.css";
 import { CalendarCompactAction } from "./calendar-compact-action";
-
-const MAIN_TABS = [
-  { value: "schedule", label: "Schedule", href: "/one/calendar" },
-  { value: "invitations", label: "Invitations", href: "/one/calendar" },
-  { value: "insights", label: "Insights", href: "/one/calendar" },
-];
-const SCHEDULE_TABS = [{ value: "today", label: "Today" }, { value: "free", label: "Free time" }];
-
 
 function formatFailure(error: unknown): Error {
   return error instanceof Error ? error : new Error("Calendar could not be checked.");
