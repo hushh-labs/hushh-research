@@ -70,13 +70,18 @@ const REGRESSION_ASSERTIONS = [
   },
   {
     path: "components/connections/gemini-key-choice.tsx",
-    present: 'requiresExplicitSelection ? "blue" : "blue-gradient"',
-    law: "law 2 (one primary action): the AI-access confirm/validate action must demote below the footer on the first-run step",
+    present: 'variant="none"',
+    law: "law 2 (one primary action): removing a retained Gemini key stays secondary to the verified AI choice",
+  },
+  {
+    path: "components/connections/gemini-key-choice.tsx",
+    absent: '"blue-gradient"',
+    law: "law 2 (one primary action): the unavailable Gemini key panel cannot introduce a primary action",
   },
   {
     path: "components/connections/gemini-runtime-settings-card.tsx",
     present: "requiresExplicitSelection={requiresExplicitSelection}",
-    law: "law 2 (one primary action): the extracted AI key controls inherit the first-run action hierarchy",
+    law: "law 2 (one primary action): verified AI controls inherit the first-run action hierarchy",
   },
   {
     path: "components/onboarding/setup/one-setup-hub.tsx",
