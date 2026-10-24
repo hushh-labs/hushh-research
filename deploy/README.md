@@ -358,6 +358,25 @@ independent safety checks. An explicit identity, attribution or schema violation
 blocks release even when the alternate provider succeeds. The terminal receipt
 carries a closed trust-failure flag so log-ingestion order cannot erase a failure.
 The execution-bound aggregate is uploaded as `uat-managed-provider-readiness.json`.
+After the migration gate passes, UAT derives its Cloud Build scheduling from the
+shared backend template with `scripts/ci/uat_backend_build_config.py`. Only the
+pinned, zero-traffic UAT candidate may warm alongside the provider jobs. The
+unchanged required aggregate joins that candidate and both provider results
+before selection or promotion. The generated config refuses an unexpected DAG;
+Dev and production retain the shared template's predeployment Vertex gate.
+
+Backend images compile dependency bytecode while installing the locked graph,
+so cold instances and probe jobs can read it with runtime bytecode writes disabled.
+The schema guard batches relation, visible-column and public-function catalog
+reads into three queries while retaining every contract check and ordered report.
+Migration bodies still replay under their existing lock and transaction policy.
+The Drive worker overlaps isolated E5 admission with scanner freshness/EICAR
+attestation, joins both before readiness, and settles cancelled tasks before exit.
+Its fixed `drive_worker_startup` timing fields identify each stage without logging
+document content. The shared 180-second startup budget and all isolation limits
+remain authoritative. Compare completed full-release timings before claiming a
+deployment-duration improvement; cache seeding and infrastructure waits can vary.
+
 Search citations identify received provider sources; they do not imply fresh
 page retrieval. Exact public-page review uses the existing public-network fence.
 

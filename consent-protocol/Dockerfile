@@ -32,6 +32,11 @@ COPY hushh_mcp/services/embedding_client_leaf.py hushh_mcp/services/embedding_cl
 COPY scripts/ops/bake_drive_embedding_model.py scripts/ops/bake_drive_embedding_model.py
 RUN python -m scripts.ops.bake_drive_embedding_model
 
+# Preserve the cached dependency install and model download layers above. Compile
+# their already-installed graph offline for cold instances with bytecode writes
+# disabled; a code-only build never needs another dependency/model download here.
+RUN uv sync --offline --frozen --no-dev --no-install-project --active --compile-bytecode
+
 # Stage 2: Production runtime
 FROM python:3.13-slim
 

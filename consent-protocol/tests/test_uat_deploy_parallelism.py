@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -15,6 +16,125 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
+
+
+def _uat_build_module():
+    spec = importlib.util.spec_from_file_location(
+        "uat_build_config", REPO_ROOT / "scripts/ci/uat_backend_build_config.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_uat_candidate_warms_in_parallel_and_aggregate_still_joins_every_gate():
+    source = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    config = _uat_build_module().candidate_parallel_config(source)
+    original = {step["id"]: step for step in source["steps"]}
+    steps = {step["id"]: step for step in config["steps"]}
+    assert original["deploy-backend"]["waitFor"][-1] == "verify-managed-vertex-runtime"
+    assert steps["deploy-backend"]["waitFor"] == [
+        "resolve-pod-image-digest",
+        "publish-azure-pod-release",
+        "verify-runtime-iam",
+    ]
+    # No provider, deployment setting, aggregate policy or evidence field changes.
+    for key in source.keys() - {"steps"}:
+        assert config[key] == source[key]
+    for step_id, original_step in original.items():
+        if step_id == "deploy-backend":
+            assert {
+                key: value
+                for key, value in steps[step_id].items()
+                if key not in {"waitFor", "args"}
+            } == {
+                key: value for key, value in original_step.items() if key not in {"waitFor", "args"}
+            }
+        else:
+            assert steps[step_id] == original_step
+    # Missing probes or a weakened aggregate must refuse the scheduling overlay.
+    for step_id, key, value in [
+        ("verify-managed-provider-readiness", "waitFor", ["deploy-backend"]),
+        ("verify-managed-provider-readiness", "allowFailure", True),
+        ("verify-managed-provider-readiness", "allowExitCodes", [1]),
+        ("verify-managed-vertex-runtime", "waitFor", ["build-backend-image"]),
+    ]:
+        broken = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+        next(step for step in broken["steps"] if step["id"] == step_id)[key] = value
+        with pytest.raises(ValueError, match="complete known readiness DAG"):
+            _uat_build_module().candidate_parallel_config(broken)
+
+
+@pytest.mark.parametrize(
+    "override,allowed",
+    [
+        ({}, True),
+        ({"PROJECT_ID": "hushh-pda"}, False),
+        ({"_DEPLOY_ENV": "production"}, False),
+        ({"_DEPLOY_SOURCE": "manual"}, False),
+        ({"_BACKEND_SERVICE": "another-service"}, False),
+        ({"_CLOUD_RUN_CAPACITY": "no_traffic=false"}, False),
+        ({"_CLOUD_RUN_CAPACITY": "not_no_traffic=true"}, False),
+        (
+            {
+                "_CLOUD_RUN_CAPACITY": "max=5,min=2,cpu=2,concurrency=20,no_traffic=true,no_traffic=false"
+            },
+            False,
+        ),
+        (
+            {
+                "_IMAGE_SETTINGS": "true|gcr.io/hushh-pda-uat/consent-protocol:latest|account-deletion-42|false|"
+            },
+            False,
+        ),
+        (
+            {
+                "_IMAGE_SETTINGS": "true|gcr.io/hushh-pda-uat/consent-protocol@sha256:"
+                + "a" * 64
+                + "|foreign-tag|false|"
+            },
+            False,
+        ),
+    ],
+)
+def test_parallel_candidate_refuses_other_environments_or_traffic(tmp_path, override, allowed):
+    deploy = tmp_path / "scripts/deploy/backend-deploy.sh"
+    deploy.parent.mkdir(parents=True)
+    deploy.write_text('echo admitted > "$MARKER"\n')
+    (deploy.parent / "backend-capacity-settings.sh").write_text(
+        _read("scripts/deploy/backend-capacity-settings.sh")
+    )
+    marker = tmp_path / "admitted"
+    environment = {
+        **os.environ,
+        "PROJECT_ID": "hushh-pda-uat",
+        "_DEPLOY_ENV": "uat",
+        "_DEPLOY_SOURCE": "deploy-uat",
+        "_BACKEND_SERVICE": "consent-protocol",
+        "_GITHUB_RUN_ID": "42",
+        "_IMAGE_SETTINGS": "true|gcr.io/hushh-pda-uat/consent-protocol@sha256:"
+        + "a" * 64
+        + "|account-deletion-42|false|",
+        "_CLOUD_RUN_CAPACITY": "max=5,min=2,no_traffic=true,cpu=2,concurrency=20",
+        "MARKER": str(marker),
+        **override,
+    }
+    module = _uat_build_module()
+    config = module.candidate_parallel_config(
+        yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    )
+    command = next(step for step in config["steps"] if step["id"] == "deploy-backend")["args"][1]
+    assert command == module.UAT_CANDIDATE_COMMAND.replace("$", "$$")
+    result = subprocess.run(  # noqa: S603 - generated guard with synthetic deploy stub.
+        [shutil.which("bash") or "bash", "-c", command.replace("$$", "$")],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert (result.returncode == 0) is allowed, result.stderr
+    assert marker.exists() is allowed
 
 
 def test_parallel_build_keeps_release_and_readiness_before_deployment():
