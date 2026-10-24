@@ -44,7 +44,11 @@ def rotate_preview(store, connection, row, build):
       WHERE packet_id=:id"""),
         {"id": row["packet_id"], "revision": row["revision"]},
     )
-    build = {key: value for key, value in build.items() if key != "search_job_id"}
+    build = {
+        key: value
+        for key, value in build.items()
+        if key not in {"search_job_id", "tagging", "tagging_work", "lease_kind"}
+    }
     build["refresh_pending"] = True
     write_build(store, connection, row, build)
     return row, build
@@ -79,7 +83,7 @@ async def request_preview(store, *, user_id, packet_id, refresh=False):
         write_build(store, connection, row, build)
         connection.execute(
             text("""UPDATE drive_packet_heads SET dirty=TRUE,next_at=clock_timestamp(),
-          error_code=NULL WHERE packet_id=:id"""),
+          error_code=NULL,attempts=0 WHERE packet_id=:id"""),
             {"id": row["packet_id"]},
         )
         return True
@@ -95,6 +99,7 @@ def document(source):
         "period": None,
         "viewUrl": _open_url(source["id"], source.get("openUrl")),
         "shareable": source.get("shareable") is True,
+        **({"packetTag": source["packetCandidateTag"]} if source.get("packetCandidateTag") else {}),
     }
 
 
@@ -115,7 +120,11 @@ def preview_summary(store, row):
         saved and build.get("search_job_id") and saved.get("job_id") != build["search_job_id"]
     )
     now = datetime.now(UTC)
-    leased = bool(row.get("lease_expires_at") and row["lease_expires_at"] > now)
+    leased = bool(
+        row.get("lease_expires_at")
+        and row["lease_expires_at"] > now
+        and build.get("lease_kind") != "tagging"
+    )
     complete = saved.get("complete", False) and not pending
     status = (
         "searching"
@@ -138,6 +147,7 @@ def preview_summary(store, row):
         "stale": bool(pending and saved),
         "updatedAt": saved.get("updatedAt"),
         "errorCode": row.get("error_code") or saved.get("errorCode"),
+        **({"tagging": build["tagging"]} if build.get("tagging") else {}),
     }
 
 
@@ -180,6 +190,12 @@ async def snapshot_search(store, job, build, search_job_id):
             raise DriveReadError("packet_superseded")
         checkpoint = searches._checkpoint(search)
         store.validate_origin(head, checkpoint)
+        connection.execute(
+            text(
+                "UPDATE drive_owner_search_jobs SET expires_at=clock_timestamp()+INTERVAL '1 day' WHERE job_id=:id"
+            ),
+            {"id": search_job_id},
+        )
         files = []
         for item in connection.execute(
             text("""SELECT position,metadata_envelope
@@ -214,6 +230,12 @@ async def snapshot_search(store, job, build, search_job_id):
         if files or complete or not updated.get("preview"):
             updated.update(preview=saved, refresh_pending=False)
         write_build(store, connection, head, updated)
+        if head["category"] == "financial":
+            connection.execute(
+                text("""UPDATE drive_packet_heads SET tagging_pending=TRUE,
+              tagging_next_at=clock_timestamp() WHERE packet_id=:id"""),
+                {"id": head["packet_id"]},
+            )
         return updated
 
     return await store._transaction(operation)
@@ -243,7 +265,7 @@ async def read_preview(store, *, user_id, packet_id, cursor=None):
                 connection,
                 """SELECT * FROM drive_owner_search_jobs
           WHERE user_id=:user AND job_id=:job AND period_packet_id=:packet
-          AND connection_generation=:generation AND expires_at>clock_timestamp()""",
+          AND connection_generation=:generation""",
                 {
                     "user": user_id,
                     "job": search_id,

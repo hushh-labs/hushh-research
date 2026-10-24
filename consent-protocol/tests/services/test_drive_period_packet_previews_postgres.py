@@ -253,7 +253,11 @@ async def test_finalization_requeries_after_a_completed_open_period_preview(reus
                 "started": datetime.combine(head["period_start"], datetime.min.time(), UTC),
             },
         )
-    await service.store.save_build(job, {"plan": plan, "model_binding": binding})
+    from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
+
+    await service.store.save_build(
+        job, {"plan": plan, "model_binding": binding, "query_source": QUERY_SOURCE}
+    )
     preview = await service.prepare_preview(user_id="owner", packet_id=identity)
     assert preview["complete"] and preview["matched"] == 1
     with service.store.db.engine.connect() as connection:
@@ -307,6 +311,12 @@ async def test_noncompilable_model_plan_is_not_pinned_across_recovery(reusable, 
     from copy import deepcopy
 
     service, head, planner, _ = await preview_runtime(reusable, monkeypatch)
+    # Nonfinancial historical heads retain their model-authored contract.
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_packet_heads SET category='bank' WHERE packet_id=:id"),
+            {"id": head["packet_id"]},
+        )
     good = planner.return_value
     invalid = deepcopy(good)
     invalid["semantic_query"]["date_basis"] = "content"
@@ -329,3 +339,135 @@ async def test_noncompilable_model_plan_is_not_pinned_across_recovery(reusable, 
         if result["complete"]:
             break
     assert result["complete"] and result["matched"] == 26 and planner.await_count == 2
+
+
+@pytest.mark.parametrize("active_lease", [False, True])
+async def test_financial_policy_migrates_only_expired_unleased_pending_work(
+    reusable, monkeypatch, active_lease
+):
+    from hushh_mcp.services.drive_period_packet_preview import snapshot_search
+    from hushh_mcp.services.drive_request_discovery import discovery_evidence
+
+    service, head, planner, transport = await preview_runtime(reusable, monkeypatch)
+    identity = str(head["packet_id"])
+    job = await service.store.claim_build(user_id="owner", packet_id=identity)
+    legacy_plan = planner.return_value
+    legacy_binding = {
+        "provider": "azure_openai",
+        "deployment": "synthetic",
+        "config_fingerprint": "synthetic",
+        "approval_generation": None,
+    }
+    # Author a genuine old model checkpoint through the retained model path,
+    # against this same head/revision. No current preset marker is fabricated.
+    state = await service._search_job({**job, "category": "bank"}, legacy_plan, legacy_binding)
+    claimed = await service.search.store.claim(user_id="owner", job_id=state["jobId"])
+    checkpoint = claimed["checkpoint"]
+    assert "query_source" not in checkpoint
+    source = {
+        "id": "legacy-cached-original",
+        "name": "Synthetic retained statement",
+        "mimeType": "application/pdf",
+        "sourceVersion": "1",
+        "shareable": True,
+        "createdTime": f"{head['period_start']}T00:00:00Z",
+    }
+    source["discoveryEvidence"] = discovery_evidence(
+        checkpoint, user_id="owner", generation=1, metadata=source
+    )
+    await service.search.store.commit_page(
+        claimed, checkpoint=checkpoint, files=[source], done=False
+    )
+    build = await snapshot_search(
+        service.store, job, {"plan": legacy_plan, "model_binding": legacy_binding}, state["jobId"]
+    )
+    await service.store.save_build(job, build)
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET status='running',
+          expires_at=clock_timestamp()-INTERVAL '1 second', lease_id=gen_random_uuid(),
+          lease_expires_at=clock_timestamp()+make_interval(secs=>:seconds)
+          WHERE job_id=:id"""),
+            {"id": state["jobId"], "seconds": 60 if active_lease else -1},
+        )
+        connection.execute(
+            text("UPDATE drive_packet_heads SET next_at=clock_timestamp() WHERE packet_id=:id"),
+            {"id": identity},
+        )
+        before = connection.execute(
+            text("""SELECT metadata_envelope FROM drive_owner_search_results
+          WHERE job_id=:id"""),
+            {"id": state["jobId"]},
+        ).scalar_one()
+    migrated = await service.store.claim_build(user_id="owner", packet_id=identity)
+    if active_lease:
+        assert migrated is None
+    else:
+        assert migrated["revision"] == job["revision"] + 1
+        assert migrated["build"]["migration"]["from"] == {"kind": "model"}
+        assert migrated["build"]["migration"]["to"]["planner_executed"] is False
+        cached = await service.preview(user_id="owner", packet_id=identity)
+        assert cached["matched"] == 1 and cached["stale"]
+        assert cached["documents"][0]["name"] == source["name"]
+        plan, binding = await service._plan(migrated, AsyncMock())
+        assert binding is None
+        fresh = await service._search_job(migrated, plan, binding)
+        assert fresh["jobId"] != state["jobId"]
+    await service.search.store.purge()
+    with service.store.db.engine.connect() as connection:
+        old = connection.execute(
+            text("SELECT status FROM drive_owner_search_jobs WHERE job_id=:id"),
+            {"id": state["jobId"]},
+        ).scalar_one()
+        assert old == ("running" if active_lease else "stopped")
+        assert (
+            connection.execute(
+                text("SELECT metadata_envelope FROM drive_owner_search_results WHERE job_id=:id"),
+                {"id": state["jobId"]},
+            ).scalar_one()
+            == before
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders")
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_bulk_share_effects")).scalar_one()
+            == 0
+        )
+    planner.assert_not_awaited()
+    transport.read_tool.assert_not_awaited()
+
+
+@pytest.mark.parametrize("tamper", ["query", "source"])
+async def test_financial_provenance_cannot_authorize_an_arbitrary_checkpoint(
+    reusable, monkeypatch, tamper
+):
+    from copy import deepcopy
+
+    service, head, planner, _ = await preview_runtime(reusable, monkeypatch)
+    job = await service.store.claim_build(user_id="owner", packet_id=str(head["packet_id"]))
+    plan, binding = await service._plan(job, AsyncMock())
+    state = await service._search_job(job, plan, binding)
+    claimed = await service.search.store.claim(user_id="owner", job_id=state["jobId"])
+    checkpoint = deepcopy(claimed["checkpoint"])
+    if tamper == "query":
+        checkpoint["queries"][0]["arguments"]["query"] = "trashed = false"
+    else:
+        checkpoint["query_source"]["planner_executed"] = True
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await service.search.store.commit_page(claimed, checkpoint=checkpoint, files=[], done=True)
+    with service.store.db.engine.connect() as connection:
+        current = dict(
+            connection.execute(
+                text("SELECT * FROM drive_owner_search_jobs WHERE job_id=:id"),
+                {"id": state["jobId"]},
+            )
+            .mappings()
+            .one()
+        )
+        assert current["status"] == "running" and current["matched"] == 0
+        assert service.search.store._checkpoint(current) == claimed["checkpoint"]
+    planner.assert_not_awaited()

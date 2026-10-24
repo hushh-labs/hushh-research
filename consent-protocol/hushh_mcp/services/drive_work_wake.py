@@ -3,7 +3,7 @@
 The durable database queue and scheduled drains remain authoritative. This
 call carries only a fixed stage, never an owner, request, or document value,
 and its log lines carry only that stage and an outcome class. Only a committed
-user action wakes a stage; a read never does, so polling a status can never
+user action or saved worker continuation wakes a stage; a read never does, so polling a status can never
 turn into scheduler runs.
 
 Cloud Scheduler refuses jobs.run on a paused job (HTTP 400 FAILED_PRECONDITION,

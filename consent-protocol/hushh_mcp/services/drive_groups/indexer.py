@@ -136,6 +136,30 @@ async def index_files(
 ) -> IndexRun:
     if not four_group_index_enabled():
         raise GroupIndexDisabled("the Drive four-group index is off")
+    return await classify_candidates(
+        rows,
+        heads=heads,
+        embedder=embedder,
+        owner_email=owner_email,
+        bundle=bundle,
+        read_concurrency=read_concurrency,
+        require_head=require_head,
+        retain_evidence=retain_evidence,
+    )
+
+
+async def classify_candidates(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    heads: HeadSource,
+    embedder: HeadEmbedder,
+    owner_email: str | None = None,
+    bundle: ModelBundle | None = None,
+    read_concurrency: int = READ_CONCURRENCY,
+    require_head: bool = True,
+    retain_evidence: bool = False,
+) -> IndexRun:
+    """Shared unchanged classifier; callers supply their own admitted bounded inputs."""
     if type(read_concurrency) is not int or not 1 <= read_concurrency <= MAX_READ_CONCURRENCY:
         raise ValueError("invalid read concurrency")
     if type(require_head) is not bool:

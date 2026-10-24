@@ -13,6 +13,7 @@ from hushh_mcp.services.connector_feature_admission import (
     connector_feature_owner_cohort,
 )
 from hushh_mcp.services.drive_document_facts_store import seal_evidence
+from hushh_mcp.services.drive_financial_packet_query import QUERY_VERSION
 from hushh_mcp.services.drive_packet_contract import evidence_digest
 from hushh_mcp.services.drive_packet_store import DrivePacketStore
 from hushh_mcp.services.drive_period_packet_contract import (
@@ -50,6 +51,8 @@ class DrivePeriodPacketStore(DrivePacketStore):
         def operation(connection):
             active = self._period_access(connection, owner=user_id)
             for category, title in CATEGORY_PURPOSES.items():
+                if category != "financial":
+                    continue
                 for period in periods:
                     row = {
                         "user_id": user_id,
@@ -82,7 +85,16 @@ class DrivePeriodPacketStore(DrivePacketStore):
                             "timezone": timezone,
                         },
                     )
-            return len(periods) * len(CATEGORY_PURPOSES)
+            # Preserve completed source discovery and sale versions; organize
+            # their existing owner results once, without relabeling query origin.
+            connection.execute(
+                text("""UPDATE drive_packet_heads SET tagging_pending=TRUE,
+                tagging_next_at=clock_timestamp() WHERE user_id=:user AND connection_generation=:generation
+                AND packet_kind='provider_discovery' AND category='financial' AND current_version>0
+                AND build_envelope IS NOT NULL AND tagging_next_at IS NULL"""),
+                {"user": user_id, "generation": active["connection_generation"]},
+            )
+            return len(periods)
 
         return await self._transaction(operation)
 
@@ -135,13 +147,16 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 WHERE c.connector_id='google_drive' AND c.status='connected'
                   AND c.validation_state='verified' AND (p.user_id IS NULL OR p.background_enabled)
                   AND (:all_owners OR c.user_id=ANY(CAST(:owners AS text[])))
+                  AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs ordinary WHERE ordinary.user_id=c.user_id
+                    AND ordinary.period_packet_id IS NULL AND ordinary.status IN ('queued','running')
+                    AND ordinary.expires_at>clock_timestamp())
                   AND (NOT EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                     AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
-                    AND h.period_start=make_date(EXTRACT(YEAR FROM clock_timestamp() AT TIME ZONE 'UTC')::int,
+                    AND h.category='financial' AND h.period_start=make_date(EXTRACT(YEAR FROM clock_timestamp() AT TIME ZONE 'UTC')::int,
                       ((EXTRACT(MONTH FROM clock_timestamp() AT TIME ZONE 'UTC')::int-1)/2)*2+1,1))
                     OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                       AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
-                      AND h.current_version=0 AND h.dirty AND h.next_at<=clock_timestamp()
+                      AND h.current_version=0 AND h.dirty AND (h.attempts<8 OR (h.category='financial' AND h.predefined_query_version IS DISTINCT FROM :template)) AND h.next_at<=clock_timestamp()
                       AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp())))
                 ORDER BY COALESCE((SELECT max(h.updated_at) FROM drive_packet_heads h
                   WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
@@ -149,6 +164,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 LIMIT :limit"""),
                     {
                         "limit": max(1, min(limit, 20)),
+                        "template": QUERY_VERSION,
                         "all_owners": cohort is None,
                         "owners": list(cohort or ()),
                     },
@@ -183,22 +199,90 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 """SELECT * FROM drive_packet_heads
                 WHERE user_id=:user AND connection_generation=:generation
                   AND packet_kind='provider_discovery' AND current_version=0 AND dirty
-                  AND next_at<=clock_timestamp()
+                  AND (attempts<8 OR (category='financial' AND predefined_query_version IS DISTINCT FROM :template)) AND next_at<=clock_timestamp()
                   AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
                   AND (:packet IS NULL OR packet_id=CAST(:packet AS uuid))
                   AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs j WHERE j.user_id=:user
                     AND j.status IN ('queued','running') AND j.expires_at>clock_timestamp()
                     AND j.period_packet_id IS DISTINCT FROM drive_packet_heads.packet_id)
-                ORDER BY updated_at,period_start DESC,category LIMIT 1 FOR UPDATE SKIP LOCKED""",
+                ORDER BY EXISTS(SELECT 1 FROM drive_owner_search_jobs active WHERE active.user_id=:user
+                    AND active.period_packet_id=drive_packet_heads.packet_id AND active.status IN ('queued','running')
+                    AND active.expires_at>clock_timestamp()) DESC,
+                  (category='financial') DESC,period_start DESC,updated_at,category LIMIT 1 FOR UPDATE SKIP LOCKED""",
                 {
                     "user": user_id,
                     "generation": active["connection_generation"],
                     "packet": str(UUID(packet_id)) if packet_id else None,
+                    "template": QUERY_VERSION,
                 },
             )
             if not row:
                 return None
             build = self._build(row)
+            from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
+
+            if row["category"] == "financial" and not build:
+                build["query_source"] = dict(QUERY_SOURCE)
+            if row["category"] == "financial" and build.get("query_source") != QUERY_SOURCE:
+                # Recorded migration: retire only this unleased private preparation.
+                if connection.execute(
+                    text("""SELECT EXISTS(SELECT 1 FROM drive_owner_search_jobs
+                  WHERE user_id=:user AND period_packet_id=:packet AND status IN ('queued','running')
+                    AND lease_expires_at>clock_timestamp())"""),
+                    {"user": user_id, "packet": row["packet_id"]},
+                ).scalar_one():
+                    return None
+                connection.execute(
+                    text("""UPDATE drive_owner_search_jobs SET status='stopped',revision=revision+1,
+                  lease_id=NULL,lease_expires_at=NULL,updated_at=clock_timestamp()
+                  WHERE user_id=:user AND period_packet_id=:packet AND status IN ('queued','running')"""),
+                    {"user": user_id, "packet": row["packet_id"]},
+                )
+                from hushh_mcp.services.drive_period_packet_preview import rotate_preview
+
+                previous = build.get("query_source") or {"kind": "model"}
+                row, build = rotate_preview(self, connection, row, build)
+                build.update(
+                    query_source=dict(QUERY_SOURCE),
+                    migration={
+                        "from": previous,
+                        "to": dict(QUERY_SOURCE),
+                        "basis": "server_managed_financial_packet_policy",
+                    },
+                )
+                build.pop("plan", None)
+                build.pop("model_binding", None)
+            if (
+                row["category"] == "financial"
+                and row.get("predefined_query_version") != QUERY_SOURCE["version"]
+            ):
+                connection.execute(
+                    text(
+                        "UPDATE drive_packet_heads SET predefined_query_version=:version,attempts=0 WHERE packet_id=:id"
+                    ),
+                    {"id": row["packet_id"], "version": QUERY_SOURCE["version"]},
+                )
+            if build.get("search_job_id"):
+                expired = self._row(
+                    connection,
+                    """SELECT job_id FROM drive_owner_search_jobs WHERE job_id=:id
+                    AND expires_at<=clock_timestamp() AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())""",
+                    {"id": build["search_job_id"]},
+                )
+                if expired:
+                    connection.execute(
+                        text(
+                            "UPDATE drive_owner_search_jobs SET status='stopped',lease_id=NULL,lease_expires_at=NULL,revision=revision+1 WHERE job_id=:id"
+                        ),
+                        {"id": expired["job_id"]},
+                    )
+                    from hushh_mcp.services.drive_period_packet_preview import rotate_preview
+
+                    row, build = rotate_preview(self, connection, row, build)
+                    build["recovery"] = {
+                        "reason": "expired_search",
+                        "previous_job_id": str(expired["job_id"]),
+                    }
             # The first post-close scan must not reuse a completed open-period job.
             if build.get("preview", {}).get("complete") and not build.get("refresh_pending"):
                 from hushh_mcp.services.drive_period_packet_preview import rotate_preview
@@ -229,7 +313,8 @@ class DrivePeriodPacketStore(DrivePacketStore):
             connection.execute(
                 text("""UPDATE drive_packet_heads SET
               build_envelope=CAST(:build AS jsonb),lease_id=NULL,lease_expires_at=NULL,
-              next_at=CASE WHEN :complete THEN (period_end+1)::timestamp AT TIME ZONE period_timezone
+              next_at=CASE WHEN :complete THEN LEAST(clock_timestamp()+INTERVAL '1 day',
+                (period_end+1)::timestamp AT TIME ZONE period_timezone)
                 ELSE clock_timestamp()+make_interval(secs=>:delay) END,error_code=:error,
               attempts=CASE WHEN :error IS NULL THEN 0 ELSE attempts+1 END,updated_at=clock_timestamp()
               WHERE packet_id=:id"""),
@@ -262,6 +347,12 @@ class DrivePeriodPacketStore(DrivePacketStore):
             "revision": row["revision"],
             "policy": PERIOD_PACKET_POLICY,
         }
+        if checkpoint.get("query_source") is not None:
+            from hushh_mcp.services.drive_financial_packet_query import validate_predefined
+
+            if row["category"] != "financial":
+                raise DriveReadError("packet_superseded")
+            validate_predefined(checkpoint)
         if checkpoint.get("period_packet_origin") != expected or checkpoint.get(
             "request_origin_id"
         ):

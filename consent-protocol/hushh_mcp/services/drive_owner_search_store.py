@@ -16,6 +16,7 @@ import random
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -52,6 +53,12 @@ _ROW = "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job AND user_id=:use
 
 def _semantic_binding_current(checkpoint):
     """The sealed provider is immutable; configuration changes never select a fallback."""
+    from hushh_mcp.services.drive_financial_packet_query import validate_predefined
+
+    try:
+        validate_predefined(checkpoint)
+    except (ValueError, TypeError, KeyError):
+        raise DriveReadError("search_superseded") from None
     binding = checkpoint.get("semantic_model_binding")
     if binding is None:
         return
@@ -293,13 +300,78 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             connection.execute(
                 text("""
                 WITH expired AS (SELECT job_id FROM drive_owner_search_jobs
-                  WHERE expires_at<=clock_timestamp() ORDER BY expires_at
+                  WHERE expires_at<=clock_timestamp() AND period_packet_id IS NULL ORDER BY expires_at
                   LIMIT 100 FOR UPDATE SKIP LOCKED)
                 DELETE FROM drive_owner_search_jobs j USING expired e WHERE j.job_id=e.job_id
             """)
             )
 
         await self._transaction(operation)
+        await self._purge_period_history()
+
+    async def _purge_period_history(self):
+        from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
+        from hushh_mcp.services.owner_placement_guard import admit_hub_content
+
+        def owners(connection):
+            return list(
+                connection.execute(
+                    text("""SELECT DISTINCT user_id FROM
+                (SELECT user_id FROM drive_owner_search_jobs WHERE period_packet_id IS NOT NULL
+                 AND expires_at<=clock_timestamp() ORDER BY COALESCE(retention_checked_at,expires_at) LIMIT 100) bounded""")
+                ).scalars()
+            )
+
+        packets = DrivePeriodPacketStore(db=self.db)
+        for owner in await self._transaction(owners):
+            try:
+                await admit_hub_content(owner, "drive_period_packets")
+            except (PermissionError, HTTPException):
+                continue
+
+            def clean(connection, owner=owner):
+                rows = list(
+                    connection.execute(
+                        text("""SELECT j.job_id,j.period_packet_id FROM drive_owner_search_jobs j
+                    WHERE j.user_id=:user AND j.period_packet_id IS NOT NULL AND j.expires_at<=clock_timestamp()
+                    AND (j.lease_id IS NULL OR j.lease_expires_at<=clock_timestamp())
+                    ORDER BY COALESCE(j.retention_checked_at,j.expires_at) LIMIT 100"""),
+                        {"user": owner},
+                    ).mappings()
+                )
+                for job in rows:
+                    head = self._row(
+                        connection,
+                        "SELECT * FROM drive_packet_heads WHERE user_id=:user AND packet_id=:packet FOR SHARE",
+                        {"user": owner, "packet": job["period_packet_id"]},
+                    )
+                    locked = self._row(
+                        connection,
+                        """SELECT job_id FROM drive_owner_search_jobs
+                        WHERE job_id=:job AND user_id=:user AND expires_at<=clock_timestamp()
+                        AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp()) FOR UPDATE SKIP LOCKED""",
+                        {"user": owner, "job": job["job_id"]},
+                    )
+                    if not locked:
+                        continue
+                    build = packets._build(head) if head else {}
+                    keep = {build.get("search_job_id"), build.get("preview", {}).get("job_id")}
+                    if str(job["job_id"]) in keep:
+                        connection.execute(
+                            text(
+                                "UPDATE drive_owner_search_jobs SET retention_checked_at=clock_timestamp() WHERE job_id=:job"
+                            ),
+                            {"job": job["job_id"]},
+                        )
+                    else:
+                        connection.execute(
+                            text(
+                                "DELETE FROM drive_owner_search_jobs WHERE user_id=:user AND job_id=:job"
+                            ),
+                            {"user": owner, "job": job["job_id"]},
+                        )
+
+            await self._transaction(clean)
 
     async def create(
         self,
@@ -335,10 +407,17 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         def operation(connection):
             current = self._access(connection, user_id)
+            connection.execute(
+                text("""UPDATE drive_owner_search_jobs SET status='stopped',revision=revision+1,
+                lease_id=NULL,lease_expires_at=NULL WHERE user_id=:user AND period_packet_id IS NOT NULL
+                AND status IN ('queued','running') AND expires_at<=clock_timestamp()
+                AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())"""),
+                {"user": user_id},
+            )
             admit_period_creation(self, connection, user_id, period_packet_id, checkpoint)
             connection.execute(
                 text(
-                    "DELETE FROM drive_owner_search_jobs WHERE user_id=:user AND expires_at<=clock_timestamp()"
+                    "DELETE FROM drive_owner_search_jobs WHERE user_id=:user AND expires_at<=clock_timestamp() AND period_packet_id IS NULL"
                 ),
                 {"user": user_id},
             )

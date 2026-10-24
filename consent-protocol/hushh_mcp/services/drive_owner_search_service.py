@@ -1535,6 +1535,7 @@ class DriveOwnerSearchService:
                         "provider_packet": True,
                         "plan": manifest["search"]["authored_plan"],
                         "model_binding": manifest["search"]["model_binding"],
+                        "query_source": manifest["search"].get("query_source"),
                         "queries": manifest["search"]["queries"],
                         "period": {
                             "start": manifest["periodStart"],
@@ -2016,6 +2017,7 @@ class DriveOwnerSearchService:
                         key: route[key]
                         for key in (
                             "reusable_packet",
+                            "query_source",
                             "matched_packet",
                             "request_packet_verification",
                         )

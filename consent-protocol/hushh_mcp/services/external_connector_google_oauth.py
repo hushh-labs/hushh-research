@@ -537,9 +537,27 @@ class ExternalConnectorGoogleOAuth:
             policy_hash=LIVE_POLICY_HASH,
         )
         if verified:
+            await self._prepare_financial_packets(user_id)
             await self._prepare_drive_collection(user_id)
             await self._resume_drive_requests(user_id)
         return verified
+
+    async def _prepare_financial_packets(self, user_id: str) -> None:
+        """Verified connection is committed; default preparation is independently recoverable."""
+        if not connector_feature_enabled("drive_period_packets", user_id):
+            return
+        try:
+            async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
+                from hushh_mcp.services.drive_period_packet_service import DrivePeriodPacketService
+                from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
+                from hushh_mcp.services.drive_work_wake import wake_drive_work
+
+                await DrivePeriodPacketService(
+                    store=DrivePeriodPacketStore(db=self.lifecycle.db)
+                ).ensure_owner(user_id=user_id)
+                await wake_drive_work("suggestions")
+        except Exception as error:
+            logger.warning("drive_oauth.financial_default_deferred type=%s", type(error).__name__)
 
     async def _prepare_drive_collection(self, user_id: str) -> None:
         """Start private preparation after verified OAuth; scheduled work recovers."""

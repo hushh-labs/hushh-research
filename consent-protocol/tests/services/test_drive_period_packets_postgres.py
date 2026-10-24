@@ -84,7 +84,8 @@ async def frozen_provider_period(reusable, monkeypatch):
         store=period, search=DriveOwnerSearchService(store=search), planner=planner
     )
     plan, binding = await service._plan(job, AsyncMock())
-    planner.assert_awaited_once()
+    planner.assert_not_awaited()
+    assert binding is None and plan["semantic_query"]["date_basis"] == "title_created_modified"
     state = await service._search_job(job, plan, binding)
     claimed = await search.claim(user_id="owner", job_id=state["jobId"])
     checkpoint = claimed["checkpoint"]
@@ -113,6 +114,9 @@ async def test_provider_period_freezes_metadata_once_without_facts_or_collection
     assert manifest["state"] == "ready" and manifest["kind"] == "provider_discovery"
     assert len(manifest["sources"]) == 1 and manifest["search"]["authored_plan"] == plan
     assert "assessment_score" not in manifest["assessment"]
+    assert manifest["search"]["model_binding"] is None
+    assert manifest["search"]["query_source"]["kind"] == "predefined"
+    assert manifest["search"]["query_source"]["planner_executed"] is False
     with pytest.raises(DriveReadError, match="packet_superseded"):
         await period.freeze(job, search_job_id=state["jobId"])
     current = await reusable.packets.current_packet_manifest(
@@ -379,3 +383,31 @@ async def test_period_packets_never_become_free_when_payments_are_disabled(
         assert (
             connection.execute(text("SELECT count(*) FROM drive_share_requests")).scalar_one() == 0
         )
+
+
+async def test_financial_enrollment_is_current_year_idempotent_and_financial_only(
+    reusable, monkeypatch
+):
+    from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
+
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
+    store = DrivePeriodPacketStore(db=reusable.collection.db, cipher=reusable.collection.cipher)
+    instant = datetime(2026, 10, 24, tzinfo=UTC)
+    assert await store.ensure_owner(user_id="owner", now=instant) == 5
+    assert await store.ensure_owner(user_id="owner", now=instant) == 5
+    with store.db.engine.connect() as connection:
+        rows = list(
+            connection.execute(
+                text("""SELECT category,period_start,period_end,period_timezone
+          FROM drive_packet_heads WHERE user_id='owner' AND packet_kind='provider_discovery'
+          ORDER BY period_start""")
+            ).mappings()
+        )
+    assert [(r["category"], r["period_start"].month, r["period_end"].month) for r in rows] == [
+        ("financial", 1, 2),
+        ("financial", 3, 4),
+        ("financial", 5, 6),
+        ("financial", 7, 8),
+        ("financial", 9, 10),
+    ]
+    assert all(r["period_start"].year == 2026 and r["period_timezone"] == "UTC" for r in rows)

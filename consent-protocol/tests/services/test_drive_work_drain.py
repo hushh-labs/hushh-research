@@ -467,7 +467,7 @@ async def test_search_failure_does_not_erase_the_preparation_result():
     search.run.side_effect = RuntimeError("private query and owner")
     periods = _worker({"outcomes": {"queued": 1, "private_query": "not-returned"}})
     result = await _drain(workers, search, period_packet_worker=periods).run(stage="suggestions")
-    periods.run.assert_awaited_once_with(max_jobs=1, deadline_seconds=90)
+    periods.run.assert_awaited_once_with(max_jobs=2, deadline_seconds=90)
     assert result["workers"]["suggestions"] == {"review_ready": 1}
     assert result["workers"]["searches"] == {"unavailable": 1}
     assert "private" not in str(result)

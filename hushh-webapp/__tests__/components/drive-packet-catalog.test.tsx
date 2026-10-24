@@ -82,6 +82,26 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
     await act(async () => { await retired({ rowId: row.id } as NativeDrawerChoice); });
     expect(open).not.toHaveBeenCalled();
   });
+  it("keeps tagged and untagged originals with a single global remaining count", () => {
+    const documents = (["financial", "review", "other", undefined] as const).map((bucket, index) => ({
+      name: "Same filename.pdf", type: null, pages: null, period: null,
+      viewUrl: `https://drive.google.com/file/d/file-${index}/view`,
+      ...(bucket ? { packetTag: { bucket, reason: "no_evidence" } } : {}),
+    }));
+    const current: DrivePacket = { ...packet, kind: "provider_discovery", category: "financial", version: 0,
+      state: "building", periodStart: "2026-09-01", periodEnd: "2026-10-31", timezone: "UTC",
+      requestId: null, purchaseState: "none", canList: false, canRequest: false,
+      preview: { status: "completed", revision: 0, matched: 33, complete: true, stale: false,
+        updatedAt: null, errorCode: null, documents, nextCursor: "next", limited: false } };
+    const sections = ownerPacketSections(current, null, () => true);
+    const rows = sections.filter(section => section.id.startsWith("matches-"))
+      .flatMap(section => section.rows ?? []);
+    expect(rows).toHaveLength(documents.length);
+    rows.forEach(row => row.onOpen!());
+    expect(state.openExternal.mock.calls.map(call => call[0]).sort()).toEqual(documents.map(document => document.viewUrl).sort());
+    expect(sections.find(section => section.id === "matches-review")?.rows).toHaveLength(2);
+    expect(sections.find(section => section.id === "more-results")?.rows?.[0].title).toBe("29 more documents");
+  });
   it("fences an original file action when its owner session retires", () => {
     let current = true;
     const viewUrl = "https://drive.google.com/file/d/example/view";
@@ -201,6 +221,47 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
       expect(state.preview.mock.calls.at(-1)?.[3]).toBe("page-3");
     } finally { intervals.mockRestore(); }
   });
+  it("uses GET to finish labels on all loaded pages after discovery completed", async () => {
+    const current = { ...packet, kind: "provider_discovery", category: "financial", version: 0,
+      state: "building", periodStart: "2026-09-01", periodEnd: "2026-10-31", canList: false, canRequest: false };
+    const file = (index: number, bucket?: "financial" | "other") => ({ name: `statement-${index}`,
+      type: null, pages: null, period: null, viewUrl: `https://drive.google.com/file/d/${index}/view`,
+      ...(bucket ? { packetTag: { bucket, reason: "fits_none" } } : {}) });
+    const page = (index: number, done = false) => ({ status: "completed", revision: 0, matched: 2,
+      complete: true, stale: false, updatedAt: "2026-10-24T10:00:00Z", errorCode: null,
+      tagging: { status: done ? "completed" : "running", policyVersion: "test-v1",
+        counts: { financial: done ? 1 : 0, review: 0, other: done ? 1 : 0, pending: done ? 0 : 2 } },
+      documents: [file(index, done ? index === 1 ? "financial" : "other" : undefined)],
+      nextCursor: index === 1 ? "page-2" : null, limited: false });
+    let settled = false, poll = () => undefined;
+    state.packets.mockResolvedValue({ packets: [current], nextCursor: null });
+    state.preparePreview.mockResolvedValue(page(1));
+    state.preview.mockImplementation(async (_token, _id, guard, cursor) => {
+      guard(); return page(cursor === "page-2" ? 2 : 1, settled);
+    });
+    const nativeInterval = globalThis.setInterval;
+    const intervals = vi.spyOn(globalThis, "setInterval").mockImplementation(((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (delay === 5000) { poll = handler as () => undefined; return 0 as unknown as ReturnType<typeof setInterval>; }
+      return nativeInterval(handler, delay, ...args);
+    }) as typeof setInterval);
+    try {
+      render(<DrivePacketCatalog />);
+      fireEvent.click(await screen.findByRole("button", { name: "Open Financial statements" }));
+      fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
+      await screen.findByText("statement-1");
+      fireEvent.click(screen.getByRole("button", { name: "Load more files" }));
+      await screen.findByText("statement-2");
+      settled = true;
+      await act(async () => { poll(); });
+      await screen.findByText("Financial (1 shown)");
+      expect(screen.getByText("Other matches (1 shown)")).toBeVisible();
+      expect(screen.getByText("statement-1")).toBeVisible();
+      expect(screen.getByText("statement-2")).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Load more files" })).toBeNull();
+      expect(state.preparePreview).toHaveBeenCalledOnce();
+      expect(state.listing).not.toHaveBeenCalled(); expect(state.request).not.toHaveBeenCalled();
+    } finally { intervals.mockRestore(); }
+  });
   it("retries a start that was not acknowledged when the owner reopens the packet", async () => {
     const current = { ...packet, kind: "provider_discovery", category: "bank", version: 0, state: "building",
       periodStart: "2026-09-01", periodEnd: "2026-10-31", canList: false, canRequest: false };
@@ -267,4 +328,22 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
     expect(toggle).not.toBeDisabled();
     expect(toggle).toHaveAttribute("aria-checked", "true");
   });
+});
+
+
+it("@feature_drive_packets @trace_loop requests an idempotent freshness check when reopening an old completed preview", async () => {
+  const current = { ...packet, kind: "provider_discovery", packetId: person, category: "financial", version: 0,
+    periodStart: "2026-09-01", periodEnd: "2026-10-31", state: "building", documentCount: 0, canList: false, canRequest: false };
+  state.packets.mockResolvedValue({ packets: [current], nextCursor: null });
+  state.preparePreview.mockResolvedValue({ status: "completed", revision: 0, matched: 2, complete: true, stale: false,
+    updatedAt: new Date(Date.now() - 6 * 60_000).toISOString(), errorCode: null, documents: [], nextCursor: null, limited: false });
+  render(<DrivePacketCatalog periodPackets />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open Financial statements" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
+  const detail = await screen.findByRole("dialog", { name: current.title });
+  await waitFor(() => expect(state.preparePreview).toHaveBeenCalledOnce());
+  fireEvent.click(within(detail).getByRole("button", { name: "Close detail panel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: /^Sep–Oct 2026/ }));
+  await waitFor(() => expect(state.preparePreview).toHaveBeenCalledTimes(2));
 });

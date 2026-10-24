@@ -13,10 +13,11 @@ def apply_drive_fixture_migration(connection: Connection, filename: str) -> None
         # Legacy share/search fixtures have no packet heads or processing. They
         # need only migration 411's nullable lookup column for shared queries.
         connection.exec_driver_sql(
-            "ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID"
+            "ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID, ADD COLUMN IF NOT EXISTS retention_checked_at TIMESTAMPTZ"
         )
     elif filename == "334_drive_reusable_packets.sql":
         apply_drive_fixture_migration(connection, "411_drive_period_packets.sql")
+        apply_drive_fixture_migration(connection, "416_financial_packet_tag_work.sql")
 
 
 def apply_bulk_search_fixture_migrations(connection: Connection) -> None:

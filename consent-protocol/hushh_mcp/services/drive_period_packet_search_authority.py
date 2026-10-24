@@ -6,6 +6,7 @@ from hushh_mcp.services.drive_request_discovery import discovery_delivery
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 SEMANTIC_COMMIT_KEYS = (
+    "query_source",
     "semantic_plan",
     "semantic_plan_digest",
     "semantic_assessment_policy",
@@ -60,6 +61,7 @@ def require_period_origin(store, connection, job, row):
         if str(row["period_packet_id"]) != period_origin["packet_id"] or any(
             frozen.get(key) != job["checkpoint"].get(key)
             for key in (
+                "query_source",
                 "period_packet_origin",
                 "semantic_plan",
                 "semantic_plan_digest",

@@ -31,7 +31,7 @@ from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
 WORKER_JOB_LIMITS = {
-    "period_packets": 1,
+    "period_packets": 2,
     "groups": 1,
     "documents": 20,
     "suggestions": 1,
@@ -122,6 +122,13 @@ _WORKER_ALLOWED_OUTCOMES = {
             "deferred",
             "paused",
             "not_claimed",
+            "tagging_queued",
+            "tagging_completed",
+            "tagging_partial",
+            "tagging_failed",
+            "tagging_idle",
+            "tagging_disabled",
+            "tagging_deferred",
         }
     ),
     "groups": frozenset(

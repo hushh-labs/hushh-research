@@ -20,6 +20,8 @@ CHANNEL = "google_drive_rest_v3"
 _STAGES = frozenset(
     {
         "packet_plan",
+        "packet_query",
+        "packet_tagging",
         "packet_snapshot",
         "search_claim",
         "search_authority",

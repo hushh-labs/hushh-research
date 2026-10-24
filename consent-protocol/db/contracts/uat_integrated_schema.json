@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 415,
+  "expected_migration_version": 416,
   "migration_version_policy": "exact",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -1079,6 +1079,7 @@
       "pages_scanned",
       "period_packet_id",
       "request_digest",
+      "retention_checked_at",
       "retry_count",
       "revision",
       "status",
@@ -1132,7 +1133,10 @@
       "period_end",
       "period_start",
       "period_timezone",
+      "predefined_query_version",
       "revision",
+      "tagging_next_at",
+      "tagging_pending",
       "updated_at",
       "user_id"
     ],
@@ -3978,5 +3982,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 415
+  "expected_schema_head": 416
 }

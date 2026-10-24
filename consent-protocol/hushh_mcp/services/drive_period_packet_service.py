@@ -1,4 +1,4 @@
-"""Finite metadata-only packet planning and discovery on the existing search queue."""
+"""Provider discovery and separate local organizing on the existing packet queue."""
 
 from __future__ import annotations
 
@@ -8,7 +8,10 @@ import os
 from collections import Counter
 from datetime import UTC, datetime
 
+from fastapi import HTTPException
+
 from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
+from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE, financial_queries
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_period_packet_contract import (
     CATEGORY_PURPOSES,
@@ -85,6 +88,11 @@ class DrivePeriodPacketService:
         return await self.store.ensure_owner(user_id=user_id, timezone=timezone)
 
     async def _plan(self, job, require_current):
+        if job["category"] == "financial":
+            from hushh_mcp.services.drive_financial_packet_query import financial_plan
+
+            await require_current()
+            return financial_plan(), None
         binding = semantic_request_model_binding()
         if binding["provider"] != "azure_openai":
             raise DriveReadError("connector_unavailable")
@@ -119,13 +127,21 @@ class DrivePeriodPacketService:
             "periodStart": job["period_start"].isoformat(),
             "periodEnd": job["period_end"].isoformat(),
         }
-        queries = compile_discovery_queries(
-            plan["semantic_query"],
-            file_kind=plan["file_kind"],
-            period_start=purpose["periodStart"],
-            period_end=purpose["periodEnd"],
-            timezone=job["period_timezone"],
-            shared_with_me=plan.get("shared_with_me", False),
+        queries = (
+            financial_queries(
+                period_start=purpose["periodStart"],
+                period_end=purpose["periodEnd"],
+                timezone=job["period_timezone"],
+            )
+            if job["category"] == "financial"
+            else compile_discovery_queries(
+                plan["semantic_query"],
+                file_kind=plan["file_kind"],
+                period_start=purpose["periodStart"],
+                period_end=purpose["periodEnd"],
+                timezone=job["period_timezone"],
+                shared_with_me=plan.get("shared_with_me", False),
+            )
         )
         state, _ = await self.search.store.create(
             user_id=job["user_id"],
@@ -147,6 +163,7 @@ class DrivePeriodPacketService:
                 "semantic_plan": plan["semantic_query"],
                 "semantic_plan_digest": semantic_plan_digest(plan["semantic_query"]),
                 "semantic_model_binding": binding,
+                **({"query_source": dict(QUERY_SOURCE)} if job["category"] == "financial" else {}),
                 "semantic_purpose": purpose,
                 "discovery_delivery_policy": DISCOVERY_DELIVERY_POLICY,
                 "evidence_route": "provider",
@@ -192,12 +209,25 @@ class DrivePeriodPacketService:
                 lease_id=job["lease_id"],
             )
 
+        logger.info(
+            "period_packet.claim queue_wait_ms=%.1f",
+            max(0, (datetime.now(UTC) - job["next_at"]).total_seconds() * 1000),
+        )
         build = job["build"]
+        deadline = asyncio.get_running_loop().time() + deadline_seconds
         try:
             async with asyncio.timeout(deadline_seconds):
-                with drive_stage(logger, "packet_plan"):
+                with drive_stage(
+                    logger, "packet_query" if job["category"] == "financial" else "packet_plan"
+                ):
                     plan, binding = await self._plan(job, current)
                 build = {**build, "plan": plan, "model_binding": binding}
+                if job["category"] == "financial":
+                    build["query_source"] = dict(QUERY_SOURCE)
+                    logger.info(
+                        "period_packet.query source=predefined version=%s planner_executed=false",
+                        QUERY_SOURCE["version"],
+                    )
                 state = await self._search_job(job, plan, binding)
 
                 async def snapshot(**_):
@@ -206,16 +236,26 @@ class DrivePeriodPacketService:
                         build = await snapshot_search(self.store, job, build, state["jobId"])
 
                 await snapshot()
-                if state["status"] != "completed":
+                for _ in range(4):
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if (
+                        state["status"] in {"completed", "failed", "limited", "stopped"}
+                        or remaining < 2
+                    ):
+                        break
                     await self.search.run_one(
                         user_id=user_id,
                         job_id=state["jobId"],
                         require_current=current,
-                        max_pages=2,
-                        deadline_seconds=min(30, deadline_seconds),
+                        max_pages=4,
+                        deadline_seconds=min(30, max(1, int(remaining) - 1)),
                         after_page=snapshot,
                     )
                     state = await self.search.store.status(user_id=user_id, job_id=state["jobId"])
+                    if state["status"] == "queued" and not state.get("errorCode"):
+                        await asyncio.sleep(1)  # bounded continuation, not a scheduler-minute gap
+                    else:
+                        break
                 await snapshot()
                 if state["status"] == "completed" and not state["incompleteSearch"]:
                     period = PacketPeriod(
@@ -261,14 +301,37 @@ class DrivePeriodPacketService:
         if os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "false").lower() != "true":
             return {"schema_version": "drive.period_packets.v1", "outcomes": {}}
         counts = Counter()
+        from hushh_mcp.services.drive_financial_packet_tagging import FinancialPacketTagger
+
+        async def discover(user_id):
+            try:
+                counts[
+                    await self.run_one(
+                        user_id=user_id, deadline_seconds=max(1, min(75, deadline_seconds - 1))
+                    )
+                ] += 1
+            except (DriveReadError, ValueError, TimeoutError, PermissionError, HTTPException):
+                counts["unavailable"] += 1
+
+        async def organize():
+            try:
+                tagger = FinancialPacketTagger(store=self.store)
+                counts[
+                    "tagging_" + await tagger.run_one(deadline_seconds=max(1, deadline_seconds - 2))
+                ] += 1
+            except (DriveReadError, ValueError, TimeoutError, PermissionError, HTTPException):
+                counts["tagging_deferred"] += 1
+
+        # Independent saved-result organizing never consumes the discovery budget.
+        # Two owners maximum; an ordinary foreground request retains slot priority.
+        owners = await self.store.due_owners(limit=min(max_jobs, 2))
         async with asyncio.timeout(deadline_seconds):
-            for user_id in await self.store.due_owners(limit=max_jobs):
-                try:
-                    counts[
-                        await self.run_one(
-                            user_id=user_id, deadline_seconds=min(75, deadline_seconds)
-                        )
-                    ] += 1
-                except (DriveReadError, ValueError, TimeoutError):
-                    counts["unavailable"] += 1
+            async with asyncio.TaskGroup() as group:
+                for user_id in owners:
+                    group.create_task(discover(user_id))
+                group.create_task(organize())
+        if counts["queued"] or counts["tagging_queued"]:
+            from hushh_mcp.services.drive_work_wake import wake_drive_work
+
+            await wake_drive_work("suggestions")
         return {"schema_version": "drive.period_packets.v1", "outcomes": dict(counts)}
