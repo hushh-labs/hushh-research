@@ -11,9 +11,9 @@ export function PaymentsAndEarnings() {
   const pathname = usePathname();
   const query = useSearchParams();
   const arrival = parseCommerceReturn(`${pathname}?${query.toString()}`);
-  return <>
+  return <div className="consent-presentation-surface contents">
     <ScopeCommerceAccountPanel />
     {arrival?.source === "answers" ? <section aria-label="Answer payout setup"><AnswerPayoutAccount /></section> : null}
     <DocumentHashcoinPayouts />
-  </>;
+  </div>;
 }

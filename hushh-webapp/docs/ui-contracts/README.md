@@ -8,6 +8,7 @@ flowchart LR
   index --> profile["Profile and nested management"]
   index --> feed["Feed and decisions"]
   index --> location["Location: onboarding, Now, People, Links and maps"]
+  index --> consent["Consent: requests, grants and reviews"]
   index --> mail["Mail: setup, Overview, KYC and Receipts"]
   index --> calendar["Calendar: setup, Schedule, Invitations and Insights"]
   index --> nav["Shared navigation and typography"]
@@ -29,6 +30,7 @@ owning implementation.
 | --- | --- |
 | Finance | [Portfolio and Stocks](./finance.md): value/history charts, holdings, allocation, performance, sources, stock facts and saved analysis |
 | Connect | [Connections and Circles](./connect.md): people discovery, contact sync, invitations, nearby directories, circle setup/join, members, chat, and immediate shared-feature handoffs |
+| Consent | [Consent Center and embedded reviews](./consent.md): Requests, Active, History, Connections, selected reviews, vault/revoke ceremonies and connected commerce/host handoffs |
 | Person profile | [Person profile and requests](./person-profile.md): another person's identity, phone/desktop geometry, fonts, relationship, grants, catalog, every request dialog, verbatim English copy/CTAs, packets and history |
 | Profile | [Profile](./profile.md): home, account, phone, payouts/receipts, pricing, preferences, security/devices, support, invitations, Legal and compatibility entries |
 | Profile Memory | [Memory and World Model](./profile-memory.md): categories, live memory, sharing, received information, Secrets, memory workspace, research facts and invitations |

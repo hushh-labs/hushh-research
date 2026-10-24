@@ -273,10 +273,11 @@ export function DocumentPayoutAccountCard({
         ) : null}
       </SettingsGroup>
       {bankCheckUnavailable && !resource.failed ? <Button type="button" size="sm" effect="fade" variant="none"
+        data-consent-quiet-action="true"
         disabled={busy || disabled} onClick={resource.retry}>Retry</Button> : null}
       {canManage && !compact ? <HelperText className="profile-account-note">Change your bank in Stripe. Deposits go to the bank shown here.</HelperText> : null}
       {resource.failed ? <div><HelperText role="alert" className="profile-account-note">{payoutErrorCopy(resource.error, "Couldn't check your bank. Try again.")}</HelperText>
-        {canManage ? <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button> : null}</div> : null}
+        {canManage ? <Button type="button" size="sm" effect="fade" variant="none" data-consent-quiet-action="true" onClick={resource.retry}>Retry</Button> : null}</div> : null}
       {bank.actionError ? <HelperText role="alert" className="profile-account-note">{bank.actionError.text}</HelperText> : null}
       {!compact && showHistory ? <DocumentEarningsHistory /> : null}
     </section>

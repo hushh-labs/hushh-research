@@ -34,6 +34,8 @@ type VaultUnlockDialogProps = {
   surfaceVariant?: "standard" | "hard_gate";
   /** Show the setup artwork and responsive layout around the real vault flow. */
   setupPresentation?: boolean;
+  /** Optional caller presentation scope on the actual portalled content. */
+  presentationClassName?: string;
   /**
    * When provided, VaultFlow shows a subtle "Sign out" escape on the unlock /
    * recovery steps. Passed only by the HARD vault gate (VaultLockGuard), where a
@@ -82,6 +84,7 @@ export function VaultUnlockDialog({
   dismissible = true,
   surfaceVariant = "standard",
   setupPresentation = false,
+  presentationClassName,
   onSignOut,
 }: VaultUnlockDialogProps) {
   const surfaceId = useId();
@@ -235,7 +238,7 @@ export function VaultUnlockDialog({
             boxShadow: "none",
             padding: 0,
           } as CSSProperties}
-          className={cn("outline-none focus:outline-none focus-visible:outline-none", setupPresentation && styles.setupDialog)}
+          className={cn("outline-none focus:outline-none focus-visible:outline-none", setupPresentation && styles.setupDialog, presentationClassName)}
           onOpenAutoFocus={(event) => {
             if (!setupPresentation) return;
             event.preventDefault();

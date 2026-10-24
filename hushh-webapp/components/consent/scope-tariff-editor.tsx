@@ -75,15 +75,15 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
       .finally(() => { if (active) setBusy(false); });
     return () => { active = false; setReview(null); };
   }, [open, showSavedPrice, user, scopeHandle, machineScope, capture, reviewRequest]);
-  return <div className="min-w-0 space-y-2">
-    <Button data-voice-control-id="pkm-review-sharing-price" variant="ghost" size="sm" className="h-auto min-h-11 max-w-full whitespace-normal text-right" onClick={() => setOpen(value => !value)} aria-label={`Set sharing price for ${label}`}>{showSavedPrice ? savedTariff ? savedTariff.price === 0 ? "Free · Set price" : `${formatCommerceMoney(savedTariff.price)} / ${savedTariff.hours}h` : "Check sharing price" : "Sharing price"}</Button>
-    <Dialog open={open} onOpenChange={value => { if (value) setOpen(true); else closeEditor(); }}><DialogContent><DialogHeader><DialogTitle>Price for {label}</DialogTitle><DialogDescription>Set the price and base term for this exact sharing section. Nothing changes until you confirm.</DialogDescription></DialogHeader><div className="space-y-3">
-      <label className="block space-y-2 text-sm">USD base price<Input inputMode="decimal" value={price} disabled={busy} onChange={event => setPrice(event.target.value)} /></label>
-      <label className="block space-y-2 text-sm">Base access term
-        <Select value={hours} onValueChange={setHours} disabled={busy}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{REQUEST_DURATION_OPTIONS.map(option => <SelectItem key={option.hours} value={String(option.hours)}>{option.label}</SelectItem>)}</SelectContent></Select>
+  return <div className="consent-presentation-surface min-w-0 space-y-2">
+    <Button data-voice-control-id="pkm-review-sharing-price" data-consent-quiet-action="true" variant="ghost" size="sm" className="h-auto min-h-11 max-w-full whitespace-normal text-right" onClick={() => setOpen(value => !value)} aria-label={`Set sharing price for ${label}`}>{showSavedPrice ? savedTariff ? savedTariff.price === 0 ? "Free · Set price" : `${formatCommerceMoney(savedTariff.price)} / ${savedTariff.hours}h` : "Check sharing price" : "Sharing price"}</Button>
+    <Dialog open={open} onOpenChange={value => { if (value) setOpen(true); else closeEditor(); }}><DialogContent className="consent-presentation-surface"><DialogHeader><DialogTitle>Price for {label}</DialogTitle><DialogDescription>Set the price and base term for this exact sharing section. Nothing changes until you confirm.</DialogDescription></DialogHeader><div className="space-y-3">
+      <label data-consent-role="form-label" className="block space-y-2 text-sm">USD base price<Input data-consent-input="true" inputMode="decimal" value={price} disabled={busy} onChange={event => setPrice(event.target.value)} /></label>
+      <label data-consent-role="form-label" className="block space-y-2 text-sm">Base access term
+        <Select value={hours} onValueChange={setHours} disabled={busy}><SelectTrigger data-consent-input="true"><SelectValue /></SelectTrigger><SelectContent className="consent-presentation-surface">{REQUEST_DURATION_OPTIONS.map(option => <SelectItem key={option.hours} value={String(option.hours)}>{option.label}</SelectItem>)}</SelectContent></Select>
       </label>
-      <p className="text-xs text-muted-foreground">100 coins = $1. Free still requires approval. Paid terms are prorated, from $0.01 up to $1,000. Processing costs reduce earnings.</p>
-      <p className="text-xs text-muted-foreground">{commerceReadinessCopy(readiness)}</p>
+      <p data-consent-role="helper" className="text-xs text-muted-foreground">100 coins = $1. Free still requires approval. Paid terms are prorated, from $0.01 up to $1,000. Processing costs reduce earnings.</p>
+      <p data-consent-role="helper" className="text-xs text-muted-foreground">{commerceReadinessCopy(readiness)}</p>
       {!readiness?.capabilities.set_paid_tariff ? <ProfilePaymentsLink className="inline-flex min-h-11 items-center text-sm underline" onClick={event => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         if (busy || review || onPaymentsNavigate?.() === false) { event.preventDefault(); return; }
@@ -99,9 +99,9 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
           setReview({ amount, hours: Number(hours), key: crypto.randomUUID() });
         } catch (error) { setMessage(error instanceof Error ? error.message : "Check the price and term."); }
       }}>Review sharing price</Button>
-      <Button data-voice-control-id="pkm-close-sharing-price-review" variant="ghost" disabled={busy} onClick={closeEditor}>Close price review</Button>
+      <Button data-voice-control-id="pkm-close-sharing-price-review" data-consent-quiet-action="true" variant="ghost" disabled={busy} onClick={closeEditor}>Close price review</Button>
     </div></DialogContent></Dialog>
-    <AlertDialog open={Boolean(review)} onOpenChange={value => { if (!value) cancelReview(); }}><AlertDialogContent><AlertDialogHeader>
+    <AlertDialog open={Boolean(review)} onOpenChange={value => { if (!value) cancelReview(); }}><AlertDialogContent className="consent-presentation-surface"><AlertDialogHeader>
       <AlertDialogTitle>{review?.amount === 0 ? "Confirm free sharing terms" : "Confirm sharing price"}</AlertDialogTitle>
       <AlertDialogDescription>{label}: {formatCommerceMoney(review?.amount ?? 0)} for {review?.hours} hours. Each requester still needs your approval. {review?.amount === 0 ? "Free sharing does not require payment setup. Existing paid agreements keep their accepted terms." : "Earlier revocation refunds unused paid time; you bear unrecovered processing fees."}</AlertDialogDescription>
     </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel data-voice-control-id="pkm-close-sharing-price-review" disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => {

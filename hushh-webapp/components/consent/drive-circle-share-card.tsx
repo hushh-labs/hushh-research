@@ -298,7 +298,7 @@ function UnlockedDriveCircleShareCard({
                 : null;
 
   return (
-    <section aria-label="Share Drive files with your Trusted circle" className="min-w-0 space-y-4 break-words"
+    <section aria-label="Share Drive files with your Trusted circle" className="consent-presentation-surface min-w-0 space-y-4 break-words"
       data-testid="drive-circle-share">
       <div role="status" aria-live="polite" className="min-w-0 space-y-1">
         {statusLine ? <BodyText>{statusLine}</BodyText> : null}

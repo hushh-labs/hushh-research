@@ -93,7 +93,7 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
   const description = [presented.line, presented.remaining].filter(Boolean).join(" · ");
   return (
     <>
-      <SettingsGroup embedded title="Payment" testId="requester-payment-section">
+      <SettingsGroup embedded title="Payment" testId="requester-payment-section" className="consent-presentation-surface">
         <SettingsRow
           title={presented.title}
           description={

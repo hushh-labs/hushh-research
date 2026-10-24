@@ -255,7 +255,12 @@ function ExperienceShell({
   children: ReactNode;
 }) {
   return (
-    <section data-experience-type={experienceType} className="overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]">
+    <section data-experience-type={experienceType} className={`${[
+      "one.information_request_review.v1",
+      "one.document_request_review.v1",
+      "one.drive_share_review.v1",
+      "one.drive_bulk_share_review.v1",
+    ].includes(experienceType) ? "consent-presentation-surface " : ""}overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]`}>
       <header className="flex items-start gap-3 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
         {/* /one iconography: a bare duotone glyph on a transparent well. A
             registry capability glyph keeps its own colour; a utility glyph
@@ -265,8 +270,8 @@ function ExperienceShell({
         </span>
         <div className="min-w-0 flex-1">
           <p className="ui-text-section-label text-accent-strong">{label}</p>
-          <h3 className="mt-1 text-base font-semibold tracking-[-0.015em] text-foreground">{title}</h3>
-          {summary ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{summary}</p> : null}
+          <h3 data-consent-role="row-title" className="mt-1 text-base font-semibold tracking-[-0.015em] text-foreground">{title}</h3>
+          {summary ? <p data-consent-role="body" className="mt-1 text-sm leading-5 text-muted-foreground">{summary}</p> : null}
         </div>
       </header>
       <div className="bg-background/72 px-4 py-4 backdrop-blur-xl sm:px-5">{children}</div>
@@ -505,17 +510,17 @@ function ScopeDiscoveryView({
     <section
       aria-label={`Information available from ${experience.person.displayName}`}
       data-experience-type={experience.type}
-      className="space-y-3"
+      className="consent-presentation-surface space-y-3"
     >
       <header className="flex items-start gap-3 px-1">
         <span data-slot="card-header-icon" className="inline-flex h-9 w-9 shrink-0 items-center justify-center">
           <ConsentAgentIcon className="h-7 w-7" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-foreground">
+          <h3 data-consent-role="row-title" className="text-sm font-semibold text-foreground">
             What {personName(profile?.displayName || experience.person.displayName)} can share with you
           </h3>
-          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+          <p data-consent-role="helper" className="mt-0.5 text-xs leading-5 text-muted-foreground">
             {!profile ? !personRef ? "This saved card cannot be used to make a request. Ask One to check again." : !user ? "Sign in to check what is available." : !isVaultUnlocked ? "Unlock your vault to continue here." : "Checking what is currently available to request."
               : total === 0
               ? "Nothing is currently available to request."
@@ -547,25 +552,25 @@ function ScopeDiscoveryView({
       {unavailable ? <p role="alert" className="text-sm text-muted-foreground">We couldn’t check available information. Please try again.</p> : null}
       {profile?.scopeCatalog?.hasMore ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <p className="text-muted-foreground">{displayScopes.length} of {total} loaded. Search checks loaded information.</p>
-        <MorphyButton type="button" size="sm" disabled={loading} onClick={() => void loadMore()}>
+        <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={loading} onClick={() => void loadMore()}>
           {loading ? "Loading more…" : unavailable ? "Try loading more again" : "Load more information"}
         </MorphyButton>
-      </div> : unavailable ? <MorphyButton type="button" size="sm" onClick={() => setRetry(value => value + 1)}>Try again</MorphyButton> : null}
+      </div> : unavailable ? <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" onClick={() => setRetry(value => value + 1)}>Try again</MorphyButton> : null}
 
-      {reviewing && profile ? <section aria-label="Review information request" className="space-y-3 rounded-2xl border border-border p-3 sm:p-4">
+      {reviewing && profile ? <section aria-label="Review information request" className="consent-presentation-surface space-y-3 rounded-2xl border border-border p-3 sm:p-4">
         <h4 className="font-semibold">Request information from {profile.displayName}</h4>
         <p className="text-sm text-muted-foreground">They will see exactly what you asked for, why, and for how long. Nothing is sent until you confirm.</p>
         <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
           onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} testIdPrefix="chat-request" />
         {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
         <div className="flex flex-wrap justify-end gap-2">
-          <MorphyButton type="button" size="sm" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
-          <MorphyButton type="button" size="sm" disabled={!request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
+          <MorphyButton type="button" size="sm" data-consent-quiet-action="true" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
+          <MorphyButton type="button" size="sm" className="min-h-11" disabled={!request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
             onClick={() => sendRequest({ scopes: selectedScopes, purpose, durationHours })}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
         </div>
       </section> : null}
       {!reviewing ? <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-1">
-        {items.length ? <MorphyButton type="button" size="sm" disabled={!selectedScopes.length || loading}
+        {items.length ? <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={!selectedScopes.length || loading}
           onClick={() => setReviewing(true)}>Review request</MorphyButton> : null}
         <Link href={experience.person.profilePath} className="inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>
       </div> : <Link href={experience.person.profilePath} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>}
@@ -889,7 +894,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
           : progress.outcome === "expired" ? "Request expired"
             : progress.outcome === "partially_granted" ? "Partly shared" : "Shared with you";
     return (
-      <div className="space-y-3">
+      <div className="consent-presentation-surface space-y-3">
         <ExperienceShell
           experienceType={experience.type}
           label={progressLabel}
@@ -906,7 +911,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   }
 
   return (
-    <div className="space-y-3">
+    <div className="consent-presentation-surface space-y-3">
     <ExperienceShell
       experienceType={experience.type}
       label={label}

@@ -27,7 +27,6 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import {
@@ -958,14 +957,14 @@ function ConsentHistoryLifecycleDetails({
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                  <div data-consent-role="fact-label" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     {lifecycleLabel(trailIndex)}
                   </div>
-                  <div className="mt-1 text-sm font-semibold leading-5 text-foreground">
+                  <div data-consent-role="row-title" className="mt-1 text-sm font-semibold leading-5 text-foreground">
                     {scopeLabel}
                   </div>
                   {latestDate ? (
-                    <div className="mt-1 text-xs text-muted-foreground">
+                    <div data-consent-role="helper" className="mt-1 text-xs text-muted-foreground">
                       Latest {latestDate}
                     </div>
                   ) : null}
@@ -1079,10 +1078,11 @@ function ConsentSharePreviewRow({
       className="min-w-0 space-y-1 sm:col-span-2"
       data-testid="consent-share-preview"
     >
-      <dt className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+      <dt data-consent-role="fact-label" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
         What they&apos;ll see
       </dt>
       <dd
+        data-consent-role="fact-value"
         className="text-sm leading-5 text-foreground"
         aria-busy={state.status === "loading"}
       >
@@ -1533,10 +1533,10 @@ function ConsentEntryDetail({
           {detailItems.map(([label, value], index) => (
             <Fragment key={label}>
               <div className="min-w-0 space-y-1">
-                <dt className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                <dt data-consent-role="fact-label" className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   {label}
                 </dt>
-                <dd className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
+                <dd data-consent-role="fact-value" className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
                   {value}
                 </dd>
               </div>
@@ -1644,7 +1644,7 @@ function ConsentEntryDetail({
           aria-label="Consent decision"
         >
           {!isConnectionDecision && !isLocationEntry && !isMarketplaceDecision && entry?.scope?.startsWith("attr.") ? (
-            <label className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
+            <label data-consent-role="disclosure" className="flex w-full items-start gap-3 pb-2 text-sm text-muted-foreground">
               <Checkbox checked={modelProcessingApproved()} disabled={requestBusy}
                 onCheckedChange={(checked) => setModelApproval(checked === true ? { review: modelReviewBinding, epoch: snapshotVaultSessionEpoch() } : null)} />
               <span>Allow this recipient’s private agent and selected model to use these approved details for the stated purpose, including personal identifiers. This does not allow further sharing.</span>
@@ -1671,7 +1671,7 @@ function ConsentEntryDetail({
                     }
                   />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="consent-presentation-surface">
                   {durationOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -1779,7 +1779,7 @@ function ConsentEntryDetail({
       {entry.metadata?.commercial_required === true && (entry.request_id || entry.metadata?.request_id) ? (
         <SettingsGroup embedded title="Paid sharing" description="Review payment and prepare approved encrypted information.">
           <SettingsRow title="Sharing payment" description="Payment and export preparation have separate statuses." trailing={
-            <Button asChild variant="none" effect="fade" size="sm"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(entry.metadata?.request_id || entry.request_id))}`}>Review payment</Link></Button>
+            <Button asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true"><Link href={`/one/consent?commerceRequestId=${encodeURIComponent(String(entry.metadata?.request_id || entry.request_id))}`}>Review payment</Link></Button>
           } />
         </SettingsGroup>
       ) : null}
@@ -1794,7 +1794,7 @@ function ConsentEntryDetail({
             title={relatedWorkspace.title}
             description={relatedWorkspace.description}
             trailing={
-              <Button asChild variant="none" effect="fade" size="sm">
+              <Button asChild variant="none" effect="fade" size="sm" data-consent-quiet-action="true">
                 <Link
                   href={relatedWorkspace.href}
                   data-voice-control-id="consent_open_request"
@@ -3732,9 +3732,8 @@ export function ConsentCenterPage() {
     setPreviousLocalPage,
   );
   return (
-    <AppPageShell as="main" width="agent" headerContentSpacing="compact" fitContent>
+    <AppPageShell as="main" width="agent" headerContentSpacing="compact" fitContent data-consent-presentation="workspace">
       <AppPageHeaderRegion className="space-y-[var(--page-header-section-gap)]">
-        <PageHeader title="Consent Center" titleRole="agent" />
         <TopShellTabs tabSet={consentTabSet} />
       </AppPageHeaderRegion>
       <SettingsPresentationProvider density="compact">
@@ -3761,6 +3760,7 @@ export function ConsentCenterPage() {
                       aria-label={searchPlaceholder}
                       placeholder={searchPlaceholder}
                       className="pl-9"
+                      data-consent-input="true"
                       data-voice-control-id="consent_search"
                     />
                   </div>
@@ -4051,9 +4051,10 @@ export function ConsentCenterPage() {
           }
           mobilePresentation="sheet"
           // A document request uses the header scale of every dialog in its flow.
-          surfaceClassName={
-            isDocumentSelection ? DOCUMENT_FLOW_SURFACE_TYPE : undefined
-          }
+          surfaceClassName={cn(
+            "consent-presentation-surface",
+            isDocumentSelection && DOCUMENT_FLOW_SURFACE_TYPE,
+          )}
           // Grouped background: the request's actionable sections read as cards.
           bodyClassName={
             isDocumentSelection
@@ -4147,6 +4148,7 @@ export function ConsentCenterPage() {
                       effect="fade"
                       size="sm"
                       onClick={closeDetailPanel}
+                      data-consent-quiet-action="true"
                     >
                       View list
                     </Button>
@@ -4167,6 +4169,7 @@ export function ConsentCenterPage() {
                         closeDetailPanel();
                         commitConsentTab("history");
                       }}
+                      data-consent-quiet-action="true"
                     >
                       Open History
                     </Button>
