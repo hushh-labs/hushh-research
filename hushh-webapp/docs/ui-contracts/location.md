@@ -1,6 +1,6 @@
 # Location UI Contract
 
-Status: **Implementation complete / acceptance pending**, 24 October 2026, for the CTA presentation pass initially developed from fetched `origin/main` `dcc4f611e39c80a0001df0ada3f47e85b445421e` and prepared for review atop `6e6563f32ed2360bdb008cc6daaf82e180b7e598`. The source passed in the request, `9af321d2a95610d7a90ecc8f80ee9d54bd8171b6`, is an ancestor with no scoped Location/Connect/CSS/doc delta up to the initial checkout. GitHub delivery and merge status are tracked by the associated PR.
+Status: **Implementation complete / acceptance pending**, 24 October 2026, for the CTA presentation pass initially developed from fetched `origin/main` `dcc4f611e39c80a0001df0ada3f47e85b445421e`. PR #8409 was first based on `6e6563f32ed2360bdb008cc6daaf82e180b7e598` and then merged with `22507a43575a14badf29af4e77de7b34b249c725` for combined review. The source passed in the request, `9af321d2a95610d7a90ecc8f80ee9d54bd8171b6`, is an ancestor with no scoped Location/Connect/CSS/doc delta up to the initial checkout. GitHub delivery and merge status are tracked by the PR.
 Initial full-audit main baseline: `b34d1e93d291cfa106b08893a9587973867044f2`. Earlier composition review: `901838b512c426656c30a87c4f61f09760d1b09e`; see [verification](./location-verification.md) for bounded refreshes and evidence provenance.
 The fresh mounted inventory and typography evidence supersede the earlier
 `47026022e873ac03f62423eda5122e4f3f117945` source review; unchanged functional chapters remain below.
