@@ -361,3 +361,83 @@ def test_hosted_profile_does_not_require_legacy_location_but_keeps_credentials(
     }
     if missing_credential:
         assert "runtime_mount_missing" in report["classifications"]
+
+
+@pytest.mark.parametrize(
+    ("environment", "missing_shared", "expected"),
+    [
+        ("production", False, 0),
+        ("uat", False, 0),
+        ("development", False, 1),
+        (None, False, 1),
+        ("production", True, 1),
+    ],
+)
+def test_crm_parity_follows_candidate_product_admission(
+    monkeypatch, tmp_path, environment, missing_shared, expected
+):
+    external = set(parity.BACKEND_CONNECTED_SYSTEMS_REQUIRED[2:])
+    missing = external | ({"OMNIGATEWAY_CLIENT_ID"} if missing_shared else set())
+    keys = set(parity.BACKEND_RUNTIME_REQUIRED) | set(parity.BACKEND_CONNECTED_SYSTEMS_REQUIRED)
+    env = [
+        {"name": key, "valueFrom": {"secretKeyRef": {"name": key, "key": "latest"}}}
+        for key in keys - missing - {"ENVIRONMENT"}
+    ]
+    if environment:
+        env.append({"name": "ENVIRONMENT", "value": environment})
+    revision = {
+        "metadata": {"labels": {"serving.knative.dev/service": "consent-protocol"}},
+        "spec": {"containers": [{"env": env}]},
+    }
+    monkeypatch.setattr(parity, "_describe_run_revision", lambda *_: revision)
+    monkeypatch.setattr(parity, "_has_secret", lambda _project, key: key not in missing)
+    monkeypatch.setattr(parity, "_domain_runtime_contract", lambda *_: {"status": "valid"})
+    report_path = tmp_path / "parity.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify",
+            "--project",
+            "fixture",
+            "--backend-revision",
+            "candidate",
+            "--assert-runtime-env-contract",
+            "--require-connected-systems",
+            "--report-path",
+            str(report_path),
+        ],
+    )
+    assert parity.main() == expected
+    report = json.loads(report_path.read_text())
+    assert {row["key"] for row in report["runtime_contract"]["backend_connected_systems"]} == set(
+        report["required"]["connected_systems"]
+    )
+    if environment in {"production", "uat"}:
+        assert report["connected_systems_product_contract"]["status"] == "disabled_by_application"
+        assert not external.intersection(report["required"]["connected_systems"])
+    if missing_shared:
+        assert "OMNIGATEWAY_CLIENT_ID" in report["missing_secrets"]
+        assert "runtime_mount_missing" in report["classifications"]
+
+
+@pytest.mark.parametrize("result", [None, "false", True])
+def test_unproven_crm_product_policy_keeps_all_credentials(monkeypatch, result):
+    monkeypatch.setattr(parity, "run_path", lambda _: {"crm_product_available": lambda **_: result})
+    required, contract = parity._connected_systems_credentials(
+        {"ENVIRONMENT": {"value": "production"}}
+    )
+    assert required == parity.BACKEND_CONNECTED_SYSTEMS_REQUIRED
+    assert contract["external_crm_credentials"] == "required"
+
+
+def test_missing_crm_product_authority_keeps_all_credentials(monkeypatch):
+    def unavailable(_):
+        raise FileNotFoundError("candidate predates availability contract")
+
+    monkeypatch.setattr(parity, "run_path", unavailable)
+    required, contract = parity._connected_systems_credentials(
+        {"ENVIRONMENT": {"value": "production"}}
+    )
+    assert required == parity.BACKEND_CONNECTED_SYSTEMS_REQUIRED
+    assert contract["status"] == "unverified"

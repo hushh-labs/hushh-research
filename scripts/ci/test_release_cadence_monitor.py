@@ -179,6 +179,25 @@ class MonitorTest(unittest.TestCase):
             info.assert_not_called()
         self.assertEqual(state, before)
 
+    def test_enabled_baseline_failure_replaces_stale_disabled_label(self):
+        previous = {"automation_enabled": False, "checkpoint_at": "2026-10-22T09:14:34Z",
+                    "seen": {"automation-status": "disabled"}}
+        with patch.object(monitor, "runs", return_value=[]), \
+                patch.object(monitor, "git", return_value="2026-10-24T03:12:52Z"):
+            journal, notices = monitor.observations(REPOSITORY, None, {}, previous, False, enabled=True)
+            journal["production_baseline_run_id"] = 40050081063
+            body = monitor.issue_body(counted(10), journal, 100)
+            self.assertIn("configured enabled; admission blocked", body)
+            self.assertIn("Current verified UAT count: unavailable", body)
+            self.assertIn("40050081063", body)
+            self.assertNotIn("releases disabled", body)
+            self.assertNotIn("count: 10", body)
+            self.assertFalse(any("resumed" in notice for notice in notices))
+            _, repeated = monitor.observations(REPOSITORY, None, {}, journal, False, enabled=True)
+            self.assertEqual(repeated, [])
+            disabled, _ = monitor.observations(REPOSITORY, None, {}, {}, False, enabled=False)
+            self.assertIn("checkpoint unavailable", monitor.issue_body(None, disabled, 100))
+
     def test_failed_uat_is_reported_once_without_mutating_accounting(self):
         state = counted(2)
         before = deepcopy(state)
@@ -236,7 +255,9 @@ class MonitorTest(unittest.TestCase):
     def test_lost_comment_response_is_recovered_without_duplicate_or_ledger_write(self):
         state = counted(2)
         before = deepcopy(state)
-        saved = {"number": 1, "body": monitor.issue_body(state, {}, 100), "comments": 0}
+        saved = {"number": 1, "body": monitor.issue_body(state, {
+            "automation_enabled": False, "accounting_verified": True,
+            "checkpoint_at": "2026-10-22T09:14:34Z"}, 100), "comments": 0}
         comments = []
         fail_once = [True]
         def transport(path, data=None, **kwargs):
@@ -254,8 +275,14 @@ class MonitorTest(unittest.TestCase):
             self.fail(path)
         with patch.object(monitor, "api", side_effect=transport):
             with self.assertRaisesRegex(core.UnsafeRelease, "lost comment"):
-                monitor.publish(REPOSITORY, deepcopy(saved), state, {"seen": {"one": "done"}}, ["First notice"], 100, "maintainer")
+                monitor.publish(REPOSITORY, deepcopy(saved), state, {
+                    "automation_enabled": True, "accounting_verified": False,
+                    "seen": {"one": "done"}}, ["First notice"], 100, "maintainer")
             self.assertIn("pending_notice", monitor.read_journal(saved["body"]))
+            self.assertIn("configured enabled; admission blocked", saved["body"])
+            self.assertIn("count: unavailable", saved["body"])
+            self.assertNotIn("count: 2", saved["body"])
+            self.assertNotIn("releases disabled", saved["body"])
             monitor.publish(REPOSITORY, deepcopy(saved), state, {"seen": {"one": "done", "two": "done"}},
                             ["Second notice"], 101, "maintainer")
         self.assertEqual(len(comments), 2)
