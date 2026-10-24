@@ -502,3 +502,47 @@ def test_managed_capability_policy_is_uat_only_versioned_and_rejects_conflicting
     path.write_text(json.dumps(value))
     with pytest.raises(ValueError, match="768"):
         load_managed_runtime_policy(path, environment="uat")
+
+
+def test_compact_public_search_descriptor_and_qualification_are_one_policy(monkeypatch, tmp_path):
+    import copy
+    import json
+
+    import pytest
+
+    from hushh_mcp.managed_ai_config import PROFILE_PATH, load_managed_runtime_policy
+
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    original = json.loads(PROFILE_PATH.read_text())
+    baseline = load_managed_runtime_policy(environment="uat")
+    path = tmp_path / "profile.json"
+    changed = copy.deepcopy(original)
+    changed["managed_runtime_uat"]["azure"]["compact_public_search"]["deployment"] = (
+        "another-admitted-search"
+    )
+    path.write_text(json.dumps(changed))
+    updated = load_managed_runtime_policy(path, environment="uat")
+    assert updated["config_fingerprint"] != baseline["config_fingerprint"]
+    assert updated["generation"] != baseline["generation"]
+    for defect in ("unqualified", "unbound", "wrong_budget", "unknown_field"):
+        value = copy.deepcopy(original)
+        policy = value["managed_runtime_uat"]
+        if defect == "unqualified":
+            policy["required_capabilities"].remove("compact_public_search")
+        elif defect == "unbound":
+            policy["azure"].pop("compact_public_search")
+        elif defect == "wrong_budget":
+            policy["azure"]["compact_public_search"]["reasoning_effort"] = "minimal"
+        else:
+            policy["azure"]["compact_public_search"]["endpoint"] = "https://untrusted.test"
+        path.write_text(json.dumps(value))
+        with pytest.raises(ValueError):
+            load_managed_runtime_policy(path, environment="uat")
+    legacy = copy.deepcopy(original)
+    legacy["managed_runtime_uat"]["azure"].pop("compact_public_search")
+    legacy["managed_runtime_uat"]["required_capabilities"].remove("compact_public_search")
+    path.write_text(json.dumps(legacy))
+    assert (
+        "compact_public_search" not in load_managed_runtime_policy(path, environment="uat")["azure"]
+    )
