@@ -1127,8 +1127,7 @@ describe("top shell breadcrumbs", () => {
 });
 
 describe("top shell title slot", () => {
-  // What the bar would otherwise swap in once the page header scrolls away:
-  // the centred folder-and-Memory chip the founder reported.
+  // A scroll chip must not replace an authored breadcrumb trail.
   const scrolledChip = { label: "Memory", icon: "folder", interactive: false };
 
   function slotLabels(pathname: string, search: string) {
@@ -1142,8 +1141,8 @@ describe("top shell title slot", () => {
   }
 
   it.each([
-    // Agent roots own their visible heading in the page body, not beside Back.
-    ["/one/pkm", "", "none"],
+    // Memory now places its one visible title beside the shared Back.
+    ["/one/pkm", "", ["Memory"]],
     ["/one/gmail", "", ["Mail"]],
     ["/one/feed", "", ["Feed"]],
     ["/one/connect", "", ["Connect"]],
@@ -1184,10 +1183,11 @@ describe("top shell title slot", () => {
     });
   });
 
-  it("keeps an agent-root title slot empty even when a scroll chip is offered", () => {
+  it("keeps Memory's authored title when a scroll chip is offered", () => {
     const breadcrumb = resolveTopShellBreadcrumb("/one/pkm");
     expect(resolveTopShellTitleSlot(breadcrumb, scrolledChip)).toEqual({
-      kind: "none",
+      kind: "trail",
+      items: [{ label: "Memory" }],
     });
   });
 });

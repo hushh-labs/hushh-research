@@ -235,6 +235,7 @@ not those comments or an isolated fixture's absent context.
 | Connect action |Explicit action role12/18/550; utility controls13/21/550→12≤620. |
 | Calendar ordinary action |Scoped transparent44px target and neutral accent44px pill, label12/18/550. Full-flow and final confirmation controls retain their shared owner. |
 | Calendar body and portal |Plus Jakarta Sans via product aliases; section14/22/600, row14/21/550, support12/18/400, modal title20/28/600. Calendar semantic Input14/22 above620 and16/22 at≤620. |
+| Mounted `/one/pkm` Memory |Consumes the same compact row/section/form/action tokens within `data-pkm-workspace` and `data-pkm-overlay`; the two Saved/Add tabs remain15/20/550. Its category/leaf content title is28/36/600 and Memory Dialog title20/28/600. This opt-in does not change Profile's nested detail scale; see [Memory contract](./profile-memory.md#memory-header-type-and-cta-presentation). |
 | Connect person layout |Settings slots; identity and actions siblings;36avatar/min72 desktop/70≤620; one column. |
 | Connect remove Dialog |Portalled explicit empty Profile type scope; its own dialog scale, not inherited workspace tokens. |
 | Feed top-bar title |Page context20/23/600. |

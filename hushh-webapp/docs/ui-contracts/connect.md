@@ -510,6 +510,11 @@ its full-flow/confirmation controls keep their own hierarchy. See the
 [mounted Calendar presentation reconciliation](./calendar.md#mounted-presentation-reconciliation--24-october-2026)
 for branch, portal, action and evidence boundaries.
 
+The mounted [Memory workspace](./profile-memory.md#mounted-memory-workspace-and-handoff)
+consumes these row, section, form, action and header roles through its own
+bounded CSS/portal markers. Connect retains ownership of its directory layout
+and relationship behavior; Memory retains its Saved/Add pager and PKM writers.
+
 ## Per-row read and mutation contract
 
 This section makes the preceding interaction inventory executable to review.
