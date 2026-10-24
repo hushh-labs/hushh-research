@@ -111,6 +111,7 @@ export function LiveMirrorPreview({
           locked ? undefined : (
             <Link
               href={buildProfileRoute({ panel: "my-data" })}
+              data-pkm-utility="true"
               onClick={onNavigate}
               className="ui-text-trailing-action inline-flex min-h-11 items-center rounded-md px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >

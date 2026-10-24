@@ -8,13 +8,22 @@ import { ROUTES } from "../../lib/navigation/routes";
 import { PkmSettingsShell } from "../../components/profile/pkm-settings-shell";
 import { SoulMemoryPanelBody } from "../../components/profile/soul-memory-panel";
 import type { SoulMemoryModel } from "../../components/profile/use-soul-memory-model";
+import { PkmNaturalPanelBody } from "../../components/profile/pkm-natural-panel";
+import type { PkmNaturalModel, MemoryWorkspaceTab } from "../../components/profile/use-pkm-natural-model";
+import type { AgentPkmPreviewCard } from "../../lib/agent/agent-pkm-memory";
 
 const MEMORY = "# memory.md\n\n## Facts\n- Synthetic detail with a long reference: " + "reference".repeat(14)
   + "\n- A second detail that stays aligned.\n\n## Preferences\n- Concise answers.\n\n## Commitments\n- Review next week.\n";
 
 function MemoryWorkspace() {
+  const addFixture = new URLSearchParams(window.location.search).get("workspace") === "add";
   const [draft, changeDraft] = useState(MEMORY);
   const [editing, setEditing] = useState(false);
+  const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("add");
+  const [captureText, changeCaptureText] = useState("");
+  const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
+  const [captureMessage, setCaptureMessage] = useState<string | null>(null);
+  const [identifierApproved, setIdentifierApproved] = useState(false);
   const model: SoulMemoryModel = {
     active: true, verified: true, current: { document: { markdown: MEMORY, persisted: true }, draft },
     editing, loading: false, failed: false, saving: false, conflict: false, sync: undefined,
@@ -22,13 +31,42 @@ function MemoryWorkspace() {
     changeDraft, save: async () => { setEditing(false); }, retrySync: async () => undefined,
     retryLoad() {}, reloadLatest() {},
   };
-  return <PkmSettingsShell title="Memory" titleRole="agent" shellWidth="agent">
-    <div className="space-y-[var(--page-header-section-gap)]">
-      <SegmentedTabs tabSetId="memory" ariaLabel="Memory" value="browse" options={[
-        { value: "browse", label: "Saved" }, { value: "add", label: "Add" },
-      ]} mobileColumns={2} variant="agent-top" onValueChange={() => {}} />
-      <SoulMemoryPanelBody model={model} />
-    </div>
+  const naturalModel = {
+    authLoading: false, signedIn: true, canOpen: true, isVaultUnlocked: true,
+    nativeDataState: "ready", locationView: false, selectedCard: null,
+    selectedMetadataDomain: null, workspaceTab, setWorkspaceTab,
+    soul: model, homeSearchQuery: "", setHomeSearchQuery() {},
+    metadata: {}, bootstrapLoading: false, bootstrapError: null,
+    memoryCards: [], memoryCardsLoading: false, memoryCardsLoadError: null,
+    categories: [], recentMemories: [], trimmedQuery: "", searchResults: [],
+    matchedCategories: [], visibleMetadataDomains: [], sharingManifests: {},
+    sharingManifestsLoading: false, sharingActionKey: null, ownerId: "synthetic-owner",
+    exportBusy: false, exportStatus: null, exportError: null,
+    updateSharingBundles() {}, handleExportMemory() {}, setRefreshNonce() {},
+    setMemoryCardsNonce() {},
+    captureText, changeCaptureText: (value: string) => { changeCaptureText(value); setCaptureCards([]); },
+    captureCards, captureSaveableCards: captureCards, captureLoading: false,
+    captureSaving: false, captureMessage, setCaptureMessage,
+    identifierProcessingApproved: () => identifierApproved,
+    setIdentifierProcessingApproval: setIdentifierApproved,
+    captureHasSharedRecipients: false, captureSharingImpactAcknowledged: false,
+    setCaptureSharingImpactAcknowledged() {}, captureHasUnresolvedSource: false,
+    captureUnresolvedSections: [], captureRetryingSectionKey: null,
+    domainTitles: new Map([["preferences", "Preferences"]]),
+    previewMemoryCapture: async () => setCaptureCards([{
+      card_id: "synthetic-review", source_text: captureText,
+      write_mode: "confirm_first", target_domain: "preferences",
+    }]),
+    retryCaptureSection: async () => {}, saveMemoryCapture: async () => setCaptureMessage("Synthetic save acknowledged."),
+  } as unknown as PkmNaturalModel;
+  return <PkmSettingsShell title="Memory" titleRole="agent" titleVisuallyHidden shellWidth="agent">
+    {addFixture ? <PkmNaturalPanelBody model={naturalModel} view="home" locationMemoryId={null} />
+      : <div className="space-y-[var(--page-header-section-gap)]">
+        <SegmentedTabs tabSetId="memory" ariaLabel="Memory" value="browse" options={[
+          { value: "browse", label: "Saved" }, { value: "add", label: "Add" },
+        ]} mobileColumns={2} variant="agent-top" onValueChange={() => {}} />
+        <SoulMemoryPanelBody model={model} />
+      </div>}
   </PkmSettingsShell>;
 }
 

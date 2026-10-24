@@ -140,6 +140,7 @@ export function PkmMemoryDetail({
     <div className="space-y-7" data-pkm-detail-panel="true" data-pkm-memory-detail="true" data-pkm-location-view={displayValue !== undefined ? "true" : undefined}>
       {!hideBack ? <button
         type="button"
+        data-pkm-utility="true"
         onClick={onBack}
         className="-ml-1 inline-flex min-h-11 items-center gap-1 text-[15px] font-normal text-muted-foreground transition-colors hover:text-foreground"
       >
@@ -148,12 +149,12 @@ export function PkmMemoryDetail({
       </button> : null}
 
       <div className="space-y-2">
-        {displayContext ? <p className="text-[13px] leading-5 text-muted-foreground">{displayContext}</p> : null}
-        <h2 className="text-[26px] font-semibold leading-tight tracking-tight text-foreground">
+        {displayContext ? <p data-pkm-helper="true" className="text-[13px] leading-5 text-muted-foreground">{displayContext}</p> : null}
+        <h2 data-pkm-content-title="true" className="text-[26px] font-semibold leading-tight tracking-tight text-foreground">
           {primary}
         </h2>
         {secondary ? (
-          <p className="whitespace-pre-wrap break-words text-[15px] leading-7 text-muted-foreground">{secondary}</p>
+          <p data-pkm-content-value="true" className="whitespace-pre-wrap break-words text-[15px] leading-7 text-muted-foreground">{secondary}</p>
         ) : null}
       </div>
 
@@ -163,7 +164,7 @@ export function PkmMemoryDetail({
           onClick={() => changeSharingOpen(true)}
           ariaLabel="Open sharing settings"
           trailing={
-            <span className="flex items-center gap-1 text-[15px] text-muted-foreground">
+            <span data-pkm-helper="true" className="flex items-center gap-1 text-[15px] text-muted-foreground">
               {sharingRowValue(sharingState)}
               <ChevronRight className="h-4 w-4 text-muted-foreground/60" aria-hidden />
             </span>
@@ -190,7 +191,7 @@ export function PkmMemoryDetail({
               />
             </SettingsGroup>
           ) : null}
-          <p className="px-4 text-[13px] leading-5 text-muted-foreground" data-testid="memory-detail-reserved-note">
+          <p className="px-4 text-[13px] leading-5 text-muted-foreground" data-pkm-helper="true" data-testid="memory-detail-reserved-note">
             {reservedOwner.appName} manages this. Edit or remove it there.
           </p>
         </div>
@@ -217,7 +218,7 @@ export function PkmMemoryDetail({
       )}
 
       <AlertDialog open={forgetOpen} onOpenChange={(open) => (busy ? undefined : setForgetOpen(open))}>
-        <AlertDialogContent size="sm">
+        <AlertDialogContent size="sm" data-pkm-overlay="true">
           <AlertDialogHeader>
             <AlertDialogTitle>Forget this memory?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -234,11 +235,11 @@ export function PkmMemoryDetail({
       </AlertDialog>
 
       <Dialog open={editOpen} onOpenChange={(open) => (saving ? undefined : setEditOpen(open))}>
-        <DialogContent showCloseButton={false} className="gap-4 sm:max-w-[380px]">
+        <DialogContent showCloseButton={false} className="gap-4 sm:max-w-[380px]" data-pkm-overlay="true">
           <DialogHeader>
             <DialogTitle>Edit Memory</DialogTitle>
           </DialogHeader>
-          <p className="text-sm font-medium text-foreground">{primary}</p>
+          <p data-pkm-form-label="true" className="text-sm font-medium text-foreground">{primary}</p>
           <Editor
             value={editValue}
             onChange={(event) => setEditValue(event.target.value)}
@@ -251,6 +252,8 @@ export function PkmMemoryDetail({
               type="button"
               variant="none"
               effect="fade"
+              size="compact"
+              data-pkm-action="utility"
               disabled={saving}
               onClick={() => setEditOpen(false)}
             >
@@ -258,7 +261,10 @@ export function PkmMemoryDetail({
             </Button>
             <Button
               type="button"
+              variant="none"
               effect="fade"
+              size="compact"
+              data-pkm-action="compact"
               disabled={saving || !editValue.trim() || editValue === fullValue}
               onClick={() => onSave(editValue)}
             >
@@ -273,12 +279,13 @@ export function PkmMemoryDetail({
         <DialogContent
           showCloseButton={false}
           className="gap-4 sm:max-w-[380px]"
+          data-pkm-overlay="true"
           data-pkm-memory-sharing-sheet="true"
         >
           <DialogHeader>
             <DialogTitle>Sharing</DialogTitle>
           </DialogHeader>
-          <p className="text-sm font-medium text-foreground">{primary}</p>
+          <p data-pkm-form-label="true" className="text-sm font-medium text-foreground">{primary}</p>
 
           {sharingPosture === null ? (
             <p className="text-sm text-muted-foreground">
@@ -287,8 +294,8 @@ export function PkmMemoryDetail({
           ) : (
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Ask before sharing</p>
-                <p className="text-sm text-muted-foreground">
+                <p data-pkm-form-label="true" className="text-sm font-medium text-foreground">Ask before sharing</p>
+                <p data-pkm-row-description="true" className="text-sm text-muted-foreground">
                   {sharingPosture === "consent_required"
                     ? "One asks for your approval before sharing this with anyone."
                     : "This stays private. One never offers it, even when someone asks."}
@@ -310,7 +317,7 @@ export function PkmMemoryDetail({
           )}
 
           {sharingBusy ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               Updating sharing choices…
             </p>
@@ -320,7 +327,10 @@ export function PkmMemoryDetail({
           <DialogFooter>
             <Button
               type="button"
+              variant="none"
               effect="fade"
+              size="compact"
+              data-pkm-action="utility"
               disabled={sharingBusy}
               onClick={() => changeSharingOpen(false)}
             >

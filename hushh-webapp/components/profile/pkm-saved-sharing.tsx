@@ -71,8 +71,8 @@ export function PkmSavedSharing({ userId, active, domains, sharingManifests, sha
             ) : null}
 
             <Accordion type="single" collapsible value={section} onValueChange={value => setExpanded({ owner: userId, value })}>
-              <AccordionItem value="sharing"><AccordionTrigger>Sharing settings</AccordionTrigger><AccordionContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">Choose which sections people can request and set their price. Every requester needs your approval.</p>
+              <AccordionItem value="sharing"><AccordionTrigger data-pkm-section-heading="true">Sharing settings</AccordionTrigger><AccordionContent className="space-y-4">
+                <p data-pkm-body="true" className="text-sm text-muted-foreground">Choose which sections people can request and set their price. Every requester needs your approval.</p>
             {!sharingManifestsLoading && active ? domains.map(domain => {
               const manifest = sharingManifests[domain.key];
               return manifest ? <PkmDomainSharing key={`${userId}:${domain.key}`} userId={userId}
@@ -85,7 +85,7 @@ export function PkmSavedSharing({ userId, active, domains, sharingManifests, sha
             {!sharingManifestsLoading && sharingUnavailable ? (
               <div className="px-1 text-sm text-muted-foreground" role="status">
                 <p>Some sharing settings could not be checked. Try again before changing access.</p>
-                <button type="button" className="min-h-11 underline" onClick={retrySharing}>Retry sharing settings</button>
+                <button type="button" data-pkm-utility="true" className="min-h-11 underline" onClick={retrySharing}>Retry sharing settings</button>
               </div>
             ) : null}
 

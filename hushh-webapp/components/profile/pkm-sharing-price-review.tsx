@@ -174,13 +174,13 @@ export function PkmSharingPriceReview() {
     finally { if (authority.current()) setListingPending(null); }
   }
 
-  if (enabled && bundleReview?.current()) return <Dialog modal open onOpenChange={open => { if (!open) closeBundle(); }}><DialogContent>
+  if (enabled && bundleReview?.current()) return <Dialog modal open onOpenChange={open => { if (!open) closeBundle(); }}><DialogContent data-pkm-overlay="true">
     <DialogHeader><DialogTitle>{bundleReview.bundle.label}: sharing and price</DialogTitle><DialogDescription>Listing lets people request information. Approval and payment remain separate.</DialogDescription></DialogHeader>
     <PkmDomainSharing userId={user!.uid} title={bundleReview.bundle.label} manifest={bundleReview.bundle.manifest}
       pendingKey={listingPending} onChange={updateListing} onPaymentsNavigate={closeBundle}
       proposal={bundleReview.proposal.proposedPriceCents !== undefined || bundleReview.proposal.proposedBaseHours !== undefined ? bundleReview.proposal : undefined} />
     {listingError ? <p role="status">{listingError}</p> : null}
-    <Button variant="ghost" data-voice-control-id="pkm-close-sharing-bundle-review" disabled={Boolean(listingPending)} onClick={closeBundle}>Close bundle review</Button>
+    <Button variant="ghost" data-pkm-action="utility" data-voice-control-id="pkm-close-sharing-bundle-review" disabled={Boolean(listingPending)} onClick={closeBundle}>Close bundle review</Button>
   </DialogContent></Dialog>;
 
   if (!enabled || !review?.current()) return null;

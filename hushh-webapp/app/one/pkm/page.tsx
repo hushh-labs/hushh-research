@@ -4,7 +4,7 @@ import { PkmSharingPriceReview } from "@/components/profile/pkm-sharing-price-re
 
 export default function PkmPage() {
   return (
-    <PkmSettingsShell title="Memory" titleRole="agent" shellWidth="agent">
+    <PkmSettingsShell title="Memory" titleRole="agent" titleVisuallyHidden shellWidth="agent">
       <PkmSharingPriceReview />
       <PkmNaturalPanel />
     </PkmSettingsShell>
