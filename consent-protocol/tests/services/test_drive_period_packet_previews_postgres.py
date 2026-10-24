@@ -173,6 +173,8 @@ async def test_owner_queries_open_and_historical_ranges_without_purchase(
             .one()
         )
         assert current["current_version"] == (1 if historical else 0)
+        assert current["revision"] == head["revision"]
+        assert "migration" not in service.store._build(current)
         assert (
             connection.execute(
                 text("SELECT count(*) FROM drive_request_payment_orders")

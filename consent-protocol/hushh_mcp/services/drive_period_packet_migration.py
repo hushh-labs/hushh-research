@@ -6,8 +6,11 @@ from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
 
 
 def migrate_preparation(store, connection, row, build):
-
-    if row["category"] == "financial" and not build:
+    if (
+        row["category"] == "financial"
+        and not build.get("query_source")
+        and not any(build.get(key) for key in ("plan", "model_binding", "search_job_id", "preview"))
+    ):
         build["query_source"] = dict(QUERY_SOURCE)
     if row["category"] == "financial" and build.get("query_source") != QUERY_SOURCE:
         # Recorded migration: retire only this unleased private preparation.
@@ -26,7 +29,9 @@ def migrate_preparation(store, connection, row, build):
         )
         from hushh_mcp.services.drive_period_packet_preview import rotate_preview
 
-        previous = build.get("query_source") or {"kind": "model"}
+        previous = build.get("query_source") or {
+            "kind": "model" if build.get("model_binding") else "legacy_unrecorded"
+        }
         row, build = rotate_preview(store, connection, row, build)
         build.update(
             query_source=dict(QUERY_SOURCE),
