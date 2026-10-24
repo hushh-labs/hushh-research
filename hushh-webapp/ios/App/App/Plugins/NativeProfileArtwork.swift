@@ -9,7 +9,7 @@ enum NativeProfileArtwork {
         let colorHex: String?
         let accentColorHex: String?
     }
-    static let ids = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "vault-password", "payout-receipt", "payout-warning", "payout-progress", "payout-review", "referral-link", "referral-join", "referral-agent", "referral-qualified", "referral-success", "referral-people", "referral-progress", "referral-review", "referral-warning", "gemini", "connector-gmail", "connector-google-drive", "connector-calendar", "connector-plaid", "connector-attio", "connector-hubspot", "connector-notion", "connector-instagram", "connector-linkedin"]
+    static let ids = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "developer-tools", "privacy", "terms", "sign-out", "ai-connection", "style-name", "style-tone", "style-length", "style-language", "style-punctuation", "account-name", "account-mail", "account-phone", "account-wallet", "account-reset", "account-delete", "appearance", "accent", "voice", "vault-methods", "vault-password", "payout-receipt", "payout-warning", "payout-progress", "payout-review", "referral-link", "referral-join", "referral-agent", "referral-qualified", "referral-success", "referral-people", "referral-progress", "referral-review", "referral-warning", "gemini", "connector-gmail", "connector-google-drive", "connector-calendar", "connector-plaid", "connector-attio", "connector-hubspot", "connector-notion", "connector-instagram", "connector-linkedin"]
     static func resolve(_ id: String) -> Artwork? {
         let colorHex: String?
         let accentColorHex: String?
@@ -33,6 +33,7 @@ enum NativeProfileArtwork {
         case "privacy": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "terms": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "sign-out": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
+        case "ai-connection": colorHex = nil; accentColorHex = nil; hasAccent = false; original = false
         case "style-name": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "style-tone": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false
         case "style-length": colorHex = nil; accentColorHex = nil; hasAccent = true; original = false

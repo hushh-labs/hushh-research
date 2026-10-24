@@ -475,7 +475,9 @@ try {
   const payoutInnerIcons = await profileLoader.ssrLoadModule("/components/profile/profile-inner-icons.tsx");
   const payoutSecondaryIcons = await profileLoader.ssrLoadModule("/components/profile/profile-secondary-icons.tsx");
   const { GeminiLogo } = await profileLoader.ssrLoadModule("/components/brand/gemini-logo.tsx");
+  const { Brain } = await profileLoader.ssrLoadModule("/components/icons/legacy-ui-icons.tsx");
   const formIcons = [
+    { id: "ai-connection", icon: Brain },
     { id: "style-name", icon: rows.PreferredNameRowIcon },
     { id: "style-tone", icon: rows.ToneRowIcon },
     { id: "style-length", icon: rows.ReplyLengthRowIcon },

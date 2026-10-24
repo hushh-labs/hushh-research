@@ -40,6 +40,10 @@
       "file": "app/api/auth/email/capabilities/route.ts"
     },
     {
+      "template": "/api/auth/email/enroll",
+      "file": "app/api/auth/email/enroll/route.ts"
+    },
+    {
       "template": "/api/auth/email/request",
       "file": "app/api/auth/email/request/route.ts"
     },
@@ -10896,5 +10900,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "65ebd424b259e67ff0f855b745b869b1852b60fc303f1f38508e483451741fc4"
+  "content_sha256": "26c91ac24c32c444d2d19da29592009e5fb420f15de172fc9267e1b9b9e51238"
 }

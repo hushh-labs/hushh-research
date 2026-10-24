@@ -97,7 +97,7 @@ import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtim
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { buildProfileConnectorsStackEntry, ProfileConnectorsSection } from "@/components/profile/profile-connectors-section";
+import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
 import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import {
   buildProfileLegalStackEntries,
@@ -978,7 +978,6 @@ function ProfilePageContent({
     password: newPassphrase, confirmation: confirmPassphrase } = vaultMethods;
   const [nativeVaultAvailable, setNativeVaultAvailable] = useState(false);
   const [nativePricingAvailable, setNativePricingAvailable] = useState(false);
-  const [nativePayoutAvailable, setNativePayoutAvailable] = useState(false);
   const [nativeMemoryAvailable, setNativeMemoryAvailable] = useState(false);
   const [nativeSharedMemoryAvailable, setNativeSharedMemoryAvailable] = useState(false);
   const [nativeSecretsAvailable, setNativeSecretsAvailable] = useState(false);
@@ -1013,8 +1012,10 @@ function ProfilePageContent({
   const memorySecrets = useSecretsListModel({
     active: activePanel === "my-data" && isVaultUnlocked && (presentation !== "native-page" || nativeMenuOpen && (!nativeMemoryAvailable || nativeSecretsAvailable || nativeMemoryWebBody)),
     native: nativeMemoryActive && nativeSecretsAvailable && !nativeMemoryWebBody, current: contextVisit.current });
-  const nativePayoutActive = presentation === "native-page" && nativeMenuOpen && nativePayoutAvailable &&
-    activePanel === "payouts" && !activeDetail && vaultAccess.canMutateSecureData;
+  // PaymentsAndEarnings now includes information-access funding/refunds and
+  // source-bound Answer setup. The legacy native Hashcoin projection cannot
+  // replace that complete owner composition without losing those operations.
+  const nativePayoutActive = false;
   const nativePayout = useNativePayouts(nativePayoutActive);
   const nativeReferralActive = presentation === "native-page" && nativeMenuOpen &&
     activePanel === "referrals" && isVaultUnlocked;
@@ -5090,7 +5091,7 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePayoutAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
     referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor, formScene: nativeReferrals.formScene,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
     workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
@@ -5197,7 +5198,7 @@ function ProfilePageContent({
         {nativeRuntimeActive ? nativeRuntime.editor(destinationId) : null}
         {vaultNativeActive && passphraseDialogOpen && destinationId ? <NativeVaultPasswordEditor model={vaultMethods} userId={applicationOwnerId}
           destinationId={destinationId} onFallback={() => setNativeVaultPasswordFallback(true)} /> : null}</> }}
-    account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone" && !phoneLookupPending) && !nativeAccountException && !showVaultUnlock,
+    account={{ active: activePanel === "account" && (!activeDetail || activeDetail === "phone" && !phoneLookupPending) && !nativeAccountException && !showVaultUnlock && !cloudCleanupRequired,
       page: nativeAccountPage, confirmation: accountConfirmation, formScene: editingDisplayName && activePanel === "account" && !activeDetail ? "account-name" : null,
       root: () => {
         if (isDeleting || isResetting) return;
@@ -5247,27 +5248,11 @@ function ProfilePageContent({
   </NativeProfilePresentation>;
 }
 
-/** Keep feature controllers above the body renderer. A native presentation may
- * replace the body, not the catalog/OAuth/editor owner or its query authority. */
-function NativeProfileRetainedConnectors(props: ProfilePageProps) {
-  const routePathname = usePathname(), routeSearch = useSearchParams();
-  const pathname = props.panePresentation?.pathname ?? routePathname;
-  const search = props.panePresentation?.searchParams ?? routeSearch;
-  const location = props.paneLocation ?? resolveProfilePaneUrlState(search).location;
-  const connectorId = location.panel === "connectors" && location.detail?.startsWith("connector:") ? location.detail.slice("connector:".length) : null;
-  const changeConnector = useCallback((next: string | null) => {
-    const destination: ProfilePaneLocation = { panel: "connectors", detail: next ? `connector:${next}` : null };
-    if (next && !connectorId) pushProfilePaneLocation(pathname, search, destination);
-    else replaceProfilePaneLocation(pathname, search, destination);
-  }, [connectorId, pathname, search]);
-  return <ProfileConnectorsSection open={props.nativeMenuOpen === true && location.panel === "connectors"}
-    connectorId={connectorId} onConnectorChange={changeConnector}
-    render={model => <ProfilePageContent {...props} retainedConnectors={model} />} />;
-}
-
 export function ProfilePage(props: ProfilePageProps) {
-  return <Suspense fallback={null}>{props.presentation === "native-page" ?
-    <NativeProfileRetainedConnectors {...props} /> : <ProfilePageContent {...props} />}</Suspense>;
+  // Profile cannot depend on a feature body's hosting admission. Connectors
+  // keeps its complete owner-aware React handoff until both hosting modes have
+  // a qualified native model port; the other native scenes remain independent.
+  return <Suspense fallback={null}><ProfilePageContent {...props} /></Suspense>;
 }
 
 export default ProfilePage;
