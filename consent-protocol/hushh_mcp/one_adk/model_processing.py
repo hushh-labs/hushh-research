@@ -8,22 +8,14 @@ from hushh_mcp.runtime_providers.processing_terms import (
 )
 
 
-def managed_model(
-    model: str, *, vertex_location: str | None = None, vertex_project: str | None = None
-) -> Any:
+def managed_model(model: str, *, vertex_location: str | None = None) -> Any:
     """Admit owner-context processing before the native model is constructed."""
     from hushh_mcp import runtime_providers
 
     require_verified_gemini_processing("gemini", "hushh_managed_vertex")
-    options = {
-        name: value
-        for name, value in {
-            "vertex_location": vertex_location,
-            "vertex_project": vertex_project,
-        }.items()
-        if value is not None
-    }
-    return runtime_providers.build_managed_gemini_adk_model(model, **options)
+    if vertex_location is None:
+        return runtime_providers.build_managed_gemini_adk_model(model)
+    return runtime_providers.build_managed_gemini_adk_model(model, vertex_location=vertex_location)
 
 
 def regional_model(model: str, *, vertex_project: str | None = None) -> Any:
