@@ -23,6 +23,10 @@ case "${DRIVE_WORK_DRAIN_ENABLED}" in
 esac
 readonly DRIVE_WORK_DRAIN_ENABLED
 
+record_stage_timing() {
+  printf 'drive_worker_release stage=%s duration_seconds=%s\n' "$1" "$((SECONDS - $2))"
+}
+
 # Creation-only policy: accepted requests retain their sealed search contract.
 DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED="${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED:-true}"
 case "${DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED}" in
@@ -237,6 +241,7 @@ fi
 # the floor reserves no extra connections. Concurrency stays 1:
 # LocalDocumentProcessor's memory-heavy child limits are per request, and every
 # Drive store transaction shares the process's one SQLAlchemy connection.
+stage_started=${SECONDS}
 gcloud --quiet run deploy "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --platform=managed \
   --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
@@ -258,7 +263,9 @@ gcloud --quiet run deploy "${SERVICE}" \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
   --startup-probe=tcpSocket.port=3310,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
   --set-env-vars=CLAMD_STARTUP_TIMEOUT=180,FRESHCLAM_CHECKS=24
+record_stage_timing candidate_deploy "${stage_started}"
 
+stage_started=${SECONDS}
 candidate_revision="$(gcloud run services describe "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
   --format='value(status.latestCreatedRevisionName)')"
@@ -276,16 +283,21 @@ gcloud run revisions describe "${candidate_revision}" \
       EXPECTED_MANAGED_TEXT_PROVIDER="${MANAGED_TEXT_PROVIDER}" \
       EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1 \
       python3 deploy/drive/verify_worker_revision.py
+record_stage_timing candidate_attestation "${stage_started}"
 
 # The private service admits only this scheduler identity. The route repeats
 # the exact issuer/email/audience check after Cloud Run IAM verification.
+stage_started=${SECONDS}
 gcloud run services add-iam-policy-binding "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
   --member="serviceAccount:${SCHEDULER_ID}" --role=roles/run.invoker --quiet >/dev/null
+record_stage_timing scheduler_invoker "${stage_started}"
+stage_started=${SECONDS}
 promoted=true
 gcloud run services update-traffic "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
   --to-revisions="${candidate_revision}=100" --quiet
+record_stage_timing traffic_promotion "${stage_started}"
 
 worker_url="$(gcloud run services describe "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
@@ -304,17 +316,26 @@ if [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]; then
   echo "Verified private Drive worker ${candidate_revision}, SHA ${DEPLOY_SHA}; background processing paused"
   exit 0
 fi
-for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
-  case "${fixed_job}" in
-    drive-work-drain-uat) fixed_stage=documents; fixed_cron='* * * * *' ;;
-    drive-work-suggestions-uat) fixed_stage=suggestions; fixed_cron='* * * * *' ;;
-    drive-work-sharing-uat) fixed_stage=sharing; fixed_cron='* * * * *' ;;
-  esac
-  JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}" \
-    BACKEND_URL="${worker_url}" OIDC_AUDIENCE="${SCHEDULER_AUDIENCE}" \
-    bash deploy/drive/setup_work_drain_scheduler.sh
-done
+stage_started=${SECONDS}
+scheduler_repairs="$(python3 "${SCHEDULER_STATE_HELPER}" plan-configuration --worker-origin "${worker_url}")"
+if [[ -n "${scheduler_repairs}" ]]; then
+  while IFS= read -r fixed_job; do
+    case "${fixed_job}" in
+      drive-work-drain-uat) fixed_stage=documents ;;
+      drive-work-suggestions-uat) fixed_stage=suggestions ;;
+      drive-work-sharing-uat) fixed_stage=sharing ;;
+      *) echo "Unreviewed Drive scheduler repair" >&2; false ;;
+    esac
+    JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON='* * * * *' \
+      BACKEND_URL="${worker_url}" OIDC_AUDIENCE="${SCHEDULER_AUDIENCE}" \
+      bash deploy/drive/setup_work_drain_scheduler.sh </dev/null
+  done <<< "${scheduler_repairs}"
+  python3 "${SCHEDULER_STATE_HELPER}" verify-configuration --worker-origin "${worker_url}"
+fi
+echo "Verified all three complete Drive worker scheduler configurations"
+record_stage_timing scheduler_configuration "${stage_started}"
 
+stage_started=${SECONDS}
 for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
   triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   gcloud scheduler jobs run "${fixed_job}" \
@@ -341,6 +362,7 @@ for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-shar
     false
   fi
 done
+record_stage_timing scheduler_completions "${stage_started}"
 trap - EXIT INT TERM
 rm -f "${scheduler_snapshot}"
 echo "Verified private Drive worker ${candidate_revision} at ${worker_url}, SHA ${DEPLOY_SHA}; all three schedulers returned 200"
