@@ -272,9 +272,7 @@ function WorkflowCard({
               effect="fade"
               size="compact"
               className={mailStyles.utilityAction}
-              onClick={() =>
-                openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))
-              }
+              onClick={() => openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))}
             >
               Open mail
             </MorphyButton>
@@ -465,9 +463,7 @@ function ActivityCard({
           effect="fade"
           size="compact"
           className={`${mailStyles.utilityAction} shrink-0`}
-          onClick={() =>
-            openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))
-          }
+          onClick={() => openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))}
         >
           Open Mail
         </MorphyButton>

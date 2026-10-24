@@ -633,20 +633,12 @@ export default function ProfileGmailOAuthReturnPageClient({
             Mail connection needs attention
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
-          <div className="mt-4 flex flex-col gap-2">
-            <Button
-              onClick={() =>
-                router.replace(
-                  returnToSetup
-                    ? ROUTES.ONE_SETUP
-                    : buildProfileGmailReturnPath(),
-                )
-              }
-              className="w-full"
-            >
-              {returnToSetup ? "Back to setup" : "Back to Mail"}
-            </Button>
-          </div>
+          <Button
+            onClick={() => router.replace(returnToSetup ? ROUTES.ONE_SETUP : buildProfileGmailReturnPath())}
+            className="mt-4 w-full"
+          >
+            {returnToSetup ? "Back to setup" : "Back to Mail"}
+          </Button>
         </div>
       </AppPageContentRegion>
     </AppPageShell>

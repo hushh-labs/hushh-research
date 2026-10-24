@@ -723,23 +723,17 @@ export function GmailRecentReceipts({
           className="flex items-center justify-between gap-3 pt-3 text-sm"
         >
           <MorphyButton
-            variant="none"
-            effect="fade"
-            size="compact"
-            className={mailStyles.utilityAction}
+            variant="none" effect="fade"
+            size="compact" className={mailStyles.utilityAction}
             disabled={currentPage === 1}
             onClick={() => setDisplayPage(currentPage - 1)}
           >
             Previous
           </MorphyButton>
-          <span aria-live="polite">
-            {currentPage} / {pageCount}
-          </span>
+          <span aria-live="polite">{currentPage} / {pageCount}</span>
           <MorphyButton
-            variant="none"
-            effect="fade"
-            size="compact"
-            className={mailStyles.utilityAction}
+            variant="none" effect="fade"
+            size="compact" className={mailStyles.utilityAction}
             disabled={currentPage === pageCount}
             onClick={() => setDisplayPage(currentPage + 1)}
           >
