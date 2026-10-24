@@ -97,11 +97,11 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
   };
   const card = open && remaining > 0 && view?.data.status === "active" ? view.data.card : undefined;
   const profile = open && remaining > 0 && view?.data.status === "active" && view.data.profileCard ? normalizePublicWalletCard({ ...view.data.profileCard, updatedAt: view.data.profileCard.updatedOn }) : null;
-  return <div className="space-y-2 print:hidden">
+  return <div data-messages-wallet className="space-y-2 print:hidden">
     <p className="text-sm leading-[21px] font-medium">{senderIsViewer ? "You shared a card." : "A card was shared with you."}</p>
     {!senderIsViewer && !nativeViewerUnavailable ? <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => { setFailed(false); setOpen(true); }}>View card</Button> : null}
     {!senderIsViewer && nativeViewerUnavailable ? <p className="text-[13px] leading-[18px]">Open Messages in your browser to view this card.</p> : null}
-    <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Shared card" mobilePresentation="sheet" surfaceClassName={`${profileStyles.walletContent} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog} print:hidden`} desktopMaxWidth="820px" contentClassName="!bg-[color:var(--app-glass-surface)] backdrop-blur-[var(--blur-standard)] [&_[data-slot=dialog-header]]:text-center [&_[data-slot=dialog-header]>div]:justify-center [&_[data-slot=dialog-header]>div>div]:text-center" bodyClassName="text-center">
+    <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Shared card" mobilePresentation="sheet" surfaceClassName={`${profileStyles.walletContent} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog} messages-wallet-access-panel print:hidden`} desktopMaxWidth="820px" contentClassName="!bg-[color:var(--app-glass-surface)] backdrop-blur-[var(--blur-standard)] [&_[data-slot=dialog-header]]:text-center [&_[data-slot=dialog-header]>div]:justify-center [&_[data-slot=dialog-header]>div>div]:text-center" bodyClassName="text-center">
       <SettingsPresentationProvider density="compact" separatorInset>
         <div className="select-none" onCopy={event => event.preventDefault()} onCut={event => event.preventDefault()} onDragStart={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>
           {failed ? <p role="alert" className="text-[13px] leading-[18px] text-destructive">Card unavailable. Close and try again.</p> : !view ? <p role="status">Checking access…</p> : null}

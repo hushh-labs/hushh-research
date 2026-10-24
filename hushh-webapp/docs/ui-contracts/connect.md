@@ -813,8 +813,10 @@ memberships.
 The Messages subagent retains its existing theme and viewport-centered composer
 and dock. Its name/photo opens the existing
 [person profile](./person-profile.md), whose Back returns to the selected conversation.
-The conversation menu retains Contact info and message search.
-The existing call capability remains gated.
+The selected-person header exposes peer identity and message search directly;
+there is no conversation-level Contact info menu. The call control is visible
+but disabled. The mounted Messages families are in the
+[Messages UI contract](./messages.md).
 
 Message timestamps and delivery ticks occupy a separate row below the message
 text, aligned to the right inside the bubble, including for short messages.

@@ -953,7 +953,7 @@ describe("Personal World Model page", () => {
     expect(await screen.findByText("Email me when it’s ready")).toBeInTheDocument();
     expect(mock.research.refresh).not.toHaveBeenCalled();
     expect(mock.research.reload).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText("Check for updates"));
+    fireEvent.click(screen.getByText("Update my model"));
     expect(mock.research.refresh).toHaveBeenCalledTimes(1);
     expect(mock.research.reload).not.toHaveBeenCalled();
   });

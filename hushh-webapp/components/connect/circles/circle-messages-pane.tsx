@@ -14,9 +14,11 @@ import { writeLastMessagesSelection } from "@/lib/direct-messages/last-selection
 import { CircleChat } from "./circle-chat";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import { MessagesBackButton } from "@/components/direct-messages/messages-back-button";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { ArrowLeft, MessageCircle, Pencil, Plus, RefreshCw, Search, UsersRound } from "@/components/icons";
 import styles from "./circle-messages-pane.module.css";
 import peopleStyles from "@/components/direct-messages/direct-messages-page.module.css";
+import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 
 function GroupAvatar({ photoUrl }: { photoUrl?: string | null }) {
   return <span className={styles.groupAvatar} aria-hidden="true">
@@ -25,13 +27,14 @@ function GroupAvatar({ photoUrl }: { photoUrl?: string | null }) {
 }
 
 /** The Chat lane reuses the same Circle membership and encrypted thread as Connect. */
-export function CircleMessagesPane({ active = true, initialCircleId = null, onThreadOpenChange, onCircleCountChange, laneSwitcher, headerActions, theme = "light" }: {
+export function CircleMessagesPane({ active = true, initialCircleId = null, onThreadOpenChange, onCircleCountChange, laneSwitcher, headerActions, profileAction, theme = "light" }: {
   active?: boolean;
   initialCircleId?: string | null;
   onThreadOpenChange?: (open: boolean) => void;
   onCircleCountChange?: (count: number) => void;
   laneSwitcher?: ReactNode;
   headerActions?: ReactNode;
+  profileAction?: ReactNode;
   theme?: "light" | "dark";
 }) {
   const { user } = useAuth();
@@ -139,6 +142,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
             disabled={loading || !token || !ownerId} onClick={() => setRefreshRevision(current => current + 1)}>
             <RefreshCw aria-hidden="true" className={`size-4${loading ? " animate-spin motion-reduce:animate-none" : ""}`} />
           </button>
+          {profileAction}
         </div>
       </header>
       <div className={peopleStyles.inboxSearch}>
@@ -157,7 +161,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
       {!loading && !error && token && !circles.length ? <div className={styles.empty}>
         <UsersRound aria-hidden="true" className="size-7" />
         <p>No circles yet</p>
-        <Link href={ROUTES.CONNECT}>Create a circle</Link>
+        <Link href={ROUTES.CONNECT} className={quietStyles.action}>Create a circle</Link>
       </div> : null}
       {normalizedSearch && circles.length > 0 && visibleCircles.length === 0 ? <div className={styles.empty}>
         <p>No matching circles</p><p>Try another name.</p>
@@ -177,11 +181,12 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
       {selected && session ? <>
         <header className={peopleStyles.threadHeader}>
           <div className={peopleStyles.threadHeaderContent}>
-          <button type="button" className={styles.back} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></button>
+          <ShellActionSurface className={`${styles.back} !size-11`} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></ShellActionSurface>
           <div className={peopleStyles.threadIdentity}>
           <GroupAvatar photoUrl={selected.photoUrl} />
           <div className={peopleStyles.threadTitle}><h2>{selected.name}</h2><p>{selected.memberCount} {selected.memberCount === 1 ? "member" : "members"}</p></div>
           </div>
+          <div className={peopleStyles.threadHeaderActions}>{profileAction}</div>
           </div>
         </header>
         <CircleChat key={`${session.userId}:${session.circleId}:${session.vaultOwnerToken}`} session={session} circleName={selected.name} initialOpen active={active} collapsible={false} chatLane chatLaneTheme={theme} />

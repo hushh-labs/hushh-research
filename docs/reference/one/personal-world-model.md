@@ -459,29 +459,37 @@ codes and counts only (`status`, `provider_code`, `searches_used`,
 
 The `azure_openai_tavily` policy reuses Azure GPT-5 mini assessment, candidate separation, source validation, compilation and fact review. A charged model query stage produces one bounded Tavily query; the native Search response supplies actual result URLs/snippets and credit usage. It never fabricates Azure web-search calls or citation spans. Basic search uses documented keyless access with a shared provider cap, eight invocations per generation, a 25-second HTTP timeout, bounded response size and no transport retry or paid fallback. A quota or dependency failure is reported as unavailable while already received work remains reviewable.
 
-Tavily receives only the admitted public-search context, never owner tokens, vault keys or private memory. The opt-in names Tavily and its input reuse policy. Its API terms permit integration and do not impose the Bing Grounding output-cache prohibition; third-party source rights still apply. See [Tavily terms](https://www.tavily.com/terms) and [official keyless transport](https://github.com/tavily-ai/tavily-js/blob/main/src/utils.ts). This is the shared-rate UAT trial, not a dedicated search quota or SLA.
+Tavily receives only admitted public-search context, never owner tokens, vault keys or unrestricted private memory. Explicit Update may include relevant owner-confirmed declarations as search leads; the visible Update disclosure explains this use. The opt-in names Tavily and its input reuse policy. Its API terms permit integration and do not impose the Bing Grounding output-cache prohibition; third-party source rights still apply. See [Tavily terms](https://www.tavily.com/terms) and [official keyless transport](https://github.com/tavily-ai/tavily-js/blob/main/src/utils.ts). This is the shared-rate UAT trial, not a dedicated search quota or SLA.
 
 Retained research uses the existing owner-key encrypted `one_adk_sessions` store in `one.personal_world_model.v1/tavily-profile-v1`. Google/Bing `profile` rows keep their 24-hour cleanup and never migrate their contents into the durable inbox. Recent legacy start timestamps alone carry into initial rollout; each provider lineage retains its charged slots and work together. Operator rollback to an older binary is not a cross-provider budget proof. Explicit refresh replaces the current research generation through the existing budget gates; explicit discard tombstones its contents. Owner identity, consent-generation, key lifetime and ciphertext-CAS fences remain mandatory, including after restart. An `attention` completion is not successful preparation and cannot suppress missing research for seven days.
 
 The no-traffic candidate probe additionally performs one non-personal Tavily search and requires real returned sources. Azure model readiness alone is insufficient to claim search readiness.
 
-### Find more from approved public links
+### Update from saved details
 
-For Azure research, **Find more about me** appears beside **Up to date** after
-all current findings have been reviewed. It opens the existing public-source
-chooser without starting research. The chooser can suggest up to three admitted
-public HTTPS citation URLs from confirmed findings in the current draft and from
-saved, owner-approved source records. Private declaration text is never parsed
-for links or supplied to public search. A tick confirms the statement; the
-chooser requests separate permission to use the selected links as search leads.
+**Update my model** beside **Up to date** starts the next bounded discovery
+without a links dialog. It uses the verified account identity, previously approved
+public links and a fresh snapshot of saved, accepted or edited PWM statements.
+**Edit details** opens the prefilled account and confirmed-details view; the
+existing account and fact editors save corrections before Update reads them.
+New public links are optional, collapsed initially, and require separate approval.
+Suggested citations are never silently promoted to approved links.
 
-The existing explicit jobs refresh supplies those URLs through `public_profiles`.
-The encrypted checkpoint retains previously approved links for later refreshes;
-**Use my existing search details** reuses that scope and verified contact inputs.
-Legacy declarations without citations are not invented into source records.
-The system instruction remains unchanged: a lead is not proof of identity, and
-new received findings still require review. Current owner decisions continue as
-private suppression context, outside search queries.
+The explicit jobs refresh supplies `research_context` with `confirmed` statements
+and strict `permitted_public_research: true`. The server requires these statements
+to be a subset of the same request's confirmed owner decisions. The approved
+snapshot is frozen for that discovery and its resumptions. It is not exported
+into fresh automatic work after expiry, completion, consent or identity/policy
+changes. An explicit new Update obtains a fresh snapshot; a live identical POST
+remains an idempotent retry. An unreadable saved-context snapshot fails Update
+visibly rather than starting a context-free search.
+
+Planner and query stages receive only `owner_confirmed_research_leads`, not the
+full private decision context. Relevant details may appear in public search query
+terms, as disclosed beside Update. Rejected and removed statements remain private
+suppression inputs. A declaration is neither independent public evidence nor an
+identity bridge; sources, identity assessment and new findings retain their
+received-evidence validation and owner review requirements.
 
 Both page refresh entrypoints refuse an unreviewed queue, an in-flight review
 save, or pending/paused research. Accepted statements stay in **Confirmed by

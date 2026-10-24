@@ -253,6 +253,7 @@ describe("PWM owner and request isolation", () => {
     );
     await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(3));
     expect(mock.observe.mock.calls[2][0].refresh).not.toBe(true);
+    expect(mock.observe.mock.calls[2][0].researchContext).toBeUndefined();
     mock.token = "renewed-b";
     rerender(
       <WorldModelProvider>
@@ -287,6 +288,21 @@ describe("PWM owner and request isolation", () => {
     expect(mock.load.mock.calls[0][0].userId).toBe("owner-a");
     expect(mock.observe).toHaveBeenCalledTimes(1);
     expect(mock.observe.mock.calls[0][0].ownerDecisions).toEqual(decisions);
+  });
+  it("snapshots saved confirmed details only on Update and refuses an unreadable snapshot", async () => {
+    render(<WorldModelProvider><Probe /></WorldModelProvider>);
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(1));
+    expect(mock.observe.mock.calls[0][0].researchContext).toBeUndefined();
+    fireEvent.click(screen.getByText("Refresh"));
+    await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(2));
+    const approved = mock.observe.mock.calls[1][0].researchContext;
+    expect(approved).toEqual({ confirmed: decisions.confirmed, permitted_public_research: true });
+    expect(approved.confirmed).not.toBe(decisions.confirmed);
+    expect(approved).not.toHaveProperty("rejected");
+    mock.load.mockRejectedValue(new Error("unreadable"));
+    fireEvent.click(screen.getByText("Refresh"));
+    await screen.findByText("failed");
+    expect(mock.observe).toHaveBeenCalledTimes(2);
   });
   it("keeps researching when memory is unreadable, and never during setup", async () => {
     mock.load.mockRejectedValue(new Error("locked"));
@@ -673,6 +689,7 @@ describe("PWM owner and request isolation", () => {
     await waitFor(() => expect(mock.observe).toHaveBeenCalledTimes(3));
     expect(mock.observe.mock.calls[2][0].publicProfileUrls).toBeUndefined();
     expect(mock.observe.mock.calls[2][0].refresh).not.toBe(true);
+    expect(mock.observe.mock.calls[2][0].researchContext).toBeUndefined();
   });
 
 });

@@ -39,7 +39,7 @@ export function DirectMessageInboxRow({ label, active, disabled, onOpen, onDelet
         </button>
       </DropdownMenuTrigger>
     </div>
-    <DropdownMenuContent align="end">
+    <DropdownMenuContent align="end" data-messages-type-scale>
       <DropdownMenuItem variant="destructive" disabled={disabled} onSelect={onDelete}>
         <Trash2 className="size-4" aria-hidden="true" /> Delete chat
       </DropdownMenuItem>
