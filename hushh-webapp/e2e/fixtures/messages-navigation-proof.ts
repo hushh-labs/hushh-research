@@ -9,7 +9,10 @@ export async function proveMessagesInboxBack(page: Page, mount: MountMessages, w
   await expect(back).toBeVisible();
   const heading = (await page.getByRole("heading", { name: "Messages", exact: true }).boundingBox())!;
   const firstAction = (await page.getByRole("button", { name: /Switch to .* mode/ }).boundingBox())!;
-  expect(heading.x + heading.width).toBeLessThanOrEqual(firstAction.x);
+  const backBox = (await back.boundingBox())!;
+  expect(heading.x - backBox.x - backBox.width).toBeLessThanOrEqual(16);
+  expect(Math.abs(heading.y + heading.height / 2 - (backBox.y + backBox.height / 2))).toBeLessThanOrEqual(12);
+  expect(heading.x + heading.width <= firstAction.x || heading.y + heading.height <= firstAction.y).toBe(true);
   await page.screenshot({ path: test.info().outputPath(`messages-back-${width}.png`), animations: "disabled" });
   await back.click();
   await expect(page).toHaveURL("http://localhost/one");

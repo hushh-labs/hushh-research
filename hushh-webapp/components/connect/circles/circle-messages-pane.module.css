@@ -7,14 +7,14 @@
     margin: 0;
     color: var(--chat-text);
     font-family: var(--font-app-heading);
-    font-size: 20px !important;
+    font-size: 17px !important;
     font-weight: 600 !important;
-    line-height: 1.2 !important;
+    line-height: 22px !important;
     letter-spacing: -.02em !important;
   }
 }
 .rows { min-height: 0; flex: 1; overflow-y: auto; }
-.listHeader a, .back { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--chat-accent); }
+.listHeader a, .back { width: 44px; min-width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--chat-accent); }
 .listHeader a:hover, .back:hover { background: var(--chat-row-active); }
 .row { width: 100%; min-height: 70px; display: flex; align-items: center; gap: 12px; padding: 10px 11px; margin-inline: 8px; width: calc(100% - 16px); border-radius: 16px; text-align: left; }
 .row:hover, .row[data-selected] { background: var(--chat-row-active); }
@@ -22,8 +22,8 @@
 .groupAvatarFront { width: 33px; height: 33px; display: grid; place-items: center; overflow: hidden; border: 2px solid var(--chat-surface); border-radius: 50%; color: var(--chat-accent); background: color-mix(in srgb, var(--chat-accent) 8%, var(--chat-surface)); }
 .groupAvatarFront img { width: 100%; height: 100%; object-fit: cover; }
 .rowText { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
-.rowText strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
-.rowText span { color: var(--chat-muted); font-size: 12px; }
+.rowText strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 21px; font-weight: 550; }
+.rowText span { color: var(--chat-muted); font-size: 12px; line-height: 18px; font-weight: 400; }
 .row > svg { color: var(--chat-muted); }
 .thread { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
@@ -32,7 +32,7 @@
 .placeholder, .empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: var(--chat-muted); font-size: 13px; }
 .placeholder { height: 100%; }
 .empty { padding: 40px 20px; }
-.empty a { color: var(--chat-accent); font-weight: 600; }
+.empty a { color: var(--chat-accent); }
 .notice { padding: 20px; font-size: 13px; color: var(--chat-muted); }
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   .list,
@@ -54,3 +54,6 @@
 .listHeader a { color: var(--chat-muted); }
 
 .searchInput { font-weight: 400; }
+
+.pane :is(.notice, .placeholder, .empty) { font-size: 13px; line-height: 18px; font-weight: 400; }
+.pane .listHeader { font-size: 17px; line-height: 22px; }

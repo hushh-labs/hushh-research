@@ -241,10 +241,12 @@ describe("Top app bar responsive contract", () => {
 
   it("keeps the rightmost signed-in Profile action in the shared top bar", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
+    const profileAction = read("components/app-ui/open-profile-action.tsx");
 
     expect(source).not.toContain("WorkspaceTopTabs");
-    expect(source).toContain('aria-label="Open Profile"');
-    expect(source).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
+    expect(source).toContain("<OpenProfileAction");
+    expect(profileAction).toContain('aria-label="Open Profile"');
+    expect(profileAction).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
     // The avatar opens the shared right-side pane. The dedicated Profile route
     // remains available for deep links and nested settings, but shell entry is
     // an in-place presentation so the owner can return with the same gesture.
@@ -252,8 +254,8 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("const profileOpenHref");
     expect(source).not.toContain("onClick={() => router.push(ROUTES.PROFILE)}");
 
-    expect(source).toContain("<AvatarImage");
-    expect(source).toContain("<AvatarFallback");
+    expect(profileAction).toContain("<AvatarImage");
+    expect(profileAction).toContain("<AvatarFallback");
     expect(source).not.toContain('aria-label="Open Connect"');
   });
 
@@ -591,7 +593,7 @@ describe("Top app bar responsive contract", () => {
   });
 
   it("re-resolves the derived top-shell heights on the collapse consumers", () => {
-    const css = read("app/globals.css");
+    const css = read("app/globals.css").replace(/\r\n/g, "\n");
     const rule = css.slice(
       css.indexOf('[data-testid="app-top-shell-layout"],\n.ambient-chrome-mask--top,\n[data-top-chrome-collapse-consumer] {'),
     );
