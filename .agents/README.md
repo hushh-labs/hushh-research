@@ -14,20 +14,17 @@ Start with root [AGENTS.md](../AGENTS.md), which explicitly loads the binding
 | [subagents](subagents/) | Read-only engineering evidence lanes |
 | [workflows](workflows/) | Existing recurring workflow contracts and playbooks |
 | [configuration](config.toml) | Bounded execution and declared tool connections |
-| [startup](startup.json) | Load the root contract through the checked [startup hook](scripts/startup.py) |
 | [routing](routing/) | Invocation of existing workflow and skill owners |
-| [generated/subagents](generated/subagents/) | Derived discovery; never an authored second fleet |
 | [evals](evals/cases/) | Deterministic skill-routing cases shared by every host |
 | [imports](imports/) | Pinned third-party resources with retained licenses and explicit review status |
 
-`.agents` is the only authored development tree. Codex reads its skills directly;
-the few native `.codex` and `.claude` entrypoints are relative compatibility links
-checked by the adapter validator. Do not create another skill or subagent copy.
-Tracked native entrypoints are checked links. Do not author vendor
-folders inside this framework. Stock tools require their native entrypoints;
-deleting those links breaks ordinary GUI/direct-launch discovery. Ignored local
-permissions and the active ADK worktree under `.claude/worktrees` remain local
-state; preserve them until their owner completes integration and cleanup.
+`.agents` is the only development tree. Root `AGENTS.md` guides every coding
+agent to the same instructions, skills, workflows, subagents and evaluations.
+Do not create vendor folders, native startup hooks, adapters or discovery mirrors.
+A host that does not load `AGENTS.md` automatically must be directed to read it;
+this repository does not install a second bootstrap policy. Tool connections and
+subagent execution remain capabilities of the active host, not claims made by a
+Markdown file.
 
 ## One delivery loop
 
@@ -45,7 +42,7 @@ evaluations detect drift. They share the same instructions, authority and person
 
 1. Route the change through `agent-orchestration-governance`; edit the existing
    skill, workflow or `.agents/subagents/*.toml` source.
-2. Regenerate Claude projections and check native links. Run the owning routing,
+2. Validate canonical sources and absence of vendor roots. Run the owning routing,
    authority and governance checks; model selection inherits the parent session.
 3. Collect the subagent's evidence and unresolved risks. The parent decides what
    to accept and verifies the changed contract before committing.
@@ -68,9 +65,9 @@ They are separate from development subagents.
 
 Portable instructions, skills and subagents remain authored in this tree. Personal
 host overrides belong in ignored `.agents/.local/`, outside the shared framework.
-An existing native `settings.local.json` may link to that local file; preserve its
-bytes, permissions and live connections during migration. Do not commit private
-settings or recreate host-specific policy. Native discovery paths remain thin links.
+Preserve their bytes and live connections during migration. These retained settings
+are not another operating policy and are not automatically installed by this repo.
+Do not commit private settings or recreate host-specific discovery.
 
 ## Imports and compatibility
 
@@ -78,5 +75,5 @@ Pinned imports retain their original bytes, licenses and review classification.
 Relocation never enables imported hooks or writers. `skills-lock.json` records
 upstream paths and hashes, not installed local paths. The existing
 [platform-source inventory](skills/agent-orchestration-governance/references/platform-source-inventory.json)
-records local custody and approved native invocation. Existing command identifiers
+records local custody and reviewed portable sources. Existing command identifiers
 remain compatible; they do not create another routing authority.

@@ -10,8 +10,8 @@ Read [`.agents/instructions.md`](.agents/instructions.md) before routing, planni
 delegating, or changing this repository. Its complete operating contract is binding
 for this repository and inherited by every development subagent.
 
-Package-local instructions refine that contract within their scope. Native
-discovery links expose this framework without creating another operating policy.
+Package-local instructions refine that contract within their scope. Every coding
+agent uses this same entrypoint and reads the canonical sources directly.
 
 All development sources belong in **`.agents/`**:
 
@@ -20,13 +20,13 @@ All development sources belong in **`.agents/`**:
 - [subagents](.agents/subagents/): the unified read-only engineering fleet.
 - [evals](.agents/evals/): routing and engineering evaluations.
 - [configuration](.agents/config.toml): bounded execution and tool connections.
-- [generated projections](.agents/generated/subagents/): derived host discovery.
 
 Create or evolve these through the existing governance workflow. Do not create
-another host-specific skill or subagent fleet. Native `.claude` and `.codex`
-entrypoints are checked compatibility links; they contain no authored policy.
-Startup loads this entrypoint through a small checked hook; there is no
-separate `CLAUDE.md` policy. Other AI tools inherit this same contract.
+`.claude`, `.codex`, `.qwen` or another vendor-specific instruction, skill or agent
+tree. Do not generate per-host adapters or copies of the development fleet.
+Root `AGENTS.md` and `.agents` are the portable operating contract. Tool access and
+automatic discovery still depend on the active host; never claim that reading this
+file registers MCP servers or subagents automatically.
 
 Run independent work in bounded parallel lanes under the canonical
 [delegation contract](.agents/skills/agent-orchestration-governance/references/delegation-contract.md).

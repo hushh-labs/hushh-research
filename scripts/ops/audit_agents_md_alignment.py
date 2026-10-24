@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Audit the repository against its own operating kernel, `AGENTS.md`.
 
-The full audit is ON-DEMAND ONLY. The portable bridge check is reused by skill lint;
+The full audit is ON-DEMAND ONLY. The portable framework check is reused by skill lint;
 the broader inventory is deliberately NOT wired into the governance gate: it walks
 workflows, skills, agents and settings, and the founder's call was that routine CI
 performance must not carry it. Run it when you want the answer:
@@ -65,13 +65,13 @@ ENFORCEMENT = {
     ),
     "Canonical skill center": (
         "mechanical",
-        "Strongest section. sync_claude_agents.py --check verifies agent mirrors byte-for-byte; "
-        "skill_lint.py validates skill.json, required SKILL.md sections, exact native links and "
-        "pinned host/import classifications. Pending import review remains separate debt.",
+        "Canonical source checks reject vendor roots and duplicate fleet projections; "
+        "skill_lint.py validates skill.json, required SKILL.md sections, canonical sources and "
+        "pinned import classifications. Pending import review remains separate debt.",
     ),
     "Project-Wide Routing Gate": (
         "partial",
-        "agent_router_smoke.py and codex-bridge route.py --check prove the router resolves; "
+        "agent_router_smoke.py and .agents/routing/scripts/route.py --check prove the router resolves; "
         "nothing proves an agent actually routed.",
     ),
     "Project-Wide Delegation Checkpoint": (
@@ -96,7 +96,7 @@ ENFORCEMENT = {
     "Project-Wide Commit Attribution Gate (HARD RULE)": (
         "partial",
         "check-dco-signoff.sh verifies commit signoffs in CI and the local release gate. "
-        "The separate agent-attribution policy relies on host settings -- see C4.",
+        "AI co-author prohibition is an asserted cross-host policy; DCO verifies signoff only -- see C4.",
     ),
 }
 
@@ -134,8 +134,14 @@ SOURCE_INVENTORY = ".agents/skills/agent-orchestration-governance/references/pla
 
 
 def bridge_findings(root: Path) -> list[str]:
-    """Verify one canonical skill source and exact native discovery links."""
+    """Verify canonical skills and refusal of duplicate host discovery."""
     findings = []
+    import runpy
+    checks = runpy.run_path(str(REPO_ROOT / ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py"))
+    checks["validate_platform_agent_sources"](root, findings)
+    checks["validate_canonical_framework"](root, findings)
+    if findings:
+        return findings
     for canonical in sorted((root / ".agents/skills").glob("*/SKILL.md")):
         source = canonical.read_text(encoding="utf-8")
         match = re.match(r"\A---\n(.*?)\n---(?:\n|$)", source, re.S)
@@ -145,26 +151,31 @@ def bridge_findings(root: Path) -> list[str]:
         name = re.search(r"^name:\s*(.+)$", match.group(1), re.M)
         if not name or name.group(1).strip().strip("\"'") != canonical.parent.name:
             findings.append(f"{canonical.relative_to(root)}: canonical name differs from directory")
-    generator = root / ".agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py"
-    if generator.is_file():
-        import runpy
-        findings.extend(runpy.run_path(str(generator))["findings"](root))
-    else:
-        findings.append("Host adapter generator is missing")
     return findings
 
 
 def classification_findings(root: Path) -> list[str]:
     """Explicit classifications prevent missing manifests or imports from becoming trusted skills."""
+    import runpy
+    findings = []
+    checks = runpy.run_path(str(REPO_ROOT / ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py"))
+    checks["validate_source_confinement"](root, findings)
+    if findings:
+        return findings
     manifest = root / SOURCE_INVENTORY
     if not manifest.is_file():
         return ["Platform source inventory is missing"]
     inventory = json.loads(manifest.read_text())
     sources = inventory.get("sources", {})
     practices = inventory.get("practice_sources", {})
-    findings = []
-    allowed = {"owner_alias", "host_adapter", "imported_dependency_pending_review",
-               "legacy_adapter_pending_migration", "legacy_behavior_pending_review"}
+    for section in ("sources", "practice_sources", "imported_agents"):
+        for key in inventory.get(section, {}):
+            path = Path(key)
+            if path.is_absolute() or ".." in path.parts or not key.startswith(".agents/"):
+                findings.append(f"{key}: inventory source must be relative and inside .agents")
+    if findings:
+        return findings
+    allowed = {"imported_dependency_pending_review", "legacy_behavior_pending_review"}
     for key, entry in sources.items():
         path = root / key
         if not path.is_file():
@@ -181,30 +192,10 @@ def classification_findings(root: Path) -> list[str]:
     for key, path in canonical.items():
         if not path.with_name("skill.json").is_file() and key not in practices:
             findings.append(f"{key}: missing governed manifest or explicit practice classification")
-    for path in (root / ".agents/routing").glob("SKILL.md"):
-        if path.relative_to(root).as_posix() not in sources:
-            findings.append(f"{path.relative_to(root)}: unclassified host adapter source")
-    adapters = {entry["target"] for entry in inventory.get("host_adapters", {}).values()}
-    for host in (".claude", ".codex"):
-        for path in sorted((root / host / "skills").glob("*/SKILL.md")):
-            key = path.relative_to(root).as_posix()
-            if path.parent.is_symlink():
-                try:
-                    key = path.resolve(strict=True).relative_to(root.resolve()).as_posix()
-                except (ValueError, OSError):
-                    findings.append(f"{key}: host discovery escapes the repository or is missing")
-                    continue
-            if key in adapters or (root / ".agents/skills" / path.parent.name / "SKILL.md").is_file():
-                continue
-            if key not in sources:
-                findings.append(f"{key}: unclassified platform behavior")
-        directory = root / host / "agents"
-        native_fleet = host == ".codex" and directory.is_symlink() and directory.resolve() == (root / ".agents/subagents").resolve()
-        for path in ([] if native_fleet else sorted(directory.rglob("*.toml"))):
-            findings.append(f"{path.relative_to(root)}: unclassified host-local engineering agent")
+    if inventory.get("host_adapters") or inventory.get("compatibility_commands"):
+        findings.append("Per-host adapters are retired")
     expected_agents = inventory.get("imported_agents", {})
-    nested = {p.relative_to(root).as_posix(): p for host in (".claude", ".codex")
-              for p in (root / host / "skills").glob("**/agents/*.toml")}
+    nested = {}
     nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/skills").glob("*/agents/*.toml")})
     nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/routing").glob("**/agents/*.toml")})
     nested.update({p.relative_to(root).as_posix(): p for p in (root / ".agents/imports").glob("**/agents/*.toml")})
@@ -224,8 +215,8 @@ def classification_findings(root: Path) -> list[str]:
 
 def c1_bridges_point_at_canonical() -> None:
     offenders = bridge_findings(REPO_ROOT) + classification_findings(REPO_ROOT)
-    record("C1 native discovery links point at canonical", not offenders,
-           "; ".join(offenders) if offenders else "Native entrypoints resolve to the canonical .agents sources; copied Codex discovery is refused.")
+    record("C1 portable framework has one canonical source", not offenders,
+           "; ".join(offenders) if offenders else "Root AGENTS.md points at canonical .agents sources; vendor discovery is refused.")
 
 
 def c7_platform_authored_inventory(root: Path | None = None) -> None:
@@ -274,37 +265,19 @@ def c2_canonical_frontmatter() -> None:
 
 
 def c3_agent_mirrors_have_authored_source() -> None:
-    """Every generated mirror must trace to an authored .agents/subagents/*.toml."""
-    authored = {p.stem for p in (REPO_ROOT / ".agents/subagents").glob("*.toml")}
-    mirrors = list((REPO_ROOT / ".claude" / "agents").glob("*.md"))
-    offenders = [m.name for m in mirrors if m.stem not in authored]
-    unmirrored = sorted(authored - {m.stem for m in mirrors})
-    detail = f"{len(authored)} authored lane(s), {len(mirrors)} mirror(s)."
-    if offenders:
-        detail += f" Orphaned mirrors: {offenders}."
-    if unmirrored:
-        detail += f" Authored but unmirrored: {unmirrored}."
-    record("C3 agent mirrors trace to authored source", not offenders and not unmirrored, detail)
+    """One authored fleet; no host-specific copies or projections."""
+    authored = list((REPO_ROOT / ".agents/subagents").glob("*.toml"))
+    duplicate = REPO_ROOT / ".agents/generated/subagents"
+    record("C3 one authored development fleet", bool(authored) and not duplicate.exists(),
+           f"{len(authored)} authored lanes; no generated host fleet.")
 
 
 def c4_commit_attribution_control() -> None:
-    """Inspect the host attribution flag separately from the DCO signoff gate."""
-    settings = REPO_ROOT / ".claude" / "settings.json"
-    if not settings.is_file():
-        record("C4 commit attribution control present", False, "settings.json absent.", "risk")
-        return
-    try:
-        val = json.loads(settings.read_text(encoding="utf-8")).get("includeCoAuthoredBy")
-    except json.JSONDecodeError as exc:
-        record("C4 commit attribution control present", False, f"settings.json unparseable: {exc}", "risk")
-        return
-    record(
-        "C4 commit attribution control present",
-        val is False,
-        f"includeCoAuthoredBy={val!r}. This host setting controls automatic agent attribution; "
-        "the separate DCO gate checks commit signoffs, not this attribution policy.",
-        "risk",
-    )
+    """Do not confuse a human signoff with automatic AI co-author prevention."""
+    instructions = load_operating_contract(REPO_ROOT)
+    present = "AI tool is NEVER a contributor" in instructions
+    record("C4 AI attribution policy present", present,
+           "Cross-host prohibition is stated in the canonical contract. It is an author/reviewer obligation; DCO alone checks signoff, not co-author identity.", "risk")
 
 
 def c5_orchestrate_stages_reachable() -> None:
@@ -367,99 +340,64 @@ def c6_docs_parity_in_ci() -> None:
 
 
 def self_test() -> int:
-    import shutil
     import tempfile
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        for name, text in {"AGENTS.md": "Read .agents/instructions.md", ".agents/instructions.md": "fixture", ".agents/README.md": "fixture", ".agents/config.toml": ""}.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
         source = root / ".agents/skills/example/SKILL.md"
         source.parent.mkdir(parents=True)
         source.write_text("---\nname: example\ndescription: Example\n---\nBehavior.\n")
-        generator_path = Path('.agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py')
-        generator = root / generator_path
-        generator.parent.mkdir(parents=True)
-        shutil.copyfile(REPO_ROOT / generator_path, generator)
         inventory = root / SOURCE_INVENTORY
         inventory.parent.mkdir(parents=True, exist_ok=True)
-        inventory.write_text(json.dumps({"practice_sources": {
-            source.relative_to(root).as_posix(): {"classification": "portable_practice"}
-        }}))
-        native = {".agents/config.toml": "", ".agents/startup.json": "{}"}
-        for name, value in native.items():
-            path = root / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(value)
-        (root / ".agents/subagents").mkdir()
-        (root / ".agents/generated/subagents").mkdir()
-        import runpy
-        runpy.run_path(str(generator))["write_links"](root)
-        claude = root / ".claude/skills/example"
-        assert bridge_findings(root) == []
-        claude.unlink()
-        claude.symlink_to("../../.agents/skills/missing", target_is_directory=True)
-        assert any("must link" in x for x in bridge_findings(root))
-        claude.unlink()
-        claude.mkdir()
-        (claude / "SKILL.md").write_text(source.read_text())
-        assert any("must link" in x for x in bridge_findings(root))
-        (claude / "SKILL.md").unlink()
-        claude.rmdir()
-        claude.symlink_to("../../.agents/skills/example", target_is_directory=True)
-        duplicate = root / ".codex/skills/example/SKILL.md"
-        duplicate.parent.mkdir(parents=True)
-        duplicate.write_text(source.read_text())
-        assert any("duplicate discovery" in x for x in bridge_findings(root))
-        shutil.rmtree(root / ".codex/skills")
+        inventory.write_text(json.dumps({"practice_sources": {source.relative_to(root).as_posix(): {"classification": "portable_practice"}}}))
+        assert not bridge_findings(root)
+        assert not classification_findings(root)
+        for name in (".claude", ".codex", ".qwen"):
+            forbidden = root / name
+            forbidden.symlink_to("missing-target")
+            assert any(name in error for error in bridge_findings(root))
+            forbidden.unlink()
+        external = root / "external-skill.md"
+        external.write_text(source.read_text())
+        source.unlink()
+        source.symlink_to(external)
+        assert any("escapes .agents" in error for error in bridge_findings(root))
+        assert any("escapes .agents" in error for error in classification_findings(root))
+        source.unlink()
+        source.write_text(external.read_text())
+        outside = root / ".agents/skills/outside"
+        outside.symlink_to(root, target_is_directory=True)
+        assert any("escapes .agents" in error for error in bridge_findings(root))
+        outside.unlink()
+        payload = json.loads(inventory.read_text())
+        payload["sources"] = {"../external-skill.md": {"classification": "imported_dependency_pending_review"}}
+        inventory.write_text(json.dumps(payload))
+        assert any("inside .agents" in error for error in classification_findings(root))
+        payload.pop("sources")
+        inventory.write_text(json.dumps(payload))
+        unclassified = source.parent.parent / "unclassified/SKILL.md"
+        unclassified.parent.mkdir()
+        unclassified.write_text("---\nname: unclassified\ndescription: Example\n---\nBehavior.\n")
+        assert any("missing governed manifest" in error for error in classification_findings(root))
+        unclassified.unlink()
+        unclassified.parent.rmdir()
         source.write_text("---\nname: wrong\ndescription: Example\n---\nBehavior.\n")
-        assert any("name differs" in x for x in bridge_findings(root))
+        assert any("name differs" in error for error in bridge_findings(root))
         source.write_text("No frontmatter\n")
-        assert any("missing YAML" in x for x in bridge_findings(root))
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        adapter = root / ".claude/skills/adapter/SKILL.md"
-        adapter.parent.mkdir(parents=True)
-        adapter.write_text("Host procedure\n" * 30)
-        imported = root / ".claude/skills/bundle/agents/worker.toml"
+        assert any("missing YAML" in error for error in bridge_findings(root))
+        imported = root / ".agents/imports/bundle/agents/worker.toml"
         imported.parent.mkdir(parents=True)
         imported.write_text('name = "imported-resource"')
-        bundle = imported.parents[1] / "SKILL.md"
-        bundle.write_text("Imported procedure\n" * 30)
-        payload = {"sources": {
-            adapter.relative_to(root).as_posix(): {
-                "classification": "host_adapter", "sha256": hashlib.sha256(adapter.read_bytes()).hexdigest()},
-            bundle.relative_to(root).as_posix(): {
-                "classification": "imported_dependency_pending_review", "sha256": hashlib.sha256(bundle.read_bytes()).hexdigest()},
-        }, "imported_agents": {
-            imported.relative_to(root).as_posix(): hashlib.sha256(imported.read_bytes()).hexdigest()}}
-        inventory = root / SOURCE_INVENTORY
-        inventory.parent.mkdir(parents=True)
+        payload = json.loads(inventory.read_text())
+        payload['imported_agents'] = {imported.relative_to(root).as_posix(): hashlib.sha256(imported.read_bytes()).hexdigest()}
         inventory.write_text(json.dumps(payload))
-        assert classification_findings(root) == []
-        RESULTS.clear()
-        c7_platform_authored_inventory(root)
-        assert all(r["ok"] for r in RESULTS if r["severity"] == "finding")
-        debt = [r for r in RESULTS if r["severity"] == "review_debt"]
-        assert len(debt) == 1 and not debt[0]["ok"]
-        assert "bundle/SKILL.md" in debt[0]["detail"]
-        assert "adapter/SKILL.md" not in debt[0]["detail"]
+        assert not classification_findings(root)
         imported.write_text('name = "changed-resource"')
-        assert any("worker.toml" in x and "changed" in x for x in classification_findings(root))
-        rogue = root / ".agents/skills/new/SKILL.md"
-        rogue.parent.mkdir(parents=True)
-        rogue.write_text("Short unclassified behavior")
-        assert any("new/SKILL.md" in x and "missing governed manifest" in x for x in classification_findings(root))
-        local_agent = root / ".claude/agents/rogue.toml"
-        local_agent.parent.mkdir(parents=True)
-        local_agent.write_text('name = "second-authored-copy"')
-        assert any("host-local engineering" in x for x in classification_findings(root))
-        with tempfile.TemporaryDirectory() as external:
-            outside = Path(external)
-            (outside / "SKILL.md").write_text("Outside source")
-            escape = root / ".claude/skills/escape"
-            escape.symlink_to(outside, target_is_directory=True)
-            assert any("escapes the repository" in x for x in classification_findings(root))
-            escape.unlink()
-        RESULTS.clear()
-    print("Unified discovery regression checks passed (exact links, duplicates, malformed sources, imported authority).")
+        assert any("worker.toml" in error and "changed" in error for error in classification_findings(root))
+    print("Portable framework checks passed: canonical source, forbidden roots, malformed skills and imported authority.")
     return 0
 
 

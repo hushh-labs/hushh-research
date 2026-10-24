@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Regression test for route.py --hook mode (UserPromptSubmit contract).
+"""Regression test for route.py --automatic mode (automatic request contract).
 
 Run:
-    python3 .agents/routing/scripts/test_route_hook.py
+    python3 .agents/routing/scripts/test_route_requests.py
 
-The hook contract:
+The request contract:
   - Never block the turn: exit code must be 0 on every path, including malformed stdin.
   - Silent on weak matches: empty stdout for chitchat, short prompts, missing fields.
   - Confidence tiers: full briefing only on a strong, unambiguous match; a compact
     pointer between the gates; silence below them.
   - Reply rules load only for the community lane, never for engineering questions.
-  - Env kill-switch: CODEX_BRIDGE_DISABLE=1 forces silence.
+  - Env kill-switch: AGENT_ROUTING_DISABLE=1 forces silence.
 
 It also runs the routing-accuracy fixtures in `../fixtures/routing_cases.json`,
 which pin the lane each representative prompt must reach and cap the total
@@ -31,9 +31,9 @@ SCRIPT = Path(__file__).parent / "route.py"
 FIXTURES = Path(__file__).parents[1] / "fixtures" / "routing_cases.json"
 
 
-def run_hook(payload: str, env: dict | None = None) -> tuple[str, int]:
+def run_request(payload: str, env: dict | None = None) -> tuple[str, int]:
     proc = subprocess.run(
-        ["python3", str(SCRIPT), "--hook"],
+        ["python3", str(SCRIPT), "--automatic"],
         input=payload,
         capture_output=True,
         text=True,
@@ -44,12 +44,7 @@ def run_hook(payload: str, env: dict | None = None) -> tuple[str, int]:
 
 
 def payload(prompt: str) -> str:
-    return json.dumps({
-        "session_id": "test",
-        "cwd": str(Path.cwd()),
-        "hook_event_name": "UserPromptSubmit",
-        "prompt": prompt,
-    })
+    return json.dumps({"prompt": prompt})
 
 
 FAILED: list[str] = []
@@ -69,7 +64,7 @@ REPLY_RULES_MARKER = "Response format (codex Q&A rules)"
 
 
 def classify(out: str) -> tuple[str, str, str]:
-    """Return (tier, kind, id) for a hook response: tier is full|compact|silent."""
+    """Return (tier, kind, id) for a request response: tier is full|compact|silent."""
     for line in out.splitlines():
         for marker, tier in ((FULL_MARKER, "full"), (COMPACT_MARKER, "compact")):
             if marker in line:
@@ -82,7 +77,7 @@ def classify(out: str) -> tuple[str, str, str]:
 def run_composition_checks() -> None:
     """Assertions the prompt fixtures structurally cannot make.
 
-    A fixture can only see what the hook emits for one prompt. These check
+    A fixture can only see what the request emits for one prompt. These check
     invariants across the whole corpus and across entry points.
     """
     print("\n=== composition and parity invariants ===")
@@ -108,8 +103,8 @@ def run_composition_checks() -> None:
         f"{len(lost)} lost, e.g. {lost[:4]}",
     )
 
-    # A name must resolve to the same lane through the hook and through the CLI:
-    # the compact briefing footer tells the user to run `/codex-bridge <name>`.
+    # A name must resolve to the same lane through the request and through the CLI:
+    # the compact briefing footer tells the user to run `python3 .agents/routing/scripts/route.py <name>`.
     ordered = [(workflows, "workflow"), (skills, "skill"), (agents, "agent")]
     mismatched: list[str] = []
     for name in ("reviewer", "morphy-ax", "hushh-consent-mcp", "governor", "repo-operations"):
@@ -118,10 +113,10 @@ def run_composition_checks() -> None:
             mismatched.append(f"{name}: unresolved")
             continue
         entry, kind = resolved
-        out, _ = run_hook(payload(name))
+        out, _ = run_request(payload(name))
         if f"{kind} `{entry.name}`" not in out:
-            mismatched.append(f"{name}: hook disagrees with named_match -> {kind} {entry.name}")
-    check("hook and CLI resolve a typed name to the same lane", not mismatched, str(mismatched))
+            mismatched.append(f"{name}: request disagrees with named_match -> {kind} {entry.name}")
+    check("request and CLI resolve a typed name to the same lane", not mismatched, str(mismatched))
 
     # The Discord tone contract is ~3.3k tokens. It must not ride along on
     # engineering turns, and must not go missing on channel-named turns.
@@ -137,7 +132,7 @@ def run_composition_checks() -> None:
     ]
     wrong: list[str] = []
     for prompt, want_rules in rules_cases:
-        out, _ = run_hook(payload(prompt))
+        out, _ = run_request(payload(prompt))
         if (REPLY_RULES_MARKER in out) != want_rules:
             wrong.append(f"{prompt!r} expected rules={want_rules}")
     check("reply rules load only for community-channel turns", not wrong, str(wrong))
@@ -155,7 +150,7 @@ def run_routing_fixtures() -> None:
     spent = 0
     for case in spec["cases"]:
         prompt = case["prompt"]
-        out, code = run_hook(payload(prompt))
+        out, code = run_request(payload(prompt))
         spent += len(out)
         tier, kind, ident = classify(out)
         label = f"{prompt[:46]!r} -> {tier}:{ident or '-'}"
@@ -187,92 +182,103 @@ def run_routing_fixtures() -> None:
         )
 
 
-def main() -> int:
-    print("=== codex-bridge route.py --hook regression ===")
+def request_contract_invariants() -> None:
+    for value in (None, 42, ["security-audit"], {"text": "security-audit"}):
+        out, code = run_request(json.dumps({"prompt": value}))
+        check(f"non-string prompt {type(value).__name__} is silent", not out.strip() and code == 0)
+    out, code = run_request(json.dumps({"session_id": "x"}))
+    check("missing prompt field is silent", not out.strip() and code == 0)
+    out, code = run_request(payload("x" * 65536))
+    check("oversized request is silent", not out.strip() and code == 0)
+    out, code = run_request(json.dumps({"prompt": "repo-operations", "credential": "synthetic-private-field"}))
+    check("unrelated fields never enter the briefing", code == 0 and "skill `repo-operations`" in out and "synthetic-private-field" not in out)
 
-    out, code = run_hook("")
+
+def main() -> int:
+    print("=== repository route.py --automatic regression ===")
+
+    out, code = run_request("")
     check("empty stdin is silent and exit 0", out.strip() == "" and code == 0, f"code={code} out={out!r}")
 
-    out, code = run_hook("not json at all")
+    out, code = run_request("not json at all")
     check("malformed stdin is silent and exit 0", out.strip() == "" and code == 0, f"code={code} out={out!r}")
 
-    out, code = run_hook(json.dumps(["a", "b"]))
+    out, code = run_request(json.dumps(["a", "b"]))
     check("non-dict json stdin is silent", out.strip() == "" and code == 0)
 
-    out, code = run_hook(json.dumps({"session_id": "x"}))
-    check("missing prompt field is silent", out.strip() == "" and code == 0)
+    request_contract_invariants()
 
-    out, code = run_hook(payload("hi"))
+    out, code = run_request(payload("hi"))
     check("prompt shorter than floor is silent", out.strip() == "" and code == 0)
 
-    out, code = run_hook(payload("hey how are you doing today friend"))
+    out, code = run_request(payload("hey how are you doing today friend"))
     check("chitchat is silent", out.strip() == "" and code == 0, f"leaked={out[:160]!r}")
 
-    out, code = run_hook(payload("repo-operations"))
+    out, code = run_request(payload("repo-operations"))
     check(
         "exact skill name emits wrapped briefing",
         code == 0
-        and "Auto-routed by codex-bridge" in out
+        and "Automatically routed by repository framework" in out
         and "skill `repo-operations`" in out,
         f"head={out[:200]!r}",
     )
 
-    out, code = run_hook(payload("ci-watch-and-heal"))
+    out, code = run_request(payload("ci-watch-and-heal"))
     check(
         "exact workflow name emits wrapped briefing",
         code == 0
-        and "Auto-routed by codex-bridge" in out
+        and "Automatically routed by repository framework" in out
         and "workflow `ci-watch-and-heal`" in out,
         f"head={out[:200]!r}",
     )
 
-    out, code = run_hook(payload("repo-operations guidance for branch protection and merge queue state"))
+    out, code = run_request(payload("repo-operations guidance for branch protection and merge queue state"))
     check(
         "strong free-text match emits wrapped briefing",
-        code == 0 and "Auto-routed by codex-bridge" in out,
+        code == 0 and "Automatically routed by repository framework" in out,
         f"head={out[:200]!r}",
     )
 
-    out, code = run_hook(payload("how does repo-operations manage branch protection and merge queue settings?"))
+    out, code = run_request(payload("how does repo-operations manage branch protection and merge queue settings?"))
     check(
         "engineering Q&A does not pull in the community reply rules",
         code == 0
         and "Response format (codex Q&A rules)" not in out
-        and "Auto-routed by codex-bridge" in out,
+        and "Automatically routed by repository framework" in out,
         f"head={out[:200]!r}",
     )
 
-    out, code = run_hook(payload("draft a reply for the discord community question about BYOK"))
+    out, code = run_request(payload("draft a reply for the discord community question about BYOK"))
     check(
         "community-reply lane still prepends the reply-rules header",
         code == 0 and "Response format (codex Q&A rules)" in out,
         f"head={out[:200]!r}",
     )
 
-    out, code = run_hook(
+    out, code = run_request(
         payload("how does repo-operations manage branch protection and merge queue settings?"),
-        env={"CODEX_BRIDGE_DISABLE": "1"},
+        env={"AGENT_ROUTING_DISABLE": "1"},
     )
     check(
-        "CODEX_BRIDGE_DISABLE=1 forces silence even on strong match",
+        "AGENT_ROUTING_DISABLE=1 forces silence even on strong match",
         out.strip() == "" and code == 0,
         f"code={code} out={out[:120]!r}",
     )
 
     # Agent-extension regression cases ----------------------------------------
 
-    out, code = run_hook(payload("governor"))
+    out, code = run_request(payload("governor"))
     check(
         "exact agent name (short) emits final-authority agent briefing",
         code == 0
-        and "Auto-routed by codex-bridge" in out
+        and "Automatically routed by repository framework" in out
         and "agent `governor`" in out
         and "Final merge/deploy/plan recommendations" in out
         and "delegation lane" in out.lower(),
         f"head={out[:240]!r}",
     )
 
-    out, code = run_hook(payload("reviewer"))
+    out, code = run_request(payload("reviewer"))
     check(
         "exact advisory agent name emits advisory-only authority",
         code == 0
@@ -281,14 +287,14 @@ def main() -> int:
         f"head={out[:240]!r}",
     )
 
-    out, code = run_hook(payload("Northstar Summit Keystone evidence synthesis lane"))
+    out, code = run_request(payload("Northstar Summit Keystone evidence synthesis lane"))
     check(
         "agent-primary fallback routes to governor when no skill or workflow clears its gate",
         code == 0 and "agent `governor`" in out,
         f"head={out[:240]!r}",
     )
 
-    out, code = run_hook(payload("vault PKM boundary encrypted storage rules"))
+    out, code = run_request(payload("vault PKM boundary encrypted storage rules"))
     check(
         "skill briefing for non-Q&A query includes Suggested delegation lanes footer",
         code == 0
@@ -298,7 +304,7 @@ def main() -> int:
         f"excerpt={out[-600:]!r}",
     )
 
-    out, code = run_hook(payload("how does vault PKM boundary encryption handle storage rules?"))
+    out, code = run_request(payload("how does vault PKM boundary encryption handle storage rules?"))
     check(
         "Q&A plus skill match suppresses agent lanes footer",
         code == 0
@@ -307,7 +313,7 @@ def main() -> int:
         f"excerpt={out[-400:]!r}",
     )
 
-    out, code = run_hook(payload("architecture review across frontend and backend and voice contracts"))
+    out, code = run_request(payload("architecture review across frontend and backend and voice contracts"))
     check(
         "close-scoring multi-agent tie suppresses delegation footer",
         code == 0 and "Suggested delegation lanes" not in out,

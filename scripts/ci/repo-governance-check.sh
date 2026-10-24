@@ -76,12 +76,11 @@ python3 scripts/licenses/verify_apache_surface.py
 python3 scripts/ci/verify-runtime-config-contract.py
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
-python3 .agents/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --check
 python3 .agents/skills/codex-skill-authoring/scripts/trigger_evals.py
 python3 .agents/skills/codex-skill-authoring/scripts/test_trigger_evals.py
 python3 .agents/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
 python3 .agents/routing/scripts/route.py --check
-python3 .agents/routing/scripts/test_route_hook.py
+python3 .agents/routing/scripts/test_route_requests.py
 # Fails when a required NEXT_PUBLIC_* credential is missing from a build lane.
 # Offline and fast. The origin-restriction half of this skill needs gcloud and
 # stays out of CI on purpose — run it from the skill before a release.

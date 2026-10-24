@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Route an intent to a Codex skill, workflow, or agent and compose a briefing
+"""Route an intent to a repository skill, workflow, or agent and compose a briefing
 that mirrors `./bin/hushh codex route-task` semantics: workflow -> owner_skill
 + default_spoke -> union(required_reads, required_commands, handoff_chain,
 risks). Agents are surfaced as advisory delegation lanes, never as primary
@@ -12,8 +12,7 @@ Modes:
   route.py --check             Structural lint of the .agents source tree.
   route.py                     Equivalent to --list.
 
-Designed for Claude Code `!` shell injection: stdout is Markdown that Claude
-reads at invocation time.
+Portable CLI output is Markdown; automatic mode accepts a JSON prompt on stdin.
 """
 
 from __future__ import annotations
@@ -680,7 +679,7 @@ def compose_compact_briefing(
         out.append("```")
     if rivals:
         out.append(f"**Other candidates:** {', '.join(f'`{r.name}`' for r in rivals[:3])}")
-    out.append(f"\n_Load the full briefing with `/codex-bridge {entry.name}` if this is the right lane._")
+    out.append(f"\n_Load the full briefing with `python3 .agents/routing/scripts/route.py {entry.name}` if this is the right lane._")
     return "\n".join(out) + "\n"
 
 
@@ -904,7 +903,7 @@ def render_catalog(skills: list[Entry], workflows: list[Entry], agents: list[Ent
             tag = "final-authority" if authority == "final-authority" else "advisory-only"
             out.append(f"- `{a.name}` *[{tag}]* - {a.description[:140]}")
 
-    out.append("\n_To load a briefing: `/codex-bridge <name>` or `/codex-bridge <free-text>`._")
+    out.append("\n_To load a briefing: `python3 .agents/routing/scripts/route.py <name>` or `python3 .agents/routing/scripts/route.py <free-text>`._")
     return "\n".join(out) + "\n"
 
 
@@ -1142,32 +1141,32 @@ def _prepend_response_rules(
     return "\n".join(header) + briefing
 
 
-HOOK_MIN_PROMPT_LEN = 12
+AUTO_MIN_PROMPT_LEN = 12
 # Two gates per kind: the lower one is "say something", the upper one is "this
-# is confident enough to be worth the full playbook". Between them the hook
+# is confident enough to be worth the full playbook". Between them the automatic request
 # emits the compact pointer instead of nothing (useful) or everything (costly).
-HOOK_WORKFLOW_SCORE = 8
-HOOK_WORKFLOW_FULL = 20
-HOOK_SKILL_SCORE = 10
-HOOK_SKILL_FULL = 22
-HOOK_AGENT_SCORE = 14  # Strict: agents are execution layer, not a second skill system.
-HOOK_AGENT_FULL = 22
+AUTO_WORKFLOW_SCORE = 8
+AUTO_WORKFLOW_FULL = 20
+AUTO_SKILL_SCORE = 10
+AUTO_SKILL_FULL = 22
+AUTO_AGENT_SCORE = 14  # Strict: agents are execution layer, not a second skill system.
+AUTO_AGENT_FULL = 22
 # Two entries within this many points of each other is a coin flip, not a match.
-HOOK_AMBIGUITY_MARGIN = 2
+AUTO_AMBIGUITY_MARGIN = 2
 
 
-def _read_hook_stdin() -> str:
-    """Read UserPromptSubmit hook JSON from stdin and return the prompt field.
+def _read_request_stdin() -> str:
+    """Read automatic routing request JSON from stdin and return the prompt field.
 
-    Claude Code feeds hooks a JSON payload containing at least `prompt`,
-    `session_id`, `cwd`, and `hook_event_name`. We only need `prompt`.
-    Returns "" on any parse failure so the hook stays silent.
+    Any caller supplies a JSON object with a `prompt` string. No host-specific
+    session fields or lifecycle hooks are required.
+    Returns "" on any parse failure so the automatic request stays silent.
     """
     try:
-        raw = sys.stdin.read()
+        raw = sys.stdin.read(65537)
     except Exception:
         return ""
-    if not raw.strip():
+    if len(raw.encode("utf-8")) > 65536 or not raw.strip():
         return ""
     try:
         data = json.loads(raw)
@@ -1175,17 +1174,18 @@ def _read_hook_stdin() -> str:
         return ""
     if not isinstance(data, dict):
         return ""
-    return str(data.get("prompt") or "").strip()
+    prompt = data.get("prompt")
+    return prompt.strip() if isinstance(prompt, str) else ""
 
 
-def _hook_wrap_compact(briefing: str, match_id: str, kind: str) -> str:
+def _wrap_request_compact(briefing: str, match_id: str, kind: str) -> str:
     return (
-        f"_codex-bridge: possible match for **{kind} `{match_id}`**. "
+        f"_Repository router: possible match for **{kind} `{match_id}`**. "
         "Use it if it fits; ignore it if it does not._\n\n"
     ) + briefing
 
 
-def _hook_wrap(briefing: str, match_id: str, kind: str) -> str:
+def _wrap_request(briefing: str, match_id: str, kind: str) -> str:
     if kind == "agent":
         second_sentence = (
             "Treat the briefing below as a suggested delegation lane, not a "
@@ -1202,7 +1202,7 @@ def _hook_wrap(briefing: str, match_id: str, kind: str) -> str:
             "ignore this block and proceed with the user's request as stated."
         )
     header = (
-        "# Auto-routed by codex-bridge\n\n"
+        "# Automatically routed by repository framework\n\n"
         f"_Your prompt matched **{kind} `{match_id}`** in the codex tree. "
         f"{second_sentence}_\n\n---\n\n"
     )
@@ -1237,22 +1237,22 @@ def _emit(
             briefing = compose_skill_briefing(entry, workflows, skills_by_id) + footer
         else:
             briefing = compose_agent_briefing(entry, skills_by_id)
-        wrapped = _hook_wrap(briefing, entry.name, kind)
+        wrapped = _wrap_request(briefing, entry.name, kind)
     else:
-        wrapped = _hook_wrap_compact(
+        wrapped = _wrap_request_compact(
             compose_compact_briefing(entry, kind, skills_by_id, rivals), entry.name, kind
         )
     return _prepend_response_rules(wrapped, repo_root, query, entry.name), 0
 
 
-def _route_hook(
+def _route_automatic(
     repo_root: Path,
     skills: list[Entry],
     workflows: list[Entry],
     agents: list[Entry],
     query: str,
 ) -> tuple[str, int]:
-    """Silent-fallback mode for the UserPromptSubmit hook.
+    """Silent-fallback mode for the automatic routing request.
 
     Three outcomes, by confidence: silent below the lower gate, a compact
     pointer between the gates (or whenever a rival is within the ambiguity
@@ -1262,7 +1262,7 @@ def _route_hook(
     (non-Q&A only), or as a strict agent-primary fallback when no skill or
     workflow clears its gate.
     """
-    if os.environ.get("CODEX_BRIDGE_DISABLE") == "1":
+    if os.environ.get("AGENT_ROUTING_DISABLE") == "1":
         return ("", 0)
     if not query:
         return ("", 0)
@@ -1282,12 +1282,12 @@ def _route_hook(
         else:
             briefing = compose_agent_briefing(direct, skills_by_id)
         return _prepend_response_rules(
-            _hook_wrap(briefing, direct.name, kind), repo_root, query, direct.name
+            _wrap_request(briefing, direct.name, kind), repo_root, query, direct.name
         ), 0
 
     # Length floor only applies to the free-text scoring path so conversational
     # prompts and single-word chitchat stay silent.
-    if len(query) < HOOK_MIN_PROMPT_LEN:
+    if len(query) < AUTO_MIN_PROMPT_LEN:
         return ("", 0)
     if not _tokens(query):
         return ("", 0)
@@ -1305,7 +1305,7 @@ def _route_hook(
         kind,
         score=score,
         full_gate=gate,
-        rivals=_rivals_within(ranked, entry, HOOK_AMBIGUITY_MARGIN),
+        rivals=_rivals_within(ranked, entry, AUTO_AMBIGUITY_MARGIN),
         repo_root=repo_root,
         query=query,
         skills_by_id=skills_by_id,
@@ -1317,19 +1317,19 @@ def _route_hook(
     # workflow is the actionable unit — it composes owner + spoke — so it wins
     # the tie even when the skill's prose scores a little higher.
     same_lane = best_wf is not None and best_skill is not None and best_wf.name == best_skill.name
-    if best_wf is not None and best_wf_score >= HOOK_WORKFLOW_SCORE and (
+    if best_wf is not None and best_wf_score >= AUTO_WORKFLOW_SCORE and (
         best_wf_score >= best_skill_score or same_lane
     ):
         # Score the workflow on its own corpus. Skill and workflow scores come
         # from different field weights and a different IDF denominator, so
         # substituting one for the other would not be a comparison.
-        return emit(best_wf, "workflow", best_wf_score, HOOK_WORKFLOW_FULL, ranked_workflows)
+        return emit(best_wf, "workflow", best_wf_score, AUTO_WORKFLOW_FULL, ranked_workflows)
 
-    if best_skill is not None and best_skill_score >= HOOK_SKILL_SCORE:
-        return emit(best_skill, "skill", best_skill_score, HOOK_SKILL_FULL, ranked_skills)
+    if best_skill is not None and best_skill_score >= AUTO_SKILL_SCORE:
+        return emit(best_skill, "skill", best_skill_score, AUTO_SKILL_FULL, ranked_skills)
 
-    if best_agent is not None and best_agent_score >= HOOK_AGENT_SCORE:
-        return emit(best_agent, "agent", best_agent_score, HOOK_AGENT_FULL, ranked_agents)
+    if best_agent is not None and best_agent_score >= AUTO_AGENT_SCORE:
+        return emit(best_agent, "agent", best_agent_score, AUTO_AGENT_FULL, ranked_agents)
 
     return ("", 0)
 
@@ -1340,9 +1340,9 @@ def route(argv: list[str]) -> tuple[str, int]:
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--coverage", action="store_true")
     parser.add_argument(
-        "--hook",
+        "--automatic",
         action="store_true",
-        help="UserPromptSubmit hook mode: read prompt JSON from stdin and emit a briefing only on a confident match.",
+        help="automatic routing request mode: read prompt JSON from stdin and emit a briefing only on a confident match.",
     )
     parser.add_argument("--repo", default=None)
     parser.add_argument("query", nargs="*")
@@ -1351,13 +1351,13 @@ def route(argv: list[str]) -> tuple[str, int]:
     repo_root = Path(args.repo).resolve() if args.repo else find_repo_root(Path.cwd())
     skills, workflows, agents = discover(repo_root)
     if not skills and not workflows and not agents:
-        if args.hook:
+        if args.automatic:
             return ("", 0)
         return (f"_No `.agents/skills/`, `.agents/workflows/`, or `.agents/subagents/` entries under {repo_root}._\n", 1)
 
-    if args.hook:
-        query = _read_hook_stdin()
-        return _route_hook(repo_root, skills, workflows, agents, query)
+    if args.automatic:
+        query = _read_request_stdin()
+        return _route_automatic(repo_root, skills, workflows, agents, query)
 
     if args.check:
         return render_check(repo_root, skills, workflows, agents)
@@ -1370,8 +1370,8 @@ def route(argv: list[str]) -> tuple[str, int]:
 
     skills_by_id = {s.name: s for s in skills}
 
-    # Same resolution as the hook. The compact briefing's footer tells the user
-    # to run `/codex-bridge <name>`, so a name must not land on a different lane
+    # Same resolution as the automatic request. The compact briefing's footer tells the user
+    # to run `python3 .agents/routing/scripts/route.py <name>`, so a name must not land on a different lane
     # depending on which entry point resolved it.
     named = named_match(query, [(workflows, "workflow"), (skills, "skill"), (agents, "agent")])
     if named:
@@ -1424,7 +1424,7 @@ def route(argv: list[str]) -> tuple[str, int]:
         return _prepend_response_rules(briefing, repo_root, query, best_skill[1].name), 0
 
     # Agent-primary fallback: only reached if no skill or workflow scored.
-    if best_agent[1] is not None and best_agent[0] >= HOOK_AGENT_SCORE:
+    if best_agent[1] is not None and best_agent[0] >= AUTO_AGENT_SCORE:
         close = [e for s_, e in top_a if s_ >= best_agent[0] - 2 and e is not best_agent[1]]
         if not close:
             briefing = compose_agent_briefing(best_agent[1], skills_by_id)

@@ -2,11 +2,11 @@
 
 ## Status
 
-**Implementation candidate — updated 2026-10-20.** Main and frozen local ADK
-were integrated through `f3132dff38`; canonical-source consolidation is under local verification.
+**Implementation candidate — updated 2026-10-24.** Main `217007c715` was
+integrated by behavior at `e0deca33af`; canonical-source consolidation is under local verification.
 Continue on `claude/hushh-infrastructure-analysis-7o991c`; preserve concurrent work.
-The current execution authorization permits a verified dev release. Main merge,
-UAT and production deployment remain separate. The
+The current surgical release authorizes validated main, dev and UAT progression.
+Production deployment and stable publication remain excluded. The
 [normal release transition](./personal-agent/NORMAL-RELEASE-TRANSITION.md) retains
 the private-agent implementation, migration and release prerequisites.
 
@@ -20,13 +20,15 @@ not ahead of the executable routing sources.
 ## Decision
 
 Use `.agents/` as the single authored home for repository development instructions,
-skills, subagents and workflows. Keep host-required entrypoints as thin adapters or
-generated projections. Organize the rest of the repository around existing package
+skills, subagents and workflows. Root `AGENTS.md` is the portable entrypoint;
+do not create vendor directories, per-host adapters or generated fleets.
+Organize the rest of the repository around existing package
 and domain ownership, with deeper folders only for distinct responsibilities.
 
 The canonical operating contract now lives in `.agents/instructions.md`, loaded
 explicitly by root `AGENTS.md`. Skill, workflow, and lane consumers move together;
-settings live in `.agents/config.toml` and `.agents/startup.json`; projections live under `.agents/generated/subagents`, exposed through checked relative native links. Codex reads canonical skills directly; copied discovery is removed.
+declarations live in `.agents/config.toml`. Every development host reads the same
+canonical sources; no startup hook or native discovery tree is installed.
 
 ## Inspected baseline
 
@@ -34,12 +36,12 @@ settings live in `.agents/config.toml` and `.agents/startup.json`; projections l
 | --- | --- | --- |
 | Portable development skills | 22 classified practices under `.agents/skills/` after integration | Preserve behavior and relative resource graphs |
 | Governed owner/spoke skills | 45 under `.agents/skills/` | Preserve `skill.json`, ownership, routing and verification contracts |
-| Development subagents | 19 authored TOML files under `.agents/subagents/` | Preserve lane IDs, read-only authority and generated host mirrors |
+| Development subagents | 19 authored TOML files under `.agents/subagents/` | Preserve lane IDs and read-only authority; remove generated host mirrors |
 | Recurring workflows | 40 under `.agents/workflows/` | Preserve workflow IDs and existing CLI commands |
-| Host discovery | Exact relative links; 19 Claude projections under `.agents/generated` | No copied skill discovery. Preserve native settings, current MCP entries and classified imports |
+| Host discovery | Root `AGENTS.md` → `.agents/instructions.md` | Remove vendor links, hooks and projections; preserve local settings, active connections and classified imports |
 | Routing cases / pinned imports | 45 cases under `.agents/evals`; 156 unchanged imported files under `.agents/imports/impeccable` | Preserve case bytes, original licenses/hashes and pending-review restrictions |
 | Maintained documentation | 321 pages in the existing inventory | Classify every page; 37 flagged review candidates are not deletion decisions |
-| Concurrent work | Ten dirty/untracked peer paths; active ADK worktree | Preserve hashes, coordinate ownership and reconcile before relocation |
+| Concurrent work | Nine dirty/untracked peer paths; preserved ADK branch and retirement receipts | Preserve hashes and unique history before cleanup |
 
 Counts describe this revision. Recount after concurrent work is integrated. Portable
 and governed skill names currently have no collisions; semantic duplicates still
@@ -59,26 +61,22 @@ documentation and host discovery: a directory rename alone is insufficient.
     scripts/                  # existing bounded tooling
   subagents/<lane-id>.toml    # authored development lanes
   workflows/<workflow-id>/    # routing metadata and playbooks
-  adapters/<host>/            # native settings and generated projections
   evals/cases/                # shared deterministic routing evidence
   imports/<dependency>/       # pinned resources, licenses and review classification
 ```
 
 Root `AGENTS.md` remains the required repository entrypoint and explicitly loads
-`.agents/instructions.md`. Claude's SessionStart loader delivers this entrypoint
-and its canonical contract path; root `CLAUDE.md` and the stale Qwen policy copy
-are removed. Do not assume a host automatically reads nested instructions.
-Verify loading and scoped package instructions before moving the root kernel.
+`.agents/instructions.md`. Duplicate root policies and host-specific startup
+loaders are removed. A host that does not automatically discover `AGENTS.md`
+must read it explicitly; repository files alone cannot register its tools.
 Existing policy validators must inspect both the root pointer and canonical body;
 a missing target must fail. Preserve package-level instruction precedence.
 
-Native `.codex` and `.claude` entrypoints are relative compatibility links to
-`.agents`. Codex skills need no bridge. Claude skill directories resolve to the
-canonical procedure or classified invocation adapter. Settings, engineering lane
-projections, evals and pinned imports have one physical home under `.agents`.
-Validators reject copied discovery, wrong targets and a second authored fleet.
-The active `.claude/worktrees/adk-orchestration` remains untouched; this local
-worktree is not portable policy and is not removed while another agent uses it.
+Root `.codex`, `.claude` and equivalent vendor directories are refused, including
+empty directories and broken links. Keep private overrides in ignored
+`.agents/.local/`; preservation does not make those settings active in every host.
+The ADK worktree was retired after preserving its branch and unique changes;
+its retirement receipt remains local. Never remove another session's active tree.
 
 Product-agent manifests in `consent-protocol/hushh_mcp/agents/` retain their existing
 ownership and generators. They are runtime product code, separate from development
@@ -130,8 +128,8 @@ review prompts, not deletion decisions; preserve unique operating guidance.
 | Stage | Bounded work | Exit evidence |
 | --- | --- | --- |
 | 1. Freeze ownership | Record revisions, peer hashes, all authored sources, imported bundles and inbound callers; coordinate active ADK/PDF/config work | Reviewed source-to-destination/disposition inventory; preserved peer changes |
-| 2. Prepare routing | Extend existing scanner, scaffold, linter, delegation router and mirror generator to read `.agents/`; keep one shared resolver and unchanged IDs | Existing routing fixtures agree on owner, reads, commands, risk and lane authority; missing/duplicate definitions fail |
-| 3. Relocate atomically | Move skills, workflows, subagents and adapter logic; update CLI, CI selectors, hooks, config, topology inventory and generated mirrors together | Canonical discovery and required legacy entrypoints work; generated output reproducible; no stale executable path |
+| 2. Prepare routing | Extend existing scanner, scaffold, linter and delegation router to read `.agents/`; keep one shared resolver and unchanged IDs | Existing routing fixtures agree on owner, reads, commands, risk and lane authority; missing/duplicate definitions fail |
+| 3. Relocate atomically | Move authored sources; retire vendor links, hooks and projection generators; update CLI, CI selectors and topology inventory together | Canonical sources resolve; duplicate vendor discovery is refused; no stale executable path |
 | 4. Consolidate knowledge | Process documentation by domain; fix maps, fold unique facts into owners, remove reviewed duplicates, repair all links | Every maintained page has a disposition and index path; removed pages have no unresolved callers |
 | 5. Refine structure | Move only proven misplaced code/assets; preserve import facades where needed; move generated material through its generator | Imports, package/standalone builds, routes, native resources and affected contracts still hold |
 | 6. Review and freeze | Render README/indexes/changed diagrams; review navigation, clarity and geometry; integrate missing main/ADK changes once with authority review | One dependency-complete candidate and current readiness matrix; then required core mirror before an authorized push |
@@ -144,11 +142,11 @@ discovery paths; document the checkpointed refresh boundary and test fresh disco
 
 ## Verification and completion
 
-- Extend existing core checks for canonical resolution, host loading, stale/orphaned
-  projections and old-path refusal. Keep portable skills discoverable without
+- Extend existing core checks for canonical resolution, duplicate vendor roots,
+  retired projections and old-path refusal. Keep portable skills discoverable without
   pretending they satisfy the governed manifest schema.
-- Run skill lint, routing/trigger fixtures, orchestration/fleet checks, mirror
-  reproducibility and scoped instruction checks from their relocated owners.
+- Run skill lint, routing fixtures, orchestration/fleet checks and scoped
+  instruction checks from their canonical owners.
 - Use existing doc inventory, links, anchors, placement, brand and diagram checks.
   Render the root README and changed visual owners; inspect mobile and desktop
   layout, code blocks, tables and figures. Structural Mermaid checks alone do not
@@ -167,11 +165,11 @@ discovery paths; document the checkpointed refresh boundary and test fresh disco
   requires separate GCP and Azure execution, responsive control and lifecycle proof;
   both remain unavailable until their own evidence passes.
 
-Completion means one authored development system under `.agents/`, verified host
-adapters, no unclassified maintained page or unresolved moved-path caller, a rendered
+Completion means one authored development system under `.agents/`, no vendor
+discovery trees, no unclassified maintained page or unresolved moved-path caller, a rendered
 and reviewed root README, and no lost peer work or abandoned task resources. Record
-any justified compatibility adapter explicitly. Keep all work local until the user
-authorizes the separate exact-SHA validation and release path.
+any necessary historical-candidate compatibility explicitly. Complete the authorized
+exact-SHA validation and release path without expanding it to production.
 
 ## Promotion rule
 

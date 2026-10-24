@@ -39,7 +39,7 @@ BACKEND_EXACT_PATHS = {
     "scripts/ops/email_auth_uat_release.py",
 }
 NEUTRAL_PREFIXES = (
-    ".codex/",
+    ".agents/",
     "docs/",
     ".github/workflows/",
     "scripts/ci/",

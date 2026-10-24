@@ -6224,11 +6224,11 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/routing/scripts/route.py|_route_hook|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/route.py|_route_automatic|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": ".agents/routing/scripts/route.py",
-      "symbol": "_route_hook",
+      "symbol": "_route_automatic",
       "value": 87
     },
     {
@@ -6260,10 +6260,10 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/routing/scripts/test_route_hook.py|main|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/test_route_requests.py|main|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/routing/scripts/test_route_hook.py",
+      "path": ".agents/routing/scripts/test_route_requests.py",
       "symbol": "main",
       "value": 135
     },
@@ -73601,7 +73601,7 @@
       ],
       [
         ".claude/skills/codex-bridge/scripts/test_route_hook.py",
-        ".agents/routing/scripts/test_route_hook.py"
+        ".agents/routing/scripts/test_route_requests.py"
       ],
       [
         ".codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py",
