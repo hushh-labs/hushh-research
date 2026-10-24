@@ -36,7 +36,7 @@ import { WorldModelOptions } from "@/components/profile/world-model-options";
 import { AzureGroundedAnswer } from "@/components/profile/world-model-azure-grounded-answer";
 import {
   LONG_STALL_MS,
-  WorldModelIdentityGroup,
+  WorldModelIdentityDetails,
   WorldModelProgressRows,
   activityLine,
   identityGroupTitle,
@@ -931,8 +931,8 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               stackTrailingOnMobile
               trailing={model.canFindMore ? (
                 <Button type="button" size="compact" variant="none" effect="fade"
-                  data-voice-control-id="pwm_public_sources_open" onClick={model.findMore}>
-                  Find more about me
+                  data-voice-control-id="pwm_refresh" onClick={refresh}>
+                  Update my model
                 </Button>
               ) : undefined}
               // The one live line: a state or step change is announced, the
@@ -1061,27 +1061,9 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
           ) : null}
         </section>
         {ready ? (
-          <section aria-label={identityLabel} className="space-y-2">
-            <WorldModelIdentityGroup {...identity} />
-            {status.kind === "insufficient" ? (
-              <div>
-                <HelperText role="status" className="profile-account-note">
-                  Add them in your account, then come back here.
-                </HelperText>
-                {onOpenAccount ? (
-                  <Button
-                    type="button"
-                    size="compact"
-                    variant="none"
-                    effect="fade"
-                    onClick={onOpenAccount}
-                  >
-                    Open your account
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
+          <WorldModelIdentityDetails identity={identity} identityLabel={identityLabel}
+            canEdit={model.canFindMore} onEdit={model.findMore}
+            insufficient={status.kind === "insufficient"} onOpenAccount={onOpenAccount} />
         ) : null}
         {ready && mounted ? (
           <>
@@ -1171,6 +1153,10 @@ function WorldModelPageView({ model, embedded = false, onManageDetails, onOpenAc
               sourcesRequest={claims}
               findMoreRequest={model.findMoreRequest}
               publicSourceCandidates={model.publicSourceCandidates}
+              identity={identity}
+              confirmedDetails={saved}
+              onEditAccount={onOpenAccount}
+              onEditConfirmed={claim => setDetail({ kind: "saved", claim, edit: true })}
               canCheckForUpdates={model.canCheckForUpdates}
               pathname={pathname}
               embedded={embedded}

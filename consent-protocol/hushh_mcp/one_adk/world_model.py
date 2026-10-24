@@ -7,21 +7,24 @@ import hashlib
 import json
 import time
 
-from pydantic import Field
-
 from hushh_mcp.managed_ai_config import load_pwm_policy
 from hushh_mcp.one_adk.profile_research import ProfileFact, ProfileSource, ProfileSourceRef
+from hushh_mcp.one_adk.research_context import (
+    OwnerDecisions,
+    OwnerResearchContext,
+    approved_lead_inputs,
+    confirmed_leads,
+    public_profile_leads,
+)
 from hushh_mcp.one_adk.world_model_confidence import evidence_rating
 from hushh_mcp.one_adk.world_model_contracts import (
     MAX_WORLD_MODEL_FACTS,
     TOPICS,
-    Contract,
     CoverageCoherenceError,
     CoverageRepair,
     FindingBatch,
     IdentityAssessment,
     QueryPlan,
-    ShortText,
     WorldModelReport,
     validated_facts_from_work,
 )
@@ -30,13 +33,6 @@ POLICY = load_pwm_policy()
 MAX_SEARCHES = POLICY["search_invocations"]
 MAX_MODEL_CALLS = POLICY["model_calls"]
 TASK_SECONDS = POLICY["slice_seconds"]
-
-
-class OwnerDecisions(Contract):
-    """Statements the owner already confirmed or rejected; model data only."""
-
-    confirmed: list[ShortText] = Field(default_factory=list, max_length=269)
-    rejected: list[ShortText] = Field(default_factory=list, max_length=269)
 
 
 class ResearchSliceComplete(RuntimeError):
@@ -65,6 +61,7 @@ def policy_fingerprint() -> str:
             "manifest": task.model_dump(mode="json"),
             "schema": WorldModelReport.model_json_schema(),
             "assessment": IdentityAssessment.model_json_schema(),
+            "research_context": OwnerResearchContext.model_json_schema(),
             "query_plan": QueryPlan.model_json_schema(),
             "searches": MAX_SEARCHES,
             "calls": MAX_MODEL_CALLS,
@@ -80,6 +77,7 @@ def policy_fingerprint() -> str:
                 "manifest": task.model_dump(mode="json"),
                 "schema": WorldModelReport.model_json_schema(),
                 "assessment": IdentityAssessment.model_json_schema(),
+                "research_context": OwnerResearchContext.model_json_schema(),
                 "query_plan": QueryPlan.model_json_schema(),
                 "search_manifest": next(
                     child for child in _ONE_MANIFEST.subagents if child.id == "google_search"
@@ -108,6 +106,7 @@ async def run_world_model(
     on_progress=None,
     owner_decisions=None,
     owner_public_profiles=None,
+    owner_research_context=None,
 ):
     """Run a resumable research slice, with no PKM or messaging authority.
 
@@ -130,13 +129,9 @@ async def run_world_model(
     if on_attempts_start is None:
         raise ValueError("Durable provider budget is required")
     decisions = OwnerDecisions.model_validate(owner_decisions or {}).model_dump()
-    from hushh_mcp.one_adk.public_sources import OwnerPublicProfiles
+    research_leads = confirmed_leads(owner_research_context)
+    public_profiles = public_profile_leads(owner_public_profiles)
 
-    public_profiles = (
-        OwnerPublicProfiles.model_validate(owner_public_profiles).urls
-        if owner_public_profiles is not None
-        else []
-    )
     task = manifest()
     model_name = resolve_fleet_model_name(task.model.name)
     model = build_managed_regional_gemini_adk_model(model_name)
@@ -225,7 +220,7 @@ async def run_world_model(
         ):
             raise ValueError("Resolve the candidate before expanding research")
         request = {
-            **({"owner_selected_public_profiles": public_profiles} if public_profiles else {}),
+            **approved_lead_inputs(public_profiles, research_leads),
             "exact_owner_fields": {field: identity[field] for field in sorted(plan.seed_fields)},
             "evidenced_anchors": [anchors[ref].model_dump() for ref in sorted(plan.anchor_ids)],
             "research_question": plan.question,
@@ -453,6 +448,7 @@ async def run_world_model(
                     ),
                     "topics": TOPICS,
                     "owner_decisions": decisions,
+                    "owner_confirmed_research_leads": research_leads,
                     "owner_selected_public_profiles": public_profiles,
                     "requested_by": "consenting_verified_owner",
                     "searches_remaining": MAX_SEARCHES

@@ -88,8 +88,8 @@ vi.mock("@/components/profile/world-model-sources", () => ({
   WorldModelSources: ({ onResearchPublicProfiles, initialUrls, discovery, onRefresh }: { onResearchPublicProfiles?: (urls: readonly string[]) => void; initialUrls?: readonly string[]; discovery?: boolean; onRefresh?: () => void }) => <>
     <p>Claimed preview</p>
     {initialUrls ? <p data-testid="public-leads">{initialUrls.join("\n")}</p> : null}
-    {onResearchPublicProfiles ? <button onClick={() => onResearchPublicProfiles(initialUrls ?? ["https://github.com/example-owner"])}>{discovery ? "Find more about me" : "Research these profiles"}</button> : null}
-    {onRefresh ? <button onClick={onRefresh}>Use my existing search details</button> : null}
+    {onResearchPublicProfiles ? <button onClick={() => onResearchPublicProfiles(initialUrls ?? ["https://github.com/example-owner"])}>{discovery ? "Research optional public links" : "Research these profiles"}</button> : null}
+    {onRefresh ? <button onClick={onRefresh}>Update my model</button> : null}
   </>,
 }));
 vi.mock("@/lib/services/world-model-decision-service", async (importActual) => ({

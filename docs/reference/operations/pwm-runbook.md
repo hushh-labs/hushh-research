@@ -235,3 +235,14 @@ gcloud alpha monitoring policies create --project hushh-pda-uat --policy-from-fi
 Find the channel id with
 `gcloud alpha monitoring channels list --project hushh-pda-uat --format='value(name,displayName)'`.
 For production, swap the project and the display name.
+
+
+### Context-driven Update
+
+Update reads a fresh saved-confirmations snapshot and submits `research_context`
+only to an explicit jobs refresh. New links are optional. The planner/query model
+may use approved declarations as leads, while received source and identity rules
+remain mandatory. Rejected decisions stay suppression-only. Missing saved context
+fails Update visibly. A changed consent/identity binding cannot reuse an old
+snapshot. Candidate readiness additionally runs fictional planner/query guidance
+and attribution cases, without owner credentials or personal searches.

@@ -427,3 +427,20 @@ def test_final_report_cannot_move_the_identity_decision(moved):
             )
         else:
             validate(identity)
+
+
+def test_confirmed_research_context_requires_strict_permission_and_bounds():
+    from hushh_mcp.one_adk.research_context import OwnerResearchContext
+
+    valid = {
+        "confirmed": ["Maintains a public robotics project"],
+        "permitted_public_research": True,
+    }
+    assert OwnerResearchContext.model_validate(valid).confirmed == valid["confirmed"]
+    for invalid in (False, 1, "true", None):
+        with pytest.raises(ValueError):
+            OwnerResearchContext.model_validate({**valid, "permitted_public_research": invalid})
+    with pytest.raises(ValueError):
+        OwnerResearchContext.model_validate({**valid, "confirmed": ["x"] * 270})
+    with pytest.raises(ValueError):
+        OwnerResearchContext.model_validate({**valid, "rejected": ["Never a search lead"]})

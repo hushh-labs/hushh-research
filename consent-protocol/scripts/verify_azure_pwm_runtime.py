@@ -51,6 +51,18 @@ def _stage(name: str, result: str, *, started_at: float, attempt: int | None = N
 
 _ATTRIBUTION_CASES = (
     (
+        "owner_declaration_source",
+        "Owner-confirmed lead: Alex authored LumenForge Transit Atlas. No public sources were received.",
+        "Independent public sources corroborate Alex's authorship.",
+        False,
+    ),
+    (
+        "owner_declaration_identity",
+        "Owner-confirmed lead: Alex works on LumenForge. A same-name public profile mentions LumenForge, without any exact contact or explicit account link.",
+        "The public profile is verified to belong to the owner.",
+        False,
+    ),
+    (
         "repository",
         "Portfolio: Selected work: Example repository.",
         "The person created and solely owns Example repository.",
@@ -239,20 +251,7 @@ async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) ->
         },
         max_output_tokens=6000,
     )
-    rows = result.get("decisions")
-    expected = {key: supported for key, _, _, supported in _ATTRIBUTION_CASES}
-    valid_rows = isinstance(rows, list) and all(
-        isinstance(row, dict)
-        and isinstance(row.get("case_id"), str)
-        and type(row.get("supported")) is bool
-        for row in rows
-    )
-    observed = {row["case_id"]: row["supported"] for row in rows} if valid_rows else {}
-    if not valid_rows or len(rows) != len(expected) or observed != expected:
-        # Only authored identifiers leave this process, never model text or unknown IDs.
-        _failure(
-            "source attribution", [key for key in expected if observed.get(key) != expected[key]]
-        )
+    expected_count = _validate_attribution_decisions(result)
     from hushh_mcp.one_adk.world_model_contracts import IdentityAssessment, WorldModelReport
 
     assessment = IdentityAssessment.model_validate(result.get("assessment")).validate_evidence(
@@ -282,17 +281,105 @@ async def _probe_primary(config: dict[str, str], supplier: Callable[[], str]) ->
     if not all(checks.values()):
         _failure("production contract", [key for key, passed in checks.items() if not passed])
     report.validate_receipts(assessment, {}, set())
+    await _probe_confirmed_guidance(gateway)
     print(
         json.dumps(
             {
+                "azure_pwm_confirmed_guidance": 2,
                 "azure_pwm_production_contracts": len(schemas),
-                "azure_pwm_attribution_cases": len(expected),
+                "azure_pwm_attribution_cases": expected_count,
                 "policy_sha256": policy_fingerprint(),
                 "deployment": config["primary_deployment"],
             }
         ),
         flush=True,
     )
+
+
+def _validate_attribution_decisions(result):
+    rows = result.get("decisions")
+    expected = {key: supported for key, _, _, supported in _ATTRIBUTION_CASES}
+    valid_rows = isinstance(rows, list) and all(
+        isinstance(row, dict)
+        and isinstance(row.get("case_id"), str)
+        and type(row.get("supported")) is bool
+        for row in rows
+    )
+    observed = {row["case_id"]: row["supported"] for row in rows} if valid_rows else {}
+    if not valid_rows or len(rows) != len(expected) or observed != expected:
+        # Only authored identifiers leave this process, never model text or unknown IDs.
+        _failure(
+            "source attribution", [key for key in expected if observed.get(key) != expected[key]]
+        )
+    return len(expected)
+
+
+async def _probe_confirmed_guidance(gateway) -> None:
+    """Actual planner/query inference with fictional leads; no search or owner state."""
+    from hushh_mcp.one_adk.tavily_search import plan_public_search_query
+    from hushh_mcp.one_adk.world_model_azure import (
+        _planner_choice,
+        _planner_history,
+        _planner_schema,
+    )
+    from hushh_mcp.one_adk.world_model_contracts import TOPICS
+
+    identity = {"full_name": "Alex Example", "email": "alex@example.test", "phone_number": None}
+    leads = ["I authored the fictional LumenForge Transit Atlas paper."]
+    work = {
+        "sources": {},
+        "attempts": {},
+        "assessment": {
+            "candidates": [],
+            "anchors": [],
+            "identity": {
+                "state": "no_match",
+                "reason": "Fictional seed search received no public sources.",
+                "probability": None,
+                "selected_candidate_id": None,
+                "supporting_anchor_ids": [],
+                "next_step": "search",
+            },
+        },
+    }
+    choice = await gateway.plan(
+        {
+            "available_seed_fields": ["full_name", "email"],
+            "research_history": _planner_history(work),
+            "query_plan_schema": _planner_schema(identity, None),
+            "topics": TOPICS,
+            "identity_phase": True,
+            "coverage_allowed": False,
+            "owner_linkage_unverified": True,
+            "searches_remaining": 7,
+            "owner_confirmed_research_leads": leads,
+        }
+    )
+    plan = _planner_choice(choice, identity=identity, assessment=None)
+    if (
+        plan is None
+        or plan.purpose != "identity"
+        or plan.anchor_ids
+        or plan.candidate_id
+        or "publications" not in plan.topics
+    ):
+        _failure("confirmed research guidance", ["planner_lead"])
+    query = await plan_public_search_query(
+        {
+            "exact_owner_fields": {"full_name": identity["full_name"]},
+            "evidenced_anchors": [],
+            "received_sources": [],
+            "research_question": "Find original public records of authored work.",
+            "owner_confirmed_research_leads": leads,
+        },
+        gateway.structured,
+    )
+    if (
+        "lumenforge" not in query.lower()
+        or "alex" not in query.lower()
+        or "example" not in query.lower()
+    ):
+        _failure("confirmed research guidance", ["query_lead"])
 
 
 async def _probe_managed_text() -> None:

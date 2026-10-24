@@ -12,6 +12,8 @@ vi.mock("@/lib/agent/agent-pkm-capture-runtime", () => ({
 vi.mock("@/components/agent/profile-research-card", () => ({
   ProfileResearchCard: ({ initialResult }: { initialResult: { draft_id: string } }) => <div>{initialResult.draft_id}</div>,
 }));
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { claim } from "../fixtures/world-model-review";
 import { WorldModelSources } from "@/components/profile/world-model-sources";
 beforeEach(() => vi.clearAllMocks());
 
@@ -29,30 +31,35 @@ beforeEach(() => vi.clearAllMocks());
     view.rerender(<WorldModelSources {...props} present={false} />);
     expect(screen.getByRole("button", { name: "Research these profiles" })).toBeDisabled();
   });
-  it("requires fresh source permission for Find more and never prepares a Gemini source draft", () => {
+  it("defaults to saved context, requires permission only for optional links and retires old controls", () => {
     mock.read.mockResolvedValue(null);
     const research = vi.fn(), refresh = vi.fn();
     const props = { ownerId: "owner-a", vaultKey: "key-a", vaultOwnerToken: "token-a", name: "Alice", discovery: true,
       initialUrls: ["https://github.com/public-example"], onResearchPublicProfiles: research, onRefresh: refresh };
     const view = render(<WorldModelSources {...props} />);
-    expect(screen.getByLabelText("Page links, one per line")).toHaveValue(props.initialUrls[0]);
-    const submit = screen.getByRole("button", { name: "Find more about me" });
-    expect(submit).toBeDisabled();
+    expect(screen.queryByLabelText("Page links, one per line")).toBeNull();
+    const submit = screen.getByRole("button", { name: "Update my model" });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+    expect(refresh).toHaveBeenCalledExactlyOnceWith();
     expect(research).not.toHaveBeenCalled();
-    expect(refresh).not.toHaveBeenCalled();
     expect(mock.read).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Read these pages" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add public links (optional)" }));
+    expect(screen.getByLabelText("Page links, one per line")).toHaveValue(props.initialUrls[0]);
+    expect(submit).toBeDisabled();
+    fireEvent.click(submit);
+    expect(research).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(submit);
     expect(research).toHaveBeenCalledExactlyOnceWith(props.initialUrls);
-    expect(mock.prepare).not.toHaveBeenCalled();
     view.rerender(<WorldModelSources {...props} present={false} />);
     expect(submit).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Use my existing search details" }));
-    expect(refresh).not.toHaveBeenCalled();
+    fireEvent.click(submit);
+    expect(research).toHaveBeenCalledTimes(1);
     view.rerender(<WorldModelSources {...props} vaultOwnerToken="renewed" />);
-    expect(screen.getByRole("checkbox")).not.toBeChecked();
-    expect(submit).toBeDisabled();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(submit).toBeEnabled();
+    expect(mock.prepare).not.toHaveBeenCalled();
   });
   it("does not let an old initial read replace a newly prepared draft", async () => {
     let finish!: (value: unknown) => void;
@@ -85,4 +92,24 @@ beforeEach(() => vi.clearAllMocks());
     await act(async () => finish({ status: "offered", draft_id: "old-draft" }));
     expect(screen.getByText("new-draft")).toBeInTheDocument();
     expect(screen.queryByText("old-draft")).not.toBeInTheDocument();
+  });
+  it("prefills account and confirmed details with Edit controls and unwinds optional links first", async () => {
+    const saved = await claim("Maintains the public Lumen project");
+    const editAccount = vi.fn(), editConfirmed = vi.fn();
+    const props = { ownerId: "owner-a", vaultKey: "key-a", vaultOwnerToken: "token-a", name: "Alice", discovery: true,
+      identity: { name: "Alice", email: "alice@example.test", emailVerified: true, phone: "+14155550123" },
+      confirmedDetails: [saved], onEditAccount: editAccount, onEditConfirmed: editConfirmed, onRefresh: vi.fn() };
+    render(<WorldModelSources {...props} />);
+    expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText(saved.text)).toBeInTheDocument();
+    expect(screen.queryByText(props.identity.email)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit account details" }));
+    expect(editAccount).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: `Edit: ${saved.text}` }));
+    expect(editConfirmed).toHaveBeenCalledWith(saved);
+    fireEvent.click(screen.getByRole("button", { name: "Add public links (optional)" }));
+    expect(screen.getByLabelText("Page links, one per line")).toBeInTheDocument();
+    act(() => { expect(unwindBackLayer("/one/profile/world-model")).toBe(true); });
+    expect(screen.queryByLabelText("Page links, one per line")).toBeNull();
+    expect(unwindBackLayer("/one/profile/world-model")).toBe(false);
   });
