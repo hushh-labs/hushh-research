@@ -21,7 +21,7 @@ export type SharingPriceReviewRequest = { id: string; proposedPriceCents?: numbe
 export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedPrice = false, reviewRequest, onReviewClose, onPaymentsNavigate }: { scopeHandle: string; machineScope: string; label: string; showSavedPrice?: boolean; reviewRequest?: SharingPriceReviewRequest; onReviewClose?: () => void; onPaymentsNavigate?: () => boolean }) {
   const { user, capture } = useCommerceSession(`tariff:${scopeHandle}:${machineScope}`);
   const pathname = usePathname();
-  const memoryPresentation = pathname === "/one/pkm" || pathname.startsWith("/one/pkm/");
+  const memoryPresentation = pathname === "/one/pkm" || pathname?.startsWith("/one/pkm/") === true;
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState("0.00");
   const [hours, setHours] = useState("168");
