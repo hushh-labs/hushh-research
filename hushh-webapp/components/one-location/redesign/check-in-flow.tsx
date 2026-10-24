@@ -66,7 +66,6 @@ import { CircleGrowActions } from "@/components/one-location/redesign/circles/ci
 import { TaskFlowHeader } from "./primitives";
 import type { LocationHubViewModel } from "./location-redesign-hub";
 
-
 /** Check-in durations. "until_stop" maps to the maximum supported window. */
 const CHECK_IN_DURATIONS: { value: string; label: string }[] = [
   { value: "0.5", label: "30 min" },
@@ -963,7 +962,6 @@ export function CheckInFlow({
         </Button>
       ) : null}
 
-      {/* Primary CTA — full blue pill (design). */}
       <Button
         type="button"
         size="prominent"

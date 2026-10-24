@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { JSDOM } from "jsdom";
 
 import {
   awaitProductFont,
@@ -11,55 +10,11 @@ import {
   stripAppFontFaces,
 } from "./fixtures/product-font";
 import {
-  LOCATION_CONNECT_ACTION_PILL_CLASSNAME,
-  LOCATION_CONNECT_ACTION_TARGET_CLASSNAME,
-} from "../components/one-location/redesign/location-action-styles";
+  alignInviteAndPublicActionsWithMountedRecipe,
+  alignPeopleActionsWithMountedRecipe,
+} from "./fixtures/location-connect-action-recipe";
 
 const WIDTHS = [320, 350, 351, 360, 393, 430, 620, 621, 767, 768, 1024, 1440] as const;
-
-function alignPeopleActionsWithMountedRecipe(markup: string): string {
-  // The HTML fixture predates the Connect action pass. Keep its roster cases,
-  // but use the same exported classes as the mounted People row.
-  const shareTarget = "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent hover:no-underline rounded-full";
-  const askTarget = "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-[color:var(--app-accent)] shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent rounded-full";
-  const sharePill = "inline-flex h-10 w-full items-center justify-center bg-[color:var(--app-accent)] px-3 rounded-full";
-  const askPill = "inline-flex h-10 w-full items-center justify-center bg-[#F2F2F7] px-3 rounded-full";
-  for (const legacyClass of [shareTarget, askTarget, sharePill, askPill]) {
-    if (!markup.includes(legacyClass)) throw new Error(`People fixture changed: ${legacyClass}`);
-  }
-  return markup
-    .replaceAll(shareTarget, LOCATION_CONNECT_ACTION_TARGET_CLASSNAME)
-    .replaceAll(askTarget, LOCATION_CONNECT_ACTION_TARGET_CLASSNAME)
-    .replaceAll(sharePill, LOCATION_CONNECT_ACTION_PILL_CLASSNAME)
-    .replaceAll(askPill, LOCATION_CONNECT_ACTION_PILL_CLASSNAME);
-}
-
-function alignInviteAndPublicActionsWithMountedRecipe(markup: string): string {
-  const document = new JSDOM(markup).window.document;
-  for (const groupId of ["circle-invite-actions", "public-link-actions"]) {
-    const group = document.querySelector(`[data-testid="${groupId}"]`);
-    if (!group) throw new Error(`Missing ${groupId} fixture`);
-    for (const button of group.querySelectorAll("button")) {
-      const label = button.textContent?.trim() ?? "";
-      const icon = button.querySelector("svg")?.outerHTML ?? "";
-      button.className = `${LOCATION_CONNECT_ACTION_TARGET_CLASSNAME} ${groupId === "circle-invite-actions" ? "w-full min-w-0" : ""}`;
-      button.removeAttribute("data-location-type-role");
-      button.replaceChildren();
-      const pill = document.createElement("span");
-      pill.setAttribute("data-location-type-role", "compact-action");
-      pill.setAttribute("data-location-action-surface", "true");
-      pill.className = `${LOCATION_CONNECT_ACTION_PILL_CLASSNAME} ${groupId === "circle-invite-actions" ? "w-full min-w-0 px-2" : label === "Copy link" ? "w-[116px]" : ""}`;
-      pill.innerHTML = icon;
-      pill.append(document.createTextNode(label));
-      button.append(pill);
-      const ripple = document.createElement("div");
-      ripple.setAttribute("data-ripple-mode", "material");
-      ripple.className = "morphy-ripple-host pointer-events-none absolute inset-0 isolate overflow-hidden";
-      button.append(ripple);
-    }
-  }
-  return document.body.innerHTML;
-}
 
 async function buildFixture(
   dark: boolean,

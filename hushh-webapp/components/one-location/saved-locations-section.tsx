@@ -823,8 +823,7 @@ export function SavedLocationsSection() {
                     {loadError}
                   </p>
                   <button
-                    data-location-type-role="utility-action"
-                    type="button"
+                    data-location-type-role="utility-action" type="button"
                     onClick={() => void reload()}
                     className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
                   >
