@@ -141,7 +141,7 @@ async def get_preference(*, user_id: str) -> dict[str, Any]:
 
     policy = managed_text_policy()
     if policy is not None:
-        binding = managed_text_binding()
+        binding = managed_text_binding(scope="one_text_chat")
         return {
             "user_id": user_id,
             "selected_model": resolved.selected,

@@ -116,19 +116,21 @@ def _validate_managed_azure_bindings(azure: dict, required: list[str]) -> None:
         "embedding_dimensions",
         "voice",
     }
-    if not isinstance(azure, dict) or set(azure) not in (
-        legacy_bindings,
-        legacy_bindings | {"compact_public_search"},
+    optional = {"compact_public_search", "one_text_root"}
+    if (
+        not isinstance(azure, dict)
+        or not legacy_bindings <= set(azure)
+        or set(azure) - legacy_bindings - optional
     ):
         raise ValueError("Invalid managed Azure capability bindings")
-    compact = "compact_public_search" in azure
-    if compact != ("compact_public_search" in required):
-        raise ValueError("Compact public search requires matching capability qualification")
+    for capability in optional:
+        if (capability in azure) != (capability in required):
+            raise ValueError("Azure text policy requires matching capability qualification")
     kinds = ("realtime", "transcription", "speech", "embedding")
-    for kind in (*kinds, *(("compact_public_search",) if compact else ())):
+    for kind in (*kinds, *sorted(optional & set(azure))):
         binding = azure[kind]
         fields = {"deployment", "model", "version"}
-        if kind == "compact_public_search":
+        if kind in optional:
             fields |= {"reasoning_effort", "text_verbosity"}
         if not isinstance(binding, dict) or set(binding) != fields:
             raise ValueError("Invalid managed Azure deployment descriptor")
@@ -138,7 +140,7 @@ def _validate_managed_azure_bindings(azure: dict, required: list[str]) -> None:
             for key in ("deployment", "model", "version")
         ):
             raise ValueError("Invalid managed Azure deployment descriptor")
-        if kind == "compact_public_search" and (
+        if kind in optional and (
             binding["reasoning_effort"] != "none" or binding["text_verbosity"] != "low"
         ):
             raise ValueError("Invalid compact public search generation budget")

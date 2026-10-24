@@ -1931,6 +1931,14 @@ def _capability_results_fixture(policy):
         input_transcription_verified=True,
     )
     capabilities["embeddings"]["dimensions"] = 768
+    if "one_text_root" in capabilities:
+        capabilities["one_text_root"].update(
+            synthetic_content_verified=True,
+            streaming_observed=True,
+            function_round_trip=True,
+            steps=2,
+            tools_sent=70,
+        )
     return capabilities
 
 
@@ -1966,7 +1974,9 @@ def _provider_fixture(module, provider):
             scope: {
                 "ready": True,
                 "provider": provider,
-                "model": document["pwm_research_uat"]["azure"]["primary_deployment"]
+                "model": document["managed_runtime_uat"]["azure"]["one_text_root"]["deployment"]
+                if provider == "azure_openai" and scope == "one_text_chat"
+                else document["pwm_research_uat"]["azure"]["primary_deployment"]
                 if provider == "azure_openai"
                 else document["environments"]["uat"]["text_model"],
                 "location": ""
@@ -2050,6 +2060,10 @@ def test_provider_release_admission_requires_azure(azure, vertex, selected):
         "compact_uncited",
         "compact_fact",
         "compact_page_claim",
+        "root_missing",
+        "root_function",
+        "root_stream",
+        "root_inventory",
     ],
 )
 def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(provider, defect):
@@ -2066,6 +2080,14 @@ def test_complete_provider_gate_rejects_missing_or_misbound_capability_proof(pro
         proof["capabilities"]["structured_text"]["streaming_observed"] = False
     elif defect == "extra_body":
         proof["capabilities"]["structured_text"]["response_body"] = "not admissible"
+    elif defect == "root_missing":
+        proof["capabilities"].pop("one_text_root")
+    elif defect == "root_function":
+        proof["capabilities"]["one_text_root"]["function_round_trip"] = False
+    elif defect == "root_stream":
+        proof["capabilities"]["one_text_root"]["streaming_observed"] = False
+    elif defect == "root_inventory":
+        proof["capabilities"]["one_text_root"]["tools_sent"] = 1
     elif defect == "compact_missing":
         proof["capabilities"].pop("compact_public_search")
     elif defect == "compact_failed":
