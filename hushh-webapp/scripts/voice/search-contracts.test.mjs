@@ -155,6 +155,13 @@ test('unrelated PRs inherit a merged baseline without receipts; relevant and unt
     process.env.UI_CONTRACT_BASE_SHA = git('rev-parse', 'HEAD').trim();
     const revision = 'c'.repeat(64);
     const check = kind => syncReviewReceipt(root, kind, revision, {}, true, inputs);
+    const ignoredRoot = path.join(repo, 'ignored/hushh-webapp');
+    await fs.mkdir(path.join(ignoredRoot, 'app'), { recursive: true });
+    await fs.writeFile(path.join(repo, '.gitignore'), '/ignored/\n');
+    await fs.writeFile(path.join(ignoredRoot, 'app/page.tsx'), 'export default function Page(){return null;}');
+    for (const kind of ['back', 'search']) {
+      await assert.rejects(syncReviewReceipt(ignoredRoot, kind, revision, {}, true, ['app/page.tsx']), /stale/);
+    }
     await fs.writeFile(path.join(root, 'app/favicon.ico'), 'new branding');
     for (const kind of ['back', 'search']) await check(kind);
     const targetBase = process.env.UI_CONTRACT_BASE_SHA;
