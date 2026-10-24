@@ -66,10 +66,10 @@ def recover_expired_search(store, connection, row, build):
         "packet": row["packet_id"],
         "generation": row["connection_generation"],
     }
-    scoped = "job_id=:id AND user_id=:user AND period_packet_id=:packet AND connection_generation=:generation"
     expired = store._row(
         connection,
-        f"""SELECT job_id FROM drive_owner_search_jobs WHERE {scoped}
+        """SELECT job_id FROM drive_owner_search_jobs WHERE job_id=:id AND user_id=:user
+        AND period_packet_id=:packet AND connection_generation=:generation
         AND expires_at<=clock_timestamp() AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
         FOR UPDATE""",
         binding,
@@ -77,8 +77,9 @@ def recover_expired_search(store, connection, row, build):
     if not expired:
         return row, build
     connection.execute(
-        text(f"""UPDATE drive_owner_search_jobs SET status='stopped',lease_id=NULL,
-        lease_expires_at=NULL,revision=revision+1 WHERE {scoped}"""),
+        text("""UPDATE drive_owner_search_jobs SET status='stopped',lease_id=NULL,
+        lease_expires_at=NULL,revision=revision+1 WHERE job_id=:id AND user_id=:user
+        AND period_packet_id=:packet AND connection_generation=:generation"""),
         binding,
     )
     from hushh_mcp.services.drive_period_packet_preview import rotate_preview
