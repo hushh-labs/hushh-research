@@ -1265,6 +1265,9 @@ for (const width of [320, 393, 1024]) {
 for (const width of [320, 1440]) {
   for (const kind of ["Profile", "Referral", "NWS"] as const) {
     test(`default ${kind} QR revocation updates the link and counts at ${width}px`, async ({ page }, testInfo) => {
+      // This path also edits Profile and verifies the shared NWS scan reset.
+      // Keep each assertion's deadline while allowing CI WebKit's full journey.
+      if (kind === "Profile" && width === 1440) test.setTimeout(60_000);
       const errors = await open(page, width, "light", { cards: 0 }, { height: 900, shell: true, secure: true });
       await mount(page);
       await page.getByRole("button", { name: "Agent One Profile", exact: true }).click();
