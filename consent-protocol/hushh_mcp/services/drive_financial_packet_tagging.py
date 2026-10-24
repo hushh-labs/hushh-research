@@ -63,6 +63,29 @@ class CandidateReads:
         return response
 
 
+def candidate_tag(source, placement, model_version):
+    """Map the classifier's closed groups to advisory display buckets only."""
+    group = placement.get("group")
+    bucket = (
+        "financial"
+        if group in {"financial_statements", "insurance_statements"}
+        else "other"
+        if group or placement.get("reason") == "fits_none"
+        else "review"
+    )
+    return {
+        "bucket": bucket,
+        "reason": placement.get("reason", "no_evidence"),
+        "group": group,
+        "groupSource": placement.get("groupSource", "organizer_v1"),
+        "modelVersion": placement.get("modelVersion", model_version),
+        "reused": placement.get("reused", False),
+        "policyVersion": tags.POLICY,
+        "processingBasis": "server_managed_background_preparation",
+        "sourceVersion": source.get("sourceVersion"),
+    }
+
+
 class FinancialPacketTagger:
     def __init__(self, *, store, transport=None, embedder=None, bundle=None):
         self.store = store
@@ -73,6 +96,58 @@ class FinancialPacketTagger:
     async def current(self, job):
         await admit_hub_content(job["user_id"], "drive_period_packets")
         await tags.require_current(self.store, job)
+
+    async def _organize(self, job, bundle, deadline_seconds):
+        reads = CandidateReads(self, job)
+        worker = self
+
+        class FencedEmbedding:
+            async def embed(self, heads):
+                await worker.current(job)
+                vectors = await worker.embedder.embed(heads)
+                await worker.current(job)
+                return vectors
+
+        async with asyncio.timeout(deadline_seconds):
+            async with getattr(self.transport, "owner_search_session", nullcontext)():
+                cached = await tags.cached(self.store, job, bundle.version)
+                for item in job["items"]:
+                    if item["source"]["id"] in cached:
+                        try:
+                            await reads.verify_source(item["source"])
+                        except DriveReadError as error:
+                            if str(error) != "source_unavailable":
+                                raise
+                            cached.pop(item["source"]["id"])
+                with drive_stage(logger, "packet_tagging"):
+                    run = await classify_candidates(
+                        [
+                            item["source"]
+                            for item in job["items"]
+                            if item["source"]["id"] not in cached
+                        ],
+                        heads=TransportHeadSource(reads, job["user_id"]),
+                        embedder=FencedEmbedding(),
+                        bundle=bundle,
+                        read_concurrency=2,
+                        require_head=True,
+                    )
+            placements = {
+                file.file_id: {
+                    "group": file.placement.group,
+                    "reason": file.placement.reason,
+                    "groupSource": file.placement.group_source,
+                }
+                for file in run.files
+            }
+            placements.update(cached)
+            result = [
+                candidate_tag(
+                    item["source"], placements.get(item["source"]["id"], {}), bundle.version
+                )
+                for item in job["items"]
+            ]
+        return result, cached
 
     async def run_one(self, *, deadline_seconds=85):
         if os.getenv("DRIVE_PERIOD_PACKETS_ENABLED", "").lower() != "true":
@@ -90,73 +165,7 @@ class FinancialPacketTagger:
         )
         try:
             await self.current(job)
-            reads = CandidateReads(self, job)
-            worker = self
-
-            class FencedEmbedding:
-                async def embed(self, heads):
-                    await worker.current(job)
-                    vectors = await worker.embedder.embed(heads)
-                    await worker.current(job)
-                    return vectors
-
-            async with asyncio.timeout(deadline_seconds):
-                async with getattr(self.transport, "owner_search_session", nullcontext)():
-                    cached = await tags.cached(self.store, job, bundle.version)
-                    for item in job["items"]:
-                        if item["source"]["id"] in cached:
-                            try:
-                                await reads.verify_source(item["source"])
-                            except DriveReadError as error:
-                                if str(error) != "source_unavailable":
-                                    raise
-                                cached.pop(item["source"]["id"])
-                    with drive_stage(logger, "packet_tagging"):
-                        run = await classify_candidates(
-                            [
-                                item["source"]
-                                for item in job["items"]
-                                if item["source"]["id"] not in cached
-                            ],
-                            heads=TransportHeadSource(reads, job["user_id"]),
-                            embedder=FencedEmbedding(),
-                            bundle=bundle,
-                            read_concurrency=2,
-                            require_head=True,
-                        )
-                placements = {
-                    file.file_id: {
-                        "group": file.placement.group,
-                        "reason": file.placement.reason,
-                        "groupSource": file.placement.group_source,
-                    }
-                    for file in run.files
-                }
-                placements.update(cached)
-                result = []
-                for item in job["items"]:
-                    placement = placements.get(item["source"]["id"], {})
-                    group = placement.get("group")
-                    bucket = (
-                        "financial"
-                        if group in {"financial_statements", "insurance_statements"}
-                        else "other"
-                        if group or placement.get("reason") == "fits_none"
-                        else "review"
-                    )
-                    result.append(
-                        {
-                            "bucket": bucket,
-                            "reason": placement.get("reason", "no_evidence"),
-                            "group": group,
-                            "groupSource": placement.get("groupSource", "organizer_v1"),
-                            "modelVersion": placement.get("modelVersion", bundle.version),
-                            "reused": placement.get("reused", False),
-                            "policyVersion": tags.POLICY,
-                            "processingBasis": "server_managed_background_preparation",
-                            "sourceVersion": item["source"].get("sourceVersion"),
-                        }
-                    )
+            result, cached = await self._organize(job, bundle, deadline_seconds)
             await self.current(job)
             outcome = await tags.commit(self.store, job, result)
             logger.info(

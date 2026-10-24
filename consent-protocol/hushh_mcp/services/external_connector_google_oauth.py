@@ -543,37 +543,24 @@ class ExternalConnectorGoogleOAuth:
         return verified
 
     async def _prepare_financial_packets(self, user_id: str) -> None:
-        """Verified connection is committed; default preparation is independently recoverable."""
-        if not connector_feature_enabled("drive_period_packets", user_id):
-            return
-        try:
-            async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
-                from hushh_mcp.services.drive_period_packet_service import DrivePeriodPacketService
-                from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
-                from hushh_mcp.services.drive_work_wake import wake_drive_work
+        from hushh_mcp.services.drive_period_packet_enrollment import prepare_financial_packets
 
-                await DrivePeriodPacketService(
-                    store=DrivePeriodPacketStore(db=self.lifecycle.db)
-                ).ensure_owner(user_id=user_id)
-                await wake_drive_work("suggestions")
-        except Exception as error:
-            logger.warning("drive_oauth.financial_default_deferred type=%s", type(error).__name__)
+        await prepare_financial_packets(
+            self.lifecycle.db,
+            user_id,
+            feature_enabled=connector_feature_enabled,
+            timeout=RESUME_TIMEOUT_SECONDS,
+        )
 
     async def _prepare_drive_collection(self, user_id: str) -> None:
-        """Start private preparation after verified OAuth; scheduled work recovers."""
-        if os.getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true":
-            return
-        if not connector_feature_enabled("drive_document_indexing", user_id):
-            return
-        try:
-            async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
-                from hushh_mcp.services.drive_collection_store import DriveCollectionStore
-                from hushh_mcp.services.drive_work_wake import wake_drive_work
+        from hushh_mcp.services.drive_period_packet_enrollment import prepare_drive_collection
 
-                await DriveCollectionStore(db=self.lifecycle.db).ensure_default(user_id=user_id)
-                await wake_drive_work("documents")
-        except Exception as error:
-            logger.warning("drive_oauth.collection_default_deferred type=%s", type(error).__name__)
+        await prepare_drive_collection(
+            self.lifecycle.db,
+            user_id,
+            feature_enabled=connector_feature_enabled,
+            timeout=RESUME_TIMEOUT_SECONDS,
+        )
 
     async def _resume_drive_requests(self, user_id: str) -> None:
         """Requests waiting on this Drive continue now; scheduled drains also retry.

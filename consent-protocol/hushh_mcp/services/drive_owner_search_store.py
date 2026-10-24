@@ -347,13 +347,6 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         def operation(connection):
             current = self._access(connection, user_id)
-            connection.execute(
-                text("""UPDATE drive_owner_search_jobs SET status='stopped',revision=revision+1,
-                lease_id=NULL,lease_expires_at=NULL WHERE user_id=:user AND period_packet_id IS NOT NULL
-                AND status IN ('queued','running') AND expires_at<=clock_timestamp()
-                AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())"""),
-                {"user": user_id},
-            )
             admit_period_creation(self, connection, user_id, period_packet_id, checkpoint)
             connection.execute(
                 text(

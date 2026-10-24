@@ -6,6 +6,17 @@ from sqlalchemy import text
 BATCH = 100
 
 
+def defer(connection, owner, limit):
+    return connection.execute(
+        text("""UPDATE drive_owner_search_jobs
+        SET retention_checked_at=clock_timestamp() WHERE job_id IN
+        (SELECT job_id FROM drive_owner_search_jobs WHERE user_id=:user
+         AND period_packet_id IS NOT NULL AND expires_at<=clock_timestamp()
+         ORDER BY COALESCE(retention_checked_at,expires_at) LIMIT :limit)"""),
+        {"user": owner, "limit": limit},
+    ).rowcount
+
+
 async def purge_period_history(store):
     from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
     from hushh_mcp.services.owner_placement_guard import admit_hub_content
@@ -30,17 +41,9 @@ async def purge_period_history(store):
         except (PermissionError, HTTPException):
             # Rotate only opaque housekeeping metadata. Never decrypt a refused
             # owner's head or checkpoint merely to advance the maintenance cursor.
-            def defer(connection, owner=owner, limit=remaining):
-                return connection.execute(
-                    text("""UPDATE drive_owner_search_jobs
-                    SET retention_checked_at=clock_timestamp() WHERE job_id IN
-                    (SELECT job_id FROM drive_owner_search_jobs WHERE user_id=:user
-                     AND period_packet_id IS NOT NULL AND expires_at<=clock_timestamp()
-                     ORDER BY COALESCE(retention_checked_at,expires_at) LIMIT :limit)"""),
-                    {"user": owner, "limit": limit},
-                ).rowcount
-
-            remaining -= await store._transaction(defer)
+            remaining -= await store._transaction(
+                lambda connection, owner=owner, limit=remaining: defer(connection, owner, limit)
+            )
             continue
 
         def clean(connection, owner=owner, limit=remaining):

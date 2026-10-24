@@ -61,6 +61,64 @@ def current(store, connection, job):
     return row, build
 
 
+def candidate_batch(store, searches, connection, row, search_id, checkpoint, cursor):
+    owner = row["user_id"]
+    rows = []
+    for item in connection.execute(
+        text("""SELECT position,metadata_envelope FROM drive_owner_search_results
+      WHERE job_id=:job AND user_id=:user AND position>:after ORDER BY position LIMIT :limit"""),
+        {"job": search_id, "user": owner, "after": cursor, "limit": BATCH},
+    ).mappings():
+        source = searches.search_cipher.open(
+            item["metadata_envelope"],
+            user_id=owner,
+            resource_id=f"{search_id}:{item['position']}",
+            purpose="owner-search-result",
+        )
+        if not discovery_evidence_matches(
+            source,
+            user_id=owner,
+            generation=row["connection_generation"],
+            checkpoint=checkpoint,
+        ):
+            raise DriveReadError("packet_integrity_invalid")
+        rows.append({"position": item["position"], "source": source})
+    return rows
+
+
+def tagging_work(build, search_id, model_version):
+    work = build.get("tagging_work", {})
+    if work.get("search_id") != search_id or work.get("model_version") != model_version:
+        work = {
+            "search_id": search_id,
+            "model_version": model_version,
+            "cursor": 0,
+            "counts": {"financial": 0, "review": 0, "other": 0},
+            "attempts": 0,
+        }
+    return work
+
+
+def source_search(store, connection, row, search_id):
+    owner = row["user_id"]
+    search = (
+        store._row(
+            connection,
+            """SELECT * FROM drive_owner_search_jobs WHERE
+      user_id=:user AND job_id=:job AND period_packet_id=:packet AND connection_generation=:generation""",
+            {
+                "user": owner,
+                "job": search_id,
+                "packet": row["packet_id"],
+                "generation": row["connection_generation"],
+            },
+        )
+        if search_id
+        else None
+    )
+    return search
+
+
 async def _claim_owner(store, model_version, owner):
     searches = DriveOwnerSearchStore(db=store.db)
 
@@ -90,21 +148,7 @@ async def _claim_owner(store, model_version, owner):
                 continue
             build = store._build(row)
             search_id = build.get("search_job_id")
-            search = (
-                store._row(
-                    connection,
-                    """SELECT * FROM drive_owner_search_jobs WHERE
-              user_id=:user AND job_id=:job AND period_packet_id=:packet AND connection_generation=:generation""",
-                    {
-                        "user": owner,
-                        "job": search_id,
-                        "packet": row["packet_id"],
-                        "generation": row["connection_generation"],
-                    },
-                )
-                if search_id
-                else None
-            )
+            search = source_search(store, connection, row, search_id)
             if not search:
                 connection.execute(
                     text("UPDATE drive_packet_heads SET tagging_pending=FALSE WHERE packet_id=:id"),
@@ -113,15 +157,7 @@ async def _claim_owner(store, model_version, owner):
                 continue
             checkpoint = searches._checkpoint(search)
             store.validate_origin(row, checkpoint)
-            work = build.get("tagging_work", {})
-            if work.get("search_id") != search_id or work.get("model_version") != model_version:
-                work = {
-                    "search_id": search_id,
-                    "model_version": model_version,
-                    "cursor": 0,
-                    "counts": {"financial": 0, "review": 0, "other": 0},
-                    "attempts": 0,
-                }
+            work = tagging_work(build, search_id, model_version)
             preference = store._row(
                 connection,
                 "SELECT revision FROM drive_live_preferences WHERE user_id=:user",
@@ -143,26 +179,9 @@ async def _claim_owner(store, model_version, owner):
               lease_expires_at=clock_timestamp()+INTERVAL '180 seconds' WHERE packet_id=:id"""),
                 {"lease": lease, "id": row["packet_id"]},
             )
-            rows = []
-            for item in connection.execute(
-                text("""SELECT position,metadata_envelope FROM drive_owner_search_results
-              WHERE job_id=:job AND user_id=:user AND position>:after ORDER BY position LIMIT :limit"""),
-                {"job": search_id, "user": owner, "after": work["cursor"], "limit": BATCH},
-            ).mappings():
-                source = searches.search_cipher.open(
-                    item["metadata_envelope"],
-                    user_id=owner,
-                    resource_id=f"{search_id}:{item['position']}",
-                    purpose="owner-search-result",
-                )
-                if not discovery_evidence_matches(
-                    source,
-                    user_id=owner,
-                    generation=row["connection_generation"],
-                    checkpoint=checkpoint,
-                ):
-                    raise DriveReadError("packet_integrity_invalid")
-                rows.append({"position": item["position"], "source": source})
+            rows = candidate_batch(
+                store, searches, connection, row, search_id, checkpoint, work["cursor"]
+            )
             return {
                 **row,
                 "user_id": owner,

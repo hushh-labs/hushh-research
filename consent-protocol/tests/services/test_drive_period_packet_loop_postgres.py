@@ -23,6 +23,10 @@ from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchServic
 from hushh_mcp.services.drive_telemetry import correlation_tag
 from hushh_mcp.services.google_drive_adapter import DriveReadError, GoogleDriveAdapter
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+from tests.services.test_drive_financial_packet_recovery_postgres import (
+    assert_predefined_preview_saved,
+    assert_retained_preview_after_expiry,
+)
 from tests.services.test_drive_period_packet_previews_postgres import (
     collection,
     collection_pages,
@@ -194,6 +198,52 @@ def assert_persisted(service, matched):
         )
 
 
+def wire_packet_provider(service, lifecycle):
+    """Retain the production OAuth lifecycle port, REST transport and HTTP adapter."""
+    adapter = GoogleDriveAdapter()
+
+    async def credential(**kwargs):
+        return await lifecycle.read(user_id=kwargs["user_id"], connector_id="google_drive"), {
+            "accessToken": "synthetic"
+        }
+
+    oauth = SimpleNamespace(current_credential=credential, lifecycle=lifecycle)
+    service.search = DriveOwnerSearchService(
+        store=service.search.store, transport=GoogleDriveRestTransport(oauth=oauth, adapter=adapter)
+    )
+    return adapter
+
+
+async def assert_owner_original_pages(client, path, headers, result):
+    """Every original is reachable through the owner's response cursor before tagging."""
+    assert result["status"] == "completed" and result["matched"] == 137
+    all_files, cursor = result["documents"], result["nextCursor"]
+    while cursor:
+        rest = await client.get(path, params={"cursor": cursor}, headers=headers)
+        assert rest.status_code == 200
+        page = rest.json()
+        all_files += page["documents"]
+        cursor = page["nextCursor"]
+    assert len(all_files) == len({f["viewUrl"] for f in all_files}) == 137
+    assert not any("packetTag" in file for file in all_files)
+    assert sum(not f["shareable"] for f in all_files) == 1
+
+
+async def assert_owner_read_fences(client, service, path, headers, calls):
+    """Polling, another actor and revocation cannot dispatch more provider work."""
+    count = len(calls)
+    assert (await client.get(path, headers=headers)).status_code == 200
+    denied = await client.get(path, headers={"Authorization": "Bearer synthetic-other"})
+    assert denied.status_code != 200 and len(calls) == count
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE user_external_connector_connections
+              SET status='revoked' WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    revoked = await client.get(path, headers=headers)
+    assert revoked.status_code != 200 and len(calls) == count
+
+
 @pytest.mark.parametrize(
     "enabled,failure", [(False, None), (True, None), (True, "429"), (True, "timeout")]
 )
@@ -208,17 +258,7 @@ async def test_http_drive_packet_trace_loop(
         "hushh_mcp.services.drive_financial_packet_tagging.FinancialPacketTagger.run_one", tagging
     )
     pages, calls = messy_pages(head), []
-    adapter = GoogleDriveAdapter()
-
-    async def credential(**kwargs):
-        return await lifecycle.read(user_id=kwargs["user_id"], connector_id="google_drive"), {
-            "accessToken": "synthetic"
-        }
-
-    oauth = SimpleNamespace(current_credential=credential, lifecycle=lifecycle)
-    service.search = DriveOwnerSearchService(
-        store=service.search.store, transport=GoogleDriveRestTransport(oauth=oauth, adapter=adapter)
-    )
+    adapter = wire_packet_provider(service, lifecycle)
     app = loop_app(service, monkeypatch)
     for logger in (
         "drive_period_packets",
@@ -250,72 +290,15 @@ async def test_http_drive_packet_trace_loop(
                     return  # Untrusted request headers cannot enable the server-disabled feature.
                 response = await resume(client, service, path, headers)
                 assert response.headers["x-trace-id"] == request_id
-                result = response.json()
-                assert result["status"] == "completed" and result["matched"] == 137
-                all_files, cursor = result["documents"], result["nextCursor"]
-                while cursor:
-                    rest = await client.get(path, params={"cursor": cursor}, headers=headers)
-                    assert rest.status_code == 200
-                    page = rest.json()
-                    all_files += page["documents"]
-                    cursor = page["nextCursor"]
-                assert len(all_files) == len({f["viewUrl"] for f in all_files}) == 137
-                assert not any("packetTag" in file for file in all_files)
+                await assert_owner_original_pages(client, path, headers, response.json())
                 planner.assert_not_awaited()
                 tagging.assert_not_awaited()
-                with service.store.db.engine.connect() as connection:
-                    row = dict(
-                        connection.execute(
-                            text("""SELECT * FROM drive_packet_heads
-                      WHERE packet_id=:id"""),
-                            {"id": head["packet_id"]},
-                        )
-                        .mappings()
-                        .one()
-                    )
-                    assert row["tagging_pending"] and row["current_version"] == 0
-                    build = service.store._build(row)
-                    search = dict(
-                        connection.execute(
-                            text("""SELECT * FROM drive_owner_search_jobs
-                      WHERE user_id='owner' AND job_id=:id"""),
-                            {"id": build["search_job_id"]},
-                        )
-                        .mappings()
-                        .one()
-                    )
-                    checkpoint = service.search.store._checkpoint(search)
-                    assert search["status"] == "completed" and search["matched"] == 137
-                    assert checkpoint["query_source"]["kind"] == "predefined"
-                    assert checkpoint["query_source"]["planner_executed"] is False
-                    assert checkpoint["semantic_model_binding"] is None
-                    assert checkpoint["semantic_plan"]["date_basis"] == "title_created_modified"
-                    assert build["query_source"] == checkpoint["query_source"]
-                # The packet owns its saved originals beyond temporary search TTL.
-                with service.store.db.engine.begin() as connection:
-                    connection.execute(
-                        text("""UPDATE drive_owner_search_jobs
-                      SET expires_at=clock_timestamp()-INTERVAL '1 second'
-                      WHERE job_id=:id"""),
-                        {"id": build["search_job_id"]},
-                    )
-                await service.search.store.purge()
-                retained = await client.get(path, headers=headers)
-                assert retained.status_code == 200 and retained.json()["matched"] == 137
-                assert retained.json()["nextCursor"] and not retained.json()["limited"]
-                assert sum(not f["shareable"] for f in all_files) == 1
+                search_id = assert_predefined_preview_saved(service, head["packet_id"], matched=137)
+                await assert_retained_preview_after_expiry(
+                    client, service, path, headers, search_id, matched=137
+                )
                 assert calls == ([None, None, "page-two"] if failure else [None, "page-two"])
-                count = len(calls)
-                assert (await client.get(path, headers=headers)).status_code == 200
-                denied = await client.get(path, headers={"Authorization": "Bearer synthetic-other"})
-                assert denied.status_code != 200 and len(calls) == count
-                with service.store.db.engine.begin() as connection:
-                    connection.execute(
-                        text("""UPDATE user_external_connector_connections
-                      SET status='revoked' WHERE user_id='owner' AND connector_id='google_drive'""")
-                    )
-                revoked = await client.get(path, headers=headers)
-                assert revoked.status_code != 200 and len(calls) == count
+                await assert_owner_read_fences(client, service, path, headers, calls)
         finally:
             adapter._read_client.reset(marker)
     assert_persisted(service, 137)
