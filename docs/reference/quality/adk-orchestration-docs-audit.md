@@ -51,7 +51,11 @@ application owner too. Additional focused suites passed 148 vault-entry/auth,
 75 onboarding and 39 runtime/recovery cases; these overlap and are not an additive
 total. Pending identities without an application owner stay on recovery. TypeScript
 and changed-source lint passed. Enrollment stays disabled: remaining application callers, custom/email
-authentication and the enrollment/recovery interface still need integration. The Hosting return-only
+authentication and the enrollment/recovery interface still need integration.
+Device/passkey mints now preserve external UID while carrying captured owner/lane;
+101 focused device/passkey/auth cases passed, including retired-owner refusal and
+unavailable-authority distinction. Generic email proof must still be bound to its
+captured generation and the explicit enrollment purpose. The Hosting return-only
 Back/Finish regression passes 16 focused navigation cases. These are source checks,
 not installed or serving acceptance.
 

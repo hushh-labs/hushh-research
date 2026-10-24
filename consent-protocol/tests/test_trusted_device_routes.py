@@ -453,15 +453,17 @@ async def test_trusted_device_exchange_identity_rejects_unverified_email(
     assert raised.value.detail["code"] == "TRUSTED_DEVICE_VERIFIED_EMAIL_REQUIRED"
 
 
+@pytest.mark.parametrize("owner_id", ["user-1", "acct_" + "a" * 32])
 @pytest.mark.asyncio
 async def test_trusted_device_exchange_returns_server_verified_account_email(
     monkeypatch: pytest.MonkeyPatch,
+    owner_id: str,
 ) -> None:
     from firebase_admin import auth as firebase_auth
 
     class _Service:
         def exchange_authorization(self, **_kwargs: Any) -> dict[str, str]:
-            return {"user_id": "user-1", "device_id": "tdv_" + ("a" * 32)}
+            return {"user_id": owner_id, "device_id": "tdv_" + ("a" * 32)}
 
     async def _verified_email(_user_id: str) -> str:
         return "owner@example.com"
@@ -478,10 +480,20 @@ async def test_trusted_device_exchange_returns_server_verified_account_email(
         "_verified_account_email",
         _verified_email,
     )
+    bindings, minted = [], []
+
+    def binding(captured_owner, *, lane):
+        bindings.append(captured_owner)
+        return "external-firebase-uid", {
+            "hussh_account_owner": captured_owner,
+            "hussh_account_lane": lane,
+        }
+
+    monkeypatch.setattr(account.AccountGenerationService, "custom_session_binding", binding)
     monkeypatch.setattr(
         firebase_auth,
         "create_custom_token",
-        lambda *_args, **_kwargs: b"firebase-custom-token",
+        lambda uid, claims, **_kwargs: minted.append((uid, claims)) or b"firebase-custom-token",
     )
 
     result = await account.exchange_trusted_device_authorization(
@@ -491,10 +503,22 @@ async def test_trusted_device_exchange_returns_server_verified_account_email(
     assert result == {
         "firebase_custom_token": "firebase-custom-token",
         "device_id": "tdv_" + ("a" * 32),
-        "user_id": "user-1",
+        "user_id": owner_id,
         "account_email": "owner@example.com",
         "replaced_device_id": None,
     }
+
+    assert bindings == [owner_id]
+    assert minted == [
+        (
+            "external-firebase-uid",
+            {
+                "hussh_account_owner": owner_id,
+                "hussh_account_lane": account.current_auth_lane(),
+                "trusted_device_id": "tdv_" + "a" * 32,
+            },
+        )
+    ]
 
 
 # --- Sync-state, self-status, and seal-ack (migration 176) ---
@@ -761,3 +785,39 @@ async def test_device_sync_stamp_failure_does_not_fail_the_read(
     )
     # The read still succeeds even though the best-effort stamp raised.
     assert resp.next_cursor == 3
+
+
+@pytest.mark.parametrize("outcome", ["active", "retired", "database_unavailable"])
+async def test_browser_device_approval_returns_the_captured_generation(monkeypatch, outcome):
+    from firebase_admin import auth as firebase_auth
+
+    from hushh_mcp.services.account_generation_service import (
+        AccountGenerationRefused,
+        AccountPrincipal,
+    )
+
+    owner = "acct_" + "c" * 32
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth, "verify_id_token", lambda *_args, **_kwargs: {"uid": "external-firebase-uid"}
+    )
+
+    def resolve(claims, *, lane):
+        assert claims == {"uid": "external-firebase-uid"}
+        if outcome == "retired":
+            raise AccountGenerationRefused("account_retired")
+        if outcome == "database_unavailable":
+            raise ConnectionError("synthetic unavailable authority")
+        return AccountPrincipal("external-firebase-uid", owner, 1)
+
+    monkeypatch.setattr(account.AccountGenerationService, "resolve_verified_identity", resolve)
+    if outcome == "active":
+        assert (
+            await account._verify_browser_enrollment_identity("Bearer synthetic-browser-proof")
+            == owner
+        )
+    else:
+        with pytest.raises(HTTPException) as raised:
+            await account._verify_browser_enrollment_identity("Bearer synthetic-browser-proof")
+        assert raised.value.status_code == (401 if outcome == "retired" else 503)

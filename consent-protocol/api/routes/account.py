@@ -54,6 +54,7 @@ from api.routes.account_lost_vault import router as lost_vault_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
     carries_review_mint,
+    current_auth_lane,
     refuse_foreign_review_mint,
     verify_account_cleanup_bearer,
     verify_firebase_principal,
@@ -66,7 +67,11 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     drain_account_deletion_cleanup_intents,
 )
 from hushh_mcp.services.account_export_stream import AccountExportBusy, AccountExportStream
-from hushh_mcp.services.account_generation_service import AccountGenerationService, AccountPrincipal
+from hushh_mcp.services.account_generation_service import (
+    AccountGenerationRefused,
+    AccountGenerationService,
+    AccountPrincipal,
+)
 from hushh_mcp.services.account_service import (
     ACCOUNT_DELETION_FAILED_CODE,
     ACCOUNT_DELETION_PAUSED_CODE,
@@ -567,6 +572,18 @@ async def _verify_browser_enrollment_identity(authorization: str | None) -> str:
                 "message": "Approve a trusted device from your signed-in browser session.",
             },
         )
+    if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
+        try:
+            principal = await run_in_threadpool(
+                AccountGenerationService.resolve_verified_identity, claims, lane=current_auth_lane()
+            )
+            return principal.owner_id
+        except AccountGenerationRefused:
+            raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from None
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail={"code": "AUTH_SESSION_STATUS_UNAVAILABLE"}
+            ) from None
     return str(claims.get("uid") or claims.get("sub") or "").strip()
 
 
@@ -590,7 +607,12 @@ async def _verified_account_email(user_id: str) -> str:
     try:
         from firebase_admin import auth as firebase_auth
 
-        record = await run_in_threadpool(firebase_auth.get_user, user_id, app=app)
+        identity_uid = user_id
+        if re.fullmatch(r"acct_[0-9a-f]{32}", user_id):
+            identity_uid = await run_in_threadpool(
+                AccountGenerationService.firebase_identity_for_owner, user_id
+            )
+        record = await run_in_threadpool(firebase_auth.get_user, identity_uid, app=app)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -741,10 +763,15 @@ async def exchange_trusted_device_authorization(payload: TrustedDeviceExchangeRe
         from firebase_admin import auth as firebase_auth
 
         account_email = await _verified_account_email(str(device["user_id"]))
+        identity_uid, binding = await run_in_threadpool(
+            AccountGenerationService.custom_session_binding,
+            str(device["user_id"]),
+            lane=current_auth_lane(),
+        )
         custom_token = await run_in_threadpool(
             firebase_auth.create_custom_token,
-            device["user_id"],
-            {"trusted_device_id": device["device_id"]},
+            identity_uid,
+            {**binding, "trusted_device_id": device["device_id"]},
             app=app,
         )
     except Exception:

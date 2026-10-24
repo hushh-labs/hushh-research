@@ -182,6 +182,19 @@ class AccountGenerationService:
         return owner_id
 
     @staticmethod
+    def custom_session_binding(owner_id: str, *, lane: str) -> tuple[str, dict[str, str]]:
+        """Stamp captured authority, never infer a latest owner at token exchange.
+
+        A mint completing after retirement still names the retired owner; the
+        replacement-generation verifier refuses it even with a new auth_time.
+        These are custom-token claims, not global Firebase user claims.
+        """
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", lane):
+            raise AccountGenerationRefused("generation_lane_invalid")
+        identity = AccountGenerationService.firebase_identity_for_owner(owner_id)
+        return identity, {"hussh_account_owner": owner_id, "hussh_account_lane": lane}
+
+    @staticmethod
     def start_fresh(
         claims: Mapping[str, Any],
         *,

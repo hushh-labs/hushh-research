@@ -60,9 +60,15 @@ the guard through migration 201's existing discovery.
 The verifier and session-status response distinguish verified Firebase identity,
 application owner and generation. `ACCOUNT_GENERATION_ADMISSION_ENABLED` defaults
 off. Do not enable it or publish registration until remaining application callers,
-email enrollment, custom-token mints and the enrollment/recovery interface qualify.
+email enrollment, remaining custom-token consumers and the enrollment/recovery
+interface qualify.
 An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
-Firebase mutation across retirement.
+Firebase mutation across retirement. Device and passkey mints now map the exact
+captured application owner to its external UID and stamp owner/lane claims in the
+custom token. They never change global Firebase claims. Browser device approval
+returns that same application owner and distinguishes unavailable authority from
+invalid proof. The 101 focused device/passkey/auth cases pass; email purpose proof
+and its generation-bound enrollment/finalization still require implementation.
 
 Draft 413 now also records remote identity-write dispatch before provider calls,
 using the existing owner 171→198 barriers and the enrollment identity-199 lock.
