@@ -136,7 +136,9 @@ async def _assert_blocked_erasure_rolls_back(database_url, deletion_conn, writer
         engine.dispose()
 
 
-async def test_provider_cleanup_retains_custody_through_failure_and_migration_replay(database_url):
+async def test_provider_cleanup_retains_custody_through_failure_and_migration_replay(
+    database_url, monkeypatch
+):
     """The real schema cannot erase retry authority before qualified cleanup."""
     import asyncpg
 
@@ -811,12 +813,12 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
             )
             == "retained-api-key-ciphertext"
         )
-        await _assert_account_generation_cycles(conn, database_url)
+        await _assert_account_generation_cycles(conn, database_url, monkeypatch)
     finally:
         await conn.close()
 
 
-async def _assert_account_generation_cycles(conn, database_url):
+async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
     """Two real erase/enroll cycles never reparent or revive a retired owner."""
     import time
 
@@ -826,6 +828,7 @@ async def _assert_account_generation_cycles(conn, database_url):
     from hushh_mcp.services import account_generation_service as generations
 
     migration = (ROOT / "db/migrations/413_account_generations.sql").read_text()
+    await conn.execute((ROOT / "db/migrations/359_independent_email_otp.sql").read_text())
     await conn.execute(
         "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN"
     )
@@ -909,8 +912,91 @@ async def _assert_account_generation_cycles(conn, database_url):
             accepted_review_digest=digest,
         )
 
+    import secrets
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.email_auth.config import EmailAuthConfig
+    from hushh_mcp.services.email_auth.contracts import (
+        POLICY_VERSION,
+        DomainDecision,
+        EmailAuthError,
+    )
+    from hushh_mcp.services.email_auth.service import EmailAuthService
+    from hushh_mcp.services.email_auth.store import PostgresEmailAuthStore
+
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    await conn.execute(
+        "INSERT INTO email_auth_policy_state VALUES(TRUE,$1,'fixture')", POLICY_VERSION
+    )
+    pool = await asyncpg.create_pool(database_url, min_size=1, max_size=4)
+    email_store = PostgresEmailAuthStore(pool)
+    minted = []
+
+    class MailboxIdentity:
+        users = {"person@example.com": identity}
+        provisions = 0
+
+        def find(self, email):
+            return SimpleNamespace(uid=self.users[email]) if email in self.users else None
+
+        def verify_mailbox(self, uid, email):
+            assert self.users.get(email) == uid
+
+        def provision(self, uid, email):
+            assert uid.startswith("email_") and email not in self.users
+            self.users[email] = uid
+            self.provisions += 1
+
+        def issue(self, captured_owner, email):
+            uid, captured = generations.AccountGenerationService.custom_session_binding(
+                captured_owner, lane="development"
+            )
+            self.verify_mailbox(uid, email)
+            assert captured["hussh_account_owner"] == captured_owner
+            minted.append(captured)
+            return "synthetic-email-custom-token"
+
+    class DomainEvaluator:
+        risk = SimpleNamespace(expires_at=time.time() + 3600, version="fixture")
+
+        async def evaluate(self, domain):
+            return DomainDecision(domain, "approved", "fixture", time.time() + 600, "fixture")
+
+        async def certificate_evidence(self, domain):
+            return "unavailable"
+
+    email_service = EmailAuthService(
+        EmailAuthConfig(
+            True,
+            secrets.token_bytes(32),
+            secrets.token_bytes(32),
+            secrets.token_bytes(32),
+            "fixture",
+            "https://hushh-mail-api-646258530541.us-central1.run.app",
+            secrets.token_urlsafe(32),
+            "one@hushh.ai",
+        ),
+        email_store,
+        DomainEvaluator(),
+        MailboxIdentity(),
+    )
+
+    async def email_challenge(email="person@example.com"):
+        binding = secrets.token_urlsafe(32)
+        answer = await email_service.request(email, binding, secrets.token_urlsafe(24), "fixture")
+        row = await email_store.challenge(answer["challenge_id"])
+        payload = email_service.cipher.open(
+            row["payload"],
+            f"otp:{row['challenge_id']}:{row['destination_hash']}:{row['expires_at'].isoformat()}",
+        )
+        return binding, row, json.loads(payload)["code"]
+
+    held_email = None
     database_override = patch.object(generations, "get_db_connection", engine.begin)
     database_override.start()
+    lifecycle_override = patch.object(lifecycle, "get_db_connection", engine.begin)
+    lifecycle_override.start()
     try:
         for generation in range(2):
             await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
@@ -962,6 +1048,25 @@ async def _assert_account_generation_cycles(conn, database_url):
                 await conn.execute(
                     "DELETE FROM account_generations WHERE owner_hash=$1", retired["owner_hash"]
                 )
+            if held_email:
+                binding, stale_row, stale_code = held_email
+                before = len(minted)
+                with pytest.raises(
+                    (
+                        EmailAuthError,
+                        asyncpg.CheckViolationError,
+                        generations.AccountGenerationRefused,
+                    )
+                ):
+                    await email_service.verify(stale_row["challenge_id"], stale_code, binding)
+                assert len(minted) == before
+                # The product erasure normally removes this row. This fixture
+                # deliberately retained it to exercise the late-code guard.
+                await conn.execute(
+                    "DELETE FROM email_auth_challenges WHERE challenge_id=$1",
+                    stale_row["challenge_id"],
+                )
+                await conn.execute("DELETE FROM email_auth_enrollments WHERE user_id=$1", owner)
             cutoff = await conn.fetchval(
                 "SELECT public.account_generation_admission_cutoff($1)", retired["retired_at"]
             )
@@ -1032,11 +1137,77 @@ async def _assert_account_generation_cycles(conn, database_url):
                     )
             with pytest.raises(generations.AccountGenerationRefused):
                 await asyncio.to_thread(enroll, claims, generation, cleanup, enrollment, "0" * 64)
-            outcomes = await asyncio.gather(
-                asyncio.to_thread(enroll, claims, generation, cleanup, enrollment),
-                asyncio.to_thread(enroll, claims, generation, cleanup, str(uuid4())),
-                return_exceptions=True,
-            )
+            if generation == 1:
+                binding, proof_row, code = await email_challenge()
+                assert proof_row["purpose"] == "account_enrollment" and proof_row["user_id"] is None
+                proof = await email_service.verify(proof_row["challenge_id"], code, binding)
+                assert (
+                    proof["status"] == "registration_required"
+                    and proof["registration"]["state"] == "ready"
+                )
+                review = proof["registration"]["review"]
+                consumed = await email_store.challenge(proof_row["challenge_id"])
+                claims["auth_time"] = int(consumed["consumed_at"].timestamp())
+                for field, value in (
+                    ("expected_uid", "different-uid"),
+                    ("identity_lane", "uat"),
+                    ("purpose", "login"),
+                ):
+                    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                        await conn.execute(
+                            f"UPDATE email_auth_challenges SET {field}=$2 WHERE challenge_id=$1",
+                            proof_row["challenge_id"],
+                            value,
+                        )
+                for bad_binding, bad_ticket, bad_digest in (
+                    ("wrong", proof["enrollment_ticket"], review["digest"]),
+                    (binding, "wrong-ticket", review["digest"]),
+                    (binding, proof["enrollment_ticket"], "0" * 64),
+                ):
+                    with pytest.raises(EmailAuthError):
+                        await email_store.confirm_registration(
+                            proof_row["challenge_id"],
+                            email_service._digest("browser", bad_binding),
+                            email_service._digest(
+                                "enrollment", proof_row["challenge_id"], bad_ticket
+                            ),
+                            bad_digest,
+                            "fixture",
+                            "development",
+                        )
+                assert len(minted) == 0
+
+                async def confirmed_email(
+                    proof_row=proof_row, binding=binding, proof=proof, review=review
+                ):
+                    result = await email_service.complete_registration(
+                        proof_row["challenge_id"],
+                        binding,
+                        proof["enrollment_ticket"],
+                        review["digest"],
+                        "fixture",
+                    )
+                    assert result["status"] == "authenticated"
+                    active = await pool.fetchrow(
+                        "SELECT * FROM account_generations WHERE identity_hash=$1 AND retired_at IS NULL",
+                        lifecycle.account_deletion_user_hash(identity),
+                    )
+                    return generations.AccountPrincipal(
+                        identity, active["owner_id"], active["generation"]
+                    )
+
+                outcomes = await asyncio.gather(
+                    confirmed_email(), confirmed_email(), return_exceptions=True
+                )
+                assert (await email_store.challenge(proof_row["challenge_id"]))[
+                    "enrollment_finalized_at"
+                ] is not None
+            else:
+                outcomes = await asyncio.gather(
+                    asyncio.to_thread(enroll, claims, generation, cleanup, enrollment),
+                    asyncio.to_thread(enroll, claims, generation, cleanup, str(uuid4())),
+                    return_exceptions=True,
+                )
             winners = [
                 result for result in outcomes if isinstance(result, generations.AccountPrincipal)
             ]
@@ -1126,6 +1297,39 @@ async def _assert_account_generation_cycles(conn, database_url):
                 == winner
             )
             owner = winner.owner_id
+            if generation == 0:
+                # The next cycle retires this captured login code. The lookup
+                # at verification must never select the next application owner.
+                held_email = await email_challenge()
+                assert (
+                    held_email[1]["user_id"] == owner and held_email[1]["expected_uid"] == identity
+                )
+            else:
+                # Simulate response loss after enrollment committed: a new code
+                # finds the exact new active owner, without another enrollment.
+                await conn.execute(
+                    "DELETE FROM email_auth_challenges WHERE challenge_id=$1",
+                    proof_row["challenge_id"],
+                )
+                new_binding, new_row, new_code = await email_challenge()
+                result = await email_service.verify(new_row["challenge_id"], new_code, new_binding)
+                assert result["status"] == "authenticated"
+                assert (
+                    minted
+                    == [{"hussh_account_owner": owner, "hussh_account_lane": "development"}] * 2
+                )
+                assert await email_store.enrollment(new_row["destination_hash"]) == owner
+        fresh_binding, fresh_row, fresh_code = await email_challenge("new@example.com")
+        assert fresh_row["identity_reserved"] is True
+        assert (
+            fresh_row["account_generation"] == 0
+            and fresh_row["user_id"] == fresh_row["expected_uid"]
+        )
+        fresh_login = await email_service.verify(
+            fresh_row["challenge_id"], fresh_code, fresh_binding
+        )
+        assert fresh_login["status"] == "authenticated" and email_service.identity.provisions == 1
+        assert minted[-1]["hussh_account_owner"] == fresh_row["user_id"]
         await conn.execute(migration)
         assert (
             await conn.fetchval(
@@ -1136,4 +1340,6 @@ async def _assert_account_generation_cycles(conn, database_url):
         )
     finally:
         database_override.stop()
+        lifecycle_override.stop()
+        await pool.close()
         engine.dispose()

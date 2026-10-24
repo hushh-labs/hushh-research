@@ -60,15 +60,23 @@ the guard through migration 201's existing discovery.
 The verifier and session-status response distinguish verified Firebase identity,
 application owner and generation. `ACCOUNT_GENERATION_ADMISSION_ENABLED` defaults
 off. Do not enable it or publish registration until remaining application callers
-and purpose-bound email enrollment qualify. The federated recovery interface is
-implemented locally; it has not been accepted on a deployed environment.
+qualify. Federated and purpose-bound email recovery are implemented locally;
+neither has been accepted on a deployed environment.
 An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
 Firebase mutation across retirement. Device and passkey mints now map the exact
 captured application owner to its external UID and stamp owner/lane claims in the
 custom token. They never change global Firebase claims. Browser device approval
 returns that same application owner and distinguishes unavailable authority from
-invalid proof. The 101 focused device/passkey/auth cases pass; email purpose proof
-and its generation-bound enrollment/finalization still require implementation.
+invalid proof. The 101 focused device/passkey/auth cases pass. Email now captures external UID,
+application owner, environment, purpose and reservation provenance before delivery.
+A code for an existing identity can never recreate a missing Firebase user.
+Enrollment uses its consumed database proof, not custom-token authentication time.
+Proof consumption and exact generation activation commit together under identity
+lock 199; token minting follows outside that transaction. A final owner/policy/
+expiry check controls token release. Lost enrollment responses recover through a
+new ordinary code, without replaying activation. Historical unknown cleanup stays
+Action required. Codes and enrollment tickets remain memory-only; the existing
+challenge store holds encrypted destinations and keyed proof digests.
 
 The local federated recovery path accepts independently fresh Google, Apple or
 Microsoft identity proof only for explicit registration review. It does not admit
@@ -110,8 +118,12 @@ privacy cases. The real PostgreSQL rehearsal passed two erase/enroll cycles in
 127.87 seconds, including changed-proof replay, direct-INSERT refusal and a pending
 current-generation identity write. TypeScript and changed-source lint passed.
 These focused results overlap prior suites; they are not the final combined mirror
-or live acceptance. Email-purpose proof and remaining generation consumers are
-still on the activation boundary.
+or live acceptance. The subsequent email checks passed all 46 existing and new
+cases against disposable PostgreSQL. The full-schema two-cycle rehearsal passed
+in 127.76 seconds, including concurrent email enrollment, immutable capture,
+stale-code refusal, response-loss recovery and fresh email registration. The
+email frontend/API checks passed 112 cases. Remaining generation consumers and
+combined acceptance still precede activation.
 
 The reviewed implementation direction separates that
 external identity from an immutable application owner per account generation:

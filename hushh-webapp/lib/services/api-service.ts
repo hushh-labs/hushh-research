@@ -2190,8 +2190,8 @@ export class ApiService {
   // ==================== Auth ====================
 
   /** Email login is web-only until native transport/return paths are accepted. */
-  static async emailAuthRequest<T>(action: "capabilities" | "request" | "verify",
-    body?: Record<string, string>): Promise<T> {
+  static async emailAuthRequest<T>(action: "capabilities" | "request" | "verify" | "enroll",
+    body?: Record<string, string | boolean>): Promise<T> {
     if (Capacitor.isNativePlatform()) {
       throw new Error("Email sign-in is currently available in the web app.");
     }
@@ -2211,6 +2211,9 @@ export class ApiService {
       );
     }
     const opaque = (value: unknown) => typeof value === "string" && value.length >= 20 && value.length <= 4096;
+    const { parseAccountRegistrationRecovery } = await import("@/lib/auth/account-registration");
+    const recovery = action === "verify" && payload.status === "registration_required"
+      ? parseAccountRegistrationRecovery(payload.registration) : null;
     const valid = action === "capabilities"
       ? typeof payload.enabled === "boolean" && typeof payload.microsoft === "boolean"
       : action === "request"
@@ -2218,7 +2221,10 @@ export class ApiService {
           && typeof payload.destination === "string" && payload.destination.length <= 254
           && typeof payload.expires_at === "string" && Number.isFinite(Date.parse(payload.expires_at))
           && typeof payload.resend_at === "number" && Number.isFinite(payload.resend_at)
-        : payload.status === "authenticated" && opaque(payload.custom_token);
+        : (payload.status === "authenticated" && opaque(payload.custom_token))
+          || (action === "verify" && recovery !== null &&
+            (recovery.state !== "ready" || (typeof payload.enrollment_ticket === "string"
+              && /^[A-Za-z0-9_-]{43,128}$/.test(payload.enrollment_ticket))));
     if (!valid) {
       const { EmailAuthRequestError } = await import("@/lib/auth/email-auth-contracts");
       throw new EmailAuthRequestError("invalid_auth_response", "Restart email sign-in and try again.", 502);

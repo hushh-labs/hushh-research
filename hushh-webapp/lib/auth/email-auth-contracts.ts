@@ -1,3 +1,5 @@
+import type { AccountRegistrationRecovery } from "@/lib/auth/account-registration";
+
 /** Public email-auth wire shapes. Codes, bindings and tokens remain memory-only. */
 export type EmailChallenge = {
   status: "accepted";
@@ -7,7 +9,8 @@ export type EmailChallenge = {
   destination: string;
 };
 
-export type EmailVerification = { status: "authenticated"; custom_token: string };
+export type EmailVerification = { status: "authenticated"; custom_token: string }
+  | { status: "registration_required"; registration: AccountRegistrationRecovery; enrollment_ticket?: string };
 
 export class EmailAuthRequestError extends Error {
   constructor(public readonly code: string, message: string, public readonly status: number) {

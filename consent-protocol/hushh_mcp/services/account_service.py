@@ -201,6 +201,7 @@ class AccountService:
             ),
             "email_auth_challenges": text(
                 """DELETE FROM email_auth_challenges WHERE expected_uid=:user_id
+                   OR to_jsonb(email_auth_challenges)->>'user_id'=:user_id
                    OR destination_hash IN (SELECT destination_hash FROM email_auth_enrollments
                                             WHERE user_id=:user_id)"""
             ),

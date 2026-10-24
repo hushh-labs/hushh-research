@@ -56,6 +56,49 @@ CREATE UNIQUE INDEX IF NOT EXISTS account_generations_one_active
  ON public.account_generations(identity_hash) WHERE retired_at IS NULL;
 REVOKE ALL ON public.account_generations FROM PUBLIC;
 
+-- Email challenges capture their purpose and owner before the code is sent.
+-- expected_uid remains the external identity; user_id is application ownership.
+-- Email's existing optional deployment remains optional for this migration.
+DO $$ BEGIN
+ IF to_regclass('public.email_auth_challenges') IS NOT NULL THEN
+  ALTER TABLE public.email_auth_challenges
+   ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'login' CHECK(purpose IN ('login','account_enrollment')),
+   ADD COLUMN IF NOT EXISTS user_id text,
+   ADD COLUMN IF NOT EXISTS account_generation integer CHECK(account_generation>=0),
+   ADD COLUMN IF NOT EXISTS identity_lane text,
+   ADD COLUMN IF NOT EXISTS identity_reserved boolean NOT NULL DEFAULT false,
+   ADD COLUMN IF NOT EXISTS previous_cleanup uuid,
+   ADD COLUMN IF NOT EXISTS enrollment_operation uuid,
+   ADD COLUMN IF NOT EXISTS enrollment_review_digest text;
+ END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.guard_email_account_capture()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
+BEGIN
+ IF OLD.identity_lane IS NOT NULL AND
+  (NEW.purpose IS DISTINCT FROM OLD.purpose OR NEW.expected_uid IS DISTINCT FROM OLD.expected_uid
+   OR NEW.user_id IS DISTINCT FROM OLD.user_id OR NEW.account_generation IS DISTINCT FROM OLD.account_generation
+   OR NEW.identity_lane IS DISTINCT FROM OLD.identity_lane OR NEW.identity_reserved IS DISTINCT FROM OLD.identity_reserved
+   OR NEW.previous_cleanup IS DISTINCT FROM OLD.previous_cleanup
+   OR NEW.enrollment_operation IS DISTINCT FROM OLD.enrollment_operation
+   OR NEW.browser_hash IS DISTINCT FROM OLD.browser_hash OR NEW.destination_hash IS DISTINCT FROM OLD.destination_hash
+   OR NEW.created_at IS DISTINCT FROM OLD.created_at OR NEW.expires_at IS DISTINCT FROM OLD.expires_at
+   OR (OLD.consumed_at IS NOT NULL AND NEW.consumed_at IS DISTINCT FROM OLD.consumed_at)
+   OR (OLD.enrollment_review_digest IS NOT NULL AND NEW.enrollment_review_digest IS DISTINCT FROM OLD.enrollment_review_digest)
+   OR (OLD.enrollment_finalized_at IS NOT NULL AND NEW.enrollment_finalized_at IS DISTINCT FROM OLD.enrollment_finalized_at)) THEN
+  RAISE EXCEPTION 'email account proof binding is immutable' USING ERRCODE='42501';
+ END IF;
+ RETURN NEW;
+END $$;
+DO $$ BEGIN
+ IF to_regclass('public.email_auth_challenges') IS NOT NULL THEN
+  DROP TRIGGER IF EXISTS email_account_capture ON public.email_auth_challenges;
+  CREATE TRIGGER email_account_capture BEFORE UPDATE ON public.email_auth_challenges
+   FOR EACH ROW EXECUTE FUNCTION public.guard_email_account_capture();
+ END IF;
+END $$;
+
 -- Remote identity writes outlive SQL transactions. Retain only dispatch metadata
 -- so an unresolved old-owner write can never reach a newly enrolled generation.
 CREATE TABLE IF NOT EXISTS public.account_firebase_mutations (

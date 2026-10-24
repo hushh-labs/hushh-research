@@ -1710,7 +1710,21 @@ describe("ApiService.apiFetch", () => {
   });
 
 
-  it.each(["capabilities", "request", "verify"] as const)(
+  it("accepts only purpose-bound complete email recovery reviews", async () => {
+    const recovery = { status: "registration_required", registration: { state: "ready", review: {
+      previous_generation: 0, cleanup_operation: "00000000-0000-4000-8000-000000000001",
+      enrollment_operation: "00000000-0000-4000-8000-000000000002", expires_at: 1900000000,
+      terms_version: 1, digest: "a".repeat(64),
+    } } };
+    mockFetch.mockResolvedValueOnce(jsonResponse(recovery));
+    await expect(ApiService.emailAuthRequest("verify", {})).rejects.toMatchObject({ code: "invalid_auth_response" });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ...recovery, enrollment_ticket: "t".repeat(43) }));
+    await expect(ApiService.emailAuthRequest("verify", {})).resolves.toMatchObject({ status: "registration_required" });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ...recovery, enrollment_ticket: "t".repeat(43) }));
+    await expect(ApiService.emailAuthRequest("enroll", {})).rejects.toMatchObject({ code: "invalid_auth_response" });
+  });
+
+  it.each(["capabilities", "request", "verify", "enroll"] as const)(
     "rejects malformed successful email-auth %s responses", async (action) => {
       mockFetch.mockResolvedValueOnce(jsonResponse(null));
       await expect(ApiService.emailAuthRequest(action, action === "capabilities" ? undefined : {

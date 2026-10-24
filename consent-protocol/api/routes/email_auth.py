@@ -9,7 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from hushh_mcp.services.email_auth.config import EmailAuthConfig
 from hushh_mcp.services.email_auth.contracts import EmailAuthError
@@ -55,6 +55,15 @@ class VerifyCode(BaseModel):
     challenge_id: str = Field(min_length=20, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
     code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
     browser_binding: str = Field(min_length=43, max_length=128)
+
+
+class ConfirmRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    challenge_id: str = Field(min_length=20, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    browser_binding: str = Field(min_length=43, max_length=128)
+    enrollment_ticket: str = Field(min_length=43, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    accepted_review_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmed: StrictBool
 
 
 def response(body, status: int = 200):
@@ -140,6 +149,23 @@ async def verify_code(body: VerifyCode, request: Request):
             body.challenge_id,
             body.code,
             body.browser_binding,
+            request.client.host if request.client else "unknown",
+        )
+
+    return await _run(operation)
+
+
+@router.post("/enroll")
+async def confirm_registration(body: ConfirmRegistration, request: Request):
+    async def operation():
+        if body.confirmed is not True:
+            raise EmailAuthError("confirmation_required", "Confirm Start fresh to continue.", 409)
+        service = await get_email_auth_service()
+        return await service.complete_registration(
+            body.challenge_id,
+            body.browser_binding,
+            body.enrollment_ticket,
+            body.accepted_review_digest,
             request.client.host if request.client else "unknown",
         )
 

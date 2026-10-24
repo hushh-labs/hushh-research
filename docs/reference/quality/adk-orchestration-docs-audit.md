@@ -50,13 +50,13 @@ passed. The vault entry, Hosting/setup and mounted One runtime now use the admit
 application owner too. Additional focused suites passed 148 vault-entry/auth,
 75 onboarding and 39 runtime/recovery cases; these overlap and are not an additive
 total. Pending identities without an application owner stay on recovery. TypeScript
-and changed-source lint passed. Enrollment stays disabled: purpose-bound email authentication and remaining
-application callers still need integration. The federated recovery API and UI
-are now implemented locally; they have not been deployed.
+and changed-source lint passed. Enrollment stays disabled while remaining application callers and the combined
+candidate are qualified. Federated and purpose-bound email recovery are now
+implemented locally; they have not been deployed.
 Device/passkey mints now preserve external UID while carrying captured owner/lane;
 101 focused device/passkey/auth cases passed, including retired-owner refusal and
-unavailable-authority distinction. Generic email proof must still be bound to its
-captured generation and the explicit enrollment purpose. The Hosting return-only
+unavailable-authority distinction. Email now captures its generation and explicit purpose before delivery;
+existing identities cannot be recreated if they disappear during code entry. The Hosting return-only
 Back/Finish regression passes 16 focused navigation cases. These are source checks,
 not installed or serving acceptance.
 
@@ -83,8 +83,13 @@ focused checks passed 248 backend, 379 frontend and 41 native privacy cases; the
 counts overlap earlier suites. A 127.87-second disposable PostgreSQL rehearsal
 passed two erase/enroll cycles, changed-proof replay refusal and pending-write
 recovery. TypeScript and changed-source lint passed. This is local source evidence;
-purpose-bound email enrollment, remaining owner consumers and installed acceptance
-still precede activation.
+remaining owner consumers and installed acceptance still precede activation.
+Email enrollment now commits exact proof consumption and activation together,
+mints afterward, then rechecks policy, owner and expiry before releasing a token.
+The 46 email cases passed on disposable PostgreSQL. A 127.76-second full-schema
+two-cycle rehearsal passed concurrent email enrollment, old-code refusal, response
+loss and fresh-email registration; 112 frontend/API cases passed. These results
+remain local and overlap prior focused suites.
 
 Cloud-only removal now has a draft forward recovery contract (414): approval,
 execution admission and unapproved cancellation serialize on the existing owner

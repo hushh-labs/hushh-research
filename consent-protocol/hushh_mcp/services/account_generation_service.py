@@ -72,7 +72,39 @@ def registration_review(
     now: float | None = None,
 ) -> dict:
     """Read-only review, never a grant to create or read an application account."""
-    identity_hash = account_deletion_user_hash(_uid(claims))
+    firebase = claims.get("firebase")
+    provider = firebase.get("sign_in_provider") if isinstance(firebase, Mapping) else None
+    authenticated_at = (
+        claims.get("auth_time")
+        if provider in {"google.com", "apple.com", "microsoft.com"}
+        else None
+    )
+    return replacement_review(
+        _uid(claims),
+        row,
+        authenticated_at=authenticated_at,
+        mutations_settled=mutations_settled,
+        operation_id=operation_id,
+        now=now,
+    )
+
+
+def replacement_review(
+    identity: str,
+    row: Mapping[str, Any] | None,
+    *,
+    authenticated_at: int | None,
+    mutations_settled: bool,
+    operation_id: str | None = None,
+    now: float | None = None,
+) -> dict:
+    """Build terms from independently verified proof; never accepts HTTP claims.
+
+    Federated admission supplies signed auth_time. Email's purpose-bound port
+    supplies the consumed challenge's database time after mailbox verification.
+    This helper itself grants no authority.
+    """
+    identity_hash = account_deletion_user_hash(identity)
     if row is None:
         return {"state": "not_deleted"}
     if row["identity_hash"] != identity_hash:
@@ -87,14 +119,9 @@ def registration_review(
     cutoff = math.ceil(row["retired_at"].timestamp()) + 60
     if current_time <= cutoff:
         return {"state": "waiting_for_identity", "retry_at": cutoff + 1}
-    firebase = claims.get("firebase")
-    provider = firebase.get("sign_in_provider") if isinstance(firebase, Mapping) else None
-    try:
-        authenticated_at = _auth_time(claims)
-    except AccountGenerationRefused:
-        authenticated_at = 0
     if (
-        provider not in {"google.com", "apple.com", "microsoft.com"}
+        isinstance(authenticated_at, bool)
+        or not isinstance(authenticated_at, int)
         or authenticated_at <= cutoff
         or authenticated_at < current_time - 300
         or authenticated_at > current_time

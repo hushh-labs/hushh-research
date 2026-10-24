@@ -31,6 +31,43 @@ describe("Email sign-in authority handoff", () => {
     expect(request).toHaveBeenLastCalledWith("verify", expect.objectContaining({ code: "001234" }));
   });
 
+  it("requires exact Start fresh consent and recovers lost responses through a new code", async () => {
+    const review = { previous_generation: 0,
+      cleanup_operation: "00000000-0000-4000-8000-000000000001",
+      enrollment_operation: "00000000-0000-4000-8000-000000000002",
+      expires_at: Math.floor(Date.now() / 1000) + 300, terms_version: 1, digest: "a".repeat(64) };
+    request.mockResolvedValueOnce(challenge).mockResolvedValueOnce({ status: "registration_required",
+      registration: { state: "ready", review }, enrollment_ticket: "t".repeat(43) })
+      .mockRejectedValueOnce(new Error("response lost"));
+    const authenticated = vi.fn();
+    render(<EmailSignInSection disabled={false} onBusyChange={vi.fn()} onExpandedChange={vi.fn()} onAuthenticated={authenticated} />);
+    await enterCode();
+    const create = await screen.findByRole("button", { name: "Create new account" });
+    expect(create).toBeDisabled();
+    expect(authenticated).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "I want to create a new account." }));
+    fireEvent.click(create);
+    await screen.findByText("Request a new code to reconnect and check the result.");
+    expect(create).toBeDisabled();
+    expect(request.mock.calls.filter(([action]) => action === "enroll")).toHaveLength(1);
+    expect(request).toHaveBeenLastCalledWith("enroll", expect.objectContaining({
+      enrollment_ticket: "t".repeat(43), accepted_review_digest: review.digest, confirmed: true,
+    }));
+    expect(authenticated).not.toHaveBeenCalled();
+  });
+
+  it("keeps historical cleanup without evidence outside registration", async () => {
+    request.mockResolvedValueOnce(challenge).mockResolvedValueOnce({ status: "registration_required",
+      registration: { state: "action_required", reason: "historical_cleanup_unconfirmed" } });
+    const authenticated = vi.fn();
+    render(<EmailSignInSection disabled={false} onBusyChange={vi.fn()} onExpandedChange={vi.fn()} onAuthenticated={authenticated} />);
+    await enterCode();
+    await screen.findByText("Previous account cleanup needs review before you can start fresh.");
+    expect(screen.queryByRole("button", { name: "Create new account" })).not.toBeInTheDocument();
+    expect(authenticated).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("drops a late verification response after the form is unmounted", async () => {
     let resolve!: (value: unknown) => void;
     request.mockResolvedValueOnce(challenge).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
