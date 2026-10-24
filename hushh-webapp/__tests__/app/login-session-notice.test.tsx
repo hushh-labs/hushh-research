@@ -166,4 +166,15 @@ describe("login terminal-session notice", () => {
     expect(mocks.toastError).not.toHaveBeenCalled();
     expect(mocks.historyReplace).not.toHaveBeenCalled();
   });
+  it.each(["account_deletion_identity_retained", "account_deletion_finishing", "account_deletion_uncertain"])("preserves a visible %s notice after the deletion panel is gone", async code => {
+    mocks.search = `auth_notice=${code}`;
+    render(<LoginPage />);
+    expect(screen.getByRole("status")).toBeVisible();
+    if (code === "account_deletion_identity_retained") expect(screen.getByRole("status")).toHaveTextContent("will not be removed automatically");
+    await waitFor(() => expect(mocks.historyReplace).toHaveBeenCalledWith(window.history.state, "", "/login"));
+    expect(screen.getByRole("status")).toBeVisible();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(screen.queryByText("Create a new account")).toBeNull();
+  });
+
 });

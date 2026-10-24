@@ -249,4 +249,15 @@ describe("/api/account/[...path] proxy", () => {
       "http://backend.test/api/account/email-aliases?view=all&sort=desc&limit=10"
     );
   });
+  it("forwards read-only lost-vault phone comparison with auth, body and non-cacheable errors", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ detail: { code: "ACCOUNT_DELETE_PHONE_MISMATCH" } }, { status: 403, headers: { "Cache-Control": "private, no-store" } }));
+    const body = JSON.stringify({ phone_number: "+12125550100" });
+    const response = await route.POST(new NextRequest("http://localhost:3000/api/account/delete-lost-vault/phone", { method: "POST", headers: { Authorization: "Bearer fresh-provider-token", "Content-Type": "application/json" }, body }), { params: Promise.resolve({ path: ["delete-lost-vault", "phone"] }) });
+    expect(fetchMock).toHaveBeenCalledWith("http://backend.test/api/account/delete-lost-vault/phone", expect.objectContaining({ method: "POST", body }));
+    expect((fetchMock.mock.calls[0]?.[1]?.headers as Headers).get("Authorization")).toBe("Bearer fresh-provider-token");
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({ detail: { code: "ACCOUNT_DELETE_PHONE_MISMATCH" } });
+  });
+
 });

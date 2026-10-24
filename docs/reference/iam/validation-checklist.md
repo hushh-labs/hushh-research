@@ -33,6 +33,13 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Functional Checks
 
+- [ ] Lost-vault deletion keeps phone entry usable when optional identity hydration
+  fails. Full-number server comparison precedes SMS; the entered number never
+  selects the owner or changes a binding. Fresh provider and exact linked-phone
+  proof are rechecked at final erasure. Cancellation and account switching during
+  token preparation cannot submit deletion. Deliberately retained identities have
+  a distinct terminal notice and never offer fresh signup.
+
 - [ ] Existing vault accounts and completed-setup accounts do not re-enter phone
   onboarding during login, refresh, invitation return, or a direct phone-page
   visit. New incomplete accounts still verify after Google authentication.

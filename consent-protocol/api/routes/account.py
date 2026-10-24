@@ -48,6 +48,8 @@ from api.middleware import (
 )
 from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account_cloud_cleanup
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
+from api.routes.account_lost_vault import LostVaultDeleteRequest
+from api.routes.account_lost_vault import router as lost_vault_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
     carries_review_mint,
@@ -105,6 +107,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/account", tags=["Account"])
 # Terms and Privacy acceptance lives in its own module, mounted under this prefix.
 router.include_router(legal_acceptance_router)
+router.include_router(lost_vault_router)
 
 
 @router.post("/welcome")
@@ -1498,11 +1501,6 @@ class DeleteAccountRequest(BaseModel):
         description="Delete only the investor persona, only the RIA persona, or the full account.",
     )
     cleanup: AccountCloudCleanupRequest | None = None
-
-
-class LostVaultDeleteRequest(BaseModel):
-    method: Literal["phone", "provider"]
-    phone_id_token: str | None = Field(default=None, min_length=1, max_length=20_000)
 
 
 class EmailAliasVerificationStartRequest(BaseModel):

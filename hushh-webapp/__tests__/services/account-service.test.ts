@@ -462,4 +462,11 @@ describe("AccountService", () => {
       );
     });
   });
+  it("compares the entered lost-vault phone using only fresh provider authority", async () => {
+    mockApiJson.mockResolvedValue({ valid: true });
+    await expect(AccountService.validateLostVaultDeletionPhone("fresh-provider", "+16505550100")).resolves.toEqual({ valid: true });
+    expect(mockApiJson).toHaveBeenCalledWith("/api/account/delete-lost-vault/phone", { method: "POST", cache: "no-store", headers: { Authorization: "Bearer fresh-provider" }, body: JSON.stringify({ phone_number: "+16505550100" }) });
+    expect(mockNativeDeleteAccount).not.toHaveBeenCalled();
+  });
+
 });
