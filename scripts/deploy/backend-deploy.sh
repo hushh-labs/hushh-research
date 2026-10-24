@@ -962,6 +962,10 @@ fi
 cmd=(
   gcloud run deploy "${_BACKEND_SERVICE}"
   "--image=${image_reference}"
+  # Restore the selected image's launcher. A previous capacity bridge can have
+  # an explicit one-worker command which must not survive WEB_CONCURRENCY=2.
+  "--command="
+  "--args="
   "--region=${_REGION}"
   "--platform=managed"
   "--service-account=${_RUNTIME_SERVICE_ACCOUNT}"

@@ -101,9 +101,10 @@ def env_values(container: dict[str, Any], label: str) -> dict[str, str]:
 
 
 def revision_workers(
-    container: dict[str, Any], settings: dict[str, Any], name: str
-) -> int:
-    """Count the actual launcher workers; conflicting declarations fail closed."""
+    container: dict[str, Any], settings: dict[str, Any], name: str, *,
+    allow_gunicorn_bound: bool = False,
+) -> tuple[int, list[int]]:
+    """Reserve inspectable workers, bounding a direct Gunicorn env/CLI mismatch."""
     command = container.get("command") or []
     if command and Path(command[0]).name in {"sh", "bash", "dash", "zsh"}:
         raise BudgetError(f"{name}: uninspectable explicit shell launcher")
@@ -113,6 +114,7 @@ def revision_workers(
             if "value" not in item:
                 raise BudgetError(f"{name}: WEB_CONCURRENCY must be inspectable")
             declarations.append(positive_int(item["value"], f"{name} WEB_CONCURRENCY"))
+    environment_workers = declarations.copy()
     args = [*(container.get("command") or []), *(container.get("args") or [])]
     for index, argument in enumerate(args):
         if argument in {"-w", "--workers"}:
@@ -134,13 +136,21 @@ def revision_workers(
         ):
             raise BudgetError(f"{name}: uninspectable shell worker override")
     if len(set(declarations)) > 1:
+        # Gunicorn's CLI overrides its WEB_CONCURRENCY default. Reserve the
+        # larger value while an older candidate drains, never the smaller CLI
+        # value. A wrapper can combine independent concurrency layers, so this
+        # bound is valid only for the direct, explicitly identified launcher.
+        launcher_workers = declarations[len(environment_workers):]
+        if (allow_gunicorn_bound and command == ["gunicorn"] and len(environment_workers) == 1
+                and len(set(launcher_workers)) == 1):
+            return max(declarations), sorted(set(declarations))
         raise BudgetError(f"{name}: conflicting worker declarations")
     return (
         declarations[0]
         if declarations
         else positive_int(
             settings["workers_per_instance"], f"{name} reviewed image default workers"
-        )
+        ), []
     )
 
 
@@ -184,6 +194,7 @@ def revision_connections(
     service: str,
     settings: dict[str, Any],
     database_connection_name: str,
+    *, allow_gunicorn_bound: bool = False,
 ) -> dict[str, Any]:
     metadata = revision.get("metadata") or {}
     name = metadata.get("name")
@@ -202,13 +213,17 @@ def revision_connections(
     spec = revision.get("spec") or {}
     container = named_container(spec, settings["container"], name)
     connections_per_worker = pool_capacity(container, name)
-    workers = revision_workers(container, settings, name)
+    workers, conflicting_declarations = revision_workers(
+        container, settings, name, allow_gunicorn_bound=allow_gunicorn_bound
+    )
     return {
         "name": name,
         "max_instances": maximum,
         "workers_per_instance": workers,
         "connections_per_worker": connections_per_worker,
         "connections": maximum * workers * connections_per_worker,
+        **({"worker_reservation_basis": "conservative_direct_gunicorn_bound",
+            "worker_declarations": conflicting_declarations} if conflicting_declarations else {}),
     }
 
 
@@ -360,7 +375,8 @@ def service_budget(
         # once. Until they are deleted, reserve each one's full connection cap.
         referenced.update(by_name)
     return [
-        revision_connections(by_name[name], service, settings, database_connection_name)
+        revision_connections(by_name[name], service, settings, database_connection_name,
+                             allow_gunicorn_bound=True)
         for name in sorted(referenced)
     ]
 
@@ -703,6 +719,29 @@ def collect(profile: dict[str, Any], environment: str) -> dict[str, Any]:
     )
 
 
+def print_capacity_report(report: dict, *, output: str, frontend_only: bool, environment: str, phase: CapacityPhase) -> None:
+    if output == "json":
+        print(json.dumps(report, indent=2, sort_keys=True))
+    elif frontend_only:
+        print(
+            f"{environment}: frontend-only incremental Cloud SQL demand 0 "
+            "(service template and reachable revisions verified without SQL bindings)"
+        )
+        print("ADMIT")
+    else:
+        capacity_label = "projected" if phase == "pre-deploy" else "current"
+        print(
+            f"{environment}: {capacity_label} {report['projected_connections']} / {report['admission_limit']} "
+            f"(Cloud SQL max {report['verified_max_connections']}, admin reserve {report['administrative_reserve']})"
+        )
+        for row in report["services"] + report["jobs"]:
+            print(f"  {row['name']}: {row['connections']}")
+            if row.get("worker_declarations"):
+                print(f"    worker declarations {row['worker_declarations']}; "
+                      f"conservatively reserved {row['workers_per_instance']}")
+        print("ADMIT" if report["admitted"] else "BLOCK: connection budget exceeded")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", choices=("uat", "production"), required=True)
@@ -776,23 +815,8 @@ def main() -> int:
     except (OSError, KeyError, TypeError, json.JSONDecodeError, BudgetError) as exc:
         print(f"capacity budget blocked: {exc}", file=sys.stderr)
         return 2
-    if args.output == "json":
-        print(json.dumps(report, indent=2, sort_keys=True))
-    elif args.frontend_only:
-        print(
-            f"{args.environment}: frontend-only incremental Cloud SQL demand 0 "
-            "(service template and reachable revisions verified without SQL bindings)"
-        )
-        print("ADMIT")
-    else:
-        capacity_label = "projected" if args.phase == "pre-deploy" else "current"
-        print(
-            f"{args.environment}: {capacity_label} {report['projected_connections']} / {report['admission_limit']} "
-            f"(Cloud SQL max {report['verified_max_connections']}, admin reserve {report['administrative_reserve']})"
-        )
-        for row in report["services"] + report["jobs"]:
-            print(f"  {row['name']}: {row['connections']}")
-        print("ADMIT" if report["admitted"] else "BLOCK: connection budget exceeded")
+    print_capacity_report(report, output=args.output, frontend_only=args.frontend_only,
+                          environment=args.environment, phase=args.phase)
     return 0 if report["admitted"] or args.report_only else 1
 
 
