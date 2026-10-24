@@ -227,7 +227,7 @@ function PriceSheet({
       }
       headerTextOverflow="wrap"
       mobilePresentation="sheet"
-      surfaceClassName={DOCUMENT_FLOW_SURFACE_TYPE}
+      surfaceClassName={cn("consent-presentation-surface", DOCUMENT_FLOW_SURFACE_TYPE)}
       showCloseButton={false}
       desktopMaxWidthClassName="sm:!max-w-[520px]"
       footer={
@@ -250,6 +250,8 @@ function PriceSheet({
             <Button
               size="standard"
               variant="none"
+              data-consent-quiet-action="true"
+              data-consent-action-context="task"
               disabled={busy}
               onClick={onCancel}
             >
@@ -337,13 +339,14 @@ function PriceSheet({
             </div>
             {choice === "custom" ? (
               <div className="space-y-1.5">
-                <FormLabel htmlFor={customInputId}>Custom price</FormLabel>
+                <FormLabel htmlFor={customInputId} data-consent-role="form-label">Custom price</FormLabel>
                 <InputGroup className="h-11 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)]">
                   <InputGroupAddon className="ui-text-input-value text-[color:var(--app-secondary-label)]">
                     $
                   </InputGroupAddon>
                   <InputGroupInput
                     id={customInputId}
+                    data-consent-input="true"
                     // Opening Custom is asking to type the amount.
                     autoFocus
                     inputMode={moneyPolicy === "drive_cents" ? "decimal" : "numeric"}

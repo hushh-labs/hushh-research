@@ -38,6 +38,22 @@ _ANSWER: contextvars.ContextVar[_Answer | None] = contextvars.ContextVar(
 )
 
 
+def compact_public_search_model(model: ManagedPrimaryTextModel) -> ManagedPrimaryTextModel:
+    """Apply the admitted compact budget without changing shared model state."""
+    update: dict[str, Any] = {"web_search_context_size": "low"}
+    binding = model.runtime_binding
+    if binding is not None:
+        binding.require_current()
+        descriptor = binding.capabilities.get("compact_public_search")
+        if descriptor is not None:
+            update.update(
+                model=descriptor["deployment"],
+                default_reasoning_effort=descriptor["reasoning_effort"],
+                text_verbosity=descriptor["text_verbosity"],
+            )
+    return model.model_copy(update=update)
+
+
 def _sole_search(invocation: Any, name: str) -> bool:
     events = [
         event
@@ -102,11 +118,7 @@ class SearchAnswerTool(AgentTool):
         ):
             # Invocation-local configuration; ordinary/deeper searches keep their budget.
             search_agent = search_agent.model_copy(
-                update={
-                    "model": search_agent.model.model_copy(
-                        update={"web_search_context_size": "low"}
-                    )
-                }
+                update={"model": compact_public_search_model(search_agent.model)}
             )
         tool_context.state["temp:_adk_grounding_metadata"] = None
         # Keep control metadata out of the isolated child's public request.

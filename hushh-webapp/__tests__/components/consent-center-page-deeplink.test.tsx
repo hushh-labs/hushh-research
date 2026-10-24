@@ -1301,16 +1301,14 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
   });
 
-  it("renders one route-local Consent Center title and registered tab rail", async () => {
+  it("leaves the Consent Center title to the shared shell and renders the registered tab rail", async () => {
     mocks.search = "tab=pending&q=macy";
     mocks.listEntries.mockResolvedValue(emptyListResponse());
 
     render(<ConsentCenterPage />);
     await waitFor(() => expect(mocks.listEntries).toHaveBeenCalled());
 
-    expect(
-      screen.getByRole("heading", { name: "Consent Center", level: 1 }),
-    ).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Consent Center", level: 1 })).toBeNull();
     const tabList = screen.getByRole("tablist", {
       name: "Consent Center navigation",
     });

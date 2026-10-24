@@ -193,8 +193,12 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   `finish_turn: boolean`. Only explicit `true` requests delegation; omission,
   false and unsupported search transports retain ordinary root synthesis.
   The declared short-answer choice uses compact LOW native search context on a
-  local child/model copy; ordinary/deeper research and concurrent calls keep
-  their original configuration. The host never guesses research depth.
+  local child/model copy. An administrator-declared `compact_public_search`
+  descriptor may select the separately qualified Azure deployment and its NONE
+  reasoning budget for that copy. The same selector is exercised by required
+  pre-promotion capability qualification; citation or public-fact failure blocks
+  admission. Ordinary/deeper research, the root and concurrent calls keep their
+  original configuration. The host never guesses research depth.
 - Validators in `one_adk/search_answer.py` admit only fresh grounded completed
   output, the invocation's sole tool call, no earlier visible answer or pending
   review, current managed owner authority and an atomic empty-input finish.

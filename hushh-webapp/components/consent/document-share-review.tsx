@@ -1449,7 +1449,7 @@ function UnlockedDocumentReview({
   return (
     <section
       aria-label="Document sharing review"
-      className={cn("min-w-0 space-y-4 break-words", DOCUMENT_FLOW_TEXT_SCALE)}
+      className={cn("consent-presentation-surface min-w-0 space-y-4 break-words", DOCUMENT_FLOW_TEXT_SCALE)}
       data-testid="document-share-review"
     >
       {/* The one status node: fixed position, never keyed, so focus survives. */}
@@ -1919,14 +1919,14 @@ function UnlockedDocumentReview({
               </div>}
               {searchPageLoading ? <HelperText>Loading files…</HelperText> : null}
               {searchPageError ? <div><HelperText role="alert">Couldn&apos;t load files.</HelperText>
-                <Button size="standard" variant="none" onClick={() => setSearchPageRetry(value => value + 1)}>Try again</Button></div> : null}
+                <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => setSearchPageRetry(value => value + 1)}>Try again</Button></div> : null}
               {searchPrevious.length || searchPage?.nextCursor ? (
                 <div className="flex flex-wrap gap-2">
-                  <Button size="standard" variant="none" disabled={searchPageLoading || !searchPrevious.length}
+                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={searchPageLoading || !searchPrevious.length}
                     onClick={() => { setSearchCursor(searchPrevious.at(-1) ?? null); setSearchPrevious(items => items.slice(0, -1)); }}>
                     Previous
                   </Button>
-                  <Button size="standard" variant="none" disabled={searchPageLoading || !searchPage?.nextCursor}
+                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={searchPageLoading || !searchPage?.nextCursor}
                     onClick={() => { setSearchPrevious(items => [...items, searchCursor]); setSearchCursor(searchPage?.nextCursor ?? null); }}>
                     Next 25
                   </Button>
@@ -2010,8 +2010,8 @@ function UnlockedDocumentReview({
               {bulkShare.status === "review_ready" && ownerReviewRequired && review.paymentRequired === true ?
                 <HelperText>The requester pays after you approve these files.</HelperText> : null}
               {bulkShare.status === "review_ready" && v1ManualReview && review.requestedAccessDays != null ? <div className="space-y-2">
-                <label htmlFor="owner-access-days" className="block text-sm">Access period</label>
-                <select id="owner-access-days" value={selectedAccessDays}
+                <label htmlFor="owner-access-days" data-consent-role="form-label" className="block text-sm">Access period</label>
+                <select id="owner-access-days" data-consent-input="true" value={selectedAccessDays}
                   onChange={event => setOwnerAccessDays(Number(event.target.value))}
                   disabled={locked}
                   className="block min-h-11 w-full cursor-pointer rounded-md border border-input bg-background px-3 text-sm font-normal">
@@ -2027,12 +2027,12 @@ function UnlockedDocumentReview({
               </div>
               {bulkPageLoading ? <HelperText>Loading files…</HelperText> : null}
               {bulkPageError ? <div><HelperText role="alert">Couldn&apos;t load files.</HelperText>
-                <Button size="standard" variant="none" onClick={() => setBulkPageRetry(value => value + 1)}>Try again</Button></div> : null}
+                <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => setBulkPageRetry(value => value + 1)}>Try again</Button></div> : null}
               {bulkPrevious.length || bulkPage?.nextCursor ? (
                 <div className="flex flex-wrap gap-2">
-                  <Button size="standard" variant="none" disabled={bulkPageLoading || !bulkPrevious.length}
+                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={bulkPageLoading || !bulkPrevious.length}
                     onClick={() => { setBulkCursor(bulkPrevious.at(-1) ?? null); setBulkPrevious(items => items.slice(0, -1)); }}>Previous</Button>
-                  <Button size="standard" variant="none" disabled={bulkPageLoading || !bulkPage?.nextCursor}
+                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={bulkPageLoading || !bulkPage?.nextCursor}
                     onClick={() => { setBulkPrevious(items => [...items, bulkCursor]); setBulkCursor(bulkPage?.nextCursor ?? null); }}>Next 25</Button>
                 </div>
               ) : null}

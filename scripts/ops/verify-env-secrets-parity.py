@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from runpy import run_path
 from typing import Any, Iterable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 BACKEND_REQUIRED = (
     "APP_SIGNING_KEY",
@@ -210,6 +210,47 @@ class CloudReadUnavailable(RuntimeError):
     """Cloud access failed; absence cannot be inferred from this observation."""
 
 
+def _connected_systems_credentials(
+    backend_env: dict[str, Any],
+) -> tuple[tuple[str, ...], dict[str, str]]:
+    """Keep credentials strict unless the selected application forbids CRM.
+
+    Read the candidate's existing product authority, never a separate deploy
+    flag. Explicitly enable the local opt-in when evaluating it: only a runtime
+    that still refuses CRM can omit the isolated external credential pair.
+    Missing/unknown environment or authority retains the full legacy contract.
+    The shared gateway pair remains required in every case.
+    """
+    contract = {"status": "unverified", "external_crm_credentials": "required"}
+    environment = backend_env.get("ENVIRONMENT", {}).get("value")
+    if not isinstance(environment, str) or environment not in {
+        "production",
+        "uat",
+        "development",
+    }:
+        return BACKEND_CONNECTED_SYSTEMS_REQUIRED, contract
+    authority = (
+        Path(__file__).resolve().parents[2]
+        / "consent-protocol/hushh_mcp/services/crm_product_availability.py"
+    )
+    try:
+        available = run_path(str(authority))["crm_product_available"](
+            environment=environment, explicit_enabled=True
+        )
+    except Exception:
+        # Do not render application exceptions or use an unknown policy to
+        # excuse missing credentials on a historical or malformed candidate.
+        return BACKEND_CONNECTED_SYSTEMS_REQUIRED, contract
+    if available is not False:
+        return BACKEND_CONNECTED_SYSTEMS_REQUIRED, contract
+    return BACKEND_CONNECTED_SYSTEMS_REQUIRED[:2], {
+        "status": "disabled_by_application",
+        "environment": environment,
+        "authority": str(authority.relative_to(Path(__file__).resolve().parents[2])),
+        "external_crm_credentials": "not_required",
+    }
+
+
 def _has_secret(project: str, name: str) -> bool:
     cmd = [
         "gcloud",
@@ -264,19 +305,8 @@ def _read_secret_value(project: str, name: str, version: str = "latest") -> str 
 def _expected_oauth_redirect_uri(
     app_frontend_origin: str | None, return_path: str
 ) -> str | None:
-    parsed = urlsplit((app_frontend_origin or "").strip())
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.netloc
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-        or parsed.path not in {"", "/"}
-    ):
-        return None
-    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    return f"{origin}{return_path}"
+    policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
+    return policy["expected_oauth_redirect_uri"](app_frontend_origin, return_path)
 
 
 def _expected_gmail_redirect_uri(app_frontend_origin: str | None) -> str | None:
@@ -351,7 +381,9 @@ def _domain_runtime_contract(
         runtime_raw = _read_secret_value(project, "BACKEND_RUNTIME_CONFIG_JSON")
     else:
         frontend_origin = _read_runtime_value(project, env_map, "APP_FRONTEND_ORIGIN")
-        runtime_raw = _read_runtime_value(project, env_map, "BACKEND_RUNTIME_CONFIG_JSON")
+        runtime_raw = _read_runtime_value(
+            project, env_map, "BACKEND_RUNTIME_CONFIG_JSON"
+        )
     expected_gmail_redirect = _expected_gmail_redirect_uri(frontend_origin)
     if not frontend_origin or not runtime_raw or not expected_gmail_redirect:
         return {
@@ -361,65 +393,8 @@ def _domain_runtime_contract(
             "plaid_webhook": "unavailable",
         }
 
-    try:
-        runtime = json.loads(runtime_raw)
-    except json.JSONDecodeError:
-        runtime = None
-    if not isinstance(runtime, dict):
-        return {
-            "status": "invalid_runtime_config",
-            "cors": "invalid_runtime_config",
-            "passkeys": "invalid_runtime_config",
-            "plaid_webhook": "invalid_runtime_config",
-        }
-
-    origin = urlsplit(frontend_origin)
-    host = (origin.hostname or "").lower()
-    if not host:
-        return {
-            "status": "invalid_frontend_origin",
-            "cors": "invalid_frontend_origin",
-            "passkeys": "invalid_frontend_origin",
-            "plaid_webhook": "invalid_frontend_origin",
-        }
-
-    cors_values = {
-        item.strip().rstrip("/")
-        for item in str(runtime.get("cors_allowed_origins") or "").split(",")
-        if item.strip()
-    }
     policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
-    expected_cors, expected_passkey_hosts = policy["domain_expectations"](frontend_origin, host)
-    cors_status = "valid" if expected_cors.issubset(cors_values) else "mismatch"
-
-    passkey_hosts = {
-        item.strip().lower()
-        for item in str(runtime.get("passkey_allowed_rp_ids") or "").split(",")
-        if item.strip()
-    }
-    passkey_status = "valid" if passkey_hosts == expected_passkey_hosts else "mismatch"
-
-    plaid_url = urlsplit(str(runtime.get("plaid_webhook_url") or "").strip())
-    plaid_status = (
-        "valid"
-        if (
-            plaid_url.scheme == origin.scheme
-            and plaid_url.netloc == origin.netloc
-            and plaid_url.path == "/api/kai/plaid/webhook"
-            and not plaid_url.query
-            and not plaid_url.fragment
-        )
-        else "mismatch"
-    )
-    statuses = (cors_status, passkey_status, plaid_status)
-    return {
-        "status": "valid"
-        if all(status == "valid" for status in statuses)
-        else "mismatch",
-        "cors": cors_status,
-        "passkeys": passkey_status,
-        "plaid_webhook": plaid_status,
-    }
+    return policy["runtime_domain_contract"](frontend_origin, runtime_raw)
 
 
 def _firebase_project_contract(
@@ -793,6 +768,26 @@ def _parity_targets(
     return True, True
 
 
+def _backend_candidate_env(
+    args: argparse.Namespace, checks_backend: bool
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    backend_env, backend_revisions = ({}, [])
+    if checks_backend and args.assert_runtime_env_contract:
+        backend_json = (
+            None
+            if args.backend_revision
+            else _describe_run_service(args.project, args.region, args.backend_service)
+        )
+        backend_env, backend_revisions = _selected_container_env_map(
+            args.project,
+            args.region,
+            args.backend_service,
+            backend_json,
+            args.backend_revision,
+        )
+    return backend_env, backend_revisions
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify required GCP Secret Manager keys for deploy parity."
@@ -897,6 +892,13 @@ def main() -> int:
         args.backend_revision, args.frontend_revision
     )
 
+    backend_env, backend_revisions = _backend_candidate_env(args, checks_backend)
+    connected_systems_required, connected_systems_contract = (
+        _connected_systems_credentials(backend_env)
+        if checks_backend and args.require_connected_systems
+        else ((), {"status": "not_checked"})
+    )
+
     required = list(BACKEND_REQUIRED if checks_backend else ())
     if checks_frontend:
         required.extend(FRONTEND_REQUIRED)
@@ -911,7 +913,7 @@ def main() -> int:
     if checks_backend and args.require_one_email:
         required.extend(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
     if checks_backend and args.require_connected_systems:
-        required.extend(BACKEND_CONNECTED_SYSTEMS_REQUIRED)
+        required.extend(connected_systems_required)
     if checks_backend and args.require_reviewer_smoke:
         required.extend(BACKEND_REVIEWER_SMOKE_REQUIRED)
     if checks_backend and args.require_prod_phone_test:
@@ -959,7 +961,7 @@ def main() -> int:
             "one_email": list(BACKEND_ONE_EMAIL_SECRET_REQUIRED)
             if checks_backend and args.require_one_email
             else [],
-            "connected_systems": list(BACKEND_CONNECTED_SYSTEMS_REQUIRED)
+            "connected_systems": list(connected_systems_required)
             if checks_backend and args.require_connected_systems
             else [],
             "reviewer_smoke": list(BACKEND_REVIEWER_SMOKE_REQUIRED)
@@ -993,6 +995,7 @@ def main() -> int:
         "domain_runtime_contract": {"status": "not_checked"},
         "firebase_project_contract": {"status": "not_checked"},
         "one_email_runtime_semantics": {"status": "not_checked"},
+        "connected_systems_product_contract": connected_systems_contract,
     }
 
     print(f"Project: {args.project}")
@@ -1029,8 +1032,11 @@ def main() -> int:
     if checks_backend and args.require_connected_systems:
         print(
             "Required Connected Systems backend secrets "
-            f"({len(BACKEND_CONNECTED_SYSTEMS_REQUIRED)}): "
-            f"{_format_names(BACKEND_CONNECTED_SYSTEMS_REQUIRED)}"
+            f"({len(connected_systems_required)}): "
+            f"{_format_names(connected_systems_required)}"
+        )
+        print(
+            f"Connected Systems product contract: {connected_systems_contract['status']}"
         )
     if checks_backend and args.require_reviewer_smoke:
         print(
@@ -1072,16 +1078,6 @@ def main() -> int:
         )
         if calendar_redirect_contract["status"] != "valid":
             report["classifications"].append("calendar_oauth_redirect_contract_failed")
-
-    backend_env, backend_revisions = ({}, [])
-    if checks_backend and args.assert_runtime_env_contract:
-        backend_json = (
-            None if args.backend_revision else
-            _describe_run_service(args.project, args.region, args.backend_service)
-        )
-        backend_env, backend_revisions = _selected_container_env_map(
-            args.project, args.region, args.backend_service, backend_json, args.backend_revision
-        )
 
     if checks_backend:
         domain_runtime_contract = _domain_runtime_contract(
@@ -1176,7 +1172,7 @@ def main() -> int:
         if checks_backend and args.require_connected_systems:
             backend_connected_systems_entries = [
                 _classify_runtime_key(backend_env, key)
-                for key in BACKEND_CONNECTED_SYSTEMS_RUNTIME_REQUIRED
+                for key in connected_systems_required
             ]
         backend_reviewer_smoke_entries = []
         if checks_backend and args.require_reviewer_smoke:

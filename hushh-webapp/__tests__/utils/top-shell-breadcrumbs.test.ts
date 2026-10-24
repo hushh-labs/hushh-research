@@ -175,8 +175,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "profile",
       align: "center",
-      suppressFallbackTitle: true,
-      items: [{ label: "One", href: "/one" }],
+      items: [{ label: "One", href: "/one" }, { label: "Consent Center" }],
     });
   });
 
@@ -188,8 +187,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/kai/analysis?tab=history",
       width: "profile",
       align: "center",
-      suppressFallbackTitle: true,
-      items: [{ label: "One", href: "/one" }],
+      items: [{ label: "One", href: "/one" }, { label: "Consent Center" }],
     });
   });
 
@@ -1155,8 +1153,8 @@ describe("top shell title slot", () => {
     ["/one/pkm/location/detail", "memory=0123456789abcdef", ["Location", "Detail"]],
     // Every other nested route that used to carry a scroll chip.
     ["/one/connected-systems", "", ["Connected Systems"]],
-    ["/one/consent", "", "none"],
-    ["/consents", "", "none"],
+    ["/one/consent", "", ["Consent Center"]],
+    ["/consents", "", ["Consent Center"]],
     ["/one/gmail", "from=/one/setup", ["Mail"]],
   ])(
     "keeps %s (%s) titled beside its back arrow, even scrolled",

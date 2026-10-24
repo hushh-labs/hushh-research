@@ -20,7 +20,7 @@ import zlib
 from google.genai import types
 
 
-def _synthetic_public_search_agent(root):
+def _synthetic_public_search_agent(root, *, compact: bool = False):
     """Reuse the real search wiring with authority limited to public probe input.
 
     A plain LlmAgent deliberately avoids the owner's ManagedTextAgent binder.
@@ -35,6 +35,22 @@ def _synthetic_public_search_agent(root):
         tool.agent for tool in root.tools if getattr(tool, "name", None) == "google_search"
     )
     model = child.model
+    if compact:
+        from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+        from hushh_mcp.one_adk.search_answer import compact_public_search_model
+
+        policy = load_managed_runtime_policy()
+        if not isinstance(model, ManagedPrimaryTextModel) or policy is None:
+            raise ValueError("Compact Search qualification requires the managed Azure model")
+        descriptor = policy["azure"]["compact_public_search"]
+        model = compact_public_search_model(model)
+        if (
+            model.model != descriptor["deployment"]
+            or model.default_reasoning_effort != descriptor["reasoning_effort"]
+            or model.web_search_context_size != "low"
+            or model.text_verbosity != descriptor["text_verbosity"]
+        ):
+            raise ValueError("Compact Search qualification did not select the admitted model")
     if isinstance(model, ManagedPrimaryTextModel):
 
         async def public_input_only():
@@ -103,7 +119,7 @@ def _wav16(pcm24: bytes) -> bytes:
     return buffer.getvalue()
 
 
-async def _probe_public_search():
+async def _probe_public_search(*, compact: bool = False):
     from hushh_mcp.hushh_adk.turn import run_specialist_adk_turn
     from hushh_mcp.one_adk.agent_tree import build_one_text_agent
 
@@ -111,7 +127,7 @@ async def _probe_public_search():
     # Exercise the actual One roster; a separate factory once hid a broken
     # provider/tool pairing while this readiness probe stayed green.
     root = build_one_text_agent()
-    agent = _synthetic_public_search_agent(root)
+    agent = _synthetic_public_search_agent(root, compact=compact)
 
     async def observe(callback_context, llm_response):
         if not llm_response.partial and llm_response.grounding_metadata:
@@ -127,7 +143,15 @@ async def _probe_public_search():
         app_name="managed_public_search_readiness",
         user_id="synthetic-public-reader",
         consent_token="",
-        message="Search the public web for IANA's explanation of example.com and cite the official IANA page.",
+        message=(
+            "Search IANA's example domains documentation. Name both example.net and example.org, "
+            "state whether they are available for registration, and cite IANA. "
+            "Return one JSON object with domains (an array of those two names), "
+            "registration_available (a boolean), and explanation (a short string with the citation). "
+            "Do not use Markdown fences."
+            if compact
+            else "Search the public web for IANA's explanation of example.com and cite the official IANA page."
+        ),
         max_llm_calls=1,
         total_timeout_s=60,
         first_event_timeout_s=60,
@@ -135,7 +159,26 @@ async def _probe_public_search():
     )
     if not result.final_text or not received:
         raise ValueError("The actual Search child returned no received citations")
-    return {"cited_sources": len(set(received)), "fresh_page_retrieval_claimed": False}
+    proof = {"cited_sources": len(set(received)), "fresh_page_retrieval_claimed": False}
+    if compact:
+        # This is a fixed public known-answer evaluation, never product routing.
+        # Mentioning both entities alone must not admit the opposite factual answer.
+        answer = json.loads(result.final_text)
+        if (
+            not isinstance(answer, dict)
+            or set(answer) != {"domains", "registration_available", "explanation"}
+            or answer.get("domains")
+            not in (
+                ["example.net", "example.org"],
+                ["example.org", "example.net"],
+            )
+            or answer.get("registration_available") is not False
+            or not isinstance(answer.get("explanation"), str)
+            or not answer["explanation"].strip()
+        ):
+            raise ValueError("Compact Search failed a requested synthetic public fact")
+        proof["synthetic_content_verified"] = True
+    return proof
 
 
 async def probe_managed_capabilities(provider: str) -> dict:
@@ -441,6 +484,8 @@ async def probe_managed_capabilities(provider: str) -> dict:
         ("live_audio", live),
     ]:
         await check(name, operation)
+    if "compact_public_search" in policy["required_capabilities"]:
+        await check("compact_public_search", lambda: _probe_public_search(compact=True))
     report["ready"] = set(report["capabilities"]) == set(policy["required_capabilities"]) and all(
         item["ready"] for item in report["capabilities"].values()
     )

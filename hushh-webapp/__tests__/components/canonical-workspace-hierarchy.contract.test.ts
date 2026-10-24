@@ -19,14 +19,17 @@ describe("canonical workspace hierarchy", () => {
     expect(stack).not.toContain("<AppPageShell");
   });
 
-  it("places the Consent Center title and tabs below the shared back bar", () => {
+  it("keeps the Consent Center title in shared Back and tabs in the workspace", () => {
     const consent = read("components/consent/consent-center-page.tsx");
+    const backGraph = read("lib/navigation/back-navigation-graph.ts");
     const topShellTabs = read("lib/navigation/top-shell-tabs.ts");
 
     expect(consent).toContain('<AppPageShell as="main" width="agent"');
     expect(consent).toContain("TOP_SHELL_TAB_REGISTRY.consent");
-    expect(consent).toContain('<PageHeader title="Consent Center" titleRole="agent" />');
+    expect(consent).not.toContain('<PageHeader title="Consent Center"');
     expect(consent).toContain("<TopShellTabs tabSet={consentTabSet} />");
+    expect(backGraph).toContain('id: "consent-center"');
+    expect(backGraph).toContain('{ label: "Consent Center" }');
     expect(topShellTabs).not.toContain("if (pathname === ROUTES.CONSENTS)");
     expect(topShellTabs).toContain('label: "Consent Center"');
     expect(topShellTabs).toContain('label: "Requests"');

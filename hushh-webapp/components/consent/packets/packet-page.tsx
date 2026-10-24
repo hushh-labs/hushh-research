@@ -94,7 +94,7 @@ export function PacketPage({ open, onOpenChange, title, description, sections, a
       description={description}
       mobilePresentation="sheet"
       desktopMaxWidthClassName="sm:!max-w-[520px]"
-      surfaceClassName={accountStyles.walletContent}
+      surfaceClassName={`${accountStyles.walletContent} consent-presentation-surface`}
     >
       <SettingsPresentationProvider density="compact" separatorInset>
         {sections.map((section) => (

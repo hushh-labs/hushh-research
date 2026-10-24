@@ -115,8 +115,8 @@ function ProposalRow({ label, meta, state, disabled, onToggle, expanded, onExpan
           nested ? "pl-11" : "pl-3.5"}`}>
         <CheckMark state={state} />
         <span className="min-w-0 flex-1">
-          <span className="block text-sm leading-5 text-foreground [overflow-wrap:anywhere]">{label}</span>
-          {meta ? <span className="block text-xs leading-4 text-muted-foreground">{meta}</span> : null}
+          <span data-consent-role="row-title" className="block text-sm leading-5 text-foreground [overflow-wrap:anywhere]">{label}</span>
+          {meta ? <span data-consent-role="helper" className="block text-xs leading-4 text-muted-foreground">{meta}</span> : null}
         </span>
       </div>
       {onExpand ? (
@@ -237,7 +237,7 @@ function CatalogPicker({ personName, selected, onToggle, searchCatalog }: {
         <span className="sr-only">Search what {firstName(personName)} can share</span>
         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
         <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search" className="pl-10" maxLength={120} />
+          placeholder="Search" className="pl-10" maxLength={120} data-consent-input="true" />
       </label>
       <ul aria-label="Information you can ask for" aria-busy={state === "loading"}
         className="max-h-72 divide-y divide-border/50 overflow-y-auto rounded-[var(--app-card-radius-compact)] bg-background/80">
@@ -248,8 +248,8 @@ function CatalogPicker({ personName, selected, onToggle, searchCatalog }: {
               <button type="button" aria-pressed={on} onClick={() => onToggle(scope)}
                 className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-3 px-3.5 py-2 text-left transition-colors duration-150 hover:bg-accent/40">
                 <span className="min-w-0">
-                  <span className="block truncate text-sm text-foreground">{scope.label}</span>
-                  {scope.description ? <span className="block truncate text-xs text-muted-foreground">{scope.description}</span> : null}
+                <span data-consent-role="row-title" className="block truncate text-sm text-foreground">{scope.label}</span>
+                {scope.description ? <span data-consent-role="helper" className="block truncate text-xs text-muted-foreground">{scope.description}</span> : null}
                 </span>
                 <span aria-hidden="true" className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors duration-150 ${
                   on ? "bg-accent-strong text-white" : "border border-border"}`}>
@@ -260,13 +260,13 @@ function CatalogPicker({ personName, selected, onToggle, searchCatalog }: {
           );
         })}
         {state === "idle" && !results.length ? (
-          <li className="px-3.5 py-3 text-sm text-muted-foreground">Nothing matches. Try another word.</li>
+          <li data-consent-role="body" className="px-3.5 py-3 text-sm text-muted-foreground">Nothing matches. Try another word.</li>
         ) : null}
       </ul>
       {state === "error" ? <p role="alert" className="text-sm text-muted-foreground">We couldn’t search right now. Please try again.</p> : null}
-      {state === "loading" ? <p className="text-xs text-muted-foreground">Searching…</p> : null}
+      {state === "loading" ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Searching…</p> : null}
       {page?.nextPage && state !== "loading" ? (
-        <MorphyButton type="button" size="sm" variant="none" onClick={() => run(query, page.nextPage!)}>Show more</MorphyButton>
+        <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" onClick={() => run(query, page.nextPage!)}>Show more</MorphyButton>
       ) : null}
     </div>
   );
@@ -338,29 +338,29 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
 
   return (
     <section aria-label={`Ask ${firstName(personName)}`} data-testid="ask-proposal-card"
-      className="space-y-3 rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] p-4 shadow-[0_18px_55px_-38px_var(--app-accent-deep)] sm:p-5">
+      className="consent-presentation-surface space-y-3 rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] p-4 shadow-[0_18px_55px_-38px_var(--app-accent-deep)] sm:p-5">
       <div className="flex items-start gap-3">
         {/* The /one Consent glyph, bare on a transparent well: never a filled tile. */}
         <span data-slot="card-header-icon" className="inline-flex h-9 w-9 shrink-0 items-center justify-center">
           <ConsentAgentIcon className="h-7 w-7" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold leading-6 tracking-[-0.015em] text-foreground [overflow-wrap:anywhere]" data-testid="ask-sentence">
+          <p data-consent-role="row-title" className="text-base font-semibold leading-6 tracking-[-0.015em] text-foreground [overflow-wrap:anywhere]" data-testid="ask-sentence">
             {labels.length ? askSentence(personName, labels, durationHours) : `Choose what to ask ${firstName(personName)} for`}
           </p>
           {reason.trim() ? (
-            <p className="mt-1 text-sm leading-5 text-foreground/80 [overflow-wrap:anywhere]" data-testid="ask-reason">
+            <p data-consent-role="body" className="mt-1 text-sm leading-5 text-foreground/80 [overflow-wrap:anywhere]" data-testid="ask-reason">
               {reason.trim()}
             </p>
           ) : null}
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          <p data-consent-role="helper" className="mt-1 text-xs leading-5 text-muted-foreground">
             {why ?? `${firstName(personName)} decides what to share, and can stop any time.`}
           </p>
         </div>
       </div>
 
       <ProposalRows nodes={nodes} extras={extras} selected={selected} disabled={sending} onToggle={setRow} />
-      <p className="text-xs font-medium text-muted-foreground" data-testid="ask-proposal-summary" aria-live="polite">
+      <p data-consent-role="status" className="text-xs font-medium text-muted-foreground" data-testid="ask-proposal-summary" aria-live="polite">
         {chosen} {chosen === 1 ? "item" : "items"} · {proposalDurationLabel(durationHours)}
       </p>
 
@@ -369,9 +369,9 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
           <CatalogPicker personName={personName} selected={universe.filter((scope) => selected.has(scope.scopeRef))}
             onToggle={toggle} searchCatalog={searchCatalog} />
           <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+            <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
               For how long
-              <select value={durationHours} disabled={sending} data-testid="ask-proposal-duration"
+              <select value={durationHours} disabled={sending} data-testid="ask-proposal-duration" data-consent-input="true"
                 onChange={(event) => setDurationHours(Number(event.target.value))}
                 className="block h-11 w-full cursor-pointer rounded-[var(--app-input-radius)] border border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)] px-3.5 text-sm font-normal text-foreground">
                 {REQUEST_DURATION_OPTIONS.map((option) => (
@@ -379,9 +379,9 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
                 ))}
               </select>
             </label>
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+            <label data-consent-role="form-label" className="block space-y-1.5 text-xs font-medium text-muted-foreground">
               What it is for
-              <Input value={reason} disabled={sending} maxLength={500} data-testid="ask-proposal-reason"
+              <Input value={reason} disabled={sending} maxLength={500} data-testid="ask-proposal-reason" data-consent-input="true"
                 onChange={(event) => setReason(event.target.value)} placeholder="To plan dinner together" />
             </label>
           </div>
@@ -390,14 +390,14 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
 
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {!changing && reason.trim().length < MIN_REASON ? (
-        <p className="text-xs text-muted-foreground">Add a reason so {firstName(personName)} can decide.</p>
+        <p data-consent-role="helper" className="text-xs text-muted-foreground">Add a reason so {firstName(personName)} can decide.</p>
       ) : null}
       <div ref={actionsRef} data-testid="ask-proposal-actions" className="flex flex-wrap items-center gap-2">
-        <MorphyButton type="button" size="sm" disabled={!canSend}
+        <MorphyButton type="button" size="sm" className="min-h-11" disabled={!canSend}
           onClick={() => onSend({ scopes, purpose: reason.trim(), durationHours })}>
           {sending ? "Sending…" : !ready || !placed ? "Checking…" : "Send"}
         </MorphyButton>
-        <MorphyButton type="button" size="sm" variant="none" disabled={sending}
+        <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={sending}
           onClick={() => setChanging((current) => !current)}>
           {changing ? "Done" : "Change"}
         </MorphyButton>

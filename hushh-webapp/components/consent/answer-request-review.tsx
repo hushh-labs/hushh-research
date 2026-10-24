@@ -166,7 +166,7 @@ export function AnswerRequestReview({
   };
 
   return (
-    <div className="min-w-0 space-y-4">
+    <div className="consent-presentation-surface min-w-0 space-y-4">
       {/* Exactly one modal on screen at a time: once the price sheet opens,
           this review's own form is not rendered behind it. The outer detail
           panel (titled "Request scope · Memory") stays mounted so Back/Escape

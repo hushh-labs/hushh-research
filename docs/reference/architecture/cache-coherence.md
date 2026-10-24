@@ -253,7 +253,7 @@ Dynamic user keys:
 - `domain_blob_${userId}_${domain}`
 - `stock_context_${userId}_${ticker}`
 - `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`
-- `consent_center_preview_${userId}_${actor}_${surface}_${top}` for dedicated preview-only callers that explicitly choose `top=n`; first-party shield inbox flows should prefer the shared `consent_center_list_*_pending_*_1_20` cache entry
+- `consent_center_preview_${userId}_${actor}_${surface}_${top}` for retained dedicated preview-only callers that explicitly choose `top=n`; the mounted top app bar has no Shield inbox consumer
 
 Summary metadata write-through fields (when available):
 - `attribute_count`
@@ -311,13 +311,12 @@ Do:
   hydrates registry metadata, vault unlock warms one batch of binding statuses,
   vault lock synchronously clears protected L1 state, and sign-out/account
   deletion purges both tiers.
-- Use `one:consents` as the canonical cache identity for the default investor
-  consent view. The One dashboard, `/one/consent`, and the top-shell shield inbox
-  must share that summary and pending-page cache; only the RIA persona uses its
-  own `ria:consents` lane.
+- Use `one:consents` as the canonical cache identity for the default One
+  consent view. The One dashboard and `/one/consent` share the summary and
+  pending-page cache; only the RIA persona uses its own `ria:consents` lane.
 - An unresolved consent summary is unknown, not zero. Do not render `0` in
   consent tabs, badges, or roster metrics until the canonical summary resolves.
-- Keep the first-party consent inbox on the same memory-only `pending page 1` list cache used by `/one/consent`; do not introduce a second browser cache lane just for the top-shell preview.
+- Keep the mounted Consent Center on its memory-only pending-page cache; do not introduce a browser cache lane for an unmounted top-shell preview.
 - On every successful vault unlock, warm the canonical `one:consents` summary
   and pending-page cache in the background, regardless of the route that
   opened the vault. This preserves an immediate same-session render without

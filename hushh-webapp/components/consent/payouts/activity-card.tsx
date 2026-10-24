@@ -65,7 +65,7 @@ export function PayoutActivityCard({ freshness, limit: requested = 5, onAction }
   const outdated = activity.error instanceof Error && activity.error.name === "PayoutContractError";
   const native = outdated && isNative();
   return (
-    <section aria-label="Payout activity" onClickCapture={opener.capture}>
+    <section aria-label="Payout activity" className="consent-presentation-surface" onClickCapture={opener.capture}>
       <SettingsGroup title="Activity" density="compact" description={freshness}
         titleAction={<PayoutActivityFilterMenu value={filter} onValueChange={setFilter}
           testActivity={testActivity} onTestActivityChange={setTestActivity} />}>

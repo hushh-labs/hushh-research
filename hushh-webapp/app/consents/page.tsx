@@ -16,12 +16,12 @@ function LegacyConsentsRedirect() {
     router.replace(query ? `${ROUTES.CONSENTS}?${query}` : ROUTES.CONSENTS);
   }, [router, searchParams]);
 
-  return <RouteSuspenseFallback label="Opening access manager…" />;
+  return <div className="consent-presentation-surface contents"><RouteSuspenseFallback label="Opening access manager…" /></div>;
 }
 
 export default function LegacyConsentsPage() {
   return (
-    <Suspense fallback={<RouteSuspenseFallback label="Opening access manager…" />}>
+    <Suspense fallback={<div className="consent-presentation-surface contents"><RouteSuspenseFallback label="Opening access manager…" /></div>}>
       <LegacyConsentsRedirect />
     </Suspense>
   );
