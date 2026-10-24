@@ -146,7 +146,22 @@ Production remains at `904fbd215c661dd376a57ff712b11f12b9eec23c`. The live
 other five sections in progress. This supersedes the 12 October checkpoint.
 Seven entries remain identity, selected-file Drive, full Drive, Contacts read-only
 and Gmail read-only. Gmail writes and Calendar require separate submission
-alignment; a read-first connection does not verify those upgrades.
+alignment; a read-first connection does not verify those additional scope requests.
+
+Across separate candidate connection purposes and transports, the authorization
+union is fifteen scope URIs, not one authorization request. Eight are absent from
+that Console inventory: `gmail.send`, `gmail.compose`, `gmail.modify`,
+`drive.readonly`, `calendar.events.readonly`, `calendar.freebusy`,
+`calendar.calendarlist.readonly` and `calendar.events`, each prefixed with
+`https://www.googleapis.com/auth/`. Private Drive requests the distinct
+`drive.readonly` URI; listing full `drive` does not list that requested URI.
+Private native Calendar initially requests event management and free/busy;
+management is not universally an incremental upgrade. Shared Calendar retains
+read/manage purposes with calendar-list access varying by transport. Existing
+exact-owner Drive switches do not provide a general
+verification staging gate for Calendar or optional Gmail writes. Expanding the
+submission versus staging the additional flows remains an owner decision;
+neither source changes nor a proposed inventory establish Google approval.
 
 Authenticated 24 October reads of managed Vertex project `hushh-gemini-bridge`
 returned `retentionConfig.retentionType=DURABLE`. Publisher configuration for
