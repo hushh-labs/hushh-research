@@ -1419,11 +1419,42 @@ jobs:
           python3 scripts/ops/verify_secret_list_invariants.py \
             --project "${{ env.GCP_PROJECT_ID }}"
 
+      - name: Qualify production CRM availability
+        id: crm-availability
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.scope.outputs.deploy_frontend == 'true'
+        env:
+          TARGET_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os, runpy
+          from pathlib import Path
+          authority = runpy.run_path("consent-protocol/hushh_mcp/services/crm_product_availability.py")
+          available = authority["crm_product_available"](environment="production")
+          assert type(available) is bool
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"required={str(available).lower()}\n")
+          Path("/tmp/prod-connected-systems-availability.json").write_text(json.dumps({
+              "environment": "production", "sha": os.environ["TARGET_SHA"],
+              "available": available,
+              "status": "required" if available else "not_applicable_product_paused",
+              "transport_verified": False,
+          }))
+          PY
+
       - name: Verify production candidate runtime env parity
         id: verify-parity
         if: steps.scope.outputs.deploy_backend == 'true' || steps.scope.outputs.deploy_frontend == 'true'
         continue-on-error: true
+        env:
+          CRM_REQUIRED: ${{ steps.crm-availability.outputs.required }}
         run: |
+          set -euo pipefail
+          connected_systems=()
+          case "$CRM_REQUIRED" in
+            true) connected_systems=(--require-connected-systems) ;;
+            false) ;;
+            *) echo "CRM availability was not qualified." >&2; exit 1 ;;
+          esac
           python3 scripts/ops/verify-env-secrets-parity.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --region "${{ env.GCP_REGION }}" \
@@ -1435,7 +1466,7 @@ jobs:
             --require-market-data \
             --require-gmail \
             --require-calendar \
-            --require-connected-systems \
+            "${connected_systems[@]}" \
             --require-prod-phone-test \
             --assert-runtime-env-contract \
             --report-path /tmp/prod-runtime-parity.json
@@ -1444,11 +1475,22 @@ jobs:
         id: verify-connected-systems
         if: steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success'
         continue-on-error: true
+        env:
+          CRM_REQUIRED: ${{ steps.crm-availability.outputs.required }}
         run: |
           set -euo pipefail
+          case "$CRM_REQUIRED" in
+            false)
+              echo "Hosted CRM product is paused; no gateway verification claimed."
+              echo "qualification=not_applicable_product_paused" >> "$GITHUB_OUTPUT"
+              exit 0 ;;
+            true) ;;
+            *) echo "CRM availability was not qualified." >&2; exit 1 ;;
+          esac
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_connected_systems_gateway.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             2>&1 | tee /tmp/prod-connected-systems.log
+          echo "qualification=verified" >> "$GITHUB_OUTPUT"
 
       - name: Deploy and attest private production Drive worker
         id: deploy-drive-worker
@@ -2206,6 +2248,8 @@ jobs:
               "verification": {
                   "runtime_parity": "${{ steps.verify-parity.outcome }}",
                   "connected_systems": "${{ steps.verify-connected-systems.outcome }}",
+                  "connected_systems_product_available": "${{ steps.crm-availability.outputs.required }}",
+                  "connected_systems_qualification": "${{ steps.verify-connected-systems.outputs.qualification }}",
                   "backend_provenance": "${{ steps.verify-backend-provenance.outcome }}",
                   "frontend_provenance": "${{ steps.verify-frontend-provenance.outcome }}",
                   "backend_health": "${{ steps.health-backend.outcome }}",
@@ -2268,6 +2312,7 @@ jobs:
             /tmp/prod-runtime-secret-sync.json
             /tmp/prod-frontend-runtime-secret-sync.json
             /tmp/prod-runtime-parity.json
+            /tmp/prod-connected-systems-availability.json
             /tmp/prod-connected-systems.log
             /tmp/prod-backend-provenance.json
             /tmp/prod-frontend-provenance.json
@@ -2351,7 +2396,7 @@ jobs:
             echo "- Backend provenance: \`${{ steps.verify-backend-provenance.outcome }}\`"
             echo "- Frontend provenance: \`${{ steps.verify-frontend-provenance.outcome }}\`"
             echo "- Env parity: \`${{ steps.verify-parity.outcome }}\`"
-            echo "- Connected Systems Omni Gateway: \`${{ steps.verify-connected-systems.outcome }}\`"
+            echo "- CRM qualification: \`${{ steps.verify-connected-systems.outputs.qualification || 'not_run' }}\` (product available: \`${{ steps.crm-availability.outputs.required || 'unqualified' }}\`)"
             echo "- Native passkey domain associations: \`${{ steps.verify-passkey-associations.outcome }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
