@@ -319,9 +319,9 @@ describe("Top app bar responsive contract", () => {
     expect(scrolledTitles).not.toContain("FolderSearch");
   });
 
-  it("keeps Memory's body heading and Mail's shared-shell workspace title", () => {
+  it("keeps Memory's accessible heading and Mail's shared-shell workspace title", () => {
     expect(read("app/one/pkm/page.tsx")).toContain(
-      '<PkmSettingsShell title="Memory" titleRole="agent" shellWidth="agent">',
+      '<PkmSettingsShell title="Memory" titleRole="agent" titleVisuallyHidden shellWidth="agent">',
     );
     expect(read("app/one/pkm/recent/page.tsx")).toMatch(
       /<PkmSettingsShell\s+title="Recently learned"\s+titleVisuallyHidden/,
