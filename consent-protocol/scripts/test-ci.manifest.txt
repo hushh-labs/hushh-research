@@ -96,6 +96,7 @@ tests/services/test_drive_request_search_unit.py
 tests/services/test_drive_request_candidate_assessment.py
 tests/services/test_drive_request_review_policy.py
 tests/services/test_drive_request_package_store_postgres.py
+tests/services/test_drive_provider_request_package_postgres.py
 tests/services/test_drive_agent_package_flow_postgres.py
 tests/services/test_drive_v1_manual_review_postgres.py
 tests/services/test_drive_request_package_service.py
@@ -138,6 +139,7 @@ tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
 tests/services/test_drive_bulk_share_service.py
 tests/services/test_drive_bulk_share_worker.py
+tests/services/test_drive_provider_delivery.py
 tests/test_drive_bulk_share_routes.py
 tests/test_drive_saved_search_handoff.py
 tests/services/test_drive_telemetry.py
@@ -1381,6 +1383,8 @@ tests/eval_drive_packets/test_sources_read_only.py
 tests/eval_drive_packets/test_stats.py
 
 tests/services/test_drive_reusable_packets_postgres.py
+tests/services/test_drive_period_packets.py
+tests/services/test_drive_period_packets_postgres.py
 
 tests/services/test_drive_packet_catalog_postgres.py
 

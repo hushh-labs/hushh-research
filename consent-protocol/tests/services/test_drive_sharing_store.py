@@ -33,6 +33,7 @@ from hushh_mcp.services.google_drive_adapter import (
     LIVE_POLICY_HASH,
     DriveReadError,
 )
+from tests.drive_postgres_test_support import apply_drive_fixture_migration
 from tests.services.test_drive_document_selection import (  # noqa: F401
     connector_postgres_url,
     documents,
@@ -130,7 +131,7 @@ async def sharing(documents, monkeypatch):
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
-            connection.exec_driver_sql((MIGRATIONS / name).read_text().replace("%", "%%"))
+            apply_drive_fixture_migration(connection, name)
         # This compact fixture has no Feed tables, so migration 288's
         # projection/notification portion runs in the Feed fixture instead.
         # Apply its real event vocabulary here: payment and request services
@@ -144,9 +145,7 @@ async def sharing(documents, monkeypatch):
         connection.exec_driver_sql((stream_sql + marker + "\nCOMMIT;").replace("%", "%%"))
         # Review asks widen the event vocabulary 288 installed; with no Feed
         # projection installed here, 321 skips its allowlist step.
-        connection.exec_driver_sql(
-            (MIGRATIONS / "321_drive_request_review_requests.sql").read_text().replace("%", "%%")
-        )
+        apply_drive_fixture_migration(connection, "321_drive_request_review_requests.sql")
         connection.commit()
     return DriveSharingStore(db=documents.db, authority_key="synthetic-ledger-key")
 

@@ -24,6 +24,15 @@ from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_REQUEST_POLICY,
     automatic_recipient_current,
 )
+from hushh_mcp.services.drive_owner_search_creation import insert_job
+from hushh_mcp.services.drive_period_packet_search_authority import (
+    SEMANTIC_COMMIT_KEYS,
+    require_period_origin,
+    require_request_semantics,
+)
+from hushh_mcp.services.drive_period_packet_search_authority import (
+    admit_creation as admit_period_creation,
+)
 from hushh_mcp.services.drive_request_discovery import (
     discovery_delivery,
     discovery_evidence_matches,
@@ -303,6 +312,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         v1_statement_search=False,
         replace_terminal_request=False,
         replace_legacy_completed_request=False,
+        period_packet_id=None,
     ):
         if confirmed is not True:
             raise DriveReadError("confirmation_required")
@@ -315,6 +325,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             )
         ):
             raise DriveReadError("invalid_argument")
+        if (period_packet_id is None) != (checkpoint.get("period_packet_origin") is None):
+            raise DriveReadError("invalid_argument")
         _bounded_selection(checkpoint)
         _semantic_binding_current(checkpoint)
         client = _identity(client_request_id)
@@ -323,6 +335,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         def operation(connection):
             current = self._access(connection, user_id)
+            admit_period_creation(self, connection, user_id, period_packet_id, checkpoint)
             connection.execute(
                 text(
                     "DELETE FROM drive_owner_search_jobs WHERE user_id=:user AND expires_at<=clock_timestamp()"
@@ -382,25 +395,17 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     text("DELETE FROM drive_owner_search_jobs WHERE job_id=:job"),
                     {"job": existing["job_id"]},
                 )
-            row = self._row(
+            row = insert_job(
+                self,
                 connection,
-                """
-                INSERT INTO drive_owner_search_jobs(job_id,user_id,client_request_id,request_digest,
-                  connection_generation,consent_version,checkpoint_envelope,v1_statement_search)
-                VALUES(:job,:user,:client,:digest,:generation,:consent,CAST(:envelope AS jsonb),:v1_statement_search) RETURNING *
-            """,
-                {
-                    "job": identity,
-                    "user": user_id,
-                    "client": client,
-                    "digest": digest,
-                    "generation": current["connection_generation"],
-                    "consent": CONSENT_VERSION,
-                    "v1_statement_search": v1_statement_search,
-                    "envelope": self._seal(
-                        checkpoint, user_id, identity, "owner-search-checkpoint"
-                    ),
-                },
+                user_id=user_id,
+                identity=identity,
+                client=client,
+                digest=digest,
+                current=current,
+                checkpoint=checkpoint,
+                v1_statement_search=v1_statement_search,
+                period_packet_id=period_packet_id,
             )
             return self._view(row), True
 
@@ -1301,6 +1306,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     text("""
                 WITH due AS (SELECT job_id FROM drive_owner_search_jobs
                   WHERE status IN ('queued','running') AND expires_at>clock_timestamp()
+                    AND period_packet_id IS NULL
                     AND next_at<=clock_timestamp()
                     AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
                     AND (:v1_only = FALSE OR v1_statement_search=TRUE)
@@ -1429,8 +1435,9 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
     def _current(self, connection, job):
         self._access(connection, job["user_id"], job["generation"])
-        self._evidence_current(connection, job["checkpoint"], job["user_id"])
+        evidence_manifest = self._evidence_current(connection, job["checkpoint"], job["user_id"])
         row = self._owned(connection, job["user_id"], job["job_id"], locked=True)
+        require_period_origin(self, connection, job, row)
         current_mode = self._checkpoint(row).get("authority_mode", "owner")
         claimed_mode = job["checkpoint"].get("authority_mode", "owner")
         if current_mode != claimed_mode:
@@ -1464,49 +1471,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     resource_id=str(origin),
                     purpose="request",
                 )
-                from hushh_mcp.services.drive_owner_allowed import semantic_search_request
-                from hushh_mcp.services.drive_request_semantic_plan import (
-                    SemanticDrivePlan,
-                    semantic_plan_digest,
-                )
-
-                claimed = job["checkpoint"]
-                frozen = self._checkpoint(row)
-                semantic = claimed.get("semantic_plan")
-                _semantic_binding_current(claimed)
-                if (private.get("semantic_search_policy_version") == 2) != discovery_delivery(
-                    claimed
-                ):
-                    raise DriveReadError("search_superseded")
-                if semantic_search_request(private) != (semantic is not None):
-                    raise DriveReadError("search_superseded")
-                if semantic is not None:
-                    try:
-                        parsed = SemanticDrivePlan.model_validate(semantic)
-                        valid = (
-                            parsed.status == "ready"
-                            and semantic_plan_digest(parsed) == claimed.get("semantic_plan_digest")
-                            and claimed.get("semantic_purpose") == private.get("purpose")
-                            and claimed.get("semantic_model_binding")
-                            == private.get("semantic_model_binding")
-                            and all(
-                                claimed.get(key) == frozen.get(key)
-                                for key in (
-                                    "semantic_plan",
-                                    "semantic_plan_digest",
-                                    "semantic_purpose",
-                                    "semantic_assessment_policy",
-                                    "semantic_model_binding",
-                                    "discovery_delivery_policy",
-                                    "queries",
-                                    "requested_period",
-                                )
-                            )
-                        )
-                    except ValueError:
-                        valid = False
-                    if not valid:
-                        raise DriveReadError("search_superseded")
+                require_request_semantics(self, job, row, private, evidence_manifest)
                 if (
                     private.get("agent_package_required") is not True
                     if current_mode == "agent_package"
@@ -1646,17 +1611,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 if (
                     any(
                         checkpoint.get(key) != saved_checkpoint.get(key)
-                        for key in (
-                            "semantic_plan",
-                            "semantic_plan_digest",
-                            "semantic_assessment_policy",
-                            "semantic_model_binding",
-                            "semantic_purpose",
-                            "request_origin_id",
-                            "request_revision",
-                            "queries",
-                            "requested_period",
-                        )
+                        for key in SEMANTIC_COMMIT_KEYS
                     )
                     or done
                     and not discovery_delivery(saved_checkpoint)
