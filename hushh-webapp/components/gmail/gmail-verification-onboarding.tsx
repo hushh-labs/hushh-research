@@ -11,6 +11,7 @@ import { KycProfileHero } from "@/components/gmail/kyc-profile-hero";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MailActionButton as Button } from "./mail-action-button";
+import mailStyles from "./mail-workspace.module.css";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
@@ -61,6 +62,7 @@ function GmailVerificationOnboardingSession({
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const pasteTriggerRef = useRef<HTMLButtonElement>(null);
   const saveStartedRef = useRef(false);
 
   const copyPrompt = async () => {
@@ -139,8 +141,8 @@ function GmailVerificationOnboardingSession({
         className="space-y-4 px-4 py-4 text-sm sm:px-5 sm:py-5"
       >
         <div className="space-y-1">
-          <p className="font-semibold text-foreground">KYC requests</p>
-          <p className="text-sm leading-6 text-muted-foreground">
+          <p className={`${mailStyles.sectionTitle} text-foreground`}>KYC requests</p>
+          <p className={`${mailStyles.support} text-muted-foreground`}>
             Getting your KYC workspace ready.
           </p>
         </div>
@@ -168,16 +170,16 @@ function GmailVerificationOnboardingSession({
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div className="space-y-1">
-            <h2 className="text-base font-semibold text-foreground">
+            <h2 className={`${mailStyles.sectionTitle} text-foreground`}>
               Set up KYC
             </h2>
-            <p className="text-xs text-muted-foreground">
+            <p className={`${mailStyles.support} text-muted-foreground`}>
               Open your private vault before importing details for future KYC
               replies.
             </p>
           </div>
         </div>
-        <Button type="button" onClick={onRequestVaultUnlock} className="w-full justify-center h-10 font-semibold rounded-full">
+        <Button type="button" onClick={onRequestVaultUnlock} className={`${mailStyles.wideAction} w-full justify-center`}>
           Open private vault
         </Button>
       </SurfaceInset>
@@ -186,9 +188,10 @@ function GmailVerificationOnboardingSession({
 
   return (
     <>
-      <KycProfileHero onPasteDetails={() => setPasteOpen(true)} />
+      <KycProfileHero onPasteDetails={() => setPasteOpen(true)} triggerRef={pasteTriggerRef} />
       <KycPasteDetailsDialog
         open={pasteOpen}
+        returnFocusRef={pasteTriggerRef}
         onOpenChange={setPasteOpen}
         details={details}
         onDetailsChange={onDetailsChange}

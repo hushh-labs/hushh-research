@@ -1,7 +1,7 @@
 "use client";
 
 import { Briefcase, Check, Home, User } from "@/components/icons";
-import { useId, type ComponentType } from "react";
+import { useId, type ComponentType, type RefObject } from "react";
 
 import mailStyles from "./mail-workspace.module.css";
 import { MailActionButton as Button } from "./mail-action-button";
@@ -22,7 +22,7 @@ const PREVIEW_ROWS: ReadonlyArray<{
  * reads heading and copy, the preview, then the action; side by side the copy
  * and the action share the left column and the preview sits on the right.
  */
-export function KycProfileHero({ onPasteDetails }: { onPasteDetails: () => void }) {
+export function KycProfileHero({ onPasteDetails, triggerRef }: { onPasteDetails: () => void; triggerRef?: RefObject<HTMLButtonElement | null> }) {
   const titleId = useId();
   return (
     <section
@@ -73,13 +73,14 @@ export function KycProfileHero({ onPasteDetails }: { onPasteDetails: () => void 
           </div>
         </div>
 
-        {/* The same 244 x 50 footprint as "Chat with One" on the Overview. */}
+        {/* Keep the Overview action width; MailActionButton owns its 44px target. */}
         <div className="mx-auto w-full max-w-[244px] @lg:col-start-1 @lg:row-start-3 @lg:mx-0 @lg:mt-6">
           <Button
+            ref={triggerRef}
             type="button"
             size="prominent"
             onClick={onPasteDetails}
-            className="w-full justify-center"
+            className={`${mailStyles.wideAction} w-full justify-center`}
           >
             Paste details
           </Button>
