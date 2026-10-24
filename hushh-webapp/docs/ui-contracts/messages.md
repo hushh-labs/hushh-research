@@ -87,7 +87,7 @@ Compatibility MP4/WebM labels in People do not create a People video picker. No 
 
 ## Verification status
 
-The ledger has 21 mounted page/state/action families: 12 People, 8 Circle and 1 Wallet. `origin/main` at the source SHA had no standalone Messages contract. The before-edit `npm run ui:doctor` passed Back, Search and validator checks, while generated route-orchestration, native-surface and Kai-action indexes were stale on this checkout. After Back-then-Search generation, `npm run verify:ui-contracts` passed all seven owners; the wider generation command stopped at the unrelated capability-graph step because the available Python environment lacked `dotenv`.
+The ledger has 21 mounted page/state/action families: 12 People, 8 Circle and 1 Wallet. The route uses the existing authored Back and Search contracts. `npm run build:ui-contracts` passes on the integrated source and refreshes the content-addressed review receipts and generated mirrors; `npm run verify:ui-contracts` passes all seven owners.
 
 Production-optimized Chromium fixtures loaded the actual CSS modules, global layers and self-hosted font before sampling at 390px. Values below are computed `font-size/line-height/font-weight`, rather than inferred selectors. The self-hosted face is selected by the browser from the requested 550/650 CSS weights.
 
