@@ -205,7 +205,7 @@ final class NativeDockPlacement {
         dock.translatesAutoresizingMaskIntoConstraints = false
         leading = dock.leadingAnchor.constraint(equalTo: parent.leadingAnchor)
         width = dock.widthAnchor.constraint(equalToConstant: 1)
-        height = dock.heightAnchor.constraint(equalToConstant: 60)
+        height = dock.heightAnchor.constraint(equalToConstant: 68)
         bottom = dock.bottomAnchor.constraint(equalTo: parent.topAnchor)
         // A short landscape viewport may compress the editor, but never push
         // it through the keyboard or above the safe header region.
@@ -399,7 +399,7 @@ struct NativeAgentDockView: View {
                     if model.mode == "text" && model.expanded {
                         dockButton("arrow.down.right.and.arrow.up.left", "Finish editing") { model.action("collapse") }
                     }
-                }.padding(.vertical, model.expanded ? 8 : 12).padding(.trailing, model.expanded ? 8 : 12)
+                }.padding(.vertical, model.expanded ? 4 : 12).padding(.trailing, model.expanded ? 6 : 12)
             }
             .glassEffect(.regular, in: .rect(cornerRadius: 24))
             .glassEffectID("agent-dock", in: glass)
