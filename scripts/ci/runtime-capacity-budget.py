@@ -591,12 +591,12 @@ def evaluate(
     config = profile["environments"][environment]
     maintenance = None
     if maintenance_profile is not None:
-        bootstrap_recovery = maintenance_profile == "serving_backend_clone_v2"
+        bootstrap_recovery = maintenance_profile in {"serving_backend_clone_v2", "serving_backend_clone_v3"}
         expected = {"service": "consent-protocol", "candidate": {
             "max_instances": 1, "workers_per_instance": 1 if bootstrap_recovery else 2, "asyncpg_pool_max": 4 if bootstrap_recovery else 2,
             "sqlalchemy_pool_size": 2, "sqlalchemy_max_overflow": 0}}
         if (environment != "production" or phase != "pre-deploy"
-                or maintenance_profile not in {"serving_backend_clone_v1", "serving_backend_clone_v2"}
+                or maintenance_profile not in {"serving_backend_clone_v1", "serving_backend_clone_v2", "serving_backend_clone_v3"}
                 or inherited_candidate_services
                 or config.get("maintenance_candidates", {}).get(maintenance_profile) != expected):
             raise BudgetError("unreviewed maintenance capacity profile")

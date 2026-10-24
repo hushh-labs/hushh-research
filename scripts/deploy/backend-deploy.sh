@@ -962,6 +962,10 @@ fi
 cmd=(
   gcloud run deploy "${_BACKEND_SERVICE}"
   "--image=${image_reference}"
+  # Restore the image launcher; retained capacity/rollback revisions may have
+  # an explicit one-worker command that overrides WEB_CONCURRENCY on redeploy.
+  "--command="
+  "--args="
   "--region=${_REGION}"
   "--platform=managed"
   "--service-account=${_RUNTIME_SERVICE_ACCOUNT}"
