@@ -232,7 +232,9 @@ resolution and dimensions, not physical-device raster equivalence.
 The layout fixture covers real Wallet tabs, deck, Add, Profile/NWS and referral
 faces, public visitor preview, selected share and history portals, request
 review and anonymous encrypted-file reader with synthetic boundaries. The
-browser run passed 97 distinct cases in Chromium and the same 97 in WebKit:
+fixture build lives in `e2e/fixtures/wallet-workspace-build.ts`; the authored
+browser cases remain in `e2e/wallet-workspace.layout.spec.ts`.
+The browser run passed 97 distinct cases in Chromium and the same 97 in WebKit:
 base layouts at 320/360/390/430/768/1024/1440px, short landscape/desktop,
 eight additional 380–767px thresholds, dark and light accent/hover/focus
 checks, synthetic add/share/request/revoke/reader flows, and reduced motion.
