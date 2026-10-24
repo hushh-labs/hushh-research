@@ -95,15 +95,16 @@ export function LocationPermissionRecoveryCard({
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button type="button" size="sm" disabled={busy} onClick={onRetry}>
+        <Button data-location-type-role="compact-action" type="button" size="compact" disabled={busy} aria-busy={busy || undefined} onClick={onRetry}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Check again
         </Button>
         {canOpenSettings ? (
           <Button
             type="button"
-            size="sm"
+            size="compact"
             variant="secondary"
+            data-location-type-role="compact-action"
             onClick={onOpenSettings}
           >
             Open Settings

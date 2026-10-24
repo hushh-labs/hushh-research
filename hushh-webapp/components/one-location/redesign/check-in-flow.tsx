@@ -37,6 +37,7 @@ import {
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import {
@@ -633,7 +634,7 @@ export function CheckInFlow({
         <button
           type="button"
           onClick={close}
-          className="shrink-0 pt-1 text-[color:var(--app-accent)]"
+          className="-mr-3 inline-flex min-h-11 shrink-0 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
         >
           <TrailingAction as="span" data-location-type-role="utility-action">Cancel</TrailingAction>
         </button>
@@ -678,8 +679,10 @@ export function CheckInFlow({
                 : "Find your location to check in."}
             </PageSubtitle>
           </div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="compact"
             onClick={
               confirmedPoint
                 ? () => setMapViewportResetKey((current) => current + 1)
@@ -692,7 +695,7 @@ export function CheckInFlow({
                 : undefined
             }
             data-location-type-role="compact-action"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/[0.14] px-[13px] py-[7px] text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-60 dark:border-white/20 dark:text-[color:var(--app-accent)]"
+            className="shrink-0 gap-1.5 border border-[color:var(--app-card-border-standard)] bg-transparent px-[13px] text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)]"
           >
             <RefreshCw
               className={cn(
@@ -701,7 +704,7 @@ export function CheckInFlow({
               )}
             />
             {confirmedPoint ? "Recenter" : point ? "Refresh" : "Find"}
-          </button>
+          </Button>
         </div>
         {point && !pointIsFresh ? (
           <HelperText className="px-4 pb-3 !text-[color:var(--app-warning)]">
@@ -948,25 +951,26 @@ export function CheckInFlow({
           : "Encrypted with your location."}
       </PageSubtitle>
       {retryLocked ? (
-        <button
+        <Button
           type="button"
-          className="mb-3 w-full rounded-full border border-[color:var(--app-separator)] py-3 text-[color:var(--app-label)] transition-colors hover:bg-[color:var(--app-secondary-surface)]"
+          variant="outline"
+          size="prominent"
+          className="mb-3 h-auto w-full min-h-[50px] whitespace-normal py-3 text-center"
           disabled={busy}
           onClick={editAndReconfirm}
         >
           <ButtonLabel as="span">Edit and confirm again</ButtonLabel>
-        </button>
+        </Button>
       ) : null}
 
       {/* Primary CTA — full blue pill (design). */}
-      <button
+      <Button
         type="button"
+        size="prominent"
         onClick={() => void submit()}
         disabled={!canSubmit || busy}
-        className={cn(
-          "flex w-full items-center justify-center rounded-full bg-[color:var(--app-accent)] py-4 text-[color:var(--app-accent-fg)] transition-opacity",
-          (!canSubmit || busy) && "opacity-50",
-        )}
+        aria-busy={busy || undefined}
+        className="h-auto min-h-[54px] w-full whitespace-normal py-4 text-center"
       >
         <ButtonLabel as="span">
           {point
@@ -987,7 +991,7 @@ export function CheckInFlow({
                     : "Choose who to tell"
             : "Get your location first"}
         </ButtonLabel>
-      </button>
+      </Button>
     </div>
   );
 }

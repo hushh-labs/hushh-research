@@ -823,9 +823,10 @@ export function SavedLocationsSection() {
                     {loadError}
                   </p>
                   <button
- data-location-type-role="compact-action"                    type="button"
+                    data-location-type-role="utility-action"
+                    type="button"
                     onClick={() => void reload()}
-                    className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)]"
+                    className="inline-flex min-h-11 items-center justify-center rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
                   >
                     Retry
                   </button>
@@ -908,9 +909,9 @@ export function SavedLocationsSection() {
                           {!location.address && (resolvedAddresses[location.id] === null || (!address && !findingAddress)) ? (
                             <button
                               type="button"
-                              data-location-type-role="compact-action" onClick={() => void handleRepairAddress(location)}
+                              data-location-type-role="utility-action" onClick={() => void handleRepairAddress(location)}
                               disabled={repairingId !== null}
-                              className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                             >
                               <RefreshCw
                                 className={cn(
@@ -928,21 +929,21 @@ export function SavedLocationsSection() {
                               type="button"
                               data-location-type-role="compact-action" onClick={() => void handleFavorite(location)}
                               disabled={favoritingId !== null || removingId !== null}
-                              className="press-scale inline-flex min-h-11 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
+                              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground transition-colors hover:bg-[color:var(--app-neutral-fill-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                             >
                               {favoritingId === location.id ? <Loader2 className="h-[15px] w-[15px] animate-spin" aria-hidden /> : <Star className="h-[15px] w-[15px]" aria-hidden />}
                               Add to favorites
                             </button>
                           ) : <button
                             type="button"
-                            data-location-type-role="compact-action" onClick={() => handleEditSavedLocation(location)}
+                            data-location-type-role="utility-action" onClick={() => handleEditSavedLocation(location)}
                             disabled={
                               removingId !== null ||
                               repairingId !== null ||
                               capturing ||
                               locationControl.paused
                             }
-                            className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             <Pencil
                               className="h-[15px] w-[15px]"
@@ -955,7 +956,7 @@ export function SavedLocationsSection() {
                             type="button"
                             data-location-type-role="compact-action" onClick={() => void handleRemove(location.id)}
                             disabled={removingId !== null || favoritingId !== null}
-                            className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 disabled:opacity-45"
+                            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-transparent px-3 text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-45"
                           >
                             {removingId === location.id ? (
                               <Loader2
