@@ -166,6 +166,7 @@ import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { ProfilePaneMicrophoneIcon } from "@/components/profile/profile-pane-icons";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
+import walletPresentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import { SecretCaptureCard, type KeptSecretRef } from "@/components/secrets/secret-capture-card";
 import { SecretPlaceholderText } from "@/components/secrets/secret-placeholder-text";
 import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
@@ -10384,9 +10385,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   <div
                     key={widget.id}
                     data-testid="agent-chat-wallet-list"
-                    className="rounded-2xl border border-border/60 bg-card/60 p-3"
+                    className={`${walletPresentationStyles.walletSurface} rounded-2xl border border-border/60 bg-card/60 p-3`}
                   >
-                    <p className="px-1 pb-2 text-xs text-muted-foreground">
+                    <p className="px-1 pb-2 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
                       Your cards. Revealing one decrypts it on this device only.
                     </p>
                     <ul className="flex flex-col gap-1">
@@ -10398,10 +10399,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           <span className="flex min-w-0 items-center gap-3">
                             <CardNetworkMark brand={summary.brand} />
                             <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium">
+                            <span className="block truncate text-sm leading-[21px] font-[550]">
                               {summary.nickname || cardNetworkLabel(summary.brand)}
                             </span>
-                            <span className="block truncate text-xs text-muted-foreground">
+                            <span className="block truncate text-xs leading-[18px] text-[color:var(--app-secondary-label)]">
                               {cardNetworkLabel(summary.brand)} ····{summary.last4} ·{" "}
                               {String(summary.expiryMonth).padStart(2, "0")}/{summary.expiryYear} ·{" "}
                               {summary.issuingRegion}
@@ -10411,8 +10412,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           <Button
                             type="button"
                             variant="secondary"
-                            size="sm"
-                            className="shrink-0"
+                            size="compact"
+                            className={`${walletPresentationStyles.quietAction} shrink-0`}
                             data-testid={`agent-chat-wallet-reveal-${summary.last4}`}
                             onClick={() => void handleWalletWidgetReveal(widget.id, summary)}
                           >

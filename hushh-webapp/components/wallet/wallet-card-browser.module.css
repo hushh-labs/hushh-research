@@ -37,7 +37,7 @@
 .transactions small { display:block; margin-top:4px; color:var(--muted-foreground); font-size:11px; }
 .transactions strong { flex:none; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; }
 .quickActions { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; padding-top:12px; }
-.addAction { width:244px; max-width:100%; font-size:13px; }
+.addAction { width:244px; max-width:100%; white-space:normal; }
 .previewPanel { display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding-block:12px; }
 .previewPanel p { color:var(--muted-foreground); font-size:14px; line-height:1.6; }
 @media(prefers-reduced-motion:reduce) { .thumbnailButton { transition:none; } }
@@ -99,7 +99,7 @@
 .browser:has([data-wallet-visitor-preview="true"]) { margin-top: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 
 @layer base {
-  .browser [data-wallet-visitor-preview="true"] h3 { font-family: var(--font-app-body) !important; font-size: 13px !important; font-weight: 400 !important; line-height: 1.2 !important; }
+  .browser [data-wallet-visitor-preview="true"] h3 { font-family: var(--font-app-body) !important; font-size: 14px !important; font-weight: 600 !important; line-height: 22px !important; }
 }
 
 /* Leave room for View details and both card edges above the dock in short windows. */

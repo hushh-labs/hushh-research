@@ -4,6 +4,7 @@ import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ProfilePanePrivacyIcon, ProfilePaneSecurityIcon, ProfilePaneWalletIcon } from "@/components/profile/profile-pane-icons";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
+import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -91,10 +92,10 @@ type VisitorPreviewState =
 function WalletProfileShell({ embedded, title, description, children, preview }: {
   embedded: boolean; title: string; description: string; children: ReactNode; preview?: boolean;
 }) {
-  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} data-wallet-visitor-preview={preview || undefined} className={`${profileStyles.walletContent} space-y-4`}>
-    <div className="space-y-1"><h3 className="text-[13px] font-normal leading-[1.2]">{title}</h3>{description ? <p className="text-xs leading-[1.3] text-muted-foreground">{description}</p> : null}</div>
+  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} data-wallet-visitor-preview={preview || undefined} className={`${profileStyles.walletContent} ${presentationStyles.walletSurface} space-y-4`}>
+    <div className="space-y-1"><h3 className={presentationStyles.embeddedTitle}>{title}</h3>{description ? <p className={presentationStyles.embeddedDescription}>{description}</p> : null}</div>
     {children}
-  </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
+  </section> : <PkmSettingsShell title={title} description={description} innerClassName={`${presentationStyles.walletSurface} mx-auto max-w-[580px]`}>{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }
 
 type WalletCardWorkspaceProps = { embedded?: boolean; passVariant?: WalletPassVariant; active?: boolean };
@@ -604,31 +605,32 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
       /> : null}
 
       {stage === "loading" ? (
-        <div className="rounded-2xl border p-6 text-center text-xs text-muted-foreground">
+        <div className="rounded-2xl border p-6 text-center text-[13px] leading-[18px] text-muted-foreground" role="status">
           Loading your Wallet Profile…
         </div>
       ) : null}
 
       {stage === "locked" ? (
-        <div className="flex items-center gap-2 rounded-2xl border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-2xl border bg-muted/30 px-4 py-3 text-[13px] leading-[18px] font-semibold text-muted-foreground" role="status">
           <ProfilePanePrivacyIcon className="h-4 w-4 shrink-0" aria-hidden />
           {WALLET_CARD_OWNER_COPY.vaultLocked}
         </div>
       ) : null}
 
       {stage === "unavailable" ? (
-        <div className="rounded-2xl border border-dashed p-6 text-center text-xs text-muted-foreground">
+        <div className="rounded-2xl border border-dashed p-6 text-center text-[13px] leading-[18px] font-semibold text-muted-foreground" role="status">
           {WALLET_CARD_OWNER_COPY.featureUnavailable}
         </div>
       ) : null}
 
       {stage === "error" ? (
-        <div className="space-y-3 rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-xs text-destructive">
+        <div className="space-y-3 rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-[13px] leading-[18px] text-destructive" role="alert">
           <p>{WALLET_CARD_OWNER_COPY.loadFailed}</p>
           <Button
             type="button"
-            size="sm"
+            size="compact"
             variant="none"
+            className={presentationStyles.quietAction}
             effect="fade"
             onClick={() => void loadCard()}
           >
@@ -651,7 +653,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
               description={WALLET_CARD_COPY.privacyAssurance.description}
             />
           </SettingsGroup>
-          <Button type="button" size="sm" onClick={startSetup}>
+          <Button type="button" size="prominent" className={presentationStyles.primaryAction} onClick={startSetup}>
             Set up Wallet Profile
           </Button>
         </div>
@@ -678,12 +680,13 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
           {visitorPreview.status === "ready" ? (
             <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
           ) : visitorPreview.status === "error" ? (
-            <div className="space-y-3 text-xs text-muted-foreground">
+            <div className="space-y-3 text-[13px] leading-[18px] text-muted-foreground" role="alert">
               <p>{visitorPreview.message}</p>
               <Button
                 type="button"
-                size="sm"
+                size="compact"
                 variant="none"
+                className={presentationStyles.quietAction}
                 effect="fade"
                 onClick={() => void loadVisitorPreview()}
               >
@@ -699,7 +702,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 {applePassSupported ? (
                   <Button
                     type="button"
-                    size="sm"
+                    size="prominent"
+                    className={presentationStyles.primaryAction}
                     loading={busyAction === "add-to-wallet"}
                     disabled={!shareLink}
                     onClick={() => void addToWallet()}
@@ -710,8 +714,9 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 ) : imageShareAction}
                 <Button
                   type="button"
-                  size="sm"
+                  size="compact"
                   variant="none"
+                  className={presentationStyles.quietAction}
                   effect="fade"
                   onClick={startEdit}
                 >
@@ -719,8 +724,9 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 </Button>
                 <Button
                   type="button"
-                  size="sm"
+                  size="compact"
                   variant="none"
+                  className={presentationStyles.quietAction}
                   effect="fade"
                   onClick={closeLocalStage}
                 >
@@ -745,7 +751,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
               description={WALLET_CARD_OWNER_COPY.updatesAutomatically}
             />
           </SettingsGroup>
-          <Button type="button" size="sm" onClick={closeLocalStage}>
+          <Button type="button" size="prominent" className={presentationStyles.primaryAction} onClick={closeLocalStage}>
             {WALLET_CARD_COPY.entryAfterSetup.title}
           </Button>
         </div>

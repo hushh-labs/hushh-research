@@ -5,6 +5,7 @@ import { ProfilePaneCopyIcon } from "@/components/profile/profile-pane-icons";
 import { AppleWalletIcon } from "@/components/wallet/apple-wallet-icon";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 import { WalletCardQrActions } from "@/components/wallet-card/wallet-card-qr-actions";
 import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
 import {
@@ -42,8 +43,8 @@ export function WalletReferralCardDetails({
   useEffect(() => { visitRef.current = visit; setBusy(null); setConfirmRevoke(false); return () => { if (visitRef.current === visit) visitRef.current = null; }; }, [visit]);
   if (!summary) {
     return <div className="space-y-3 py-6">
-      <p role={failed ? "alert" : "status"} className="text-xs text-muted-foreground">{failed ? "Your referral card could not be loaded." : "Your referral card is loading."}</p>
-      {failed && onRetry ? <Button type="button" size="sm" onClick={onRetry}>Try again</Button> : null}
+      <p role={failed ? "alert" : "status"} className="text-[13px] leading-[18px] font-semibold text-muted-foreground">{failed ? "Your referral card could not be loaded." : "Your referral card is loading."}</p>
+      {failed && onRetry ? <Button type="button" variant="none" effect="fade" size="compact" className={presentationStyles.quietAction} onClick={onRetry}>Try again</Button> : null}
     </div>;
   }
 
@@ -77,17 +78,17 @@ export function WalletReferralCardDetails({
 
   return (
     <SettingsPresentationProvider separatorInset density="compact">
-    <section aria-label="Referral card details" className={`${profileStyles.walletContent} space-y-4`}>
+    <section aria-label="Referral card details" className={`${profileStyles.walletContent} ${presentationStyles.walletSurface} space-y-4`}>
       <SettingsGroup title="Your referral QR">
         <WalletCardQrActions qr={<WalletCardQr value={summary.link} label="Your referral QR code" />}>
             <Button type="button" size="sm" className="min-h-11 text-[13px]" loading={busy === "wallet"} disabled={!shareToken || Boolean(busy)} onClick={() => void addToWallet()}>
               <AppleWalletIcon />Add to Apple Wallet
             </Button>
             <WalletCardImageShareButton cardId="agent-one-referral" profile={{ ...profile, displayName: profile?.displayName ?? null, shareUrl: profile?.shareUrl ?? null, referralUrl: summary.link }} disabled={!profile || Boolean(busy)} />
-            <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => { if (visitRef.current === visit) copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"); })}>
+            <Button type="button" size="compact" className={presentationStyles.quietAction} variant="none" effect="fade" onClick={() => void copyWalletCardLink(summary.link).then((copied) => { if (visitRef.current === visit) copied ? morphyToast.success("Link copied") : morphyToast.error("Could not copy"); })}>
               <ProfilePaneCopyIcon className="mr-2 h-4 w-4" aria-hidden />Copy link
             </Button>
-            <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="none" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>
+            <Button type="button" size="sm" className="min-h-11 text-[13px]" variant="destructive" effect="fade" disabled={!onRevoke || Boolean(busy)} onClick={() => setConfirmRevoke(true)}>Revoke access</Button>
           <a href={summary.link} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[13px] text-primary underline-offset-4 hover:underline">Preview referral page</a>
         </WalletCardQrActions>
       </SettingsGroup>

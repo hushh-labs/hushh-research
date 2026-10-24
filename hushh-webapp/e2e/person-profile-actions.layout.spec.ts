@@ -257,7 +257,12 @@ for (const [width, height] of [[320, 568], [390, 844], [768, 1024], [1440, 900],
         expect(state.top).toBeGreaterThanOrEqual(-1);
         expect(state.bottom).toBeLessThanOrEqual(height + 1);
         expect(state.width).toBeCloseTo(width < 768 ? width : 480, 0);
-        expect(state).toMatchObject({ size: width < 768 ? "22px" : "24px", line: width < 768 ? "30px" : "32px", weight: "600", duplicateIds: false });
+        expect(state).toMatchObject({
+          size: intent === "card" ? "20px" : width < 768 ? "22px" : "24px",
+          line: intent === "card" ? "28px" : width < 768 ? "30px" : "32px",
+          weight: "600",
+          duplicateIds: false,
+        });
         expect(state.blur).toBe(width < 640 ? "blur(4px)" : "blur(12px)");
         expect(state.surface).toMatch(/^rgb\(/);
         expect(state.overflow).toBeLessThanOrEqual(1);

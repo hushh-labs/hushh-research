@@ -13,6 +13,7 @@ import { FULL_CARD, validCardCorners, validateCardImage, type CardCorners } from
 import { WalletLiveCardCapture } from "./wallet-live-card-capture";
 import { WalletCardCrop } from "./wallet-card-crop";
 import styles from "./secure-card-add-form.module.css";
+import presentationStyles from "./wallet-connect-presentation.module.css";
 
 /** Raw capture exists only in this mounted owner surface and is released on exit. */
 export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, onRead, onBusyChange }: {
@@ -95,18 +96,18 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
         <span className={styles.scanAffordance} aria-hidden="true"><ProfilePaneScanIcon />Scan to add card</span>
       </button></div> : null}
       {showPhotoActions || featured ? <div className={styles.scanActions}>
-        {showPhotoActions ? <Button type="button" variant="ghost" size="compact" disabled={disabled || busy || !active} onClick={() => choose("camera")}>Take photo</Button> : null}
-        <Button type="button" variant="ghost" size="compact" disabled={disabled || busy || !active} onClick={() => choose("photos")}>Choose from photos</Button>
+        {showPhotoActions ? <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={disabled || busy || !active} onClick={() => choose("camera")}>Take photo</Button> : null}
+        <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={disabled || busy || !active} onClick={() => choose("photos")}>Choose from photos</Button>
       </div> : null}
     </> : <section aria-label="Crop card photo" className="flex flex-col gap-3">
       <WalletCardCrop url={photo.url} corners={corners} disabled={busy} onChange={setCorners} />
       <div className="flex flex-wrap justify-center gap-2">
-        <Button type="button" size="compact" disabled={busy || !validCardCorners(corners)} onClick={() => void scan()}>Read card</Button>
-        <Button type="button" variant="ghost" size="compact" disabled={busy} onClick={() => setCorners(FULL_CARD)}>Use full photo</Button>
-        <Button type="button" variant="ghost" size="compact" onClick={release}>Cancel scan</Button>
+        <Button type="button" variant="outline" size="compact" className={presentationStyles.quietAction} disabled={busy || !validCardCorners(corners)} onClick={() => void scan()}>Read card</Button>
+        <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={busy} onClick={() => setCorners(FULL_CARD)}>Use full photo</Button>
+        <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} onClick={release}>Cancel scan</Button>
       </div>
     </section>}
-    {busy ? <div className={styles.scanProgress} role="status"><Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />Reading on your device…{!photo && !live ? <Button type="button" variant="ghost" size="compact" onClick={release}>Cancel scan</Button> : null}</div> : null}
+    {busy ? <div className={styles.scanProgress} role="status"><Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />Reading on your device…{!photo && !live ? <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} onClick={release}>Cancel scan</Button> : null}</div> : null}
     {notice ? <p role="status" className={styles.scanHint}>{notice}</p> : null}
   </div>;
 }
