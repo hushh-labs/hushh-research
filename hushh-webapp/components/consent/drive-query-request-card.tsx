@@ -435,7 +435,7 @@ function UnlockedDriveQueryCard({
       {notice ? <HelperText role="alert">{notice}</HelperText> : null}
       {lastError ? <HelperText>{lastError}</HelperText> : null}
       {showReconnect ? (
-        <Button asChild size="standard">
+        <Button data-consent-role="compact-action" asChild size="standard">
           <ProfileConnectorsLink connectorId="google_drive">Reconnect Google Drive</ProfileConnectorsLink>
         </Button>
       ) : null}
@@ -470,7 +470,7 @@ function UnlockedDriveQueryCard({
             <MediumRowLabel as="span">Share files with {name ?? "them"}</MediumRowLabel>
           </legend>
           {shareable.length > 1 ? (
-            <label className="flex min-h-11 items-center gap-3 text-sm">
+            <label data-consent-role="form-label" className="flex min-h-11 items-center gap-3 text-sm">
               <input
                 type="checkbox"
                 disabled={!!reservedRefs}
@@ -488,7 +488,7 @@ function UnlockedDriveQueryCard({
           <ul aria-label="Files you can share" className="min-w-0 space-y-1">
             {shareable.map((file) => (
               <li key={file.ref}>
-                <label className="flex min-h-11 min-w-0 items-center gap-3">
+                <label data-consent-role="form-label" className="flex min-h-11 min-w-0 items-center gap-3">
                   <input
                     type="checkbox"
                     disabled={!!reservedRefs}
@@ -516,7 +516,7 @@ function UnlockedDriveQueryCard({
             {name ? `${name} gets` : "They get"} Viewer access. Google emails new access links.
             You can remove access anytime.
           </HelperText>
-          <Button
+          <Button data-consent-role="primary-action"
             size="prominent"
             disabled={phase !== "idle" || selectedRefs.length === 0}
             onClick={shareFiles}
@@ -543,7 +543,7 @@ function UnlockedDriveQueryCard({
           </HelperText>
           <FlowActionGroup
             primary={
-              <Button
+              <Button data-consent-role="primary-action"
                 size="prominent"
                 disabled={!canDecide}
                 onClick={() => decide("allow")}
@@ -552,7 +552,7 @@ function UnlockedDriveQueryCard({
               </Button>
             }
             secondary={
-              <Button
+              <Button data-consent-role="compact-action"
                 size="standard"
                 variant="none"
                 disabled={!canDecide}
@@ -567,12 +567,12 @@ function UnlockedDriveQueryCard({
       {showRefresh || canCancel ? (
         <div className="flex flex-wrap gap-2">
           {showRefresh ? (
-            <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={refresh}>
+            <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" onClick={refresh}>
               Refresh
             </Button>
           ) : null}
           {canCancel ? (
-            <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => decide("cancel")}>
+            <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" onClick={() => decide("cancel")}>
               Cancel question
             </Button>
           ) : null}

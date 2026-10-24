@@ -11,7 +11,6 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { VaultService } from "@/lib/services/vault-service";
 import {
-  authSessionInvalidationCodeFromBackendPayload,
   authSessionInvalidationCodeFromFirebaseError,
   ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE,
   AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE,
@@ -24,10 +23,11 @@ import {
   markAccountDeletionActive,
 } from "@/lib/auth/account-deletion-activity";
 import { withDeadline } from "@/lib/utils/with-deadline";
+import { inspectAccountSessionStatusResponse } from "@/lib/auth/account-session-status";
+import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
 import {
   snapshotValidatedAuthSessionPrincipal,
   isValidatedAuthSessionOwnerCurrent,
-  parseAccountPrincipal,
   dispatchAuthSessionVerificationRequired,
 } from "@/lib/auth/session-owner";
 import {
@@ -74,8 +74,7 @@ function assertDeletionOwner(owner: AccountDeletionOwner, isCurrent?: () => bool
     throw new Error("Account deletion cancelled before submission.");
   }
 }
-type DeletionStatusProbe = "active" | "deleted" | "unavailable";
-const DELETION_STATUS_MAX_BODY_BYTES = 4_096;
+type DeletionStatusProbe = "active" | "deleted" | "in_progress" | "unavailable";
 
 export const DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE =
   ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE;
@@ -158,6 +157,13 @@ export class AccountDeletionPendingError extends Error {
   }
 }
 
+export class AccountDeletionInProgressError extends Error {
+  constructor() {
+    super("Your account deletion is still running. Please wait while we check its status.");
+    this.name = "AccountDeletionInProgressError";
+  }
+}
+
 /**
  * Outcomes the deletion UI already explains to the person. Callers log these as
  * warnings: they are expected results, not crashes, and the Next.js dev overlay
@@ -167,6 +173,7 @@ export function isHandledAccountDeletionOutcome(error: unknown): boolean {
   return (
     error instanceof AccountDeletionOutcomeUncertainError ||
     error instanceof AccountDeletionPendingError ||
+    error instanceof AccountDeletionInProgressError ||
     error instanceof AccountDeletionNotCompletedError ||
     error instanceof AccountErasureBanksNotDisconnectedError ||
     isRecoverableAccountDeletionPrecondition(error)
@@ -174,7 +181,7 @@ export function isHandledAccountDeletionOutcome(error: unknown): boolean {
 }
 
 export function accountDeletionErrorMessage(error: unknown): string {
-  if (error instanceof AccountDeletionPendingError) return error.message;
+  if (error instanceof AccountDeletionPendingError || error instanceof AccountDeletionInProgressError) return error.message;
   if (error instanceof AccountDeletionOutcomeUncertainError) {
     return DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE;
   }
@@ -213,42 +220,22 @@ function isLostVaultPrecommitError(error: unknown): boolean {
   return error instanceof ApiError && LOST_VAULT_PRECOMMIT_CODES.has(apiErrorCode(error) ?? "");
 }
 
-async function probeDeletionStatus(
-  idToken: string,
-  owner: AccountDeletionOwner,
-): Promise<DeletionStatusProbe> {
+async function probeDeletionStatus(idToken: string, owner: AccountDeletionOwner): Promise<DeletionStatusProbe> {
   try {
     if (!isValidatedAuthSessionOwnerCurrent(owner)) return "unavailable";
-    const response = await ApiService.getAccountDeletionStatus(idToken);
-    const payload = await response
-      .clone()
-      .text()
-      .catch(() => "");
+    const inspection = await inspectAccountSessionStatusResponse(
+      await ApiService.getAccountDeletionStatus(idToken),
+      Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS,
+      owner.firebaseUid,
+    );
     if (!isValidatedAuthSessionOwnerCurrent(owner)) return "unavailable";
-    if (
-      new TextEncoder().encode(payload).byteLength >
-      DELETION_STATUS_MAX_BODY_BYTES
-    ) {
-      return "unavailable";
+    if (inspection.outcome === "active") {
+      return inspection.principal.ownerId === owner.ownerId && inspection.principal.accountGeneration === owner.accountGeneration ? "active" : "unavailable";
     }
-    if (response.status === 200) {
-      const contentType =
-        response.headers.get("Content-Type")?.toLowerCase() ?? "";
-      if (!contentType.split(";", 1)[0]?.trim().endsWith("json")) {
-        return "unavailable";
-      }
-      try {
-        const parsed: unknown = JSON.parse(payload);
-        const principal = parseAccountPrincipal(parsed, owner.firebaseUid);
-        return principal?.ownerId === owner.ownerId && principal.accountGeneration === owner.accountGeneration
-          ? "active" : "unavailable";
-      } catch {
-        return "unavailable";
-      }
-    }
-    if (response.status !== 401) return "unavailable";
-    const code = authSessionInvalidationCodeFromBackendPayload(payload);
-    return code === "account_not_found" || code === "account_deleted" ? "deleted" : "unavailable";
+    if (inspection.outcome === "deletion_in_progress") return "in_progress";
+    return inspection.outcome === "terminal" &&
+      (inspection.code === "account_not_found" || inspection.code === "account_deleted")
+      ? "deleted" : "unavailable";
   } catch {
     return "unavailable";
   }
@@ -479,8 +466,16 @@ async function executeAccountDeletion(params: {
               recoveryIdToken,
               owner,
             }),
-            Date.now() + 8_000,
+            Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS,
           ).catch(() => "unavailable" as const);
+    if (deletionStatus === "in_progress" && owner &&
+        isValidatedAuthSessionOwnerCurrent(owner)) {
+      // A lifecycle lock proves work is still running, not a lost identity.
+      // The existing UID/generation-scoped privacy gate seals protected UI and
+      // owns bounded status reads with backoff. Never submit DELETE again.
+      dispatchAuthSessionVerificationRequired(owner, "account_deletion_in_progress");
+      throw new AccountDeletionInProgressError();
+    }
     if (
       deletionStatus === "active" &&
       isReportedAccountDeletionFailure(submissionFailure)

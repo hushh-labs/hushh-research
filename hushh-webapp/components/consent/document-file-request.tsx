@@ -395,7 +395,7 @@ export function RequestFilesButton({
         }}
       >
         {showTrigger ? <DialogTrigger asChild>
-          <Button size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
+          <Button data-consent-role="compact-action" size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
         </DialogTrigger> : null}
         <IllustratedRequestContent
           intent="files" className="consent-presentation-surface"
@@ -430,7 +430,7 @@ export function RequestFilesButton({
               <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
-                  <Button asChild size="prominent">
+                  <Button data-consent-role="primary-action" asChild size="prominent">
                     <Link
                       href={buildConsentCenterHref("pending", {
                         requestId: `document_share_request:${created.requestId}`,
@@ -442,7 +442,7 @@ export function RequestFilesButton({
                   </Button>
                 }
                 secondary={
-                  <Button
+                  <Button data-consent-quiet-action="true" data-consent-role="primary-action"
                     type="button"
                     size="prominent"
                     variant="none"
@@ -563,7 +563,7 @@ export function RequestFilesButton({
               <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
-                  <Button type="submit" size="prominent" disabled={!canRequest || !valid || !quote.quote || busy}>
+                  <Button data-consent-role="primary-action" type="submit" size="prominent" disabled={!canRequest || !valid || !quote.quote || busy}>
                     {request.phase !== "idle"
                       ? "Sending…"
                       : request.needsGoogle
@@ -572,7 +572,7 @@ export function RequestFilesButton({
                   </Button>
                 }
                 secondary={
-                  <Button
+                  <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                     type="button"
                     size="standard"
                     variant="none"

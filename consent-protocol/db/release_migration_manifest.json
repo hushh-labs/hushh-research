@@ -348,6 +348,10 @@
     "409_mcp_oauth_client_registration.sql",
     "410_drive_group_index.sql",
     "411_drive_period_packets.sql",
+    "412_pkm_recovery_erasure_indexes.sql",
+    "413_pkm_recovery_erasure_index.sql",
+    "414_pkm_recovery_erasure_index.sql",
+    "415_validate_pkm_recovery_erasure_indexes.sql",
     "416_account_provider_cleanup_staging.sql",
     "417_account_generations.sql",
     "418_private_agent_lifecycle_foundation.sql",
@@ -745,6 +749,10 @@
     "416_account_provider_cleanup_staging.sql": "rollback/416_account_provider_cleanup_staging.rollback.sql",
     "417_account_generations.sql": "rollback/417_account_generations.rollback.sql",
     "418_private_agent_lifecycle_foundation.sql": "rollback/418_private_agent_lifecycle_foundation.rollback.sql",
-    "419_cloud_removal_recovery.sql": "rollback/419_cloud_removal_recovery.rollback.sql"
+    "419_cloud_removal_recovery.sql": "rollback/419_cloud_removal_recovery.rollback.sql",
+    "412_pkm_recovery_erasure_indexes.sql": "rollback/412_pkm_recovery_erasure_indexes.rollback.sql",
+    "413_pkm_recovery_erasure_index.sql": "rollback/413_pkm_recovery_erasure_index.rollback.sql",
+    "414_pkm_recovery_erasure_index.sql": "rollback/414_pkm_recovery_erasure_index.rollback.sql",
+    "415_validate_pkm_recovery_erasure_indexes.sql": "rollback/415_validate_pkm_recovery_erasure_indexes.rollback.sql"
   }
 }

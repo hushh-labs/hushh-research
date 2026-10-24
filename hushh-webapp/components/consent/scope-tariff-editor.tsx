@@ -77,7 +77,7 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
     return () => { active = false; setReview(null); };
   }, [open, showSavedPrice, user, scopeHandle, machineScope, capture, reviewRequest]);
   return <div className={memoryPresentation ? "min-w-0 space-y-2" : "consent-presentation-surface min-w-0 space-y-2"}>
-    <Button data-voice-control-id="pkm-review-sharing-price" data-consent-quiet-action={memoryPresentation ? undefined : "true"} data-pkm-action={memoryPresentation ? "utility" : undefined} variant="ghost" size="sm" className="h-auto min-h-11 max-w-full whitespace-normal text-right" onClick={() => setOpen(value => !value)} aria-label={`Set sharing price for ${label}`}>{showSavedPrice ? savedTariff ? savedTariff.price === 0 ? "Free · Set price" : `${formatCommerceMoney(savedTariff.price)} / ${savedTariff.hours}h` : "Check sharing price" : "Sharing price"}</Button>
+    <Button data-consent-role="compact-action" data-voice-control-id="pkm-review-sharing-price" data-consent-quiet-action={memoryPresentation ? undefined : "true"} data-pkm-action={memoryPresentation ? "utility" : undefined} variant="ghost" size="sm" className="h-auto min-h-11 max-w-full whitespace-normal text-right" onClick={() => setOpen(value => !value)} aria-label={`Set sharing price for ${label}`}>{showSavedPrice ? savedTariff ? savedTariff.price === 0 ? "Free · Set price" : `${formatCommerceMoney(savedTariff.price)} / ${savedTariff.hours}h` : "Check sharing price" : "Sharing price"}</Button>
     <Dialog open={open} onOpenChange={value => { if (value) setOpen(true); else closeEditor(); }}><DialogContent className={memoryPresentation ? undefined : "consent-presentation-surface"} data-pkm-overlay={memoryPresentation ? "true" : undefined}><DialogHeader><DialogTitle>Price for {label}</DialogTitle><DialogDescription>Set the price and base term for this exact sharing section. Nothing changes until you confirm.</DialogDescription></DialogHeader><div className="space-y-3">
       <label data-consent-role="form-label" data-pkm-form-label={memoryPresentation ? "true" : undefined} className="block space-y-2 text-sm">USD base price<Input data-consent-input="true" inputMode="decimal" value={price} disabled={busy} onChange={event => setPrice(event.target.value)} /></label>
       <label data-consent-role="form-label" data-pkm-form-label={memoryPresentation ? "true" : undefined} className="block space-y-2 text-sm">Base access term
@@ -90,8 +90,8 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
         if (busy || review || onPaymentsNavigate?.() === false) { event.preventDefault(); return; }
         closeEditor();
       }}>{readiness?.capabilities.start_onboarding ? "Set up payouts with Stripe in Payments and earnings" : "Check payment availability in Payments and earnings"}</ProfilePaymentsLink> : null}
-      {message ? <p role="status" className="text-sm">{message}</p> : null}
-      <Button data-pkm-action={memoryPresentation ? "compact" : undefined} variant={memoryPresentation ? "ghost" : undefined} size={memoryPresentation ? "compact" : undefined} disabled={busy || !ready} onClick={() => {
+      {message ? <p data-consent-role="status" role="status" className="text-sm">{message}</p> : null}
+      <Button data-consent-role="compact-action" data-pkm-action={memoryPresentation ? "compact" : undefined} variant={memoryPresentation ? "ghost" : undefined} size={memoryPresentation ? "compact" : undefined} disabled={busy || !ready} onClick={() => {
         try {
           const amount = parseCommerceDollarInput(price, 0);
           if (amount > 0 && !readiness?.capabilities.set_paid_tariff) throw new Error(commerceReadinessCopy(readiness));
@@ -100,7 +100,7 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
           setReview({ amount, hours: Number(hours), key: crypto.randomUUID() });
         } catch (error) { setMessage(error instanceof Error ? error.message : "Check the price and term."); }
       }}>{memoryPresentation ? <span>Review sharing price</span> : "Review sharing price"}</Button>
-      <Button data-pkm-action={memoryPresentation ? "utility" : undefined} data-voice-control-id="pkm-close-sharing-price-review" data-consent-quiet-action={memoryPresentation ? undefined : "true"} variant="ghost" disabled={busy} onClick={closeEditor}>Close price review</Button>
+      <Button data-consent-role="compact-action" data-pkm-action={memoryPresentation ? "utility" : undefined} data-voice-control-id="pkm-close-sharing-price-review" data-consent-quiet-action={memoryPresentation ? undefined : "true"} variant="ghost" disabled={busy} onClick={closeEditor}>Close price review</Button>
     </div></DialogContent></Dialog>
     <AlertDialog open={Boolean(review)} onOpenChange={value => { if (!value) cancelReview(); }}><AlertDialogContent className={memoryPresentation ? undefined : "consent-presentation-surface"} data-pkm-overlay={memoryPresentation ? "true" : undefined}><AlertDialogHeader>
       <AlertDialogTitle>{review?.amount === 0 ? "Confirm free sharing terms" : "Confirm sharing price"}</AlertDialogTitle>

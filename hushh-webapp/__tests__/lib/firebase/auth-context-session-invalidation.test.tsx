@@ -8,6 +8,7 @@ import {
 import type { User } from "firebase/auth";
 import { useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearAccountDeletionActive, isAccountDeletionActive, markAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 
 const mocks = vi.hoisted(() => ({
   authStateListener: null as ((user: unknown) => void) | null,
@@ -234,6 +235,11 @@ function cleanupStatusResponse(state: "cleaning_up" | "action_required" | "compl
   } });
 }
 
+function deletionInProgressResponse(): Response {
+  return Response.json({ detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" } },
+    { status: 423, headers: { "Retry-After": "0" } });
+}
+
 function emitLifecycle(state: "active" | "background") {
   mocks.lifecycleState = state;
   for (const listener of mocks.lifecycleListeners) listener();
@@ -387,8 +393,9 @@ function RetainedPhoneProbe({ replacement }: { replacement: boolean }) {
   </>;
 }
 
-describe("AuthProvider terminal session invalidation", () => {
+describe("@feature_account_deletion @trace_loop AuthProvider terminal session invalidation", () => {
   beforeEach(() => {
+    clearAccountDeletionActive("account-owner");
     vi.clearAllMocks();
     mocks.authStateListener = null;
     mocks.firebaseUser = makeUser();
@@ -1141,66 +1148,47 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(mocks.cacheSignedOut).toHaveBeenCalledWith("account-owner");
   });
 
-  it("signs out when an in-flight deletion commits after web foreground validation", async () => {
+  it.each(["commit", "rollback"] as const)("settles an in-flight deletion as %s after foreground validation", async (outcome) => {
     renderProvider();
     await screen.findByText("Vault content for account-owner");
-    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("complete"));
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(outcome === "commit" ? cleanupStatusResponse("complete") : new Response(null, { status: 404 }));
     mocks.apiGetAccountSessionStatus
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" },
-          }),
-          { status: 423, headers: { "Retry-After": "0" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            detail: { code: "AUTH_ACCOUNT_NOT_FOUND" },
-          }),
-          { status: 401 },
-        ),
-      );
-
+      .mockResolvedValueOnce(deletionInProgressResponse())
+      .mockResolvedValueOnce(outcome === "commit"
+        ? Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 })
+        : activeSessionResponse());
     act(() => requestExplicitSessionVerification());
-
     expect(screen.getByText("Checking session")).toBeInTheDocument();
     expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
-    });
-    expect(mocks.replaceDocument).toHaveBeenCalledWith(
-      "/login?auth_notice=account_deletion_identity_retained",
-    );
+    if (outcome === "commit") {
+      await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1));
+      expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_deletion_identity_retained");
+    } else {
+      expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
+      expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+      expect(mocks.replaceDocument).not.toHaveBeenCalled();
+    }
   });
 
-  it("keeps the screen mounted when the deletion transaction authoritatively rolls back", async () => {
+  it("@feature_account_deletion @trace_loop seals the session while deletion remains pending, then observes rollback", async () => {
     renderProvider();
     await screen.findByText("Vault content for account-owner");
     mocks.apiGetAccountSessionStatus
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" },
-          }),
-          { status: 423, headers: { "Retry-After": "0" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        activeSessionResponse(),
-      );
+      .mockResolvedValueOnce(deletionInProgressResponse())
+      .mockResolvedValueOnce(deletionInProgressResponse())
+      .mockResolvedValueOnce(activeSessionResponse());
 
     act(() => requestExplicitSessionVerification());
 
     expect(screen.getByText("Checking session")).toBeInTheDocument();
-    await screen.findByText("Verification required");
-    fireEvent.click(screen.getByText("Retry verification"));
-    expect(
-      await screen.findByText("Vault content for account-owner"),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(3);
+    });
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
     expect(mocks.replaceDocument).not.toHaveBeenCalled();
+    expect(isAccountDeletionActive("account-owner")).toBe(true);
+    expect(await screen.findByText("Vault content for account-owner", {}, { timeout: 5_000 })).toBeInTheDocument();
+    expect(isAccountDeletionActive("account-owner")).toBe(false);
   });
 
   it("preserves identity behind recovery while durable deletion progress is unavailable", async () => {
@@ -1227,6 +1215,34 @@ describe("AuthProvider terminal session invalidation", () => {
     expect(
       screen.queryByText("Vault content for account-owner"),
     ).not.toBeInTheDocument();
+  });
+
+  it("clears a pending deletion handoff when rollback precedes the first owner re-probe", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    markAccountDeletionActive("account-owner");
+    const owner = snapshotValidatedAuthSessionOwner();
+    act(() => window.dispatchEvent(new CustomEvent(AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, {
+      detail: { ...owner, reason: "account_deletion_in_progress" },
+    })));
+    await waitFor(() => expect(isAccountDeletionActive("account-owner")).toBe(false));
+    expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("clears pending deletion after the auth observer withdraws its principal and observes rollback", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    mocks.apiGetAccountSessionStatus
+      .mockResolvedValueOnce(deletionInProgressResponse())
+      .mockResolvedValueOnce(deletionInProgressResponse());
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    await screen.findByText("Verification required");
+    expect(isAccountDeletionActive("account-owner")).toBe(true);
+    fireEvent.click(screen.getByText("Retry verification"));
+    expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
+    expect(isAccountDeletionActive("account-owner")).toBe(false);
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 
   it("rediscovers durable cleanup after refresh and retains it during a provider outage", async () => {

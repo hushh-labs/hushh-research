@@ -13,7 +13,7 @@ const packet = { packetId: id, version: 2, listingRevision: 3, title: "Schwab st
   canRequest: false, canList: true };
 beforeEach(() => vi.resetAllMocks());
 
-describe("query packet wire contract", () => {
+describe("@feature_drive_packets @trace_loop query packet wire contract", () => {
   const discovery = { kind: "provider_discovery", packetId: id, category: "bank", version: 0, listingRevision: 0,
     periodStart: "2026-09-01", periodEnd: "2026-10-31", timezone: "Asia/Kolkata", state: "building",
     title: "Account statements", description: "Files from a Drive search", coverageSummary: "September–October 2026",
@@ -46,9 +46,28 @@ describe("query packet wire contract", () => {
     await expect(DrivePacketService.listing("owner", frozen, "allow", 600, () => undefined)).rejects.toThrow();
     expect(api.fetch).not.toHaveBeenCalled();
   });
+  it("keeps preview progress and originals owner-only without changing sale readiness", async () => {
+    const preview = { status: "partial", revision: 0, matched: 1, complete: false, stale: false,
+      updatedAt: "2026-10-24T10:00:00Z", errorCode: null, nextCursor: null, limited: false,
+      documents: [{ name: "Example recording.mp4", type: "video/mp4", pages: null, period: null,
+        shareable: false, viewUrl: "https://drive.google.com/file/d/recording/view" }] };
+    const owner = parseDrivePacket({ ...discovery, preview }, "owner");
+    expect(owner).toMatchObject({ preview, version: 0, canList: false, canRequest: false });
+    expect(parseDrivePacket({ ...discovery, preview })).not.toHaveProperty("preview");
+    expect(() => parseDrivePacket({ ...discovery, preview: { ...preview, status: ["completed"], matched: null, complete: false } }, "owner")).toThrow();
+    expect(() => parseDrivePacket({ ...discovery, preview: { ...preview, documents: [
+      { ...preview.documents[0], viewUrl: "https://drive.google.com.evil.test/private" },
+    ] } }, "owner")).toThrow();
+    api.fetch.mockImplementation(async () => new Response(JSON.stringify(preview)));
+    await DrivePacketService.preparePreview("owner", id, () => undefined);
+    expect(api.fetch).toHaveBeenCalledWith(`/api/connectors/google_drive/sharing/packets/${id}/preview`,
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ refresh: false }) }));
+    await DrivePacketService.preview("owner", id, () => undefined);
+    expect(api.fetch.mock.calls[1][1].method).toBe("GET");
+  });
 });
 
-describe("owner data packet file pages", () => {
+describe("@feature_drive_packets @trace_loop owner data packet file pages", () => {
   const file = { ref: "a".repeat(64), title: "Synthetic file", viewUrl: "https://drive.google.com/file/d/synthetic-file/view", day: "2026-10-22" };
   it("rejects unsafe provider links and nonadvancing pages", () => {
     expect(parseDriveGroupPage({ items: [file], nextCursor: null, total: 1 }, 0).items[0].title).toBe(file.title);
@@ -68,7 +87,7 @@ describe("owner data packet file pages", () => {
     expect(api.fetch).not.toHaveBeenCalled();
   });
 });
-describe("private packet wire contract", () => {
+describe("@feature_drive_packets @trace_loop private packet wire contract", () => {
   it("binds Allow to the exact version, revision, disclosure and cent price", async () => {
     api.fetch.mockResolvedValue(Response.json({}));
     await DrivePacketService.listing("owner", parseDrivePacket(packet), "allow", 5678, () => undefined);
@@ -104,7 +123,7 @@ describe("private packet wire contract", () => {
 });
 
 
-describe("collection indexing stages", () => {
+describe("@feature_drive_packets @trace_loop collection indexing stages", () => {
   const status = {
     enabled: true, backgroundEnabled: true, state: "indexing", revision: 1,
     counts: { discovered: 3, extracted: 2, indexed: 1, failed: 1, pending: 1 },
@@ -129,7 +148,7 @@ describe("collection indexing stages", () => {
   });
 });
 
-describe("what is inside a packet", () => {
+describe("@feature_drive_packets @trace_loop what is inside a packet", () => {
   const contents = { period: { start: "2026-01-01", end: "2026-06-30" }, documents: [
     { name: "Example Bank statement Jan 2026.pdf", type: "bank statement", pages: 2, period: { start: "2026-01-01", end: "2026-01-31" } },
     { name: "Example Bank statement Feb 2026.pdf", type: null, pages: null, period: null },

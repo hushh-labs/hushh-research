@@ -62,11 +62,9 @@ import {
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
   authSessionInvalidationFromSiblingTabStorageEvent,
-  authSessionLandingCodeFromBackendPayload,
   authSessionInvalidationCodeFromFirebaseError,
   buildLoginRouteWithAuthSessionNotice,
   dispatchAuthSessionInvalidated,
-  isAccountDeletionInProgressBackendPayload,
   isAuthSessionInvalidationCode,
   type AuthSessionInvalidationDetail,
   type AuthSessionInvalidationCode,
@@ -74,14 +72,19 @@ import {
 import {
   publishValidatedAuthSessionPrincipal,
   publishPendingAuthSessionIdentity,
-  parseAccountPrincipal,
+  snapshotValidatedAuthSessionPrincipal,
+  snapshotAuthSessionGeneration,
   type AccountPrincipalBinding,
   AUTH_SESSION_VERIFICATION_REQUIRED_EVENT,
   snapshotValidatedAuthSessionOwner,
+  isValidatedAuthSessionOwnerCurrent,
   getAuthSessionGeneration,
   type AuthSessionVerificationRequiredDetail,
+  type AuthSessionOwnerSnapshot,
 } from "@/lib/auth/session-owner";
+import { inspectAccountSessionStatusResponse, waitForAccountDeletionReprobe, withinAccountSessionValidationBudget, hasJsonResponseContentType, readBoundedAccountSessionStatusBody } from "@/lib/auth/account-session-status";
 import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
+import { clearAccountDeletionActive, markAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
@@ -97,140 +100,11 @@ const SESSION_VERIFICATION_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000] as c
 const PHONE_RECOVERY_RETRY_DELAYS_MS = [2_000, 5_000, 15_000] as const;
 const PHONE_RECOVERY_REQUEST_BUDGET_MS = 10_000;
 const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
-const ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES = 4_096;
 
 type AccountSessionValidationResult =
   | { outcome: "active"; principal: AccountPrincipalBinding }
   | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery }
   | { outcome: "terminal"; code: AuthSessionInvalidationCode };
-
-type AccountSessionStatusInspection =
-  | { outcome: "active"; principal: AccountPrincipalBinding }
-  | { outcome: "credential_rejected" }
-  | { outcome: "unavailable" }
-  | { outcome: "deletion_in_progress"; response: Response }
-  | {
-      outcome: "terminal";
-      code: "account_not_found" | "account_deleted" | "session_invalid";
-    };
-
-function withinAccountSessionValidationBudget<T>(
-  promise: Promise<T>,
-  deadlineMs: number,
-): Promise<T> {
-  const remainingMs = Math.max(0, deadlineMs - Date.now());
-  if (remainingMs === 0) {
-    return Promise.reject(
-      Object.assign(new Error("Account session validation timed out."), {
-        name: "TimeoutError",
-      }),
-    );
-  }
-
-  return new Promise<T>((resolve, reject) => {
-    const timeout = globalThis.setTimeout(() => {
-      reject(
-        Object.assign(new Error("Account session validation timed out."), {
-          name: "TimeoutError",
-        }),
-      );
-    }, remainingMs);
-    promise.then(
-      (value) => {
-        globalThis.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        globalThis.clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
-
-function hasJsonResponseContentType(response: Response): boolean {
-  const contentType = response.headers.get("Content-Type")?.toLowerCase() ?? "";
-  const mediaType = contentType.split(";", 1)[0]?.trim() ?? "";
-  return mediaType === "application/json" || mediaType.endsWith("+json");
-}
-
-async function readBoundedAccountSessionStatusBody(
-  response: Response,
-  deadlineMs: number,
-): Promise<string> {
-  const declaredLength = Number(response.headers.get("Content-Length"));
-  if (
-    Number.isFinite(declaredLength) &&
-    declaredLength > ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES
-  ) {
-    throw new Error("Account session status response is too large.");
-  }
-
-  const payload = await withinAccountSessionValidationBudget(
-    response.clone().text(),
-    deadlineMs,
-  );
-  if (
-    new TextEncoder().encode(payload).byteLength >
-    ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES
-  ) {
-    throw new Error("Account session status response is too large.");
-  }
-  return payload;
-}
-
-async function inspectAccountSessionStatusResponse(
-  response: Response,
-  deadlineMs: number,
-    expectedFirebaseUid: string,
-): Promise<AccountSessionStatusInspection> {
-  if (response.status === 200) {
-    if (!hasJsonResponseContentType(response)) {
-      return { outcome: "unavailable" };
-    }
-    try {
-      const payload = await readBoundedAccountSessionStatusBody(
-        response,
-        deadlineMs,
-      );
-      const principal = parseAccountPrincipal(JSON.parse(payload), expectedFirebaseUid);
-      return principal
-        ? { outcome: "active", principal }
-        : { outcome: "unavailable" };
-    } catch {
-      return { outcome: "unavailable" };
-    }
-  }
-
-  let payload = "";
-  try {
-    payload = await readBoundedAccountSessionStatusBody(response, deadlineMs);
-  } catch {
-    // A 423 is exclusive to the session-status lifecycle lock contract. Even
-    // if a broken transport prevents reading its body, releasing Vault would
-    // be less safe than treating the deletion outcome as unresolved.
-    if (response.status === 423) {
-      return { outcome: "deletion_in_progress", response };
-    }
-    return { outcome: "unavailable" };
-  }
-
-  if (response.status === 401) {
-    const code = authSessionLandingCodeFromBackendPayload(payload);
-    return code
-      ? { outcome: "terminal", code }
-      : { outcome: "credential_rejected" };
-  }
-
-  if (
-    response.status === 423 &&
-    isAccountDeletionInProgressBackendPayload(payload)
-  ) {
-    return { outcome: "deletion_in_progress", response };
-  }
-
-  return { outcome: "unavailable" };
-}
 
 function authInvalidationUserIdFromError(error: unknown): string | null {
   let current: unknown = error;
@@ -356,6 +230,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [sessionVerificationRequired, setSessionVerificationRequired] =
     useState(false);
   const [cleanupStatus, setCleanupStatus] = useState<{ ownerId: string; operation: AccountCleanupOperation } | null>(null);
+  const cleanupStatusRef = useRef(cleanupStatus);
+  cleanupStatusRef.current = cleanupStatus;
   const [registrationStatus, setRegistrationStatus] = useState<{ identityUid: string; recovery: AccountRegistrationRecovery } | null>(null);
   const retainCleanupStatus = useCallback((ownerId: string, validation: AccountSessionValidationResult) => {
     if (validation.outcome === "terminal") return;
@@ -372,6 +248,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const nativeCompositionRevision = useSyncExternalStore(subscribeNativeProfilePreparation, nativeProfilePreparationRevision, () => 0);
   const nativePrivacyReconcileRef = useRef<() => void>(() => undefined);
   const authGateRef = useRef({ loading, sessionVerificationRequired });
+  const observedDeletionOwnerRef = useRef<AuthSessionOwnerSnapshot | null>(null);
   authGateRef.current = { loading, sessionVerificationRequired };
   const [confirmationResult, setConfirmationResult] =
     useState<ConfirmationResult | null>(null);
@@ -772,7 +649,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const validateAccountSession = useCallback(
     async (candidateUser: User): Promise<AccountSessionValidationResult> => {
       const deadlineMs = Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS;
+      const validationOwner = snapshotValidatedAuthSessionOwner();
+      const validationEpisode = snapshotAuthSessionGeneration();
+      const validationPrincipal = snapshotValidatedAuthSessionPrincipal();
       let cachedToken: string | null = null;
+      const activeResult = (principal: AccountPrincipalBinding): AccountSessionValidationResult => {
+        const observed = observedDeletionOwnerRef.current;
+        if (observed?.userId === principal.ownerId && principal.firebaseUid === candidateUser.uid &&
+            validationEpisode && isValidatedAuthSessionOwnerCurrent(validationEpisode)) {
+          clearAccountDeletionActive(principal.ownerId);
+          observedDeletionOwnerRef.current = null;
+        }
+        return { outcome: "active", principal };
+      };
 
       const resolveRegistrationRecovery = async (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> => {
         try {
@@ -791,7 +680,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const resolveDeletionInProgress = async (
         idToken: string,
+        pendingResponse: Response,
       ): Promise<AccountSessionValidationResult> => {
+        if (validationPrincipal?.firebaseUid === candidateUser.uid && validationOwner &&
+            isValidatedAuthSessionOwnerCurrent(validationOwner)) {
+          observedDeletionOwnerRef.current = validationOwner;
+          markAccountDeletionActive(validationOwner.userId);
+        }
         try {
           const response = await withinAccountSessionValidationBudget(
             ApiService.getAccountCleanupStatus(idToken),
@@ -809,6 +704,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // Cleanup continues durably. An unavailable progress read must not
           // erase its retry identity, reopen private content, or replay DELETE.
         }
+        const retainedCleanup = cleanupStatusRef.current;
+        if (retainedCleanup?.ownerId === candidateUser.uid) {
+          return { outcome: "unavailable", cleanup: retainedCleanup.operation };
+        }
+        try {
+          await waitForAccountDeletionReprobe(pendingResponse, deadlineMs);
+          const retryResponse = await withinAccountSessionValidationBudget(ApiService.getAccountSessionStatus(idToken), deadlineMs);
+          const retryInspection = await inspectAccountSessionStatusResponse(retryResponse, deadlineMs, candidateUser.uid);
+          if (retryInspection.outcome === "active") return activeResult(retryInspection.principal);
+          if (retryInspection.outcome === "terminal") {
+            return retryInspection.code === "account_not_found" || retryInspection.code === "account_deleted"
+              ? resolveRegistrationRecovery(idToken, retryInspection) : retryInspection;
+          }
+        } catch { /* Keep recovery sealed until commit or rollback is observed. */ }
+        // An exclusive lifecycle lock is positive evidence of pending work.
+        // Preserve identity behind the sealed recovery gate and let its
+        // existing backoff observer discover commit or rollback. Signing out
+        // here would latch an uncertain notice before the transaction settles.
         return { outcome: "unavailable" };
       };
 
@@ -835,13 +748,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
             deadlineMs,
             candidateUser.uid,
           );
-          if (inspection.outcome === "active") return inspection;
+          if (inspection.outcome === "active") return activeResult(inspection.principal);
           if (inspection.outcome === "terminal") {
             return inspection.code === "account_not_found" || inspection.code === "account_deleted"
               ? resolveRegistrationRecovery(cachedToken, inspection) : inspection;
           }
           if (inspection.outcome === "deletion_in_progress") {
-            return resolveDeletionInProgress(cachedToken);
+            return resolveDeletionInProgress(cachedToken, inspection.response);
           }
           if (inspection.outcome === "credential_rejected") {
             // A cached token can be stale for benign reasons. Revalidate it
@@ -881,13 +794,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
               deadlineMs,
               candidateUser.uid,
             );
-            if (inspection.outcome === "active") return inspection;
+            if (inspection.outcome === "active") return activeResult(inspection.principal);
             if (inspection.outcome === "terminal") {
               return inspection.code === "account_not_found" || inspection.code === "account_deleted"
                 ? resolveRegistrationRecovery(refreshedToken, inspection) : inspection;
             }
             if (inspection.outcome === "deletion_in_progress") {
-              return resolveDeletionInProgress(refreshedToken);
+              return resolveDeletionInProgress(refreshedToken, inspection.response);
             }
             if (inspection.outcome === "credential_rejected") {
               return { outcome: "terminal", code: "session_invalid" };
@@ -1497,6 +1410,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const owner = snapshotValidatedAuthSessionOwner();
       if (!detail || !owner || detail.userId !== owner.userId ||
           detail.generation !== owner.generation || detail.userId !== principalRef.current?.ownerId) return;
+      if (detail.reason === "account_deletion_in_progress" || detail.reason === "AUTH_ACCOUNT_DELETION_IN_PROGRESS") {
+        observedDeletionOwnerRef.current = owner;
+      }
       setSessionVerificationRequired(true);
       // Parallel protected requests can all report the same transport outage.
       // One current account check owns recovery for that identity generation.

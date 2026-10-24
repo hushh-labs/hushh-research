@@ -11,6 +11,13 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers.drive_worker_gcloud import (
+    FAKE_BASH,
+    FAKE_GCLOUD,
+    worker_release_environment,
+    write_executables,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKER_RELEASE = ROOT / "deploy" / "drive" / "deploy_worker_service.sh"
 API_ORIGIN = "https://api.uat.hushh.ai"
@@ -53,228 +60,34 @@ def _job(name: str, stage: str | None, schedule: str, deadline: str) -> dict:
     }
 
 
-FAKE_GCLOUD = """#!/usr/bin/env python3
-import base64
-import json
-import os
-import sys
-from datetime import datetime
-from pathlib import Path
-
-args = [arg for arg in sys.argv[1:] if arg != "--quiet"]
-state_path = Path(os.environ["MOCK_SCHEDULER_STATE"])
-state = json.loads(state_path.read_text())
-jobs = state["jobs"]
-
-def flag(name, default=None):
-    return next((item.split("=", 1)[1] for item in args if item.startswith(name + "=")), default)
-
-def save():
-    state_path.write_text(json.dumps(state, sort_keys=True))
-
-if args[:4] == ["run", "services", "describe", "consent-protocol"]:
-    print(json.dumps({"status": {"traffic": [{"revisionName": "consent-protocol-01234-api", "percent": 100}]}}))
-elif args[:4] == ["run", "revisions", "describe", "consent-protocol-01234-api"]:
-    print(json.dumps({
-        "metadata": {"name": "consent-protocol-01234-api"},
-        "spec": {"serviceAccountName": os.environ["RUNTIME_SERVICE_ACCOUNT"], "containers": [{
-            "image": os.environ["IMAGE_REFERENCE"],
-            "env": [{"name": key, "value": value} for key, value in {
-                "HUSHH_DEPLOY_SHA": os.environ["DEPLOY_SHA"],
-                "HUSHH_DEPLOY_RUN_ID": os.environ["RELEASE_RUN_ID"],
-                "HUSHH_DEPLOY_ENV": "uat", "HUSHH_UAT_MANAGED_TEXT_PROVIDER": "azure_openai", "HUSHH_UAT_MANAGED_AI_PROVIDER": "azure_openai",
-            }.items()],
-        }]}, "status": {"conditions": [{"type": "Ready", "status": "True"}]},
-    }))
-elif args[:3] == ["run", "services", "list"]:
-    print("[]")
-elif args[:3] == ["run", "services", "describe"]:
-    if "--format=value(status.latestCreatedRevisionName)" in args:
-        print("consent-protocol-drive-worker-00001-abc")
-    elif "--format=value(status.url)" in args:
-        print(os.environ["MOCK_WORKER_ORIGIN"])
-    else:
-        sys.exit(70)
-elif args[:3] == ["run", "revisions", "describe"]:
-    # A revision reports its own scale. The service-level floor stays on the
-    # service, and Cloud Run omits a zero revision floor.
-    scaling = state.get("deployed_scaling", {})
-    annotations = {"autoscaling.knative.dev/maxScale": scaling.get("--max-instances")}
-    if scaling.get("--min-instances") not in (None, "0"):
-        annotations["autoscaling.knative.dev/minScale"] = scaling["--min-instances"]
-    print(json.dumps({
-        "metadata": {"labels": {"deploy-sha": os.environ["DEPLOY_SHA"]},
-                     "annotations": annotations},
-        "spec": {"containerConcurrency": int(scaling.get("--concurrency") or 0),
-                 "containers": [
-            {"name": "drive-worker", "image": os.environ["IMAGE_REFERENCE"],
-             "env": [{"name": "DRIVE_WORK_DRAIN_ENABLED",
-                      "value": state.get("deployed_drain_enabled", "true")},
-                     {"name": "DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER",
-                      "value": state["deployed_semantic_model_provider"]},
-                     {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER",
-                      "value": state["deployed_managed_text_provider"]},
-                     {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER",
-                      "value": state["deployed_managed_ai_provider"]}]},
-            {"name": "clamav", "image": os.environ["MOCK_CLAMAV_IMAGE"]},
-        ]},
-        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
-    }))
-elif args[:2] == ["run", "deploy"]:
-    state["deployed_managed_text_provider"] = flag("--set-env-vars").split("HUSHH_UAT_MANAGED_TEXT_PROVIDER=", 1)[1].split("|", 1)[0]
-    state["deployed_managed_ai_provider"] = flag("--set-env-vars").split("HUSHH_UAT_MANAGED_AI_PROVIDER=", 1)[1].split("|", 1)[0]
-    state["deployed_drain_enabled"] = flag("--set-env-vars").split("DRIVE_WORK_DRAIN_ENABLED=", 1)[1].split("|", 1)[0]
-    state["deployed_semantic_model_provider"] = flag("--set-env-vars").split("DRIVE_REQUEST_SEMANTIC_MODEL_PROVIDER=", 1)[1].split("|", 1)[0]
-    state["deployed_scaling"] = {
-        name: flag(name)
-        for name in ("--concurrency", "--max-instances", "--min-instances", "--max", "--min")
+def _release_jobs(*, optional: bool, worker_target: bool = False, legacy_suggestions: bool = False):
+    document = "drive-work-drain-uat"
+    jobs = {
+        document: _job(
+            document,
+            "documents" if worker_target else None,
+            "* * * * *" if worker_target else "*/2 * * * *",
+            "240s" if worker_target else "120s",
+        )
     }
-    save()
-elif args[:3] in (
-    ["run", "services", "add-iam-policy-binding"],
-    ["run", "services", "update-traffic"],
-):
-    pass
-elif args[:3] == ["run", "services", "remove-iam-policy-binding"]:
-    state["invoker_removed"] = True
-    save()
-elif args[:3] == ["iam", "service-accounts", "describe"]:
-    pass
-elif args[:3] == ["scheduler", "jobs", "list"]:
-    print(json.dumps(list(jobs.values())))
-elif args[:3] == ["scheduler", "jobs", "describe"]:
-    name = args[3]
-    if name not in jobs:
-        sys.exit(71)
-    job = jobs[name]
-    if "--format=json" in args:
-        print(json.dumps(job))
-    elif "--format=value(state)" in args:
-        print(job["state"])
-    elif any(item.startswith("--format=value(state,schedule,") for item in args):
-        target = job["httpTarget"]
-        print("\\t".join((job["state"], job["schedule"], target["uri"],
-                          target["httpMethod"], target["oidcToken"]["serviceAccountEmail"],
-                          target["oidcToken"]["audience"])))
-    else:
-        print(name)
-elif args[:4] in (["scheduler", "jobs", "create", "http"],
-                 ["scheduler", "jobs", "update", "http"]):
-    name = args[4]
-    old = jobs.get(name)
-    if args[2] == "update" and old is None:
-        sys.exit(72)
-    if args[2] == "create" and old is not None:
-        sys.exit(73)
-    if (os.environ.get("MOCK_RESTORE_FAIL") == "true" and state["mutations"] >= 2
-        and name == "drive-work-drain-uat" and flag("--schedule") == "*/2 * * * *"):
-        sys.exit(74)
-    job = {
-        "name": "projects/hushh-pda-uat/locations/us-central1/jobs/" + name,
-        "schedule": flag("--schedule"),
-        "timeZone": flag("--time-zone"),
-        "state": "ENABLED" if old is None else old["state"],
-        "attemptDeadline": flag("--attempt-deadline"),
-        "retryConfig": {
-            "retryCount": int(flag("--max-retry-attempts")),
-            "minBackoffDuration": flag("--min-backoff"),
-            "maxBackoffDuration": flag("--max-backoff"),
-            "maxDoublings": int(flag("--max-doublings")),
-            "maxRetryDuration": flag("--max-retry-duration", "0s"),
-        },
-        "httpTarget": {
-            "uri": flag("--uri"),
-            "httpMethod": flag("--http-method"),
-            "body": base64.b64encode(flag("--message-body").encode()).decode(),
-            "headers": {
-                "Content-Type": "application/json",
-                "User-Agent": "Google-Cloud-Scheduler",
-            },
-            "oidcToken": {
-                "audience": flag("--oidc-token-audience"),
-                "serviceAccountEmail": flag("--oidc-service-account-email"),
-            },
-        },
-    }
-    jobs[name] = job
-    state["mutations"] += 1
-    save()
-elif args[:3] == ["scheduler", "jobs", "delete"]:
-    jobs.pop(args[3])
-    save()
-elif args[:3] in (["scheduler", "jobs", "pause"], ["scheduler", "jobs", "resume"]):
-    jobs[args[3]]["state"] = "PAUSED" if args[2] == "pause" else "ENABLED"
-    save()
-elif args[:3] == ["scheduler", "jobs", "run"]:
-    state.setdefault("triggered", []).append(args[3])
-    save()
-elif args[:2] == ["logging", "read"]:
-    query = args[2]
-    timestamp_term = next((term.strip() for term in query.split(" AND ")
-                           if term.strip().startswith("timestamp>=")), "")
-    job = next((name for name in jobs
-                if 'resource.labels.job_id="' + name + '"' in query), "")
-    timestamp_value = timestamp_term.removeprefix("timestamp>=")
-    try:
-        timestamp_valid = (timestamp_value.startswith('"')
-                           and timestamp_value.endswith('"')
-                           and datetime.fromisoformat(timestamp_value[1:-1]).strftime(
-                               "%Y-%m-%dT%H:%M:%SZ") == timestamp_value[1:-1])
-    except ValueError:
-        timestamp_valid = False
-    if not timestamp_valid or not job or "--format=json" not in args:
-        print("invalid Cloud Logging filter or output format", file=sys.stderr)
-        sys.exit(76)
-    reads = state.setdefault("log_reads", {})
-    reads[job] = reads.get(job, 0) + 1
-    save()
-    if (job == os.environ.get("MOCK_MISSING_LOG_JOB")
-        or (job == os.environ.get("MOCK_DEFER_LOG_JOB") and reads[job] == 1)):
-        print("[]")
-    elif job in state.get("triggered", []):
-        url = jobs[job]["httpTarget"]["uri"]
-        if job == os.environ.get("MOCK_FAIL_LOG_JOB"):
-            # A stale success against the old API must not attest the worker.
-            url = "https://api.uat.hushh.ai/api/internal/drive-work/drain"
-        print(json.dumps([{"jsonPayload": {
-            "@type": "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished",
-            "jobName": "projects/hushh-pda-uat/locations/us-central1/jobs/" + job,
-            "url": url,
-            "debugInfo": "URL_CRAWLED. Original HTTP response code number = 200",
-        }}]))
-    else:
-        print("[]")
-else:
-    print("unmocked gcloud:", args, file=sys.stderr)
-    sys.exit(75)
-"""
-
-FAKE_BASH = """#!/usr/bin/env python3
-import os
-import signal
-import subprocess
-import sys
-from pathlib import Path
-
-if sys.argv[1:] != ["deploy/drive/setup_work_drain_scheduler.sh"]:
-    sys.exit(80)
-result = subprocess.run(["/bin/bash", *sys.argv[1:]], check=False)
-if result.returncode:
-    sys.exit(result.returncode)
-count_path = Path(os.environ["MOCK_SETUP_COUNT"])
-count = int(count_path.read_text()) + 1 if count_path.exists() else 1
-count_path.write_text(str(count))
-if count == 2 and os.environ.get("MOCK_TERMINATE_AFTER_SETUP", "true") == "true":
-    os.kill(os.getppid(), signal.SIGTERM)
-"""
+    if optional:
+        for name, stage in (
+            ("drive-work-suggestions-uat", "suggestions"),
+            ("drive-work-sharing-uat", "sharing"),
+        ):
+            cron = (
+                "2-59/4 * * * *" if legacy_suggestions and stage == "suggestions" else "* * * * *"
+            )
+            jobs[name] = _job(name, stage, cron, "240s")
+    if worker_target:
+        for job in jobs.values():
+            job["httpTarget"]["uri"] = WORKER_ORIGIN + PATH
+    return jobs
 
 
-def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_gcloud = fake_bin / "gcloud"
-    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
-    fake_gcloud.chmod(0o755)
+@pytest.mark.parametrize("resume_drift", ["", "state", "audience", "body"])
+def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path, resume_drift):
+    fake_bin = write_executables(tmp_path / "bin", {"gcloud": FAKE_GCLOUD})
     name = "drive-work-suggestions-uat"
     paused = _job(name, "suggestions", "* * * * *", "240s")
     paused["state"] = "PAUSED"
@@ -290,6 +103,7 @@ def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
             "JOB_NAME": name,
             "STAGE": "suggestions",
             "CRON": "* * * * *",
+            "MOCK_RESUME_DRIFT": resume_drift,
         }
     )
     result = subprocess.run(  # noqa: S603 - fixed repository-owned release helper
@@ -301,9 +115,126 @@ def test_uat_worker_setup_resumes_a_paused_suggestions_job(tmp_path: Path):
         text=True,
         timeout=20,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert (result.returncode == 0) is (not resume_drift), result.stdout + result.stderr
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["jobs"][name]["state"] == "ENABLED"
+    assert state["jobs"][name]["state"] == ("PAUSED" if resume_drift == "state" else "ENABLED")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ((), None),
+        (("state",), "PAUSED"),
+        (("schedule",), "2-59/4 * * * *"),
+        (("timeZone",), "Asia/Kolkata"),
+        (("attemptDeadline",), "120s"),
+        (("retryConfig", "retryCount"), 2),
+        (("httpTarget", "uri"), API_ORIGIN + PATH),
+        (("httpTarget", "httpMethod"), "GET"),
+        (("httpTarget", "headers", "Content-Type"), "text/plain"),
+        (("httpTarget", "oidcToken", "audience"), "https://foreign.invalid"),
+        (("httpTarget", "oidcToken", "serviceAccountEmail"), "foreign@example.invalid"),
+        (("httpTarget", "body"), base64.b64encode(b'{"stage":"documents"}').decode()),
+    ],
+)
+def test_worker_scheduler_reuses_only_the_full_verified_contract(tmp_path, field, value):
+    fake_bin = write_executables(tmp_path / "bin", {"gcloud": FAKE_GCLOUD})
+    name = "drive-work-suggestions-uat"
+    expected = _job(name, "suggestions", "* * * * *", "240s")
+    expected["httpTarget"]["uri"] = WORKER_ORIGIN + PATH
+    current = json.loads(json.dumps(expected))
+    if field:
+        parent = current
+        for key in field[:-1]:
+            parent = parent[key]
+        parent[field[-1]] = value
+    state_path = tmp_path / "scheduler.json"
+    jobs = {
+        job: _job(job, stage, "* * * * *", "240s")
+        for job, stage in (
+            ("drive-work-drain-uat", "documents"),
+            ("drive-work-suggestions-uat", "suggestions"),
+            ("drive-work-sharing-uat", "sharing"),
+        )
+    }
+    for job in jobs.values():
+        job["httpTarget"]["uri"] = WORKER_ORIGIN + PATH
+    jobs[name] = current
+    state_path.write_text(json.dumps({"jobs": jobs, "mutations": 0}))
+    result = subprocess.run(  # noqa: S603 - fixed repository helper and synthetic CLI transport.
+        [
+            sys.executable,
+            "deploy/drive/work_drain_scheduler_snapshot.py",
+            "plan-configuration",
+            "--worker-origin",
+            WORKER_ORIGIN,
+        ],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "MOCK_SCHEDULER_STATE": str(state_path),
+            "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
+            "BACKEND_URL": WORKER_ORIGIN,
+            "OIDC_AUDIENCE": API_ORIGIN,
+            "JOB_NAME": name,
+            "STAGE": "suggestions",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    state = json.loads(state_path.read_text())
+    assert result.stdout.split() == ([name] if field else [])
+    assert state["mutations"] == 0
+    assert state["jobs"][name] == current
+
+
+@pytest.mark.parametrize("malformed", ["row", "duplicate", "foreign", "missing_name"])
+@pytest.mark.parametrize("command", ["capture", "plan-configuration"])
+def test_worker_scheduler_inventory_fails_closed_before_mutation(tmp_path, malformed, command):
+    fake_bin = write_executables(tmp_path / "bin", {"gcloud": FAKE_GCLOUD})
+    name = "drive-work-drain-uat"
+    job = _job(name, "documents", "* * * * *", "240s")
+    job["httpTarget"]["uri"] = WORKER_ORIGIN + PATH
+    jobs = {name: job}
+    if malformed == "row":
+        jobs["invalid"] = None
+    elif malformed == "duplicate":
+        jobs["duplicate"] = job
+    elif malformed == "foreign":
+        job["name"] = "projects/foreign/locations/us-central1/jobs/" + name
+    else:
+        job.pop("name")
+    state_path = tmp_path / "scheduler.json"
+    state_path.write_text(json.dumps({"jobs": jobs, "mutations": 0}))
+    result = subprocess.run(  # noqa: S603 - fixed repository helper and bounded parameter choices.
+        [
+            sys.executable,
+            "deploy/drive/work_drain_scheduler_snapshot.py",
+            command,
+            "--snapshot",
+            str(tmp_path / "snapshot.json"),
+            "--worker-origin",
+            WORKER_ORIGIN,
+        ],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "MOCK_SCHEDULER_STATE": str(state_path),
+            "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert result.returncode != 0
+    assert json.loads(state_path.read_text())["mutations"] == 0
+    assert not (tmp_path / "snapshot.json").exists()
 
 
 @pytest.mark.parametrize(
@@ -326,9 +257,7 @@ def test_mock_cloud_logging_requires_quoted_filter_and_json(
     json_output: bool,
     valid: bool,
 ):
-    fake_gcloud = tmp_path / "gcloud"
-    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
-    fake_gcloud.chmod(0o755)
+    fake_gcloud = write_executables(tmp_path, {"gcloud": FAKE_GCLOUD}) / "gcloud"
     job_name = "drive-work-drain-uat"
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(
@@ -373,47 +302,15 @@ def test_mock_cloud_logging_requires_quoted_filter_and_json(
 def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
     tmp_path: Path, existing_new_jobs: bool, restore_succeeds: bool
 ):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_gcloud = fake_bin / "gcloud"
-    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
-    fake_gcloud.chmod(0o755)
-    fake_bash = fake_bin / "bash"
-    fake_bash.write_text(FAKE_BASH, encoding="utf-8")
-    fake_bash.chmod(0o755)
-    initial_jobs = {
-        "drive-work-drain-uat": _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
-    }
-    if existing_new_jobs:
-        initial_jobs["drive-work-suggestions-uat"] = _job(
-            "drive-work-suggestions-uat", "suggestions", "2-59/4 * * * *", "240s"
-        )
-        initial_jobs["drive-work-sharing-uat"] = _job(
-            "drive-work-sharing-uat", "sharing", "* * * * *", "240s"
-        )
+    fake_bin = write_executables(tmp_path / "bin", {"gcloud": FAKE_GCLOUD, "bash": FAKE_BASH})
+    initial_jobs = _release_jobs(optional=existing_new_jobs, legacy_suggestions=True)
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(json.dumps({"jobs": initial_jobs, "mutations": 0}), encoding="utf-8")
     setup_count = tmp_path / "setup-count"
-    environment = os.environ.copy()
-    environment.update(
-        {
-            # Preserve fake commands, then select active Python ahead of host
-            # shims whose `env bash` would recursively enter the fake Bash.
-            "PATH": f"{fake_bin}:{Path(sys.executable).parent}:{environment['PATH']}",
-            "MOCK_SCHEDULER_STATE": str(state_path),
-            "MOCK_SETUP_COUNT": str(setup_count),
-            "MOCK_RESTORE_FAIL": str(not restore_succeeds).lower(),
-            "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
-            "MOCK_CLAMAV_IMAGE": SCANNER_AMD64_IMAGE,
-            "IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
-            "DEPLOY_SHA": "b" * 40,
-            "RUNTIME_SERVICE_ACCOUNT": (
-                "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
-            ),
-            "CLOUDSQL_INSTANCE": "hushh-pda-uat:us-central1:hushh-uat-pg",
-            "RELEASE_RUN_ID": "12345",
-        }
+    environment = worker_release_environment(
+        fake_bin, state_path, setup_count, origin=WORKER_ORIGIN, scanner_image=SCANNER_AMD64_IMAGE
     )
+    environment["MOCK_RESTORE_FAIL"] = str(not restore_succeeds).lower()
     result = subprocess.run(  # noqa: S603 - fixed repository-owned release helper
         ["/bin/bash", str(WORKER_RELEASE)],
         cwd=ROOT,
@@ -439,12 +336,7 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
 
 
 def _release_probe_binaries(tmp_path: Path) -> Path:
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    for name, source in (("gcloud", FAKE_GCLOUD), ("bash", FAKE_BASH)):
-        executable = fake_bin / name
-        executable.write_text(source, encoding="utf-8")
-        executable.chmod(0o755)
+    fake_bin = write_executables(tmp_path / "bin", {"gcloud": FAKE_GCLOUD, "bash": FAKE_BASH})
     fake_sleep = fake_bin / "sleep"
     fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     fake_sleep.chmod(0o755)
@@ -464,6 +356,7 @@ def _release_probe_binaries(tmp_path: Path) -> Path:
     ("processing_enabled", "log_failure", "all_jobs_present"),
     [
         (True, "none", False),
+        (True, "none", True),
         (True, "wrong_url", False),
         (True, "missing", False),
         (False, "none", False),
@@ -479,46 +372,35 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     wrong_scanner_child: bool,
 ):
     fake_bin = _release_probe_binaries(tmp_path)
-    original_document = _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
-    initial_jobs = {"drive-work-drain-uat": original_document}
-    if all_jobs_present:
-        initial_jobs.update(
-            {
-                "drive-work-suggestions-uat": _job(
-                    "drive-work-suggestions-uat", "suggestions", "* * * * *", "240s"
-                ),
-                "drive-work-sharing-uat": _job(
-                    "drive-work-sharing-uat", "sharing", "* * * * *", "240s"
-                ),
-            }
-        )
+    initial_jobs = _release_jobs(
+        optional=all_jobs_present, worker_target=processing_enabled and all_jobs_present
+    )
+    original_document = initial_jobs["drive-work-drain-uat"]
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(
-        json.dumps({"jobs": initial_jobs, "mutations": 0}),
+        json.dumps(
+            {
+                "jobs": initial_jobs,
+                "mutations": 0,
+                "existing_worker": processing_enabled and all_jobs_present,
+            }
+        ),
         encoding="utf-8",
     )
     setup_count = tmp_path / "setup-count"
-    environment = os.environ.copy()
+    environment = worker_release_environment(
+        fake_bin,
+        state_path,
+        setup_count,
+        origin=WORKER_ORIGIN,
+        scanner_image=WRONG_SCANNER_IMAGE if wrong_scanner_child else SCANNER_AMD64_IMAGE,
+    )
     environment.update(
         {
-            "PATH": f"{fake_bin}:{Path(sys.executable).parent}:{environment['PATH']}",
-            "MOCK_SCHEDULER_STATE": str(state_path),
-            "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_TERMINATE_AFTER_SETUP": "false",
             "MOCK_FAIL_LOG_JOB": "drive-work-sharing-uat" if log_failure == "wrong_url" else "",
             "MOCK_MISSING_LOG_JOB": "drive-work-sharing-uat" if log_failure == "missing" else "",
             "MOCK_DEFER_LOG_JOB": "drive-work-sharing-uat" if log_failure == "none" else "",
-            "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
-            "MOCK_CLAMAV_IMAGE": (
-                WRONG_SCANNER_IMAGE if wrong_scanner_child else SCANNER_AMD64_IMAGE
-            ),
-            "IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
-            "DEPLOY_SHA": "b" * 40,
-            "RUNTIME_SERVICE_ACCOUNT": ACCOUNT.replace(
-                "drive-work-drain-sched", "consent-protocol-runtime"
-            ),
-            "CLOUDSQL_INSTANCE": "hushh-pda-uat:us-central1:hushh-uat-pg",
-            "RELEASE_RUN_ID": "12345",
             "DRIVE_WORK_DRAIN_ENABLED": str(processing_enabled).lower(),
         }
     )
@@ -550,7 +432,11 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         assert all(job["state"] == "PAUSED" for job in state["jobs"].values())
         assert "background processing paused" in output
         return
-    assert setup_count.read_text(encoding="utf-8") == "3", output
+    if all_jobs_present:
+        assert not setup_count.exists()
+        assert state["mutations"] == 0
+    else:
+        assert setup_count.read_text(encoding="utf-8") == "3", output
     assert state["triggered"] == [
         "drive-work-drain-uat",
         "drive-work-suggestions-uat",

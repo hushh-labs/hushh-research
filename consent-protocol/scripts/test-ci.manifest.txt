@@ -38,6 +38,7 @@ tests/services/test_drive_groups.py
 tests/services/test_drive_group_inventory.py
 tests/services/test_drive_group_index_job.py
 tests/services/test_drive_group_index_postgres.py
+tests/services/test_drive_document_embedding.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
@@ -62,6 +63,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_runtime_config_retention.py
 tests/test_drive_sharing_routes.py
+tests/test_drive_packet_preview_routes.py
 tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
 tests/services/test_drive_live_reader.py
@@ -407,6 +409,7 @@ tests/test_market_advisory_lock_connection.py
 # Keep the route machine code, Firebase classification, durable cleanup intent,
 # and migration-level resurrection guard in every backend and merge-queue run.
 tests/test_account_routes.py
+tests/test_account_delete_error_detail.py
 tests/test_account_lost_vault_phone.py
 tests/test_account_phone_routes.py
 # Full encrypted export: bounded cursor memory, complete recovery history, snapshot and cleanup.
@@ -1392,6 +1395,8 @@ tests/eval_drive_packets/test_stats.py
 tests/services/test_drive_reusable_packets_postgres.py
 tests/services/test_drive_period_packets.py
 tests/services/test_drive_period_packets_postgres.py
+tests/services/test_drive_period_packet_previews_postgres.py
+tests/services/test_drive_period_packet_loop_postgres.py
 
 tests/services/test_drive_packet_catalog_postgres.py
 

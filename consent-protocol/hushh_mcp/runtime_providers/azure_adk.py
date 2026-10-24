@@ -6,6 +6,7 @@ select tools, retry requests, or grant invocation/data/action authority.
 
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
 from typing import Any, Literal
@@ -16,7 +17,7 @@ from google.adk.models._capabilities import LlmCapabilities
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 
 from .azure_call_lifecycle import AzureAuthenticationError as AzureAuthenticationError
 from .azure_call_lifecycle import (
@@ -38,50 +39,10 @@ from .azure_response_history import (
     restore_browser_message,
     restore_reasoning,
 )
+from .azure_response_schema import _schema as _schema
+from .azure_response_schema import response_format
 
 _MAX_REQUEST_MEDIA_BYTES = 50 * 1024 * 1024
-
-
-def _schema(value: Any, *, strict: bool) -> dict:
-    """Translate schema syntax while leaving semantic acceptance with its owner."""
-    if isinstance(value, type) and issubclass(value, BaseModel):
-        value = value.model_json_schema()
-    elif hasattr(value, "model_dump"):
-        value = value.model_dump(mode="json", exclude_none=True)
-    if not isinstance(value, dict):
-        raise ValueError("Azure structured schema must be an object")
-
-    def visit(node):
-        if isinstance(node, list):
-            return [visit(item) for item in node]
-        if not isinstance(node, dict):
-            return node
-        result = {}
-        for key, child in node.items():
-            if key in {"default", "title"}:
-                continue
-            if key in {"properties", "$defs", "definitions", "patternProperties"}:
-                result[key] = {name: visit(item) for name, item in child.items()}
-            else:
-                result["anyOf" if key == "oneOf" else key] = visit(child)
-        if isinstance(result.get("type"), str):
-            result["type"] = result["type"].lower()
-        if "const" in result:
-            result["enum"] = [result.pop("const")]
-        nullable = result.pop("nullable", False)
-        if strict and result.get("type") == "object":
-            if result.get("additionalProperties") not in (None, False):
-                raise ValueError("Azure strict output cannot represent open object fields")
-            result["additionalProperties"] = False
-            result["required"] = list(result.get("properties", {}))
-        if nullable:
-            return {"anyOf": [result, {"type": "null"}]}
-        return result
-
-    converted = visit(value)
-    if not isinstance(converted, dict):
-        raise ValueError("Azure structured schema must remain an object")
-    return converted
 
 
 def _instruction(value: Any) -> str:
@@ -321,14 +282,12 @@ def _request(
             kwargs.get("instructions", "") + "\nReturn a JSON object."
         ).strip()
     elif schema is not None:
-        kwargs["text"] = {
-            "format": {
-                "type": "json_schema",
-                "name": "adk_response",
-                "strict": True,
-                "schema": _schema(schema, strict=True),
-            }
-        }
+        wire_format, schema_instruction = response_format(schema)
+        kwargs["text"] = {"format": wire_format}
+        if schema_instruction:
+            kwargs["instructions"] = (
+                kwargs.get("instructions", "") + "\n" + schema_instruction
+            ).strip()
     elif config.response_mime_type == "application/json":
         kwargs["text"] = {"format": {"type": "json_object"}}
     return kwargs
@@ -356,6 +315,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     default_reasoning_effort: Literal["none", "minimal", "low"] | None = None
     text_verbosity: Literal["low", "medium", "high"] | None = None
     web_search_context_size: Literal["low", "medium", "high"] | None = None
+    call_role: Literal["root", "search", "specialist", "unbound"] = "unbound"
 
     @field_validator("endpoint")
     @classmethod
@@ -407,7 +367,12 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
     ) -> AsyncGenerator[LlmResponse, None]:
-        counters: dict[str, Any] = {"auth_ms": 0, "first_output_ms": None}
+        counters: dict[str, Any] = {
+            "auth_ms": 0,
+            "first_output_ms": None,
+            "role": self.call_role,
+            "stream": stream,
+        }
         source = self._generate_azure_content(llm_request, stream, counters)
         async with aclosing(observe_call(source, self.model, counters)) as results:
             async for result in results:
@@ -448,8 +413,13 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
         ) as client:
             if self.require_current is not None:
                 await self.require_current()
+            request_started = time.perf_counter()
+            counters["dispatches"] = 1
             if not stream:
                 response = await client.responses.create(**kwargs)
+                counters["wire_completed_ms"] = round(
+                    (time.perf_counter() - request_started) * 1000
+                )
                 record_response_metadata(response, counters)
                 if self.require_current is not None:
                     await self.require_current()
@@ -458,49 +428,78 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                 )
                 return
             events = await client.responses.create(**kwargs, stream=True)
-            completed = False
-            try:
-                async for event in events:
-                    kind = _value(event, "type")
-                    if kind in {
-                        "response.output_text.delta",
-                        "response.reasoning_summary_text.delta",
-                    }:
-                        delta = _value(event, "delta")
-                        if not isinstance(delta, str):
-                            raise ValueError("Invalid Azure streaming text")
-                        if delta:
-                            if self.require_current is not None:
-                                await self.require_current()
-                            yield LlmResponse(
-                                content=types.Content(
-                                    role="model",
-                                    parts=[
-                                        types.Part(
-                                            text=delta,
-                                            thought=True
-                                            if kind == "response.reasoning_summary_text.delta"
-                                            else None,
-                                        )
-                                    ],
-                                ),
-                                partial=True,
+            counters["headers_ms"] = round((time.perf_counter() - request_started) * 1000)
+            async with aclosing(
+                self._stream_responses(
+                    events, allowed=allowed, counters=counters, request_started=request_started
+                )
+            ) as responses:
+                async for response in responses:
+                    yield response
+
+    async def _stream_responses(self, events, *, allowed, counters, request_started):
+        completed = False
+        try:
+            async for event in events:
+                counters.setdefault(
+                    "wire_first_event_ms", round((time.perf_counter() - request_started) * 1000)
+                )
+                kind = _value(event, "type")
+                if kind in {
+                    "response.output_text.delta",
+                    "response.reasoning_summary_text.delta",
+                }:
+                    delta = _value(event, "delta")
+                    if not isinstance(delta, str):
+                        raise ValueError("Invalid Azure streaming text")
+                    if delta:
+                        if kind == "response.output_text.delta":
+                            counters.setdefault(
+                                "wire_first_text_ms",
+                                round((time.perf_counter() - request_started) * 1000),
                             )
-                    elif kind == "response.completed":
-                        record_response_metadata(_value(event, "response"), counters)
                         if self.require_current is not None:
                             await self.require_current()
-                        final = _response(
-                            _value(event, "response"),
-                            allowed_names=allowed,
-                            allow_web_search=self.allow_web_search,
+                        yield LlmResponse(
+                            custom_metadata={
+                                "azure_text_part": [
+                                    _value(event, "output_index"),
+                                    _value(event, "content_index"),
+                                ]
+                            }
+                            if kind == "response.output_text.delta"
+                            else None,
+                            content=types.Content(
+                                role="model",
+                                parts=[
+                                    types.Part(
+                                        text=delta,
+                                        thought=True
+                                        if kind == "response.reasoning_summary_text.delta"
+                                        else None,
+                                    )
+                                ],
+                            ),
+                            partial=True,
                         )
-                        completed = True
-                        yield final
-                        return
-                    elif kind in {"error", "response.failed", "response.incomplete"}:
-                        _raise_stream_error(event)
-                if not completed:
-                    raise ValueError("Azure streaming response ended before completion")
-            finally:
-                await events.close()
+                elif kind == "response.completed":
+                    counters["wire_completed_ms"] = round(
+                        (time.perf_counter() - request_started) * 1000
+                    )
+                    record_response_metadata(_value(event, "response"), counters)
+                    if self.require_current is not None:
+                        await self.require_current()
+                    final = _response(
+                        _value(event, "response"),
+                        allowed_names=allowed,
+                        allow_web_search=self.allow_web_search,
+                    )
+                    completed = True
+                    yield final
+                    return
+                elif kind in {"error", "response.failed", "response.incomplete"}:
+                    _raise_stream_error(event)
+            if not completed:
+                raise ValueError("Azure streaming response ended before completion")
+        finally:
+            await events.close()

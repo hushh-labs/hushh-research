@@ -14,6 +14,8 @@
 import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
   AccountDeletionOutcomeUncertainError,
+  AccountDeletionInProgressError,
+  AccountDeletionPendingError,
 } from "@/lib/flows/delete-account";
 import type { AccountResetResult } from "@/lib/services/account-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
@@ -145,6 +147,7 @@ export function supportOutcomeToVoice(
 
 export type LifecycleOutcome =
   | "deleted"
+  | "in_progress"
   | "needs_unlock"
   | "auth_failed"
   | "blocked_external"
@@ -152,7 +155,8 @@ export type LifecycleOutcome =
   | "unknown";
 
 /** Classify what `executeVerifiedAccountDeletion` threw. */
-export function classifyDeletionError(error: unknown): "blocked_external" | "failed" | "unknown" {
+export function classifyDeletionError(error: unknown): "blocked_external" | "failed" | "unknown" | "in_progress" {
+  if (error instanceof AccountDeletionInProgressError || error instanceof AccountDeletionPendingError) return "in_progress";
   if (error instanceof AccountDeletionOutcomeUncertainError) return "unknown";
   if (
     error instanceof ApiError &&
@@ -168,6 +172,8 @@ export function lifecycleOutcomeToVoice(
   outcome: LifecycleOutcome,
 ): { status: "succeeded" | "blocked" | "failed" | "started"; summary: string } {
   switch (outcome) {
+    case "in_progress":
+      return { status: "started", summary: "Your account deletion is still running. I’m checking its status." };
     case "deleted":
       return { status: "succeeded", summary: "Your account has been deleted." };
     case "needs_unlock":

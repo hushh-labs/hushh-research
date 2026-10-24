@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 import { AccountRegistrationRecoveryPanel } from "./account-registration-recovery";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
@@ -14,7 +15,8 @@ export function SessionVerificationRecovery({
   onRetry: () => void;
   onSignOut: () => void;
 }) {
-  const { user, accountCleanup, accountRegistration } = useAuth();
+  const { user, userId: accountOwnerId, accountCleanup, accountRegistration } = useAuth();
+  const deletionPending = isAccountDeletionActive(accountOwnerId);
   const [continuingId, setContinuingId] = useState<string | null>(null);
   const [continuationFailure, setContinuationFailure] = useState<{ operationId: string; message: string } | null>(null);
   const cleanup = accountCleanup;
@@ -26,7 +28,7 @@ export function SessionVerificationRecovery({
     ? "Your cleanup needs attention"
     : cleanup?.state === "waiting_for_provider"
       ? "Waiting for your provider"
-      : cleanup ? "Deleting your account" : "Reconnect to continue securely";
+      : cleanup ? "Deleting your account" : deletionPending ? "Checking your account deletion" : "Reconnect to continue securely";
 
   async function continueCleanup() {
     const owner = snapshotAuthSessionGeneration();
@@ -78,7 +80,7 @@ export function SessionVerificationRecovery({
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           {cleanup
             ? "Your private agent is paused while cleanup finishes. You can close this window; cleanup will continue."
-            : "We couldn’t verify this account, so your private information stayed hidden. Check your connection and try again."}
+            : deletionPending ? "Your account deletion is still being checked. Your private information stays hidden until we confirm the result." : "We couldn’t verify this account, so your private information stayed hidden. Check your connection and try again."}
         </p>
         {cleanup?.local_erasure_confirmation_required && <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Some keys are managed outside Hussh. Removing Hussh’s encrypted copy does not invalidate those keys with their providers.
@@ -99,7 +101,7 @@ export function SessionVerificationRecovery({
             onClick={onRetry}
             type="button"
           >
-            {cleanup ? "Refresh status" : "Try again"}
+            {cleanup ? "Refresh status" : deletionPending ? "Check status" : "Try again"}
           </button>
           <button
             className="min-h-11 rounded-full border border-border px-6 text-sm font-semibold text-foreground"

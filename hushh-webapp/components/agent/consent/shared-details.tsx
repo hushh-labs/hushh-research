@@ -235,15 +235,15 @@ export function SharedDetailsList({ values }: {
   });
   const visible = rows;
   if (!allRows.length) {
-    return <p className="text-sm text-muted-foreground" data-testid="chat-shared-information">Nothing readable was shared yet.</p>;
+    return <p data-consent-role="body" className="text-sm text-muted-foreground" data-testid="chat-shared-information">Nothing readable was shared yet.</p>;
   }
   return (
     <div data-testid="chat-shared-information" className="rounded-[var(--app-card-radius-compact)] bg-background/80">
       <dl className="divide-y divide-border/50">
         {visible.map((row) => (
           <div key={row.key} className="grid gap-0.5 px-3.5 py-2.5 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)] sm:gap-4">
-            <dt className="text-xs font-medium text-muted-foreground sm:pt-0.5">{row.label}</dt>
-            <dd className="min-w-0 space-y-1 text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
+            <dt data-consent-role="fact-label" className="text-xs font-medium text-muted-foreground sm:pt-0.5">{row.label}</dt>
+            <dd data-consent-role="fact-value" className="min-w-0 space-y-1 text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
               {row.values.map((value, index) => <DetailValue key={index} value={value} />)}
             </dd>
           </div>

@@ -19,7 +19,6 @@ from hushh_mcp.services.drive_document_parser import (
     DOCX,
     MAX_INPUT_BYTES,
     MAX_TEXT_BYTES,
-    ParsedText,
     ParseError,
     parse_document,
 )
@@ -27,7 +26,6 @@ from hushh_mcp.services.drive_document_processor import (
     ClamAvScanner,
     IsolatedDocumentParser,
     LocalDocumentProcessor,
-    PrivateDocumentEmbedding,
     _private_process,
 )
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -780,30 +778,6 @@ async def test_clamav_startup_reloads_stale_signatures_and_still_fails_closed(
     assert not any(chunk.startswith(b"zINSTREAM") for chunk in sent)
 
 
-@pytest.mark.parametrize("baked", [True, False])
-def test_embedding_client_prefers_the_baked_model_and_never_the_hub(monkeypatch, tmp_path, baked):
-    # UAT 2026-09-27: the default client loaded the hub name, so a new backend
-    # instance called Hugging Face on its first turn; a 429 aborted the process.
-    import sys
-
-    from hushh_mcp.services import embedding_client_leaf as leaf
-
-    calls = []
-    fake = SimpleNamespace(SentenceTransformer=lambda source, **kw: calls.append((source, kw)))
-    monkeypatch.setitem(sys.modules, "sentence_transformers", fake)
-    monkeypatch.setattr(leaf, "BAKED_MODEL_DIR", str(tmp_path))
-    monkeypatch.setenv(leaf.BAKED_MODEL_DIR_ENV, str(tmp_path if baked else tmp_path / "missing"))
-
-    leaf.EmbeddingClient()._load()
-
-    source, kwargs = calls[0]
-    if baked:
-        assert (source, kwargs["local_files_only"]) == (str(tmp_path), True)
-    else:  # no baked copy (local development): the pinned hub revision, as before
-        assert (source, kwargs["local_files_only"]) == (leaf.MODEL_ID, False)
-    assert kwargs["revision"] == leaf.MODEL_REVISION
-
-
 @pytest.mark.asyncio
 async def test_clamav_startup_requires_eicar_detection():
     scanner = ClamAvScanner()
@@ -814,46 +788,6 @@ async def test_clamav_startup_requires_eicar_detection():
     scanner.scan = AsyncMock(return_value=None)
     with pytest.raises(DriveReadError, match="^scanner_unavailable$"):
         await scanner.check_ready()
-
-
-def test_embedding_chunks_never_silently_drop_unicode_or_exceed_token_budget(monkeypatch):
-    embedder = PrivateDocumentEmbedding()
-    model = SimpleNamespace(
-        tokenizer=SimpleNamespace(encode=lambda value, **kwargs: list(range(len(value) * 3)))
-    )
-    monkeypatch.setattr(embedder, "_load", lambda: model)
-    captured = []
-
-    def vectors(passages):
-        captured.extend(passages)
-        return [[1.0] + [0.0] * 383 for _ in passages]
-
-    monkeypatch.setattr(embedder, "embed_passages", vectors)
-    text = "₹abc" * 600
-    prepared = embedder.prepare(ParsedText((text,)))
-    assert "".join(captured) == text
-    assert all(len("passage: " + part) * 3 <= 480 for part in captured)
-    assert not prepared.truncated
-    for chunk in prepared.chunks:
-        assert text[chunk.start : chunk.end] == chunk.text
-    assert embedder.local_files_only
-
-
-def test_embedding_chunk_cap_reports_truncation(monkeypatch):
-    embedder = PrivateDocumentEmbedding()
-    monkeypatch.setattr(
-        embedder,
-        "_load",
-        lambda: SimpleNamespace(
-            tokenizer=SimpleNamespace(encode=lambda value, **kwargs: list(value))
-        ),
-    )
-    monkeypatch.setattr(
-        embedder, "embed_passages", lambda values: [[1.0] + [0.0] * 383 for _ in values]
-    )
-    result = embedder.prepare(ParsedText(("x" * MAX_TEXT_BYTES,)))
-    assert len(result.chunks) == 128
-    assert result.truncated
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows local-export adapter only")

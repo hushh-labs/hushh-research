@@ -58,7 +58,7 @@ export function ReceiptStageRow({ title, description, value, tone, onOpen }: {
 }) {
   return (
     <SettingsRow icon={STAGE_ICONS[tone]} iconTone="capability" title={title} description={description ?? undefined}
-      trailing={value ? <span className="tabular-nums">{value}</span> : undefined}
+      trailing={value ? <span data-consent-role="fact-value" className="tabular-nums">{value}</span> : undefined}
       chevron={Boolean(onOpen)} onClick={onOpen} />
   );
 }
@@ -69,7 +69,7 @@ export function ReceiptValueRow({ title, value, icon, description, onOpen }: {
 }) {
   return (
     <SettingsRow icon={icon} iconTone="capability" title={title} description={description ?? undefined}
-      trailing={value ? <span className="tabular-nums">{value}</span> : undefined}
+      trailing={value ? <span data-consent-role="fact-value" className="tabular-nums">{value}</span> : undefined}
       chevron={Boolean(onOpen)} onClick={onOpen} />
   );
 }
@@ -88,7 +88,7 @@ export function ReceiptReferenceRow({ label, value }: { label: string; value: st
   return (
     <SettingsRow title={label} trailing={
       <span className="flex min-w-0 items-center justify-end gap-1">
-        <span className="min-w-0 break-all text-right tabular-nums">{value}</span>
+        <span data-consent-role="fact-value" className="min-w-0 break-all text-right tabular-nums">{value}</span>
         <button type="button" aria-label={`Copy ${label.toLowerCase()}`} onClick={() => void copy()}
           className="-my-1.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)]">
           {copied ? <Check className="size-4" aria-hidden="true" /> : <ProfilePaneCopyIcon className="size-4" />}

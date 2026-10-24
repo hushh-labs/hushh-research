@@ -23,7 +23,7 @@ export function DocumentBankPayoutStatusCard({ compact = false, refreshOnFeedCha
   if (!resource.token || (compact && !latest)) return null;
   return (
     <section aria-label="Bank payout status" className={compact ? "rounded-xl border border-border/60 px-4 py-3" : "space-y-2"}>
-      {compact ? <><p className="text-sm font-semibold">Bank payout</p>
+      {compact ? <><p data-consent-role="row-title" className="text-sm font-semibold">Bank payout</p>
         <HelperText className="mt-1">{test ? "Test · " : ""}{bankPayoutCopy(latest!)}</HelperText></> :
         <SettingsGroup title={test ? "Test bank deposits" : "Bank deposits"} density="compact">
           {payouts?.map((payout) => <SettingsRow key={payout.id} icon={ProfileAccountBankIcon} iconTone="capability"

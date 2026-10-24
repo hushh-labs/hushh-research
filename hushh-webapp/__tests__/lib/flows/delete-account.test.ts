@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
+import {
+  makeSessionUser,
   mockDeleteAccount,
   mockDeleteLostVaultAccount,
   mockOnAccountDeleted,
@@ -14,66 +15,10 @@ const {
   mockFirebaseInvalidationCode,
   mockGetAccountSessionStatus,
   mockRevokeAllVaultPlaid,
-} = vi.hoisted(() => ({
-  mockDeleteAccount: vi.fn(),
-  mockDeleteLostVaultAccount: vi.fn(),
-  mockOnAccountDeleted: vi.fn(),
-  mockClearForUser: vi.fn(),
-  mockClearDeviceSecrets: vi.fn(),
-  mockSetOnboardingRequiredCookie: vi.fn(),
-  mockSetOnboardingFlowActiveCookie: vi.fn(),
-  mockPublishAccountDeletionToSiblingTabs: vi.fn(),
-  mockDispatchAuthSessionInvalidated: vi.fn(),
-  mockBackendInvalidationCode: vi.fn(),
-  mockFirebaseInvalidationCode: vi.fn(),
-  mockGetAccountSessionStatus: vi.fn(),
-  mockRevokeAllVaultPlaid: vi.fn(),
-}));
-
-vi.mock("@/lib/kai/plaid-vault/vault-sync", () => ({
-  revokeAllVaultPlaidAtPlaid: mockRevokeAllVaultPlaid,
-}));
-
-vi.mock("@/lib/auth/session-invalidation", () => ({
-  ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE:
-    "We couldn't confirm whether account deletion finished. For your security, we signed you out and won't retry it automatically. Please check your connection before signing in again.",
-  AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE: "AUTH_ACCOUNT_NOT_FOUND",
-  publishAccountDeletionToSiblingTabs: mockPublishAccountDeletionToSiblingTabs,
-  dispatchAuthSessionInvalidated: mockDispatchAuthSessionInvalidated,
-  authSessionInvalidationCodeFromBackendPayload: mockBackendInvalidationCode,
-  authSessionInvalidationCodeFromFirebaseError: mockFirebaseInvalidationCode,
-}));
-
-vi.mock("@/lib/services/account-service", () => ({
-  AccountService: {
-    deleteAccount: mockDeleteAccount,
-    deleteLostVaultAccount: mockDeleteLostVaultAccount,
-  },
-}));
-
-vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { getAccountDeletionStatus: mockGetAccountSessionStatus },
-}));
-
-vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: { onAccountDeleted: mockOnAccountDeleted },
-}));
-
-vi.mock("@/lib/services/user-local-state-service", () => ({
-  UserLocalStateService: {
-    clearForUser: mockClearForUser,
-    clearDeviceSecretsForDeletedAccount: mockClearDeviceSecrets,
-  },
-}));
-
-vi.mock("@/lib/services/onboarding-route-cookie", () => ({
-  setOnboardingRequiredCookie: mockSetOnboardingRequiredCookie,
-  setOnboardingFlowActiveCookie: mockSetOnboardingFlowActiveCookie,
-}));
-
-vi.mock("@/lib/services/vault-service", () => ({
-  VaultService: {},
-}));
+  mockSnapshotOwner,
+  mockOwnerIsCurrent,
+  mockRequireVerification,
+} from "./delete-account.fixture";
 
 import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
@@ -85,6 +30,7 @@ import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE,
   AccountDeletionOutcomeUncertainError,
   AccountDeletionPendingError,
+  AccountDeletionInProgressError,
   AccountErasureBanksNotDisconnectedError,
   DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE,
   accountDeletionErrorMessage,
@@ -93,17 +39,12 @@ import {
 } from "@/lib/flows/delete-account";
 import { ApiError } from "@/lib/services/api-client";
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
+import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
 
 import { publishValidatedAuthSessionPrincipal, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
-function makeSessionUser(uid = "user_123") {
-  return {
-    uid,
-    getIdToken: vi.fn().mockResolvedValue("firebase-token"),
-  };
-}
 
-describe("executeVerifiedAccountDeletion", () => {
+describe("@feature_account_deletion @trace_loop executeVerifiedAccountDeletion", () => {
   afterEach(() => vi.useRealTimers());
 
   it("retains retry authority and local receipts when durable cleanup is accepted", async () => {
@@ -162,7 +103,7 @@ describe("executeVerifiedAccountDeletion", () => {
     const rejection = expect(action).rejects.toBeInstanceOf(
       AccountDeletionOutcomeUncertainError,
     );
-    await vi.advanceTimersByTimeAsync(8_000);
+    await vi.advanceTimersByTimeAsync(ACCOUNT_SESSION_VALIDATION_BUDGET_MS);
     await rejection;
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -181,6 +122,61 @@ describe("executeVerifiedAccountDeletion", () => {
     mockClearDeviceSecrets.mockResolvedValue(undefined);
     mockBackendInvalidationCode.mockReturnValue(null);
     mockFirebaseInvalidationCode.mockReturnValue(null);
+    mockSnapshotOwner.mockReturnValue(null);
+    mockOwnerIsCurrent.mockReturnValue(true);
+  });
+
+  it("retains a reported rollback when authoritative status arrives after nine seconds", async () => {
+    vi.useFakeTimers();
+    mockDeleteAccount.mockRejectedValue(new ApiError("failed", 500, {
+      code: "ACCOUNT_DELETION_FAILED",
+    }));
+    mockGetAccountSessionStatus.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve(Response.json({ active: true, firebase_uid: "user_123", owner_id: "user_123", account_generation: 0 })), 9_000);
+    }));
+    const action = executeVerifiedAccountDeletion({ userId: "user_123", vaultOwnerToken: "vault-token", sessionUser: makeSessionUser() });
+    const rejection = expect(action).rejects.toBeInstanceOf(AccountDeletionNotCompletedError);
+    await vi.advanceTimersByTimeAsync(9_000);
+    await rejection;
+    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+  });
+
+  it("accepts a committed tombstone after nine seconds without an uncertain sign-out", async () => {
+    vi.useFakeTimers();
+    mockDeleteAccount.mockRejectedValue(new Error("lost response"));
+    mockBackendInvalidationCode.mockReturnValue("account_not_found");
+    mockGetAccountSessionStatus.mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve(Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 })), 9_000);
+    }));
+    const action = executeVerifiedAccountDeletion({ userId: "user_123", vaultOwnerToken: "vault-token", sessionUser: makeSessionUser() });
+    await vi.advanceTimersByTimeAsync(9_000);
+    await action;
+    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalledWith(expect.objectContaining({ code: "account_deletion_uncertain" }));
+  });
+
+  it("hands a still-running deletion to the sealed owner gate without a second DELETE", async () => {
+    const owner = snapshotValidatedAuthSessionPrincipal()!;
+    mockSnapshotOwner.mockReturnValue(owner);
+    mockDeleteAccount.mockRejectedValue(new Error("lost response"));
+    mockGetAccountSessionStatus.mockResolvedValue(Response.json({ detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" } }, { status: 423, headers: { "Retry-After": "2" } }));
+    const sessionUser = makeSessionUser();
+    await expect(executeVerifiedAccountDeletion({ userId: "user_123", vaultOwnerToken: "vault-token", sessionUser })).rejects.toBeInstanceOf(AccountDeletionInProgressError);
+    expect(mockRequireVerification).toHaveBeenCalledWith(owner, "account_deletion_in_progress");
+    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+    expect(sessionUser.getIdToken).not.toHaveBeenCalledWith(true);
+    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+    expect(mockClearForUser).not.toHaveBeenCalled();
+  });
+
+  it("refuses submission after the captured owner generation changes", async () => {
+    mockSnapshotOwner.mockReturnValue({ userId: "user_123", generation: 7 });
+    mockOwnerIsCurrent.mockReturnValue(false);
+    await expect(executeVerifiedAccountDeletion({ userId: "user_123", vaultOwnerToken: "vault-token", sessionUser: makeSessionUser() })).rejects.toThrow("cancelled before submission");
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+    expect(mockRequireVerification).not.toHaveBeenCalled();
+    expect(mockClearForUser).not.toHaveBeenCalled();
   });
 
   it("clears owner state only after a confirmed full account deletion", async () => {
@@ -681,7 +677,7 @@ describe("executeVerifiedAccountDeletion", () => {
   });
 });
 
-describe("banks sealed in the vault are revoked before the account is erased", () => {
+describe("@feature_account_deletion @trace_loop banks sealed in the vault are revoked before the account is erased", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     publishValidatedAuthSessionPrincipal(null);

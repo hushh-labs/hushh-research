@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
   AccountDeletionOutcomeUncertainError,
+  AccountDeletionInProgressError,
+  AccountDeletionPendingError,
 } from "@/lib/flows/delete-account";
 import {
   AccountResetNotConfirmedError,
@@ -102,6 +104,11 @@ describe("supportOutcomeToVoice", () => {
 });
 
 describe("classifyDeletionError", () => {
+  it("@feature_account_deletion keeps pending deletion distinct from failure and retry", () => {
+    expect(classifyDeletionError(new AccountDeletionInProgressError())).toBe("in_progress");
+    expect(classifyDeletionError(new AccountDeletionPendingError())).toBe("in_progress");
+    expect(lifecycleOutcomeToVoice("in_progress")).toEqual({ status: "started", summary: "Your account deletion is still running. I’m checking its status." });
+  });
   it("keeps the exact external-resource 409 distinct from other 409s and transport errors", () => {
     const blocked = new ApiError("blocked", 409, {
       code: ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,

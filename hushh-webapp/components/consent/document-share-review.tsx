@@ -238,7 +238,7 @@ function OutcomeSummary({ counts, issues }: {
 function OriginalLink({ url, googleEmail }: { url: string; googleEmail: string | null }) {
   const target = new URL(url);
   if (googleEmail) target.searchParams.set("authuser", googleEmail);
-  return <Button asChild size="sm" variant="none" effect="fade" className="min-h-11">
+  return <Button data-consent-role="compact-action" asChild size="sm" variant="none" effect="fade" className="min-h-11">
     <a href={target.href} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label="Open in Google Drive">
       Open original <ExternalLink aria-hidden="true" className="ml-1.5 h-4 w-4" />
     </a>
@@ -1435,7 +1435,7 @@ function UnlockedDocumentReview({
   // may ask for it; whether it can run stays with this batch view.
   const retryUnshared = !outgoing && bulkShare && bulkShare.status !== "review_ready" &&
     bulkShare.canRetry === true && (bulkShare.retryableCount ?? 0) > 0 ? (
-      <Button size="prominent" disabled={locked}
+      <Button data-consent-role="primary-action" size="prominent" disabled={locked}
         onClick={() => mutate((token, guard) => DriveSharingService.retryBulkShare(token, bulkShare, guard), "retrying_share")}>
         Retry {bulkShare.retryableCount?.toLocaleString()} {bulkShare.retryableCount === 1 ? "file" : "files"}
       </Button>
@@ -1482,11 +1482,11 @@ function UnlockedDocumentReview({
             : setup === "payouts" ? "Link your bank before this request can continue."
               : setup === "price" ? "Choose your default document request price."
                 : "This request will resume when payments are available."}</HelperText>
-          {setup === "drive" ? <Button size="standard" asChild>
+          {setup === "drive" ? <Button data-consent-role="compact-action" size="standard" asChild>
             <ProfileConnectorsLink connectorId={GOOGLE_DRIVE_CONNECTOR_ID}>
               {documentRequestSetupLabel(setup, true)}
             </ProfileConnectorsLink>
-          </Button> : setup !== "unavailable" ? <Button size="standard" asChild>
+          </Button> : setup !== "unavailable" ? <Button data-consent-role="compact-action" size="standard" asChild>
             <Link href={documentRequestSetupHref(setup, buildConsentCenterHref("pending", {
               requestId: `document_share_request:${requestId}`, requestView: "received",
             }))}>{documentRequestSetupLabel(setup, true)}</Link>
@@ -1559,10 +1559,10 @@ function UnlockedDocumentReview({
         </dl>
         {review.preparationError === "background_preparation_required" ? <div className="space-y-3">
           <HelperText>Turn on background Drive access to continue.</HelperText>
-          <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
+          <Button data-consent-role="primary-action" size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : null}
         {(agentPackage.provisionalFiles?.length || agentPackage.selectedFiles?.length || agentPackage.candidateCount > 0) ?
-          <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
+          <details className="text-sm"><summary data-consent-role="utility" className="min-h-11 cursor-pointer py-3">View details</summary>
             {review.requesterProfile?.type === "ria" || review.reason ? <dl className={HAIRLINES}>
               {review.requesterProfile?.firmName ? <Fact label="Firm" value={review.requesterProfile.firmName} /> : null}
               {review.requesterProfile?.crd ? <Fact label="CRD" value={review.requesterProfile.crd} /> : null}
@@ -1579,7 +1579,7 @@ function UnlockedDocumentReview({
             {(agentPackage.provisionalFiles?.length || agentPackage.selectedFiles?.length) ?
               <HelperText>Scores are Agent One assessments, not measured accuracy.</HelperText> : null}
           </details> : null}
-        {review.trustedAuto !== true && snapshot && UNDECIDED.has(snapshot.status.status) ? <Button
+        {review.trustedAuto !== true && snapshot && UNDECIDED.has(snapshot.status.status) ? <Button data-consent-role="compact-action"
           size="standard" variant={denyConfirm.armed ? "destructive" : "none"}
           disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
           onClick={() => denyConfirm.activate(() => decide("decline"))}>
@@ -1595,7 +1595,7 @@ function UnlockedDocumentReview({
           <BodyText>Current access could not be verified. Checkout is paused.</BodyText>
         : review.preparationError === "background_preparation_required" ? <div className="space-y-3">
           <BodyText>Turn on background access so Agent One can prepare this packet.</BodyText>
-          <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
+          <Button data-consent-role="primary-action" size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>{agentPackage.status === "preparing"
           ? "Agent One is preparing this packet."
           : agentPackage.status === "allowed"
@@ -1662,7 +1662,7 @@ function UnlockedDocumentReview({
           : "Allow Agent One to search Drive. You may need to choose the exact files before sharing."}</HelperText>
         <FlowActionGroup
           primary={
-            <Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked}
+            <Button data-consent-role="primary-action" size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked}
               onClick={() => {
                 // One tap at the requester's estimate; Edit price opens the sheet.
                 if (!priceOnly && (review.paymentRequired !== true || quickAllowCents !== null))
@@ -1673,7 +1673,7 @@ function UnlockedDocumentReview({
             </Button>
           }
           secondary={priceOnly ? undefined :
-            <Button size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
+            <Button data-consent-role="primary-action" size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
               className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
               disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
               onClick={() => denyConfirm.activate(() => decide("decline"))}>
@@ -1682,7 +1682,7 @@ function UnlockedDocumentReview({
           }
         />
         {review.paymentRequired === true && !priceOnly ? (
-          <Button size="standard" variant="none" disabled={locked} onClick={openPriceSheet}>Edit price</Button>
+          <Button data-consent-quiet-action="true" data-consent-role="compact-action" size="standard" variant="none" disabled={locked} onClick={openPriceSheet}>Edit price</Button>
         ) : null}
         {allowError && !priceOpen ? <HelperText role="alert">{allowError}</HelperText> : null}
         <DocumentRequestPriceSheet
@@ -1721,7 +1721,7 @@ function UnlockedDocumentReview({
           <BodyText>This request needs exact start and end dates. Ask the requester to send a new request with both dates.</BodyText>
         ) : review.preparationError === "background_preparation_required" ? <div className="space-y-3">
           <BodyText>Turn on background access so Agent One can resume this request.</BodyText>
-          <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
+          <Button data-consent-role="primary-action" size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>
           {review.autoshare === true
             ? `${review.paymentRequired === true ? "After payment, " : ""}Agent One sends every matching file you can share, in batches. You can close this.`
@@ -1739,7 +1739,7 @@ function UnlockedDocumentReview({
         {(review.autoshare === true && review.paymentRequired === true ? awaitingPayment
           : review.ownerAllowed === true && snapshot?.status.status === "pending" &&
             !bulkShare && batchCount === 0 && !review.aggregateCounts) ? (
-          <Button size="standard" variant={denyConfirm.armed ? "destructive" : "none"}
+          <Button data-consent-role="compact-action" size="standard" variant={denyConfirm.armed ? "destructive" : "none"}
             className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
             disabled={locked} aria-label={denyConfirm.ariaLabel("Decline")}
             onClick={() => denyConfirm.activate(() => decide("decline"))}>
@@ -1911,7 +1911,7 @@ function UnlockedDocumentReview({
                         />
                       }
                     >
-                      <label className="cursor-pointer" />
+                      <label data-consent-role="form-label" className="cursor-pointer" />
                     </SettingsRow>
                     );
                   })}
@@ -1919,14 +1919,14 @@ function UnlockedDocumentReview({
               </div>}
               {searchPageLoading ? <HelperText>Loading files…</HelperText> : null}
               {searchPageError ? <div><HelperText role="alert">Couldn&apos;t load files.</HelperText>
-                <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => setSearchPageRetry(value => value + 1)}>Try again</Button></div> : null}
+                <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" onClick={() => setSearchPageRetry(value => value + 1)}>Try again</Button></div> : null}
               {searchPrevious.length || searchPage?.nextCursor ? (
                 <div className="flex flex-wrap gap-2">
-                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={searchPageLoading || !searchPrevious.length}
+                  <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" disabled={searchPageLoading || !searchPrevious.length}
                     onClick={() => { setSearchCursor(searchPrevious.at(-1) ?? null); setSearchPrevious(items => items.slice(0, -1)); }}>
                     Previous
                   </Button>
-                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={searchPageLoading || !searchPage?.nextCursor}
+                  <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" disabled={searchPageLoading || !searchPage?.nextCursor}
                     onClick={() => { setSearchPrevious(items => [...items, searchCursor]); setSearchCursor(searchPage?.nextCursor ?? null); }}>
                     Next 25
                   </Button>
@@ -1938,7 +1938,7 @@ function UnlockedDocumentReview({
                 <HelperText>All available files on this page are already in a batch or were deselected.</HelperText> : null}
               <FlowActionGroup
                 primary={
-                  <Button size="prominent" disabled={locked || !searchPage || searchPageError || selectedCount === 0 ||
+                  <Button data-consent-role="primary-action" size="prominent" disabled={locked || !searchPage || searchPageError || selectedCount === 0 ||
                     (progressive
                       ? legacySearch || bulkShare?.status === "review_ready" ||
                         !["running", "completed"].includes(search.status) || search.incompleteSearch ||
@@ -1957,10 +1957,10 @@ function UnlockedDocumentReview({
                       ["limited", "failed", "stopped"].includes(search.status) ? "Search incomplete" : "Search in progress"}
                   </Button>
                 }
-                secondary={batchCount === 0 ? <Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button> : undefined}
+                secondary={batchCount === 0 ? <Button data-consent-role="compact-action" size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button> : undefined}
                 tertiary={(["limited", "failed", "stopped"].includes(search.status) ||
                   legacySearch && activity === "idle" && (searchStartFailed.current || checkedLegacyJob.current === search.jobId)) ?
-                  <Button size="standard" variant="none" disabled={locked}
+                  <Button data-consent-role="compact-action" size="standard" variant="none" disabled={locked}
                     onClick={retryDurableSearch}>
                     Search again
                   </Button> : undefined}
@@ -1979,9 +1979,9 @@ function UnlockedDocumentReview({
                 ? "Full search needed before sharing."
                 : "Search continues after you leave."}</HelperText>
               <FlowActionGroup
-                primary={<Button size="prominent" disabled>Share files</Button>}
-                secondary={<Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button>}
-                tertiary={searchStartFailed.current ? <Button size="standard" variant="none" disabled={locked}
+                primary={<Button data-consent-role="primary-action" size="prominent" disabled>Share files</Button>}
+                secondary={<Button data-consent-role="compact-action" size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button>}
+                tertiary={searchStartFailed.current ? <Button data-consent-role="compact-action" size="standard" variant="none" disabled={locked}
                   onClick={retryDurableSearch}>
                   Search again
                 </Button> : undefined}
@@ -2027,23 +2027,23 @@ function UnlockedDocumentReview({
               </div>
               {bulkPageLoading ? <HelperText>Loading files…</HelperText> : null}
               {bulkPageError ? <div><HelperText role="alert">Couldn&apos;t load files.</HelperText>
-                <Button size="standard" variant="none" data-consent-quiet-action="true" onClick={() => setBulkPageRetry(value => value + 1)}>Try again</Button></div> : null}
+                <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" onClick={() => setBulkPageRetry(value => value + 1)}>Try again</Button></div> : null}
               {bulkPrevious.length || bulkPage?.nextCursor ? (
                 <div className="flex flex-wrap gap-2">
-                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={bulkPageLoading || !bulkPrevious.length}
+                  <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" disabled={bulkPageLoading || !bulkPrevious.length}
                     onClick={() => { setBulkCursor(bulkPrevious.at(-1) ?? null); setBulkPrevious(items => items.slice(0, -1)); }}>Previous</Button>
-                  <Button size="standard" variant="none" data-consent-quiet-action="true" disabled={bulkPageLoading || !bulkPage?.nextCursor}
+                  <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" disabled={bulkPageLoading || !bulkPage?.nextCursor}
                     onClick={() => { setBulkPrevious(items => [...items, bulkCursor]); setBulkCursor(bulkPage?.nextCursor ?? null); }}>Next 25</Button>
                 </div>
               ) : null}
               {bulkShare.status === "review_ready" ? <FlowActionGroup
-                primary={<Button size="prominent" disabled={locked || legacySearch || !bulkPage || bulkPageError || bulkPageLoading}
+                primary={<Button data-consent-role="primary-action" size="prominent" disabled={locked || legacySearch || !bulkPage || bulkPageError || bulkPageLoading}
                   onClick={() => mutate((token, guard) => v1ManualReview && review.requestedAccessDays != null
                     ? DriveSharingService.approveBulkShare(token, bulkShare, guard, selectedAccessDays)
                     : DriveSharingService.approveBulkShare(token, bulkShare, guard), "sharing")}>
                   {legacySearch ? "New request needed" : `${v1ManualReview ? "Approve" : "Share"} ${bulkShare.fileCount.toLocaleString()} ${bulkShare.fileCount === 1 ? "file" : "files"}`}
                 </Button>}
-                secondary={batchCount === 0 ? <Button size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button> : undefined}
+                secondary={batchCount === 0 ? <Button data-consent-role="compact-action" size="standard" variant="none" disabled={locked} onClick={() => decide("decline")}>Decline</Button> : undefined}
               /> : null}
             </>
           ) : null}
@@ -2136,7 +2136,7 @@ function UnlockedDocumentReview({
                             />
                           }
                         >
-                          <label className="cursor-pointer" />
+                          <label data-consent-role="form-label" className="cursor-pointer" />
                         </SettingsRow>
                       ) : null,
                       ...review.files.map((file) => (
@@ -2166,7 +2166,7 @@ function UnlockedDocumentReview({
                             />
                           }
                         >
-                          <label className="cursor-pointer" />
+                          <label data-consent-role="form-label" className="cursor-pointer" />
                         </SettingsRow>
                       )),
                     ]}
@@ -2258,7 +2258,7 @@ function UnlockedDocumentReview({
                   />
                 }
               >
-                <label className="cursor-pointer" />
+                <label data-consent-role="form-label" className="cursor-pointer" />
               </SettingsRow>
             </SettingsGroup>
           ) : null}
@@ -2270,12 +2270,12 @@ function UnlockedDocumentReview({
           {finding ? (
             <FlowActionGroup
               primary={
-                <Button size="prominent" disabled>
+                <Button data-consent-role="primary-action" size="prominent" disabled>
                   Share files
                 </Button>
               }
               secondary={
-                <Button
+                <Button data-consent-role="compact-action"
                   size="standard"
                   variant="none"
                   disabled={locked}
@@ -2288,7 +2288,7 @@ function UnlockedDocumentReview({
           ) : review.files.length === 0 ? (
             <FlowActionGroup
               primary={
-                <Button
+                <Button data-consent-quiet-action="true" data-consent-role="primary-action"
                   size="prominent"
                   disabled={activity !== "idle"}
                   onClick={() => decide("review/refresh")}
@@ -2297,7 +2297,7 @@ function UnlockedDocumentReview({
                 </Button>
               }
               secondary={
-                <Button
+                <Button data-consent-role="compact-action"
                   size="standard"
                   variant="none"
                   disabled={locked}
@@ -2310,7 +2310,7 @@ function UnlockedDocumentReview({
           ) : (
             <FlowActionGroup
               primary={
-                <Button
+                <Button data-consent-role="primary-action"
                   size="prominent"
                   disabled={locked || !canApprove || selectedIds.length === 0}
                   onClick={() =>
@@ -2343,7 +2343,7 @@ function UnlockedDocumentReview({
                 </Button>
               }
               secondary={
-                <Button
+                <Button data-consent-role="compact-action"
                   size="standard"
                   variant="none"
                   disabled={locked}
@@ -2353,7 +2353,7 @@ function UnlockedDocumentReview({
                 </Button>
               }
               tertiary={
-                <Button
+                <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                   size="standard"
                   variant="none"
                   disabled={activity !== "idle"}
@@ -2392,7 +2392,7 @@ function UnlockedDocumentReview({
                   }
                   trailing={
                     file.openUrl ? (
-                      <Button
+                      <Button data-consent-role="compact-action"
                         asChild
                         size="sm"
                         variant="none"
@@ -2542,7 +2542,7 @@ function UnlockedDocumentReview({
           </HelperText>
           <FlowActionGroup
             primary={
-              <Button
+              <Button data-consent-role="primary-action"
                 size="prominent"
                 variant="destructive"
                 disabled={locked || Date.parse(removal.expiresAt) <= now}
@@ -2563,7 +2563,7 @@ function UnlockedDocumentReview({
               </Button>
             }
             secondary={
-              <Button
+              <Button data-consent-quiet-action="true" data-consent-role="compact-action"
                 size="standard"
                 variant="none"
                 disabled={activity !== "idle"}
@@ -2577,7 +2577,7 @@ function UnlockedDocumentReview({
       ) : null}
 
       {showRefreshStatus ? (
-        <Button
+        <Button data-consent-role="compact-action"
           size="standard"
           variant="none"
           disabled={activity !== "idle"}

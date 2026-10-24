@@ -60,7 +60,7 @@ export function RequestTimeline({ steps }: { steps: TimelineStep[] }) {
                 step.state === "upcoming" ? "bg-border"
                   : neutral ? "bg-muted-foreground/70" : "bg-accent-strong"}`} />
             </span>
-            <span className={`max-w-full truncate text-[11px] leading-4 transition-colors duration-150 ${
+            <span data-consent-role="row-title" className={`max-w-full truncate text-[11px] leading-4 transition-colors duration-150 ${
               step.state === "current" ? "font-medium text-foreground"
                 : reached ? "text-foreground/75" : "text-muted-foreground/70"}`}>
               {step.label}
@@ -115,13 +115,13 @@ export function RequesterProgressBody({ progress, phase, personName, purpose, de
 
   return (
     <div className="space-y-4" data-testid="requester-progress" data-outcome={progress.outcome} data-phase={phase ?? "none"}>
-      <p className="text-sm leading-6 text-foreground">{purpose}</p>
+      <p data-consent-role="body" className="text-sm leading-6 text-foreground">{purpose}</p>
       <RequestTimeline steps={steps} />
       {/* Once access ends, the notice below is the status; one voice, not two. */}
       {ended ? null : (
         <p role="status" className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium text-foreground">
           <span>{progressHeadline(progress, personName, phase)}</span>
-          {moment ? <span className="text-xs font-normal text-muted-foreground">{moment}</span> : null}
+          {moment ? <span data-consent-role="helper" className="text-xs font-normal text-muted-foreground">{moment}</span> : null}
         </p>
       )}
       {live ? (

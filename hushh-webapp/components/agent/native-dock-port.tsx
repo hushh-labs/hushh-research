@@ -15,7 +15,7 @@ class DockPorts {
   private listeners = new Set<() => void>();
   private snapshot = 0;
   owned = false;
-  height = 52;
+  height = 60;
   layout: DockLayout | null = null;
   private layoutListeners = new Set<() => void>();
   subscribeLayout = (listener: () => void) => { this.layoutListeners.add(listener); return () => { this.layoutListeners.delete(listener); }; };

@@ -12,6 +12,24 @@ publication, accepted queued input retains a model boundary, and later input
 returns for the next turn. Ordinary searches retain synthesis. See the semantic
 declaration in `consent-protocol/docs/reference/backend-semantic-boundary.md`.
 
+Eligible final-answer Search calls stream genuine Azure text through an
+invocation-local, bounded ADK event queue. The native AgentTool still owns the
+isolated child session and returns one validated result. A request-local model
+observer consumes Azure SSE internally even though AgentTool requests a unary
+result; only the terminal validated response returns to that wrapper. No raw SSE
+format or frontend parser is added. The first visible child delta atomically
+closes an empty queued-input inbox; earlier pending messages retain root
+continuation, and later messages use the existing next-turn path.
+
+Partial text is a draft, not verified citations or successful completion. Failed
+receipt, billing, authority or final-text validation ends with the existing error
+contract; visible draft text may remain with the failure notice, but no completed
+assistant answer is committed. The streamed prefix must match both the validated
+provider text and the post-callback AgentTool result. Later native content parts
+wait for validated ordering before their suffix is published. Only the complete
+answer and grounding enter history. Stop and authority are checked at actual
+publication; cancellation joins the producer and closes its SDK iterator.
+
 Explicit short-answer delegation selects LOW search context on an invocation-local
 child/model copy. Ordinary and deeper research retain their existing context;
 reasoning effort, source validation and native-call budgets do not change.
@@ -20,6 +38,10 @@ Rejected Azure search receipts remain failures and map to the existing authored
 Content-free Azure telemetry records a closed `protocol_code`, response status
 and bounded usage before unary validation; rejected output never counts as an
 admitted first output. No message, citation URL, title or provider body is logged.
+Separate content-free wire first-event, first-text and completion timings exclude
+consumer-held generator time. Random call/parent IDs and the existing short run
+label join root and child calls without owner identifiers. Generator lifetime
+remains for compatibility and must not be added to overlapping child durations.
 
 
 ## Visual Context

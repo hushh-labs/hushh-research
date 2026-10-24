@@ -207,6 +207,14 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - The exact answer and grounding become one ordinary One assistant event;
   `one_delegated_search_answer_v1` and content-free saved-call telemetry expose
   the removed synthesis stage. No transcript is placed in handoff state.
+- Eligible public-answer drafts may stream through a request-local observer and
+  bounded ADK queue. One still owns the explicit finish decision. Before the first
+  visible delta, an atomic empty-inbox cutover reserves final-answer publication;
+  earlier pending input keeps ordinary continuation and later input returns for
+  the next turn. Draft text grants no citation, action or completion authority.
+  Final receipt/billing checks and exact post-callback text parity remain
+  mandatory. Failed drafts retain the existing error notice and never become a
+  completed history answer. Every actual publication rechecks authority and Stop.
 - Live eval: before promotion, measure public-only synthetic Azure calls against
   the serving model; after UAT promotion, require authenticated HTTP search,
   citations and same-chat continuation, joined to the serving revision's logs.

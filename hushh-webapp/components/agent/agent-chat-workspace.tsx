@@ -93,6 +93,7 @@ import type { InformationRequestBundle } from "@/lib/services/person-profile-ser
 import { FEED_ATTENTION_LABEL } from "@/lib/agent/feed-attention";
 import { useFeedAttentionTurn } from "@/lib/agent/use-feed-attention-turn";
 import {
+  AudioLines,
   Check,
   ChevronDown,
   Cloud,
@@ -9500,7 +9501,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     projection: {
       context: conversationId ?? composerDraft.context,
       mode: "text", text: input,
-      placeholder: chatOnboarding.composerPlaceholder ?? "Message One…",
+      placeholder: chatOnboarding.composerPlaceholder ?? "Message One",
       editorLabel: "Message One",
       expanded: composerExpanded,
       editable: !recoveryInspectionPending && !isVoiceConnecting && !isHistoryDrawerOpen,
@@ -9537,15 +9538,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return undefined;
     },
   } : null);
+  const compactRootComposer = isCanonicalChatRoute && !composerExpanded;
+  const composerHasDraft = input.length > 0 || longPromptAttachment !== null;
+  const composerShowsStop = Boolean(stoppableTurn && (isStreaming || isChatLoading) && !canSend);
   const composerActionRail = (
     <>
-      {agentVoiceEnabled ? (
+      {agentVoiceEnabled && (!compactRootComposer || (!composerHasDraft && !composerShowsStop)) ? (
         <ShellActionSurface
           type="button"
           data-native-voice-control-id="one_voice_agent_chat_start"
           data-testid="one-voice-agent-chat-start"
           data-agent-composer-action="mic"
-          className="text-[color:var(--ios-account-label)]"
+          data-agent-composer-primary={compactRootComposer || undefined}
+          className={compactRootComposer ? "text-[color:var(--app-accent-fg)]" : "text-[color:var(--ios-account-label)]"}
           disabled={!canToggleVoice}
           onClick={() => {
             void startConversationalVoice();
@@ -9553,10 +9558,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           aria-label="Start voice mode"
           title="Start voice mode"
         >
-          <ProfilePaneMicrophoneIcon size={20} />
+          {compactRootComposer ? <AudioLines className="size-5" /> : <ProfilePaneMicrophoneIcon size={20} />}
         </ShellActionSurface>
       ) : null}
-      {stoppableTurn && (isStreaming || isChatLoading) && !canSend ? (
+      {composerShowsStop ? (
         // While One works, an empty composer offers Stop in Send's place; any
         // text turns it back into Send, which queues the message.
         <ShellActionSurface
@@ -9564,6 +9569,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           rippleEffect="fill"
           data-testid="agent-chat-stop-turn"
           data-agent-composer-action="stop"
+          data-agent-composer-primary={compactRootComposer || undefined}
           className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
           aria-label="Stop One"
           title="Stop One"
@@ -9573,10 +9579,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         >
           <StopSquare className="h-3.5 w-3.5" />
         </ShellActionSurface>
-      ) : (
+      ) : !compactRootComposer || composerHasDraft || !agentVoiceEnabled ? (
       <ShellActionSurface
         type="submit"
         data-agent-composer-action="send"
+        data-agent-composer-primary={compactRootComposer || undefined}
         rippleEffect="fill"
         className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
         disabled={!canSend}
@@ -9593,7 +9600,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       >
         <Send className="h-4 w-4" />
       </ShellActionSurface>
-      )}
+      ) : null}
     </>
   );
 
@@ -11496,7 +11503,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           chatOnboarding.composerPlaceholder ??
                           (composerExpanded
                             ? "Write a longer message..."
-                            : "Message One...")
+                            : isCanonicalChatRoute ? "Message One" : "Message One...")
                         }
                         rows={1}
                         className={

@@ -77,6 +77,8 @@ class _Mappings:
 class _Result:
     def __init__(self, value: Any) -> None:
         self._value = value
+        # This inventory connection owns no rows; batched DML settles at zero.
+        self.rowcount = 0
 
     def scalar(self) -> Any:
         return self._value

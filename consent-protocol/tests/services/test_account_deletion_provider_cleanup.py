@@ -26,6 +26,7 @@ from hushh_mcp.services.gmail_receipts_service import GmailReceiptsService
 from hushh_mcp.services.google_connection_service import GoogleConnectionService
 
 _KEY = b"k" * 32
+pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
 
 
 def _snapshot(**rows) -> ProviderCredentialSnapshot:

@@ -31,7 +31,7 @@ export function DocumentHashcoinPayouts() {
   }, []);
 
   if (!wallet.token) return null;
-  return <div className="space-y-4">
+  return <div className="consent-presentation-surface space-y-4">
     <YourMoneyCard wallet={wallet} bank={bank} liveRedeemEnabled={redeem.liveRedeemEnabled}
       freshness={<PayoutFreshness />} bankRows={<PayoutBankRows handleReturn onAccountChange={setBank} actionsRef={bankActions} />} />
     {redeem.liveRedeemEnabled ? <RedeemAction wallet={wallet} redeem={redeem} data-voice-control-id="profile_payouts_redeem" /> : null}

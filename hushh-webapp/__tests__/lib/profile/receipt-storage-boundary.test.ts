@@ -240,13 +240,15 @@ function scanPage(items: ReceiptListItem[], extra: Partial<GmailLiveReceiptScanR
 }
 describe("Mail saved-first return and incremental continuity", () => {
   it("restores the 22nd without a provider read, catches up on the 24th and preserves archived source deletion", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-22T12:00:00Z"));
     const scan = vi.spyOn(GmailReceiptsService, "scanReceipts").mockResolvedValueOnce(scanPage([stableReceipt(1), stableReceipt(2)]));
     await Resource.refresh(session, "account", async () => "synthetic");
     Resource.clear("owner");
     await Resource.hydrate(session, "account");
     expect(scan).toHaveBeenCalledTimes(1);
     expect(Resource.peek("owner", "account").snapshot?.rows).toHaveLength(2);
-    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-10-24T12:00:00Z").getTime());
+    vi.setSystemTime(new Date("2026-10-24T12:00:00Z"));
     expect(Resource.isStale("owner", "account")).toBe(true);
     scan.mockResolvedValueOnce(scanPage([stableReceipt(2, { status: "delivered" }), stableReceipt(3)],
       { sync_mode: "delta", checkpoint: checkpoint("b"), unavailable_events: ["1".repeat(64)] }));

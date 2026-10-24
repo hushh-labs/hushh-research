@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import nullcontext
 
 try:
     import resource
@@ -13,13 +14,14 @@ except ImportError:  # Windows has no POSIX resource-limit module.
 if __package__:
     from .document_index_limits import CHUNK_CHARACTERS, INDEX_TEXT_BYTES, MAX_CHUNKS
     from .drive_document_parser import ParsedText
-    from .embedding_client_leaf import MODEL_REVISION, EmbeddingClient
+    from .embedding_client_leaf import MODEL_REVISION, EmbeddingAdmissionTimings, EmbeddingClient
 else:
     from document_index_limits import CHUNK_CHARACTERS, INDEX_TEXT_BYTES, MAX_CHUNKS
     from drive_document_parser import ParsedText
-    from embedding_client_leaf import MODEL_REVISION, EmbeddingClient
+    from embedding_client_leaf import MODEL_REVISION, EmbeddingAdmissionTimings, EmbeddingClient
 
 PROFILE = "drive-parser-v1:e5-" + MODEL_REVISION
+PUBLIC_ADMISSION_QUERY = "synthetic statement"
 
 
 class InvalidQuery(ValueError):
@@ -85,16 +87,25 @@ def main() -> None:
     if sys.platform == "linux":
         resource.setrlimit(resource.RLIMIT_AS, (8 * 1024 * 1024 * 1024,) * 2)
     try:
-        import torch
-
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
         value = json.loads(sys.stdin.buffer.read(INDEX_TEXT_BYTES * 6 + 4097))
-        if len(sys.argv) != 2 or sys.argv[1] not in {"embed", "query"}:
+        if len(sys.argv) != 2 or sys.argv[1] not in {"embed", "query", "admit"}:
             raise ValueError("invalid operation")
-        client = EmbeddingClient(local_files_only=True)
-        if sys.argv[1] == "query":
+        admission = sys.argv[1] == "admit"
+        # Timing is authorized only for this exact public payload, never for a
+        # person's query or an extra field smuggled into the startup operation.
+        if admission and value != {"query": PUBLIC_ADMISSION_QUERY}:
+            raise InvalidQuery("invalid admission")
+        timings = EmbeddingAdmissionTimings() if admission else None
+        with timings.measure("torch_setup") if timings else nullcontext():
+            import torch
+
+            torch.set_num_threads(1)
+            torch.set_num_interop_threads(1)
+        client = EmbeddingClient(local_files_only=True, admission_timings=timings)
+        if sys.argv[1] in {"query", "admit"}:
             result = query_payload(client, value["query"])
+            if timings is not None:
+                result["admission_timings"] = timings.values
             sys.stdout.write(json.dumps(result))
             return
         pages = value["pages"]

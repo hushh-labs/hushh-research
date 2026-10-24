@@ -70,9 +70,9 @@ function ActionButton({ action }: { action: PacketPageAction }) {
   const emphasis = action.emphasis ?? "primary";
   const look = { size: emphasis === "plain" ? "standard" : "prominent", variant: emphasis === "primary" ? "blue" : "none",
     effect: emphasis === "plain" ? "fade" : "fill" } as const;
-  if (action.href !== undefined) return <Button asChild {...look}><Link href={action.href}>{action.label}</Link></Button>;
+  if (action.href !== undefined) return <Button data-consent-role={emphasis === "primary" ? "primary-action" : "compact-action"} data-consent-quiet-action={emphasis === "plain" ? "true" : undefined} asChild {...look}><Link href={action.href}>{action.label}</Link></Button>;
   return (
-    <Button type="button" {...look} disabled={action.disabled} aria-expanded={action.expanded} onClick={action.onSelect}>
+    <Button data-consent-role={emphasis === "primary" ? "primary-action" : "compact-action"} data-consent-quiet-action={emphasis === "plain" ? "true" : undefined} type="button" {...look} disabled={action.disabled} aria-expanded={action.expanded} onClick={action.onSelect}>
       {action.label}
     </Button>
   );

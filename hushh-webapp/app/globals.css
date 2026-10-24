@@ -6790,7 +6790,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .agent-chat-composer-compact {
-  padding: 0.25rem 0.375rem 0.25rem 1rem;
+  padding: 0.4375rem 0.5rem 0.4375rem 1rem;
 }
 .agent-chat-composer-field {
   box-sizing: border-box;
@@ -6817,10 +6817,17 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   border-radius: 50%;
   background: var(--app-accent);
 }
-.agent-chat-composer-actions .shell-action-surface:not([data-agent-composer-action="send"]):not([data-agent-composer-action="stop"])::before {
+.agent-chat-composer-actions .shell-action-surface:not([data-agent-composer-action="send"]):not([data-agent-composer-action="stop"]):not([data-agent-composer-primary="true"])::before {
   background: transparent;
 }
 .agent-chat-composer-actions .shell-action-surface:disabled::before {
+  background: var(--app-quaternary-fill, rgba(127,127,127,0.12));
+}
+.agent-chat-composer-actions [data-agent-composer-primary="true"]::before {
+  inset: 0;
+  background: var(--app-accent);
+}
+.agent-chat-composer-actions [data-agent-composer-primary="true"]:disabled::before {
   background: var(--app-quaternary-fill, rgba(127,127,127,0.12));
 }
 [data-agent-dock-embedded].agent-chat-composer-surface,
@@ -9890,7 +9897,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
       select,
       [data-slot="select-trigger"],
       [role="combobox"]
-    ) {
+    ):not([data-consent-input]) {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
     font-weight: 400 !important;
@@ -9898,7 +9905,7 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   }
 
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
-    :is(input, textarea)::placeholder {
+    :is(input, textarea):not([data-consent-input])::placeholder {
     font-size: 13px !important;
   }
 }
@@ -10702,7 +10709,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
    Apply this scope to the route, each embedded review and actual portal content;
    a route ancestor cannot reach a Radix dialog, select or Sonner portal. */
 @layer base {
-  :is([data-consent-presentation], .consent-presentation-surface) {
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  ) {
     --type-section-label-size: 14px;
     --type-section-label-line: 22px;
     --type-section-label-weight: 600;
@@ -10731,15 +10741,21 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-family: var(--font-app-body), system-ui, sans-serif;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
-    :is([data-slot="settings-group-heading"], .ui-text-section-label, .ui-text-section-title) {
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
+    :is([data-slot="settings-group-heading"], .ui-text-section-label, .ui-text-section-title, [data-consent-role="section-heading"]) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
     line-height: 22px !important;
     font-weight: 600 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-slot="settings-row-title"], .ui-text-row-label, .ui-text-row-label-compact, [data-consent-role="row-title"]) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10747,7 +10763,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 550 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-slot="settings-row-description"], [data-slot="settings-group-description"], .ui-text-row-description, .ui-text-row-description-compact) {
     font-family: var(--font-app-body) !important;
     font-size: 12px !important;
@@ -10811,7 +10830,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     line-height: 21px !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-consent-role="secondary-heading"], [data-consent-role="group-count"]) {
     font-family: var(--font-app-body) !important;
     font-size: 12px !important;
@@ -10819,7 +10841,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 600 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is(.ui-text-body, [data-consent-role="body"]) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10827,7 +10852,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 400 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is(.ui-text-medium-row-label, .ui-text-row-label-emphasized) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10835,7 +10863,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 550 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-consent-role="form-label"], .ui-text-form-label) {
     font-family: var(--font-app-body) !important;
     font-size: 15px !important;
@@ -10843,7 +10874,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 550 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-consent-role="helper"], [data-consent-role="fact-label"], .ui-text-helper-text) {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
@@ -10851,7 +10885,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 400 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-consent-role="fact-value"], [data-consent-role="body"]) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10859,7 +10896,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 400 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     [data-consent-facts] dt {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
@@ -10867,7 +10907,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 400 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     [data-consent-facts] dd {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10876,7 +10919,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-variant-numeric: tabular-nums;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     [data-consent-role="status"] {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
@@ -10884,7 +10930,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 600 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([role="status"], [role="alert"]):not(.sr-only):not([data-consent-role="disclosure"]) {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
@@ -10892,7 +10941,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 600 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     [data-consent-role="disclosure"] {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10900,7 +10952,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 400 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     [data-consent-role="utility"] {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
@@ -10908,12 +10963,63 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 550 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     [data-consent-role="task-title"] {
     font-family: var(--font-app-body) !important;
     font-size: 20px !important;
     line-height: 28px !important;
     font-weight: 600 !important;
+  }
+
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
+    [data-consent-role="compact-action"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 12px !important;
+    line-height: 18px !important;
+    font-weight: 550 !important;
+    min-height: 44px;
+    max-width: 100%;
+    height: auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
+    :is([data-consent-role="task-action"], [data-consent-action-context="task"]) {
+    font-family: var(--font-app-body) !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    font-weight: 600 !important;
+    min-height: 44px;
+    max-width: 100%;
+    height: auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
+    [data-consent-role="primary-action"] {
+    font-family: var(--font-app-body) !important;
+    font-size: 17px !important;
+    line-height: 22px !important;
+    font-weight: 650 !important;
+    min-height: 44px;
+    max-width: 100%;
+    height: auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .consent-presentation-surface {
@@ -10927,7 +11033,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     --foundation-title3-weight: 600;
   }
 
-  .consent-presentation-surface
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-slot="dialog-title"], [data-slot="sheet-title"], [data-slot="drawer-title"], [data-slot="alert-dialog-title"], .ui-text-navigation-title) {
     font-family: var(--font-app-body) !important;
     font-size: 20px !important;
@@ -10935,7 +11044,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 600 !important;
   }
 
-  .consent-presentation-surface
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-slot="dialog-description"], [data-slot="sheet-description"], [data-slot="drawer-description"], [data-slot="alert-dialog-description"]) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10943,15 +11055,21 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 400 !important;
   }
 
-  .consent-presentation-surface
-    :is([data-slot="dialog-footer"], [data-slot="sheet-footer"], [data-slot="alert-dialog-footer"]) :is(button, a) {
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
+    :is([data-slot="dialog-footer"], [data-slot="sheet-footer"], [data-slot="drawer-footer"], [data-slot="alert-dialog-footer"], [data-task-region="footer"]) :is(button, a) {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
     line-height: 20px !important;
     font-weight: 600 !important;
   }
 
-  .consent-presentation-surface
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([data-slot="alert-dialog-action"], [data-slot="alert-dialog-cancel"]) {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
@@ -10959,7 +11077,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 600 !important;
   }
 
-  .consent-presentation-surface
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is([role="menuitemradio"], [data-slot="select-item"]) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10974,7 +11095,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 550 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     [data-consent-input] {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
@@ -10982,7 +11106,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
     font-weight: 400 !important;
   }
 
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     input[data-consent-input] {
     min-height: 48px;
     height: 48px;
@@ -10991,7 +11118,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
 
 /* Draw the inner pill behind each existing Button/Link. The button owns the
    touch target, focus ring and ripple; a pseudo element adds no DOM or action. */
-:is([data-consent-presentation], .consent-presentation-surface)
+:is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
   :is(button, a)[data-consent-quiet-action] {
   position: relative;
   isolation: isolate;
@@ -11012,7 +11142,10 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
   white-space: normal !important;
   text-align: center;
 }
-:is([data-consent-presentation], .consent-presentation-surface)
+:is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
   :is(button, a)[data-consent-quiet-action]::before {
   content: "";
   position: absolute;
@@ -11023,32 +11156,50 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
   border-radius: 999px;
   background: var(--app-card-surface-default-solid);
 }
-:is([data-consent-presentation], .consent-presentation-surface)
+:is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
   :is(button, a)[data-consent-quiet-action]:not(:disabled):not([aria-disabled="true"]):is(:hover, :focus-visible)::before {
   border-color: color-mix(in srgb, var(--app-accent) 48%, var(--app-card-surface-default-solid));
   background: color-mix(in srgb, var(--app-accent) 6%, var(--app-card-surface-default-solid));
 }
-:is([data-consent-presentation], .consent-presentation-surface)
+:is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
   :is(button, a)[data-consent-quiet-action][data-consent-action-context="task"] {
   font-size: 13px !important;
   line-height: 20px !important;
   font-weight: 600 !important;
 }
-:is([data-consent-presentation], .consent-presentation-surface)
+:is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
   :is(button, a)[data-consent-quiet-action]:disabled {
   opacity: 0.6;
 }
 
 @media (max-width: 620px) {
   @layer base {
-    :is([data-consent-presentation], .consent-presentation-surface) {
+    :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  ) {
       --type-input-value-size: 16px;
     }
-    :is([data-consent-presentation], .consent-presentation-surface)
+    :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
       [data-consent-input] {
       font-size: 16px !important;
     }
-    :is([data-consent-presentation], .consent-presentation-surface)
+    :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
       [data-consent-role="utility"] {
       font-size: 12px !important;
     }
@@ -11060,14 +11211,20 @@ html:has([data-location-type-scale="connect"]) [data-sonner-toast] [data-descrip
       font-size: 12px !important;
     }
   }
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is(button, a)[data-consent-quiet-action] {
     min-width: 78px;
     padding-inline: 11px !important;
   }
 }
 @media (max-width: 350px) {
-  :is([data-consent-presentation], .consent-presentation-surface)
+  :is(
+    .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"] .consent-presentation-surface,
+    [data-consent-presentation], .consent-presentation-surface
+  )
     :is(button, a)[data-consent-quiet-action] {
     min-width: 72px;
     padding-inline: 9px !important;

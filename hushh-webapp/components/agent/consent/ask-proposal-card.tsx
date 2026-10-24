@@ -233,7 +233,7 @@ function CatalogPicker({ personName, selected, onToggle, searchCatalog }: {
   const selectedRefs = new Set(selected.map((scope) => scope.scopeRef));
   return (
     <div className="space-y-2" data-testid="ask-catalog-picker">
-      <label className="relative block">
+      <label data-consent-role="form-label" className="relative block">
         <span className="sr-only">Search what {firstName(personName)} can share</span>
         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
         <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
@@ -263,10 +263,10 @@ function CatalogPicker({ personName, selected, onToggle, searchCatalog }: {
           <li data-consent-role="body" className="px-3.5 py-3 text-sm text-muted-foreground">Nothing matches. Try another word.</li>
         ) : null}
       </ul>
-      {state === "error" ? <p role="alert" className="text-sm text-muted-foreground">We couldn’t search right now. Please try again.</p> : null}
+      {state === "error" ? <p data-consent-role="status" role="alert" className="text-sm text-muted-foreground">We couldn’t search right now. Please try again.</p> : null}
       {state === "loading" ? <p data-consent-role="helper" className="text-xs text-muted-foreground">Searching…</p> : null}
       {page?.nextPage && state !== "loading" ? (
-        <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" onClick={() => run(query, page.nextPage!)}>Show more</MorphyButton>
+        <MorphyButton data-consent-role="compact-action" type="button" size="sm" variant="none" data-consent-quiet-action="true" onClick={() => run(query, page.nextPage!)}>Show more</MorphyButton>
       ) : null}
     </div>
   );
@@ -388,16 +388,16 @@ export function AskProposalCard({ personName, proposal, ready, sending, error, o
         </div>
       ) : null}
 
-      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p data-consent-role="status" role="alert" className="text-sm text-destructive">{error}</p> : null}
       {!changing && reason.trim().length < MIN_REASON ? (
         <p data-consent-role="helper" className="text-xs text-muted-foreground">Add a reason so {firstName(personName)} can decide.</p>
       ) : null}
       <div ref={actionsRef} data-testid="ask-proposal-actions" className="flex flex-wrap items-center gap-2">
-        <MorphyButton type="button" size="sm" className="min-h-11" disabled={!canSend}
+        <MorphyButton data-consent-role="compact-action" type="button" size="sm" className="min-h-11" disabled={!canSend}
           onClick={() => onSend({ scopes, purpose: reason.trim(), durationHours })}>
           {sending ? "Sending…" : !ready || !placed ? "Checking…" : "Send"}
         </MorphyButton>
-        <MorphyButton type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={sending}
+        <MorphyButton data-consent-role="compact-action" type="button" size="sm" variant="none" data-consent-quiet-action="true" disabled={sending}
           onClick={() => setChanging((current) => !current)}>
           {changing ? "Done" : "Change"}
         </MorphyButton>

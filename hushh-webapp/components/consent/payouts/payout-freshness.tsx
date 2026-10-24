@@ -75,7 +75,7 @@ export function PayoutFreshness({ className }: { className?: string }) {
 
   return (
     <span className={cn("[overflow-wrap:anywhere]", className)} data-testid="payout-freshness">
-      <span role="status" aria-live="polite">{notice ?? ""}</span>
+      <span data-consent-role="status" role="status" aria-live="polite">{notice ?? ""}</span>
       {detail ? <span>{notice ? ` · ${detail}` : detail}</span> : null}
       {notice === "Couldn't update" ? (
         <button

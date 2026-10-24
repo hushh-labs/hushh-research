@@ -4,14 +4,147 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _frontend_release():
+    return {
+        "_FRONTEND_RUNTIME_SERVICE_ACCOUNT": "hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+        "_APP_ENV": "uat",
+        "_DEPLOY_ENV": "uat",
+        "_DEPLOY_SOURCE": "deploy-uat",
+        "_DEPLOY_SHA": "a" * 40,
+        "_GITHUB_RUN_ID": "42",
+        "_GITHUB_RUN_ATTEMPT": "1",
+        "_SKIP_IMAGE_BUILD": "true",
+        "_CLOUD_RUN_NO_TRAFFIC": "true",
+        "_IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/hushh-webapp@sha256:" + "b" * 64,
+        "_CLOUD_RUN_MEMORY": "1Gi",
+        "_CLOUD_RUN_MIN_INSTANCES": "2",
+        "_CLOUD_RUN_MAX_INSTANCES": "10",
+        "_CLOUD_RUN_CONCURRENCY": "10",
+        "_CLOUD_RUN_TIMEOUT_SECONDS": "300",
+        "_REGION": "us-central1",
+    }
+
+
+def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend_setting():
+    module = _uat_build_module()
+    backend = module.candidate_parallel_config(
+        yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+    )
+    frontend = yaml.safe_load(_read("deploy/frontend.cloudbuild.yaml"))
+    release = _frontend_release()
+    backend_values = {key: release[key] for key in module.SHARED_SUBSTITUTIONS}
+    config = module.frontend_parallel_config(backend, frontend, backend_values, release)
+    assert config["steps"][: len(backend["steps"])] == backend["steps"]
+    for key in backend.keys() - {"steps", "substitutions"}:
+        assert config[key] == backend[key]
+    assert all(
+        config["substitutions"][key] == value for key, value in backend["substitutions"].items()
+    )
+    assert config["substitutions"]["_WEB_CLOUD_RUN_MIN_INSTANCES"] == "2"
+    assert config["substitutions"]["_WEB_IMAGE_REFERENCE"] == release["_IMAGE_REFERENCE"]
+    # The original three steps, including secret/configuration checks, are
+    # preserved. Only custom substitution names and explicit ordering change.
+    remap = {
+        key: key if key in module.SHARED_SUBSTITUTIONS else "_WEB_" + key[1:]
+        for key in frontend["substitutions"]
+    }
+
+    def restore(value):
+        if isinstance(value, str):
+            for key, renamed in remap.items():
+                value = value.replace("${" + renamed + "}", "${" + key + "}")
+            return value
+        if isinstance(value, dict):
+            return {key: restore(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [restore(item) for item in value]
+        return value
+
+    for index, original in enumerate(frontend["steps"]):
+        step = deepcopy(config["steps"][len(backend["steps"]) + index])
+        assert step.pop("waitFor") == (
+            ["build-backend-image", "verify-runtime-iam"]
+            if index == 0
+            else [module.FRONTEND_STEPS[index - 1]]
+        )
+        assert restore(step) == original
+        assert not step.get("allowFailure") and not step.get("allowExitCodes")
+    assert restore(config["availableSecrets"]) == frontend["availableSecrets"]
+    # Catch the real Cloud Build argument/env-limit outage on this generated
+    # config too, after substitution, with the existing 500-character margin.
+    for step in config["steps"]:
+        assert len(step.get("env", [])) <= 100
+        for value in step.get("args", []) + step.get("env", []):
+            rendered = module.CUSTOM_SUBSTITUTION.sub(
+                lambda match: config["substitutions"][match[1]], value
+            )
+            assert len(rendered) <= 9500
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("_DEPLOY_SHA", "c" * 40),
+        ("_DEPLOY_ENV", "production"),
+        ("_SKIP_IMAGE_BUILD", "false"),
+        ("_CLOUD_RUN_NO_TRAFFIC", "false"),
+        ("_FRONTEND_RUNTIME_SERVICE_ACCOUNT", "another@hushh-pda-uat.iam.gserviceaccount.com"),
+        ("_IMAGE_REFERENCE", "gcr.io/hushh-pda-uat/hushh-webapp:latest"),
+        ("_GITHUB_RUN_ATTEMPT", ""),
+        ("_SECRET_PREFIX", "FOREIGN_"),
+        ("_MAIL_API_ENDPOINT", "${_OTHER}"),
+    ],
+)
+def test_combined_frontend_refuses_unpinned_traffic_or_different_release(key, value):
+    module = _uat_build_module()
+    release = _frontend_release()
+    backend_values = {name: release[name] for name in module.SHARED_SUBSTITUTIONS}
+    release[key] = value
+    with pytest.raises(ValueError, match="Parallel frontend"):
+        module.frontend_parallel_config(
+            module.candidate_parallel_config(
+                yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+            ),
+            yaml.safe_load(_read("deploy/frontend.cloudbuild.yaml")),
+            backend_values,
+            release,
+        )
+
+
+@pytest.mark.parametrize("mutation", ["missing_check", "optional_check", "dynamic", "ordering"])
+def test_combined_frontend_refuses_missing_or_weakened_template_checks(mutation):
+    module = _uat_build_module()
+    frontend = yaml.safe_load(_read("deploy/frontend.cloudbuild.yaml"))
+    if mutation == "missing_check":
+        frontend["steps"].pop(0)
+    elif mutation == "optional_check":
+        frontend["steps"][0]["allowFailure"] = True
+    elif mutation == "dynamic":
+        frontend["substitutions"]["_MAIL_API_ENDPOINT"] = "${_OTHER}"
+    else:
+        frontend["steps"][0]["waitFor"] = ["-"]
+    release = _frontend_release()
+    with pytest.raises(ValueError, match="complete compatible"):
+        module.frontend_parallel_config(
+            module.candidate_parallel_config(
+                yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+            ),
+            frontend,
+            {key: release[key] for key in module.SHARED_SUBSTITUTIONS},
+            release,
+        )
 
 
 def _read(path: str) -> str:
@@ -25,6 +158,91 @@ def _uat_build_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize(
+    "backend,status,pin_status,parallel",
+    [
+        (True, "SUCCESS", 0, True),
+        (True, "WORKING", 0, False),
+        (False, "SUCCESS", 0, False),
+        (True, "SUCCESS", 7, False),
+    ],
+)
+def test_frontend_overlap_requires_a_ready_pinned_image_and_keeps_cold_fallback(
+    tmp_path, backend, status, pin_status, parallel
+):
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    script = next(step["run"] for step in steps if step.get("id") == "prepare-frontend-rollout")
+    release = _frontend_release()
+    expressions = {
+        "env.GCP_PROJECT_ID": "hushh-pda-uat",
+        "env.GCP_REGION": "us-central1",
+        "env.FRONTEND_SERVICE": "hushh-webapp",
+        "env.FRONTEND_RUNTIME_SERVICE_ACCOUNT": release["_FRONTEND_RUNTIME_SERVICE_ACCOUNT"],
+        "steps.resolve-sha.outputs.sha": release["_DEPLOY_SHA"],
+        "github.run_id": "42",
+        "github.run_attempt": "1",
+        "steps.scope.outputs.deploy_backend": str(backend).lower(),
+        "steps.start-frontend-image-build.outputs.prebuilt": "true",
+    }
+    script = re.sub(
+        r"\$\{\{\s*(.*?)\s*\}\}", lambda match: expressions.get(match[1], "fixture"), script
+    )
+    helper = tmp_path / "scripts/ci/await-prebuilt-image.sh"
+    helper.parent.mkdir(parents=True)
+    helper.write_text(
+        'echo pin >> "$CALLS"\n[ "$PIN_STATUS" = 0 ] || exit "$PIN_STATUS"\n'
+        'printf "%s\\n" "$PINNED_IMAGE"\n'
+    )
+    output, calls = tmp_path / "output", tmp_path / "calls"
+    result = subprocess.run(  # noqa: S603 - authored admission step, synthetic cloud/image commands.
+        [
+            shutil.which("bash") or "bash",
+            "-c",
+            'gcloud() { echo describe >> "$CALLS"; printf "%s\\n" "$BUILD_STATUS"; };\n' + script,
+        ],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "GITHUB_OUTPUT": str(output),
+            "CALLS": str(calls),
+            "PIN_STATUS": str(pin_status),
+            "PINNED_IMAGE": release["_IMAGE_REFERENCE"],
+            "BUILD_STATUS": status,
+            "FRONTEND_BUILD_SUBSTITUTIONS": "_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=uat-fixture",
+            "FRONTEND_IMAGE_BUILD_ID": "fixture",
+            "FRONTEND_IMAGE_TAG": "uat-fixture",
+        },
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    assert result.returncode == pin_status, result.stderr
+    outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert (outputs["parallel"] == "true") is parallel
+    observed = calls.read_text().splitlines() if calls.exists() else []
+    assert observed == (
+        ["describe", "pin"] if backend and status == "SUCCESS" else ["describe"] if backend else []
+    )
+    if parallel:
+        assert outputs["image_reference"] == release["_IMAGE_REFERENCE"]
+        module = _uat_build_module()
+        # Validate the actual workflow's assembled values, not another fixture
+        # copy of its service identity, zero-traffic or exact-release settings.
+        module.frontend_parallel_config(
+            module.candidate_parallel_config(
+                yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
+            ),
+            yaml.safe_load(_read("deploy/frontend.cloudbuild.yaml")),
+            {key: release[key] for key in module.SHARED_SUBSTITUTIONS},
+            module.substitutions(
+                outputs["substitutions"]
+                + ",_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE="
+                + outputs["image_reference"],
+                ",",
+            ),
+        )
 
 
 def test_uat_candidate_warms_in_parallel_and_aggregate_still_joins_every_gate():

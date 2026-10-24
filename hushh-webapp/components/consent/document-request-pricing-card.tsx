@@ -33,7 +33,7 @@ function RequestPricingForm({ model }: { model: ReturnType<typeof useDocumentReq
   if (!available) return null;
 
   return (
-    <section aria-label="Request pricing" className="space-y-3">
+    <section aria-label="Request pricing" className="consent-presentation-surface space-y-3">
       <SettingsGroup title="Google Drive" density="compact" separatorInset={false} contentClassName="divide-y-0">
         <SettingsRow icon={ProfileAccountPriceIcon} iconTone="capability"
           className="!min-h-0 [&>.grid]:!min-h-0 [&>.grid]:py-1"
@@ -45,18 +45,18 @@ function RequestPricingForm({ model }: { model: ReturnType<typeof useDocumentReq
           <form className="space-y-2 px-3 pb-2" onSubmit={(event) => { event.preventDefault(); void save(true); }}>
             <div className="space-y-[var(--app-form-field-gap)]">
               <FormLabel as="label" htmlFor={priceId}>Default price (USD)</FormLabel>
-              <Input id={priceId} type="text" inputMode="decimal" value={dollars}
+              <Input data-consent-input="true" id={priceId} type="text" inputMode="decimal" value={dollars}
                 placeholder="Amount" onChange={(event) => change(event.target.value)}
                 disabled={saving} aria-invalid={dollars !== "" && amountCents === null}
                 aria-describedby={`${priceId}-help`} />
               <HelperText id={`${priceId}-help`}>$0.50–$500, including cents.</HelperText>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" size="sm" effect="fade" disabled={!dirty || amountCents === null || saving}>
+              <Button data-consent-role="compact-action" type="submit" size="sm" effect="fade" disabled={!dirty || amountCents === null || saving}>
                 {saving ? "Saving…" : "Save"}
               </Button>
               {saved.enabled ? (
-                <Button type="button" size="sm" effect="fade" variant="none" disabled={saving} onClick={() => void save(false)}>
+                <Button data-consent-quiet-action="true" data-consent-role="compact-action" type="button" size="sm" effect="fade" variant="none" disabled={saving} onClick={() => void save(false)}>
                   Ask each time
                 </Button>
               ) : null}

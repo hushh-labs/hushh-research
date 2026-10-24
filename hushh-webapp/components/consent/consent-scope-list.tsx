@@ -157,7 +157,7 @@ export function ConsentScopeList({
             data-testid={`${testIdPrefix}-toggle-${item.id}`}
           />
         ) : item.badge ? (
-          <span className="text-xs text-muted-foreground">{item.badge}</span>
+          <span data-consent-role="helper" className="text-xs text-muted-foreground">{item.badge}</span>
         ) : undefined
       }
       data-testid={`${testIdPrefix}-row-${item.id}`}
@@ -167,7 +167,7 @@ export function ConsentScopeList({
   if (!filtered.length) {
     return (
       <SettingsGroup title={title} description={description} toolbar={searchField} className="consent-presentation-surface">
-        <p className="px-1 py-3 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-empty`}>
+        <p data-consent-role="body" className="px-1 py-3 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-empty`}>
           {query ? "Nothing matches that." : emptyText}
         </p>
       </SettingsGroup>
@@ -177,7 +177,7 @@ export function ConsentScopeList({
   return (
     <div className={cn("consent-presentation-surface space-y-4", className)} data-testid={testIdPrefix}>
       {showSearch ? (
-        <p className="px-1 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-count`}>
+        <p data-consent-role="body" className="px-1 text-sm text-muted-foreground" data-testid={`${testIdPrefix}-count`}>
           {filtered.length} of {items.length}
         </p>
       ) : null}
@@ -216,7 +216,7 @@ export function ConsentScopeList({
                     data-testid={`${testIdPrefix}-group-toggle-${group.domainKey}`}
                   >
                     <span>{group.domainLabel}</span>
-                    <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span data-consent-role="body" className="flex items-center gap-2 text-sm text-muted-foreground">
                       {group.items.length}
                       <ChevronDown
                         className={cn(

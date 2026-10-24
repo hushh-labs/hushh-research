@@ -154,7 +154,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
       expect(request.mayPublish?.()).toBe(false);
       await expect(request.beforeEffect?.()).rejects.toMatchObject({ name: "AbortError" });
     } else {
-      await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Start voice mode" })).toBeInTheDocument());
       expect(writes()).toHaveLength(0);
     }
     expect(Boolean(screen.queryByRole("button", { name: "Review in Settings" }))).toBe(outcome === "completed");

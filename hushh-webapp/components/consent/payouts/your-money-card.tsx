@@ -81,7 +81,7 @@ export function YourMoneyCard({ wallet, bank, liveRedeemEnabled, bankRows, fresh
       {bankRows}
     </SettingsGroup>
     {wallet.failed ? <div><HelperText role="alert" className="profile-account-note">{data ? "Couldn't refresh." : "Couldn't load Hussh Coins."}{updateApp ? " Update the app." : ""}</HelperText>
-      {updateApp ? null : <Button type="button" size="compact" variant="none" effect="fade" onClick={outdated ? reloadWindow : wallet.retry}>
+      {updateApp ? null : <Button data-consent-role="compact-action" type="button" size="compact" variant="none" effect="fade" onClick={outdated ? reloadWindow : wallet.retry}>
         {outdated ? "Reload" : data ? "Retry" : "Retry balance"}
       </Button>}</div> : null}
     {coinsSeen ? <PayoutActivitySheet open={coinsOpen} initialFilter="coins" onOpenChange={(open) => {

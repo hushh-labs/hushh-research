@@ -389,7 +389,7 @@ def test_circle_constraint_preserves_valid_catalog_but_repairs_a_wrong_predicate
 
 
 @pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
-@pytest.mark.parametrize("rich_dev", [False, True], ids=["canonical-411", "accepted-dev-972"])
+@pytest.mark.parametrize("rich_dev", [False, True], ids=["canonical-415", "accepted-dev-972"])
 def test_private_agent_graduation_preserves_owners_and_refuses_drift(
     replay_pg, monkeypatch, rich_dev
 ):
@@ -417,7 +417,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
         migrate,
         "release_migration_files",
         lambda _environment: tuple(
-            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) <= 411
+            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) <= 415
         ),
     )
     for name, value in {
