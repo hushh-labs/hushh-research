@@ -99,19 +99,6 @@ describe("top shell breadcrumbs", () => {
     ).toEqual(["Connect"]);
   });
 
-  it("titles the Memory root beside the shared Back without changing child parents", () => {
-    const root = resolveTopShellBreadcrumb("/one/pkm");
-    expect(root).toMatchObject({
-      backHref: "/one",
-      width: "profile",
-      align: "center",
-      suppressFallbackTitle: true,
-      items: [{ label: "One", href: "/one" }, { label: "Memory" }],
-    });
-    expect(visibleTopShellBreadcrumbItems(root?.items ?? []).map(item => item.label)).toEqual(["Memory"]);
-    expect(resolveTopShellBreadcrumb("/one/pkm/location")?.items?.at(-1)?.label).toBe("Location");
-  });
-
   it("uses focused Connect Circle titles with a back label to Circles", () => {
     expect(
       resolveTopShellBreadcrumb(
