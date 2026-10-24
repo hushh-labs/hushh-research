@@ -9,6 +9,7 @@ import {
   type PointerEvent,
 } from "react";
 import { Check, Loader2 } from "@/components/icons";
+import { Button } from "@/components/ui/button";
 
 import {
   AlertDialog,
@@ -380,7 +381,7 @@ export function SosPanel({
               onClick={onEditContacts}
               aria-label="Edit emergency contacts"
               data-location-type-role="utility-action"
-              className="ui-text-button-label press-scale -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)]"
+              className="ui-text-button-label -my-3 flex h-11 min-w-11 items-center justify-center rounded-full px-3 text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
             >
               Edit
             </button>
@@ -398,13 +399,14 @@ export function SosPanel({
         </div>
       ) : !active && noContacts ? (
         <div className="mt-6">
-          <button
+          <Button
             type="button"
+            size="prominent"
             onClick={onEditContacts}
-            className="ui-text-button-label press-scale flex h-[52px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)]"
+            className="h-[52px] min-h-[52px] w-full px-5"
           >
             Add emergency contacts
-          </button>
+          </Button>
         </div>
       ) : active ? (
         <div className="mt-6 space-y-6">
@@ -591,7 +593,7 @@ export function SosPanel({
                   disabled && "cursor-not-allowed opacity-65",
                 )}
               >
-                <span className="font-[family-name:var(--font-app-body)] text-[42px] font-semibold leading-none tracking-normal">
+                <span data-location-type-role="sms-display" className="font-[family-name:var(--font-app-body)] text-[42px] font-semibold leading-none tracking-normal">
                   SMS
                 </span>
               </button>

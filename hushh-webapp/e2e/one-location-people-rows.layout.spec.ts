@@ -9,8 +9,12 @@ import {
   productFontStyle,
   stripAppFontFaces,
 } from "./fixtures/product-font";
+import {
+  alignInviteAndPublicActionsWithMountedRecipe,
+  alignPeopleActionsWithMountedRecipe,
+} from "./fixtures/location-connect-action-recipe";
 
-const WIDTHS = [320, 360, 390, 430, 768, 1280] as const;
+const WIDTHS = [320, 350, 351, 360, 393, 430, 620, 621, 767, 768, 1024, 1440] as const;
 
 async function buildFixture(
   dark: boolean,
@@ -41,20 +45,23 @@ async function buildFixture(
       };
     },
   });
-  const markup = markupOverride ?? fs.readFileSync(
+  const rawMarkup = markupOverride ?? alignPeopleActionsWithMountedRecipe(fs.readFileSync(
     path.join(root, "e2e/fixtures/one-location-people-rows.html"),
     "utf8",
-  );
+  ));
+  const markup = rawMarkup.includes('data-testid="circle-invite-actions"')
+    ? alignInviteAndPublicActionsWithMountedRecipe(rawMarkup)
+    : rawMarkup;
   const used = new Set<string>(extraCandidates);
   for (const match of markup.matchAll(/class="([^"]*)"/g)) {
     const className = match[1].replace(/&amp;/g, "&").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
     for (const token of className.split(/\s+/)) if (token) used.add(token);
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "location-people-layout-"));
-  fs.writeFileSync(
-    path.join(dir, "fixture.css"),
-    stripAppFontFaces(compiler.build([...used])),
-  );
+  const stylesheet = process.env.LOCATION_SHIPPED_CSS_FILE
+    ? fs.readFileSync(path.resolve(process.env.LOCATION_SHIPPED_CSS_FILE), "utf8")
+    : compiler.build([...used]);
+  fs.writeFileSync(path.join(dir, "fixture.css"), stripAppFontFaces(stylesheet));
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     '<!doctype html><html class="' +
@@ -63,7 +70,7 @@ async function buildFixture(
       '<link rel="stylesheet" href="fixture.css"><style>' +
       productFontStyle() +
       "body{margin:0;background:var(--background);color:var(--foreground)}</style></head><body>" +
-      '<main class="app-page-shell" data-app-density="compact" data-app-surface="one">' +
+      '<main class="app-page-shell" data-app-density="compact" data-app-surface="one" data-location-type-scale="connect">' +
       markup +
       "</main></body></html>",
   );
@@ -208,7 +215,12 @@ for (const dark of [false, true]) {
           const group = document.querySelector(`[data-testid="${id}"]`)!;
           const buttons = [...group.querySelectorAll("button")].map((el) => {
             const box = el.getBoundingClientRect();
-            return { left: box.left, right: box.right, top: box.top, height: box.height, width: box.width, fits: el.scrollWidth <= el.clientWidth + 1 };
+            const surface = el.querySelector<HTMLElement>("[data-location-action-surface]")!;
+            const surfaceBox = surface.getBoundingClientRect();
+            const style = getComputedStyle(surface);
+            return { left: box.left, right: box.right, top: box.top, height: box.height, width: box.width, fits: el.scrollWidth <= el.clientWidth + 1,
+              surfaceHeight: surfaceBox.height, background: style.backgroundColor, color: style.color, borderWidth: style.borderWidth,
+              radius: style.borderRadius, fontSize: style.fontSize, lineHeight: style.lineHeight, weight: style.fontWeight };
           });
           return { buttons, width: group.getBoundingClientRect().width };
         });
@@ -223,12 +235,29 @@ for (const dark of [false, true]) {
         expect(group.buttons[0].right).toBeLessThan(group.buttons[1].left);
         for (const button of group.buttons) {
           expect(button.height).toBeGreaterThanOrEqual(44);
+          expect(button.surfaceHeight).toBe(44);
+          expect(button.borderWidth).toBe("1px");
+          expect(button.fontSize).toBe("12px");
+          expect(button.lineHeight).toBe("18px");
+          expect(button.weight).toBe("550");
+          expect(parseFloat(button.radius)).toBeGreaterThanOrEqual(22);
           expect(button.fits).toBe(true);
         }
+        expect(group.buttons[0].background).toBe(group.buttons[1].background);
+        expect(group.buttons[0].color).toBe(group.buttons[1].color);
       }
       expect(geometry.groups[1].buttons[0].width).toBeLessThanOrEqual(110);
       expect(geometry.groups[1].buttons[1].width).toBeLessThanOrEqual(145);
-      if (width === 320 || width === 1280) await page.screenshot({ path: testInfo.outputPath("invite-link-actions.png"), fullPage: true });
+      const copySurface = page.locator('[data-testid="public-link-actions"] button').nth(1).locator('[data-location-action-surface]');
+      const copyWidth = (await copySurface.boundingBox())!.width;
+      for (const label of ["Copying…", "Copied"]) {
+        await copySurface.evaluate((element, value) => {
+          element.lastChild!.textContent = value;
+        }, label);
+        expect((await copySurface.boundingBox())!.width).toBe(copyWidth);
+        expect(await copySurface.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      }
+      if (width === 393 || width === 1440) await page.screenshot({ path: testInfo.outputPath("invite-link-actions.png"), fullPage: true });
     });
 
     test(`People actions and icon-free Circles summary at ${width}px ${dark ? "dark" : "light"}`, async ({
@@ -273,6 +302,13 @@ for (const dark of [false, true]) {
                 label: action.textContent?.trim(),
                 background: getComputedStyle(surface).backgroundColor,
                 surfaceColor: getComputedStyle(surface).color,
+                surfaceBorderColor: getComputedStyle(surface).borderColor,
+                surfaceBorderWidth: getComputedStyle(surface).borderWidth,
+                surfaceFontFamily: getComputedStyle(surface).fontFamily,
+                surfaceFontSize: getComputedStyle(surface).fontSize,
+                surfaceLineHeight: getComputedStyle(surface).lineHeight,
+                surfaceWeight: getComputedStyle(surface).fontWeight,
+                surfaceTracking: getComputedStyle(surface).letterSpacing,
                 targetBackground: getComputedStyle(action).backgroundColor,
                 color: getComputedStyle(action).color,
                 weight: getComputedStyle(action).fontWeight,
@@ -326,22 +362,27 @@ for (const dark of [false, true]) {
         expect(row.nameOverflow).toBe("ellipsis");
         expect(row.actions).toHaveLength(2);
         expect(row.actions.map((action) => action.label)).toEqual(["Share", "Ask"]);
-        expect(row.actions[0].background).toBe("rgb(0, 122, 255)");
-        expect(row.actions[0].color).toBe("rgb(255, 255, 255)");
-        expect(row.actions[1].background).toBe("rgb(242, 242, 247)");
-        expect(row.actions[1].color).toBe("rgb(0, 122, 255)");
+        expect(row.actions[0].background).toBe(row.actions[1].background);
+        expect(row.actions[0].surfaceColor).toBe(row.actions[1].surfaceColor);
+        expect(row.actions[0].surfaceBorderColor).toBe(row.actions[1].surfaceBorderColor);
+        expect(row.actions[0].background).not.toBe("rgb(0, 122, 255)");
         expect(row.actions[1].left - row.actions[0].right).toBe(8);
         expect(row.actions[0].height).toBe(row.actions[1].height);
         expect(row.height).toBeLessThanOrEqual(90);
         expect(Math.abs(row.actions.at(-1)!.right - (row.rowRight - row.paddingRight))).toBeLessThanOrEqual(1);
         for (const action of row.actions) {
-          expect(action.weight).toBe("500");
+          expect(action.surfaceFontSize).toBe("12px");
+          expect(action.surfaceLineHeight).toBe("18px");
+          expect(action.surfaceWeight).toBe("550");
+          expect(action.surfaceFontFamily).toContain("Plus Jakarta Sans");
+          expect(action.surfaceTracking).toBe("normal");
+          expect(action.surfaceBorderWidth).toBe("1px");
           expect(parseFloat(action.radius)).toBeGreaterThanOrEqual(action.surfaceHeight / 2);
           expect(action.cornerShape).not.toContain("superellipse");
           expect(action.targetBackground).toBe("rgba(0, 0, 0, 0)");
-          expect(action.surfaceHeight).toBe(40);
-          expect(action.surfaceTopInset).toBe(2);
-          expect(action.surfaceBottomInset).toBe(2);
+          expect(action.surfaceHeight).toBe(44);
+          expect(action.surfaceTopInset).toBe(0);
+          expect(action.surfaceBottomInset).toBe(0);
           expect(action.surfaceWidth).toBe(action.width);
           expect(action.surfaceFits).toBe(true);
           expect(action.surfaceColor).toBe(action.color);
@@ -354,9 +395,8 @@ for (const dark of [false, true]) {
           )).toBe(true);
           expect(action.height).toBe(44);
           expect(action.width).toBeGreaterThanOrEqual(44);
-          expect(action.width).toBeLessThanOrEqual(
-            width < 640 ? (action.label === "Share" ? 70 : 56) : 104,
-          );
+          expect(action.width).toBeGreaterThanOrEqual(width <= 350 ? 72 : width <= 620 ? 78 : 88);
+          expect(action.width).toBeLessThanOrEqual(116);
           expect(action.inside).toBe(true);
           expect(action.left).toBeGreaterThanOrEqual(row.personRight);
           expect(Math.abs(action.center - row.personCenter)).toBeLessThanOrEqual(6);
@@ -365,7 +405,7 @@ for (const dark of [false, true]) {
       await expect(
         page.locator("button button, a button, button a"),
       ).toHaveCount(0);
-      if (width === 320 || width === 390 || width === 1280) {
+      if (width === 393 || width === 1440) {
         await page.screenshot({
           path: testInfo.outputPath("people-rows.png"),
           fullPage: true,
