@@ -88,7 +88,6 @@
     "detach_hashcoin_wallet_owner",
     "effective_erasure_azure_files_inventory",
     "effective_erasure_substrate_inventory",
-    "enforce_stripe_payout_source_binding",
     "enroll_account_generation",
     "ensure_drive_share_management_context",
     "erase_hosted_source_envelope_on_grant_change",
@@ -254,11 +253,6 @@
     "retire_erased_account_generation",
     "retire_superseded_pod_signing_key",
     "rollback_pkm_domain_revision_v1",
-    "scope_commerce_balanced",
-    "scope_commerce_immutable",
-    "scope_commerce_payout_account_claims_v1",
-    "scope_commerce_posting_admission",
-    "scope_commerce_queue_continuous_refresh_v1",
     "stamp_account_generation_retirement",
     "stamp_drive_owner_payout_held_at",
     "start_or_resume_pkm_upgrade_v1",
@@ -323,7 +317,13 @@
     "verify_erasure_kms_preflight",
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
-    "verify_erasure_secret_preflight"
+    "verify_erasure_secret_preflight",
+    "scope_commerce_immutable",
+    "scope_commerce_balanced",
+    "scope_commerce_posting_admission",
+    "scope_commerce_queue_continuous_refresh_v1",
+    "scope_commerce_payout_account_claims_v1",
+    "enforce_stripe_payout_source_binding"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
