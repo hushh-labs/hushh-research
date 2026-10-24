@@ -109,6 +109,8 @@ POST /api/connectors/registrations
 
 NETWORK_INVENTORY = """
 [NETWORK]
+GET,PUT /api/one/area-discovery/me
+POST /api/one/area-discovery/search
 DELETE /api/one/location/circle-types
 DELETE /api/one/messages/conversations/{conversation_id}
 GET /api/one/people/{person_ref}/relationship

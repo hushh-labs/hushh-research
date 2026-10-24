@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 416,
+  "expected_migration_version": 417,
   "migration_version_policy": "exact",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -2054,6 +2054,21 @@
       "updated_at",
       "user_id"
     ],
+    "one_area_discovery_preferences": [
+      "user_id",
+      "enabled",
+      "postal_code",
+      "revision",
+      "consent_version",
+      "adult_self_attested_at",
+      "consent_at",
+      "updated_at"
+    ],
+    "one_area_discovery_search_budgets": [
+      "user_id",
+      "bucket_date",
+      "searches"
+    ],
     "one_attention_ledger": [
       "created_at",
       "kind",
@@ -3929,5 +3944,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 416
+  "expected_schema_head": 417
 }

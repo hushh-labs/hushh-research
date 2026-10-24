@@ -32,7 +32,7 @@ class DirectoryIdentityUnavailableError(RuntimeError):
         super().__init__(self.message)
 
 
-def active_directory_user_ids(user_ids: Sequence[str]) -> set[str]:
+def active_directory_user_ids(user_ids: Sequence[str], *, use_cache: bool = True) -> set[str]:
     """Return enabled Firebase accounts, without retaining their private records.
 
     A profile cache can outlive a Firebase account deleted and recreated before
@@ -40,6 +40,7 @@ def active_directory_user_ids(user_ids: Sequence[str]) -> set[str]:
     ``active`` status cannot prove that the old UID remains an account.
     Firebase's bounded batch lookup is the lifecycle authority; only its boolean
     result is cached, for at most one minute and within this app/project.
+    Area consent/search passes use_cache=False to require a current batch read.
     """
     candidates = list(dict.fromkeys(uid for uid in user_ids if uid.strip() and len(uid) <= 128))
     if not candidates:
@@ -54,7 +55,7 @@ def active_directory_user_ids(user_ids: Sequence[str]) -> set[str]:
         with _STATUS_CACHE_LOCK:
             for uid in candidates:
                 cached = _STATUS_CACHE.get((*scope, uid))
-                if cached and cached[0] > now:
+                if use_cache and cached and cached[0] > now:
                     status[uid] = cached[1]
                     _STATUS_CACHE.move_to_end((*scope, uid))
                 elif cached:

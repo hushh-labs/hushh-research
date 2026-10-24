@@ -61,6 +61,19 @@ from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     parse_connected_database_identity,
 )
 
+_CHOICE_ERASURE_QUERIES = {
+    "one_area_discovery_preferences": text(
+        "DELETE FROM one_area_discovery_preferences WHERE user_id = :user_id"
+    ),
+    "one_area_discovery_search_budgets": text(
+        "DELETE FROM one_area_discovery_search_budgets WHERE user_id = :user_id"
+    ),
+    "one_marketing_preferences": text(
+        "DELETE FROM one_marketing_preferences WHERE user_id = :user_id"
+    ),
+}
+_CHOICE_ERASURE_TABLES = tuple(_CHOICE_ERASURE_QUERIES)
+
 logger = logging.getLogger(__name__)
 
 DeleteAccountTarget = Literal["investor", "ria", "both"]
@@ -152,9 +165,7 @@ class AccountService:
             "google_service_grants": text(
                 "DELETE FROM google_service_grants WHERE user_id = :user_id"
             ),
-            "one_marketing_preferences": text(
-                "DELETE FROM one_marketing_preferences WHERE user_id = :user_id"
-            ),
+            **_CHOICE_ERASURE_QUERIES,
             "pwm_research_preferences": text(
                 "DELETE FROM pwm_research_preferences WHERE user_id = :user_id"
             ),
@@ -2128,7 +2139,7 @@ class AccountService:
             "one_product_activity_observations": False,
             "one_product_value_receipts": False,
             "one_product_activity_epochs": False,
-            "one_marketing_preferences": False,
+            **dict.fromkeys(_CHOICE_ERASURE_TABLES, False),
             "one_referral_relationships": False,
             "one_referral_attributions": False,
             "one_referral_codes": False,
@@ -2255,7 +2266,7 @@ class AccountService:
                         "one_product_activity_observations",
                         "one_product_value_receipts",
                         "one_product_activity_epochs",
-                        "one_marketing_preferences",
+                        *_CHOICE_ERASURE_TABLES,
                         # Remove challenge bindings before their enrollment lookup.
                         "email_auth_challenges",
                         "email_auth_enrollments",
