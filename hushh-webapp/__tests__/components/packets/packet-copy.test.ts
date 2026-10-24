@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buyerNotes, buyerPacketStatus, dayRangeLabel, ownerPacketStatus } from "@/components/consent/packets/packet-copy";
+import { buyerNotes, buyerPacketStatus, dayRangeLabel, ownerPacketStatus, ownerStatusLine } from "@/components/consent/packets/packet-copy";
 import type { DiscoveryDrivePacket, DrivePacket } from "@/lib/services/drive-packet-service";
 
 // A synthetic listed packet, as a buyer's list receives it.
@@ -16,7 +16,7 @@ const emptyDiscovery: DiscoveryDrivePacket = { packetId: packet.packetId, versio
   documentCount: 0, freshness: "current", priceCents: 500, listingEnabled: false, canRequest: false, canList: false,
   requestId: null, purchaseState: "none" };
 
-describe("buyer packet words", () => {
+describe("@feature_drive_packets @trace_loop buyer packet words", () => {
   it("reads a packet's state in one plain line", () => {
     expect(buyerPacketStatus(packet, null, "Avery")).toEqual({ line: "3 documents · January to June 2026", tone: "ready" });
     expect(buyerPacketStatus({ ...packet, documentCount: 1 }, null, "Avery").line).toBe("1 document · January to June 2026");
@@ -47,7 +47,19 @@ describe("buyer packet words", () => {
   });
 });
 
-describe("owner packet words", () => {
+describe("@feature_drive_packets @trace_loop owner packet words", () => {
+  it("distinguishes an unmeasured search, partial matches, and a completed empty result", () => {
+    const current: DiscoveryDrivePacket = { ...emptyDiscovery, version: 0, state: "building" };
+    expect(ownerStatusLine(current)).not.toContain("0 documents");
+    expect(ownerPacketStatus(current).detail).not.toContain("period closes");
+    const preview = { status: "completed" as const, revision: 0, matched: 0, complete: true, stale: false,
+      updatedAt: "2026-10-24T10:00:00Z", errorCode: null };
+    expect(ownerPacketStatus({ ...current, preview }).word).toBe("No matching files");
+    expect(ownerStatusLine({ ...current, preview })).toContain("0 documents");
+    expect(ownerPacketStatus({ ...emptyDiscovery, preview: { ...preview, matched: 12 } }).word).toBe("Files found");
+    expect(ownerStatusLine({ ...current, preview: { ...preview, status: "partial", matched: 12, complete: false } }))
+      .toContain("12 documents found so far");
+  });
   // The owner's packets as the server sends them: a version that isn't ready is never "current".
   const owned: DrivePacket = { ...packet, listingRevision: 0, listingEnabled: false, canList: true, canRequest: false };
   const CHECKING = "The private agent is checking current evidence.";

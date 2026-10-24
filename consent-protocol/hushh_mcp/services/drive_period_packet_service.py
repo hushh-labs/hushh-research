@@ -8,8 +8,14 @@ import os
 from collections import Counter
 from datetime import UTC, datetime
 
+from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
-from hushh_mcp.services.drive_period_packet_contract import CATEGORY_PURPOSES, PERIOD_PACKET_POLICY
+from hushh_mcp.services.drive_period_packet_contract import (
+    CATEGORY_PURPOSES,
+    PERIOD_PACKET_POLICY,
+    PacketPeriod,
+)
+from hushh_mcp.services.drive_period_packet_preview import search_client_id, snapshot_search
 from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
 from hushh_mcp.services.drive_request_discovery import (
     DISCOVERY_DELIVERY_POLICY,
@@ -21,15 +27,58 @@ from hushh_mcp.services.drive_suggestion_service import (
     interpret_semantic_live_search,
     plan_semantic_live_search,
 )
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
+logger = drive_logger("drive_period_packets")
+
+
+def _failure_state(error, build):
+    # A schema-valid plan can still be unsupported by provider discovery.
+    # Retain usable previews, but never pin retries to that failed plan.
+    if isinstance(error, ValueError):
+        build = {key: value for key, value in build.items() if key not in {"plan", "model_binding"}}
+    code = (
+        str(error)
+        if isinstance(error, DriveReadError)
+        else "provider_timeout"
+        if isinstance(error, TimeoutError)
+        else "processing_authority_required"
+        if isinstance(error, PermissionError)
+        else "planner_output_invalid"
+        if isinstance(error, ValueError)
+        else "provider_unavailable"
+    )
+    return code, build
+
 
 class DrivePeriodPacketService:
-    def __init__(self, *, store=None, search=None, planner=interpret_semantic_live_search):
+    def __init__(
+        self, *, store=None, search=None, planner=interpret_semantic_live_search, require_owner=None
+    ):
         self.store = store or DrivePeriodPacketStore()
         self.search = search or DriveOwnerSearchService()
         self.planner = planner
+        self.require_owner = require_owner
+
+    async def preview(self, *, user_id, packet_id, cursor=None):
+        if self.require_owner is None:
+            raise DriveReadError("owner_authority_required")
+        await self.require_owner()
+        await admit_hub_content(user_id, "drive_period_packets")
+        result = await self.store.owner_preview(user_id=user_id, packet_id=packet_id, cursor=cursor)
+        await self.require_owner()
+        return result
+
+    async def prepare_preview(self, *, user_id, packet_id, refresh=False):
+        if self.require_owner is None:
+            raise DriveReadError("owner_authority_required")
+        await self.require_owner()
+        await admit_hub_content(user_id, "drive_period_packets")
+        if await self.store.request_preview(user_id=user_id, packet_id=packet_id, refresh=refresh):
+            await self.run_one(user_id=user_id, packet_id=packet_id, deadline_seconds=25)
+        return await self.preview(user_id=user_id, packet_id=packet_id)
 
     async def ensure_owner(self, *, user_id, timezone="UTC"):
         await admit_hub_content(user_id, "drive_period_packets")
@@ -80,7 +129,7 @@ class DrivePeriodPacketService:
         )
         state, _ = await self.search.store.create(
             user_id=job["user_id"],
-            client_request_id=str(job["packet_id"]),
+            client_request_id=search_client_id(job),
             request={"query": purpose["purpose"], "timezone": job["period_timezone"]},
             confirmed=True,
             period_packet_id=str(job["packet_id"]),
@@ -124,13 +173,18 @@ class DrivePeriodPacketService:
         )
         return state
 
-    async def run_one(self, *, user_id, deadline_seconds=75):
+    @drive_operation(job_key="packet_id")
+    async def run_one(self, *, user_id, packet_id=None, deadline_seconds=75):
         await self.ensure_owner(user_id=user_id)
-        job = await self.store.claim_build(user_id=user_id)
+        job = await self.store.claim_build(
+            user_id=user_id, **({"packet_id": packet_id} if packet_id else {})
+        )
         if job is None:
             return "idle"
 
         async def current():
+            if self.require_owner is not None:
+                await self.require_owner()
             await self.store.require_build_current(
                 user_id=user_id,
                 packet_id=str(job["packet_id"]),
@@ -141,9 +195,17 @@ class DrivePeriodPacketService:
         build = job["build"]
         try:
             async with asyncio.timeout(deadline_seconds):
-                plan, binding = await self._plan(job, current)
-                build = {"plan": plan, "model_binding": binding}
+                with drive_stage(logger, "packet_plan"):
+                    plan, binding = await self._plan(job, current)
+                build = {**build, "plan": plan, "model_binding": binding}
                 state = await self._search_job(job, plan, binding)
+
+                async def snapshot(**_):
+                    nonlocal build
+                    with drive_stage(logger, "packet_snapshot"):
+                        build = await snapshot_search(self.store, job, build, state["jobId"])
+
+                await snapshot()
                 if state["status"] != "completed":
                     await self.search.run_one(
                         user_id=user_id,
@@ -151,20 +213,46 @@ class DrivePeriodPacketService:
                         require_current=current,
                         max_pages=2,
                         deadline_seconds=min(30, deadline_seconds),
+                        after_page=snapshot,
                     )
                     state = await self.search.store.status(user_id=user_id, job_id=state["jobId"])
+                await snapshot()
                 if state["status"] == "completed" and not state["incompleteSearch"]:
-                    job["build"] = build
-                    await self.store.freeze(job, search_job_id=state["jobId"])
+                    period = PacketPeriod(
+                        start=job["period_start"],
+                        end=job["period_end"],
+                        timezone=job["period_timezone"],
+                    )
+                    # A scan begun while the period was open is a preview, never the final sale.
+                    if period.closed(datetime.now(UTC)) and period.closed(
+                        datetime.fromisoformat(state["createdAt"])
+                    ):
+                        job["build"] = build
+                        await self.store.freeze(job, search_job_id=state["jobId"])
+                    else:
+                        await self.store.save_build(job, build, preview_complete=True)
+                    logger.info(
+                        "period_packet.search outcome=completed matched=%d", state["matched"]
+                    )
                     return "completed"
                 await self.store.save_build(
                     job,
                     build,
-                    error="search_incomplete" if state["status"] in {"failed", "limited"} else None,
+                    error=(state.get("errorCode") or "search_incomplete")
+                    if state["status"] in {"failed", "limited"}
+                    else None,
                 )
                 return "queued"
-        except (DriveReadError, ValueError, TimeoutError):
-            await self.store.save_build(job, build, error="provider_unavailable")
+        except (
+            DriveReadError,
+            ValueError,
+            TimeoutError,
+            PermissionError,
+            SpecialistAdkTurnError,
+        ) as error:
+            code, build = _failure_state(error, build)
+            await self.store.save_build(job, build, error=code)
+            logger.info("period_packet.search outcome=unavailable code=%s", code)
             return "unavailable"
 
     async def run(self, *, max_jobs=1, deadline_seconds=90):

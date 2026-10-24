@@ -142,8 +142,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
                     OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                       AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
                       AND h.current_version=0 AND h.dirty AND h.next_at<=clock_timestamp()
-                      AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp())
-                      AND (h.period_end+1)::timestamp AT TIME ZONE h.period_timezone<=clock_timestamp()))
+                      AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp())))
                 ORDER BY COALESCE((SELECT max(h.updated_at) FROM drive_packet_heads h
                   WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
                     AND h.packet_kind='provider_discovery'),c.updated_at),c.user_id
@@ -158,7 +157,17 @@ class DrivePeriodPacketStore(DrivePacketStore):
 
         return await self._transaction(operation)
 
-    async def claim_build(self, *, user_id):
+    async def request_preview(self, *, user_id, packet_id, refresh=False):
+        from hushh_mcp.services.drive_period_packet_preview import request_preview
+
+        return await request_preview(self, user_id=user_id, packet_id=packet_id, refresh=refresh)
+
+    async def owner_preview(self, **kwargs):
+        from hushh_mcp.services.drive_period_packet_preview import read_preview
+
+        return await read_preview(self, **kwargs)
+
+    async def claim_build(self, *, user_id, packet_id=None):
         def operation(connection):
             active = self._period_access(connection, owner=user_id)
             # Ordinary live searches own the owner's single active slot first.
@@ -176,12 +185,25 @@ class DrivePeriodPacketStore(DrivePacketStore):
                   AND packet_kind='provider_discovery' AND current_version=0 AND dirty
                   AND next_at<=clock_timestamp()
                   AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
-                  AND (period_end+1)::timestamp AT TIME ZONE period_timezone<=clock_timestamp()
-                ORDER BY period_start DESC,category LIMIT 1 FOR UPDATE SKIP LOCKED""",
-                {"user": user_id, "generation": active["connection_generation"]},
+                  AND (:packet IS NULL OR packet_id=CAST(:packet AS uuid))
+                  AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs j WHERE j.user_id=:user
+                    AND j.status IN ('queued','running') AND j.expires_at>clock_timestamp()
+                    AND j.period_packet_id IS DISTINCT FROM drive_packet_heads.packet_id)
+                ORDER BY updated_at,period_start DESC,category LIMIT 1 FOR UPDATE SKIP LOCKED""",
+                {
+                    "user": user_id,
+                    "generation": active["connection_generation"],
+                    "packet": str(UUID(packet_id)) if packet_id else None,
+                },
             )
             if not row:
                 return None
+            build = self._build(row)
+            # The first post-close scan must not reuse a completed open-period job.
+            if build.get("preview", {}).get("complete") and not build.get("refresh_pending"):
+                from hushh_mcp.services.drive_period_packet_preview import rotate_preview
+
+                row, build = rotate_preview(self, connection, row, build)
             lease = str(uuid4())
             connection.execute(
                 text("""UPDATE drive_packet_heads SET lease_id=:lease,
@@ -189,11 +211,11 @@ class DrivePeriodPacketStore(DrivePacketStore):
               WHERE packet_id=:id"""),
                 {"lease": lease, "id": row["packet_id"]},
             )
-            return {**row, "lease_id": lease, "build": self._build(row)}
+            return {**row, "lease_id": lease, "build": build}
 
         return await self._transaction(operation)
 
-    async def save_build(self, job, build, *, error=None):
+    async def save_build(self, job, build, *, error=None, preview_complete=False):
         def operation(connection):
             row = self.current_period_head(
                 connection,
@@ -207,7 +229,8 @@ class DrivePeriodPacketStore(DrivePacketStore):
             connection.execute(
                 text("""UPDATE drive_packet_heads SET
               build_envelope=CAST(:build AS jsonb),lease_id=NULL,lease_expires_at=NULL,
-              next_at=clock_timestamp()+make_interval(secs=>:delay),error_code=:error,
+              next_at=CASE WHEN :complete THEN (period_end+1)::timestamp AT TIME ZONE period_timezone
+                ELSE clock_timestamp()+make_interval(secs=>:delay) END,error_code=:error,
               attempts=CASE WHEN :error IS NULL THEN 0 ELSE attempts+1 END,updated_at=clock_timestamp()
               WHERE packet_id=:id"""),
                 {
@@ -217,6 +240,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
                     ),
                     "delay": 300 if error else 1,
                     "error": error,
+                    "complete": preview_complete,
                 },
             )
 

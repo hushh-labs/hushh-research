@@ -1419,7 +1419,11 @@ def _bounded_corpus_complete(checkpoint, candidates, files, *, incomplete):
     """
     if not checkpoint.get("request_direct_originals"):
         return False
-    limit = checkpoint["request_result_limit"]
+    limit = checkpoint.get("request_result_limit")
+    # Provider-query packets are exhaustive originals, not a top-N request.
+    # Old durable checkpoints also omit this optional ranking contract.
+    if limit is None:
+        return False
     field = checkpoint["request_order_field"]
     scan = checkpoint.setdefault(
         "request_rank_scan",

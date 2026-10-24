@@ -109,6 +109,9 @@ def project_packet(store, row, *, is_owner, owner_contents):
         ),
     }
     if is_owner and owner_contents:
+        from hushh_mcp.services.drive_period_packet_preview import preview_summary
+
+        result["preview"] = preview_summary(store, row)
         documents = []
         for source in list((manifest or {}).get("source_metadata", {}).values())[:120]:
             documents.append(
