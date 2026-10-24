@@ -117,6 +117,30 @@ while preserving compatible review history. The 971 SQL down path refuses while
 private reviews remain; never delete history to force it. Restoring its earlier
 schema requires the separately reviewed forward qualification before re-enablement.
 
+## Canonical private-agent graduation and cleanup replay
+
+Local release head 419 graduates the final dev authority through new forward SQL;
+applied 900–972 files and checksums remain immutable. Canonical 418 installs the
+final schema and accepts only reviewed predecessor/successor definitions. It does
+not repeat historical Shared cohort inference or destructive chat cleanup. Recovery
+is 419. The new channel constraints carry `private-action-channel.v1/418`; an
+existing qualified 971 marker is preserved, never fabricated in the ledger.
+
+The pinned `db/account_cleanup_replay.py` adapter preserves 416/417 cleanup and
+generation function/trigger successors during replay. Historical owner bootstrap
+statements exclude captured tombstoned identities; Gmail backfills exclude pending
+provider cleanup. The ordinary database guards remain the final concurrency fence.
+Referral filtering composes with the existing policy-successor verifier and retains
+the unresolved-genealogy refusal. Changed source, missing successor or changed
+function/trigger definitions refuse replay rather than restoring old authority.
+
+Qualification covers canonical-411 and rich-dev-972 upgrades, retained review,
+resource, consent, referral and encrypted credential records, backend/client roles,
+and unknown authority objects. SQL rollback of 416–419 deliberately refuses with
+forward-recovery guidance. Application rollback must retain these additive guards
+and receipts; once replacement generations are activated, an old generation-unaware
+binary cannot serve those accounts. Local qualification is not a live schema receipt.
+
 ## Execution Modes
 
 Canonical 399 supplies the eight service-only public-profile tables required by

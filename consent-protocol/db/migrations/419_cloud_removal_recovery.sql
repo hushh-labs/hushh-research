@@ -3,16 +3,108 @@
 BEGIN;
 
 ALTER TABLE public.personal_agent_cloud_removals
- ADD COLUMN execution_started_at timestamptz,
- ADD COLUMN execution_digest text CHECK (execution_digest ~ '^[0-9a-f]{64}$'),
- ADD COLUMN cancelled_at timestamptz,
- ADD CONSTRAINT cloud_removal_dispatch_pair CHECK
-  ((execution_started_at IS NULL) = (execution_digest IS NULL)),
- ADD CONSTRAINT cloud_removal_cancel_inert CHECK
-  (cancelled_at IS NULL OR (approved_digest IS NULL AND execution_started_at IS NULL AND completed_at IS NULL));
+ ADD COLUMN IF NOT EXISTS execution_started_at timestamptz,
+ ADD COLUMN IF NOT EXISTS execution_digest text,
+ ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;
+
+DO $recovery_constraint$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_constraintdef(oid,true) INTO installed FROM pg_constraint WHERE conrelid='public.personal_agent_cloud_removals'::regclass AND conname='cloud_removal_cancel_inert';
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.personal_agent_cloud_removals'::regclass AND conname='cloud_removal_cancel_inert') THEN
+  ALTER TABLE public.personal_agent_cloud_removals ADD CONSTRAINT cloud_removal_cancel_inert CHECK (cancelled_at IS NULL OR approved_digest IS NULL AND execution_started_at IS NULL AND completed_at IS NULL);
+ ELSIF installed <> 'CHECK (cancelled_at IS NULL OR approved_digest IS NULL AND execution_started_at IS NULL AND completed_at IS NULL)' THEN
+  RAISE EXCEPTION 'Cloud removal recovery constraint drift';
+ END IF;
+END
+$recovery_constraint$;
+
+DO $recovery_constraint$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_constraintdef(oid,true) INTO installed FROM pg_constraint WHERE conrelid='public.personal_agent_cloud_removals'::regclass AND conname='cloud_removal_dispatch_pair';
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.personal_agent_cloud_removals'::regclass AND conname='cloud_removal_dispatch_pair') THEN
+  ALTER TABLE public.personal_agent_cloud_removals ADD CONSTRAINT cloud_removal_dispatch_pair CHECK ((execution_started_at IS NULL) = (execution_digest IS NULL));
+ ELSIF installed <> 'CHECK ((execution_started_at IS NULL) = (execution_digest IS NULL))' THEN
+  RAISE EXCEPTION 'Cloud removal recovery constraint drift';
+ END IF;
+END
+$recovery_constraint$;
+
+DO $recovery_function$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_functiondef(p.oid) INTO installed FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='begin_personal_agent_cloud_removal' AND pg_get_function_identity_arguments(p.oid)='owner_id text, attempt text, expected_digest text';
+ IF installed IS NOT NULL AND encode(sha256(convert_to(installed,'UTF8')),'hex')<>'f62dcc39027730914fd670f4c2cf656a3e3afa95b4cee17e75464a0125b0d837' THEN
+  RAISE EXCEPTION 'Cloud removal recovery function drift';
+ END IF;
+END
+$recovery_function$;
+
+DO $recovery_function$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_functiondef(p.oid) INTO installed FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='cancel_personal_agent_cloud_removal' AND pg_get_function_identity_arguments(p.oid)='owner_id text, attempt text';
+ IF installed IS NOT NULL AND encode(sha256(convert_to(installed,'UTF8')),'hex')<>'f8097ef5e78aa8cea8d5283c07149f522b8ce920ad4443b37045d087d45a3a12' THEN
+  RAISE EXCEPTION 'Cloud removal recovery function drift';
+ END IF;
+END
+$recovery_function$;
+
+DO $recovery_function$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_functiondef(p.oid) INTO installed FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='cloud_removal_cancel_ready' AND pg_get_function_identity_arguments(p.oid)='owner_id text, attempt text';
+ IF installed IS NOT NULL AND encode(sha256(convert_to(installed,'UTF8')),'hex')<>'0a0941d71743fe76c1f3a2499e52642589f96e26b4049f7161572a25ec3483e5' THEN
+  RAISE EXCEPTION 'Cloud removal recovery function drift';
+ END IF;
+END
+$recovery_function$;
+
+DO $recovery_function$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_functiondef(p.oid) INTO installed FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='cloud_removal_cancel_restore_allowed' AND pg_get_function_identity_arguments(p.oid)='prior jsonb, incoming jsonb';
+ IF installed IS NOT NULL AND encode(sha256(convert_to(installed,'UTF8')),'hex')<>'8b63fae9a564ff89ced0d87fba7c20eaaab13d3b341547dd470e6843f833a084' THEN
+  RAISE EXCEPTION 'Cloud removal recovery function drift';
+ END IF;
+END
+$recovery_function$;
+
+DO $recovery_function$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_functiondef(p.oid) INTO installed FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='cloud_removal_execution_admitted' AND pg_get_function_identity_arguments(p.oid)='owner_id text, attempt text';
+ IF installed IS NOT NULL AND encode(sha256(convert_to(installed,'UTF8')),'hex')<>'747ff1332547bd5471159832e6ea2b34dbab29536210d83672fe25effb6a9d8a' THEN
+  RAISE EXCEPTION 'Cloud removal recovery function drift';
+ END IF;
+END
+$recovery_function$;
+
+DO $recovery_function$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_functiondef(p.oid) INTO installed FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='cloud_removal_review_inert' AND pg_get_function_identity_arguments(p.oid)='r jsonb';
+ IF installed IS NOT NULL AND encode(sha256(convert_to(installed,'UTF8')),'hex')<>'53f4ff63ab769736653bbc3cba7b14e4177007c8c36e643645009b941a84bd30' THEN
+  RAISE EXCEPTION 'Cloud removal recovery function drift';
+ END IF;
+END
+$recovery_function$;
+
+DO $digest_constraint$
+DECLARE installed text;
+BEGIN
+ SELECT pg_get_constraintdef(oid,true) INTO installed FROM pg_constraint WHERE conrelid='public.personal_agent_cloud_removals'::regclass AND conname='personal_agent_cloud_removals_execution_digest_check';
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.personal_agent_cloud_removals'::regclass AND conname='personal_agent_cloud_removals_execution_digest_check') THEN
+  ALTER TABLE public.personal_agent_cloud_removals ADD CONSTRAINT personal_agent_cloud_removals_execution_digest_check CHECK (execution_digest ~ '^[0-9a-f]{64}$'::text);
+ ELSIF installed <> 'CHECK (execution_digest ~ ''^[0-9a-f]{64}$''::text)' THEN
+  RAISE EXCEPTION 'Cloud removal recovery digest constraint drift';
+ END IF;
+END
+$digest_constraint$;
 
 -- No provider call, key checkpoint or worker can have begun in this shape.
-CREATE FUNCTION public.cloud_removal_review_inert(r jsonb)
+CREATE OR REPLACE FUNCTION public.cloud_removal_review_inert(r jsonb)
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
  SELECT jsonb_typeof(r)='object' AND r->>'phase'='reserved'
  AND r-ARRAY['version','ownerId','attemptId','hushhId','phase','registrySnapshot','substrateInventory','azureTeardown']='{}'::jsonb
@@ -28,7 +120,7 @@ RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=public AS $$
        OR a.value->>'status' IS NULL)));
 $$;
 
-CREATE FUNCTION public.cloud_removal_cancel_ready(owner_id text, attempt text)
+CREATE OR REPLACE FUNCTION public.cloud_removal_cancel_ready(owner_id text, attempt text)
 RETURNS boolean LANGUAGE sql STABLE SET search_path=public AS $$
  SELECT EXISTS(SELECT 1 FROM public.personal_agent_cloud_removals c
  JOIN public.personal_agent_registry p ON p.user_id=c.user_id
@@ -47,7 +139,7 @@ $$;
 
 -- The trigger independently verifies the receipt and exact restored row.
 -- A caller-settable GUC alone never supplies restoration authority.
-CREATE FUNCTION public.cloud_removal_cancel_restore_allowed(prior jsonb, incoming jsonb)
+CREATE OR REPLACE FUNCTION public.cloud_removal_cancel_restore_allowed(prior jsonb, incoming jsonb)
 RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=public AS $$
 DECLARE r jsonb:=prior->'backend_metadata'->'erasure'; owner_id text:=prior->>'user_id';
 BEGIN
@@ -68,7 +160,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.cancel_personal_agent_cloud_removal(owner_id text, attempt text)
+CREATE OR REPLACE FUNCTION public.cancel_personal_agent_cloud_removal(owner_id text, attempt text)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
 DECLARE agent public.personal_agent_registry%ROWTYPE; op public.personal_agent_cloud_removals%ROWTYPE;
  snapshot jsonb; columns_sql text;
@@ -96,7 +188,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.begin_personal_agent_cloud_removal(owner_id text, attempt text, expected_digest text)
+CREATE OR REPLACE FUNCTION public.begin_personal_agent_cloud_removal(owner_id text, attempt text, expected_digest text)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
 BEGIN
  PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
@@ -112,7 +204,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.cloud_removal_execution_admitted(owner_id text, attempt text)
+CREATE OR REPLACE FUNCTION public.cloud_removal_execution_admitted(owner_id text, attempt text)
 RETURNS boolean LANGUAGE sql STABLE SET search_path=public AS $$
  SELECT NOT EXISTS(SELECT 1 FROM public.personal_agent_cloud_removals WHERE user_id=owner_id AND attempt_id=attempt)
  OR EXISTS(SELECT 1 FROM public.personal_agent_cloud_removals c
@@ -582,4 +674,28 @@ DO $$ BEGIN
   GRANT EXECUTE ON FUNCTION public.begin_personal_agent_cloud_removal(text,text,text) TO service_role;
  END IF;
 END $$;
+-- Existing client defaults must not expose recovery helpers or mutation authority.
+DO $recovery_acl$
+DECLARE f record; client_role text;
+BEGIN
+ FOR f IN SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+ WHERE n.nspname='public' AND p.proname IN (
+  'cloud_removal_review_inert','cloud_removal_cancel_ready','cloud_removal_cancel_restore_allowed',
+  'cancel_personal_agent_cloud_removal','begin_personal_agent_cloud_removal',
+  'cloud_removal_execution_admitted','guard_personal_agent_cloud_removal',
+  'personal_agent_cloud_removal_execute_ready','guard_personal_agent_erasure_registry',
+  'begin_azure_erasure_worker','assert_azure_erasure_worker','restore_personal_agent_erasure_reservation'
+ ) LOOP
+  EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.oid::regprocedure);
+  FOREACH client_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=client_role) THEN
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',f.oid::regprocedure,client_role);
+   END IF;
+  END LOOP;
+  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+   EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role',f.oid::regprocedure);
+  END IF;
+ END LOOP;
+END
+$recovery_acl$;
 COMMIT;

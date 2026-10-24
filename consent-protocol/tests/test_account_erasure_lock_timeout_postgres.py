@@ -188,7 +188,7 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
             "144_google_integrations_calendar_foundation.sql",
             "290_chat_push_delivery.sql",
             "370_one_marketing_preferences.sql",
-            "412_account_provider_cleanup_staging.sql",
+            "416_account_provider_cleanup_staging.sql",
         ]
         for migration in migrations:
             await conn.execute((ROOT / "db/migrations" / migration).read_text())
@@ -827,7 +827,7 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
     from hushh_mcp.services import account_firebase_mutations as mutations
     from hushh_mcp.services import account_generation_service as generations
 
-    migration = (ROOT / "db/migrations/413_account_generations.sql").read_text()
+    migration = (ROOT / "db/migrations/417_account_generations.sql").read_text()
     await conn.execute((ROOT / "db/migrations/359_independent_email_otp.sql").read_text())
     await conn.execute(
         "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN"

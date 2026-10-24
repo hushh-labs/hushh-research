@@ -1,14 +1,19 @@
 # Private agent: normal release transition
 
-**Current surgical follow-up — 24 October 2026:** local checkpoint `ef3837592a`
+**Current surgical follow-up — 24 October 2026:** committed checkpoint `b2ef2c81b7` with further local schema work
 adds durable cleanup, explicit federated/email Start fresh and application-owner
 continuity; observed main `163ddb96a33e` and the relevant native ADK fixes are
 integrated. It is not pushed, frozen, merged or deployed. Admission remains off;
-draft migrations 412–414 remain unregistered and unapplied. Corporate ADC last
+forward migrations 416–419 are registered locally but remain unapplied. Corporate ADC last
 verified peer dev/UAT rollouts serving `2732b301cc9e` at 12:41 UTC. Live read-only
-catalog inspection confirms UAT lacks dev's cloud-removal authorities. New forward
-schema graduation and clean/retained-schema replay must precede that lifecycle's
-UAT acceptance; do not append 414 before its parked-972 dependency closure. The
+catalog inspection confirms UAT lacks dev's cloud-removal authorities. New canonical 418 derives the final private-agent authority without replaying
+historical cohort inference or destructive history cleanup; recovery is now draft
+419. One disposable 353-migration replay preserved eight retained record families.
+The strengthened 82-case suite passed in 92.34 seconds. Registered-contract checks
+passed against both local schema lineages. Fresh main `217007c715` owns 412–415
+for recovery indexes; preserve those files and use 416–419 for this unapplied chain.
+Both renumbered upgrade/replay cases passed in 86.03 seconds. Final combined and hosted qualification
+still precede deployment and UAT acceptance. The
 [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns the
 current evidence and remaining acceptance; earlier releases below are historical.
 

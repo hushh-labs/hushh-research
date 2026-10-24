@@ -19,9 +19,9 @@ necessary, but it is not sufficient on its own: a full deletion that was
 already in flight before the DDL committed can finish without crossing either
 root trigger, and a legacy account can lack one of the two root rows.
 
-The current local follow-up adds draft migrations 412–414. Cleanup retains only
+The current local follow-up adds draft migrations 416–419. Cleanup retains only
 required existing encrypted custody; registration generations and cloud-removal
-recovery are not enabled by source tests. Migration 414 records exact destructive
+recovery are not enabled by source tests. Migration 419 records exact destructive
 admission before dispatch and permits only unapproved, inert-review cancellation.
 It retains cancelled history and blocks legacy restore/deprovision bypasses. Both
 application consumers and the qualified migration chain must be installed before
@@ -55,8 +55,7 @@ provider custody before following the same staged SQL path.
 
 The latest focused checks passed **260 backend** and **167 frontend** cases,
 including real disposable PostgreSQL, API/auth integration and the progress UI.
-These are local contract results. Migration **412 remains unregistered and
-unapplied** until replacement-account compatibility and the combined candidate
+These are local contract results. Migration **416 remains unapplied** until replacement-account compatibility and the combined candidate
 are qualified. This is not deployed deletion or same-login registration evidence.
 
 The agreed correction retains credentials only in their existing encrypted
@@ -67,7 +66,7 @@ watches before revoking an associated grant. Provider failures remain repairable
 unsupported key revocation requires explicit local-erasure terms.
 
 Same-login registration remains unavailable until the environment-local account
-authority and its consumers are qualified. The local `413_account_generations`
+authority and its consumers are qualified. The local `417_account_generations`
 authority now preserves Firebase's UID and immutable retired-account tombstones,
 with an opaque owner for each replacement. Two complete erase/enroll cycles passed
 on disposable PostgreSQL, including concurrent enrollment, exact cleanup replay,
@@ -124,7 +123,7 @@ quarantine may use their narrower identity operations. Drain legacy deletion
 workers before enabling replacement accounts: this change cannot undo an already
 dispatched identity deletion.
 
-Draft 413 now also records remote identity-write dispatch before provider calls,
+Migration 417 now also records remote identity-write dispatch before provider calls,
 using the existing owner 171→198 barriers and the enrollment identity-199 lock.
 Its minimal receipts contain hashes, purpose, project, operation and settlement;
 no names, credentials or SDK payloads. Dispatched or uncertain writes block both
@@ -140,7 +139,7 @@ never change its shared session per call to work around that behavior.
 
 The retirement cutoff includes a 60-second issuer-clock lead margin, then requires
 independently fresh sign-in; refresh-token `iat` never supplies that proof.
-Migrations 412–414 remain unregistered and unapplied. On 24 October, the latest
+Migrations 416–419 are registered locally with matching contracts but remain unapplied. On 24 October, the latest
 focused recovery checks passed 248 backend and 379 frontend cases, plus 41 native
 privacy cases. The real PostgreSQL rehearsal passed two erase/enroll cycles in
 127.87 seconds, including changed-proof replay, direct-INSERT refusal and a pending

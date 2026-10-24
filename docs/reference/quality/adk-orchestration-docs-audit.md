@@ -48,7 +48,7 @@ and lease recovery; watch-before-revoke and uncertain-effect refusal remain
 enforced. Purpose-bound status and the privacy UI preserve identity during
 cleanup and require exact local-erasure terms. Latest affected checks passed
 **260 backend** and **167 frontend** cases, including real PostgreSQL and
-API/auth/UI continuity. The draft migration remains unregistered and unapplied;
+API/auth/UI continuity. The forward chain is registered locally but remains unapplied;
 replacement-account authority and combined installed acceptance remain on the
 critical path. Bounded Hermes source repairs
 also passed their affected suites; successful local Python checks do not replace
@@ -84,7 +84,7 @@ cannot invalidate another episode or change its onboarding cookies. The deletion
 transport leaves lifecycle settlement to that captured operation; the real API
 wrapper plus AuthProvider confirms a lost response without a false uncertain state.
 The affected frontend suite passed 304 cases; TypeScript and changed-source lint
-passed. Draft 413 now journals remote identity writes and blocks replacement
+passed. Migration 417 now journals remote identity writes and blocks replacement
 activation while they remain unresolved. Two real PostgreSQL erase/enroll cycles
 passed with late settlement and forged-nonce refusal. The no-retry identity update
 transport passed 232 affected backend cases, including one physical POST under
@@ -128,21 +128,29 @@ and warm-cache retirement refusal. Conditional WorkOS/HushhTech custom-auth path
 now refuse generation-enabled execution explicitly; 133 affected cases passed.
 These are bounded source checks, not deployed registration acceptance.
 
-Cloud-only removal now has a draft forward recovery contract (414): approval,
+Cloud-only removal now has a draft forward recovery contract (419): approval,
 execution admission and unapproved cancellation serialize on the existing owner
 locks. Cancellation restores only the exact inert snapshot and retains history;
 the legacy restoration and deprovision paths cannot bypass the review. Azure
 checks dispatch before owner-access destruction and at SQL worker admission;
 GCP carries the captured attempt. The affected backend suite passed 212 cases,
 including real PostgreSQL cancellation/approval concurrency; the cleanup interface
-passed 14 cases. Migrations 412–414 remain unregistered and unapplied. Installed
-provider removal and final combined acceptance are still required. Canonical
-release 404 supplies placement readers, not the full dev pod authority schema.
-Draft 414 depends on parked 972 and its earlier erasure/update foundations; simply
-adding 412–414 to the release manifest cannot qualify UAT. Graduate the final
-schema through new forward migrations, preserving applied dev checksums and
-excluding historical Shared inference and destructive chat cutover. Clean canonical
-replay, rich-dev upgrade and repeated-replay preservation remain required.
+passed 14 cases. Forward migrations 416–419 are now registered locally with
+matching exact production/UAT and minimum-dev contracts; they remain unapplied.
+Canonical 418 adopts the final private-agent schema from the accepted dev lineage,
+without replaying historical Shared inference or destructive chat cutover. Recovery
+is 419; applied parked SQL and checksums remain unchanged. The nine-case PostgreSQL
+suite passed in 86.30 seconds, including canonical-411 and rich-dev-972 upgrades,
+retained credential/review/resource state, non-owner backend permissions, client
+refusal, unknown authority-object refusal and forward-only rollback. The 206-case
+migration/binding/dev-lane/data-model slice passed. These are local PostgreSQL 14.21
+results, not hosted PostgreSQL 16, provider removal or installed acceptance.
+The strengthened 82-case replay/authority suite passed in 92.34 seconds, including
+retained consent/referral records and the historical-replay negative controls.
+Actual release-contract catalog checks passed for production, dev and UAT against
+both disposable schema lineages. After fresh main claimed 412–415 for recovery
+indexes, this unapplied chain moved to 416–419; both cases passed again in 86.03
+seconds. Main integration and final combined qualification remain. Activation stays off.
 
 The native upstream autofix workflow separately failed to open its generated PR
 because Actions cannot create PRs in this repository. Main stayed unchanged.

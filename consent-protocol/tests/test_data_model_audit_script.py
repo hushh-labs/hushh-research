@@ -334,6 +334,18 @@ def test_migration_inventory_keeps_real_create_and_drop_statements() -> None:
     assert _table_events(sql) == [("account_rows", None), (None, "retired_rows")]
 
 
+def test_migration_inventory_preserves_quoted_public_table_identity(tmp_path, monkeypatch):
+    (tmp_path / "414_qualified_tables.sql").write_text("""
+      CREATE TABLE IF NOT EXISTS public."owner_records" (user_id text);
+      CREATE TABLE "public"."CaseSensitive" (id bigint);
+      CREATE TABLE elsewhere."not_runtime" (id bigint);
+      CREATE TABLE "retired_rows" (id bigint);
+      DROP TABLE IF EXISTS public."retired_rows";
+    """)
+    monkeypatch.setattr(data_model_audit, "MIGRATIONS_DIR", tmp_path)
+    assert set(data_model_audit._migration_tables()) == {"owner_records", "CaseSensitive"}
+
+
 def test_top_level_ddl_scan_can_ignore_quoted_function_bodies() -> None:
     sql = """
     CREATE FUNCTION install_guard() RETURNS void AS $guard$

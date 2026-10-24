@@ -730,6 +730,26 @@
       "primary_access_path": "atomic full-account deletion, old-revision-compatible actor/vault root deletion triggers, Firebase bearer verification, catalog-installed tombstone guards for every public scalar user_id, role-prefixed *_user_id/user_<role>_id, firebase_uid, and *_firebase_uid reference, and an indexed hash-only account-state presence preflight"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "account_generations"
+      ],
+      "id": "account_environment_generations",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "AccountGenerationService and purpose-bound enrollment under identity namespace199; normal admission resolves independently verified Firebase identity to one immutable application owner."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "account_firebase_mutations"
+      ],
+      "id": "account_identity_mutation_receipts",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "The existing identity-mutation dispatcher records captured owner/identity hashes, approved authority project, purpose and settlement nonce before the no-retry provider request."
+    },
+    {
       "data_class": "audit_regulated",
       "exact_tables": [
         "account_legal_acceptances"
@@ -1703,9 +1723,9 @@
         "personal_agent_cloud_removals"
       ],
       "id": "personal_agent_cloud_removal",
-      "lifecycle_status": "dev_only",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Dev-only migration972; vault-owner POST /api/one/personal-agent/removal and the existing resource-erasure executor. Owner/attempt primary-key lookups and transactional finalization; GET discovery is Firebase-owner authenticated and creates no operation."
+      "primary_access_path": "Existing cloud-removal API/store and provider erasure executor; parked972 is the dev predecessor, with canonical418/419 in qualification. Owner/attempt lookups bind exact review, dispatch and recovery. Read-only discovery creates no removal operation."
     },
     {
       "data_class": "workflow_state",
@@ -1716,7 +1736,7 @@
         "personal_agent_deletion_tombstones"
       ],
       "id": "personal_agent_provisioning",
-      "lifecycle_status": "parked_flag_off_with_live_environment_drift",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "owner": "backend-runtime-governance",
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
@@ -1727,7 +1747,7 @@
         "personal_agent_deletion_tombstones"
       ],
       "id": "personal_agent_registry",
-      "lifecycle_status": "dev_only",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "owner": "iam-consent-governance",
       "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement. Dev-only migration949 retains, once per reserved erasure attempt and before any access is revoked, the pod's crypto-erase confirmation for a user_azure agent with its setup nonce (the agentCryptoErase checkpoint a cut-short revocation resumes from), then the owner-access erasure receipt (that confirmation, the role assignments revoked, the person's remaining resource ids, the vault purge date and the resource group to delete), both validated against the reserved snapshot; account deletion still refuses while those resources remain. Dev-only migration950 adds placement_epoch (0 for every existing row, bumped by one on every standby promotion); the hub verifier refuses a signed pod request whose X-Hushh-Pod-Epoch is missing or stale once the person has a standby or an epoch above 0"
     },
@@ -1910,6 +1930,16 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "pod_migration_jobs"
+      ],
+      "id": "private_agent_migration_recovery",
+      "lifecycle_status": "retained_legacy_unqualified_new_transfers",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "The existing migration/recovery owner tracks one captured source/destination job per application owner. Schema presence does not enable hosting transfers."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "one_profile_discovery_daily_usage"
       ],
       "id": "profile_discovery_daily_usage",
@@ -2000,6 +2030,16 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "Owner-authenticated selection/management and separately consented continuous live collection discovery, with durable connection-generation-bound ingestion leases and versioned publication. No client database access."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "shared_files_storage"
+      ],
+      "id": "shared_files_ciphertext_transport",
+      "lifecycle_status": "dev_pilot_canonical_graduation_pending",
+      "owner": "security-audit",
+      "primary_access_path": "Shared Files storage admission, bounded upload leases and account-erasure inventory; browser-side encryption and vault custody retain the library key."
     },
     {
       "data_class": "workflow_state",
@@ -7009,7 +7049,7 @@
     "action_gateway": "5cbf2c42876c25839568b1a5ea1c9f6323a85f4c36ea5d89ebe86d365d1d09cf",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "8dbd3b9ea314314d2280430fa134ccfb7ed791249763e243b66402b601ed17e3",
-    "data_plane": "761f75b0100a6fa0945eeed768e03ea33e7f0076bed6f98b453f84816fce7d58",
+    "data_plane": "638287a4e7e0a849bf3e983d1ab413935e17058e63fd1da6e975fd770ff1e6ce",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",
@@ -7028,6 +7068,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 160,
     "semantic_routes": 17,
-    "table_families": 127
+    "table_families": 131
   }
 }
