@@ -9,8 +9,11 @@ import {
 } from "../../components/one-location/redesign/location-action-styles";
 
 export function alignPeopleActionsWithMountedRecipe(markup: string): string {
-  // The HTML fixture predates the Connect action pass. Keep its roster cases,
-  // but use the same exported classes as the mounted People row.
+  // Generated fixtures already use the mounted recipe. Keep the legacy
+  // substitution for older fixtures so this helper is safe to call twice.
+  const targetCount = markup.split(LOCATION_CONNECT_ACTION_TARGET_CLASSNAME).length - 1;
+  const pillCount = markup.split(LOCATION_CONNECT_ACTION_PILL_CLASSNAME).length - 1;
+  if (targetCount === 6 && pillCount === 6) return markup;
   const shareTarget = "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-white shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent hover:no-underline rounded-full";
   const askTarget = "h-11 min-h-11 min-w-11 bg-transparent px-0 font-medium text-[color:var(--app-accent)] shadow-none [--type-compact-button-label-weight:500] hover:bg-transparent rounded-full";
   const sharePill = "inline-flex h-10 w-full items-center justify-center bg-[color:var(--app-accent)] px-3 rounded-full";
