@@ -417,6 +417,17 @@ document content. The shared 180-second startup budget and all isolation limits
 remain authoritative. Compare completed full-release timings before claiming a
 deployment-duration improvement; cache seeding and infrastructure waits can vary.
 
+Worker scheduler capture validates the complete fixed-job records from one
+unlimited JSON inventory. After worker promotion, setup verifies the actual worker
+origin, scheduler identity and a fresh full inventory once. An enabled job whose
+entire normalized configuration already matches needs no update; missing,
+drifting or paused jobs use the existing setup helper and a fresh verification.
+The three explicit trigger/completion checks remain ordered and mandatory.
+The unchanged path removes 15 serial Cloud SDK invocations across capture/setup.
+`drive_worker_release` timing lines separate candidate deployment, attestation,
+invoker grant, traffic promotion, scheduler configuration and completion waits;
+they contain fixed stage names and elapsed seconds only.
+
 Search citations identify received provider sources; they do not imply fresh
 page retrieval. Exact public-page review uses the existing public-network fence.
 
