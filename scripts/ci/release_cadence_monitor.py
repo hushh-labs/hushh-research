@@ -247,6 +247,10 @@ def issue_body(state: dict | None, journal: dict, controller: int) -> str:
         lines[3] = (f"Automatic releases disabled. Last certified UAT count: {count}; "
                     f"checkpoint {journal['checkpoint_at']}. TestFlight every 2; production every 4 when enabled.")
     if state:
+        if state.get("production_baseline"):
+            baseline = state["production_baseline"]
+            lines.append(f"Production-first cutover: run {baseline['run_id']}, source {baseline['sha']}, "
+                         f"verified UAT count {baseline['ordinal']}. Unstarted historical releases were superseded.")
         retained = sorted(state["requests"], key=int)
         visible = set(retained[-12:]) | {ordinal for ordinal in retained
                   if any(child["state"] in {"pending", "running", "dispatching", "deferred"}

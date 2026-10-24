@@ -33,7 +33,12 @@ from release_cadence import (
     verify_dispatch_inputs,
 )
 
-from release_cadence_maintenance import configuration, disabled_snapshot as disabled_snapshot, retire_obsolete_failures
+from release_cadence_native import wait_production as wait_production
+
+from release_cadence_maintenance import (
+    adopt_production_baseline, configuration, disabled_snapshot as disabled_snapshot,
+    production_baseline, replayed_receipt, retire_obsolete_failures,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -138,6 +143,8 @@ class Ledger:
 def artifact_json(repository: str, run_id: int, name: str, filename: str, *, optional: bool = False) -> dict | None:
     result = api(f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100")
     require(isinstance(result, dict) and isinstance(result.get("artifacts"), list), "Release artifact inventory is unavailable")
+    require(type(result.get("total_count")) is int and result["total_count"] == len(result["artifacts"]),
+            "Release artifact inventory is incomplete")
     candidates = [a for a in result["artifacts"] if a["name"] == name and not a["expired"]]
     if optional and not candidates:
         return None
@@ -151,7 +158,12 @@ def artifact_json(repository: str, run_id: int, name: str, filename: str, *, opt
 
 
 def receipt(repository: str, run_id: int, prefix: str, *, optional: bool = False) -> dict | None:
-    return artifact_json(repository, run_id, f"{prefix}-release-{run_id}", f"{prefix}-release-status.json", optional=optional)
+    try:
+        return artifact_json(repository, run_id, f"{prefix}-release-{run_id}", f"{prefix}-release-status.json", optional=optional)
+    except UnsafeRelease as exc:
+        if prefix not in {"uat", "prod"} or not str(exc).startswith("Missing unique "):
+            raise
+        return replayed_receipt(repository, run_id, prefix)
 
 
 def runs(repository: str, workflow: str, since: str, *, until: str | None = None) -> list[dict]:
@@ -267,6 +279,9 @@ def verify_recovery(ledger: Ledger, reviewed_head: str, controller: dict, govern
             in governance["production"]["manual_dispatch_users"], "Checkpoint recovery requires a production operator")
     require(reviewed_head == ledger.head and ledger.state, "Reviewed recovery head does not match the ledger")
     state = ledger.state
+    production_baseline(state, policy, ledger.repository, revalidate=True)
+    if state.get("production_baseline"):
+        verify_controller(run_info(ledger.repository, state["production_baseline"]["origin_run_id"]), ledger.repository, governance)
     require(state["count"] == len(state["sources"]), "Recovery counter does not match its sources")
     require(sorted(s["ordinal"] for s in state["sources"].values()) == list(range(1, state["count"] + 1)),
             "Recovery source ordinals are not contiguous")
@@ -359,6 +374,7 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
     if inventory:
         unfinished = [r["created_at"] for r in inventory if r.get("status") != "completed"]
         state["scan_after"] = min(unfinished) if unfinished else max(r["created_at"] for r in inventory)
+    adopt_production_baseline(ledger, policy, controller_id)
     ledger.save()
     reconcile_children(ledger, trigger.get("id"))
     dispatch_pending(ledger)
@@ -534,34 +550,3 @@ def dispatch_child(ledger: Ledger, ordinal: str, request: dict, lane: str) -> No
             f"https://github.com/{ledger.repository}/actions/runs/{run_id}", "Dispatch identity is uncertain")
     child.update(run_id=run_id, state="running")
     ledger.save()
-
-
-def wait_production(repository: str, run_id: int, sha: str, timeout: int = 3600) -> dict:
-    deadline = time.monotonic() + timeout
-    while True:
-        run = run_info(repository, run_id)
-        require(trusted_run(run, repository, WORKFLOWS["deploy"]) and run.get("event") == "workflow_dispatch",
-                "Untrusted production deployment run")
-        if run["status"] == "completed":
-            break
-        require(time.monotonic() < deadline, "Timed out waiting for production; upload remains blocked")
-        time.sleep(15)
-    _, governance = configuration()
-    if (run.get("actor") or {}).get("login") not in governance["production"]["manual_dispatch_users"]:
-        authority_deadline = min(deadline, time.monotonic() + 180)
-        while True:
-            try:
-                request, lane = recorded_authority(repository, run)
-                break
-            except UnsafeRelease:
-                require(time.monotonic() < authority_deadline, "Production controller authority is unavailable; upload blocked")
-                time.sleep(5)
-        require(lane == "deploy" and request["sha"] == sha, "Wrong automatic production source")
-    require(run.get("conclusion") == "success", "Production deployment did not succeed; upload blocked")
-    result = receipt(repository, run_id, "prod")
-    require(result.get("status") == "healthy" and result.get("sha") == sha, "Production receipt is not healthy for this source")
-    final, candidate = result.get("final", {}), result.get("candidate", {})
-    require(final.get("backend_revision") and final["backend_revision"] == candidate.get("backend_revision") and
-            result.get("verification", {}).get("backend_provenance") == "success" and
-            result.get("verification", {}).get("backend_health") == "success", "Production backend receipt mismatch")
-    return result

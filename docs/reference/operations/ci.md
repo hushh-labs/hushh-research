@@ -236,6 +236,24 @@ frontend-only healthy receipt counts even when it inherits an older backend.
 The receipt's `sha` is authoritative; a dispatch's workflow HEAD is not its
 deployed source.
 
+A production-first restart may pin `production_baseline_run_id` to one successful
+governed manual production deployment. Its healthy, complete exact-source receipt
+must match an already counted UAT source on a fourth-deployment boundary. After
+accounting the held history, the controller certifies that source, ordinal, run,
+attempt and receipt digest once. It supersedes only strictly never-started
+historical release groups through that boundary, with an explicit cutover reason;
+it preserves counts, sources, started releases and recovery evidence. For example,
+a verified cutover at count 24 makes 26 the next TestFlight milestone and 28 the
+next production pair. A changed baseline, partial production receipt or started
+historical bundle refuses adoption. Checkpoint recovery revalidates the pinned
+attempt and receipt. The GitHub monitor shows the cutover alongside the count.
+
+Deployment reruns retain identically named receipts. Their duplicate-name reader
+uses the existing release-artifact owner to select only the current attempt's
+successful upload window, repository/source identity and immutable archive digest.
+It never selects by greatest artifact ID or deletes old evidence. Truncated,
+ambiguous or ungoverned evidence blocks accounting.
+
 Each milestone pins one green `main` SHA. Production deploy and archive are
 dispatched together. Before upload, the iOS job joins the exact recorded production
 run, requires its healthy same-SHA receipt, then rechecks live production backend
@@ -245,6 +263,11 @@ automatic publication after approval. Existing manual dispatches keep their
 prepare-only defaults. Automatic submission requires the existing privacy/export
 compliance attestations and configured production App Review contact/sign-in
 information; missing prerequisites block submission rather than weakening gates.
+Under the production mutation lock, automatic deployment additionally requires
+both currently serving service SHAs to equal or precede its pinned source. The
+scope resolver is preserved from current main before any historical checkout;
+an older or incomparable automatic source cannot roll production back. Manual
+operator deployment and rollback authority remains explicit.
 
 Only macOS build/upload jobs share `ios-build-and-upload`, preventing build-number
 races across TestFlight and App Store. Apple processing, group assignment and

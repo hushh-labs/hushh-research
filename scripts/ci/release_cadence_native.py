@@ -113,3 +113,37 @@ def settle_child(repository: str, request: dict, lane: str, child: dict, run: di
                 and any(step.get("name") == "Prepare App Store version (set What's New, attach build; one-click submit)"
                         and step.get("conclusion") == "success" for step in job.get("steps", []))
                 for job in jobs["jobs"]), "No positive App Store completion proof; a deferred receipt may have expired")
+
+
+def wait_production(repository: str, run_id: int, sha: str, timeout: int = 3600) -> dict:
+    import time
+    from release_cadence import WORKFLOWS, trusted_run
+    from release_cadence_github import configuration, receipt, recorded_authority, run_info
+    deadline = time.monotonic() + timeout
+    while True:
+        run = run_info(repository, run_id)
+        require(trusted_run(run, repository, WORKFLOWS["deploy"]) and run.get("event") == "workflow_dispatch",
+                "Untrusted production deployment run")
+        if run["status"] == "completed":
+            break
+        require(time.monotonic() < deadline, "Timed out waiting for production; upload remains blocked")
+        time.sleep(15)
+    _, governance = configuration()
+    if (run.get("actor") or {}).get("login") not in governance["production"]["manual_dispatch_users"]:
+        authority_deadline = min(deadline, time.monotonic() + 180)
+        while True:
+            try:
+                request, lane = recorded_authority(repository, run)
+                break
+            except UnsafeRelease:
+                require(time.monotonic() < authority_deadline, "Production controller authority is unavailable; upload blocked")
+                time.sleep(5)
+        require(lane == "deploy" and request["sha"] == sha, "Wrong automatic production source")
+    require(run.get("conclusion") == "success", "Production deployment did not succeed; upload blocked")
+    result = receipt(repository, run_id, "prod")
+    require(result.get("status") == "healthy" and result.get("sha") == sha, "Production receipt is not healthy for this source")
+    final, candidate = result.get("final", {}), result.get("candidate", {})
+    require(final.get("backend_revision") and final["backend_revision"] == candidate.get("backend_revision") and
+            result.get("verification", {}).get("backend_provenance") == "success" and
+            result.get("verification", {}).get("backend_health") == "success", "Production backend receipt mismatch")
+    return result
