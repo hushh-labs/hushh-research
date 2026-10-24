@@ -238,13 +238,14 @@ deployed source.
 
 A production-first restart may pin `production_baseline_run_id` to one successful
 governed manual production deployment. Its healthy, complete exact-source receipt
-must match an already counted UAT source on a fourth-deployment boundary. After
+must match an already counted UAT source, including a non-milestone ordinal. After
 accounting the held history, the controller certifies that source, ordinal, run,
 attempt and receipt digest once. It supersedes only strictly never-started
-historical release groups through that boundary, with an explicit cutover reason;
+historical release groups through that ordinal, with an explicit cutover reason;
 it preserves counts, sources, started releases and recovery evidence. For example,
 a verified cutover at count 24 makes 26 the next TestFlight milestone and 28 the
-next production pair. A changed baseline, partial production receipt or started
+next production pair; a cutover at 31 makes 32 the next milestone for both lanes.
+The global two/four phase never shifts. A changed baseline, partial production receipt or started
 historical bundle refuses adoption. Checkpoint recovery revalidates the pinned
 attempt and receipt. The GitHub monitor shows the cutover alongside the count.
 
@@ -363,9 +364,15 @@ receipts are read; monitoring needs no Apple or cloud credentials.
 
 UAT/release overlap reports use observed workflow/job timestamps. A UAT start
 during a release demonstrates progress for that sample; it does not prove reserved
-capacity or that every later job avoided queuing. A UAT with no started job after
-10 minutes during release activity raises a possible-contention warning. UAT's
-own concurrency and other organization jobs can also explain that delay. The
+capacity or that every later job avoided queuing. Each created, queued UAT job
+awaiting a runner for over 10 minutes during recorded release activity raises a
+possible-contention warning, even after an earlier job started. The observer
+deduplicates that warning and records subsequent allocation. Dependency time
+before job creation and time inside UAT's capacity step are not runner waits.
+One final job scan per completed attempt also reports long allocation waits that
+started and finished between observations, without adding a polling schedule.
+A UAT with no allocated job also retains its run-level warning; UAT's own
+concurrency and other organization jobs can explain that delay. The
 monitor observes and reports; it never dispatches, cancels, retries or repairs a
 release.
 

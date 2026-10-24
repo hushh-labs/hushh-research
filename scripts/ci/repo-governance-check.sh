@@ -29,6 +29,7 @@ python3 scripts/ci/verify-branch-governance-doc-consistency.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
 python3 scripts/ci/test_verify_deployment_environment_governance.py
 python3 scripts/ci/test_release_cadence.py
+python3 scripts/ci/test_release_cadence_maintenance.py
 python3 scripts/ci/test_release_cadence_monitor.py
 bash scripts/ci/verify-protocol-ci-parity.sh --self-test
 python3 scripts/ci/test_protocol_manifest_transport.py
