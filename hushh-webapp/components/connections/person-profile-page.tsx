@@ -1244,8 +1244,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           onOpenChange={setShowUnlockDialog}
           onSuccess={() => setShowUnlockDialog(false)}
           title="Unlock your vault"
-          description="Unlock your private agent to reveal information shared with you."
-          presentationClassName="consent-presentation-surface"
+          description="Unlock your private agent to reveal information shared with you." presentationClassName="consent-presentation-surface"
         />
       ) : null}
     </AppPageShell>

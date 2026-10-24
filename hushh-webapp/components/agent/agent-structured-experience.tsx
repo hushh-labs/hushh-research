@@ -254,13 +254,9 @@ function ExperienceShell({
   icon: ReactNode;
   children: ReactNode;
 }) {
+  const isConsentReview = ["one.information_request_review.v1", "one.document_request_review.v1", "one.drive_share_review.v1", "one.drive_bulk_share_review.v1"].includes(experienceType);
   return (
-    <section data-experience-type={experienceType} className={`${[
-      "one.information_request_review.v1",
-      "one.document_request_review.v1",
-      "one.drive_share_review.v1",
-      "one.drive_bulk_share_review.v1",
-    ].includes(experienceType) ? "consent-presentation-surface " : ""}overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]`}>
+    <section data-experience-type={experienceType} className={`${isConsentReview ? "consent-presentation-surface " : ""}overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]`}>
       <header className="flex items-start gap-3 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
         {/* /one iconography: a bare duotone glyph on a transparent well. A
             registry capability glyph keeps its own colour; a utility glyph

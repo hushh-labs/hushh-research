@@ -487,8 +487,7 @@ export function SharedWithYouCard({ person, items, variant = "chat", className }
       />
       {user && status === "locked" ? (
         <VaultUnlockDialog
-          user={user}
-          presentationClassName="consent-presentation-surface"
+          user={user} presentationClassName="consent-presentation-surface"
           open={unlockOpen}
           onOpenChange={setUnlockOpen}
           onSuccess={() => setUnlockOpen(false)}

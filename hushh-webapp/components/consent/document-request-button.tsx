@@ -428,8 +428,7 @@ function UnlockedRequestButton({
         }}
       >
         <IllustratedRequestContent
-          intent="drive"
-          className="consent-presentation-surface"
+          intent="drive" className="consent-presentation-surface"
           title={created ? "Question sent" : "Ask about files"}
           description={`To ${personName}`}
           success={Boolean(created)}

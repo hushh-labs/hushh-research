@@ -398,8 +398,7 @@ export function RequestFilesButton({
           <Button size="standard" variant="none">{renderTrigger?.("Request files") ?? "Request files"}</Button>
         </DialogTrigger> : null}
         <IllustratedRequestContent
-          intent="files"
-          className="consent-presentation-surface"
+          intent="files" className="consent-presentation-surface"
           title={created ? "Request sent" : "Request files"}
           description={`To ${personName}`}
           success={Boolean(created)}
@@ -473,8 +472,7 @@ export function RequestFilesButton({
                   Which files do you need?
                 </Label>
                 <Textarea
-                  id="document-request-purpose"
-                  data-consent-input="true"
+                  id="document-request-purpose" data-consent-input="true"
                   value={purpose}
                   onChange={(event) => setPurpose(event.target.value)}
                   maxLength={2000}
@@ -515,8 +513,7 @@ export function RequestFilesButton({
                   <div className="min-w-0 space-y-2">
                     <Label htmlFor="document-period-start" data-consent-role="form-label">Start date</Label>
                     <Input
-                      id="document-period-start"
-                      data-consent-input="true"
+                      id="document-period-start" data-consent-input="true"
                       type="date"
                       value={start}
                       onChange={(event) => setStart(event.target.value)}
@@ -526,8 +523,7 @@ export function RequestFilesButton({
                   <div className="min-w-0 space-y-2">
                     <Label htmlFor="document-period-end" data-consent-role="form-label">End date</Label>
                     <Input
-                      id="document-period-end"
-                      data-consent-input="true"
+                      id="document-period-end" data-consent-input="true"
                       type="date"
                       value={end}
                       onChange={(event) => setEnd(event.target.value)}

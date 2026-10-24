@@ -259,8 +259,7 @@ export function SpecialistConsentRequiredCard({
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <Button
-          data-testid="specialist-consent-open"
-          data-consent-quiet-action="true"
+          data-testid="specialist-consent-open" data-consent-quiet-action="true"
           size="sm"
           disabled={busy}
           onClick={onOpenConsent}
@@ -269,8 +268,7 @@ export function SpecialistConsentRequiredCard({
           Review access
         </Button>
         <Button
-          data-testid="specialist-consent-cancel"
-          data-consent-quiet-action="true"
+          data-testid="specialist-consent-cancel" data-consent-quiet-action="true"
           size="sm"
           variant="ghost"
           disabled={busy}
@@ -416,8 +414,7 @@ export function SpecialistConsentActionsCard({
                 ) : null}
                 {actions.has("details") ? (
                   <Button
-                    data-testid="specialist-consent-details"
-                    data-consent-quiet-action="true"
+                    data-testid="specialist-consent-details" data-consent-quiet-action="true"
                     size="sm"
                     variant="ghost"
                     disabled={busy}
@@ -613,8 +610,7 @@ export function SpecialistPendingConsentRequestCard({
           ) : null}
           {meta.length ? (
             <p
-              className="text-[13px] leading-[18px] text-muted-foreground"
-              data-consent-role="helper"
+              className="text-[13px] leading-[18px] text-muted-foreground" data-consent-role="helper"
               data-testid="specialist-pending-consent-duration"
             >
               {meta.join(" · ")}
@@ -622,8 +618,7 @@ export function SpecialistPendingConsentRequestCard({
           ) : null}
           {resolved ? (
             <p
-              className="text-[13px] font-semibold leading-[18px] text-muted-foreground"
-              data-consent-role="status"
+              className="text-[13px] font-semibold leading-[18px] text-muted-foreground" data-consent-role="status"
               data-testid="specialist-pending-consent-status"
             >
               {resolvedConsentLabels[status]}
@@ -645,8 +640,7 @@ export function SpecialistPendingConsentRequestCard({
         <Button
           data-testid="specialist-pending-consent-details"
           size="sm"
-          variant="ghost"
-          data-consent-quiet-action="true"
+          variant="ghost" data-consent-quiet-action="true"
           disabled={busy}
           onClick={() => onDetails(item)}
         >

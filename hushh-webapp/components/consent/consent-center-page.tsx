@@ -4051,10 +4051,7 @@ export function ConsentCenterPage() {
           }
           mobilePresentation="sheet"
           // A document request uses the header scale of every dialog in its flow.
-          surfaceClassName={cn(
-            "consent-presentation-surface",
-            isDocumentSelection && DOCUMENT_FLOW_SURFACE_TYPE,
-          )}
+          surfaceClassName={cn("consent-presentation-surface", isDocumentSelection && DOCUMENT_FLOW_SURFACE_TYPE)}
           // Grouped background: the request's actionable sections read as cards.
           bodyClassName={
             isDocumentSelection
