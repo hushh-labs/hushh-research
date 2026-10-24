@@ -53,25 +53,36 @@ def migrate_preparation(store, connection, row, build):
             ),
             {"id": row["packet_id"], "version": QUERY_SOURCE["version"]},
         )
-    if build.get("search_job_id"):
-        expired = store._row(
-            connection,
-            """SELECT job_id FROM drive_owner_search_jobs WHERE job_id=:id
-            AND expires_at<=clock_timestamp() AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())""",
-            {"id": build["search_job_id"]},
-        )
-        if expired:
-            connection.execute(
-                text(
-                    "UPDATE drive_owner_search_jobs SET status='stopped',lease_id=NULL,lease_expires_at=NULL,revision=revision+1 WHERE job_id=:id"
-                ),
-                {"id": expired["job_id"]},
-            )
-            from hushh_mcp.services.drive_period_packet_preview import rotate_preview
+    return recover_expired_search(store, connection, row, build)
 
-            row, build = rotate_preview(store, connection, row, build)
-            build["recovery"] = {
-                "reason": "expired_search",
-                "previous_job_id": str(expired["job_id"]),
-            }
+
+def recover_expired_search(store, connection, row, build):
+    """A cached pointer can retire only this owner's current packet search."""
+    if not build.get("search_job_id"):
+        return row, build
+    binding = {
+        "id": build["search_job_id"],
+        "user": row["user_id"],
+        "packet": row["packet_id"],
+        "generation": row["connection_generation"],
+    }
+    scoped = "job_id=:id AND user_id=:user AND period_packet_id=:packet AND connection_generation=:generation"
+    expired = store._row(
+        connection,
+        f"""SELECT job_id FROM drive_owner_search_jobs WHERE {scoped}
+        AND expires_at<=clock_timestamp() AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
+        FOR UPDATE""",
+        binding,
+    )
+    if not expired:
+        return row, build
+    connection.execute(
+        text(f"""UPDATE drive_owner_search_jobs SET status='stopped',lease_id=NULL,
+        lease_expires_at=NULL,revision=revision+1 WHERE {scoped}"""),
+        binding,
+    )
+    from hushh_mcp.services.drive_period_packet_preview import rotate_preview
+
+    row, build = rotate_preview(store, connection, row, build)
+    build["recovery"] = {"reason": "expired_search", "previous_job_id": str(expired["job_id"])}
     return row, build

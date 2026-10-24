@@ -41,6 +41,7 @@ def assert_predefined_preview_saved(service, packet_id, *, matched):
         )
         assert row["tagging_pending"] and row["current_version"] == 0
         build = service.store._build(row)
+        assert "migration" not in build
         search = dict(
             connection.execute(
                 text("""SELECT * FROM drive_owner_search_jobs
@@ -216,6 +217,54 @@ async def test_financial_provenance_cannot_authorize_an_arbitrary_checkpoint(
         assert current["status"] == "running" and current["matched"] == 0
         assert service.search.store._checkpoint(current) == claimed["checkpoint"]
     planner.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mismatch", ["owner", "generation", "ordinary"])
+async def test_expired_recovery_cannot_retire_an_unrelated_search(reusable, monkeypatch, mismatch):
+    import json
+
+    from hushh_mcp.services.drive_period_packet_migration import recover_expired_search
+
+    service, head, _, _ = await preview_runtime(reusable, monkeypatch)
+    job = await service.store.claim_build(user_id="owner", packet_id=str(head["packet_id"]))
+    plan, binding = await service._plan(job, AsyncMock())
+    state = await service._search_job(job, plan, binding)
+    target = str(uuid4())
+    changes = {"job_id": target, "client_request_id": str(uuid4()), "status": "queued"}
+    changes.update(
+        {"user_id": "unrelated-owner"}
+        if mismatch == "owner"
+        else {"connection_generation": job["connection_generation"] + 1}
+        if mismatch == "generation"
+        else {"period_packet_id": None}
+    )
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status='completed' WHERE job_id=:id"),
+            {"id": state["jobId"]},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_owner_search_jobs
+            SELECT (jsonb_populate_record(NULL::drive_owner_search_jobs,
+              to_jsonb(j) || CAST(:changes AS jsonb))).* FROM drive_owner_search_jobs j WHERE job_id=:id"""),
+            {"id": state["jobId"], "changes": json.dumps(changes)},
+        )
+        connection.execute(
+            text(
+                "UPDATE drive_owner_search_jobs SET expires_at=clock_timestamp()-INTERVAL '1 day' WHERE job_id=:id"
+            ),
+            {"id": target},
+        )
+        build = {"search_job_id": target}
+        recovered_row, recovered_build = recover_expired_search(
+            service.store, connection, job, build
+        )
+        assert recovered_row["revision"] == job["revision"] and recovered_build == build
+        unrelated = connection.execute(
+            text("SELECT status,revision FROM drive_owner_search_jobs WHERE job_id=:id"),
+            {"id": target},
+        ).one()
+        assert unrelated == ("queued", 1)
 
 
 async def test_retention_advances_past_pinned_current_and_previous_previews(reusable, monkeypatch):
