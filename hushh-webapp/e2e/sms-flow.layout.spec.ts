@@ -93,8 +93,11 @@ test.beforeAll(async () => {
       },
     },
   );
+  const globalCss = process.env.LOCATION_SHIPPED_CSS_FILE
+    ? fs.readFileSync(path.resolve(process.env.LOCATION_SHIPPED_CSS_FILE), "utf8")
+    : compiler.build([...candidates]);
   css =
-    stripAppFontFaces(compiler.build([...candidates])) +
+    stripAppFontFaces(globalCss) +
     productFontStyle() +
     fs
       .readdirSync(outDir)
@@ -191,6 +194,71 @@ test("pending recipient metadata keeps the mobile SMS composer usable without di
   await page.screenshot({ path: testInfo.outputPath("sms-mixed-readiness.png"), fullPage: true });
 });
 
+for (const dark of [false, true]) {
+  for (const width of [360, 393, 430, 620, 621, 768, 1024, 1440]) {
+    test(`scoped SOS empty-contact title and primary recovery at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 852 });
+      await page.setContent(`<html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body data-readiness="empty"><div id="root"></div></body></html>`);
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      const title = page.getByRole("heading", { name: "Save My Soul", level: 1 });
+      const add = page.getByRole("button", { name: "Add emergency contacts" });
+      const measured = await page.evaluate(() => {
+        const values = (element: Element) => {
+          const style = getComputedStyle(element);
+          return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
+        };
+        return {
+          title: values(document.querySelector("h1")!),
+          add: values(document.querySelector("button")!),
+          addHeight: document.querySelector("button")!.getBoundingClientRect().height,
+          overflow: document.documentElement.scrollWidth - innerWidth,
+        };
+      });
+      await expect(title).toBeVisible();
+      await expect(add).toBeVisible();
+      expect(measured.title).toMatchObject({ size: "28px", line: "36px", weight: "600" });
+      expect(measured.title.family).toContain("Plus Jakarta Sans");
+      expect(measured.add).toMatchObject({ size: "17px", line: "22px", weight: "650" });
+      expect(measured.addHeight).toBeGreaterThanOrEqual(52);
+      expect(measured.overflow).toBeLessThanOrEqual(1);
+      await add.click();
+      await expect(page.locator("body")).toHaveAttribute("data-edited-contacts", "true");
+      await expect(page.locator("body")).not.toHaveAttribute("data-sent-count");
+    });
+  }
+}
+
+for (const dark of [false, true]) {
+  for (const width of [393, 620, 621, 1440]) {
+    test(`scoped SOS active composer roles at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 852 });
+      await page.setContent(`<html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      const measured = await page.evaluate(() => {
+        const values = (element: Element) => {
+          const style = getComputedStyle(element);
+          return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
+        };
+        return {
+          subtitle: values(document.querySelector("header p")!),
+          preset: values(document.querySelector('button[aria-pressed]')!),
+          input: values(document.querySelector("#sos-short-message")!),
+          status: values(document.querySelector('[data-testid="sos-status-label"]')!),
+          sms: values(document.querySelector('[data-location-type-role="sms-display"]')!),
+        };
+      });
+      expect(measured.subtitle).toMatchObject({ size: "12px", line: "18px", weight: "400" });
+      expect(measured.preset).toMatchObject({ size: "12px", line: "18px", weight: "550" });
+      expect(measured.input).toMatchObject({ size: width <= 620 ? "16px" : "14px", line: "22px", weight: "400" });
+      expect(measured.status).toMatchObject({ size: "13px", line: "18px", weight: "600" });
+      expect(measured.sms).toMatchObject({ size: "42px", line: "42px", weight: "600" });
+      for (const role of Object.values(measured)) expect(role.family).toContain("Plus Jakarta Sans");
+    });
+  }
+}
+
 test("preset, edit, cancel, hold, live receipt and Stop work through real browser events", async ({ page, isMobile, browserName }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -259,7 +327,15 @@ test("preset, edit, cancel, hold, live receipt and Stop work through real browse
   await expect(page.locator("body")).toHaveAttribute("data-sent-note", "Come get me");
   await expect(page.getByRole("textbox")).toHaveCount(0);
   await page.getByRole("button", { name: "Stop Save My Soul alert" }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Stop alert", exact: true }).click();
+  const stopDialog = page.getByRole("alertdialog");
+  await expect(stopDialog).toHaveAttribute("data-location-type-scale", "connect");
+  const stopTitle = await stopDialog.getByText("Stop Save My Soul alert?").evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { family: style.fontFamily, size: style.fontSize, line: style.lineHeight, weight: style.fontWeight };
+  });
+  expect(stopTitle).toMatchObject({ size: "20px", line: "25px", weight: "600" });
+  expect(stopTitle.family).toContain("Plus Jakarta Sans");
+  await stopDialog.getByRole("button", { name: "Stop alert", exact: true }).click();
   await expect(message).toBeVisible();
   const sms = page.getByRole("button", { name: /press and hold for two seconds/i });
   await sms.focus();
