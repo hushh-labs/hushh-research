@@ -67,7 +67,7 @@ export function PrivateGoogleConnectorsPanel({ open, onBack, onClose, surface, s
         if (!response.ok) throw new Error('AGENT_UNREACHABLE');
       } else {
         const outcome = await connectGoogleConnector(connector, { vaultOwnerCapability: vaultOwnerToken,
-          confirmLegacyTransition: confirmTransition, isCurrent: current });
+          confirmLegacyTransition: terms => confirmTransition(terms, connector === 'calendar' ? 'calendar' : undefined), isCurrent: current });
         if (!current()) return;
         if (!outcome.ok) {
           if ('handoff' in outcome) setHandoff(outcome.handoff);

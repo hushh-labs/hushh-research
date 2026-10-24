@@ -612,7 +612,8 @@ jobs:
   distribute:
     name: Process and distribute uploaded TestFlight build
     needs: [preflight, ship]
-    if: ${{ needs.ship.result == 'success' && inputs.dry_run != true }}
+    # Override implicit success(): the optional hardware ancestor may be skipped.
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.ship.result == 'success' && inputs.dry_run != true }}
     runs-on: ubuntu-latest
     environment:
       name: uat

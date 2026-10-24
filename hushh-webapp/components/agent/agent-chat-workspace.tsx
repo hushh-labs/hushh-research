@@ -4159,7 +4159,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               includeCalendarList: payload.includeCalendarList === true,
               ...controls,
               vaultOwnerCapability: vaultOwnerToken ?? undefined,
-              confirmLegacyTransition: confirmTransition,
+              confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
               isCurrent,
             })
           : connectGmailInPlace({
@@ -10670,6 +10670,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   // the selection result is sent back as a follow-up turn.
                   // Crypto is not involved — no coordinates pass through here.
                   <SpecialistPromptCard
+                    calendar={pendingSpecialistDirective.delegateAgentId === "agent_calendar"}
                     prompt={
                       pendingSpecialistDirective.directive
                         .payload as unknown as ClientPrompt
@@ -10777,7 +10778,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     const type = String(payload.type ?? "");
                     if (type === "calendar.invitations" && user) {
                       return <CalendarInvitationChat key={`${user.uid}:${vaultSessionEpoch}:${conversationId}:${String(payload.eventId || "list")}:${String(payload.startAt || "")}`}
-                        owner={user} payload={payload} vaultOwnerCapability={vaultOwnerToken} confirmLegacyTransition={confirmTransition}
+                        owner={user} payload={payload} vaultOwnerCapability={vaultOwnerToken} confirmLegacyTransition={terms => confirmTransition(terms, 'calendar')}
                         expectedAccountEmail={calendarInvitationContext && calendarInvitationContext.selection.ownerId === user.uid && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountEmail : undefined}
                         onBusyChange={setSpecialistBusy} onClose={() => { setPendingSpecialistDirective(null); setCalendarInvitationContext(null); }}
                         onResult={result => appendMessage({ id: `calendar-rsvp-${crypto.randomUUID()}`, role: "assistant", ...stampNow(),

@@ -7,6 +7,8 @@ import { ChevronLeft, ChevronRight, FileText, CameraIcon as Video, ExternalLink,
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { Button } from "@/components/ui/button";
+import { CalendarCompactAction } from "./calendar-compact-action";
+import presentationStyles from "./calendar-presentation.module.css";
 import { Input } from "@/components/ui/input";
 import { CHART_TOOLTIP_TRIGGER, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -42,7 +44,7 @@ function Artifact({ item }: { item: MeetingArtifact }) {
     {item.state !== "available" ? <p className={styles.muted}>{availability[item.state] || "Access could not be verified."}</p> : <>
       {link ? <a className={styles.link} href={link} target="_blank" rel="noopener noreferrer">{item.kind === "recording" ? "Watch recording" : "Open source"}<ExternalLink className="size-3" /></a> : null}
       {item.text ? <div className={styles.notes}>{item.text}</div> : item.kind !== "recording" ? <p className={styles.muted}>Open the source to read this file.</p> : null}
-      {item.text ? <Button variant="ghost" size="sm" onClick={() => { void navigator.clipboard.writeText(item.text || "").then(() => toast.success("Notes copied"), () => toast.error("Could not copy notes")); }}>Copy notes</Button> : null}
+      {item.text ? <Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => { void navigator.clipboard.writeText(item.text || "").then(() => toast.success("Notes copied"), () => toast.error("Could not copy notes")); }}>Copy notes</Button> : null}
       {item.truncated ? <p className={styles.muted}>Preview shortened. Open the source for the full text.</p> : null}
     </>}
   </div>;
@@ -191,11 +193,11 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
   const visibleOverview = overview || (loading && !error ? overviewPreview.current?.value : null);
   const overviewPending = canRefresh && !error && !visibleOverview;
   const initialLoading = view !== "overview" && !error && canRefresh && (loading || !overview) && (view === "library" ? !library : !detail);
-  return <div className={styles.insights} aria-busy={loading}>
-    <div className="flex justify-end"><Button variant="ghost" size="sm" disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; refresh(); }}>Refresh</Button></div>
+  return <div className={styles.insights} data-view={view} aria-busy={loading}>
+    <div className="flex justify-end"><Button variant="ghost" size="compact" className={presentationStyles.utility} disabled={loading || !canRefresh} onClick={() => { refreshBudget.current = 5; refresh(); }}>Refresh</Button></div>
     {!canRefresh ? <p role="status">Updates paused while this page is hidden or offline.</p> : null}
-    {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon" aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}><ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
-    {error ? <SectionCard><p role="alert">{error}</p><Button variant="outline" onClick={() => { refreshBudget.current = 5; refresh(); }}>Try again</Button></SectionCard> : null}
+    {view !== "overview" ? <div className={styles.breadcrumb}><Button variant="ghost" size="icon-touch" aria-label={view === "meeting" ? "Back to recordings and notes" : "Back to Insights"} onClick={back}><ChevronLeft className="size-4" /></Button>Insights / {view === "meeting" ? "Recordings & Notes" : "Meeting library"}</div> : null}
+    {error ? <SectionCard><p role="alert">{error}</p><CalendarCompactAction onClick={() => { refreshBudget.current = 5; refresh(); }}>Try again</CalendarCompactAction></SectionCard> : null}
     {initialLoading ? <CalendarLoading label="Insights loading" /> : null}
     {view === "overview" ? <>
       <div><h2 className={styles.heading}>Insights</h2><p className={styles.muted}>Understand your time. Make room for what matters.</p></div>
@@ -218,7 +220,7 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
       {filter !== "all" ? <p className={styles.muted}>Filters include only files whose access was verified.</p> : null}
       {library && !library.complete ? <p role="status" className={styles.muted}>Some calendars or additional events could not be included. This list is incomplete.</p> : null}
       <SectionCard>{filtered.map(meeting => <button className={styles.row} type="button" key={`${meeting.calendar_id}:${meeting.id}`} ref={node => { const key = `${meeting.calendar_id}:${meeting.id}`; if (node) rowRefs.current.set(key, node); else rowRefs.current.delete(key); }} onClick={() => { lastSelectedId.current = `${meeting.calendar_id}:${meeting.id}`; setSelected(meeting); setDetailTab("notes"); setView("meeting"); }}><span className={styles.icon}><FileText className="size-5" /></span><span className={styles.copy}><strong>{meeting.title}</strong><span className={styles.muted}>{meeting.start?.dateTime ? new Date(meeting.start.dateTime).toLocaleString(undefined, { timeZone: zone, dateStyle: "medium", timeStyle: "short" }) : meeting.start?.date}</span><span className={styles.tags}>{meeting.artifact_kinds?.length ? meeting.artifact_kinds.map(kind => <span key={kind} className={styles.tag}>{kind === "recording" ? "Recording" : kind === "notes" ? "Notes" : "Transcript"}</span>) : <span className={styles.tag}>{artifactLabels[meeting.artifact_status || ""] || "Check meeting files"}</span>}</span></span><ChevronRight className="size-4" /></button>)}{!loading && !error && !filtered.length ? <p className={styles.muted}>{query || filter !== "all" ? "No matching meetings in this list." : "No linked meetings were returned for this period."}</p> : null}</SectionCard>
-      {library?.next_page != null ? <Button variant="outline" disabled={loading} onClick={() => setPage(library.next_page!)}>Load more meetings</Button> : null}
+      {library?.next_page != null ? <CalendarCompactAction disabled={loading} onClick={() => setPage(library.next_page!)}>Load more meetings</CalendarCompactAction> : null}
       {library?.next_page != null && (query || filter !== "all") ? <p className={styles.muted}>Search and filters apply to loaded meetings. Load more to include older results.</p> : null}
     </> : <>
       <h2 className={styles.heading}>{detail?.event?.title || selected?.title}</h2>
@@ -230,7 +232,7 @@ export function CalendarInsights({ userId, accountKey, date, zone, getIdToken, v
           {!artifacts.some(item => item.kind === detailTab) ? <p className="py-4 text-muted-foreground">{detail.availability?.[detailTab as "notes" | "transcript"] === "not_generated" ? (detailTab === "notes" ? "No notes generated." : "No transcript generated.") : availability[detail.availability?.[detailTab as "notes" | "transcript"] || detail.discovery] || "Not available from verified sources."}</p> : null}
           {detailTab === "notes" ? <div className="space-y-3 border-t pt-3"><div><h3 className="font-semibold">Decisions</h3><SourceExcerpts artifacts={artifacts.filter(item => item.kind === "notes")} kind="decisions" /></div><div><h3 className="font-semibold">Follow-ups</h3><SourceExcerpts artifacts={artifacts.filter(item => item.kind === "notes")} kind="follow-ups" /></div></div> : null}
         </SectionCard></div>
-        <Button variant="outline" disabled={asking || !vaultOwnerToken || !artifacts.some(item => item.can_ask)} onClick={() => void ask()}><MessageSquare className="mr-2 size-4" />{asking ? "Checking source access…" : "Ask One about this meeting"}</Button>
+        <CalendarCompactAction disabled={asking || !vaultOwnerToken || !artifacts.some(item => item.can_ask)} onClick={() => void ask()}><MessageSquare className="size-4" />{asking ? "Checking source access…" : "Ask One about this meeting"}</CalendarCompactAction>
         {!vaultOwnerToken ? <p className={styles.muted}>Unlock your vault in One to use meeting context in your conversation.</p> : null}
       </> : null}
     </>}

@@ -23,8 +23,75 @@ class AzureAuthenticationError(RuntimeError):
     """Workload authentication failed before model I/O; not a model outage."""
 
 
+class AzureProtocolError(ValueError):
+    """Closed diagnostic code; never provider prose or a reason to relax admission."""
+
+    def __init__(self, code: str) -> None:
+        self.protocol_code = (
+            code
+            if code
+            in {
+                "search.no_retrieval",
+                "search.invalid_citation",
+                "search.no_sources",
+                "search.overlap",
+                "search.billing",
+            }
+            else "unlisted"
+        )
+        super().__init__(
+            "Completed Azure web retrieval has no valid billable request count"
+            if self.protocol_code == "search.billing"
+            else AZURE_PROTOCOL_MESSAGE
+        )
+
+
+def record_response_metadata(response: Any, counters: dict[str, Any]) -> None:
+    """Retain bounded usage even when unary response validation rejects output."""
+
+    def value(obj: Any, key: str) -> Any:
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    status = value(response, "status")
+    counters["response_status"] = (
+        status
+        if isinstance(status, str)
+        and status in {"completed", "incomplete", "failed", "cancelled", "queued", "in_progress"}
+        else "unlisted"
+    )
+    reason = value(value(response, "incomplete_details"), "reason")
+    counters["incomplete_reason"] = (
+        reason
+        if isinstance(reason, str) and reason in {"max_output_tokens", "content_filter"}
+        else "none"
+        if reason is None
+        else "unlisted"
+    )
+    usage = value(response, "usage")
+    for source, target in (
+        ("input_tokens", "prompt_token_count"),
+        ("output_tokens", "candidates_token_count"),
+        ("total_tokens", "total_token_count"),
+    ):
+        count = value(usage, source)
+        if type(count) is int and 0 <= count <= 1_000_000_000:
+            counters[target] = count
+
+
 AZURE_CONTENT_FILTERED_MESSAGE = "Azure response stopped by content filtering"
 AZURE_RATE_LIMITED_MESSAGE = "Azure model capacity is temporarily unavailable"
+AZURE_PROTOCOL_MESSAGE = "Azure search returned no verified citations"
+AZURE_PROTOCOL_MESSAGES = frozenset(
+    {AZURE_PROTOCOL_MESSAGE, "Completed Azure web retrieval has no valid billable request count"}
+)
+_PROTOCOL_CODES = {
+    "Azure model response did not complete": "response.not_complete",
+    "Unsupported or refused Azure output": "response.invalid_output",
+    "Unsupported Azure native output tool": "response.invalid_output",
+    "Azure model returned no usable output": "response.empty",
+    "Azure streaming response ended before completion": "stream.no_completion",
+    "Azure streaming response did not complete": "stream.not_complete",
+}
 
 
 class AzureContentFilteredError(RuntimeError):
@@ -112,6 +179,13 @@ async def observe_call(source, model: str, counters: dict[str, Any]):
     except Exception as error:
         outcome = "failed"
         error_kind, status, counters["provider_code"] = _failure_details(error)
+        counters["protocol_code"] = (
+            error.protocol_code
+            if isinstance(error, AzureProtocolError)
+            else _PROTOCOL_CODES.get(str(error), "unlisted")
+            if error_kind == "protocol"
+            else "none"
+        )
         if error_kind == "filtered" and not isinstance(error, AzureContentFilteredError):
             raise AzureContentFilteredError() from None
         if error_kind == "quota" and status == 0 and counters["provider_code"] == "rate.limit":
@@ -122,7 +196,8 @@ async def observe_call(source, model: str, counters: dict[str, Any]):
             "azure_model_call_complete provider=azure_openai model=%s outcome=%s "
             "error_kind=%s status=%s auth_ms=%s first_output_ms=%s elapsed_ms=%s "
             "reasoning_effort=%s input_tokens=%s output_tokens=%s cached_tokens=%s "
-            "reasoning_tokens=%s total_tokens=%s provider_code=%s",
+            "reasoning_tokens=%s total_tokens=%s provider_code=%s "
+            "protocol_code=%s response_status=%s incomplete_reason=%s",
             model,
             outcome,
             error_kind,
@@ -137,4 +212,7 @@ async def observe_call(source, model: str, counters: dict[str, Any]):
             counters.get("thoughts_token_count"),
             counters.get("total_token_count"),
             counters.get("provider_code", "none"),
+            counters.get("protocol_code", "none"),
+            counters.get("response_status", "unknown"),
+            counters.get("incomplete_reason", "unknown"),
         )
