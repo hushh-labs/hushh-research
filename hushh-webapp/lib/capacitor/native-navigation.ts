@@ -170,7 +170,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
   const [interactionIsolation, setInteractionIsolation] = useState(false);
   const [ready, setReady] = useState(false);
   const [discovering, setDiscovering] = useState(() => enabled && isNativeIOS());
-  const [height, setHeight] = useState(49);
+  const [height, setHeight] = useState(52);
   const [scrollFailed, setScrollFailed] = useState(false);
   const [privacyAdmissionRevision, setPrivacyAdmissionRevision] = useState(0);
   const overlayBlocked = useSyncExternalStore(subscribe, () => overlays.size > 0, () => false);

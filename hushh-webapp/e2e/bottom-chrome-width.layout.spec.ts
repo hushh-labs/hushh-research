@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { assertCompactChatChrome, assertComposerSendTarget } from "./fixtures/bottom-chrome-assertions";
 
 import {
   awaitProductFont,
@@ -211,14 +212,15 @@ for (const width of [320, 393, 768]) {
   });
 }
 
-test("shared dock retains mode materials and input identity with aligned edges and keyboard clearance", async ({ page }) => {
+for (const dark of [false, true]) test(`shared dock retains mode materials and input identity with aligned edges and keyboard clearance (${dark ? "dark" : "light"})`, async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   for (const width of [320, 393, 768]) {
-    await open(page, width, false, { name: "shared text dock", html: { composer: "true" } }, errors);
+    await open(page, width, dark, { name: "shared text dock", html: { composer: "true", path: "/" } }, errors);
     const dock = page.locator("[data-agent-dock-surface]");
     const input = page.getByRole("textbox", { name: "Message One" });
     await expect(input).toBeVisible();
+    await assertCompactChatChrome(page, width, dark);
     const retainedBar = await dock.elementHandle();
     const retainedInput = await input.elementHandle();
     const measureInput = () => input.evaluate(node => {
@@ -280,15 +282,7 @@ test("shared dock retains mode materials and input identity with aligned edges a
     const navFrame = await page.locator(".kai-bottom-nav-pill").boundingBox();
     expect(Math.abs(barFrame!.x - navFrame!.x)).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
     expect(Math.abs(barFrame!.width - navFrame!.width)).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-    for (const name of ["Start voice mode", "Send message"]) {
-      const action = page.getByRole("button", { name });
-      const target = await action.boundingBox();
-      const icon = await action.locator("svg").boundingBox();
-      expect(target!.width).toBeGreaterThanOrEqual(44);
-      expect(target!.height).toBeGreaterThanOrEqual(44);
-      expect(icon!.width).toBeLessThanOrEqual(16);
-      expect(icon!.height).toBeLessThanOrEqual(16);
-    }
+    await assertComposerSendTarget(page);
     const shotDir = process.env.BOTTOM_CHROME_SHOT_DIR;
     if (shotDir && width === 393) {
       fs.mkdirSync(shotDir, { recursive: true });

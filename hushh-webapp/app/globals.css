@@ -6790,7 +6790,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .agent-chat-composer-compact {
-  padding: 0.25rem 0.375rem 0.25rem 1rem;
+  padding: 0.4375rem 0.5rem 0.4375rem 1rem;
 }
 .agent-chat-composer-field {
   box-sizing: border-box;
@@ -6817,10 +6817,17 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   border-radius: 50%;
   background: var(--app-accent);
 }
-.agent-chat-composer-actions .shell-action-surface:not([data-agent-composer-action="send"]):not([data-agent-composer-action="stop"])::before {
+.agent-chat-composer-actions .shell-action-surface:not([data-agent-composer-action="send"]):not([data-agent-composer-action="stop"]):not([data-agent-composer-primary="true"])::before {
   background: transparent;
 }
 .agent-chat-composer-actions .shell-action-surface:disabled::before {
+  background: var(--app-quaternary-fill, rgba(127,127,127,0.12));
+}
+.agent-chat-composer-actions [data-agent-composer-primary="true"]::before {
+  inset: 0;
+  background: var(--app-accent);
+}
+.agent-chat-composer-actions [data-agent-composer-primary="true"]:disabled::before {
   background: var(--app-quaternary-fill, rgba(127,127,127,0.12));
 }
 [data-agent-dock-embedded].agent-chat-composer-surface,
