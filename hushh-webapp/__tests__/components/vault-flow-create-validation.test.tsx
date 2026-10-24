@@ -408,14 +408,14 @@ describe("VaultFlow create validation", () => {
       expect(field).toHaveAttribute("type", "password");
       expect(toggle).toHaveAccessibleName("Show password");
       expect(toggle).toHaveAttribute("title", "Show password");
-      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect([toggle.getAttribute("aria-pressed"), !!toggle.querySelector('svg path[d="m3 3 18 18"]')]).toEqual(["false", false]);
 
       fireEvent.click(toggle);
       expect(field).toHaveAttribute("type", "text");
       expect(field).toHaveValue("fixture-password-123");
       expect(toggle).toHaveAccessibleName("Hide password");
       expect(toggle).toHaveAttribute("title", "Hide password");
-      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      expect([toggle.getAttribute("aria-pressed"), !!toggle.querySelector('svg path[d="m3 3 18 18"]')]).toEqual(["true", true]);
       for (const other of fields.filter(candidate => candidate !== field)) {
         expect(other).toHaveAttribute("type", "password");
       }
@@ -424,7 +424,7 @@ describe("VaultFlow create validation", () => {
       expect(field).toHaveAttribute("type", "password");
       expect(field).toHaveValue("fixture-password-123");
       expect(toggle).toHaveAttribute("title", "Show password");
-      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect([toggle.getAttribute("aria-pressed"), !!toggle.querySelector('svg path[d="m3 3 18 18"]')]).toEqual(["false", false]);
     }
     expect(createVaultMock).not.toHaveBeenCalled();
     expect(unlockVaultMock).not.toHaveBeenCalled();
