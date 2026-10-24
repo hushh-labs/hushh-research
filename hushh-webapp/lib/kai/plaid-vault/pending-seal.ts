@@ -95,12 +95,19 @@ export async function recoverPendingSeals(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   sealedItemIds: ReadonlySet<string>;
+  isCurrent?: () => boolean;
 }): Promise<PendingSealRecovery> {
+  const assertCurrent = () => {
+    if (params.isCurrent?.() === false) throw new Error("Account deletion cancelled before submission.");
+  };
+  assertCurrent();
   const outcome: PendingSealRecovery = { disconnected: 0, alreadySealed: 0, failed: 0 };
   const seals = await readPending(params.userId, params.vaultKey);
+  assertCurrent();
   if (seals.length === 0) return outcome;
   const keep: PendingSeal[] = [];
   for (const seal of seals) {
+    assertCurrent();
     if (params.sealedItemIds.has(seal.itemId)) {
       outcome.alreadySealed += 1;
       continue;
@@ -113,6 +120,7 @@ export async function recoverPendingSeals(params: {
       keep.push(seal);
     }
   }
+  assertCurrent();
   await writePending(params.userId, params.vaultKey, keep);
   return outcome;
 }

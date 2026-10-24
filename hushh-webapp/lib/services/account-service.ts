@@ -163,10 +163,13 @@ export class AccountServiceImpl {
   async deleteLostVaultAccount(params: {
     firebaseIdToken: string;
     phoneIdToken?: string;
+    isCurrent?: () => boolean;
   }): Promise<AccountDeletionResult> {
     if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
     return apiJson<AccountDeletionResult>("/api/account/delete-lost-vault", {
       method: "POST",
+      accountDeletionOwnsAuthOutcome: true,
+      isEffectCurrent: params.isCurrent,
       headers: { Authorization: `Bearer ${params.firebaseIdToken}` },
       body: JSON.stringify(
         params.phoneIdToken
@@ -199,12 +202,14 @@ export class AccountServiceImpl {
    */
   async deleteAccount(
     vaultOwnerToken: string,
-    target: AccountDeletionTarget = "both"
+    target: AccountDeletionTarget = "both",
+    isCurrent?: () => boolean,
   ): Promise<AccountDeletionResult> {
     if (!vaultOwnerToken) {
       throw new Error("VAULT_OWNER token required - vault must be unlocked");
     }
     
+    if (isCurrent?.() === false) throw new Error("Account deletion cancelled before submission.");
     trackEvent("account_delete_requested", {
       result: "success",
     });
@@ -234,6 +239,8 @@ export class AccountServiceImpl {
           "/api/account/delete",
           {
             method: "DELETE",
+            accountDeletionOwnsAuthOutcome: true,
+            isEffectCurrent: isCurrent,
             headers: {
               Authorization: `Bearer ${vaultOwnerToken}`,
             },

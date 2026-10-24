@@ -50,11 +50,23 @@ passed. The vault entry, Hosting/setup and mounted One runtime now use the admit
 application owner too. Additional focused suites passed 148 vault-entry/auth,
 75 onboarding and 39 runtime/recovery cases; these overlap and are not an additive
 total. Pending identities without an application owner stay on recovery. TypeScript
-and changed-source lint passed. Enrollment stays disabled: connector/deletion and
-remaining application callers, custom/email authentication and generation-bound
-external-identity mutation still need integration. The Hosting return-only
+and changed-source lint passed. Enrollment stays disabled: remaining application callers, custom/email
+authentication and the enrollment/recovery interface still need integration. The Hosting return-only
 Back/Finish regression passes 16 focused navigation cases. These are source checks,
 not installed or serving acceptance.
+
+The subsequent local deletion correction binds preparation, bank revocation,
+submission and recovery to one admitted principal/browser episode. Late results
+cannot invalidate another episode or change its onboarding cookies. The deletion
+transport leaves lifecycle settlement to that captured operation; the real API
+wrapper plus AuthProvider confirms a lost response without a false uncertain state.
+The affected frontend suite passed 304 cases; TypeScript and changed-source lint
+passed. Draft 413 now journals remote identity writes and blocks replacement
+activation while they remain unresolved. Two real PostgreSQL erase/enroll cycles
+passed with late settlement and forged-nonce refusal. The no-retry identity update
+transport passed 232 affected backend cases, including one physical POST under
+lost responses, errors and redirects. These remain local source/fixture results;
+no installed image or environment acceptance is inferred.
 
 Cloud-only removal now has a draft forward recovery contract (414): approval,
 execution admission and unapproved cancellation serialize on the existing owner

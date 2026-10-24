@@ -15,7 +15,7 @@ import {
   type LostVaultDeleteOptions,
 } from "@/lib/services/account-service";
 import { apiErrorCode } from "@/lib/services/api-client";
-import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { getAuthSessionGeneration, snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import {
   prepareRecaptchaVerifier,
   resetRecaptcha,
@@ -105,7 +105,7 @@ export function useLostVaultDelete(
   const generation = getAuthSessionGeneration();
   const owner = useMemo(
     () => ({
-      userId: user.uid,
+      principal: snapshotValidatedAuthSessionPrincipal(),
       active: false,
       generation,
       attempt: 0,
@@ -113,7 +113,7 @@ export function useLostVaultDelete(
       edited: false,
       submitted: false,
     }),
-    [user.uid, generation],
+    [generation],
   );
   const ownerRef = useRef(owner);
   useLayoutEffect(() => {
@@ -127,10 +127,11 @@ export function useLostVaultDelete(
   }, [owner]);
   const current = useCallback(
     () =>
-      owner.active &&
+      !!owner.principal && owner.principal.firebaseUid === user.uid &&
+      isValidatedAuthSessionOwnerCurrent(owner.principal) && owner.active &&
       ownerRef.current === owner &&
       getAuthSessionGeneration() === owner.generation,
-    [owner],
+    [owner, user.uid],
   );
   const valid = (attempt: number) => current() && owner.attempt === attempt;
   const [options, setOptions] = useState<LostVaultDeleteOptions | null>(null);
@@ -351,7 +352,8 @@ export function useLostVaultDelete(
     setStage("deleting");
     try {
       const result = await executeLostVaultAccountDeletion({
-        userId: user.uid,
+        userId: owner.principal!.ownerId,
+        owner: owner.principal!,
         sessionUser: user,
         firebaseIdToken: providerProof,
         phoneIdToken: phoneProof || undefined,

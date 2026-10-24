@@ -1478,11 +1478,22 @@ def _firebase_update_ok(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     import sys
     import types
 
+    async def admitted_mutation(owner_id, *, operation, **_):
+        return actor_identity_service.account_firebase_mutations.FirebaseMutationResult(
+            operation(owner_id), settled=True
+        )
+
+    monkeypatch.setattr(actor_identity_service.account_firebase_mutations, "run", admitted_mutation)
     calls: list[dict] = []
 
     def fake_update_user(uid, *, display_name=None, app=None, **_):
         calls.append({"uid": uid, "display_name": display_name})
 
+    monkeypatch.setattr(
+        actor_identity_service.account_firebase_mutations,
+        "set_display_name",
+        lambda app, uid, value: fake_update_user(uid, display_name=value, app=app),
+    )
     monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
     monkeypatch.setitem(
         sys.modules,
@@ -1568,6 +1579,7 @@ async def test_update_display_name_provider_failure_still_raises(
     import sys
     import types
 
+    _firebase_update_ok(monkeypatch)
     service = ActorIdentityService()
 
     def failing_update_user(uid, *, display_name=None, app=None, **_):
@@ -1578,6 +1590,11 @@ async def test_update_display_name_provider_failure_still_raises(
         sys.modules,
         "firebase_admin",
         types.SimpleNamespace(auth=types.SimpleNamespace(update_user=failing_update_user)),
+    )
+    monkeypatch.setattr(
+        actor_identity_service.account_firebase_mutations,
+        "set_display_name",
+        lambda app, uid, value: failing_update_user(uid, display_name=value, app=app),
     )
     sync_called = False
 

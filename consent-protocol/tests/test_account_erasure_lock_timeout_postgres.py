@@ -144,6 +144,7 @@ async def test_provider_cleanup_retains_custody_through_failure_and_migration_re
     try:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS actor_profiles(user_id text PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS one_adk_sessions(user_id text PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS vault_keys(user_id text PRIMARY KEY);
             CREATE TABLE user_push_tokens(id bigserial PRIMARY KEY, user_id text,
                 token text, platform text, created_at timestamptz DEFAULT now(),
@@ -821,6 +822,7 @@ async def _assert_account_generation_cycles(conn, database_url):
 
     import asyncpg
 
+    from hushh_mcp.services import account_firebase_mutations as mutations
     from hushh_mcp.services import account_generation_service as generations
 
     migration = (ROOT / "db/migrations/413_account_generations.sql").read_text()
@@ -906,7 +908,26 @@ async def _assert_account_generation_cycles(conn, database_url):
             await conn.execute(
                 "INSERT INTO synthetic_generation_retained_rows VALUES($1,'original')", owner
             )
+
+            def begin_mutation(captured_owner=owner):
+                with patch.object(mutations, "get_db_connection", engine.begin):
+                    return mutations.begin(
+                        captured_owner,
+                        purpose="display_name",
+                        authority_project="synthetic-project",
+                    )
+
+            def settle_mutation(permit, outcome):
+                with patch.object(mutations, "get_db_connection", engine.begin):
+                    return mutations.settle(permit, outcome)
+
+            dispatched = await asyncio.to_thread(begin_mutation)
+            assert dispatched.firebase_uid == identity
             cleanup = await asyncio.to_thread(erase, owner)
+            # The provider effect may settle after local erasure, but no new
+            # dispatch can acquire authority from the latest account owner.
+            with pytest.raises(generations.AccountGenerationRefused):
+                await asyncio.to_thread(begin_mutation)
             retired = await conn.fetchrow(
                 "SELECT * FROM account_generations WHERE identity_hash=$1 AND generation=$2",
                 lifecycle.account_deletion_user_hash(identity),
@@ -944,6 +965,34 @@ async def _assert_account_generation_cycles(conn, database_url):
             enrollment = str(uuid4())
             with pytest.raises(generations.AccountGenerationRefused):
                 await asyncio.to_thread(enroll, claims, generation, str(uuid4()), enrollment)
+            with pytest.raises(generations.AccountGenerationRefused):
+                await asyncio.to_thread(enroll, claims, generation, cleanup, enrollment)
+            # Direct table INSERT is also guarded, not only the enrollment RPC.
+            forged_owner = "acct_" + "f" * 32
+            with pytest.raises(asyncpg.InsufficientPrivilegeError, match="requires reconciliation"):
+                await conn.execute(
+                    """INSERT INTO account_generations(identity_hash,generation,owner_hash,owner_id,
+                    identity_uid,admitted_after,enrollment_operation,cleanup_operation)
+                    VALUES($1,$2,$3,$4,$5,$6,$7::uuid,$8::uuid)""",
+                    lifecycle.account_deletion_user_hash(identity),
+                    generation + 1,
+                    lifecycle.account_deletion_user_hash(forged_owner),
+                    forged_owner,
+                    identity,
+                    cutoff,
+                    str(uuid4()),
+                    cleanup,
+                )
+            with pytest.raises(generations.AccountGenerationRefused):
+                await asyncio.to_thread(
+                    settle_mutation, replace(dispatched, settlement_nonce=str(uuid4())), "succeeded"
+                )
+            await asyncio.to_thread(settle_mutation, dispatched, "uncertain")
+            with pytest.raises(generations.AccountGenerationRefused):
+                await asyncio.to_thread(enroll, claims, generation, cleanup, enrollment)
+            await asyncio.to_thread(settle_mutation, dispatched, "succeeded")
+            with pytest.raises(generations.AccountGenerationRefused):
+                await asyncio.to_thread(settle_mutation, dispatched, "succeeded")
             outcomes = await asyncio.gather(
                 asyncio.to_thread(enroll, claims, generation, cleanup, enrollment),
                 asyncio.to_thread(enroll, claims, generation, cleanup, str(uuid4())),

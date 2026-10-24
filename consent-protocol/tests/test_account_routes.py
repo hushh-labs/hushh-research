@@ -51,6 +51,12 @@ def _build_app() -> FastAPI:
 def test_first_welcome_uses_verified_firebase_email_only_once(monkeypatch):
     from firebase_admin import auth as firebase_auth
 
+    async def admitted_mutation(owner_id, *, operation, **_):
+        return account.account_firebase_mutations.FirebaseMutationResult(
+            operation(owner_id), settled=True
+        )
+
+    monkeypatch.setattr(account.account_firebase_mutations, "run", admitted_mutation)
     claims = {}
     sent = []
     user = SimpleNamespace(
@@ -64,7 +70,9 @@ def test_first_welcome_uses_verified_firebase_email_only_once(monkeypatch):
     monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
     monkeypatch.setattr(firebase_auth, "get_user", lambda *_args, **_kwargs: user)
     monkeypatch.setattr(
-        firebase_auth, "set_custom_user_claims", lambda _uid, value, **_kwargs: claims.update(value)
+        account.account_firebase_mutations,
+        "set_welcome_claims",
+        lambda _app, _uid, value: claims.update(value),
     )
     monkeypatch.setattr(
         account,

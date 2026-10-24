@@ -858,3 +858,149 @@ def test_get_firebase_auth_app_falls_back_to_default_app(monkeypatch):
     )
 
     assert get_firebase_auth_app() is default_app
+
+
+async def test_owned_firebase_mutation_joins_sdk_and_settlement_on_cancellation(monkeypatch):
+    """A cancelled HTTP task cannot strand a running SDK thread outside the receipt."""
+    import asyncio
+    from threading import Event
+
+    from hushh_mcp.services import account_firebase_mutations as mutations
+
+    started, release = Event(), Event()
+    permit = mutations.FirebaseMutationPermit(
+        "operation", "owner-hash", "identity-hash", "nonce", "external-uid"
+    )
+    settlements, invocations = [], []
+    monkeypatch.setattr(mutations, "begin", lambda *_args, **_kwargs: permit)
+    monkeypatch.setattr(
+        mutations, "settle", lambda captured, state: settlements.append((captured, state))
+    )
+
+    def sdk(identity):
+        invocations.append(identity)
+        started.set()
+        assert release.wait(5), "synthetic SDK release timed out"
+        return "accepted"
+
+    task = asyncio.create_task(
+        mutations.run(
+            "opaque-owner", purpose="display_name", authority_project="test-project", operation=sdk
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 3)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert invocations == ["external-uid"]
+        assert settlements == [(permit, "succeeded")]
+    finally:
+        release.set()
+        if not task.done():
+            await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_firebase_mutation_does_not_replay_an_uncertain_sdk_failure(monkeypatch):
+    from hushh_mcp.services import account_firebase_mutations as mutations
+
+    permit = mutations.FirebaseMutationPermit(
+        "operation", "owner-hash", "identity-hash", "nonce", "external-uid"
+    )
+    settlements, invocations = [], []
+    monkeypatch.setattr(mutations, "begin", lambda *_args, **_kwargs: permit)
+    monkeypatch.setattr(
+        mutations, "settle", lambda captured, state: settlements.append((captured, state))
+    )
+
+    def sdk(identity):
+        invocations.append(identity)
+        raise ConnectionError("synthetic lost provider response")
+
+    with pytest.raises(mutations.FirebaseMutationTransportError):
+        await mutations.run(
+            "opaque-owner", purpose="display_name", authority_project="test-project", operation=sdk
+        )
+    assert invocations == ["external-uid"]
+    assert settlements == [(permit, "uncertain")]
+
+
+@pytest.mark.parametrize("failure", ["lost_response", "status", "redirect", "success"])
+async def test_identity_mutation_transport_sends_one_post_and_records_outcome(monkeypatch, failure):
+    """Exercise requests/AuthorizedSession; a mocked SDK hides its internal retries."""
+    import asyncio
+    import json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    from types import SimpleNamespace
+
+    import requests
+    from google.auth.credentials import AnonymousCredentials
+
+    from hushh_mcp.services import account_firebase_mutations as mutations
+
+    physical_posts = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            size = int(self.headers["Content-Length"])
+            physical_posts.append((self.path, json.loads(self.rfile.read(size))))
+            if failure == "lost_response":
+                self.close_connection = True
+                return
+            body = json.dumps({"localId": "external-uid"}).encode() if failure == "success" else b""
+            self.send_response(200 if failure == "success" else 503 if failure == "status" else 307)
+            self.send_header("Content-Length", str(len(body)))
+            if failure == "redirect":
+                self.send_header("Location", "/unexpected-replay")
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    monkeypatch.setattr(mutations, "_IDENTITY_ORIGIN", f"http://127.0.0.1:{server.server_port}")
+    app = SimpleNamespace(
+        project_id="synthetic-project",
+        credential=SimpleNamespace(get_credential=AnonymousCredentials),
+    )
+    permit = mutations.FirebaseMutationPermit(
+        "operation", "owner-hash", "identity-hash", "nonce", "external-uid"
+    )
+    outcomes = []
+    monkeypatch.setattr(mutations, "begin", lambda *_args, **_kwargs: permit)
+    monkeypatch.setattr(
+        mutations, "settle", lambda captured, state: outcomes.append((captured, state))
+    )
+    try:
+        execution = mutations.run(
+            "captured-owner",
+            purpose="display_name",
+            authority_project=app.project_id,
+            operation=lambda uid: mutations.set_display_name(app, uid, "Synthetic Name"),
+        )
+        if failure == "success":
+            assert (await execution).settled is True
+        else:
+            with pytest.raises(
+                (requests.RequestException, mutations.FirebaseMutationTransportError)
+            ):
+                await execution
+        assert physical_posts == [
+            (
+                "/v1/projects/synthetic-project/accounts:update",
+                {"localId": "external-uid", "displayName": "Synthetic Name"},
+            )
+        ]
+        assert outcomes == [(permit, "succeeded" if failure == "success" else "uncertain")]
+    finally:
+        await asyncio.to_thread(server.shutdown)
+        server.server_close()
+        await asyncio.to_thread(worker.join, 2)
+        assert not worker.is_alive()

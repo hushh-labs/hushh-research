@@ -24,6 +24,7 @@ from hushh_mcp.one_voice.tools.base import (
     ToolResult,
     ToolSpec,
 )
+from hushh_mcp.services.account_firebase_mutations import FirebaseMutationTransportError
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
 from hushh_mcp.services.one_location_account_settings_service import (
@@ -208,6 +209,14 @@ async def update_display_name(ctx: ToolContext, args: UpdateDisplayNameInput) ->
             status="invalid",
             reason_code="display_name_invalid",
             spoken_facts=[f"{exc} Your name wasn't changed."],
+        )
+    except FirebaseMutationTransportError:
+        return UpdateDisplayNameResult(
+            status="unavailable",
+            reason_code="display_name_outcome_uncertain",
+            spoken_facts=[
+                "I couldn't confirm the name change. Check your profile before trying again."
+            ],
         )
     except RuntimeError:
         return UpdateDisplayNameResult(

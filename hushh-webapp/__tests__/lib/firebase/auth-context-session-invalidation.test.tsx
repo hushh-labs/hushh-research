@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   authServiceRestoreNativeSession: vi.fn(),
   authServiceSignOut: vi.fn(),
   apiGetAccountSessionStatus: vi.fn(),
+  apiGetAccountDeletionStatus: vi.fn(),
   apiGetAccountCleanupStatus: vi.fn(),
   apiContinueAccountCleanup: vi.fn(),
   apiDeleteSession: vi.fn(),
@@ -123,7 +124,7 @@ vi.mock("@/lib/services/account-identity-service", () => ({
 }));
 
 vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: { onAuthSignedOut: mocks.cacheSignedOut },
+  CacheSyncService: { onAuthSignedOut: mocks.cacheSignedOut, onAccountDeleted: vi.fn() },
 }));
 
 vi.mock("@/lib/services/onboarding-local-service", () => ({
@@ -165,6 +166,7 @@ vi.mock("@/lib/interaction/interaction-intent-coordinator", () => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getAccountSessionStatus: mocks.apiGetAccountSessionStatus,
+    getAccountDeletionStatus: mocks.apiGetAccountDeletionStatus,
     getAccountCleanupStatus: mocks.apiGetAccountCleanupStatus,
     continueAccountCleanup: mocks.apiContinueAccountCleanup,
     deleteSession: mocks.apiDeleteSession,
@@ -1216,6 +1218,31 @@ describe("AuthProvider terminal session invalidation", () => {
       );
     }
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("confirms a lost deletion response through real transport before the provider clears the session", async () => {
+    const { ApiService } = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
+    const { AccountService } = await import("@/lib/services/account-service");
+    const { executeVerifiedAccountDeletion } = await import("@/lib/flows/delete-account");
+    const lostResponse = vi.spyOn(AccountService, "deleteAccount").mockRejectedValueOnce(new TypeError("synthetic lost response"));
+    mocks.apiGetAccountDeletionStatus.mockImplementationOnce(ApiService.getAccountDeletionStatus);
+    vi.mocked(global.fetch).mockResolvedValueOnce(Response.json({ detail: {
+      code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted",
+    } }, { status: 401 }));
+    render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    try {
+      await act(async () => executeVerifiedAccountDeletion({
+        userId: "account-owner", sessionUser: mocks.firebaseUser as User, vaultOwnerToken: "synthetic-vault-token",
+      }));
+      expect(mocks.apiGetAccountDeletionStatus).toHaveBeenCalledTimes(1);
+      expect(mocks.clearForUser).toHaveBeenCalledWith("account-owner", { deleteDurableReceipts: true });
+      await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1));
+      expect(mocks.replaceDocument).not.toHaveBeenCalledWith("/login?auth_notice=account_deletion_uncertain");
+      expect(lostResponse).toHaveBeenCalledTimes(1);
+    } finally {
+      lostResponse.mockRestore();
+    }
   });
 
   it("retains the deleted notice through real apiFetch before the provider sign-out latch", async () => {

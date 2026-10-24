@@ -86,7 +86,7 @@ import { GoogleConnectionService } from "@/lib/services/google-connection-servic
 import { AuthService } from "@/lib/services/auth-service";
 
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal, getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
 
@@ -272,13 +272,13 @@ describe("ApiService.apiFetch", () => {
   });
 
   it.each(["unmount", "owner", "owner-round-trip"])("blocks Google completion at real transport dispatch after %s", async (change) => {
-    publishValidatedAuthSessionOwner("synthetic-owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
     let mounted = true;
     vi.mocked(trackRequestStart).mockImplementationOnce(() => {
       if (change === "unmount") mounted = false;
       else {
-        publishValidatedAuthSessionOwner("synthetic-other");
-        if (change === "owner-round-trip") publishValidatedAuthSessionOwner("synthetic-owner");
+        publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-other", ownerId: "synthetic-other", accountGeneration: 0 });
+        if (change === "owner-round-trip") publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
       }
     });
     await expect(GoogleConnectionService.completeConnect({
@@ -298,7 +298,7 @@ describe("ApiService.apiFetch", () => {
   });
 
   it("completes Google callbacks without sending presentation authority", async () => {
-    publishValidatedAuthSessionOwner("synthetic-owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
     mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "calendar" }));
     const result = await GoogleConnectionService.completeConnect({
       idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
@@ -310,7 +310,7 @@ describe("ApiService.apiFetch", () => {
   });
 
   it.each([undefined, "unknown", "drive"])("refuses unverifiable Google callback service %s", async (service) => {
-    publishValidatedAuthSessionOwner("synthetic-owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
     mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service }));
     await expect(GoogleConnectionService.completeConnect({
       idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
@@ -415,6 +415,19 @@ describe("ApiService.apiFetch", () => {
       "no-store",
     );
     expect(options.cache).toBe("no-store");
+  });
+
+  it("leaves confirmed deletion-probe settlement to the captured lifecycle owner", async () => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "deleted-owner", ownerId: "deleted-owner", accountGeneration: 0 });
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    mockFetch.mockResolvedValueOnce(Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted" } }, { status: 401 }));
+    const response = await ApiService.getAccountDeletionStatus("cached-proof");
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted" } });
+    expect(dispatch.mock.calls.filter(([event]) => event.type === "auth-session-invalidated")).toHaveLength(0);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0]?.[1]).not.toHaveProperty("accountDeletionOwnsAuthOutcome");
   });
 
   it("keeps a local account-status request alive past the deployed eight-second bound", async () => {
@@ -531,7 +544,7 @@ describe("ApiService.apiFetch", () => {
     async (nextUserId) => {
       capacitorMocks.isNativePlatform.mockReturnValue(true);
       vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
-      publishValidatedAuthSessionOwner("account-a");
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "account-a", ownerId: "account-a", accountGeneration: 0 });
       let finishRefresh!: (token: string) => void;
       vi.mocked(AuthService.getIdToken).mockImplementationOnce(
         () =>
@@ -556,7 +569,7 @@ describe("ApiService.apiFetch", () => {
         expect(AuthService.getIdToken).toHaveBeenCalledWith(true),
       );
       publishValidatedAuthSessionOwner(null);
-      publishValidatedAuthSessionOwner(nextUserId);
+      publishValidatedAuthSessionPrincipal({ firebaseUid: nextUserId, ownerId: nextUserId, accountGeneration: 0 });
       finishRefresh(makeUnsignedToken({ user_id: nextUserId, version: 2 }));
       expect((await pending).status).toBe(401);
       expect(capacitorMocks.request).toHaveBeenCalledTimes(1);
@@ -636,7 +649,7 @@ describe("ApiService.apiFetch", () => {
     const staleToken = makeUnsignedToken({ user_id: "native-user", iat: 1 });
     const freshToken = makeUnsignedToken({ user_id: "native-user", iat: 2 });
     vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
-    publishValidatedAuthSessionOwner("native-user");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "native-user", ownerId: "native-user", accountGeneration: 0 });
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       freshToken,
     );
@@ -707,6 +720,7 @@ describe("ApiService.apiFetch", () => {
       expect(details).toEqual([
         {
           code: "account_not_found",
+          generation: getAuthSessionGeneration(),
           path: "/db/vault/bootstrap-state",
           userId: "deleted-user",
         },
@@ -754,6 +768,7 @@ describe("ApiService.apiFetch", () => {
       expect(details).toEqual([
         {
           code: "account_not_found",
+          generation: getAuthSessionGeneration(),
           path: "/api/vault/bootstrap-state",
           userId: "deleted-user",
         },
@@ -767,7 +782,7 @@ describe("ApiService.apiFetch", () => {
   });
 
   it("scopes a terminal web HCT response to the validated session owner", async () => {
-    publishValidatedAuthSessionOwner("deleted-hct-user");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "deleted-hct-user", ownerId: "deleted-hct-user", accountGeneration: 0 });
     mockFetch.mockResolvedValueOnce(
       jsonResponse({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, 401),
     );
@@ -786,6 +801,7 @@ describe("ApiService.apiFetch", () => {
       expect(details).toEqual([
         {
           code: "account_not_found",
+          generation: getAuthSessionGeneration(),
           path: "/api/one/location/state",
           userId: "deleted-hct-user",
         },
@@ -804,7 +820,7 @@ describe("ApiService.apiFetch", () => {
     capacitorMocks.getPlatform.mockReturnValue("ios");
     const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
     process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
-    publishValidatedAuthSessionOwner("native-deleted-hct-user");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "native-deleted-hct-user", ownerId: "native-deleted-hct-user", accountGeneration: 0 });
     capacitorMocks.request.mockResolvedValueOnce({
       status: 401,
       headers: { "content-type": "application/json" },
@@ -826,6 +842,7 @@ describe("ApiService.apiFetch", () => {
       expect(details).toEqual([
         {
           code: "account_not_found",
+          generation: getAuthSessionGeneration(),
           path: "/api/one/location/state",
           userId: "native-deleted-hct-user",
         },
@@ -850,7 +867,7 @@ describe("ApiService.apiFetch", () => {
     capacitorMocks.getPlatform.mockReturnValue("android");
     const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
     process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
-    publishValidatedAuthSessionOwner("native-upload-owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "native-upload-owner", ownerId: "native-upload-owner", accountGeneration: 0 });
     mockFetch.mockResolvedValueOnce(
       jsonResponse({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, 401),
     );
@@ -875,6 +892,7 @@ describe("ApiService.apiFetch", () => {
       expect(details).toEqual([
         {
           code: "account_not_found",
+          generation: getAuthSessionGeneration(),
           path: "/api/import/upload",
           userId: "native-upload-owner",
         },
@@ -895,7 +913,7 @@ describe("ApiService.apiFetch", () => {
 
   it("ignores a delayed web HCT terminal response after account A switches to B", async () => {
     const pendingResponse = deferred<Response>();
-    publishValidatedAuthSessionOwner("account-a");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "account-a", ownerId: "account-a", accountGeneration: 0 });
     mockFetch.mockReturnValueOnce(pendingResponse.promise);
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
 
@@ -904,7 +922,7 @@ describe("ApiService.apiFetch", () => {
         headers: { Authorization: "Bearer HCT:account-a-token" },
       });
       await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
-      publishValidatedAuthSessionOwner("account-b");
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "account-b", ownerId: "account-b", accountGeneration: 0 });
       pendingResponse.resolve(
         jsonResponse({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, 401),
       );
@@ -923,7 +941,7 @@ describe("ApiService.apiFetch", () => {
 
   it("does not lock a new local unlock for a late same-UID HTTP failure", async () => {
     const pending = deferred<Response>();
-    publishValidatedAuthSessionOwner("same-owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "same-owner", ownerId: "same-owner", accountGeneration: 0 });
     mockFetch.mockReturnValueOnce(pending.promise);
     const onLock = vi.fn();
     window.addEventListener("vault-lock-requested", onLock);
@@ -952,7 +970,7 @@ describe("ApiService.apiFetch", () => {
       data: unknown;
       url: string;
     }>();
-    publishValidatedAuthSessionOwner("account-a");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "account-a", ownerId: "account-a", accountGeneration: 0 });
     capacitorMocks.request.mockReturnValueOnce(pendingResponse.promise);
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
 
@@ -963,7 +981,7 @@ describe("ApiService.apiFetch", () => {
       await vi.waitFor(() =>
         expect(capacitorMocks.request).toHaveBeenCalledTimes(1),
       );
-      publishValidatedAuthSessionOwner("account-b");
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "account-b", ownerId: "account-b", accountGeneration: 0 });
       pendingResponse.resolve({
         status: 401,
         headers: { "content-type": "application/json" },
@@ -992,7 +1010,7 @@ describe("ApiService.apiFetch", () => {
   it.each(["AUTH_ACCOUNT_DELETION_IN_PROGRESS", "AUTH_ACCOUNT_STATUS_UNAVAILABLE"])(
     "requests recoverable session verification for native stream code %s", async (code) => {
       capacitorMocks.isNativePlatform.mockReturnValue(true);
-      publishValidatedAuthSessionOwner("stream-owner");
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "stream-owner", ownerId: "stream-owner", accountGeneration: 0 });
       kaiMocks.streamKaiAnalysis.mockRejectedValueOnce(Object.assign(new Error("Unavailable"), { code }));
       const onVerification = vi.fn();
       const onLock = vi.fn();
@@ -1286,7 +1304,7 @@ describe("ApiService.apiFetch", () => {
 
   it("dispatches account-not-found when a native Kai stream rejects with the exact lifecycle code", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
-    publishValidatedAuthSessionOwner("deleted-stream-owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "deleted-stream-owner", ownerId: "deleted-stream-owner", accountGeneration: 0 });
     kaiMocks.streamKaiAnalysis.mockRejectedValueOnce(
       Object.assign(new Error("Stream request was rejected."), {
         code: "AUTH_ACCOUNT_NOT_FOUND",
@@ -1330,7 +1348,7 @@ describe("ApiService.apiFetch", () => {
     "locks the Vault without claiming deletion for native stream code %s",
     async (bridgeCode) => {
       capacitorMocks.isNativePlatform.mockReturnValue(true);
-      publishValidatedAuthSessionOwner("stream-owner");
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "stream-owner", ownerId: "stream-owner", accountGeneration: 0 });
       kaiMocks.streamKaiAnalysis.mockRejectedValueOnce(
         Object.assign(new Error("Stream request was rejected."), {
           code: bridgeCode,
@@ -1371,7 +1389,7 @@ describe("ApiService.apiFetch", () => {
 
   it("ignores a delayed native stream auth failure after Account A switches to B", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
-    publishValidatedAuthSessionOwner("account-a");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "account-a", ownerId: "account-a", accountGeneration: 0 });
     const pendingStream = deferred<Record<string, unknown>>();
     kaiMocks.streamKaiAnalysis.mockReturnValueOnce(pendingStream.promise);
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
@@ -1388,7 +1406,7 @@ describe("ApiService.apiFetch", () => {
         expect(kaiMocks.streamKaiAnalysis).toHaveBeenCalledTimes(1),
       );
 
-      publishValidatedAuthSessionOwner("account-b");
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "account-b", ownerId: "account-b", accountGeneration: 0 });
       pendingStream.reject(
         Object.assign(new Error("Stream request was rejected."), {
           code: "AUTH_ACCOUNT_NOT_FOUND",
@@ -1410,7 +1428,7 @@ describe("ApiService.apiFetch", () => {
 
   it("does not lock a new local unlock for a late same-UID native stream failure", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
-    publishValidatedAuthSessionOwner("same-owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "same-owner", ownerId: "same-owner", accountGeneration: 0 });
     const pending = deferred<Record<string, unknown>>();
     kaiMocks.streamKaiAnalysis.mockReturnValueOnce(pending.promise);
     const onLock = vi.fn();

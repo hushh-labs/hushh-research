@@ -555,6 +555,8 @@ export async function fetchWithWebTimeout(
 
 export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
+  /** Destructive lifecycle orchestration settles its own response before sign-out. */
+  accountDeletionOwnsAuthOutcome?: boolean;
   /** Native HTTP returns binary bodies as base64; decode them before blob(). */
   responseType?: "arraybuffer";
   /** Revalidate effect authority after async transport setup, including retries. */
@@ -588,7 +590,10 @@ async function apiFetch(
   options: ApiFetchOptions = {},
   streaming = false,
 ): Promise<Response> {
-  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, ...fetchOptions } = options;
+  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, accountDeletionOwnsAuthOutcome, ...fetchOptions } = options;
+  if (accountDeletionOwnsAuthOutcome && ![
+    "/api/account/session-status", "/api/account/delete", "/api/account/delete-lost-vault",
+  ].includes(path)) throw new Error("Unsupported account deletion transport.");
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -859,6 +864,10 @@ async function apiFetch(
   const settleAuthenticatedResponse = async (
     response: Response,
   ): Promise<Response> => {
+    if (accountDeletionOwnsAuthOutcome) {
+      recordApiRequestMetric(response.status);
+      return response;
+    }
     await handleVaultOwnerAuthFailure(response);
     if (await dispatchTerminalAuthCodeFromResponse(response)) {
       recordApiRequestMetric(response.status);
@@ -2559,6 +2568,11 @@ export class ApiService {
     return ApiService.getAccountLifecycleStatus("/api/account/session-status", idToken);
   }
 
+  /** Side-effect-free outcome read; the captured deletion attempt owns settlement. */
+  static async getAccountDeletionStatus(idToken: string): Promise<Response> {
+    return ApiService.getAccountLifecycleStatus("/api/account/session-status", idToken, true);
+  }
+
   static async getAccountCleanupStatus(idToken: string): Promise<Response> {
     return ApiService.getAccountLifecycleStatus("/api/account/deletion-cleanup", idToken);
   }
@@ -2580,6 +2594,7 @@ export class ApiService {
   private static async getAccountLifecycleStatus(
     path: "/api/account/session-status" | "/api/account/deletion-cleanup",
     idToken: string,
+    accountDeletionOwnsAuthOutcome = false,
   ): Promise<Response> {
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => {
@@ -2594,6 +2609,7 @@ export class ApiService {
     try {
       return await apiFetch(path, {
         method: "GET",
+        accountDeletionOwnsAuthOutcome,
         cache: "no-store",
         signal: controller.signal,
         headers: {

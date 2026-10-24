@@ -17,6 +17,8 @@ from hushh_mcp.runtime_settings import (
     personal_agent_autoprovision_enabled,
     personal_agent_enabled,
 )
+from hushh_mcp.services import account_firebase_mutations
+from hushh_mcp.services.account_generation_service import AccountGenerationService
 
 logger = logging.getLogger(__name__)
 
@@ -1861,7 +1863,14 @@ class ActorIdentityService:
             # Run it in a worker thread so it never stalls the asyncio event loop
             # (a blocked loop serialises every concurrent request and manifests as
             # multi-second latency and pool-acquire timeouts elsewhere).
-            user_record = await asyncio.to_thread(firebase_auth.get_user, user_id, app=firebase_app)
+            firebase_uid = user_id
+            if re.fullmatch(r"acct_[0-9a-f]{32}", user_id):
+                firebase_uid = await asyncio.to_thread(
+                    AccountGenerationService.firebase_identity_for_owner, user_id
+                )
+            user_record = await asyncio.to_thread(
+                firebase_auth.get_user, firebase_uid, app=firebase_app
+            )
         except Exception as exc:
             logger.debug(
                 "actor_identity_cache firebase sync skipped error=%s",
@@ -1969,13 +1978,13 @@ class ActorIdentityService:
         firebase_app = get_firebase_auth_app()
         if firebase_app is None:
             raise RuntimeError("Identity provider is not configured.")
-        from firebase_admin import auth as firebase_auth
-
-        await asyncio.to_thread(
-            firebase_auth.update_user,
+        await account_firebase_mutations.run(
             normalized_user_id,
-            display_name=value,
-            app=firebase_app,
+            purpose="display_name",
+            authority_project=str(getattr(firebase_app, "project_id", "")),
+            operation=lambda firebase_uid: account_firebase_mutations.set_display_name(
+                firebase_app, firebase_uid, value
+            ),
         )
         # From here the provider holds the new name. Nothing below may turn
         # that committed write into "your name wasn't changed": a shadow that

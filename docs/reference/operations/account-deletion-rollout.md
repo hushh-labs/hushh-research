@@ -57,16 +57,35 @@ UPDATE guard caused the same regression to fail. Anonymous/authenticated SQL
 roles cannot call enrollment or read its ledger; future identity-table DDL inherits
 the guard through migration 201's existing discovery.
 
-The verifier and session-status response now distinguish verified Firebase identity,
+The verifier and session-status response distinguish verified Firebase identity,
 application owner and generation. `ACCOUNT_GENERATION_ADMISSION_ENABLED` defaults
-off. Do not enable it or publish registration while the frontend principal split,
-email enrollment, custom-token mints and SDK mutation dispatch remain unfinished.
+off. Do not enable it or publish registration until remaining application callers,
+email enrollment, custom-token mints and the enrollment/recovery interface qualify.
 An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
-Firebase mutation across retirement. The accepted retirement cutoff includes a
-60-second issuer-clock lead margin, then requires independently fresh sign-in;
-refresh-token `iat` never supplies that proof. Migrations 412 and 413 remain draft,
-unregistered and unapplied. The latest combined affected backend suite passed
-262 cases; this is not live enrollment or deletion acceptance.
+Firebase mutation across retirement.
+
+Draft 413 now also records remote identity-write dispatch before provider calls,
+using the existing owner 171→198 barriers and the enrollment identity-199 lock.
+Its minimal receipts contain hashes, purpose, project, operation and settlement;
+no names, credentials or SDK payloads. Dispatched or uncertain writes block both
+enrollment and direct replacement INSERTs. Local erasure may still finish; only
+an exact late settlement can release that enrollment barrier. There is no expiry
+or automatic replay. Display-name and welcome-marker writes use an owned,
+no-retry/no-redirect session with Google's documented
+[Identity Platform update API](https://docs.cloud.google.com/identity-platform/docs/reference/rest/v1/projects.accounts/update).
+Restoring the pinned SDK retry policy made the same transport regression fail
+with five POSTs instead of one. The pinned Firebase SDK otherwise retries mutation
+POSTs after read/status errors;
+never change its shared session per call to work around that behavior.
+
+The retirement cutoff includes a 60-second issuer-clock lead margin, then requires
+independently fresh sign-in; refresh-token `iat` never supplies that proof.
+Migrations 412–414 remain unregistered and unapplied. On 24 October, affected backend
+checks passed 232 cases. The disposable PostgreSQL rehearsal passed two erase/enroll
+cycles with uncertain dispatch, forged settlement and direct-INSERT negative controls.
+Frontend checks passed 304 cases, including real API transport and AuthProvider
+settling a lost deletion response, plus stale owner/episode refusal. These focused
+results overlap prior suites; they are not the final combined mirror or live acceptance.
 
 The reviewed implementation direction separates that
 external identity from an immutable application owner per account generation:

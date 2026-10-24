@@ -51,6 +51,60 @@ CREATE UNIQUE INDEX IF NOT EXISTS account_generations_one_active
  ON public.account_generations(identity_hash) WHERE retired_at IS NULL;
 REVOKE ALL ON public.account_generations FROM PUBLIC;
 
+-- Remote identity writes outlive SQL transactions. Retain only dispatch metadata
+-- so an unresolved old-owner write can never reach a newly enrolled generation.
+CREATE TABLE IF NOT EXISTS public.account_firebase_mutations (
+ operation_id uuid PRIMARY KEY,
+ owner_hash text NOT NULL CHECK(owner_hash ~ '^sha256:[0-9a-f]{64}$'),
+ identity_hash text NOT NULL CHECK(identity_hash ~ '^sha256:[0-9a-f]{64}$'),
+ authority_project text NOT NULL CHECK(authority_project ~ '^[a-z][a-z0-9-]{4,62}$'),
+ purpose text NOT NULL CHECK(purpose IN ('display_name','welcome_marker')),
+ settlement_nonce uuid NOT NULL,
+ state text NOT NULL DEFAULT 'dispatched' CHECK(state IN ('dispatched','succeeded','rejected','uncertain')),
+ dispatched_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ settled_at timestamptz,
+ CHECK((state IN ('dispatched','uncertain') AND settled_at IS NULL)
+   OR (state IN ('succeeded','rejected') AND settled_at IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS account_firebase_mutations_unsettled
+ ON public.account_firebase_mutations(authority_project,identity_hash)
+ WHERE state IN ('dispatched','uncertain');
+REVOKE ALL ON public.account_firebase_mutations FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.guard_account_firebase_mutation_receipt()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
+BEGIN
+ IF TG_OP='DELETE' THEN
+  RAISE EXCEPTION 'identity mutation receipts are immutable' USING ERRCODE='42501';
+ END IF;
+ IF TG_OP='INSERT' THEN
+  IF NEW.state<>'dispatched' OR NEW.settled_at IS NOT NULL THEN
+   RAISE EXCEPTION 'identity mutation requires dispatch' USING ERRCODE='42501';
+  END IF;
+ ELSIF OLD.state NOT IN ('dispatched','uncertain')
+  OR NEW.state NOT IN ('succeeded','rejected','uncertain')
+  OR ROW(NEW.operation_id,NEW.owner_hash,NEW.identity_hash,NEW.authority_project,
+   NEW.purpose,NEW.settlement_nonce,NEW.dispatched_at)
+   IS DISTINCT FROM ROW(OLD.operation_id,OLD.owner_hash,OLD.identity_hash,OLD.authority_project,
+   OLD.purpose,OLD.settlement_nonce,OLD.dispatched_at) THEN
+  RAISE EXCEPTION 'identity mutation receipt changed' USING ERRCODE='42501';
+ END IF;
+ RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS account_firebase_mutation_receipt ON public.account_firebase_mutations;
+CREATE TRIGGER account_firebase_mutation_receipt BEFORE INSERT OR UPDATE OR DELETE
+ ON public.account_firebase_mutations FOR EACH ROW
+ EXECUTE FUNCTION public.guard_account_firebase_mutation_receipt();
+
+CREATE OR REPLACE FUNCTION public.account_firebase_mutations_settled(identity_digest text)
+RETURNS boolean LANGUAGE sql VOLATILE SET search_path=pg_catalog,public AS $$
+ SELECT NOT EXISTS(SELECT 1 FROM public.account_firebase_mutations
+  WHERE identity_hash=identity_digest AND state IN ('dispatched','uncertain'));
+$$;
+COMMENT ON TABLE public.account_firebase_mutations IS
+ 'Minimal remote SDK dispatch/settlement receipts. No profile values or credentials. Unresolved writes block replacement enrollment; time alone never proves settlement.';
+
 -- Historical erasure is retained, never promoted to verified provider cleanup.
 INSERT INTO public.account_generations(identity_hash,generation,owner_hash,retired_at,
  cleanup_operation,cleanup_confirmed)
@@ -116,6 +170,10 @@ BEGIN
    RAISE EXCEPTION 'legacy account is ineligible' USING ERRCODE='42501';
   END IF;
  ELSE
+  PERFORM pg_advisory_xact_lock(hashtextextended(NEW.identity_hash,199));
+  IF NOT public.account_firebase_mutations_settled(NEW.identity_hash) THEN
+   RAISE EXCEPTION 'identity mutation requires reconciliation' USING ERRCODE='42501';
+  END IF;
   SELECT * INTO previous FROM public.account_generations WHERE identity_hash=NEW.identity_hash
    ORDER BY generation DESC LIMIT 1;
   IF NOT FOUND OR previous.generation<>NEW.generation-1 OR previous.retired_at IS NULL
@@ -186,6 +244,7 @@ BEGIN
  -- This lock is never acquired by owner erasure. Enrollment occurs strictly
  -- after its committed retirement, so it cannot invert owner lock order.
  PERFORM pg_advisory_xact_lock(hashtextextended(identity_digest,199));
+ IF NOT public.account_firebase_mutations_settled(identity_digest) THEN RETURN NULL; END IF;
  SELECT * INTO active FROM public.account_generations
   WHERE identity_hash=identity_digest AND retired_at IS NULL;
  IF FOUND THEN
@@ -288,6 +347,7 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.refresh_account_deletion_guards_after_identity_ddl() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.enroll_account_generation(text,integer,uuid,uuid,bigint) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.account_firebase_mutations_settled(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.install_account_generation_update_guards() FROM PUBLIC;
 DO $$ DECLARE client_role text;
 BEGIN
@@ -296,12 +356,16 @@ BEGIN
  FOREACH client_role IN ARRAY ARRAY['anon','authenticated'] LOOP
   IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=client_role) THEN
    EXECUTE format('REVOKE ALL ON TABLE public.account_generations FROM %I',client_role);
+   EXECUTE format('REVOKE ALL ON TABLE public.account_firebase_mutations FROM %I',client_role);
+   EXECUTE format('REVOKE ALL ON FUNCTION public.account_firebase_mutations_settled(text) FROM %I',client_role);
    EXECUTE format('REVOKE ALL ON FUNCTION public.enroll_account_generation(text,integer,uuid,uuid,bigint) FROM %I',client_role);
    EXECUTE format('REVOKE ALL ON FUNCTION public.install_account_generation_update_guards() FROM %I',client_role);
   END IF;
  END LOOP;
  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
   GRANT SELECT,INSERT,UPDATE ON public.account_generations TO service_role;
+  GRANT SELECT,INSERT,UPDATE ON public.account_firebase_mutations TO service_role;
+  GRANT EXECUTE ON FUNCTION public.account_firebase_mutations_settled(text) TO service_role;
   GRANT EXECUTE ON FUNCTION public.enroll_account_generation(text,integer,uuid,uuid,bigint) TO service_role;
  END IF;
 END;

@@ -52,7 +52,7 @@ vi.mock("@/lib/services/account-service", () => ({
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { getAccountSessionStatus: mockGetAccountSessionStatus },
+  ApiService: { getAccountDeletionStatus: mockGetAccountSessionStatus },
 }));
 
 vi.mock("@/lib/cache/cache-sync-service", () => ({
@@ -93,6 +93,8 @@ import {
 } from "@/lib/flows/delete-account";
 import { ApiError } from "@/lib/services/api-client";
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
+
+import { publishValidatedAuthSessionPrincipal, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 function makeSessionUser(uid = "user_123") {
   return {
@@ -173,6 +175,8 @@ describe("executeVerifiedAccountDeletion", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    publishValidatedAuthSessionPrincipal(null);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_123", ownerId: "user_123", accountGeneration: 0 });
     mockClearForUser.mockResolvedValue(undefined);
     mockClearDeviceSecrets.mockResolvedValue(undefined);
     mockBackendInvalidationCode.mockReturnValue(null);
@@ -204,6 +208,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(mockSetOnboardingRequiredCookie).toHaveBeenCalledWith(false);
     expect(mockSetOnboardingFlowActiveCookie).toHaveBeenCalledWith(false);
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
       code: "account_deleted",
       path: "account_delete_confirmed",
       userId: "user_123",
@@ -251,6 +256,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(mockOnAccountDeleted).toHaveBeenCalledWith("user_123");
     expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
       code: "account_deleted",
       path: "account_delete_confirmed",
       userId: "user_123",
@@ -292,6 +298,7 @@ describe("executeVerifiedAccountDeletion", () => {
       expect(sessionUser.getIdToken).toHaveBeenCalledWith(false);
       expect(sessionUser.getIdToken).toHaveBeenCalledWith(true);
       expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
         code: "account_deletion_uncertain",
         path: "account_delete_uncertain_unverified",
         userId: "user_123",
@@ -320,6 +327,7 @@ describe("executeVerifiedAccountDeletion", () => {
       ).resolves.toBeUndefined();
 
       expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
         code: "account_not_found",
         path: "account_delete_uncertain_outcome",
         userId: "user_123",
@@ -351,6 +359,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(sessionUser.getIdToken).toHaveBeenCalledWith(false);
     expect(sessionUser.getIdToken).not.toHaveBeenCalledWith(true);
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
       code: "account_not_found",
       path: "account_delete_uncertain_outcome",
       userId: "user_123",
@@ -367,7 +376,7 @@ describe("executeVerifiedAccountDeletion", () => {
     const sessionUser = makeSessionUser();
     mockDeleteAccount.mockRejectedValue(transportError);
     mockGetAccountSessionStatus.mockResolvedValue(
-      Response.json({ active: true }, { status: 200 }),
+      Response.json({ active: true, firebase_uid: "user_123", owner_id: "user_123", account_generation: 0 }, { status: 200 }),
     );
 
     await expect(
@@ -386,6 +395,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(sessionUser.getIdToken).toHaveBeenCalledWith(false);
     expect(sessionUser.getIdToken).not.toHaveBeenCalledWith(true);
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
       code: "account_deletion_uncertain",
       path: "account_delete_uncertain_unverified",
       userId: "user_123",
@@ -418,7 +428,7 @@ describe("executeVerifiedAccountDeletion", () => {
     const failure = new ApiError("untrusted detail", status, { code });
     mockDeleteAccount.mockRejectedValue(failure);
     mockGetAccountSessionStatus.mockImplementation(async () => active
-      ? Response.json({ active: true })
+      ? Response.json({ active: true, firebase_uid: "user_123", owner_id: "user_123", account_generation: 0 })
       : new Response("unavailable", { status: 503 }));
     const error = await executeVerifiedAccountDeletion({
       userId: "user_123", vaultOwnerToken: "vault-token", sessionUser: makeSessionUser(),
@@ -462,6 +472,7 @@ describe("executeVerifiedAccountDeletion", () => {
     ).resolves.toBeUndefined();
 
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
       code: "account_not_found",
       path: "account_delete_uncertain_outcome",
       userId: "user_123",
@@ -519,6 +530,7 @@ describe("executeVerifiedAccountDeletion", () => {
     expect(sessionUser.getIdToken).toHaveBeenNthCalledWith(2, true);
     expect(mockGetAccountSessionStatus).toHaveBeenCalledTimes(2);
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
       code: "account_deletion_uncertain",
       path: "account_delete_uncertain_unverified",
       userId: "user_123",
@@ -588,11 +600,70 @@ describe("executeVerifiedAccountDeletion", () => {
 
     expect(mockGetAccountSessionStatus).not.toHaveBeenCalled();
     expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith({
+      generation: expect.any(Number),
       code: "account_not_found",
       path: "account_delete_uncertain_outcome",
       userId: "user_123",
     });
     expect(mockClearForUser).toHaveBeenCalledWith("user_123", { deleteDurableReceipts: true });
+  });
+
+  it("deletes a replacement owner without replacing the Firebase SDK identity", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_123", ownerId, accountGeneration: 1 });
+    mockDeleteAccount.mockResolvedValue({ success: true, account_deleted: true });
+    await executeVerifiedAccountDeletion({ userId: ownerId, sessionUser: makeSessionUser(), vaultOwnerToken: "replacement-vault" });
+    expect(mockDeleteAccount).toHaveBeenCalledWith("replacement-vault", "both", expect.any(Function));
+    expect(mockClearForUser).toHaveBeenCalledWith(ownerId, { deleteDurableReceipts: true });
+    expect(mockDispatchAuthSessionInvalidated).toHaveBeenCalledWith(expect.objectContaining({ userId: ownerId }));
+  });
+
+  it("does not submit after retirement while bank revocation is settling", async () => {
+    let release!: (result: { revoked: number; failed: number }) => void;
+    mockRevokeAllVaultPlaid.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    const deletion = executeVerifiedAccountDeletion({ userId: "user_123", sessionUser: makeSessionUser(), vaultOwnerToken: "old-token", vaultKey: "old-key" });
+    await vi.waitFor(() => expect(mockRevokeAllVaultPlaid).toHaveBeenCalled());
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_123", ownerId: "acct_" + "b".repeat(32), accountGeneration: 1 });
+    release({ revoked: 1, failed: 0 });
+    await expect(deletion).rejects.toThrow("cancelled before submission");
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+  });
+
+  it("keeps a delayed committed deletion from changing replacement-session cookies", async () => {
+    let release!: (result: { success: true; account_deleted: true }) => void;
+    mockDeleteAccount.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    const original = snapshotValidatedAuthSessionPrincipal()!;
+    const deletion = executeVerifiedAccountDeletion({ userId: "user_123", sessionUser: makeSessionUser(), vaultOwnerToken: "old-token" });
+    await vi.waitFor(() => expect(mockDeleteAccount).toHaveBeenCalled());
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_123", ownerId: "acct_" + "c".repeat(32), accountGeneration: 1 });
+    release({ success: true, account_deleted: true });
+    await deletion;
+    expect(mockSetOnboardingRequiredCookie).not.toHaveBeenCalled();
+    expect(mockPublishAccountDeletionToSiblingTabs).not.toHaveBeenCalled();
+    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+    expect(mockClearForUser).toHaveBeenCalledWith(original.ownerId, { deleteDurableReceipts: true });
+  });
+
+  it("does not invalidate a newer browser episode for the same application owner", async () => {
+    let release!: (result: { success: true; account_deleted: true }) => void;
+    mockDeleteAccount.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    const deletion = executeVerifiedAccountDeletion({ userId: "user_123", sessionUser: makeSessionUser(), vaultOwnerToken: "old-episode-token" });
+    await vi.waitFor(() => expect(mockDeleteAccount).toHaveBeenCalled());
+    publishValidatedAuthSessionPrincipal(null);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_123", ownerId: "user_123", accountGeneration: 0 });
+    release({ success: true, account_deleted: true });
+    await deletion;
+    expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+    expect(mockSetOnboardingRequiredCookie).not.toHaveBeenCalled();
+    expect(mockPublishAccountDeletionToSiblingTabs).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a different generation's active probe as a confirmed rollback", async () => {
+    mockDeleteAccount.mockRejectedValue(new ApiError("Account deletion failed", 500, { code: ACCOUNT_DELETION_FAILED_CODE }));
+    mockGetAccountSessionStatus.mockResolvedValue(Response.json({ active: true, firebase_uid: "user_123", owner_id: "acct_" + "d".repeat(32), account_generation: 1 }));
+    await expect(executeVerifiedAccountDeletion({ userId: "user_123", sessionUser: makeSessionUser(), vaultOwnerToken: "old-token" })).rejects.toBeInstanceOf(AccountDeletionOutcomeUncertainError);
+    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+    expect(mockClearForUser).not.toHaveBeenCalled();
   });
 
   it("refuses to delete when the supplied Firebase identity changed", async () => {
@@ -613,6 +684,8 @@ describe("executeVerifiedAccountDeletion", () => {
 describe("banks sealed in the vault are revoked before the account is erased", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    publishValidatedAuthSessionPrincipal(null);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_123", ownerId: "user_123", accountGeneration: 0 });
     mockDeleteAccount.mockResolvedValue({ success: true, account_deleted: true });
   });
 
@@ -626,6 +699,7 @@ describe("banks sealed in the vault are revoked before the account is erased", (
     }).catch(() => undefined);
 
     expect(mockRevokeAllVaultPlaid).toHaveBeenCalledWith({
+      isCurrent: expect.any(Function),
       userId: "user_123",
       vaultKey: "vault-key",
       vaultOwnerToken: "vault-owner-token",
@@ -699,7 +773,7 @@ describe("banks sealed in the vault are revoked before the account is erased", (
 
   it("marks background work as deletion-interrupted only while deletion may have happened", async () => {
     mockGetAccountSessionStatus.mockResolvedValue(
-      Response.json({ active: true }, { status: 200 }),
+      Response.json({ active: true, firebase_uid: "uid-rolled-back", owner_id: "uid-rolled-back", account_generation: 0 }, { status: 200 }),
     );
     mockDeleteAccount.mockRejectedValueOnce(
       new ApiError("Account deletion failed", 500, {
@@ -707,6 +781,7 @@ describe("banks sealed in the vault are revoked before the account is erased", (
         code: ACCOUNT_DELETION_FAILED_CODE,
       }),
     );
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "uid-rolled-back", ownerId: "uid-rolled-back", accountGeneration: 0 });
     await expect(
       executeVerifiedAccountDeletion({
         userId: "uid-rolled-back",
@@ -721,6 +796,7 @@ describe("banks sealed in the vault are revoked before the account is erased", (
         detail: { code: ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE },
       }),
     );
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "uid-blocked", ownerId: "uid-blocked", accountGeneration: 0 });
     await expect(
       executeVerifiedAccountDeletion({
         userId: "uid-blocked",
@@ -731,6 +807,7 @@ describe("banks sealed in the vault are revoked before the account is erased", (
     expect(isAccountDeletionActive("uid-blocked")).toBe(false);
 
     mockDeleteAccount.mockResolvedValueOnce({ success: true, account_deleted: true });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "uid-deleted", ownerId: "uid-deleted", accountGeneration: 0 });
     await executeVerifiedAccountDeletion({
       userId: "uid-deleted",
       vaultOwnerToken: "vault-token",

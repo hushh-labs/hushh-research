@@ -58,6 +58,7 @@ from api.utils.firebase_auth import (
     verify_account_cleanup_bearer,
     verify_firebase_principal,
 )
+from hushh_mcp.services import account_firebase_mutations
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     CleanupIntentKind,
@@ -65,7 +66,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     drain_account_deletion_cleanup_intents,
 )
 from hushh_mcp.services.account_export_stream import AccountExportBusy, AccountExportStream
-from hushh_mcp.services.account_generation_service import AccountPrincipal
+from hushh_mcp.services.account_generation_service import AccountGenerationService, AccountPrincipal
 from hushh_mcp.services.account_service import (
     ACCOUNT_DELETION_FAILED_CODE,
     ACCOUNT_DELETION_PAUSED_CODE,
@@ -193,7 +194,12 @@ async def send_first_account_welcome(
     from firebase_admin import auth as firebase_auth
 
     try:
-        user = await run_in_threadpool(firebase_auth.get_user, firebase_uid, app=app)
+        identity_uid = firebase_uid
+        if re.fullmatch(r"acct_[0-9a-f]{32}", firebase_uid):
+            identity_uid = await run_in_threadpool(
+                AccountGenerationService.firebase_identity_for_owner, firebase_uid
+            )
+        user = await run_in_threadpool(firebase_auth.get_user, identity_uid, app=app)
     except Exception as exc:
         logger.warning("account_welcome.identity_unavailable")
         raise HTTPException(status_code=503, detail={"code": "ACCOUNT_LOOKUP_UNAVAILABLE"}) from exc
@@ -222,11 +228,25 @@ async def send_first_account_welcome(
         logger.error("account_welcome.delivery_failed")
         return {"status": "failed"}
     try:
-        await run_in_threadpool(
-            firebase_auth.set_custom_user_claims,
+
+        def mark_welcome(identity_uid: str) -> None:
+            # Merge from the current claims inside the serialized remote write,
+            # not the snapshot read before email delivery.
+            current = firebase_auth.get_user(identity_uid, app=app)
+            account_firebase_mutations.set_welcome_claims(
+                app,
+                identity_uid,
+                {
+                    **(getattr(current, "custom_claims", None) or {}),
+                    "hushhWelcomeMailAt": int(time.time()),
+                },
+            )
+
+        await account_firebase_mutations.run(
             firebase_uid,
-            {**claims, "hushhWelcomeMailAt": int(time.time())},
-            app=app,
+            purpose="welcome_marker",
+            authority_project=str(getattr(app, "project_id", "")),
+            operation=mark_welcome,
         )
     except Exception:
         logger.warning("account_welcome.marker_failed")
@@ -1459,6 +1479,14 @@ async def update_account_display_name(
     except ValueError as exc:
         raise HTTPException(
             status_code=422, detail={"code": "DISPLAY_NAME_INVALID", "message": str(exc)}
+        ) from None
+    except account_firebase_mutations.FirebaseMutationTransportError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DISPLAY_NAME_OUTCOME_UNCERTAIN",
+                "message": "We couldn't confirm the name change. Refresh your profile before trying again.",
+            },
         ) from None
     except RuntimeError as exc:
         raise HTTPException(

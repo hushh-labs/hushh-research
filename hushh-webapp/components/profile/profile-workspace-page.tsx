@@ -16,7 +16,7 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { isNative } from "@/lib/capacitor/platform";
-import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { backendPhoneIsMissing } from "@/lib/auth/phone-identity";
 import {
   WarningIcon as AlertTriangle,
@@ -555,6 +555,7 @@ function ProfilePageContent({
 
   const {
     user,
+    userId: applicationOwnerId,
     loading: authLoading,
     phoneNumber,
     phoneNumberStatus,
@@ -1713,7 +1714,8 @@ function ProfilePageContent({
   // outcome the screen shows. "unknown" (a lost response after a possible
   // commit) is kept distinct from "failed"; neither is ever spoken as deleted.
   const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
-    if (!user) return "auth_failed";
+    const owner = snapshotValidatedAuthSessionPrincipal();
+    if (!user || !owner || owner.firebaseUid !== user.uid) return "auth_failed";
 
     let needsCloudReview = false;
     setIsDeleting(true);
@@ -1724,7 +1726,8 @@ function ProfilePageContent({
     let resolution: Awaited<ReturnType<typeof resolveDeleteAccountAuth>>;
     try {
       resolution = await resolveDeleteAccountAuth({
-        userId: user.uid,
+        userId: owner.ownerId,
+        owner,
         existingVaultOwnerToken: vaultOwnerToken ?? null,
       });
     } catch (error) {
@@ -1757,7 +1760,8 @@ function ProfilePageContent({
         .promise(
           (async () => {
             await executeVerifiedAccountDeletion({
-              userId: user.uid,
+              userId: owner.ownerId,
+              owner,
               vaultOwnerToken: token,
               sessionUser: user,
               vaultKey,
@@ -1776,15 +1780,15 @@ function ProfilePageContent({
       // FCM cleanup is skipped because the backend has already destroyed the
       // account and its push tokens. Redirect as fast as the session teardown
       // allows.
-      await signOut({
+      if (isValidatedAuthSessionOwnerCurrent(owner)) await signOut({
         redirectTo: buildLoginRouteWithAuthSessionNotice("account_deleted"),
-        expectedUserId: user.uid,
+        expectedUserId: owner.ownerId,
         skipFcmCleanup: true,
       });
       return "deleted";
     } catch (error) {
       needsCloudReview = azureAccountCleanupRequired(error);
-      if (needsCloudReview) setCloudCleanupRequired(true);
+      if (needsCloudReview && isValidatedAuthSessionOwnerCurrent(owner)) setCloudCleanupRequired(true);
       (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
         "Delete account error:",
         error,
@@ -1798,13 +1802,13 @@ function ProfilePageContent({
 
   const prepareAccountConfirmation = async (kind: "delete" | "reset") => {
     if (!user || isDeleting || isResetting) return;
-    const owner = snapshotValidatedAuthSessionOwner();
+    const owner = snapshotValidatedAuthSessionPrincipal();
     const visitOwner = nativeDetailOwner;
     const epoch = snapshotVaultSessionEpoch();
     await accountPreparation.current.request({ hasVault,
-      ownerIsCurrent: () => owner?.userId === user.uid && isValidatedAuthSessionOwnerCurrent(owner) &&
+      ownerIsCurrent: () => owner?.firebaseUid === user.uid && isValidatedAuthSessionOwnerCurrent(owner) &&
         accountPreparationOwner.current === visitOwner && snapshotVaultSessionEpoch() === epoch,
-      checkVault: () => VaultService.checkVault(user.uid), vaultKnown: setHasVault,
+      checkVault: () => VaultService.checkVault(owner!.ownerId), vaultKnown: setHasVault,
       canMutate: () => vaultAccess.canMutateSecureData && !!getVaultOwnerToken(),
       confirm: () => { setShowDeleteConfirm(kind === "delete"); setShowResetConfirm(kind === "reset"); },
       unlock: () => requestVaultUnlock(kind === "delete" ? "delete_account" : "reset_account"),
@@ -1815,14 +1819,17 @@ function ProfilePageContent({
   const handleResetAccount = async (): Promise<
     "reset" | "not_reset" | "unknown" | "needs_unlock" | "auth_failed"
   > => {
-    if (!user) return "auth_failed";
+    const owner = snapshotValidatedAuthSessionPrincipal();
+    if (!user || !owner || owner.firebaseUid !== user.uid) return "auth_failed";
+    const isCurrent = () => isValidatedAuthSessionOwnerCurrent(owner);
 
     setIsResetting(true);
 
     let resolution: Awaited<ReturnType<typeof resolveDeleteAccountAuth>>;
     try {
       resolution = await resolveDeleteAccountAuth({
-        userId: user.uid,
+        userId: owner.ownerId,
+        owner,
         existingVaultOwnerToken: vaultOwnerToken ?? null,
       });
     } catch (error) {
@@ -1860,10 +1867,12 @@ function ProfilePageContent({
         .promise(
           (async () => {
             await revokeVaultBanksBeforeErasure({
-              userId: user.uid,
+              userId: owner.ownerId,
+              isCurrent,
               vaultKey,
               vaultOwnerToken: resolution.token,
             });
+            if (!isCurrent()) throw new Error("Account changed before reset.");
             const result = await AccountService.resetAccount(resolution.token);
             const resetOutcome = resolveResetOutcome(result);
             if (resetOutcome !== "reset") {
@@ -1871,9 +1880,11 @@ function ProfilePageContent({
             }
             settlement.committed = true;
 
-            CacheSyncService.onAccountDeleted(user.uid);
-            await UserLocalStateService.clearForUser(user.uid, { deleteDurableReceipts: true });
+            CacheSyncService.onAccountDeleted(owner.ownerId);
+            await UserLocalStateService.clearForUser(owner.ownerId, { deleteDurableReceipts: true });
+            if (!isCurrent()) return;
             await refreshPersonaState({ force: true });
+            if (!isCurrent()) return;
 
             // Reset returns the account to a fresh, just-onboarded state: keep
             // the identity and vault, but re-run onboarding on the next visit.
@@ -1890,7 +1901,7 @@ function ProfilePageContent({
         .unwrap();
 
       await new Promise((resolve) => setTimeout(resolve, 1200));
-      router.replace(ROUTES.ONE_SETUP);
+      if (isCurrent()) router.replace(ROUTES.ONE_SETUP);
       return "reset";
     } catch (error) {
       console.error("Reset account error:", error);
@@ -4950,7 +4961,7 @@ function ProfilePageContent({
               {cloudCleanupRequired ? "Cloud cleanup is required before account deletion." : deleteDialogDescription}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {cloudCleanupRequired && user ? <AccountCloudCleanup key={user.uid} userId={user.uid} token={vaultOwnerToken ?? null}
+          {cloudCleanupRequired && applicationOwnerId ? <AccountCloudCleanup key={applicationOwnerId} userId={applicationOwnerId} token={vaultOwnerToken ?? null}
             onUnlock={() => { setShowDeleteConfirm(false); requestVaultUnlock("delete_account"); }}
             onFinish={handleDeleteAccount} /> : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
