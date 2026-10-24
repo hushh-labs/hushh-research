@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from time import monotonic
 
@@ -53,13 +53,17 @@ def _indexing_active() -> bool:
 async def _admit_embedding() -> None:
     embedding = IsolatedDocumentEmbedding()
     try:
-        await embedding.query("synthetic statement")
+        await embedding.admit()
     except DriveReadError as error:
         # The failed child is reaped before its one eligible retry. Preserve
         # the existing per-query isolation, deadline and resource limits.
         if not error.retryable or str(error) != "processing_timeout":
             raise
-        await embedding.query("synthetic statement")
+        with suppress(Exception):
+            logger.info(
+                "drive_worker_startup stage=embedding outcome=retry reason=processing_timeout"
+            )
+        await embedding.admit()
 
 
 async def _admit_scanner() -> None:

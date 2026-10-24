@@ -1,6 +1,7 @@
 """Startup/readiness contract for the isolated, scanner-equipped ingress."""
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -24,7 +25,7 @@ async def test_worker_without_indexing_needs_no_model_or_scanner(monkeypatch, tm
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path / "missing"))
     query = AsyncMock()
     check_ready = AsyncMock()
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", query)
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", query)
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", check_ready)
 
     async with worker.lifespan(worker.app):
@@ -39,7 +40,7 @@ async def test_worker_startup_fails_closed_without_baked_model(monkeypatch, tmp_
 
     query = AsyncMock()
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path / "missing"))
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", query)
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", query)
     with pytest.raises(RuntimeError, match="missing its pinned local model"):
         async with worker.lifespan(worker.app):
             pass
@@ -54,12 +55,12 @@ async def test_worker_waits_for_scanner_then_only_becomes_ready(monkeypatch, tmp
     check_ready = AsyncMock(side_effect=[DriveReadError("scanner_unavailable"), None, None])
     sleep = AsyncMock()
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", query)
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", query)
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", check_ready)
     monkeypatch.setattr(worker.asyncio, "sleep", sleep)
     async with worker.lifespan(worker.app):
         assert await worker.ready() == {"status": "ready"}
-    query.assert_awaited_once_with("synthetic statement")
+    query.assert_awaited_once_with()
     assert check_ready.await_count == 3
     sleep.assert_awaited_once_with(3)
 
@@ -81,20 +82,27 @@ async def test_worker_readiness_fails_closed_when_scanner_degrades(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_worker_retries_cold_model_timeout_and_requires_scanner_attestation(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, caplog
 ):
     import server_drive_worker as worker
 
+    caplog.set_level(logging.INFO, logger=worker.__name__)
     query = AsyncMock(
         side_effect=[DriveReadError("processing_timeout", retryable=True), [0.0] * 384]
     )
     check_ready = AsyncMock()
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", query)
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", query)
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", check_ready)
     async with worker.lifespan(worker.app):
         assert query.await_count == 2
         check_ready.assert_awaited_once()
+    assert (
+        caplog.messages.count(
+            "drive_worker_startup stage=embedding outcome=retry reason=processing_timeout"
+        )
+        == 1
+    )
 
 
 @pytest.mark.asyncio
@@ -113,7 +121,7 @@ async def test_worker_model_failures_never_admit(monkeypatch, tmp_path, errors):
     query = AsyncMock(side_effect=errors)
     check_ready = AsyncMock()
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", query)
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", query)
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", check_ready)
     with pytest.raises(DriveReadError):
         async with worker.lifespan(worker.app):
@@ -140,7 +148,7 @@ async def test_worker_total_budget_cancels_unfinished_readiness(
     check_ready = AsyncMock(side_effect=never_ready if blocked_stage == "scanner" else None)
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(worker, "STARTUP_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", query)
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", query)
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", check_ready)
     with pytest.raises(RuntimeError, match="exceeded its startup readiness budget"):
         async with worker.lifespan(worker.app):
@@ -174,7 +182,7 @@ async def test_worker_timeout_waits_for_async_child_cleanup(monkeypatch, tmp_pat
 
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(worker, "STARTUP_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", AsyncMock(side_effect=model))
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", AsyncMock(side_effect=model))
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", AsyncMock(side_effect=scanner))
     startup = asyncio.create_task(enter())
     try:
@@ -225,7 +233,7 @@ async def test_worker_overlaps_readiness_but_joins_both_before_admission(
         await check("scanner")
 
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", AsyncMock(side_effect=model))
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", AsyncMock(side_effect=model))
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", AsyncMock(side_effect=scanner))
     startup = asyncio.create_task(enter())
     try:
@@ -266,7 +274,7 @@ async def test_worker_failure_cancels_and_settles_sibling(monkeypatch, tmp_path,
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(
         worker.IsolatedDocumentEmbedding,
-        "query",
+        "admit",
         AsyncMock(side_effect=failed if failed_stage == "embedding" else blocked),
     )
     monkeypatch.setattr(
@@ -316,7 +324,7 @@ async def test_worker_hard_failure_disarms_deadline_before_child_cleanup(monkeyp
 
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
     monkeypatch.setattr(worker.asyncio, "timeout", timeout)
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "query", AsyncMock(side_effect=model))
+    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", AsyncMock(side_effect=model))
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", AsyncMock(side_effect=scanner))
     startup = asyncio.create_task(enter())
     try:
