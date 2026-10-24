@@ -990,7 +990,7 @@
       "id": "drive_continuous_document_evidence",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences."
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences."
     },
     {
       "data_class": "personal_encrypted",
@@ -7009,7 +7009,7 @@
     "action_gateway": "d8e5470cda62e43ddd0ed853d329ebc6a667a009c25ede4978964875a13e5c81",
     "agent_registry": "a253821be88fc7093e4ad7e66234735b8ae642db3da05342af192ae33df69e7a",
     "cache_manifest": "8dbd3b9ea314314d2280430fa134ccfb7ed791249763e243b66402b601ed17e3",
-    "data_plane": "ca29bd28ca6f60faf54f7db7900605582fa6551b53c70649de8107a70936a6ea",
+    "data_plane": "761f75b0100a6fa0945eeed768e03ea33e7f0076bed6f98b453f84816fce7d58",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",

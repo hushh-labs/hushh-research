@@ -9,12 +9,13 @@ import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price
 import { AuthService } from "@/lib/services/auth-service";
 import { DrivePacketService, type DrivePacket, type PacketGuard } from "@/lib/services/drive-packet-service";
 
-import { buyerNotes, buyerPacketStatus, buyerSummary, documentCount, type BuyerPacketRequest } from "./packet-copy";
+import { buyerNotes, buyerPacketStatus, buyerSummary, documentCount, savedPacketRequest, type BuyerPacketRequest } from "./packet-copy";
 import { PacketPage, type PacketPageAction, type PacketPageSection } from "./packet-page";
 import { PacketRows } from "./packet-rows";
 
 /** One version and listing of a packet: a new one is a new purchase, with its own retry key. */
-const revisionOf = (packet: DrivePacket) => `${packet.packetId}:${packet.version}:${packet.listingRevision}`;
+const revisionOf = (packet: DrivePacket) => packet.kind === "provider_discovery"
+  ? `${packet.packetId}:${packet.version}` : `${packet.packetId}:${packet.version}:${packet.listingRevision}`;
 
 export type BuyerPacketRequests = {
   result: (packet: DrivePacket) => BuyerPacketRequest | null;
@@ -32,7 +33,7 @@ export function useBuyerPacketRequests(): BuyerPacketRequests {
   const [results, setResults] = useState<Readonly<Record<string, BuyerPacketRequest>>>({});
   const keys = useRef(new Map<string, string>());
   return useMemo(() => ({
-    result: packet => results[revisionOf(packet)] ?? null,
+    result: packet => savedPacketRequest(packet) ?? results[revisionOf(packet)] ?? null,
     retryKey: packet => {
       const revision = revisionOf(packet);
       const key = keys.current.get(revision) ?? crypto.randomUUID();
@@ -87,7 +88,7 @@ export function BuyerPacketPage({ packet, ownerName, token, guard, requests, onC
   const current = () => { guard(); if (!alive.current) throw new Error("unmounted"); };
   const request = requests.result(packet);
   const buy = async () => {
-    if (lock.current || !packet.canRequest) return;
+    if (lock.current || !packet.canRequest || requests.result(packet)) return;
     try { current(); } catch { return; }
     lock.current = true; setBusy(true); setMessage("");
     try {
@@ -116,10 +117,10 @@ export function BuyerPacketPage({ packet, ownerName, token, guard, requests, onC
       { id: "documents", title: documentCount(packet.documentCount), description: buyerSummary(packet) ?? undefined },
       ...buyerNotes(packet).map((note, index) => ({ id: `note-${index}`, title: note })),
     ] },
-    ...packet.canRequest && !request?.existingAccess ? [{ id: "price", title: "Price", rows: [
+    ...packet.canRequest && !request?.existingAccess && !["paid", "delivered"].includes(request?.purchaseState ?? "") ? [{ id: "price", title: "Price", rows: [
       { id: "price", title: "Price", value: price, description: `You pay after ${ownerName} approves.` }] }] : [],
   ];
-  const actions: PacketPageAction[] = request ? [{ id: "open", label: request.existingAccess ? "View files" : "View request",
+  const actions: PacketPageAction[] = request ? [{ id: "open", label: request.existingAccess || request.purchaseState === "delivered" ? "View files" : "View request",
     href: buildConsentCenterHref("pending", { requestId: `document_share_request:${request.requestId}`, requestView: "sent" }) }]
     : packet.canRequest ? [{ id: "buy", label: busy ? "Sending…" : needsGoogle ? "Add Google account" : `Buy for ${price}`,
       onSelect: () => void buy(), disabled: busy }] : [];

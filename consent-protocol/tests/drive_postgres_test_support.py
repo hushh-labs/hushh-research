@@ -1,0 +1,24 @@
+"""Canonical migrations with the compact legacy Drive fixture projections."""
+
+from pathlib import Path
+
+from sqlalchemy.engine import Connection
+
+MIGRATIONS = Path(__file__).resolve().parents[1] / "db" / "migrations"
+
+
+def apply_drive_fixture_migration(connection: Connection, filename: str) -> None:
+    connection.exec_driver_sql((MIGRATIONS / filename).read_text().replace("%", "%%"))
+    if filename == "251_drive_owner_search_jobs.sql":
+        # Legacy share/search fixtures have no packet heads or processing. They
+        # need only migration 411's nullable lookup column for shared queries.
+        connection.exec_driver_sql(
+            "ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID"
+        )
+    elif filename == "334_drive_reusable_packets.sql":
+        apply_drive_fixture_migration(connection, "411_drive_period_packets.sql")
+
+
+def apply_bulk_search_fixture_migrations(connection: Connection) -> None:
+    for filename in ("251_drive_owner_search_jobs.sql", "254_drive_bulk_shares.sql"):
+        apply_drive_fixture_migration(connection, filename)

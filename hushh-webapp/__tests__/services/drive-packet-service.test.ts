@@ -13,6 +13,41 @@ const packet = { packetId: id, version: 2, listingRevision: 3, title: "Schwab st
   canRequest: false, canList: true };
 beforeEach(() => vi.resetAllMocks());
 
+describe("query packet wire contract", () => {
+  const discovery = { kind: "provider_discovery", packetId: id, category: "bank", version: 0, listingRevision: 0,
+    periodStart: "2026-09-01", periodEnd: "2026-10-31", timezone: "Asia/Kolkata", state: "building",
+    title: "Account statements", description: "Files from a Drive search", coverageSummary: "September–October 2026",
+    documentCount: 2, freshness: "current", priceCents: 500, listingEnabled: false, canRequest: false, canList: false,
+    requestId: null, purchaseState: "none" };
+  it("accepts an open period without fabricated content assessment and prevents premature purchase", () => {
+    const parsed = parseDrivePacket(discovery);
+    expect(parsed).toMatchObject({ kind: "provider_discovery", version: 0, state: "building", canRequest: false });
+    expect(parsed).not.toHaveProperty("assessmentScore");
+    expect(parseDrivePacket({ ...discovery, state: "empty", version: 1, documentCount: 0 }).state).toBe("empty");
+    for (const change of [{ canRequest: true }, { canList: true }, { listingEnabled: true }, { version: 1 }, { priceCents: 499 },
+      { category: ["bank"] }, { state: ["building"] }, { periodEnd: "2026-09-31" }, { timezone: "invalid" }]) {
+      expect(() => parseDrivePacket({ ...discovery, ...change })).toThrow();
+    }
+  });
+  it("preserves durable purchase identity and limits original file links to the owner", () => {
+    const document = { name: "Example statement.pdf", type: null, pages: null, period: null, viewUrl: "https://drive.google.com/file/d/example/view" };
+    const closed = { ...discovery, state: "ready", version: 1, canRequest: true, canList: true,
+      requestId: id, purchaseState: "delivered", contents: { period: null, documents: [document] } };
+    expect(parseDrivePacket(closed, "owner").contents?.documents[0].viewUrl).toBe(document.viewUrl);
+    expect(parseDrivePacket(closed)).toMatchObject({ requestId: id, purchaseState: "delivered" });
+    expect(parseDrivePacket(closed).contents).toBeUndefined();
+    for (const change of [{ requestId: null }, { purchaseState: "none" }, { purchaseState: ["delivered"] },
+      { contents: { period: null, documents: [{ ...document, viewUrl: "https://drive.google.com.evil.test/file" }] } }]) {
+      expect(() => parseDrivePacket({ ...closed, ...change }, "owner")).toThrow();
+    }
+  });
+  it("rejects a changed price before an approved period listing reaches transport", async () => {
+    const frozen = parseDrivePacket({ ...discovery, state: "ready", version: 1, canList: true });
+    await expect(DrivePacketService.listing("owner", frozen, "allow", 600, () => undefined)).rejects.toThrow();
+    expect(api.fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("owner data packet file pages", () => {
   const file = { ref: "a".repeat(64), title: "Synthetic file", viewUrl: "https://drive.google.com/file/d/synthetic-file/view", day: "2026-10-22" };
   it("rejects unsafe provider links and nonadvancing pages", () => {

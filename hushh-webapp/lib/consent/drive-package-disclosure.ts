@@ -7,6 +7,7 @@ export type DrivePackageDisclosure = {
   coverageStatus: "complete" | "partial" | "unknown";
   periods: { start: string; end: string }[];
   limitations: string[];
+  confidenceBasis?: "provider_search";
 };
 
 function calendarDate(value: unknown): value is string {
@@ -21,10 +22,12 @@ export function parseDrivePackageDisclosure(value: unknown): DrivePackageDisclos
   if (raw.schemaVersion !== 1 || typeof raw.packageDigest !== "string" || !/^[a-f0-9]{64}$/.test(raw.packageDigest) ||
       !Number.isSafeInteger(raw.packageRevision) || Number(raw.packageRevision) < 1 ||
       !Number.isSafeInteger(raw.selectedCount) || Number(raw.selectedCount) < 1 || Number(raw.selectedCount) > 120 ||
-      !["complete", "partial", "unknown"].includes(String(raw.coverageStatus)) ||
+      typeof raw.coverageStatus !== "string" || !["complete", "partial", "unknown"].includes(raw.coverageStatus) ||
+      raw.confidenceBasis !== undefined && raw.confidenceBasis !== "provider_search" ||
       !Array.isArray(raw.periods) || raw.periods.length > 120 ||
       !Array.isArray(raw.limitations) || raw.limitations.length > 24 ||
       raw.limitations.some(item => typeof item !== "string" || !item.trim() || item.length > 300) ||
+      raw.confidenceBasis === "provider_search" && (raw.coverageStatus !== "unknown" || raw.periods.length !== 0) ||
       (raw.coverageStatus !== "complete" && raw.limitations.length === 0)) return null;
   const periods: DrivePackageDisclosure["periods"] = [];
   for (const value of raw.periods) {
@@ -35,7 +38,8 @@ export function parseDrivePackageDisclosure(value: unknown): DrivePackageDisclos
   }
   return { schemaVersion: 1, packageDigest: raw.packageDigest, packageRevision: Number(raw.packageRevision),
     selectedCount: Number(raw.selectedCount), coverageStatus: raw.coverageStatus as DrivePackageDisclosure["coverageStatus"],
-    periods, limitations: raw.limitations as string[] };
+    periods, limitations: raw.limitations as string[],
+    ...(raw.confidenceBasis === "provider_search" ? { confidenceBasis: "provider_search" as const } : {}) };
 }
 
 export function packageCoverageLabel(coverage: DrivePackageDisclosure["coverageStatus"]): string {

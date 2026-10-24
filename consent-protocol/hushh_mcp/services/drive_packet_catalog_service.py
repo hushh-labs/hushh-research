@@ -25,13 +25,48 @@ class DrivePacketCatalogService:
             await admit_hub_content(user_id, "drive_packet_catalog")
         # The owner's own list says what is inside each packet; the store
         # withholds it from every other viewer.
-        result = await self.packets.list_packets(
-            user_id=user_id, owner_user_id=owner_user_id, cursor=cursor, owner_contents=True
+        from hushh_mcp.services.drive_period_packet_catalog import catalog_packets
+
+        result = await catalog_packets(
+            self.packets,
+            user_id=user_id,
+            owner_user_id=owner_user_id,
+            cursor=cursor,
+            owner_contents=True,
         )
         await self._current()
         if own_information:
             await admit_hub_content(user_id, "drive_packet_catalog")
+        from os import getenv
+
+        from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+
+        if (
+            connector_feature_enabled("drive_period_packets", owner_user_id or user_id)
+            and getenv("DRIVE_AGENT_PACKAGES_ENABLED", "").strip().lower() != "true"
+        ):
+            result["packets"] = [
+                item for item in result["packets"] if item.get("kind") == "provider_discovery"
+            ]
         return result
+
+    async def require_period_packet(self, *, user_id, packet_id, version):
+        from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+        await self._current()
+        owner = await self.packets.packet_owner_for_viewer(
+            user_id=user_id, packet_id=packet_id, version=version
+        )
+        manifest = await self.packets.current_packet_manifest(
+            owner_user_id=owner, packet_id=packet_id, version=version, viewer_user_id=user_id
+        )
+        if manifest.get("kind") != "provider_discovery":
+            raise DriveReadError("packet_unavailable")
+        from hushh_mcp.services.drive_period_packet_reader import require_period_purchase
+
+        require_period_purchase()
+        await self._current()
+        return manifest
 
     async def set_listing(self, **kwargs):
         await self._current()
@@ -52,6 +87,10 @@ class DrivePacketCatalogService:
             version=version,
             viewer_user_id=user_id,
         )
+        if manifest.get("kind") == "provider_discovery":
+            from hushh_mcp.services.drive_period_packet_reader import require_period_purchase
+
+            require_period_purchase()
         # Derive only from the verified server version. The transaction rechecks
         # its digest, listing revision and price before sealing the request.
         assessment = manifest["assessment"]

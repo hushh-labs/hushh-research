@@ -17,6 +17,7 @@ from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_group_index_job import DriveGroupIndexJob
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
+from hushh_mcp.services.drive_period_packet_service import DrivePeriodPacketService
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_request_bulk_removal_worker import DriveRequestBulkRemovalWorker
 from hushh_mcp.services.drive_request_owner_payout_worker import DriveRequestOwnerPayoutWorker
@@ -30,6 +31,7 @@ from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
 WORKER_JOB_LIMITS = {
+    "period_packets": 1,
     "groups": 1,
     "documents": 20,
     "suggestions": 1,
@@ -46,7 +48,7 @@ WORKER_JOB_LIMITS = {
 STAGE_WORKERS = {
     "groups": frozenset({"groups"}),
     "documents": frozenset({"documents"}),
-    "suggestions": frozenset({"suggestions", "searches"}),
+    "suggestions": frozenset({"suggestions", "searches", "period_packets"}),
     "v1": frozenset(
         {
             "searches",
@@ -72,6 +74,7 @@ STAGE_WORKERS = {
     ),
 }
 STAGE_MAX_SECONDS = {
+    "period_packets": 90,
     "groups": 180,
     "documents": 180,
     "suggestions": 175,
@@ -86,6 +89,7 @@ STAGE_MAX_SECONDS = {
     "packet_orders": 35,
 }
 STAGE_MIN_SECONDS = {
+    "period_packets": 35,
     "groups": 160,
     "documents": 160,
     "suggestions": 150,
@@ -102,6 +106,24 @@ STAGE_MIN_SECONDS = {
 MAX_OUTCOME_COUNT = 500
 
 _WORKER_ALLOWED_OUTCOMES = {
+    "period_packets": frozenset(
+        {
+            "queued",
+            "building",
+            "ready",
+            "empty",
+            "completed",
+            "running",
+            "failed",
+            "idle",
+            "unavailable",
+            "disabled",
+            "deadline",
+            "deferred",
+            "paused",
+            "not_claimed",
+        }
+    ),
     "groups": frozenset(
         {"queued", "indexed", "idle", "unavailable", "disabled", "deadline", "deferred"}
     ),
@@ -340,6 +362,7 @@ class DriveWorkDrain:
         refund_worker: DriveRequestPaymentRefundWorker | None = None,
         owner_payout_worker: DriveRequestOwnerPayoutWorker | None = None,
         packet_order_worker: PkmPacketOrderWorker | None = None,
+        period_packet_worker: DrivePeriodPacketService | None = None,
     ) -> None:
         # Sharing permissions precede notifications in the same stage. Other
         # stages run on their own fixed scheduler jobs, never in this request.
@@ -348,6 +371,7 @@ class DriveWorkDrain:
             ("documents", document_worker or DriveDocumentWorker()),
             ("suggestions", suggestion_worker or DriveSuggestionWorker()),
             ("searches", search_worker or DriveOwnerSearchWorker()),
+            ("period_packets", period_packet_worker or DrivePeriodPacketService()),
             ("permissions", permission_worker or DrivePermissionWorker()),
             ("bulk_shares", bulk_share_worker or DriveBulkShareWorker()),
             ("bulk_removals", bulk_removal_worker or DriveRequestBulkRemovalWorker()),

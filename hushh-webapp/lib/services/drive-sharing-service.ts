@@ -1,3 +1,7 @@
+import { DriveSharingError, record, string, revision, digest, bulkCount, bulkText } from "@/lib/services/drive-sharing-wire";
+import { parseAgentDocumentPackage, type AgentDocumentPackage } from "@/lib/services/drive-request-package-contract";
+export { DriveSharingError } from "@/lib/services/drive-sharing-wire";
+export type { AgentDocumentPackage } from "@/lib/services/drive-request-package-contract";
 import { parseDrivePackageDisclosure, type DrivePackageDisclosure } from "@/lib/consent/drive-package-disclosure";
 import type { DocumentRequestSetup } from "@/lib/consent/document-request-setup";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
@@ -129,32 +133,6 @@ export function validDocumentRequestTerms(
     validDocumentRequestPeriod(start, end)
   );
 }
-/** Owner-only assessment of the exact package prepared for this request. */
-export type AgentDocumentPackage = {
-  status: "preparing" | "ready" | "no_match" | "unavailable" | "stale" | "allowed";
-  revision: number;
-  digest: string | null;
-  selectedCount: number;
-  /** Owner-only preview from the sealed membership; older servers omit it. */
-  selectedFiles?: Array<{ position: number; name: string; weightageOutOf10: number; confidenceScore: number }>;
-  selectedFileCount?: number;
-  /** Owner-only, provisional matches while the live request is still being checked. */
-  provisionalFiles?: Array<{ position: number; name: string; weightageOutOf10: number; confidenceScore: number }>;
-  verifiedCount?: number;
-  pendingCount?: number;
-  evaluatedCount: number;
-  candidateCount: number;
-  /** A model assessment score, not a calibrated probability. */
-  confidenceScore: number | null;
-  confidenceBasis: "model_assessment";
-  importanceScore: number | null;
-  suggestedPriceCents: number | null;
-  priceReason: string;
-  summary: string;
-  coverageStatus: "complete" | "partial" | "unknown";
-  gaps: string[];
-  canAllow: boolean;
-};
 export type SharingReview = DocumentRequestSetup & {
   agentPackage?: AgentDocumentPackage;
   /** Live request evaluation lane; packet catalog requests use the legacy package view. */
@@ -281,67 +259,6 @@ function preparationError(value: unknown): SharingPreparationError | null {
   return (SHARING_PREPARATION_ERRORS as readonly unknown[]).includes(value)
     ? (value as SharingPreparationError)
     : null;
-}
-function parseAgentDocumentPackage(value: unknown): AgentDocumentPackage {
-  const item = record(value);
-  if (typeof item.status !== "string" ||
-      !["preparing", "ready", "no_match", "unavailable", "stale", "allowed"].includes(item.status) ||
-      typeof item.coverageStatus !== "string" || !["complete", "partial", "unknown"].includes(item.coverageStatus) ||
-      item.confidenceBasis !== "model_assessment" || typeof item.canAllow !== "boolean" ||
-      !Array.isArray(item.gaps) || item.gaps.length > 24)
-    throw new DriveSharingError("invalid_response");
-  const packageDigest = item.digest === null ? null : digest(item.digest);
-  const selectedCount = bulkCount(item.selectedCount, 10_000);
-  const selectedFileCount = item.selectedFileCount === undefined ? undefined : bulkCount(item.selectedFileCount, 10_000);
-  const parseFileRows = (value: unknown) => {
-    if (!Array.isArray(value) || value.length > 25)
-      throw new DriveSharingError("invalid_response");
-    const rows = value.map(raw => {
-      const file = record(raw);
-      if (typeof file.weightageOutOf10 !== "number" || !Number.isFinite(file.weightageOutOf10) ||
-          file.weightageOutOf10 < 1 || file.weightageOutOf10 > 10)
-        throw new DriveSharingError("invalid_response");
-      return { position: bulkCount(file.position, 10_000), name: bulkText(file.name, 1000),
-        weightageOutOf10: file.weightageOutOf10,
-        confidenceScore: bulkCount(file.confidenceScore, 100) };
-    });
-    if (rows.some(row => row.position === 0) ||
-        new Set(rows.map(row => row.position)).size !== rows.length)
-      throw new DriveSharingError("invalid_response");
-    return rows;
-  };
-  const selectedFiles = item.selectedFiles === undefined ? undefined : parseFileRows(item.selectedFiles);
-  const provisionalFiles = item.provisionalFiles === undefined ? undefined : parseFileRows(item.provisionalFiles);
-  const verifiedCount = item.verifiedCount === undefined ? undefined : bulkCount(item.verifiedCount, 10_000);
-  const pendingCount = item.pendingCount === undefined ? undefined : bulkCount(item.pendingCount, 10_000);
-  const evaluatedCount = bulkCount(item.evaluatedCount, 10_000);
-  const candidateCount = bulkCount(item.candidateCount, 10_000);
-  const confidenceScore = item.confidenceScore === null ? null : bulkCount(item.confidenceScore, 100);
-  const importanceScore = item.importanceScore === null ? null : bulkCount(item.importanceScore, 500);
-  if (importanceScore === 0 || item.suggestedPriceCents !== null &&
-      !isValidDocumentRequestPriceCents(item.suggestedPriceCents) ||
-      item.canAllow && (item.status !== "ready" || !packageDigest || selectedCount === 0) ||
-      (selectedFiles === undefined) !== (selectedFileCount === undefined) ||
-      selectedFileCount !== undefined && (selectedFileCount !== selectedCount ||
-        selectedFiles!.length !== Math.min(selectedFileCount, 25)) ||
-      [provisionalFiles, verifiedCount, pendingCount].filter(value => value !== undefined).length % 3 !== 0 ||
-      verifiedCount !== undefined && (verifiedCount > evaluatedCount ||
-        evaluatedCount > candidateCount ||
-        provisionalFiles!.length > Math.min(verifiedCount, 25) ||
-        pendingCount !== candidateCount - evaluatedCount))
-    throw new DriveSharingError("invalid_response");
-  return {
-    status: item.status as AgentDocumentPackage["status"],
-    revision: revision(item.revision), digest: packageDigest, selectedCount,
-    ...(selectedFiles === undefined ? {} : { selectedFiles, selectedFileCount }),
-    ...(provisionalFiles === undefined ? {} : { provisionalFiles, verifiedCount, pendingCount }),
-    evaluatedCount, candidateCount,
-    confidenceScore, confidenceBasis: "model_assessment", importanceScore,
-    suggestedPriceCents: item.suggestedPriceCents as number | null,
-    priceReason: string(item.priceReason), summary: string(item.summary),
-    coverageStatus: item.coverageStatus as AgentDocumentPackage["coverageStatus"],
-    gaps: item.gaps.map(gap => string(gap)), canAllow: item.canAllow,
-  };
 }
 function parseRequestSetup(value: Record<string, unknown>): DocumentRequestSetup {
   const ownerDriveReady = optionalFlag(value.ownerDriveReady);
@@ -470,14 +387,6 @@ export function validDriveQuery(query: string): boolean {
   );
 }
 
-export class DriveSharingError extends Error {
-  constructor(
-    public readonly code: string,
-    public readonly status = 0,
-  ) {
-    super("Could not complete the document request. Refresh and try again.");
-  }
-}
 /** The streamed route is unavailable here (older backend or native build). */
 export class StreamUnavailable extends Error {
   constructor() {
@@ -549,21 +458,6 @@ function unimplemented(error: unknown): boolean {
 }
 type RecordValue = Record<string, unknown>;
 export type SharingSessionGuard = (() => void) & { canDispatch?: () => boolean };
-function record(value: unknown): RecordValue {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new DriveSharingError("invalid_response");
-  return value as RecordValue;
-}
-function string(value: unknown, max = 2000): string {
-  if (typeof value !== "string" || value.length > max)
-    throw new DriveSharingError("invalid_response");
-  return value;
-}
-function revision(value: unknown): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0)
-    throw new DriveSharingError("invalid_response");
-  return value as number;
-}
 function id(value: unknown): string {
   const result = string(value, 36);
   if (!DOCUMENT_REQUEST_UUID.test(result))
@@ -574,12 +468,6 @@ function files<T>(value: unknown, parse: (item: RecordValue) => T): T[] {
   if (!Array.isArray(value) || value.length > 25)
     throw new DriveSharingError("invalid_response");
   return value.map((item) => parse(record(item)));
-}
-function digest(value: unknown): string {
-  const result = string(value, 64);
-  if (!/^[0-9a-f]{64}$/.test(result))
-    throw new DriveSharingError("invalid_response");
-  return result;
 }
 function date(value: unknown): string {
   const result = string(value, 64);
@@ -910,17 +798,7 @@ const BULK_STATUSES = new Set<DriveBulkShareView["status"]>([
   "review_ready", "queued", "running", "completed", "partial", "stopped", "failed",
 ]);
 
-function bulkCount(value: unknown, max = 100_000): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > max)
-    throw new DriveSharingError("invalid_response");
-  return value as number;
-}
 
-function bulkText(value: unknown, max: number): string {
-  const result = string(value, max);
-  if (!result || /[\x00-\x1f\x7f]/.test(result)) throw new DriveSharingError("invalid_response");
-  return result;
-}
 
 function bulkStatus(value: unknown): DriveBulkShareView["status"] {
   const status = bulkText(value, 20) as DriveBulkShareView["status"];

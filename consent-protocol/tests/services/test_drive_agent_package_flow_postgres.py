@@ -200,9 +200,11 @@ async def test_schwab_statement_request_requires_v1_content_evaluation_with_flag
     assert context["packageAllowed"] is False
 
 
+@pytest.mark.parametrize("period_packets_enabled", ["false", "true"])
 async def test_package_flag_off_routes_all_new_requests_to_owner_first_flow_and_preserves_v1(
-    agent_flow, sharing, monkeypatch
+    agent_flow, sharing, monkeypatch, period_packets_enabled
 ):
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", period_packets_enabled)
     existing_client_id = str(uuid4())
     existing = await new_request(
         sharing,
@@ -231,7 +233,6 @@ async def test_package_flag_off_routes_all_new_requests_to_owner_first_flow_and_
     ):
         with pytest.raises(DriveSharingError, match="packet_unavailable|invalid_argument"):
             await new_request(sharing, **unsupported)
-
     for purpose in (
         "All Schwab brokerage statements from 2026",
         "Standup notes from last week",
@@ -250,7 +251,6 @@ async def test_package_flag_off_routes_all_new_requests_to_owner_first_flow_and_
         assert review["allowAvailable"] is True
         assert review.get("agentPackage") is None
         assert "wholeDollarPrice" not in review
-
     with pytest.raises(DriveSharingError, match="invalid_payment_amount"):
         await sharing.allow_request(
             user_id="owner",

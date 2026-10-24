@@ -15,19 +15,29 @@ export type DriveCollectionStatus = {
   lastSemanticIndexingDurationMs: number | null; lastDocumentExtractionDurationMs: number | null;
   initialIndexingDurationMs: number | null; syncDurationMs: number;
 };
-export type DrivePacket = {
+type PacketBase = {
   packetId: string; version: number; listingRevision: number; title: string; description: string;
-  state: "ready" | "incomplete" | "unable_to_verify"; coverageSummary: string; gaps: string[];
-  documentCount: number; verifiedAt: string | null; freshness: "current" | "stale" | "paused";
-  assessmentScore: number; importance: number; suggestedPriceCents: number; priceCents: number;
+  coverageSummary: string; documentCount: number; freshness: "current" | "stale" | "paused";
+  priceCents: number;
   listingEnabled: boolean; canRequest: boolean; canList: boolean;
   /** Owner view only: what is inside. A buyer view never carries it. */
   contents?: DrivePacketContents;
 };
+export type LegacyDrivePacket = PacketBase & {
+  kind?: undefined; state: "ready" | "incomplete" | "unable_to_verify"; gaps: string[];
+  verifiedAt: string | null; assessmentScore: number; importance: number; suggestedPriceCents: number;
+};
+export type DrivePacketCategory = "financial" | "bank" | "brokerage" | "insurance";
+export type DiscoveryDrivePacket = PacketBase & {
+  kind: "provider_discovery"; category: DrivePacketCategory; periodStart: string; periodEnd: string; timezone: string;
+  state: "building" | "ready" | "empty" | "unable_to_verify";
+  requestId: string | null; purchaseState: "none" | "pending" | "paid" | "delivered";
+};
+export type DrivePacket = LegacyDrivePacket | DiscoveryDrivePacket;
 /** Calendar dates, "YYYY-MM-DD". */
 export type DrivePacketPeriod = { start: string; end: string };
 /** One of the owner's own files in a packet. Never shown to buyers. */
-export type DrivePacketDocument = { name: string; type: string | null; pages: number | null; period: DrivePacketPeriod | null };
+export type DrivePacketDocument = { name: string; type: string | null; pages: number | null; period: DrivePacketPeriod | null; viewUrl?: string };
 /** The dates a packet covers and its first files (a packet lists at most 120). */
 export type DrivePacketContents = { period: DrivePacketPeriod | null; documents: DrivePacketDocument[] };
 export class DrivePacketError extends Error {
@@ -72,7 +82,13 @@ function packetVersion(value: unknown): number {
 }
 function day(value: unknown): string {
   const result = label(value, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(result) || !Number.isFinite(Date.parse(result))) throw new DrivePacketError("invalid_response");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(result) || !Number.isFinite(Date.parse(result)) || new Date(result).toISOString().slice(0, 10) !== result) throw new DrivePacketError("invalid_response");
+  return result;
+}
+function viewUrl(value: unknown): string {
+  const result = label(value, 2048);
+  const url = new URL(result);
+  if (url.protocol !== "https:" || !["drive.google.com", "docs.google.com"].includes(url.hostname) || url.username || url.password || url.port) throw new DrivePacketError("invalid_response");
   return result;
 }
 function period(value: unknown): DrivePacketPeriod | null {
@@ -90,21 +106,24 @@ function contents(value: unknown): DrivePacketContents {
       const document = record(entry);
       const pages = document.pages === null ? null : count(document.pages);
       if (pages === 0) throw new DrivePacketError("invalid_response");
-      return { name: label(document.name, 255), type: document.type === null ? null : label(document.type, 255), pages, period: period(document.period) };
+      return { name: label(document.name, 255), type: document.type === null ? null : label(document.type, 255), pages, period: period(document.period),
+        ...(document.viewUrl === undefined ? {} : { viewUrl: viewUrl(document.viewUrl) }) };
     }),
   };
 }
 /** A buyer view drops `contents` even if a response carried it: file names stay with their owner. */
 export function parseDrivePacket(value: unknown, view: "owner" | "buyer" = "buyer"): DrivePacket {
   const item = record(value);
+  if (item.kind === "provider_discovery") return discoveryPacket(item, view);
+  if (item.kind !== undefined) throw new DrivePacketError("invalid_response");
   if (!["ready", "incomplete", "unable_to_verify"].includes(String(item.state)) ||
       !["current", "stale", "paused"].includes(String(item.freshness)) ||
       !Array.isArray(item.gaps) || item.gaps.length > 100 || count(item.assessmentScore) > 100 ||
       count(item.importance) < 1 || count(item.importance) > 500) throw new DrivePacketError("invalid_response");
-  const result: DrivePacket = {
+  const result: LegacyDrivePacket = {
     packetId: id(item.packetId), version: packetVersion(item.version), listingRevision: count(item.listingRevision),
     title: label(item.title, 250), description: label(item.description, 2000),
-    state: item.state as DrivePacket["state"], coverageSummary: label(item.coverageSummary, 2000),
+    state: item.state as LegacyDrivePacket["state"], coverageSummary: label(item.coverageSummary, 2000),
     gaps: item.gaps.map(gap => label(gap)), documentCount: count(item.documentCount),
     verifiedAt: date(item.verifiedAt), freshness: item.freshness as DrivePacket["freshness"],
     assessmentScore: count(item.assessmentScore), importance: count(item.importance),
@@ -114,6 +133,32 @@ export function parseDrivePacket(value: unknown, view: "owner" | "buyer" = "buye
   };
   if ((result.canRequest || result.canList) && (result.state !== "ready" || result.freshness !== "current") ||
       result.state === "ready" && result.freshness === "current" && result.gaps.length > 0) throw new DrivePacketError("invalid_response");
+  return result;
+}
+function discoveryPacket(item: RecordValue, view: "owner" | "buyer"): DiscoveryDrivePacket {
+  const category = item.category, state = item.state, purchaseState = item.purchaseState;
+  if (typeof category !== "string" || !["financial", "bank", "brokerage", "insurance"].includes(category) ||
+      typeof state !== "string" || !["building", "ready", "empty", "unable_to_verify"].includes(state) ||
+      typeof purchaseState !== "string" || !["none", "pending", "paid", "delivered"].includes(purchaseState) ||
+      typeof item.freshness !== "string" || !["current", "stale", "paused"].includes(item.freshness) || item.priceCents !== 500) throw new DrivePacketError("invalid_response");
+  const span = period({ start: item.periodStart, end: item.periodEnd })!;
+  const timezone = label(item.timezone, 64);
+  try { new Intl.DateTimeFormat("en", { timeZone: timezone }); } catch { throw new DrivePacketError("invalid_response"); }
+  const result: DiscoveryDrivePacket = {
+    kind: "provider_discovery", category: category as DrivePacketCategory, state: state as DiscoveryDrivePacket["state"],
+    packetId: id(item.packetId), version: count(item.version), listingRevision: count(item.listingRevision),
+    title: label(item.title, 250), description: label(item.description, 2000), coverageSummary: label(item.coverageSummary, 2000),
+    periodStart: span.start, periodEnd: span.end, timezone, priceCents: 500, documentCount: count(item.documentCount),
+    freshness: item.freshness as DrivePacket["freshness"], listingEnabled: flag(item.listingEnabled),
+    canList: flag(item.canList), canRequest: flag(item.canRequest), requestId: item.requestId === null ? null : id(item.requestId),
+    purchaseState: purchaseState as DiscoveryDrivePacket["purchaseState"],
+    ...(view === "owner" && item.contents !== undefined ? { contents: contents(item.contents) } : {}),
+  };
+  if (result.version > 1 || result.state === "ready" && result.version !== 1 || result.state === "building" && result.version !== 0 ||
+      result.state !== "ready" && result.listingEnabled ||
+      (result.canList || result.canRequest) && (result.state !== "ready" || result.freshness !== "current" || !result.documentCount) ||
+      result.state === "empty" && result.documentCount !== 0 ||
+      (result.purchaseState === "none") !== (result.requestId === null)) throw new DrivePacketError("invalid_response");
   return result;
 }
 export function parseDriveCollectionStatus(value: unknown): DriveCollectionStatus {
@@ -188,6 +233,7 @@ export class DrivePacketService {
   }
   static async listing(token: string, packet: DrivePacket, decision: "allow" | "deny", priceCents: number, guard: PacketGuard): Promise<void> {
     if (decision !== "allow" && decision !== "deny") throw new DrivePacketError("invalid_argument");
+    if (packet.kind === "provider_discovery" && priceCents !== 500) throw new DrivePacketError("invalid_argument");
     await this.send(token, guard, `/sharing/packets/${id(packet.packetId)}/listing`, {
       version: packetVersion(packet.version), decision, priceCents: price(priceCents),
       expectedRevision: count(packet.listingRevision), disclosure: "drive-packet-listing-connections-v1",
