@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.helpers.deployment_cli import frontend_deploy_script
+
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_BUILD = ROOT / "deploy" / "frontend.cloudbuild.yaml"
 FRONTEND_IMAGE_BUILD = ROOT / "deploy" / "frontend-image.cloudbuild.yaml"
@@ -824,19 +826,7 @@ def test_backend_only_scope_builds_no_web_image(lane: str) -> None:
 
 
 def _deploy_script(lane: str, tmp_path: Path) -> tuple[str, Path]:
-    _, project = LANES[lane]
-    run = str(_lane_step(lane, "Deploy frontend using Cloud Build")["run"])
-    run = run.replace("${{ env.GCP_PROJECT_ID }}", project)
-    run = re.sub(r"\$\{\{[^}]*\}\}", "fixture", run)
-    assert "${{" not in run
-    capture = tmp_path / "gcloud.txt"
-    guards = (
-        f"export GITHUB_OUTPUT='{tmp_path / 'github-output'}';\n"
-        "gcloud() { "
-        f'if [ "$1 $2" = "builds submit" ]; then printf "%s\\n" "$@" > "{capture}"; return 0; fi; '
-        "echo UNEXPECTED_CLOUD_COMMAND >&2; return 95; };\n"
-    )
-    return guards + run, capture
+    return frontend_deploy_script(_workflow_steps(lane), LANES[lane][1], tmp_path)
 
 
 BUILD_SUBS = "_APP_ENV=x,_DEPLOY_ENV=x,_IMAGE_TAG=t"

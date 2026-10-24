@@ -2429,8 +2429,8 @@ final class NativeSupportTests: XCTestCase {
         host.view.frame = CGRect(x: 16, y: 700, width: 358, height: 100)
         defer { model.clear(); host.view.removeFromSuperview(); host.removeFromParent(); window.isHidden = true }
         host.view.layoutIfNeeded()
-        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 358, height: 340)).height, 52, accuracy: 1,
-            "Compact editor and two actions must fit the existing 52-point Agent Bar, without glass-button padding enlarging it")
+        XCTAssertEqual(host.sizeThatFits(in: CGSize(width: 358, height: 340)).height, 68, accuracy: 1,
+            "The compact editor and trailing action share a 68-point Agent Bar without nested glass")
         let editor = try XCTUnwrap(model.editor)
         XCTAssertFalse(editor.placeholderLabel.isHidden)
         XCTAssertEqual(editor.placeholderLabel.font, editor.font)
@@ -2447,7 +2447,10 @@ final class NativeSupportTests: XCTestCase {
             let composition = NativePresentationContainer(webView: web, basePresentation: .contentBacked)
             parent.view = composition
             composition.install(host.view, id: "agent-dock", group: nil)
-            let bar = UITabBar(frame: CGRect(x: 0, y: 761, width: 390, height: 83))
+            let column = try XCTUnwrap(HushhNativeNavigationColumn(projection: ["x": 16.0,
+                "width": 358.0, "contentHeight": 52.0, "viewportWidth": 390.0]))
+            let bar = UITabBar(frame: try XCTUnwrap(column.frame(in: composition, webView: web, bottomInset: 34)))
+            bar.itemPositioning = .fill
             bar.items = try XCTUnwrap(HushhNativeNavigationArtwork.items())
             bar.selectedItem = bar.items?.first
             composition.install(bar, id: "bottom-navigation", group: nil)
@@ -2465,7 +2468,7 @@ final class NativeSupportTests: XCTestCase {
                 button.willMove(toParent: nil); button.view.removeFromSuperview(); button.removeFromParent()
                 window.isHidden = true; previousKeyWindow?.makeKeyAndVisible()
             }
-            host.view.frame.size.height = 52
+            host.view.frame = CGRect(x: 16, y: 682, width: 358, height: 68)
             for style in [UIUserInterfaceStyle.light, .dark] {
                 parent.overrideUserInterfaceStyle = style
                 host.overrideUserInterfaceStyle = style
@@ -2486,6 +2489,7 @@ final class NativeSupportTests: XCTestCase {
                     let theme = HushhNativeControlAppearance(appearance: dark ? "dark" : "light",
                         accentHex: accent, foregroundHex: dark ? "#f5f5f7" : "#222222")!
                     model.accent = theme.accent; bar.tintColor = theme.accent; bar.unselectedItemTintColor = .label
+                    model.accentForeground = HushhNativeControlAppearance.color(dark && accent == "#d4a574" ? "#1d1d1f" : "#ffffff")!
                     button.rootView = NativeChromeButton(label: "Open chat history", controlId: "chat-history-toggle",
                         symbol: "line.3.horizontal", theme: theme, action: {}, layout: { _ in }, focus: ChromeFocusRequest())
                     for mode in ["text", "voice"] {
@@ -2991,18 +2995,18 @@ final class NativeSupportTests: XCTestCase {
             host.addSubview(web)
             let bar = UITabBar()
             host.addSubview(bar)
-            let columnWidth = min(width - 32, 768)
+            let columnWidth = min(width - 32, 760)
             let left = (width - columnWidth) / 2
             let column = try XCTUnwrap(HushhNativeNavigationColumn(projection: [
-                "x": Double(left), "width": Double(columnWidth), "contentHeight": 64.0, "viewportWidth": Double(width),
+                "x": Double(left), "width": Double(columnWidth), "contentHeight": 52.0, "viewportWidth": Double(width),
             ]))
             for bottom: CGFloat in [0, 21, 34] {
                 bar.frame = try XCTUnwrap(column.frame(in: host, webView: web, bottomInset: bottom))
                 bar.layoutIfNeeded()
-                XCTAssertEqual(bar.frame.minX, left, accuracy: 0.5)
-                XCTAssertEqual(bar.frame.width, columnWidth, accuracy: 0.5)
-                XCTAssertEqual(bar.frame.height - bottom, 64, accuracy: 0.5)
-                XCTAssertGreaterThanOrEqual(bar.frame.height - bottom - 49, 15)
+                XCTAssertEqual(bar.frame.minX + 22, left, accuracy: 0.5)
+                XCTAssertEqual(bar.frame.width - 44, columnWidth, accuracy: 0.5)
+                XCTAssertEqual(bar.frame.height - bottom, 52, accuracy: 0.5)
+                XCTAssertGreaterThanOrEqual(bar.frame.height - bottom - 49, 3)
                 XCTAssertEqual(bar.frame.maxY, host.bounds.maxY, accuracy: 0.5)
             }
             // Native layout/foreground/tap boundaries revalidate the same

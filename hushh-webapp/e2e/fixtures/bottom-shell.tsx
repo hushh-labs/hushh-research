@@ -10,7 +10,7 @@ import { ShellActionSurface } from "../../components/app-ui/shell-action-surface
 import { NativeAccentChoice } from "../../components/app-ui/native-accent-choice";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
 import { useAccent } from "../../lib/theme/accent";
-import { Mic, Send } from "../../components/icons";
+import { AudioLines, Send } from "../../components/icons";
 
 /**
  * The persistent bottom chrome exactly as `app/providers.tsx` mounts it: the
@@ -92,11 +92,11 @@ function Page() {
         <form data-agent-chat-composer-form="root" onSubmit={event => event.preventDefault()}>
           <AgentBarSurface embedded className="agent-chat-composer-surface agent-chat-composer-compact flex min-w-0 items-end gap-2 overflow-hidden">
             <div className="relative flex min-h-0 min-w-0 flex-1 items-center">
-              <textarea ref={field} aria-label="Message One" placeholder="Message One..." rows={1} value={draft} onChange={event => setDraft(event.target.value)} className="agent-chat-composer-field block w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 break-words [overflow-wrap:anywhere]" />
+              <textarea ref={field} aria-label="Message One" placeholder="Message One" rows={1} value={draft} onChange={event => setDraft(event.target.value)} className="agent-chat-composer-field block w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 break-words [overflow-wrap:anywhere]" />
             </div>
             <div className="agent-chat-composer-actions flex shrink-0 items-center gap-1">
-              <ShellActionSurface data-agent-composer-action="mic" aria-label="Start voice mode"><Mic className="size-4" /></ShellActionSurface>
-              <ShellActionSurface data-agent-composer-action="send" type="submit" className="text-[color:var(--app-accent-fg)]" aria-label="Send message"><Send className="size-4" /></ShellActionSurface>
+              {draft.length === 0 ? <ShellActionSurface data-agent-composer-action="mic" data-agent-composer-primary="true" className="text-[color:var(--app-accent-fg)]" aria-label="Start voice mode"><AudioLines className="size-5" /></ShellActionSurface>
+                : <ShellActionSurface data-agent-composer-action="send" data-agent-composer-primary="true" type="submit" className="text-[color:var(--app-accent-fg)]" aria-label="Send message"><Send className="size-4" /></ShellActionSurface>}
             </div>
           </AgentBarSurface>
         </form>

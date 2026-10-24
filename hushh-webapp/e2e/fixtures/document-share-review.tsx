@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { DocumentShareReview } from "../../components/consent/document-share-review";
 import { DocumentRequestButton } from "../../components/consent/document-request-button";
 import { RequestScopeButton } from "../../components/consent/request-scope-button";
+import { DocumentRequestPricingCard } from "../../components/consent/document-request-pricing-card";
+import { ScopeCommerceOwnerReview } from "../../components/consent/scope-commerce-owner-review";
 import { SettingsDetailPanel } from "../../components/app-ui/settings-ui";
 import { setFixtureLocked } from "./document-share-boundaries";
 const reconcile = () => {};
@@ -10,10 +12,36 @@ function Fixture() {
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState(false);
   const [draft, setDraft] = useState("");
+  const [pricingOpen, setPricingOpen] = useState(false);
+  const [price, setPrice] = useState("10");
+  const [costReview, setCostReview] = useState(false);
   return (
     <main className="min-h-dvh bg-background p-4 text-foreground">
       <DocumentRequestButton personRef="33333333-3333-4333-8333-333333333333" personName="A" />
       <RequestScopeButton personRef="33333333-3333-4333-8333-333333333333" personName="Asha" />
+      <button onClick={() => setPricingOpen(true)}>Review default request price</button>
+      <button onClick={() => setCostReview(true)}>Review processing costs</button>
+      {costReview ? <section aria-label="Processing cost review" className="consent-presentation-surface mx-auto max-w-lg p-4">
+        <ScopeCommerceOwnerReview busy={false} unlocked prepare={async acknowledgement => {
+          // A presentation fixture has no export or payment authority.
+          document.body.dataset.costAcknowledgement = acknowledgement?.binding;
+        }} request={{
+          request_id: "synthetic-commerce-request", role: "owner", machine_scope: "attr.food.preferences.*",
+          scope_handle: "synthetic-food-handle", duration_seconds: 86400, purpose: "Synthetic purpose", tariff: null,
+          purchase: { id: "synthetic-purchase", request_id: "synthetic-commerce-request", status: "reserved", amount_cents: 1,
+            processing_fee_micro_usd: 12345, net_earnings_micro_usd: -2345 },
+          negative_net_acknowledgement: { version: 1, binding: "synthetic-cost-binding", gross_cents: 1,
+            processing_fee_micro_usd: 12345, net_earnings_micro_usd: -2345 },
+        }} />
+      </section> : null}
+      {pricingOpen ? <div className="profile-pane-scroll-root"><div className="app-page-shell"><div data-profile-stack-content="true">
+        <DocumentRequestPricingCard model={{
+          available: true, saved: { enabled: true, amountCents: 1000, version: 1 },
+          dollars: price, loading: false, saving: false, error: null, notice: null,
+          amountCents: Number(price) * 100, dirty: price !== "10",
+          change: setPrice, retry: () => {}, save: async () => {},
+        }} />
+      </div></div></div> : null}
       <button className="min-h-11" onClick={() => setOpen(true)}>
         Review document request
       </button>

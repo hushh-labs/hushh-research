@@ -1719,7 +1719,7 @@ describe("private dock asynchronous submission boundary", () => {
   beforeEach(() => {
     vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     bridge.platform = "ios"; bridge.documentId = crypto.randomUUID();
-    document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
+    document.documentElement.style.setProperty("--app-accent-fg", "#ffffff");
     document.documentElement.classList.remove("dark");
     dockBridge.callbacks.clear();
     dockBridge.subscribe.mockReset().mockResolvedValue(undefined);

@@ -32,12 +32,19 @@ export type DiscoveryDrivePacket = PacketBase & {
   kind: "provider_discovery"; category: DrivePacketCategory; periodStart: string; periodEnd: string; timezone: string;
   state: "building" | "ready" | "empty" | "unable_to_verify";
   requestId: string | null; purchaseState: "none" | "pending" | "paid" | "delivered";
+  /** Own-account search progress; never sale readiness or buyer information. */
+  preview?: DrivePacketPreview;
+};
+export type DrivePacketPreview = {
+  status: "not_started" | "queued" | "searching" | "partial" | "completed" | "failed";
+  revision: number; matched: number | null; complete: boolean; stale: boolean; updatedAt: string | null; errorCode: string | null;
+  documents?: DrivePacketDocument[]; nextCursor?: string | null; limited?: boolean;
 };
 export type DrivePacket = LegacyDrivePacket | DiscoveryDrivePacket;
 /** Calendar dates, "YYYY-MM-DD". */
 export type DrivePacketPeriod = { start: string; end: string };
 /** One of the owner's own files in a packet. Never shown to buyers. */
-export type DrivePacketDocument = { name: string; type: string | null; pages: number | null; period: DrivePacketPeriod | null; viewUrl?: string };
+export type DrivePacketDocument = { name: string; type: string | null; pages: number | null; period: DrivePacketPeriod | null; viewUrl?: string; shareable?: boolean };
 /** The dates a packet covers and its first files (a packet lists at most 120). */
 export type DrivePacketContents = { period: DrivePacketPeriod | null; documents: DrivePacketDocument[] };
 export class DrivePacketError extends Error {
@@ -107,9 +114,25 @@ function contents(value: unknown): DrivePacketContents {
       const pages = document.pages === null ? null : count(document.pages);
       if (pages === 0) throw new DrivePacketError("invalid_response");
       return { name: label(document.name, 255), type: document.type === null ? null : label(document.type, 255), pages, period: period(document.period),
+        ...(document.shareable === undefined ? {} : { shareable: flag(document.shareable) }),
         ...(document.viewUrl === undefined ? {} : { viewUrl: viewUrl(document.viewUrl) }) };
     }),
   };
+}
+export function parsePacketPreview(value: unknown): DrivePacketPreview {
+  const item = record(value);
+  if (typeof item.status !== "string" || !["not_started", "queued", "searching", "partial", "completed", "failed"].includes(item.status)) throw new DrivePacketError("invalid_response");
+  const result: DrivePacketPreview = {
+    status: item.status as DrivePacketPreview["status"], revision: count(item.revision), matched: item.matched === null ? null : count(item.matched),
+    complete: flag(item.complete), stale: flag(item.stale), updatedAt: date(item.updatedAt),
+    errorCode: item.errorCode === null ? null : label(item.errorCode, 80),
+    ...(item.documents === undefined ? {} : { documents: contents({ period: null, documents: item.documents }).documents,
+      nextCursor: item.nextCursor === null ? null : label(item.nextCursor, 2048), limited: flag(item.limited) }),
+  };
+  if (result.status === "completed" && (!result.complete || result.matched === null) ||
+      result.matched === null && result.complete || result.documents && result.matched !== null && result.documents.length > result.matched)
+    throw new DrivePacketError("invalid_response");
+  return result;
 }
 /** A buyer view drops `contents` even if a response carried it: file names stay with their owner. */
 export function parseDrivePacket(value: unknown, view: "owner" | "buyer" = "buyer"): DrivePacket {
@@ -153,6 +176,7 @@ function discoveryPacket(item: RecordValue, view: "owner" | "buyer"): DiscoveryD
     canList: flag(item.canList), canRequest: flag(item.canRequest), requestId: item.requestId === null ? null : id(item.requestId),
     purchaseState: purchaseState as DiscoveryDrivePacket["purchaseState"],
     ...(view === "owner" && item.contents !== undefined ? { contents: contents(item.contents) } : {}),
+    ...(view === "owner" && item.preview !== undefined ? { preview: parsePacketPreview(item.preview) } : {}),
   };
   if (result.version > 1 || result.state === "ready" && result.version !== 1 || result.state === "building" && result.version !== 0 ||
       result.state !== "ready" && result.listingEnabled ||
@@ -230,6 +254,13 @@ export class DrivePacketService {
     const packets = value.packets.map(packet => parseDrivePacket(packet, ownerPersonRef ? "buyer" : "owner"));
     if (new Set(packets.map(packet => packet.packetId)).size !== packets.length) throw new DrivePacketError("invalid_response");
     return { packets, nextCursor: value.nextCursor === null ? null : label(value.nextCursor, 2048) };
+  }
+  static async preview(token: string, packetId: string, guard: PacketGuard, cursor?: string | null): Promise<DrivePacketPreview> {
+    const query = cursor ? `?${new URLSearchParams({ cursor: label(cursor, 2048) })}` : "";
+    return parsePacketPreview(await this.send(token, guard, `/sharing/packets/${id(packetId)}/preview${query}`));
+  }
+  static async preparePreview(token: string, packetId: string, guard: PacketGuard, refresh = false): Promise<DrivePacketPreview> {
+    return parsePacketPreview(await this.send(token, guard, `/sharing/packets/${id(packetId)}/preview`, { refresh: flag(refresh) }));
   }
   static async listing(token: string, packet: DrivePacket, decision: "allow" | "deny", priceCents: number, guard: PacketGuard): Promise<void> {
     if (decision !== "allow" && decision !== "deny") throw new DrivePacketError("invalid_argument");

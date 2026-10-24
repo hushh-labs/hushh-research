@@ -11,6 +11,7 @@ import json
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from copy import deepcopy
 from typing import Any
 
 from google.adk.agents import LlmAgent
@@ -26,6 +27,7 @@ from hushh_mcp.runtime_providers.gemini_config import (
     resolve_fleet_model_name,
     thinking_config_for,
 )
+from hushh_mcp.runtime_providers.json_schema import bind_validated_output_schema
 from hushh_mcp.runtime_providers.json_schema import normalize_json_schema as _json_schema
 
 _SINGLE_TURN_REQUEST_LABELS: ContextVar[dict[str, str] | None] = ContextVar(
@@ -162,7 +164,7 @@ async def run_single_turn(
     """
 
     _ = thinking_level
-    schema = agent.output_schema
+    schema = deepcopy(agent.output_schema)
     if schema is None:
         raise ValueError("single-turn agent requires an output schema")
     total_timeout = 90.0 if timeout_seconds is None else float(timeout_seconds)
@@ -175,21 +177,22 @@ async def run_single_turn(
         message: str | types.Content = message_content
     else:
         message = _prompt_text(prompt_parts)
-    turn = await run_specialist_adk_turn(
-        agent=agent,
-        app_name=f"hushh_single_turn_{agent.name}",
-        user_id=user_id,
-        consent_token=consent_token,
-        message=message,
-        max_llm_calls=1,
-        first_event_timeout_s=event_timeout,
-        between_event_timeout_s=event_timeout,
-        total_timeout_s=total_timeout,
-    )
-    text = turn.final_text.strip()
-    if not text:
-        raise ValueError("single-turn agent returned an empty response")
-    return _decode(text, schema)
+    with bind_validated_output_schema(schema):
+        turn = await run_specialist_adk_turn(
+            agent=agent,
+            app_name=f"hushh_single_turn_{agent.name}",
+            user_id=user_id,
+            consent_token=consent_token,
+            message=message,
+            max_llm_calls=1,
+            first_event_timeout_s=event_timeout,
+            between_event_timeout_s=event_timeout,
+            total_timeout_s=total_timeout,
+        )
+        text = turn.final_text.strip()
+        if not text:
+            raise ValueError("single-turn agent returned an empty response")
+        return _decode(text, schema)
 
 
 __all__ = ["bind_single_turn_request_labels", "build_single_turn_agent", "run_single_turn"]

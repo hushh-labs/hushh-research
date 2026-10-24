@@ -273,7 +273,7 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert 'retargeted=true\nif [[ "${DRIVE_WORK_DRAIN_ENABLED}" == false ]]' in release
     assert 'python3 "${SCHEDULER_STATE_HELPER}" restore' in release
     assert 'python3 "${SCHEDULER_STATE_HELPER}" quarantine' in release
-    assert 'JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}"' in release
+    assert all(token in release for token in ("plan-configuration", "verify-configuration"))
     assert 'gcloud scheduler jobs run "${fixed_job}"' in release
     assert 'rm -f "${scheduler_snapshot}"' in release
     assert "actual_revision" in release and "restore_failed" in release

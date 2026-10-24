@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
   AccountDeletionOutcomeUncertainError,
+  AccountDeletionInProgressError,
 } from "@/lib/flows/delete-account";
 import {
   parseLifecycleStep,
@@ -137,7 +138,14 @@ describe("runAccountLifecycleStep — reset", () => {
   });
 });
 
-describe("runAccountLifecycleStep — delete", () => {
+describe("@feature_account_deletion @trace_loop runAccountLifecycleStep — delete", () => {
+  it("reports pending work without claiming failure or running sign-out", async () => {
+    const d = deps({ executeDeletion: vi.fn(async () => { throw new AccountDeletionInProgressError(); }) });
+    const out = await runAccountLifecycleStep(step("delete"), d);
+    expect(out).toEqual({ status: "failed", payload: { outcome: "unknown", operation: "delete", reason: "deletion_in_progress" } });
+    expect(d.executeDeletion).toHaveBeenCalledTimes(1);
+    expect(d.afterDelete).not.toHaveBeenCalled();
+  });
   it("reports deleted before the sign-out that may tear the session down", async () => {
     const d = deps();
     const out = await runAccountLifecycleStep(step("delete"), d);

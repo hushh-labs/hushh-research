@@ -3370,6 +3370,20 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | POST | `/api/account/delete-lost-vault/phone` | Read-only preflight after fresh same-owner Google/Apple reauthentication. Accepts `{phone_number:"+..."}` with an explicit country code, normalizes through the canonical phone utility, and compares the complete number with the same authoritative existing binding used by deletion. Returns only `{valid:true}`, with `private, no-store`; mismatch, invalid number, binding conflict, or unavailable identity cannot issue SMS through the normal UI. It changes no binding and grants no deletion or vault authority. Final deletion rereads the binding and checks fresh phone proof independently. |
 | POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must withhold fresh signup. `details.firebase_auth_user: "identity_retained"` means deliberate preservation, not automatically completing cleanup; the central sign-out/login notice preserves this distinction. |
 
+Full account erasure removes encrypted recovery segments and their parent revisions
+in statements of at most 100 rows, advancing over their existing keys within the
+same transaction and lifecycle barriers. A later failure
+rolls every batch back. SQL lock/statement deadlines remain 3/20 seconds;
+batching does not commit partial erasure or promise a total duration. Indexed
+archived-revision references keep parent cleanup from repeatedly scanning other
+owners' recovery records. The client reports completion only after confirmed
+account deletion; an uncertain transport outcome is resolved through the
+existing account-session status contract and its owning validation budget.
+A verified `423 AUTH_ACCOUNT_DELETION_IN_PROGRESS` preserves identity behind the
+existing sealed session-recovery gate, which observes commit or rollback with
+backoff. It never resubmits DELETE or reports pending work as a completed deletion.
+The public deletion proxy forwards and echoes the existing request correlation ID.
+
 Every Firebase bearer dependency verifies signature, issuer, audience, and
 expiry, preserves revoked/disabled-token enforcement, and always enforces the
 database tombstone. Revocation proof uses a 60-second positive cache bound to
@@ -4377,7 +4391,7 @@ four-group classifier or legacy package builder. Current authorized owners recei
 Financial statements, Account statements, Brokerage and Insurance categories.
 Each category has an independent calendar-pair packet: January–February through
 November–December. Enrollment is bounded to elapsed/current pairs of the current
-year; current pairs are Building and cannot be listed or purchased before closure.
+year. Owners can search current pairs immediately; only final sale versions wait for closure.
 Heads record an explicit UTC calendar boundary; the period window is displayed
 with each packet rather than inferred from the viewer's timezone.
 Explicit background OFF, connector revocation, owner placement and account erasure
@@ -4387,7 +4401,8 @@ acceptance or permission grant.
 The existing Azure planner authors the search expression. The existing discovery
 compiler, Drive pagination and owner-search leases collect metadata without reading
 document bodies or running another content assessor. Only a complete closed search
-can freeze a packet; incomplete, failed and over-limit results remain unavailable.
+can freeze a packet; incomplete, failed and over-limit searches cannot authorize a sale.
+Usable partial originals remain visible in the owner's separate preview.
 Frozen membership and query provenance live encrypted in the existing packet
 version store, independently of temporary search results. A selected metadata date
 window is not a claim about statement reporting coverage.
@@ -4399,6 +4414,27 @@ and recipient-bound `requestId`/`purchaseState`. Unfrozen heads have version zer
 frozen heads have version one. Owner-only contents contain bounded original links.
 Visitors receive only explicitly listed summaries under the existing connection
 audience, never unpurchased filenames or links.
+
+Owner preview uses `POST /sharing/packets/{id}/preview` with `{refresh:false}`
+on opening a period and `{refresh:true}` for an explicit refresh. It derives the
+owner from the current vault authority, accepts no counterparty identifier, and
+runs at most a 25-second slice through the existing planner/search queue. Polling
+and result paging use `GET /sharing/packets/{id}/preview?cursor=...` without
+starting work. Current and historical ranges are searchable; own previews neither
+charge nor grant permissions. An open completed preview is reused for five minutes;
+explicit refresh or a later open can rotate its unfrozen search revision. The first
+post-closure scan must start after the boundary before a sale version can freeze.
+
+Owner-only `preview` reports `status`, `revision`, nullable `matched`, `complete`,
+`stale`, `updatedAt` and safe `errorCode`. Detail reads add up to 25 original links,
+shareability notes, an opaque cursor and a `limited` marker. Unknown is not zero;
+only completed discovery can establish an empty search. Files the owner can open
+but cannot re-share remain in this preview, independently of sale eligibility.
+The last usable first 120 results are retained encrypted in the existing head build
+envelope through retries and temporary-job expiry. A live job pages the full saved
+result set; an expired snapshot explicitly identifies any remaining uncached files.
+Frozen versions and completed purchases are not rewritten. No new index or content
+assessment is introduced. Azure failures cannot become a successful search result.
 
 Listing and purchase use the existing `/sharing/packets/{id}/listing` and
 `/sharing/packets/{id}/requests` endpoints. The new admission cannot reactivate a

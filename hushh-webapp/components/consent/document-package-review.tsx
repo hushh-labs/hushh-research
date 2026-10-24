@@ -40,7 +40,7 @@ export function DocumentPackageDetails({ review, agentPackage, hairlines: HAIRLI
           {agentPackage.suggestedPriceCents !== null ? <Fact label="Suggested price" value={formatDocumentRequestPrice(agentPackage.suggestedPriceCents)} /> : null}
           {agentPackage.status === "allowed" && review.priceCents != null ? <Fact label="Agreed price" value={formatDocumentRequestPrice(review.priceCents)} /> : null}
         </dl>
-        <details className="text-sm"><summary className="min-h-11 cursor-pointer py-3">View details</summary>
+        <details className="text-sm"><summary data-consent-role="utility" className="min-h-11 cursor-pointer py-3">View details</summary>
           <dl className={HAIRLINES}>
           {agentPackage.confidenceBasis !== "provider_search" ? <Fact label="Evaluated" value={`${agentPackage.evaluatedCount.toLocaleString()} of ${agentPackage.candidateCount.toLocaleString()} candidates`} /> : null}
           {agentPackage.confidenceScore !== null ? <Fact label="Agent assessment" value={`${agentPackage.confidenceScore}/100`} /> : null}
@@ -83,12 +83,12 @@ export function DocumentPackageActions({ review, agentPackage, undecided, locked
 }) {
   return <>
         {undecided && agentPackage.status !== "allowed" ? <FlowActionGroup
-          primary={<Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked || !ownerDecision} onClick={() => onAllow(review.paymentRequired ? agentPackage.suggestedPriceCents ?? review.priceCents ?? null : null)}>Allow</Button>}
-          secondary={<Button size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
+          primary={<Button data-consent-role="primary-action" size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked || !ownerDecision} onClick={() => onAllow(review.paymentRequired ? agentPackage.suggestedPriceCents ?? review.priceCents ?? null : null)}>Allow</Button>}
+          secondary={<Button data-consent-role="primary-action" size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
             className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
             disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
             onClick={() => denyConfirm.activate(onDecline)}>{denyConfirm.label("Deny")}</Button>}
         /> : null}
-        {ownerDecision && review.paymentRequired && agentPackage.confidenceBasis !== "provider_search" ? <Button size="standard" variant="none" disabled={locked} onClick={onEditPrice}>Edit price</Button> : null}
+        {ownerDecision && review.paymentRequired && agentPackage.confidenceBasis !== "provider_search" ? <Button data-consent-quiet-action="true" data-consent-role="compact-action" size="standard" variant="none" disabled={locked} onClick={onEditPrice}>Edit price</Button> : null}
   </>;
 }

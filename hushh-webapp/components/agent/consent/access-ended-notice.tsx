@@ -40,14 +40,14 @@ export function AccessEndedNotice({ variant = "card", className, ...props }: Acc
   return (
     <div role="status" data-testid="access-ended-notice" data-variant={variant}
       className={[
-        "flex items-start gap-3 text-sm leading-6 text-muted-foreground",
+        "consent-presentation-surface flex items-start gap-3 text-sm leading-6 text-muted-foreground",
         variant === "card" ? "rounded-[var(--app-card-radius-compact)] bg-muted/50 px-3.5 py-3" : "py-1",
         className,
       ].filter(Boolean).join(" ")}>
       <ShieldOff className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
-      <p className="min-w-0">
+      <p data-consent-role="status" className="min-w-0">
         {/* Inside the card the header already says "Access ended". */}
-        {variant === "message" ? <span className="block font-medium text-foreground">Access ended</span> : null}
+        {variant === "message" ? <span data-consent-role="row-title" className="block font-medium text-foreground">Access ended</span> : null}
         {accessEndedSentence(props)}
       </p>
     </div>

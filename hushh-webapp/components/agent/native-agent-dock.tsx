@@ -37,7 +37,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const { user } = useAuth();
   const dock = useAgentDockState();
   const ports = useNativeDockPorts();
-  const theme = useNativeControlAppearance("secondary");
+  const theme = useNativeControlAppearance("on-accent");
   const suppressed = useSessionChromeSuppressed();
   const webOverlay = useNativeShellOverlayBlocked();
   const nativeCovered = useSyncExternalStore(observeNativeDrawerIsolation, () => nativeDrawerIsolation().isolated, () => false);

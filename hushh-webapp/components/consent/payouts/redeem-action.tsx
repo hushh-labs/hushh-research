@@ -168,14 +168,14 @@ export function RedeemAction({ wallet, redeem, "data-voice-control-id": voiceCon
   const receiptId = receipt && receipt.scope === wallet.scope ? receipt.id : null;
   return <>
     {shown || reason || last || redeem.error ? <section aria-label="Redeem Hussh Coins" className="space-y-2">
-      {shown ? <Button type="button" size="standard" data-voice-control-id={voiceControlId}
+      {shown ? <Button data-consent-role="compact-action" type="button" size="standard" data-voice-control-id={voiceControlId}
         disabled={busy || refreshing || wallet.failed || !data || data.live.held || (newRedemption && (redeemAmount < 1 || Boolean(cashOutBlocked) || !fresh)) || Boolean(unsettled && !unsettled.clientRequestId && !retryIntent)}
         onClick={() => void redeem.redeem()}>
         {busy ? "Sending…" : refreshing || awaitingWallet ? "Updating balance…" : !newRedemption ? "Check transfer" : `Redeem ${money(redeemAmount)}`}
       </Button> : null}
       {scopeLine ? <HelperText className="profile-account-note tabular-nums">{scopeLine}</HelperText> : null}
       {reason ? <div><HelperText role={openTransferUnreadable ? "status" : undefined} className="profile-account-note">{reason}</HelperText>
-        {openTransferUnreadable && !isNative() ? <Button type="button" size="compact" variant="none" effect="fade" onClick={reloadWindow}>Reload</Button> : null}</div> : null}
+        {openTransferUnreadable && !isNative() ? <Button data-consent-quiet-action="true" data-consent-role="compact-action" type="button" size="compact" variant="none" effect="fade" onClick={reloadWindow}>Reload</Button> : null}</div> : null}
       {last ? <div role="status">
         <button type="button" className="flex min-h-11 w-full items-center gap-1 text-left"
           onClick={(event) => { opener.current = event.currentTarget; setReceipt({ scope: wallet.scope, id: `redemption:${last.id}` }); }}>

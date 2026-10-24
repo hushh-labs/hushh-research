@@ -18,6 +18,10 @@ fi
 
 cd "$REPO_ROOT"
 
+# Every product PR exercises deletion across client, proxy, route and real SQL,
+# regardless of which side changed. Never depend on the narrower auth path pack.
+bash "$REPO_ROOT/scripts/ci/account-deletion-check.sh"
+
 # Expensive zero-loss rehearsal belongs only to PKM upgrade compatibility
 # changes. GitHub workflows resolve this through the canonical changed-SHA
 # selector before invoking this script. A local caller without a proven plan

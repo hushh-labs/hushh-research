@@ -102,7 +102,7 @@ function PaymentBlock({ view, withdrawn, ownerName, busy, withdrawConfirm, onPay
           trailingInteractive={presented.action === "pay"}
           trailing={
             presented.action === "pay" && view.amountCents !== null ? (
-              <Button size="standard" disabled={busy !== null || payBlocked} onClick={onPay}>
+              <Button data-consent-role="compact-action" size="standard" disabled={busy !== null || payBlocked} onClick={onPay}>
                 {`Pay ${formatPaymentMoney(view.amountCents)}`}
               </Button>
             ) : undefined

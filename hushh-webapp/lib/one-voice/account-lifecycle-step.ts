@@ -133,6 +133,9 @@ export async function runAccountLifecycleStep(
     await deps.executeDeletion({ userId, vaultOwnerToken: token });
   } catch (error) {
     const classified = classifyDeletionError(error);
+    if (classified === "in_progress") {
+      return fail("delete", "unknown", "deletion_in_progress");
+    }
     return classified === "unknown"
       ? fail("delete", "unknown", "deletion_outcome_uncertain")
       : ok("delete", classified);

@@ -11,7 +11,6 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { VaultService } from "@/lib/services/vault-service";
 import {
-  authSessionInvalidationCodeFromBackendPayload,
   authSessionInvalidationCodeFromFirebaseError,
   ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE,
   AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE,
@@ -24,6 +23,13 @@ import {
   markAccountDeletionActive,
 } from "@/lib/auth/account-deletion-activity";
 import { withDeadline } from "@/lib/utils/with-deadline";
+import { inspectAccountSessionStatusResponse } from "@/lib/auth/account-session-status";
+import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
+import {
+  dispatchAuthSessionVerificationRequired,
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 import {
   AccountDeletionNotCompletedError,
   isReportedAccountDeletionFailure,
@@ -52,8 +58,7 @@ export const DELETE_ACCOUNT_DIALOG_DESCRIPTION =
   "Deletes your account, vault, memory, chats, and connections. This can’t be undone.";
 
 type AccountDeletionSessionUser = Pick<User, "uid" | "getIdToken">;
-type DeletionStatusProbe = "active" | "deleted" | "unavailable";
-const DELETION_STATUS_MAX_BODY_BYTES = 4_096;
+type DeletionStatusProbe = "active" | "deleted" | "in_progress" | "unavailable";
 
 export const DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE =
   ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE;
@@ -124,6 +129,13 @@ export class AccountDeletionOutcomeUncertainError extends Error {
   }
 }
 
+export class AccountDeletionInProgressError extends Error {
+  constructor() {
+    super("Your account deletion is still running. Please wait while we check its status.");
+    this.name = "AccountDeletionInProgressError";
+  }
+}
+
 /**
  * Outcomes the deletion UI already explains to the person. Callers log these as
  * warnings: they are expected results, not crashes, and the Next.js dev overlay
@@ -132,6 +144,7 @@ export class AccountDeletionOutcomeUncertainError extends Error {
 export function isHandledAccountDeletionOutcome(error: unknown): boolean {
   return (
     error instanceof AccountDeletionOutcomeUncertainError ||
+    error instanceof AccountDeletionInProgressError ||
     error instanceof AccountDeletionNotCompletedError ||
     error instanceof AccountErasureBanksNotDisconnectedError ||
     isRecoverableAccountDeletionPrecondition(error)
@@ -139,6 +152,7 @@ export function isHandledAccountDeletionOutcome(error: unknown): boolean {
 }
 
 export function accountDeletionErrorMessage(error: unknown): string {
+  if (error instanceof AccountDeletionInProgressError) return error.message;
   if (error instanceof AccountDeletionOutcomeUncertainError) {
     return DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE;
   }
@@ -177,42 +191,17 @@ function isLostVaultPrecommitError(error: unknown): boolean {
   return error instanceof ApiError && LOST_VAULT_PRECOMMIT_CODES.has(apiErrorCode(error) ?? "");
 }
 
-async function probeDeletionStatus(
-  idToken: string,
-): Promise<DeletionStatusProbe> {
+async function probeDeletionStatus(idToken: string): Promise<DeletionStatusProbe> {
   try {
-    const response = await ApiService.getAccountSessionStatus(idToken);
-    const payload = await response
-      .clone()
-      .text()
-      .catch(() => "");
-    if (
-      new TextEncoder().encode(payload).byteLength >
-      DELETION_STATUS_MAX_BODY_BYTES
-    ) {
-      return "unavailable";
-    }
-    if (response.status === 200) {
-      const contentType =
-        response.headers.get("Content-Type")?.toLowerCase() ?? "";
-      if (!contentType.split(";", 1)[0]?.trim().endsWith("json")) {
-        return "unavailable";
-      }
-      try {
-        const parsed: unknown = JSON.parse(payload);
-        return typeof parsed === "object" &&
-          parsed !== null &&
-          !Array.isArray(parsed) &&
-          (parsed as { active?: unknown }).active === true
-          ? "active"
-          : "unavailable";
-      } catch {
-        return "unavailable";
-      }
-    }
-    if (response.status !== 401) return "unavailable";
-    const code = authSessionInvalidationCodeFromBackendPayload(payload);
-    return code === "account_not_found" || code === "account_deleted" ? "deleted" : "unavailable";
+    const inspection = await inspectAccountSessionStatusResponse(
+      await ApiService.getAccountSessionStatus(idToken),
+      Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS,
+    );
+    if (inspection.outcome === "active") return "active";
+    if (inspection.outcome === "deletion_in_progress") return "in_progress";
+    return inspection.outcome === "terminal" &&
+      (inspection.code === "account_not_found" || inspection.code === "account_deleted")
+      ? "deleted" : "unavailable";
   } catch {
     return "unavailable";
   }
@@ -351,6 +340,10 @@ async function executeAccountDeletion(params: {
   if (params.sessionUser.uid !== params.userId) {
     throw new Error("Account deletion session identity changed. Please retry.");
   }
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (owner && owner.userId !== params.userId) {
+    throw new Error("Account deletion session identity changed. Please retry.");
+  }
 
   // Capture a UID-bound Firebase credential before the destructive request.
   // Even if Firebase is removed and the HTTP response is lost, this token can
@@ -370,7 +363,8 @@ async function executeAccountDeletion(params: {
   let terminalDeletionSignalDispatched = false;
   // Token capture can yield to cancellation or an account switch. No deletion
   // has been submitted yet, so this is a definite pre-submission abort.
-  if (params.isCurrent?.() === false) {
+  if (params.isCurrent?.() === false ||
+      (owner && !isValidatedAuthSessionOwnerCurrent(owner))) {
     throw new Error("Account deletion cancelled before submission.");
   }
   // From here the erasure may lock or remove this account's rows under any
@@ -408,8 +402,16 @@ async function executeAccountDeletion(params: {
               sessionUser: params.sessionUser,
               recoveryIdToken,
             }),
-            Date.now() + 8_000,
+            Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS,
           ).catch(() => "unavailable" as const);
+    if (deletionStatus === "in_progress" && owner &&
+        isValidatedAuthSessionOwnerCurrent(owner)) {
+      // A lifecycle lock proves work is still running, not a lost identity.
+      // The existing UID/generation-scoped privacy gate seals protected UI and
+      // owns bounded status reads with backoff. Never submit DELETE again.
+      dispatchAuthSessionVerificationRequired(owner, "account_deletion_in_progress");
+      throw new AccountDeletionInProgressError();
+    }
     if (
       deletionStatus === "active" &&
       isReportedAccountDeletionFailure(submissionFailure)

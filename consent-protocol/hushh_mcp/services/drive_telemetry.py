@@ -19,6 +19,8 @@ _operation: ContextVar[str | None] = ContextVar("drive_operation_tag", default=N
 CHANNEL = "google_drive_rest_v3"
 _STAGES = frozenset(
     {
+        "packet_plan",
+        "packet_snapshot",
         "search_claim",
         "search_authority",
         "search_commit",

@@ -17,7 +17,7 @@ from google.adk.models._capabilities import LlmCapabilities
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 
 from .azure_call_lifecycle import AzureAuthenticationError as AzureAuthenticationError
 from .azure_call_lifecycle import (
@@ -39,50 +39,10 @@ from .azure_response_history import (
     restore_browser_message,
     restore_reasoning,
 )
+from .azure_response_schema import _schema as _schema
+from .azure_response_schema import response_format
 
 _MAX_REQUEST_MEDIA_BYTES = 50 * 1024 * 1024
-
-
-def _schema(value: Any, *, strict: bool) -> dict:
-    """Translate schema syntax while leaving semantic acceptance with its owner."""
-    if isinstance(value, type) and issubclass(value, BaseModel):
-        value = value.model_json_schema()
-    elif hasattr(value, "model_dump"):
-        value = value.model_dump(mode="json", exclude_none=True)
-    if not isinstance(value, dict):
-        raise ValueError("Azure structured schema must be an object")
-
-    def visit(node):
-        if isinstance(node, list):
-            return [visit(item) for item in node]
-        if not isinstance(node, dict):
-            return node
-        result = {}
-        for key, child in node.items():
-            if key in {"default", "title"}:
-                continue
-            if key in {"properties", "$defs", "definitions", "patternProperties"}:
-                result[key] = {name: visit(item) for name, item in child.items()}
-            else:
-                result["anyOf" if key == "oneOf" else key] = visit(child)
-        if isinstance(result.get("type"), str):
-            result["type"] = result["type"].lower()
-        if "const" in result:
-            result["enum"] = [result.pop("const")]
-        nullable = result.pop("nullable", False)
-        if strict and result.get("type") == "object":
-            if result.get("additionalProperties") not in (None, False):
-                raise ValueError("Azure strict output cannot represent open object fields")
-            result["additionalProperties"] = False
-            result["required"] = list(result.get("properties", {}))
-        if nullable:
-            return {"anyOf": [result, {"type": "null"}]}
-        return result
-
-    converted = visit(value)
-    if not isinstance(converted, dict):
-        raise ValueError("Azure structured schema must remain an object")
-    return converted
 
 
 def _instruction(value: Any) -> str:
@@ -322,14 +282,12 @@ def _request(
             kwargs.get("instructions", "") + "\nReturn a JSON object."
         ).strip()
     elif schema is not None:
-        kwargs["text"] = {
-            "format": {
-                "type": "json_schema",
-                "name": "adk_response",
-                "strict": True,
-                "schema": _schema(schema, strict=True),
-            }
-        }
+        wire_format, schema_instruction = response_format(schema)
+        kwargs["text"] = {"format": wire_format}
+        if schema_instruction:
+            kwargs["instructions"] = (
+                kwargs.get("instructions", "") + "\n" + schema_instruction
+            ).strip()
     elif config.response_mime_type == "application/json":
         kwargs["text"] = {"format": {"type": "json_object"}}
     return kwargs

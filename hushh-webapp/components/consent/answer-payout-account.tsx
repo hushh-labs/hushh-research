@@ -29,14 +29,14 @@ export function AnswerPayoutAccount() {
     void manageBank();
   };
   if (status.data?.payouts === false) return (
-    <HelperText as="p" role="status">
+    <HelperText as="p" role="status" className="consent-presentation-surface">
       Answer payout setup opens once paid answers are switched on here.
       Approving still records the price; nothing is charged or paid out until then.
     </HelperText>
   );
   return (
-    <div className="space-y-1">
-      <Button type="button" variant="none" size="standard" disabled={!status.user || action.busy || hosted.hostedPending} onClick={manage}>
+    <div className="consent-presentation-surface space-y-1">
+      <Button data-consent-role="compact-action" data-consent-quiet-action="true" type="button" variant="none" size="standard" disabled={!status.user || action.busy || hosted.hostedPending} onClick={manage}>
         {action.busy || hosted.hostedPending ? "Checking payout setup…" : "Manage answer payouts"}
       </Button>
       <HelperText as="p">
