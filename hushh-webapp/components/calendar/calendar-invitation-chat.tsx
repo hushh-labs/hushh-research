@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import calendarPresentation from "./calendar-presentation.module.css";
 import { connectCalendarInPlace, connectGmailInPlace, type InPlaceConnectOwner, type ConnectControls } from "@/lib/connections/google-connect-in-place";
 import { GoogleCalendarService, type CalendarAttendanceResult } from "@/lib/services/google-calendar-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -35,9 +36,9 @@ export function CalendarInvitationChat({ owner, payload, expectedAccountEmail, o
     setBusy(true);
     void attempt.result.then(result => { if (controls.isCurrent()) { if (result === "connected") setRevision(value => value + 1); else if (result !== "stale") morphyToast.error("Access was not updated. You can try again."); } }).finally(() => { if (controls.isCurrent()) setBusy(false); });
   };
-  if (accountObservation?.ownerId !== owner.uid) return <div><p role="status">Checking Calendar connection…</p><Button variant="ghost" onClick={onClose}>Close invitations</Button></div>;
+  if (accountObservation?.ownerId !== owner.uid) return <div><p role="status">Checking Calendar connection…</p><Button variant="ghost" size="compact" className={calendarPresentation.utility} onClick={onClose}>Close invitations</Button></div>;
   const boundAccount = expectedAccountEmail || (typeof payload.accountEmail === "string" ? payload.accountEmail : account);
-  if (boundAccount && account && boundAccount.toLowerCase() !== account.toLowerCase()) return <div role="alert"><p>The connected Calendar account changed. Close this review and ask One to check the invitation again.</p><Button variant="ghost" onClick={onClose}>Close invitations</Button></div>;
+  if (boundAccount && account && boundAccount.toLowerCase() !== account.toLowerCase()) return <div role="alert"><p>The connected Calendar account changed. Close this review and ask One to check the invitation again.</p><Button variant="ghost" size="compact" className={calendarPresentation.utility} onClick={onClose}>Close invitations</Button></div>;
   const rawTerms = payload.terms && typeof payload.terms === "object" ? payload.terms as Record<string, unknown> : {};
   const terms: InvitationTerms = {
     date: typeof rawTerms.date === "string" ? rawTerms.date : undefined,
@@ -47,8 +48,8 @@ export function CalendarInvitationChat({ owner, payload, expectedAccountEmail, o
     message: typeof rawTerms.message === "string" ? rawTerms.message : undefined,
   };
   const decision: InvitationDecision = payload.decision === "accepted" || payload.decision === "declined" || payload.decision === "offer_times" ? payload.decision : "view";
-  return <div className="space-y-3" data-calendar-invitation-chat>
+  return <div className="space-y-3" data-calendar-invitation-chat data-calendar-presentation>
     <CalendarInvitations userId={owner.uid} accountEmail={boundAccount} zone={typeof payload.timeZone === "string" ? payload.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"} getIdToken={() => owner.getIdToken()} initialFilter={String(payload.filter || "pending")} initialEventId={typeof payload.eventId === "string" ? payload.eventId : undefined} initialCalendarId={typeof payload.calendarId === "string" ? payload.calendarId : undefined} initialDecision={decision} initialTerms={terms} startAt={typeof payload.startAt === "string" ? payload.startAt : undefined} endAt={typeof payload.endAt === "string" ? payload.endAt : undefined} connectionRevision={revision} busy={busy} onConnect={(access, includeCalendarList) => connect("calendar", access, includeCalendarList)} onMailConnect={() => connect("mail")} onBusyChange={value => { setActionBusy(value); onBusyChange?.(value); }} onResult={onResult} />
-    <Button variant="ghost" disabled={actionBusy} onClick={onClose}>Close invitations</Button>
+    <Button variant="ghost" size="compact" className={calendarPresentation.utility} disabled={actionBusy} onClick={onClose}>Close invitations</Button>
   </div>;
 }

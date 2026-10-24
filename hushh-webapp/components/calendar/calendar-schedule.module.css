@@ -95,6 +95,7 @@
   display: block;
   width: 100%;
   min-width: 0;
+  min-height: 44px;
   padding: 0;
   color: inherit;
   font-family: inherit;
@@ -108,9 +109,9 @@
 .eventTitle {
   display: block;
   overflow: hidden;
-  font-size: 13.5px;
-  font-weight: 400;
-  line-height: 19.2px;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 21px;
   letter-spacing: -0.025em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -120,8 +121,8 @@
   display: block;
   min-width: 0;
   color: var(--app-secondary-label);
-  font-size: 11px;
-  line-height: 21px;
+  font-size: 12px;
+  line-height: 18px;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -133,12 +134,12 @@
   min-width: 0;
   gap: 5px;
   color: var(--app-secondary-label);
-  font-size: 11.5px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
   letter-spacing: -0.02em;
 }
 
-.endedLabel { display: inline-flex; width: fit-content; margin-top: 3px; padding: 2px 7px; border-radius: 6px; background: color-mix(in srgb, var(--app-secondary-label) 10%, transparent); color: var(--app-secondary-label); font-size: 11px; font-weight: 600; line-height: 17px; }
+.endedLabel { display: inline-flex; width: fit-content; margin-top: 3px; padding: 2px 7px; border-radius: 6px; background: color-mix(in srgb, var(--app-secondary-label) 10%, transparent); color: var(--app-secondary-label); font-size: 13px; font-weight: 600; line-height: 18px; }
 
 .sourceLabel {
   min-width: 0;
@@ -158,8 +159,9 @@
 .declined {
   display: block;
   color: var(--app-secondary-label);
-  font-size: 11px;
-  line-height: 19px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
 }
 
 .rowActions {
@@ -175,33 +177,34 @@
 
 .joinButton {
   display: inline-flex;
-  flex: 0 0 52px;
+  flex: 0 0 78px;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 32px;
+  width: 78px;
+  min-height: 44px;
   padding: 0;
   color: var(--app-accent);
-  font-size: 12.5px;
-  font-weight: 650;
-  line-height: 20px;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 18px;
   text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
   border-radius: 999px;
-  background: var(--app-accent-surface);
+  background: var(--app-card-surface-default-solid);
 }
 
 .highlighted .joinButton {
-  color: var(--app-accent-fg);
-  background: var(--app-accent);
+  color: var(--app-accent);
+  background: var(--app-card-surface-default-solid);
 }
 
 .overflowButton {
   display: inline-flex;
-  flex: 0 0 24px;
+  flex: 0 0 44px;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   color: var(--app-secondary-label);
   font-family: inherit;
@@ -273,16 +276,16 @@
 
 .providerTitle {
   display: block;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 20px;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 21px;
   letter-spacing: -0.02em;
 }
 
 .providerSubtitle {
   display: block;
   color: var(--app-secondary-label);
-  font-size: 11.2px;
+  font-size: 12px;
   line-height: 18px;
   letter-spacing: -0.02em;
 }
@@ -363,19 +366,19 @@
   }
 
   .eventTitle {
-    font-size: 15px;
+    font-size: 14px;
     line-height: 21px;
     letter-spacing: -0.033em;
   }
 
   .eventTime,
   .eventSource {
-    font-size: 13.5px;
+    font-size: 12px;
     letter-spacing: -0.01em;
   }
 
   .eventTime {
-    line-height: 22px;
+    line-height: 18px;
   }
 
   .eventSource {
@@ -395,14 +398,12 @@
   }
 
   .joinButton {
-    flex-basis: 80px;
-    width: 80px;
-    height: 36px;
-    font-size: 14px;
+    flex-basis: 88px;
+    width: 88px;
   }
 
   .overflowButton {
-    height: 36px;
+    height: 44px;
   }
 
   .overflowButton > svg {

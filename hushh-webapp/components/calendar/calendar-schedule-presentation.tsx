@@ -13,6 +13,13 @@ import styles from "./calendar-schedule.module.css";
 export { GoogleCalendarMark } from "./google-calendar-mark";
 export { styles as calendarScheduleStyles };
 
+export const MAIN_TABS = [
+  { value: "schedule", label: "Schedule", href: "/one/calendar" },
+  { value: "invitations", label: "Invitations", href: "/one/calendar" },
+  { value: "insights", label: "Insights", href: "/one/calendar" },
+];
+export const SCHEDULE_TABS = [{ value: "today", label: "Today" }, { value: "free", label: "Free time" }];
+
 export function CalendarProviderIcon({ className }: { className?: string }) {
   return <svg aria-hidden="true" focusable="false" viewBox="0 0 28 28" className={[styles.providerIcon, className].filter(Boolean).join(" ")}>
     <rect x="3" y="5" width="22" height="21" rx="3" fill="currentColor" />

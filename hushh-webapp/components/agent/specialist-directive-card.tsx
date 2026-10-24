@@ -9,6 +9,8 @@ import { ClarificationCard } from "@/components/one-location/redesign/clarificat
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { ConnectorBrandMark, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
+import calendarPresentation from "@/components/calendar/calendar-presentation.module.css";
+import { SpecialistDirectiveActions } from "@/components/agent/specialist-directive-actions";
 
 // ─── Action mode (existing contract, unchanged) ───────────────────────────────
 
@@ -43,8 +45,9 @@ export function SpecialistDirectiveCard({
 }: SpecialistCardProps) {
   return (
     <div
-      className="rounded-2xl border border-primary/20 bg-primary/5 p-3"
+      className={`${brand === "calendar" ? calendarPresentation.calendarDirective : ""} rounded-2xl border border-primary/20 bg-primary/5 p-3`}
       data-testid="specialist-directive-card"
+      data-calendar-presentation={brand === "calendar" || undefined}
     >
       <div className="flex items-center gap-3">
         {brand ? <ConnectorBrandMark brand={brand} /> : null}
@@ -74,28 +77,15 @@ export function SpecialistDirectiveCard({
           ))}
         </ul>
       ) : null}
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={busy}
-          className="relative rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
-          data-testid="specialist-directive-confirm"
-        >
-          {busy ? busyLabel ?? "Working…" : confirmLabel}
-          <MaterialRipple variant="none" effect="fill" disabled={busy} />
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy && !cancelWhileBusy}
-          className="relative rounded-full bg-black/5 px-4 py-1.5 text-sm dark:bg-white/10"
-          data-testid="specialist-directive-cancel"
-        >
-          Cancel
-          <MaterialRipple variant="none" effect="glass" disabled={busy && !cancelWhileBusy} />
-        </button>
-      </div>
+      <SpecialistDirectiveActions
+        brand={brand}
+        confirmLabel={confirmLabel}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+        busy={busy}
+        busyLabel={busyLabel}
+        cancelWhileBusy={cancelWhileBusy}
+      />
     </div>
   );
 }
@@ -106,6 +96,7 @@ export function SpecialistDirectiveCard({
 
 export type SpecialistPromptCardProps = {
   prompt: ClientPrompt;
+  calendar?: boolean;
   busy?: boolean;
   onAnswer: (refs: Record<string, unknown>[]) => void;
   onConfirm: (yes: boolean) => void;
@@ -114,6 +105,7 @@ export type SpecialistPromptCardProps = {
 
 export function SpecialistPromptCard({
   prompt,
+  calendar = false,
   busy = false,
   onAnswer,
   onConfirm,
@@ -122,6 +114,7 @@ export function SpecialistPromptCard({
   return (
     <ClarificationCard
       prompt={prompt}
+      className={calendar ? calendarPresentation.calendarPrompt : undefined}
       busy={busy}
       onAnswer={onAnswer}
       onConfirm={onConfirm}
@@ -446,7 +439,6 @@ import {
   requesterShortName,
 } from "@/lib/consent/consent-owner-copy";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
-import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 export type PendingConsentCardStatus =
   | "pending" | "approved" | "denied" | "cancelled"

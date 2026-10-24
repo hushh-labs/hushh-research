@@ -1,0 +1,191 @@
+.workspace {
+  --foundation-title2-size: 14px;
+  --foundation-title2-line: 22px;
+  --foundation-title2-weight: 600;
+  --foundation-title3-size: 14px;
+  --foundation-title3-line: 22px;
+  --foundation-title3-weight: 600;
+  --type-input-value-size: 14px;
+  --type-input-value-line: 22px;
+  font-family: var(--font-app-body);
+}
+
+.setup {
+  --type-agent-title-line: 36px;
+  --foundation-title1-size: 28px;
+  --foundation-title1-line: 36px;
+  --foundation-title1-weight: 600;
+  font-family: var(--font-app-body);
+}
+
+.flowTitle {
+  --foundation-title2-size: 28px;
+  --foundation-title2-line: 36px;
+  --foundation-title2-weight: 600;
+  --foundation-title3-size: 28px;
+  --foundation-title3-line: 36px;
+  --foundation-title3-weight: 600;
+}
+
+.flowDescription {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+.sourceGroup {
+  --foundation-headline-size: 12px;
+  --foundation-headline-line: 18px;
+  --foundation-headline-weight: 600;
+}
+
+.windowPrimary {
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 550;
+}
+
+.windowSupport {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+.sourceLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--app-accent);
+  font-size: 13px;
+  line-height: 21px;
+  font-weight: 550;
+}
+
+.publicOffer {
+  font-family: var(--font-app-body);
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 550;
+}
+
+.joinLink {
+  display: inline-flex;
+  min-width: 88px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 15px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
+  border-radius: 999px;
+  background: var(--app-card-surface-default-solid);
+  color: var(--app-accent);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 550;
+}
+
+.utility {
+  --type-compact-button-label-size: 13px;
+  --type-compact-button-label-line: 21px;
+  --type-compact-button-label-weight: 550;
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 13px;
+  line-height: 21px;
+  font-weight: 550;
+}
+
+.status {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+}
+
+.support {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+.portal {
+  --foundation-title2-size: 20px;
+  --foundation-title2-line: 28px;
+  --foundation-title2-weight: 600;
+  --foundation-title3-size: 20px;
+  --foundation-title3-line: 28px;
+  --foundation-title3-weight: 600;
+  --type-input-value-size: 14px;
+  --type-input-value-line: 22px;
+  font-family: var(--font-app-body);
+}
+
+.portal :global(h3) {
+  --foundation-title3-size: 14px;
+  --foundation-title3-line: 22px;
+  --foundation-title3-weight: 600;
+}
+
+.portal :global(label > span),
+.portal :global(fieldset > legend) {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 550;
+}
+
+.chatCard,
+.calendarDirective,
+.calendarPrompt {
+  font-family: var(--font-app-body);
+}
+
+.chatPrimary {
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 550;
+}
+
+.chatStatus {
+  font-family: var(--font-app-body);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.chatSupporting {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
+}
+
+.chatBody {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.calendarDirective :global([data-testid="specialist-directive-confirm"]),
+.calendarDirective :global([data-testid="specialist-directive-cancel"]),
+.calendarPrompt :global([data-testid="clarification-option"]),
+.calendarPrompt :global([data-testid="clarification-confirm"]),
+.calendarPrompt :global([data-testid="clarification-cancel"]) {
+  min-height: 44px;
+}
+
+@media (max-width: 620px) {
+  .workspace,
+  .portal {
+    --type-input-value-size: 16px;
+  }
+
+  .utility {
+    --type-compact-button-label-size: 12px;
+    font-size: 12px;
+  }
+  .sourceLink { font-size: 12px; }
+  .joinLink { min-width: 78px; padding-inline: 11px; }
+}
+
+@media (max-width: 350px) {
+  .joinLink { min-width: 72px; padding-inline: 9px; }
+}
