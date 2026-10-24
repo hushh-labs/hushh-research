@@ -430,6 +430,51 @@
           ]
         }
       ]
+    },
+    {
+      "name": "account-deletion-completes-with-large-recovery-history",
+      "summary": "Account deletion erases large encrypted recovery history in bounded statements in one transaction; failures roll back, other owners remain intact, and the client only clears a confirmed deleted account. The Integration gate exercises this across frontend and backend changes.",
+      "fixed_by": "account-deletion-regression",
+      "tests": [
+        {
+          "path": "consent-protocol/tests/services/test_account_erasure_covers_every_user_table.py",
+          "assertion_pattern": "^\\s+assert ",
+          "min_assertions": 15,
+          "required_titles": [
+            "test_the_migration_scan_finds_a_real_population",
+            "test_every_retained_table_states_a_reason",
+            "test_no_user_keyed_table_is_silently_left_behind"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
+          "assertion_pattern": "^\\s+assert ",
+          "min_assertions": 10,
+          "required_titles": [
+            "test_real_blocked_erasure_rolls_back_and_releases_session_barrier",
+            "test_large_recovery_history_erasure_is_bounded_atomic_and_owner_scoped",
+            "test_recovery_erasure_reference_indexes_replay_validate_and_roll_back"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/lib/flows/delete-account.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 45,
+          "required_titles": [
+            "clears owner state only after a confirmed full account deletion",
+            "bounds uncertain-outcome verification when a backend read never settles",
+            "never submits deletion after a token-read timeout, even if the bridge later returns"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/app/api/account-delete-proxy.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 7,
+          "required_titles": [
+            "keeps the rolled-back failure code on a backend 500"
+          ]
+        }
+      ]
     }
   ]
 }

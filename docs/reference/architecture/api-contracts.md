@@ -3370,6 +3370,15 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | POST | `/api/account/delete-lost-vault/phone` | Read-only preflight after fresh same-owner Google/Apple reauthentication. Accepts `{phone_number:"+..."}` with an explicit country code, normalizes through the canonical phone utility, and compares the complete number with the same authoritative existing binding used by deletion. Returns only `{valid:true}`, with `private, no-store`; mismatch, invalid number, binding conflict, or unavailable identity cannot issue SMS through the normal UI. It changes no binding and grants no deletion or vault authority. Final deletion rereads the binding and checks fresh phone proof independently. |
 | POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must withhold fresh signup. `details.firebase_auth_user: "identity_retained"` means deliberate preservation, not automatically completing cleanup; the central sign-out/login notice preserves this distinction. |
 
+Full account erasure removes encrypted recovery segments in statements of at most
+100 rows within the same transaction and lifecycle barriers. A later failure
+rolls every batch back. SQL lock/statement deadlines remain 3/20 seconds;
+batching does not commit partial erasure or promise a total duration. Indexed
+archived-revision references keep parent cleanup from repeatedly scanning other
+owners' recovery records. The client reports completion only after confirmed
+account deletion; an uncertain transport outcome is resolved through the
+existing account-session status contract.
+
 Every Firebase bearer dependency verifies signature, issuer, audience, and
 expiry, preserves revoked/disabled-token enforcement, and always enforces the
 database tombstone. Revocation proof uses a 60-second positive cache bound to
