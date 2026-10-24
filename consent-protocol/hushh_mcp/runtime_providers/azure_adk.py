@@ -6,7 +6,6 @@ select tools, retry requests, or grant invocation/data/action authority.
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
 from typing import Any, Literal
@@ -20,37 +19,27 @@ from google.genai import types
 from pydantic import BaseModel, Field, field_validator
 
 from .azure_call_lifecycle import AzureAuthenticationError as AzureAuthenticationError
-from .azure_call_lifecycle import AzureContentFilteredError, acquire_token, observe_call
-from .azure_response_history import (
-    browser_message_part,
-    reasoning_part,
-    restore_browser_message,
-    restore_reasoning,
+from .azure_call_lifecycle import (
+    acquire_token,
+    observe_call,
+    record_response_metadata,
 )
+from .azure_response_codec import _MAX_ARGUMENT_BYTES as _MAX_ARGUMENT_BYTES
+from .azure_response_codec import _identifier as _identifier
+from .azure_response_codec import _json as _json
+from .azure_response_codec import _raise_stream_error as _raise_stream_error
+from .azure_response_codec import _require_complete as _require_complete
+from .azure_response_codec import _response as _response
+from .azure_response_codec import _value as _value
 from .azure_response_history import (
     inline_media as _inline_media,
 )
+from .azure_response_history import (
+    restore_browser_message,
+    restore_reasoning,
+)
 
-_MAX_ARGUMENT_BYTES = 256 * 1024
 _MAX_REQUEST_MEDIA_BYTES = 50 * 1024 * 1024
-
-
-def _value(obj: Any, name: str, default=None):
-    return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
-
-
-def _json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-
-
-def _identifier(value: Any) -> str:
-    if (
-        not isinstance(value, str)
-        or not 1 <= len(value) <= 256
-        or any(ord(char) < 32 or ord(char) == 127 for char in value)
-    ):
-        raise ValueError("Invalid Azure function identity")
-    return value
 
 
 def _schema(value: Any, *, strict: bool) -> dict:
@@ -345,121 +334,6 @@ def _request(
     return kwargs
 
 
-def _require_complete(response: Any) -> None:
-    if (
-        _value(response, "status") == "incomplete"
-        and _value(_value(response, "incomplete_details"), "reason") == "content_filter"
-    ):
-        raise AzureContentFilteredError()
-    if _value(response, "status") != "completed" or _value(response, "incomplete_details"):
-        raise ValueError("Azure model response did not complete")
-
-
-def _raise_stream_error(event: Any) -> None:
-    if _value(event, "type") == "response.incomplete":
-        _require_complete(_value(event, "response"))
-    raise ValueError("Azure streaming response did not complete")
-
-
-def _response(
-    response: Any,
-    *,
-    allowed_names: set[str],
-    preserve_message_phase: bool = False,
-    allow_web_search: bool = False,
-) -> LlmResponse:
-    _require_complete(response)
-    parts, ids = [], set()
-    for item in _value(response, "output", []) or []:
-        kind = _value(item, "type")
-        if kind == "reasoning":
-            part = reasoning_part(item)
-            if part is not None:
-                parts.append(part)
-            for summary in _value(item, "summary", []) or []:
-                if _value(summary, "type") != "summary_text" or not isinstance(
-                    _value(summary, "text"), str
-                ):
-                    raise ValueError("Unsupported Azure reasoning summary")
-                parts.append(types.Part(text=_value(summary, "text"), thought=True))
-        elif kind == "message":
-            if preserve_message_phase and _value(item, "phase") is not None:
-                parts.append(browser_message_part(item))
-                continue
-            for segment in _value(item, "content", []) or []:
-                if _value(segment, "type") != "output_text":
-                    raise ValueError("Unsupported or refused Azure output")
-                text = _value(segment, "text")
-                if not isinstance(text, str):
-                    raise ValueError("Invalid Azure output text")
-                parts.append(types.Part(text=text))
-        elif kind == "function_call":
-            name, identity = _identifier(_value(item, "name")), _identifier(_value(item, "call_id"))
-            raw = _value(item, "arguments")
-            if (
-                name not in allowed_names
-                or identity in ids
-                or not isinstance(raw, str)
-                or len(raw.encode()) > _MAX_ARGUMENT_BYTES
-            ):
-                raise ValueError("Invalid Azure output function call")
-            args = json.loads(raw)
-            if not isinstance(args, dict):
-                raise ValueError("Azure function arguments must be a JSON object")
-            _json(args)  # Reject non-finite JSON constants before an executable call exists.
-            ids.add(identity)
-            parts.append(
-                types.Part(function_call=types.FunctionCall(id=identity, name=name, args=args))
-            )
-        elif kind == "web_search_call" and allow_web_search:
-            continue  # Only receipt validation below may admit search evidence.
-        else:
-            raise ValueError("Unsupported Azure native output tool")
-    if not any(part.text is not None or part.function_call is not None for part in parts):
-        raise ValueError("Azure model returned no usable output")
-    usage = _value(response, "usage")
-    metadata = None
-    if usage is not None:
-        cached = _value(_value(usage, "input_tokens_details"), "cached_tokens")
-        reasoning = _value(_value(usage, "output_tokens_details"), "reasoning_tokens")
-        metadata = types.GenerateContentResponseUsageMetadata(
-            prompt_token_count=_value(usage, "input_tokens"),
-            candidates_token_count=_value(usage, "output_tokens"),
-            total_token_count=_value(usage, "total_tokens"),
-            cached_content_token_count=cached,
-            thoughts_token_count=reasoning,
-        )
-    grounding = None
-    if allow_web_search and any(
-        _value(item, "type") == "web_search_call" for item in _value(response, "output", [])
-    ):
-        from hushh_mcp.one_adk.azure_web_receipts import extract_azure_web_receipts
-
-        raw = response.model_dump(mode="json") if hasattr(response, "model_dump") else response
-        if not isinstance(raw, dict):
-            raise ValueError("Azure search requires a complete provider receipt")
-        receipts = extract_azure_web_receipts(raw)
-        if not receipts.observed:
-            raise ValueError("Azure search returned no verified citations")
-        grounding = types.GroundingMetadata(
-            grounding_chunks=[
-                types.GroundingChunk(
-                    web=types.GroundingChunkWeb(uri=source.url, title=source.title)
-                )
-                for source in receipts.sources
-            ],
-        )
-    return LlmResponse(
-        content=types.Content(role="model", parts=parts),
-        partial=False,
-        turn_complete=True,
-        finish_reason=types.FinishReason.STOP,
-        model_version=_value(response, "model"),
-        usage_metadata=metadata,
-        grounding_metadata=grounding,
-    )
-
-
 class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     """One Azure request per ADK call; callers retain deadlines and retry policy."""
 
@@ -481,6 +355,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
     # MEDIUM/HIGH specialist requests retain their authored reasoning budget.
     default_reasoning_effort: Literal["minimal", "low"] | None = None
     text_verbosity: Literal["low", "medium", "high"] | None = None
+    web_search_context_size: Literal["low", "medium", "high"] | None = None
 
     @field_validator("endpoint")
     @classmethod
@@ -540,6 +415,10 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
 
     def _generation_request(self, llm_request: LlmRequest) -> dict[str, Any]:
         kwargs = _request(llm_request, self.model, allow_web_search=self.allow_web_search)
+        if self.web_search_context_size is not None:
+            for tool in kwargs.get("tools", []):
+                if tool["type"] == "web_search":
+                    tool["search_context_size"] = self.web_search_context_size
         if self.text_verbosity is not None:
             kwargs.setdefault("text", {})["verbosity"] = self.text_verbosity
         if self.default_reasoning_effort and kwargs.get("reasoning", {}).get("effort") in {
@@ -571,6 +450,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                 await self.require_current()
             if not stream:
                 response = await client.responses.create(**kwargs)
+                record_response_metadata(response, counters)
                 if self.require_current is not None:
                     await self.require_current()
                 yield _response(
@@ -607,6 +487,7 @@ class AzureOpenAIAdkModel(OpenAIResponsesLlm):
                                 partial=True,
                             )
                     elif kind == "response.completed":
+                        record_response_metadata(_value(event, "response"), counters)
                         if self.require_current is not None:
                             await self.require_current()
                         final = _response(

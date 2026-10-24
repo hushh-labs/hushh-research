@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from pydantic import ValidationError
 
@@ -39,6 +39,9 @@ class AzureWebReceipts:
     sources: tuple[ProfileSource, ...]
     num_requests: int
     citations: tuple[AzureCitation, ...] = ()
+    rejection_reason: Literal[
+        "none", "no_retrieval", "invalid_citation", "no_sources", "overlap"
+    ] = "none"
 
 
 def _bounded_list(value: Any, *, limit: int, name: str) -> list[Any]:
@@ -97,17 +100,7 @@ def _citation(annotation: Any, text: str, *, offset: int) -> AzureCitation | Non
     return {"start_index": offset + start, "end_index": offset + end, "title": title, "url": url}
 
 
-def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
-    """Extract completed search/page retrievals and their URL-citation receipts.
-
-    `num_requests` is the provider's billable Bing request count, which can be
-    larger than the number of visible `web_search_call` entries. Missing usage
-    after a completed search fails closed so the caller cannot undercount spend.
-    """
-    if not isinstance(response, Mapping):
-        raise ValueError("Azure response must be a mapping")
-    output = _bounded_list(response.get("output"), limit=MAX_OUTPUT_ITEMS, name="output")
-    count = _request_count(response)
+def _completed_retrieval(output: list[Any], count: int | None) -> bool:
     completed_calls = [
         item
         for item in output
@@ -128,8 +121,23 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
     # An actual search still requires a positive count; missing usage stays unknown.
     if completed_calls and (count is None or ("search" in actions and count == 0)):
         raise ValueError("Completed Azure web retrieval has no valid billable request count")
+    return completed_retrieval
+
+
+def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
+    """Extract completed search/page retrievals and their URL-citation receipts.
+
+    `num_requests` is the provider's billable Bing request count, which can be
+    larger than the number of visible `web_search_call` entries. Missing usage
+    after a completed search fails closed so the caller cannot undercount spend.
+    """
+    if not isinstance(response, Mapping):
+        raise ValueError("Azure response must be a mapping")
+    output = _bounded_list(response.get("output"), limit=MAX_OUTPUT_ITEMS, name="output")
+    count = _request_count(response)
+    completed_retrieval = _completed_retrieval(output, count)
     if response.get("status") != "completed" or not completed_retrieval:
-        return AzureWebReceipts(False, "", (), count or 0)
+        return AzureWebReceipts(False, "", (), count or 0, rejection_reason="no_retrieval")
 
     answer_parts: list[str] = []
     sources: list[ProfileSource] = []
@@ -174,7 +182,9 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
                 citation = _citation(annotation, text, offset=offset)
                 if citation is None:
                     # A partial reference set would misrepresent Bing output.
-                    return AzureWebReceipts(False, "", (), count or 0)
+                    return AzureWebReceipts(
+                        False, "", (), count or 0, rejection_reason="invalid_citation"
+                    )
                 citations.append(citation)
                 title, url = citation["title"], citation["url"]
                 if len(title) > 160 or url in seen_urls:
@@ -187,13 +197,13 @@ def extract_azure_web_receipts(response: Mapping[str, Any]) -> AzureWebReceipts:
                 seen_urls.add(url)
                 sources.append(source)
     if not sources:
-        return AzureWebReceipts(False, "", (), count or 0)
+        return AzureWebReceipts(False, "", (), count or 0, rejection_reason="no_sources")
     citations.sort(key=lambda value: (value["start_index"], value["end_index"]))
     if any(
         previous["end_index"] > current["start_index"]
         for previous, current in zip(citations, citations[1:], strict=False)
     ):
-        return AzureWebReceipts(False, "", (), count or 0)
+        return AzureWebReceipts(False, "", (), count or 0, rejection_reason="overlap")
     return AzureWebReceipts(
         True, "\n".join(answer_parts), tuple(sources), count or 0, tuple(citations)
     )

@@ -12,6 +12,15 @@ publication, accepted queued input retains a model boundary, and later input
 returns for the next turn. Ordinary searches retain synthesis. See the semantic
 declaration in `consent-protocol/docs/reference/backend-semantic-boundary.md`.
 
+Explicit short-answer delegation selects LOW search context on an invocation-local
+child/model copy. Ordinary and deeper research retain their existing context;
+reasoning effort, source validation and native-call budgets do not change.
+Rejected Azure search receipts remain failures and map to the existing authored
+`MODEL_UNAVAILABLE` event, without an automatic retry or processor change.
+Content-free Azure telemetry records a closed `protocol_code`, response status
+and bounded usage before unary validation; rejected output never counts as an
+admitted first output. No message, citation URL, title or provider body is logged.
+
 
 ## Visual Context
 
