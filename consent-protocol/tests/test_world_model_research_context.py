@@ -2,7 +2,7 @@
 
 import copy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -11,6 +11,67 @@ from tests.fixtures.profile_research_jobs import authority as authority
 from tests.fixtures.profile_research_jobs import pwm_manager, settle
 from tests.fixtures.world_model_gateway import IDENTITY, FakeGateway
 from tests.test_world_model import owner_client
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("research", ["profile", "world_model", "files", "live"])
+@pytest.mark.parametrize("auth_mode", ["developer_api_key", "vertex_adc"])
+async def test_one_context_admits_verified_processing_before_model_creation(
+    monkeypatch, research, auth_mode
+):
+    from hushh_mcp import runtime_providers
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.one_adk.files_agent import build_files_agent
+    from hushh_mcp.one_adk.profile_research import run_profile_research
+    from hushh_mcp.one_adk.world_model import run_world_model
+    from hushh_mcp.runtime_providers.processing_terms import ProcessingTermsUnverifiedError
+
+    class ModelConstructionReached(RuntimeError):
+        pass
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "local")
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", auth_mode)
+    factory = Mock(side_effect=ModelConstructionReached)
+    factory_name = (
+        "build_managed_gemini_adk_model"
+        if research in {"files", "live"}
+        else "build_managed_regional_gemini_adk_model"
+    )
+    monkeypatch.setattr(runtime_providers, factory_name, factory)
+    charge = AsyncMock()
+    args = {
+        "identity": IDENTITY,
+        "user_id": "owner",
+        "consent_token": "synthetic",  # noqa: S106 - synthetic owner authority
+        "require_access": AsyncMock(),
+    }
+    runner = run_profile_research
+    if research == "world_model":
+        runner = run_world_model
+        args.update(
+            on_attempts_start=charge,
+            owner_research_context={
+                "confirmed": ["Synthetic approved research lead"],
+                "permitted_public_research": True,
+            },
+        )
+    expected = (
+        ModelConstructionReached if auth_mode == "vertex_adc" else ProcessingTermsUnverifiedError
+    )
+    with pytest.raises(expected):
+        if research == "files":
+            build_files_agent(agent_tree._load_product_agent_manifest("agent_files"))
+        elif research == "live":
+            monkeypatch.setattr(agent_tree, "_ONE_MODEL", "gemini-live-2.5-flash-native-audio")
+            monkeypatch.setattr(agent_tree, "pod_mode", lambda: False)
+            agent_tree._build_one_live_model()
+        else:
+            await runner(**args)
+    if auth_mode == "vertex_adc":
+        factory.assert_called_once()
+    else:
+        factory.assert_not_called()
+    charge.assert_not_awaited()
 
 
 @pytest.mark.asyncio

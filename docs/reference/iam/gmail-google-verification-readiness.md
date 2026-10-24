@@ -197,4 +197,10 @@ owner key request through Hussh credentials. Existing standard workload ADC
 processing is retained; other provider products are not newly certified by this
 restriction. Runtime/deployment acceptance remains separate from source tests.
 
+One-owned native and regional model construction now share that admission,
+including profile/world-model research, default specialist models, Files
+foreground analysis and Live. Generic model factories and synthetic credential
+probes remain separate. Files background organization already independently
+requires ADC; passing a probe never authorizes owner-context processing.
+
 The candidate privacy policy v2.12 requires explicit prior consent for merger, acquisition or asset-sale transfers of Google information. This wording is not deployed yet.

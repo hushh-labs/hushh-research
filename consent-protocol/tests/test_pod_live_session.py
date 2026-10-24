@@ -370,6 +370,7 @@ def test_private_live_builder_refuses_missing_guard_or_shared_topology(monkeypat
 
 def test_one_live_refuses_key_transport_without_verified_account_terms(monkeypatch):
     from hushh_mcp.one_adk import agent_tree as _tree
+    from hushh_mcp.runtime_providers.processing_terms import ProcessingTermsUnverifiedError
 
     monkeypatch.setattr(_tree, "_ONE_MODEL", "synthetic-key-model")
     monkeypatch.setattr(_tree, "pod_mode", lambda: False)
@@ -380,5 +381,5 @@ def test_one_live_refuses_key_transport_without_verified_account_terms(monkeypat
             "synthetic-key-model": SimpleNamespace(transport="developer_api"),
         },
     )
-    with pytest.raises(RuntimeError, match="verified Google Cloud processing"):
+    with pytest.raises(ProcessingTermsUnverifiedError, match="verified Google Cloud processing"):
         _tree._build_one_live_model()
