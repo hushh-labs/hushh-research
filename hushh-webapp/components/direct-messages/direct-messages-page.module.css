@@ -1980,70 +1980,70 @@ article[data-message-role="peer"] .messageActionError { grid-row: 3; }
   .messageFeedItem article[data-message-role][data-actions-visible="true"] .messageActionButton { pointer-events: auto; }
 }
 
-/* Dialogs, menus, popovers and the dock portal are reparented outside .page.
-   A marker on the real content keeps their type local to Messages. */
+/* Portals sit outside .page. The mounted page anchors pure CSS module selectors,
+   and the content marker limits the type rules to Messages. */
 @layer base {
-  :global([data-messages-type-scale]) :global([data-slot="dialog-title"]),
-  :global([data-messages-type-scale]) :global([data-slot="alert-dialog-title"]),
-  :global([data-messages-type-scale][data-slot="dialog-content"]) :global([data-slot="dialog-title"]),
-  :global([data-messages-type-scale][data-slot="alert-dialog-content"]) :global([data-slot="alert-dialog-title"]) {
+  :global(body):has(.page) :global([data-messages-type-scale]) :global([data-slot="dialog-title"]),
+  :global(body):has(.page) :global([data-messages-type-scale]) :global([data-slot="alert-dialog-title"]),
+  :global(body):has(.page) :global([data-messages-type-scale][data-slot="dialog-content"]) :global([data-slot="dialog-title"]),
+  :global(body):has(.page) :global([data-messages-type-scale][data-slot="alert-dialog-content"]) :global([data-slot="alert-dialog-title"]) {
     font-family: var(--font-app-display) !important;
     font-size: 20px !important;
     line-height: 28px !important;
     font-weight: 600 !important;
   }
-  :global([data-messages-type-scale]) :global([data-slot="dialog-description"]),
-  :global([data-messages-type-scale]) :global([data-slot="alert-dialog-description"]) {
+  :global(body):has(.page) :global([data-messages-type-scale]) :global([data-slot="dialog-description"]),
+  :global(body):has(.page) :global([data-messages-type-scale]) :global([data-slot="alert-dialog-description"]) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
     line-height: 20px !important;
     font-weight: 400 !important;
   }
-  :global([data-messages-type-scale]) :global([data-slot="dialog-footer"] button),
-  :global([data-messages-type-scale]) :global([data-slot="alert-dialog-footer"] button) {
+  :global(body):has(.page) :global([data-messages-type-scale]) :global([data-slot="dialog-footer"] button),
+  :global(body):has(.page) :global([data-messages-type-scale]) :global([data-slot="alert-dialog-footer"] button) {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
     line-height: 20px !important;
     font-weight: 600 !important;
   }
-  :global([data-messages-type-scale]) :global([role="menuitem"]),
-  :global([data-messages-type-scale][role="menu"]) :global([role="menuitem"]) {
+  :global(body):has(.page) :global([data-messages-type-scale]) :global([role="menuitem"]),
+  :global(body):has(.page) :global([data-messages-type-scale][role="menu"]) :global([role="menuitem"]) {
     font-family: var(--font-app-body) !important;
     font-size: 13px !important;
     line-height: 21px !important;
     font-weight: 550 !important;
   }
-  :global([data-messages-type-scale][data-slot="dialog-content"]) :global(input[type="search"]),
-  :global([data-messages-type-scale][data-slot="popover-content"]) :global(input[type="search"]) {
+  :global(body):has(.page) :global([data-messages-type-scale][data-slot="dialog-content"]) :global(input[type="search"]),
+  :global(body):has(.page) :global([data-messages-type-scale][data-slot="popover-content"]) :global(input[type="search"]) {
     font-family: var(--font-app-body) !important;
     font-size: 14px !important;
     line-height: 22px !important;
     font-weight: 400 !important;
   }
-  :global([data-messages-type-scale][data-slot="dialog-content"][data-profile-type-scale="circles"]) :global(textarea) {
+  :global(body):has(.page) :global([data-messages-type-scale][data-slot="dialog-content"][data-profile-type-scale="circles"]) :global(textarea) {
     font-family: var(--font-app-body) !important;
     font-size: 16px !important;
     line-height: 24px !important;
     font-weight: 400 !important;
   }
-  :global([data-messages-type-scale][data-circle-chat-lane]) :global([data-chat-bubble]) {
+  :global(body):has(.page) :global([data-messages-type-scale][data-circle-chat-lane]) :global([data-chat-bubble]) {
     font-size: 16px !important;
     line-height: 22px !important;
     font-weight: 400 !important;
   }
-  :global(.messages-wallet-access-panel) :global([data-slot="dialog-title"]),
-  :global(.messages-wallet-access-panel) :global([data-slot="sheet-title"]) {
+  :global(body):has(.page) :global(.messages-wallet-access-panel) :global([data-slot="dialog-title"]),
+  :global(body):has(.page) :global(.messages-wallet-access-panel) :global([data-slot="sheet-title"]) {
     font-family: var(--font-app-display) !important;
     font-size: 20px !important;
     line-height: 28px !important;
     font-weight: 600 !important;
   }
 }
-:global([data-messages-wallet]) > p:first-child { font-family: var(--font-app-body); font-size: 16px; line-height: 22px; font-weight: 400; }
-:global([data-messages-wallet]) > button { min-height: 44px; font-family: var(--font-app-body); font-size: 13px; line-height: 20px; font-weight: 600; }
+:global(body):has(.page) :global([data-messages-wallet]) > p:first-child { font-family: var(--font-app-body); font-size: 16px; line-height: 22px; font-weight: 400; }
+:global(body):has(.page) :global([data-messages-wallet]) > button { min-height: 44px; font-family: var(--font-app-body); font-size: 13px; line-height: 20px; font-weight: 600; }
 @media (max-width: 620px) {
   @layer base {
-    :global([data-messages-type-scale]) :global(input:not([type="file"]):not([type="checkbox"]):not([type="radio"])),
-    :global([data-messages-type-scale]) :global(textarea) { font-size: 16px !important; }
+    :global(body):has(.page) :global([data-messages-type-scale]) :global(input:not([type="file"]):not([type="checkbox"]):not([type="radio"])),
+    :global(body):has(.page) :global([data-messages-type-scale]) :global(textarea) { font-size: 16px !important; }
   }
 }
