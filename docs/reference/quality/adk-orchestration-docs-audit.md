@@ -73,19 +73,34 @@ is local scanner evidence, not a claim that total hosted CI is ten times faster.
 Task-owned layout bundles were removed after verification; peer processes and
 user-level tool installations remain untouched.
 
+Run [40158496907](https://github.com/hushh-labs/hushh-research/actions/runs/40158496907)
+then passed all 24 non-backend jobs, including all four browser shards, before the
+backend step reached its 32-minute limit. Its parallel phase passed 23,685 cases
+in 967.16 seconds; no test failure was reported before the following serial phase
+timed out. The source correction runs these existing phases in separate jobs,
+each with its own PostgreSQL service, and requires both in the aggregate. Local
+standalone execution remains complete by default. All 99 nearest gate/path cases
+and four actual runner-fixture cases pass. This is source/focused evidence; the
+combined candidate still needs hosted clearance.
+
+Concurrent main [PR #8441](https://github.com/hushh-labs/hushh-research/pull/8441)
+is preserved through merge `361bef3229`: its phone-field alignment and shorter
+confirmation copy coexist with the lifecycle guards. The combined preview passed
+77 focused cases and four Chromium/WebKit phone/deletion cases. Canonical Back
+checks passed all 501 cases; combined Back/Search review receipts are regenerated.
+No broad source replacement or owner installation occurred.
+
 Main `3895a3d902` is now preserved through merge `fd67dcd5c9`, including its approved
 PWM lead policy and privacy-safe probe diagnostics. Its 99 affected backend cases
 pass. The retained ADK branch is unchanged at `48140fcd70`. The task-owned HTTPS
 Browser fixture has been removed with verified Worker/subdomain absence; its
 earlier HTTP controls do not certify installed Browser execution.
 
-At 01:38 UTC on 25 October (24 October Pacific), both dev services served
-`b2ee968a59ab` through [dev run 40148134757](https://github.com/hushh-labs/hushh-research/actions/runs/40148134757).
-A concurrent governed UAT rollout now serves the same `b2ee968a59ab` application
-through [UAT run 40149756129](https://github.com/hushh-labs/hushh-research/actions/runs/40149756129).
-This rollout does not carry the local surgical correction or change BYOC enablement.
-Read-only corporate ADC inspection confirmed `PERSONAL_AGENT_ENABLED=true` in dev
-and absent in UAT. Twelve hours of bounded request logs contained five UAT
+At 03:43 UTC on 25 October, read-only corporate ADC inspection found both dev
+and UAT backend/frontend services serving main `3895a3d902` at 100% traffic.
+That concurrent governed rollout is preserved; it does not contain this branch's
+surgical correction. The earlier 01:38 UTC configuration inspection found
+`PERSONAL_AGENT_ENABLED=true` in dev and absent in UAT. Twelve hours of bounded request logs contained five UAT
 `/byoc/authorize/begin` responses with HTTP 503, while setup-status and suggestion
 reads succeeded. No matching dev requests appeared in that bounded window; this
 does not establish dev onboarding success or the cause of a separate dev failure.

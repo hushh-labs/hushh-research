@@ -59,6 +59,7 @@ EXPECTED_JOBS = {
     "web-targeted-check": {"frontend"},
     "web-full-suite-check": {"frontend"},
     "protocol-check": {"backend"},
+    "protocol-database-check": {"backend"},
     "mcp-package-check": {"backend"},
     "integration-check": {"frontend", "backend"},
 }

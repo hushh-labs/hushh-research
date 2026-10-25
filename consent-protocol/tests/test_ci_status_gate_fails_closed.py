@@ -41,7 +41,12 @@ LANES = {
         "web-full-suite-check",
         "integration-check",
     ),
-    "backend": ("protocol-check", "mcp-package-check", "integration-check"),
+    "backend": (
+        "protocol-check",
+        "protocol-database-check",
+        "mcp-package-check",
+        "integration-check",
+    ),
     "ios": ("ios-native-check",),
     "android": ("android-native-check",),
     "editor": ("web-editor-performance-check",),
@@ -232,6 +237,24 @@ def _passing_runs() -> list[tuple[str, Run]]:
         ("dispatch-all", replace(DISPATCH, scope="all")),
     ]
     return runs
+
+
+def test_protocol_partitions_use_independent_database_jobs_without_omitting_a_phase() -> None:
+    jobs = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))["jobs"]
+    phases = {"protocol-check": "parallel", "protocol-database-check": "database"}
+    for name, phase in phases.items():
+        job = jobs[name]
+        assert job["needs"] == ["preflight-gate"]
+        selected = [
+            step for step in job["steps"] if "PROTOCOL_TEST_PARTITION" in step.get("env", {})
+        ]
+        assert len(selected) == 1
+        assert selected[0]["env"]["PROTOCOL_TEST_PARTITION"] == phase
+        assert "@127.0.0.1:5432/command_test" in selected[0]["env"]["ONE_COMMAND_TEST_DATABASE_URL"]
+    assert jobs["protocol-check"]["services"] == jobs["protocol-database-check"]["services"]
+    database = jobs["protocol-database-check"]["steps"][-1]
+    assert database["working-directory"] == "consent-protocol"
+    assert database["run"] == "bash scripts/run-test-ci.sh"
 
 
 def test_the_gate_always_runs_and_waits_for_every_lane() -> None:

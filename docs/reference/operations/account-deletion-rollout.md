@@ -64,8 +64,9 @@ provider custody before following the same staged SQL path.
 
 The latest focused checks passed **260 backend** and **167 frontend** cases,
 including real disposable PostgreSQL, API/auth integration and the progress UI.
-These are local contract results. Migration **416 remains unapplied** until replacement-account compatibility and the combined candidate
-are qualified. This is not deployed deletion or same-login registration evidence.
+These are local contract results. The forward lifecycle migrations **417–420**
+require replacement-account compatibility, combined-candidate qualification and
+governed deployment. Main's migration 416 retains its separate owning contract. This is not deployed deletion or same-login registration evidence.
 
 The agreed correction retains credentials only in their existing encrypted
 custody, fences ordinary use, commits cleanup intent before provider calls and
@@ -132,7 +133,7 @@ quarantine may use their narrower identity operations. Drain legacy deletion
 workers before enabling replacement accounts: this change cannot undo an already
 dispatched identity deletion.
 
-Migration 417 now also records remote identity-write dispatch before provider calls,
+Migration 418 records remote identity-write dispatch before provider calls,
 using the existing owner 171→198 barriers and the enrollment identity-199 lock.
 Its minimal receipts contain hashes, purpose, project, operation and settlement;
 no names, credentials or SDK payloads. Dispatched or uncertain writes block both
