@@ -48,10 +48,33 @@ describe("@feature_drive_packets @trace_loop buyer packet words", () => {
 });
 
 describe("@feature_drive_packets @trace_loop owner packet words", () => {
+  it.each(["empty", "unable_to_verify", "ready"] as const)("keeps an unsearched frozen %s sale separate from owner discovery", state => {
+    const frozen: DiscoveryDrivePacket = { ...emptyDiscovery, category: "financial", state, freshness: "stale",
+      preview: { status: "not_started", revision: 1, matched: null, complete: false, stale: true,
+        updatedAt: null, errorCode: null } };
+    expect(ownerPacketStatus(frozen)).toMatchObject({ word: "Not searched", tone: "waiting" });
+    expect(ownerPacketStatus(frozen).detail).toContain("automatically in the background");
+    expect(ownerStatusLine(frozen)).not.toContain("0 documents");
+    expect(ownerPacketStatus({ ...frozen, preview: { ...frozen.preview!, status: "queued" } }).word).toBe("Queued");
+  });
+
+  it("shows measured owner results while the buyer retains frozen sale membership", () => {
+    const frozen: DiscoveryDrivePacket = { ...emptyDiscovery, category: "financial", state: "ready", documentCount: 2,
+      freshness: "stale", canRequest: true, preview: { status: "completed", revision: 2, matched: 0,
+        complete: true, stale: false, updatedAt: "2026-10-25T10:00:00Z", errorCode: null } };
+    expect(ownerPacketStatus(frozen).word).toBe("No matching files");
+    expect(ownerStatusLine(frozen)).toContain("0 documents");
+    const found = { ...frozen, preview: { ...frozen.preview!, matched: 33 } };
+    expect(ownerPacketStatus(found).word).toBe("Files found");
+    expect(ownerStatusLine(found)).toContain("33 documents");
+    expect(buyerPacketStatus(found, null, "Avery").line).toBe("2 documents · July–August 2026");
+  });
+
   it("distinguishes an unmeasured search, partial matches, and a completed empty result", () => {
     const current: DiscoveryDrivePacket = { ...emptyDiscovery, version: 0, state: "building" };
     expect(ownerStatusLine(current)).not.toContain("0 documents");
     expect(ownerPacketStatus(current).detail).not.toContain("period closes");
+    expect(ownerPacketStatus(current).detail).toContain("automatically in the background");
     const preview = { status: "completed" as const, revision: 0, matched: 0, complete: true, stale: false,
       updatedAt: "2026-10-24T10:00:00Z", errorCode: null };
     expect(ownerPacketStatus({ ...current, preview }).word).toBe("No matching files");

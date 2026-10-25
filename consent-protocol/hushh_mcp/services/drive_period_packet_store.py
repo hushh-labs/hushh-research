@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
@@ -11,10 +12,11 @@ from hushh_mcp.services.connector_feature_admission import (
     connector_feature_enabled,
 )
 from hushh_mcp.services.drive_document_facts_store import seal_evidence
-from hushh_mcp.services.drive_financial_packet_query import QUERY_VERSION
+from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE, QUERY_VERSION
 from hushh_mcp.services.drive_packet_store import DrivePacketStore
 from hushh_mcp.services.drive_period_packet_contract import (
     PERIOD_PACKET_POLICY,
+    current_year_periods,
 )
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -56,6 +58,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
             not row
             or row["connection_generation"] != active["connection_generation"]
             or row["current_version"] != 0
+            and not (row["category"] == "financial" and self._owner_preview_current(row))
             or revision is not None
             and row["revision"] != revision
         ):
@@ -68,6 +71,15 @@ class DrivePeriodPacketStore(DrivePacketStore):
         ):
             raise DriveReadError("packet_superseded")
         return row
+
+    def _owner_preview_current(self, row):
+        build = self._build(row)
+        version = build.get("owner_preview_version")
+        return (
+            type(version) is int
+            and version == row["current_version"]
+            and build.get("query_source") == QUERY_SOURCE
+        )
 
     async def require_build_current(self, *, user_id, packet_id, revision, lease_id):
         from hushh_mcp.services.owner_placement_guard import admit_hub_content
@@ -109,7 +121,9 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 connection,
                 """SELECT * FROM drive_packet_heads
                 WHERE user_id=:user AND connection_generation=:generation
-                  AND packet_kind='provider_discovery' AND current_version=0
+                  AND packet_kind='provider_discovery'
+                  AND (current_version=0 OR (category='financial'
+                    AND period_start=ANY(CAST(:period_starts AS date[]))))
                   AND ((dirty AND attempts<8 AND next_at<=clock_timestamp())
                     OR (category='financial' AND predefined_query_version IS DISTINCT FROM :template))
                   AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
@@ -126,6 +140,9 @@ class DrivePeriodPacketStore(DrivePacketStore):
                     "generation": active["connection_generation"],
                     "packet": str(UUID(packet_id)) if packet_id else None,
                     "template": QUERY_VERSION,
+                    "period_starts": [
+                        period.start for period in current_year_periods(datetime.now(UTC), "UTC")
+                    ],
                 },
             )
             if not row:
@@ -195,9 +212,20 @@ class DrivePeriodPacketStore(DrivePacketStore):
         from hushh_mcp.services.drive_period_packet_freeze import freeze_locked
 
         search = DriveOwnerSearchStore(db=self.db)
-        return await self._transaction(
-            lambda connection: freeze_locked(self, search, connection, job, search_job_id)
-        )
+
+        def operation(connection):
+            row = self.current_period_head(
+                connection,
+                user_id=job["user_id"],
+                packet_id=job["packet_id"],
+                revision=job["revision"],
+                lease_id=job["lease_id"],
+            )
+            if row["current_version"]:
+                raise DriveReadError("packet_superseded")
+            return freeze_locked(self, search, connection, job, search_job_id)
+
+        return await self._transaction(operation)
 
     @staticmethod
     def validate_origin(row, checkpoint):

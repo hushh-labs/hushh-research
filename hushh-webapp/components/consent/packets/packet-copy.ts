@@ -95,13 +95,14 @@ export type OwnerPacketStatus = {
 export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
   if (packet.kind === "provider_discovery") {
     const preview = packet.preview;
+    if (preview?.status === "not_started") return { word: "Not searched", tone: "waiting", order: 4, detail: "Search results are prepared automatically in the background." };
     if (preview?.status === "failed") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "The search couldn’t finish. Saved results are still available; refresh to retry." };
     if (preview?.status === "searching") return { word: "Searching", tone: "waiting", order: 4, detail: "Searching your connected Google Drive. Results appear as they are saved." };
     if (preview?.status === "queued") return { word: "Queued", tone: "waiting", order: 4, detail: "Your search is queued. You can leave this page." };
     if (preview?.status === "partial") return { word: "Results so far", tone: "waiting", order: 4, detail: "These results are incomplete. Search continues in the background." };
     if (preview?.complete && preview.matched === 0) return { word: "No matching files", tone: "paused", order: 3, detail: "Google Drive finished this search with no matching files for the selected dates." };
     if (preview?.complete && (packet.state !== "ready" || packet.freshness !== "current")) return { word: "Files found", tone: "ready", order: 2, detail: "Your search results are available. The sale version is separate and isn’t ready to list." };
-    if (packet.state === "building") return { word: "Not searched", tone: "waiting", order: 4, detail: "Open this packet to search your Drive for these dates." };
+    if (packet.state === "building") return { word: "Not searched", tone: "waiting", order: 4, detail: "Search results are prepared automatically in the background." };
     if (packet.state === "empty") return { word: "No shareable files", tone: "paused", order: 3, detail: "No files from this search are currently available to share." };
     if (packet.state === "unable_to_verify") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Files couldn’t be confirmed." };
     if (packet.freshness !== "current") return { word: "Paused", tone: "paused", order: 5, detail: "This packet isn’t available now." };

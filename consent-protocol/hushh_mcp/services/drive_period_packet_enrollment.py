@@ -74,13 +74,15 @@ async def ensure_owner(store, *, user_id, timezone="UTC", now=None):
         connection.execute(
             text("""UPDATE drive_packet_heads SET dirty=TRUE,next_at=LEAST(next_at,clock_timestamp())
             WHERE user_id=:user AND connection_generation=:generation
-            AND packet_kind='provider_discovery' AND category='financial' AND current_version=0
+            AND packet_kind='provider_discovery' AND category='financial'
+            AND (current_version=0 OR period_start=ANY(CAST(:period_starts AS date[])))
             AND predefined_query_version IS DISTINCT FROM :template
             AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())"""),
             {
                 "user": user_id,
                 "generation": active["connection_generation"],
                 "template": QUERY_VERSION,
+                "period_starts": [period.start for period in periods],
             },
         )
         # Preserve completed source discovery and sale versions; organize
@@ -104,7 +106,7 @@ async def candidate_owners(store):
     cohort = connector_feature_owner_cohort("drive_period_packets", "google_drive_live")
     if cohort == ():
         return []
-    current_start = current_year_periods(datetime.now(UTC), "UTC")[-1].start
+    period_starts = [period.start for period in current_year_periods(datetime.now(UTC), "UTC")]
 
     def operation(connection):
         return [
@@ -120,12 +122,14 @@ async def candidate_owners(store):
               AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs ordinary WHERE ordinary.user_id=c.user_id
                 AND ordinary.period_packet_id IS NULL AND ordinary.status IN ('queued','running')
                 AND ordinary.expires_at>clock_timestamp())
-              AND (NOT EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
-                AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
-                AND h.category='financial' AND h.period_start=:current_start)
+              AND (EXISTS(SELECT 1 FROM unnest(CAST(:period_starts AS date[])) expected(period_start)
+                WHERE NOT EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
+                  AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
+                  AND h.category='financial' AND h.period_start=expected.period_start))
                 OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                   AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
-                  AND h.current_version=0
+                  AND (h.current_version=0 OR (h.category='financial'
+                    AND h.period_start=ANY(CAST(:period_starts AS date[]))))
                   AND ((h.dirty AND h.attempts<8 AND h.next_at<=clock_timestamp())
                     OR (h.category='financial' AND h.predefined_query_version IS DISTINCT FROM :template))
                   AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp()))
@@ -140,7 +144,7 @@ async def candidate_owners(store):
                 {
                     "limit": ENROLLMENT_SCAN_LIMIT,
                     "template": QUERY_VERSION,
-                    "current_start": current_start,
+                    "period_starts": period_starts,
                     "all_owners": cohort is None,
                     "owners": list(cohort or ()),
                 },

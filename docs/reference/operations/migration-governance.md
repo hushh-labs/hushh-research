@@ -234,6 +234,16 @@ those flags. Historical SQL, ledger checksums and observe/ledger behavior remain
 unchanged. Repeated real PostgreSQL replay must preserve both provider ON and
 OFF states while continuing legacy retirement.
 
+Migration 420 adoption qualifies two retained external consumer-consent guards
+on `consent_audit` before admitting them alongside the canonical lifecycle
+triggers. The compatibility adapter pins the immutable migration source and the
+exact enabled trigger and called-function definitions, including security and
+search-path settings. Both guards must be present together or both absent;
+partial, altered or additional unknown objects still refuse adoption. Neither
+guard is invoked, replaced, disabled or removed by qualification. This applies
+to replay and a pending ledger application; observe and already-applied ledger
+entries remain unchanged. Historical SQL and recorded checksums stay immutable.
+
 ## UAT Zero-Loss Baseline Gate
 
 The same preservation authority supports an explicitly authorized Dev cutover.

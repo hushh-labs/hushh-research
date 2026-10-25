@@ -22,6 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
+from db.private_agent_adoption import execution_sql
 from db.referral_prize_activation import (
     REFERRAL_POLICY_V5_SHA256 as _REFERRAL_POLICY_V5_SHA256,
 )
@@ -915,7 +916,7 @@ async def apply_manifest_entries(
                 if covered_by_baseline or (existing and existing.get("status") == "applied"):
                     continue
 
-            sql = _replay_sql(entry) if mode is MigrationMode.REPLAY else entry.sql
+            sql = execution_sql(entry, replay=_replay_sql if mode is MigrationMode.REPLAY else None)
             for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
                 started = time.perf_counter()
                 recorded_applied = False
