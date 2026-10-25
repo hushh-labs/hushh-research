@@ -119,12 +119,26 @@ schema requires the separately reviewed forward qualification before re-enableme
 
 ## Canonical private-agent graduation and cleanup replay
 
-Local release head 421 graduates the final dev authority through new forward SQL;
-applied 900–972 files and checksums remain immutable. Canonical 420 installs the
-final schema and accepts only reviewed predecessor/successor definitions. It does
-not repeat historical Shared cohort inference or destructive chat cleanup. Recovery
-is 421. The new channel constraints carry `private-action-channel.v1/420`; an
-existing qualified 971 marker is preserved, never fabricated in the ledger.
+Canonical 418–421 graduate private-agent authority through forward SQL; the
+current release head is 422. Applied 900–972 files and checksums remain immutable.
+Canonical 420 installs the final schema and accepts only reviewed predecessor and
+successor definitions. It does not repeat historical Shared cohort inference or
+destructive chat cleanup. Recovery is 421. Channel constraints carry
+`private-action-channel.v1/420`; a qualified 971 marker is preserved, never fabricated.
+
+Live dev also contains the consumer-memory consent guards authored on the separate
+consumer-MCP branch (938 at `253e89abe8`, 939 at `ac86743508`). Their presence must
+not justify dropping consent enforcement or changing immutable 420. The pinned
+420 replay adapter qualifies both exact functions and trigger bindings before and
+after foundation replay, admits only their two table/name pairs, and retains the
+original refusal of unknown drift. A partial or changed footprint refuses. Fresh
+schemas introduce no consumer objects or API. Observe and ledger modes are unchanged.
+The existing migration advisory lock serializes governed DDL; privileged out-of-band
+DDL must use that lock. No new early table lock reverses the established ordering.
+
+Permanent account cleanup additionally erases retained owner-scoped consumer
+connections before ordinary OAuth/app cleanup. The shared client and neighboring
+owners remain. This compatibility does not publish the consumer-MCP feature.
 
 The pinned `db/account_cleanup_replay.py` adapter preserves 418/419 cleanup and
 generation function/trigger successors during replay. Historical owner bootstrap

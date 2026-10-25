@@ -11,10 +11,13 @@ import hashlib
 import re
 from typing import TYPE_CHECKING
 
+from db.consumer_consent_replay import SOURCE_KEY, SOURCE_SHA, qualified_consumer_guard_replay
+
 if TYPE_CHECKING:
     from db.migration_authority import MigrationManifestEntryV2
 
 SOURCES = {
+    SOURCE_KEY: SOURCE_SHA,
     (
         "201",
         "201_account_deletion_tombstones.sql",
@@ -342,6 +345,8 @@ def account_cleanup_replay_sql(
         or checksum != entry.checksum_sha256
     ):
         raise ValueError("Account lifecycle replay source checksum changed")
+    if (entry.migration_id, entry.filename) == SOURCE_KEY:
+        return qualified_consumer_guard_replay(entry.sql)
     if (entry.migration_id, entry.filename) in _CREDENTIAL_BACKFILLS:
         return _credential_backfill(entry.sql, entry.migration_id)
     if entry.migration_id == "347":
@@ -360,9 +365,11 @@ def account_cleanup_replay_sql(
             r"\s*(?:LANGUAGE\s+[^;]+)?;",
             re.IGNORECASE | re.DOTALL,
         )
-        sql, count = pattern.subn(
-            lambda match, function_name=name: _guard(function_name, match[0]), sql
-        )
+
+        def preserve_function(match: re.Match[str], function_name: str = name) -> str:
+            return _guard(function_name, match[0])
+
+        sql, count = pattern.subn(preserve_function, sql)
         if count != 1:
             raise ValueError("Account lifecycle replay source shape changed")
     trigger = {"290": "push_account_erased", "370": "one_marketing_erasure"}.get(entry.migration_id)

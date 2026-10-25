@@ -404,7 +404,11 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
     from db import migrate
     from db.account_cleanup_replay import SOURCES
     from db.migration_authority import MigrationAuthorityError, _replay_sql, build_manifest_entries
-    from tests.private_agent_release_postgres_support import verify_retained_release_records
+    from tests.private_agent_release_postgres_support import (
+        apply_release_successors,
+        verify_release_contract,
+        verify_retained_release_records,
+    )
 
     cp = MIGRATIONS_DIR.parent.parent
     server = replay_pg
@@ -466,11 +470,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
                     continue
                 with conn.cursor() as cur:
                     cur.execute((MIGRATIONS_DIR / "parked" / filename).read_text())
-        for filename in migrate.RELEASE_MIGRATION_FILES:
-            if int(filename[:3]) <= 417:
-                continue
-            with conn.cursor() as cur:
-                cur.execute((MIGRATIONS_DIR / filename).read_text())
+        apply_release_successors(conn, cp, retained_consumer=rich_dev)
         # Run the release guard's actual catalog reader against this disposable DB.
         import importlib.util
 
@@ -488,16 +488,15 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
             lambda: f"postgresql://hushh@/{database}?host={server.dir}&port={server.port}",
         )
 
-        def verify_contract(name):
-            contract = json.loads((cp / "db/contracts" / (name + ".json")).read_text())
-            _report, violations = asyncio.run(guard._run_db_contract_check(contract))
-            assert not violations, violations
-
-        verify_contract("prod_core_schema")
-        verify_contract("dev_minimum_schema")
+        verify_release_contract(guard, cp, "prod_core_schema")
+        verify_release_contract(guard, cp, "dev_minimum_schema")
         verify_retained_release_records(conn, cp)
-        verify_contract("uat_integrated_schema")
-        foundation = (MIGRATIONS_DIR / "420_private_agent_lifecycle_foundation.sql").read_text()
+        verify_release_contract(guard, cp, "uat_integrated_schema")
+        foundation = _replay_sql(
+            build_manifest_entries(MIGRATIONS_DIR, ["420_private_agent_lifecycle_foundation.sql"])[
+                0
+            ]
+        )
         with conn.cursor() as cur:
             # Unrelated performance indexes remain valid; unreviewed effects do not.
             cur.execute("CREATE INDEX synthetic_performance ON personal_agent_registry(updated_at)")

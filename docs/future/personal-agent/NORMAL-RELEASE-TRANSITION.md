@@ -1,15 +1,16 @@
 # Private agent: normal release transition
 
 **Current surgical follow-up — 25 October 2026:**
-[PR #8437](https://github.com/hushh-labs/hushh-research/pull/8437) landed through
-Admin SOP as `a65e4f5fd5` after all 27 exact-head checks passed. It preserves main
-`24545d1dc2`, peer source and immutable migration history; canonical 418–421 carry
-the lifecycle correction. `.agents` remains authoritative. Landed smoke passed; actual deployment remains separate from source landing. The newly reported person-approval
-catalog mismatch and replacement-account Browser admission are in
-[PR #8445](https://github.com/hushh-labs/hushh-research/pull/8445). Its local core
-and combined schema422/Files checks pass; accept the exact candidate before dev/UAT
-promotion. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
-owns current readback and remaining installed journeys; older receipts below are history.
+[PR #8445](https://github.com/hushh-labs/hushh-research/pull/8445) landed as
+`2737492a6a`; exact-head CI and landed smoke pass. Main's financial Files,
+canonical lifecycle 418–421, migration 422 and peer source are preserved.
+Dev/UAT still require deployment. The previous dev attempt refused two retained
+consumer-memory consent guards at immutable 420. Qualify that exact predecessor
+through pinned replay compatibility; preserve its enforcement, records and
+checksums before retrying. No broad feature import or guard removal is authorized
+by that repair. `.agents` remains the sole authored development framework.
+The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
+current source, serving and installed-owner evidence.
 
 **BYOC availability correction:** serving UAT omits the private-agent master flag
 and legitimately refuses cloud authorization; its frontend nevertheless offers

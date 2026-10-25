@@ -66,6 +66,19 @@ def clear_external_connector_data(
         if orphan is not None:
             raise RuntimeError("ACCOUNT_DELETION_HASHCOIN_OWNER_RECOVERY_REQUIRED")
     lock_graph_users(conn, user_ids=[user_id])
+    if (
+        permanent
+        and conn.execute(
+            text("SELECT to_regclass('public.consumer_mcp_connections') IS NOT NULL")
+        ).scalar()
+    ):
+        # Retained peer installations have no root-account FK. Their parent
+        # app/client can be shared, so erase this owner's connections directly.
+        conn.execute(
+            text("DELETE FROM public.consumer_mcp_connections WHERE user_id=:user_id"),
+            {"user_id": user_id},
+        )
+        results["consumer_mcp_connections"] = True
     erase_drive_account_in_transaction(conn, user_id=user_id, permanent=permanent)
     owner_hash = "sha256:" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()
     # Source deletion may have appended a final hint. Reset erases all
