@@ -81,7 +81,10 @@ async def test_closed_price_dispatchers_refuse_cold_reads_without_blocking_news(
         assert calls == []
         await fetchers.fetch_market_news("AAPL", "public")
         await fetchers.fetch_market_company_facts("AAPL")
-    assert calls == ["news", "ratios"]
+        from hushh_mcp.market_data.history import fetch_daily_history
+
+        await fetch_daily_history("AAPL")
+    assert calls == ["news", "ratios", "daily_history"]
 
 
 @pytest.mark.parametrize("provider", ["finnhub", "pmp"])

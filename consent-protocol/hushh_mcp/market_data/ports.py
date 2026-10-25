@@ -36,6 +36,7 @@ MarketOperation = Literal[
     "quotes",
     "intraday",
     "session_history",
+    "daily_history",
     "market_status",
     "movers",
     "most_active",
