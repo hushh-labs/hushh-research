@@ -31,7 +31,7 @@
   }
 
   /* The Members tab remains available while typing. */
-  :global(html.kb-open [data-circle-chat-members-summary]) {
+  :global(html.kb-open) .surface ~ :global([data-circle-chat-members-summary]) {
     display: none;
   }
 }
