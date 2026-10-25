@@ -91,6 +91,14 @@ _EXTRACTION_SCHEMA: dict[str, Any] = {
         "detailed_holdings": {"type": "ARRAY", "items": _HOLDING_ROW_SCHEMA},
         "cash_balance": _NUMBER,
         "total_value": _NUMBER,
+        "historical_values": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {"date": {"type": "STRING"}, "value": {"type": "NUMBER"}},
+                "required": ["date", "value"],
+            },
+        },
     },
     "required": [
         "statement_details",

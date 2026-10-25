@@ -40,6 +40,9 @@ export interface HoldingMobileCardViewModel {
   costBasis?: number | null;
   source?: string | null;
   quoteAsOf?: string | null;
+  statementAsOf?: string | null;
+  valuationKind?: "statement" | "linked";
+  identifierType?: "ticker" | "cusip" | "derived";
   portfolioWeightPct: number;
   sector: string | null;
   isCash: boolean;

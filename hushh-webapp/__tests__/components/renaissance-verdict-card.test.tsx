@@ -34,8 +34,19 @@ describe("RenaissanceVerdictCard", () => {
       symbol: "NVDA", summary: "Nvidia designs graphics processors.",
     } })} />);
     expect(screen.getByRole("heading", { name: "Company summary", level: 3 })).toBeTruthy();
-    expect(screen.getByText("Nvidia designs graphics processors.")).toBeTruthy();
+    expect(screen.getByRole("listitem").textContent).toBe("Nvidia designs graphics processors.");
     expect(screen.queryByText(/Constructive signal|Caution signal/)).toBeNull();
+  });
+
+  it("bounds verbatim excerpts while retaining the full provider profile", () => {
+    const first = "A".repeat(300) + ".";
+    const summary = `${first} The company supplies processors. Its full profile remains accessible.`;
+    const { container } = render(<RenaissanceVerdictCard row={makeRow({ company_facts: { symbol: "NVDA", summary } })} />);
+    const excerpts = container.querySelectorAll("li");
+    expect(excerpts).toHaveLength(2);
+    expect(excerpts[0].textContent).toBe(`${"A".repeat(220)}…`);
+    expect(excerpts[1].textContent).toBe("The company supplies processors.");
+    expect(container.querySelector("details p")?.textContent).toBe(summary);
   });
 
   it("uses the authored list summary when the provider summary is unavailable", () => {

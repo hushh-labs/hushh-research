@@ -1,19 +1,18 @@
 """Bounded public stock history, separate from a person's holdings and spot quote."""
 
 import math
-from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from api.middleware import require_firebase_auth, verify_user_id_match
-from hushh_mcp.operons.kai.fetchers import fetch_market_session_history
+from hushh_mcp.market_data.history import fetch_daily_history
+from hushh_mcp.market_data.ports import MarketDataUnavailable
 from hushh_mcp.services.market_provider_telemetry import (
     degraded_provider_resources,
     finish_provider_call_counts,
     start_provider_call_counts,
 )
-from hushh_mcp.services.market_refresh_policy import us_market_is_open
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
 router = APIRouter()
@@ -42,19 +41,16 @@ async def get_stock_price_history(
     from .market_insights import _get_or_refresh_public_module
 
     async def load() -> dict[str, Any]:
-        # This also guards closed-market cold misses and background revalidations.
-        if not us_market_is_open():
-            raise RuntimeError("Prices are paused outside the regular session")
         token = start_provider_call_counts()
         try:
-            history = await fetch_market_session_history([symbol])
+            history = await fetch_daily_history(symbol)
             if degraded_provider_resources():
                 raise RuntimeError("Provider history is cached after a failed refresh")
         finally:
             finish_provider_call_counts(token)
         points = [
             {"t": float(point["t"]), "p": float(point["p"])}
-            for point in history.get(symbol, [])
+            for point in history.get("points", [])
             if all(
                 isinstance(point.get(key), (int, float))
                 and not isinstance(point[key], bool)
@@ -65,10 +61,15 @@ async def get_stock_price_history(
         ][-32:]
         if len(points) < 2:
             raise RuntimeError("Observed history is unavailable")
-        return {"points": points, "retrieved_at": datetime.now(timezone.utc).isoformat()}
+        return {
+            "points": points,
+            "retrieved_at": history.get("retrieved_at"),
+            "source": history.get("source"),
+        }
 
+    unavailable_reason = None
     try:
-        value, stale, *_ = await _get_or_refresh_public_module(
+        value, stale, _, _, cached = await _get_or_refresh_public_module(
             key=f"stock_history:v1:{symbol}:1mo",
             fresh_ttl_seconds=120,
             stale_ttl_seconds=7 * 24 * 60 * 60,
@@ -76,14 +77,22 @@ async def get_stock_price_history(
             warm_source="stock_history",
             serve_stale_while_revalidate=False,
         )
-    except Exception:
-        value, stale = {"points": [], "retrieved_at": None}, True
+    except Exception as exc:
+        value, stale, cached = {"points": [], "retrieved_at": None}, True, False
+        unavailable_reason = (
+            "insufficient_observations"
+            if isinstance(exc, MarketDataUnavailable) and str(exc) == "insufficient_observations"
+            else "provider_unavailable"
+        )
     return {
         "symbol": symbol,
         "currency": "USD",
         "interval": "1d",
         "points": value["points"],
         "retrieved_at": value["retrieved_at"],
-        "stale": stale or not us_market_is_open(),
+        "stale": stale,
+        "cached": cached,
+        "source": value.get("source"),
+        "unavailable_reason": unavailable_reason,
         "unavailable": len(value["points"]) < 2,
     }

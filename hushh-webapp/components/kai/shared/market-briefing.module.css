@@ -74,7 +74,7 @@
 }
 
 @media (min-width: 1024px) {
-  .activity { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 24px; }
-  .activity > section { display: flex; flex-direction: column; }
-  .activity > section > [data-surface-tone] { flex: 1; }
+  /* The workspace retains a reading measure on desktop. Give both sections
+     that full measure rather than squeezing charts into half-width cards. */
+  .activity { gap: 28px; }
 }
