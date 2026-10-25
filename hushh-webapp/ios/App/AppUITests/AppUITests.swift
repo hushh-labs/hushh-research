@@ -4614,7 +4614,18 @@ final class AppUITests: XCTestCase {
         func rootIsAdmitted() -> Bool {
             // Returning preserves the roster's scroll position. Its first row
             // need not be on screen (or in the accessibility snapshot).
-            close.exists && close.isHittable && menu.exists && menu.isHittable && publicPaneLevel() == 0
+            let level = publicPaneLevel()
+            let rootNavigation = level == 0 || level == nil &&
+                app.navigationBars["Profile"].exists && !nativeAccountBack.exists
+            return close.exists && close.isHittable && menu.exists && menu.isHittable && rootNavigation
+        }
+        func revealProfileRow(_ control: XCUIElement, upwards: Bool) -> Bool {
+            for _ in 0..<5 {
+                if control.exists && control.isHittable && control.isEnabled { return true }
+                guard menu.exists && menu.isHittable && nativeAccountBack.exists else { return false }
+                if upwards { menu.swipeUp(velocity: .slow) } else { menu.swipeDown(velocity: .slow) }
+            }
+            return waitForAdmittedControl(control)
         }
         // Profile deliberately resumes its query-owned detail. Its admitted
         // Back must restore the roster; opening Profile is not a root reset.
@@ -5059,7 +5070,7 @@ final class AppUITests: XCTestCase {
                 if id == "account", !phoneOnly, ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                     for actionID in ["account-reset", "account-delete"] {
                         let action = app.buttons["native-profile-row-\(actionID)"].firstMatch
-                        guard waitForAdmittedControl(action) else { XCTFail("PROFILE_NATIVE_ACCOUNT_ACTION_UNAVAILABLE"); return }
+                        guard revealProfileRow(action, upwards: true) else { XCTFail("PROFILE_NATIVE_ACCOUNT_ACTION_UNAVAILABLE"); return }
                         action.tap()
                         let cancel = app.buttons["native-profile-row-account-confirmation-cancel"].firstMatch
                         let warning = app.descendants(matching: .any).matching(identifier: "native-profile-row-account-confirmation-description").firstMatch
@@ -5085,10 +5096,11 @@ final class AppUITests: XCTestCase {
                             guard waitForAdmittedControl(accountBack) else { XCTFail("PROFILE_CONFIRMATION_LOCAL_BACK_UNAVAILABLE"); return }
                             accountBack.tap()
                         }
-                        guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(action) else {
+                        guard waitForAdmittedControl(nativeAccountBack), revealProfileRow(action, upwards: true) else {
                             XCTFail("PROFILE_NATIVE_ACCOUNT_CONFIRMATION_PARENT_NOT_RESTORED"); return
                         }
                     }
+                    guard revealProfileRow(name, upwards: false) else { XCTFail("PROFILE_NATIVE_ACCOUNT_READING_POSITION_UNAVAILABLE"); return }
                     print("PROFILE_NATIVE_ACCOUNT_CONFIRMATIONS reset_cancelled=true delete_cancelled=true returned=true")
                 }
                 // A native parent passing Back is not proof of its nested
@@ -5098,7 +5110,7 @@ final class AppUITests: XCTestCase {
                     id == "preferences" ? (ProcessInfo.processInfo.environment["HUSHH_PROFILE_PROVIDER_ONLY"] == "true" ? ["preferences-gemini"] : ["preferences-gemini", "preferences-voice"]) : ["security-vault"]
                 for childID in children {
                     let child = app.buttons["native-profile-row-\(childID)"].firstMatch
-                    guard waitForAdmittedControl(child) else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
+                    guard revealProfileRow(child, upwards: childID != "preferences-voice") else { XCTFail("PROFILE_NATIVE_CHILD_UNAVAILABLE"); return }
                     print("PROFILE_BATCH_STEP stage=child_tap")
                     child.tap()
                     if childID == "preferences-gemini", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
