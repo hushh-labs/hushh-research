@@ -128,7 +128,8 @@ async def finish_search(store, job, build, state, *, logger):
         )
         # A scan begun while the period was open is a preview, never the final sale.
         if (
-            (job["category"] != "financial" or state["matched"] <= 120)
+            not job.get("current_version")
+            and (job["category"] != "financial" or state["matched"] <= 120)
             and period.closed(datetime.now(UTC))
             and period.closed(datetime.fromisoformat(state["createdAt"]))
         ):
@@ -139,7 +140,8 @@ async def finish_search(store, job, build, state, *, logger):
                 job,
                 build,
                 preview_complete=True,
-                final_owner_preview=job["category"] == "financial"
+                final_owner_preview=bool(job.get("current_version"))
+                or job["category"] == "financial"
                 and state["matched"] > 120
                 and period.closed(datetime.now(UTC)),
             )

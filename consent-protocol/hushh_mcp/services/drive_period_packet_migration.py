@@ -6,8 +6,15 @@ from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
 
 
 def migrate_preparation(store, connection, row, build):
+    if row["category"] == "financial" and row["current_version"]:
+        # A distinct private discovery revision never replaces the immutable sale.
+        from hushh_mcp.services.drive_period_packet_preview import retain_frozen_preview
+
+        retain_frozen_preview(store, connection, row, build)
+        build["owner_preview_version"] = row["current_version"]
     if (
         row["category"] == "financial"
+        and not row["current_version"]
         and not build.get("query_source")
         and not any(build.get(key) for key in ("plan", "model_binding", "search_job_id", "preview"))
     ):
@@ -53,7 +60,12 @@ def migrate_preparation(store, connection, row, build):
             ),
             {"id": row["packet_id"], "version": QUERY_SOURCE["version"]},
         )
-    return recover_expired_search(store, connection, row, build)
+    row, build = recover_expired_search(store, connection, row, build)
+    if row["current_version"]:
+        from hushh_mcp.services.drive_period_packet_preview import write_build
+
+        write_build(store, connection, row, build)
+    return row, build
 
 
 def recover_expired_search(store, connection, row, build):
