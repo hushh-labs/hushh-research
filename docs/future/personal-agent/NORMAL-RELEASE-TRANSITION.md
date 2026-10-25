@@ -1,5 +1,10 @@
 # Private agent: normal release transition
 
+## Visual Context
+
+The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
+current source, serving and installed-owner evidence.
+
 **Current surgical follow-up — 25 October 2026:**
 [PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447) landed as
 `c927b76281`; exact-head CI and landed smoke pass. Main's financial Files,
@@ -15,8 +20,6 @@ refusal and permanent owner-scoped cleanup. Its 144 combined cases pass. Inherit
 peer Calendar and financial changes; no broad feature import or guard removal.
 The preceding peer dev rollout recovered on attempt two; its initial synthetic
 timeout is no longer a live blocker. `.agents` remains the sole authored development framework.
-The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
-current source, serving and installed-owner evidence.
 
 The next bounded correction joins Browser login redirects before closing the
 original action scope. Local pinned Chromium and the focused regression pass;
