@@ -49,6 +49,25 @@ plus eight reduced-viewport checks; retired artwork and unavailable-provider
 assertions were replaced with the current provider selection/validation contract.
 These are synthetic interface checks, not cloud or native-keyboard acceptance.
 
+The follow-up run [40155958370](https://github.com/hushh-labs/hushh-research/actions/runs/40155958370)
+finished after **30 minutes 32 seconds**: 22 jobs passed, including backend,
+all three full frontend shards, Web Core, both native builds, security and
+governance. Its three failing browser shards contained 15 vault/deletion cases
+whose synthetic fixtures did not establish the current application principal.
+The real admission guard remains unchanged. Those fixtures now publish the exact
+synthetic generation-0 principal or consume the complete session response.
+Focused proof passes 28 vault cases, four additional recovery/provider-layout
+cases, 12 deletion outcomes and both-engine sign-out; two shared-port reuse cases
+also pass. These are synthetic provider outcomes, not live cloud cleanup.
+
+Backend passed 23,685 parallel cases in 686.13 seconds and 1,777 shared-database
+cases in 760.62 seconds, with the existing 143 skips. The serial phase preserves
+isolation against documented PostgreSQL catalog races. iOS completed in 24 minutes
+6 seconds, overlapping backend. The pending fixture-only candidate reuses unchanged
+application/core evidence and still requires its own hosted clearance before release.
+Task-owned layout bundles were removed after verification; peer processes and
+user-level tool installations remain untouched.
+
 Main `3895a3d902` is now preserved through merge `fd67dcd5c9`, including its approved
 PWM lead policy and privacy-safe probe diagnostics. Its 99 affected backend cases
 pass. The retained ADK branch is unchanged at `48140fcd70`. The task-owned HTTPS
