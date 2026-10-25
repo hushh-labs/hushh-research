@@ -91,6 +91,8 @@ describe("cloud step placement states", () => {
   it("opens Shared Finance after the same Firebase owner's validation settles", async () => {
     given({ hostingMode: "shared", state: "none" });
     await import("@/lib/services/owner-pod-endpoint");
+    await import("@/lib/services/pod-app-access");
+    await import("@/lib/services/private-agent-specialist-chat");
     authState.ready = false;
     publishValidatedAuthSessionPrincipal(null);
     const { KaiPrivateAgentGate } = await import("@/components/kai/kai-private-agent-gate");
