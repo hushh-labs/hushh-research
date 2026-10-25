@@ -191,7 +191,7 @@ async def settle(instance):
 
 
 @pytest.fixture
-def story(monkeypatch):
+def story(monkeypatch, active_account_lifecycle):
     """One owner, consented and admitted; a scripted researcher behind the real manager."""
     now = [10_000.0]
 

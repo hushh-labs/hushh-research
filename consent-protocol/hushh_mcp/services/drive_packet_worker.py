@@ -29,7 +29,11 @@ from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.drive_worker_limits import facts_owner_leases, packet_slots
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
-from hushh_mcp.services.owner_placement_guard import ModeResolver, admit_hub_content
+from hushh_mcp.services.owner_placement_guard import (
+    AccountLifecycleCheck,
+    ModeResolver,
+    admit_hub_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +138,7 @@ class DrivePacketWorker:
         policy=facts_policy_version,
         wake=wake_drive_work,
         placement_resolver: ModeResolver | None = None,
+        assert_account_active: AccountLifecycleCheck | None = None,
     ):
         self.facts_store = facts_store or DriveDocumentFactsStore()
         self.packet_store = packet_store or DrivePacketStore(
@@ -143,6 +148,7 @@ class DrivePacketWorker:
         self.constructor, self.checker, self.policy, self.wake = constructor, checker, policy, wake
         self._key_folds: dict[str, list] = {}
         self._placement_resolver = placement_resolver
+        self._assert_account_active = assert_account_active
 
     def _policy_current(self, expected):
         if self.policy() != expected:
@@ -151,13 +157,19 @@ class DrivePacketWorker:
     async def _facts_current(self, job):
         await self.facts_store.require_current(job)
         await admit_hub_content(
-            job["user_id"], "drive_packet_facts", resolve_mode=self._placement_resolver
+            job["user_id"],
+            "drive_packet_facts",
+            resolve_mode=self._placement_resolver,
+            assert_account_active=self._assert_account_active,
         )
 
     async def _packet_current(self, job):
         await self.packet_store.require_packet_current(job)
         await admit_hub_content(
-            job["user_id"], "drive_packet_build", resolve_mode=self._placement_resolver
+            job["user_id"],
+            "drive_packet_build",
+            resolve_mode=self._placement_resolver,
+            assert_account_active=self._assert_account_active,
         )
 
     @contextlib.asynccontextmanager
@@ -180,7 +192,10 @@ class DrivePacketWorker:
 
     async def run_facts_one(self, *, user_id, document_ids=None, enqueue=True):
         await admit_hub_content(
-            user_id, "drive_packet_facts_claim", resolve_mode=self._placement_resolver
+            user_id,
+            "drive_packet_facts_claim",
+            resolve_mode=self._placement_resolver,
+            assert_account_active=self._assert_account_active,
         )
         targets = document_targets(document_ids)
         targeted = {"document_ids": targets} if targets is not None else {}
@@ -291,7 +306,10 @@ class DrivePacketWorker:
 
     async def run_packet_one(self, *, user_id):
         await admit_hub_content(
-            user_id, "drive_packet_build_claim", resolve_mode=self._placement_resolver
+            user_id,
+            "drive_packet_build_claim",
+            resolve_mode=self._placement_resolver,
+            assert_account_active=self._assert_account_active,
         )
         stage, started = "claim_packet", time.monotonic()
         try:
@@ -481,6 +499,7 @@ class DrivePacketWorker:
                                         user_id,
                                         "drive_packet_facts_enqueue",
                                         resolve_mode=self._placement_resolver,
+                                        assert_account_active=self._assert_account_active,
                                     )
                                     await self.facts_store.enqueue(
                                         user_id=user_id, policy_version=self.policy()

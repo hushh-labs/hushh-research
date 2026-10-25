@@ -111,7 +111,11 @@ async def test_cancelled_cleanup_keeps_pool_until_actual_aca_checkpoint_reader_e
         "backend_metadata": {},
         **_AZURE_COORDINATES,
     }
-    reserved = {"registrySnapshot": snapshot, "azureTeardown": {"plan": {"context": {}}}}
+    reserved = {
+        "attemptId": "synthetic-attempt",
+        "registrySnapshot": snapshot,
+        "azureTeardown": {"plan": {"context": {}}},
+    }
     inputs = PlanInputs(
         "ha1_abc",
         _AZURE_COORDINATES["user_cloud_tenant_id"],
@@ -138,11 +142,15 @@ async def test_cancelled_cleanup_keeps_pool_until_actual_aca_checkpoint_reader_e
     monkeypatch.setattr(cleanup, "bound_authorization", authorize)
     monkeypatch.setattr(erasure, "checkpoint_reserved_owner_access", checkpoint)
     monkeypatch.setattr("requests.Session", lambda: session)
-    store = SimpleNamespace(registry=object(), never_deployed=never_deployed)
+    admission = AsyncMock()
+    store = SimpleNamespace(
+        registry=object(), never_deployed=never_deployed, require_cloud_execution=admission
+    )
     token = SimpleNamespace(access_token="synthetic-token")  # noqa: S106 - synthetic transport fixture
     task = asyncio.create_task(cleanup._execute(store, "owner", reserved, token, "hub", None))
     try:
         assert await asyncio.to_thread(entered.wait, 2)
+        admission.assert_awaited_once_with("owner", "synthetic-attempt")
         task.cancel()
         await asyncio.sleep(0)
         assert not task.done() and not session.closed

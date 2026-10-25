@@ -168,7 +168,7 @@ def test_session_mint_is_refused_while_disabled(monkeypatch):
     assert response.json()["detail"]["code"] == "ONE_VOICE_LIVE_DISABLED"
 
 
-def test_session_mint_returns_a_single_use_ticket(monkeypatch):
+def test_session_mint_returns_a_single_use_ticket(monkeypatch, active_account_lifecycle):
     monkeypatch.setattr(voice, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
     monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", LIVE_MODEL)
@@ -230,7 +230,11 @@ def test_socket_rejects_a_bad_ticket_without_a_provider(monkeypatch):
     ],
 )
 def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(
-    monkeypatch, deploy_env, expected_labels, expected_project
+    monkeypatch,
+    deploy_env,
+    expected_labels,
+    expected_project,
+    active_account_lifecycle,
 ):
     monkeypatch.setattr(voice, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
@@ -308,7 +312,9 @@ def test_retired_paths_stay_retired_while_live_is_enabled(monkeypatch):
         (None, 503, "AGENT_HOSTING_UNAVAILABLE"),
     ],
 )
-def test_hosting_is_rechecked_before_ticket_and_socket(monkeypatch, mode, status, code):
+def test_hosting_is_rechecked_before_ticket_and_socket(
+    monkeypatch, mode, status, code, active_account_lifecycle
+):
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
     monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", LIVE_MODEL)
     monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
@@ -344,7 +350,9 @@ def test_hosting_is_rechecked_before_ticket_and_socket(monkeypatch, mode, status
     assert voice._active_sessions["owner-1"] is existing
 
 
-async def test_shared_socket_keeps_existing_session_authentication(monkeypatch):
+async def test_shared_socket_keeps_existing_session_authentication(
+    monkeypatch, active_account_lifecycle
+):
     from types import SimpleNamespace
 
     from hushh_mcp.one_voice.tickets import issue_ticket, parse_ticket

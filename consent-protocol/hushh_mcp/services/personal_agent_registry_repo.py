@@ -891,11 +891,10 @@ class PersonalAgentRegistryRepo:
             if not response.data or not isinstance(response.data[0].get("reservation"), dict):
                 raise RuntimeError("erasure reservation not acknowledged")
             reservation = dict(response.data[0]["reservation"])
-            from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
+            from hushh_mcp.services.personal_agent_cloud_removal import CloudRemovalStore
 
-            await AzureTeardownStore(self).require_cloud_execution(
-                user_id, reservation["attemptId"]
-            )
+            # Dispatch proof belongs to the common cloud-removal ledger.
+            await CloudRemovalStore(self).require_cloud_execution(user_id, reservation["attemptId"])
             return reservation
         except Exception:
             raise RuntimeError("personal agent erasure admission unavailable") from None

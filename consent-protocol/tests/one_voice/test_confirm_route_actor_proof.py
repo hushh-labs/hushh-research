@@ -76,7 +76,7 @@ class _Store:
 
 
 @pytest.fixture
-def app(monkeypatch):
+def app(monkeypatch, active_account_lifecycle):
     store = _Store()
     proofs: list[tuple[str | None, str]] = []
 

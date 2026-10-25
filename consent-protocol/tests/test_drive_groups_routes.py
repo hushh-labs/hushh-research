@@ -30,7 +30,7 @@ ENDPOINTS = [
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(monkeypatch, active_account_lifecycle):
     monkeypatch.setenv(FLAG, "true")
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")

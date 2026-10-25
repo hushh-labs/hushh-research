@@ -13543,4 +13543,9 @@ BEGIN
  END LOOP;
 END
 $revalidate$;
+DO $refresh_deletion_guards$
+BEGIN
+ PERFORM public.install_account_deletion_write_guards();
+END
+$refresh_deletion_guards$;
 COMMIT;

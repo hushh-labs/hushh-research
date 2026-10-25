@@ -567,7 +567,9 @@ def _assert_matches_golden(case_name: str, expected: Any, actual: dict[str, Any]
 
 
 @pytest.fixture(autouse=True)
-def _offline_specialists(monkeypatch: pytest.MonkeyPatch) -> _RecordingConsentCenter:
+def _offline_specialists(
+    monkeypatch: pytest.MonkeyPatch, active_account_lifecycle
+) -> _RecordingConsentCenter:
     """Every specialist runs offline: DB token activity and consent center are stubbed."""
 
     async def _active(self, user_id, scope, agent_id=None, *, token_id=None):  # noqa: ANN001,ARG001

@@ -41,6 +41,7 @@ from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
 logger = logging.getLogger(__name__)
 
 ModeResolver = Callable[[str], Awaitable[str]]
+AccountLifecycleCheck = Callable[[str], None]
 
 SHARED_MODE = "shared"
 PRIVATE_MODES = frozenset({"byoc", "pending", "hussh_pods", "unplaced"})
@@ -85,12 +86,15 @@ async def admit_hub_content(
     surface: str,
     *,
     resolve_mode: ModeResolver | None = None,
+    assert_account_active: AccountLifecycleCheck | None = None,
 ) -> str:
     """Admit a caller to a hub content surface, or raise before any content is read.
 
     Returns the placement that was admitted (``anonymous``, ``shared`` or
     ``pod_process``). ``resolve_mode`` lets a route module keep its own imported
     placement reader as the seam; it defaults to ``get_owner_hosting_mode``.
+    The lifecycle port defaults to real account admission; trusted offline replay
+    supplies evidence for its fixed synthetic identity without contacting SQL.
     """
     if pod_mode():
         return "pod_process"
@@ -101,7 +105,8 @@ async def admit_hub_content(
     from api.utils.firebase_auth import _assert_account_not_deleted
     from hushh_mcp.services.account_deletion_lifecycle_service import settle_cleanup_database_call
 
-    await settle_cleanup_database_call(_assert_account_not_deleted, owner)
+    lifecycle_check = assert_account_active or _assert_account_not_deleted
+    await settle_cleanup_database_call(lifecycle_check, owner)
     mode = await _read_mode(owner, resolve_mode)
     if mode == SHARED_MODE:
         logger.info("hub_content_admission.admitted surface=%s mode=%s", surface, mode)

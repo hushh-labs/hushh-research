@@ -20881,7 +20881,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_calendar_service.py",
       "symbol": null,
-      "value": 1746
+      "value": 1748
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21241,7 +21241,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_chat_history_byok.py",
       "symbol": null,
-      "value": 775
+      "value": 777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21673,7 +21673,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_mcp_resume_receipt.py",
       "symbol": null,
-      "value": 580
+      "value": 588
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21727,7 +21727,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6518
+      "value": 6526
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21880,7 +21880,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_routes.py",
       "symbol": null,
-      "value": 659
+      "value": 663
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22303,7 +22303,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_specialist_turn_parity.py",
       "symbol": null,
-      "value": 754
+      "value": 756
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27335,7 +27335,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_packet_one",
-      "value": 150
+      "value": 153
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27943,7 +27943,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "DrivePacketWorker",
-      "value": 385
+      "value": 400
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28051,7 +28051,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_facts_one",
-      "value": 95
+      "value": 98
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28528,7 +28528,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestGmailEmailDraftDirective",
-      "value": 321
+      "value": 327
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28816,7 +28816,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_eval/drive_packets/replay.py",
       "symbol": null,
-      "value": 851
+      "value": 859
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28960,7 +28960,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_world_model.py",
       "symbol": null,
-      "value": 1141
+      "value": 1145
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29096,7 +29096,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": null,
-      "value": 508
+      "value": 527
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32372,7 +32372,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/conftest.py",
       "symbol": null,
-      "value": 502
+      "value": 505
     }
   ],
   "inspected_files": 6625,
@@ -85968,6 +85968,96 @@
         "before": null,
         "after": 502,
         "source_sha256": "d1dd7fcb99a30157bc6342593bf55cde94c19a00946736449f7efec345e95066"
+      }
+    ]
+  },
+  "surgical_fixture_lifecycle_review_20261024": {
+    "source_revision": "5d3e8f271349ee28d6962a96b30476f49ec963f9",
+    "review": "Independent framework reviewer admits exactly fourteen existing size ceilings: explicit account-lifecycle fixture dependencies, trusted offline replay lifecycle port threaded through the five existing admission sites, and bounded synthetic-owner SQL-refusal coverage. Production admission remains the default and foreign replay owners refuse before content. AST audit checks1063 existing test bodies:1059 unchanged; four reviewed body changes preserve or strengthen assertions. No scanner, global budget, exclusion, unrelated key or multiplicity changes. These source ceilings do not establish deployed acceptance.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+        "before": 385,
+        "after": 400,
+        "source_sha256": "d0c4dcc476342c6ee4a1c02a19aa4741174f665f9eee597666825cef90f1b4e3"
+      },
+      {
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestGmailEmailDraftDirective|class exceeds the advisory operon budget",
+        "before": 321,
+        "after": 327,
+        "source_sha256": "d0ed30b9cc8318e660ca928c2bfd7e325e73f5aa333b00fe9a08fd4f7e4825c5"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_packet_one|function exceeds the advisory gene budget",
+        "before": 150,
+        "after": 153,
+        "source_sha256": "d0c4dcc476342c6ee4a1c02a19aa4741174f665f9eee597666825cef90f1b4e3"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_facts_one|function exceeds the advisory gene budget",
+        "before": 95,
+        "after": 98,
+        "source_sha256": "d0c4dcc476342c6ee4a1c02a19aa4741174f665f9eee597666825cef90f1b4e3"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+        "before": 6518,
+        "after": 6526,
+        "source_sha256": "d0ed30b9cc8318e660ca928c2bfd7e325e73f5aa333b00fe9a08fd4f7e4825c5"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_google_calendar_service.py||module exceeds the advisory operon budget",
+        "before": 1746,
+        "after": 1748,
+        "source_sha256": "998728f3dc23c181241b0f2bc229da6c1674e7b88890489db12b07e419635735"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_world_model.py||module exceeds the advisory operon budget",
+        "before": 1141,
+        "after": 1145,
+        "source_sha256": "a4a85c72a20786652f16c7cd63544cfa402f6efbe7479696cd38c75af515aa80"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/replay.py||module exceeds the advisory operon budget",
+        "before": 851,
+        "after": 859,
+        "source_sha256": "302213780febf13d1ed31d3f360c3cbdd777374f19a2c0b2f97bd2d6d00b3cac"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_chat_history_byok.py||module exceeds the advisory operon budget",
+        "before": 775,
+        "after": 777,
+        "source_sha256": "a5801a4f2fcba9744bc31cc8da2388babfe11d68eea0fa1f10a0e4d6cd0b31f6"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_specialist_turn_parity.py||module exceeds the advisory operon budget",
+        "before": 754,
+        "after": 756,
+        "source_sha256": "dfe796b7bf70ad2f1855ea9d18dcbade6b02e880034eb57abb78487ed744ea8c"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_routes.py||module exceeds the advisory operon budget",
+        "before": 659,
+        "after": 663,
+        "source_sha256": "9c12e4722e46ada5e9aa0ae9e65c4b02dfa0139a81a658a919a264807da52582"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_mcp_resume_receipt.py||module exceeds the advisory operon budget",
+        "before": 580,
+        "after": 588,
+        "source_sha256": "4a2172f080f1d84bafb25d1025bcf61e3a65aa129f25f3e1c2f19c2f36245e6d"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py||module exceeds the advisory operon budget",
+        "before": 508,
+        "after": 527,
+        "source_sha256": "d0c4dcc476342c6ee4a1c02a19aa4741174f665f9eee597666825cef90f1b4e3"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/conftest.py||module exceeds the advisory operon budget",
+        "before": 502,
+        "after": 505,
+        "source_sha256": "baa738f79b053be36a5d8a606fe43de14472e0c1d9195c186e7d0fc8172bac1f"
       }
     ]
   }

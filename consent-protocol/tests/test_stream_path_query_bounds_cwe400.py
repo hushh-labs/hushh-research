@@ -41,7 +41,7 @@ def client() -> TestClient:
 
 
 @pytest.fixture
-def authorized_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def authorized_client(monkeypatch: pytest.MonkeyPatch, active_account_lifecycle) -> TestClient:
     """Exercise field bounds after canonical auth, without a live DB or LLM.
 
     FastAPI resolves dependencies before route-field validation. The separate

@@ -420,7 +420,7 @@ def test_statement_timeout_rolls_back_slow_deletion(engine):
 
 
 @pytest.fixture
-def connected_gmail(engine, monkeypatch):
+def connected_gmail(engine, monkeypatch, active_account_lifecycle):
     from hushh_mcp.services import owner_placement_guard
 
     async def selected_fixture_placement(user_id: str) -> str:

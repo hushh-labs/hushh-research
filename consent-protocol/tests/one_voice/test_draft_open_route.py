@@ -54,7 +54,7 @@ class DraftReads:
 
 
 @pytest.fixture
-def app(monkeypatch):
+def app(monkeypatch, active_account_lifecycle):
     from unittest.mock import AsyncMock
 
     from fastapi import FastAPI
