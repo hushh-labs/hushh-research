@@ -465,13 +465,25 @@ def test_runtime_contract_directory_adapter_keeps_file_checks(tmp_path, monkeypa
     target.mkdir()
     adapter = tmp_path / "adapter"
     adapter.symlink_to(target, target_is_directory=True)
-    source = tmp_path / "runtime.py"
-    source.write_text(f"{module.FORBIDDEN_NAMES[0]} = 'synthetic-forbidden-setting'\n")
+    source = tmp_path / "consent-protocol/api/runtime.py"
+    source.parent.mkdir(parents=True)
+    first, second = module.FORBIDDEN_NAMES[:2]
+    source.write_text(
+        f"# {first} {second}\nos.getenv('APP_SIGNING_KEY')\n# X{first}2 XAPP_SIGNING_KEY2\n"
+    )
+    reader = tmp_path / "consent-protocol/hushh_mcp/runtime_settings.py"
+    reader.parent.mkdir(parents=True)
+    reader.write_text("os.getenv('APP_SIGNING_KEY')\n")
     monkeypatch.setattr(module, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(module, "_tracked_files", lambda: [adapter, source])
+    monkeypatch.setattr(module, "_tracked_files", lambda: [adapter, source, reader])
     assert module.main() == 1
-    assert "runtime.py" in capsys.readouterr().err
-    source.write_text("# no runtime settings\n")
+    assert capsys.readouterr().err.splitlines() == [
+        "Runtime config contract violations detected:",
+        f"  consent-protocol/api/runtime.py:1: legacy runtime key '{first}'",
+        f"  consent-protocol/api/runtime.py:1: legacy runtime key '{second}'",
+        "  consent-protocol/api/runtime.py:2: direct runtime env read for canonical key 'APP_SIGNING_KEY'",
+    ]
+    source.write_text(f"# X{first}2 XAPP_SIGNING_KEY2\n")
     assert module.main() == 0
 
 

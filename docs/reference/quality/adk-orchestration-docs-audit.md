@@ -63,8 +63,13 @@ also pass. These are synthetic provider outcomes, not live cloud cleanup.
 Backend passed 23,685 parallel cases in 686.13 seconds and 1,777 shared-database
 cases in 760.62 seconds, with the existing 143 skips. The serial phase preserves
 isolation against documented PostgreSQL catalog races. iOS completed in 24 minutes
-6 seconds, overlapping backend. The pending fixture-only candidate reuses unchanged
-application/core evidence and still requires its own hosted clearance before release.
+6 seconds, overlapping backend. The pending repaired candidate reuses unchanged application/core evidence and
+still requires its own hosted clearance before release. A measured scanner hot
+path now prefilters exact literals per file while retaining every regex, AST check
+and allowlist. On the same tracked checkout, it completed in 8.325 seconds versus
+81.864 seconds, with identical output and zero findings; all 32 nearest runtime
+settings cases pass, including ordered violations and boundary near-misses. This
+is local scanner evidence, not a claim that total hosted CI is ten times faster.
 Task-owned layout bundles were removed after verification; peer processes and
 user-level tool installations remain untouched.
 
