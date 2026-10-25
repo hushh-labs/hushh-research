@@ -9,13 +9,16 @@ mode, exact qualification and installed-journey evidence.
 
 ## Status and evidence
 
-**25 October 2026 — corrected image qualified on both clouds; owner installation
-and HTTP journey acceptance remain open.**
+**25 October 2026, 17:23 UTC — both clouds have exact-image component evidence;
+Azure owner installation is verified. Installed Browser journeys remain open.**
 
 [PR #8451](https://github.com/hushh-labs/hushh-research/pull/8451) landed as
 `9174abfbe594`; its governed dev release is
 [40201425206](https://github.com/hushh-labs/hushh-research/actions/runs/40201425206).
-Corporate ADC confirms both application services at 100% on that revision.
+Publication [#8457](https://github.com/hushh-labs/hushh-research/pull/8457) reuses
+that executable. Dev application `c4aeb1ca09` serves at 100% through
+[40207330968](https://github.com/hushh-labs/hushh-research/actions/runs/40207330968),
+confirmed by corporate ADC at 17:22 UTC.
 The exact pod image is
 `sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423`.
 
@@ -43,7 +46,10 @@ Fresh synthetic recovery from installed digests `26bab163…c061809` and
 and 245,763 exact file bytes. Disposable compute, grants, active objects, copied
 images and Azure deleted vault were removed and read back. GCP's seven-day
 soft-delete retention remains explicit. This proves format recovery, not a normal
-owner-approved update or active-work drain. Owner images are unchanged.
+active-work drain. Azure's exact owner-approved Dev 30 update is verified; GCP
+still serves its predecessor while the approved Files operation is reconciled.
+Its completed bootstrap checkpoints do not establish image handoff; preserve the
+held operation and do not replay the exhausted queue continuation.
 
 The preceding `c26fd848…401c5b3` image failed login redirect continuity after the
 POST succeeded. The corrected executor joins only explicit Chromium successor

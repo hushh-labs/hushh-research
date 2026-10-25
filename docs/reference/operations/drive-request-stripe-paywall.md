@@ -90,7 +90,9 @@ It does not build or publish reusable packet listings.
 - Existing access and prior paid delivery are checked before charging. Current
   source versions, recipient identity and consent are checked again before grants.
   Payout/earnings processing follows confirmed delivery under the existing rules.
-- V1 Viewer grants expire at the approved 1–90 day period after delivery starts.
+- V1 Viewer grants expire after the approved 1–90 day period, measured in
+  elapsed 24-hour days from delivery start, independent of database timezone
+  or daylight saving changes. Already recorded deadlines remain frozen.
   The owner may request earlier revocation. Existing unexpired access is not
   counted as a new paid grant.
 
