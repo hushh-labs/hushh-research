@@ -1,9 +1,14 @@
 {
   "generated_at": "2026-10-25",
-  "total_routes": 141,
+  "total_routes": 142,
   "native_required_routes": 115,
-  "excluded_routes": 26,
+  "excluded_routes": 27,
   "routes": [
+    {
+      "route": "/one/documents/open",
+      "classification": "excluded-web-only",
+      "reason": "GAP, not a permanent exclusion. Initial hosted PDF preparation and recipient preview/download are qualified in supported browsers; nativeViewerEnabled remains false and the app offers browser handoff. Close this gap with actual iOS/Android encrypted-byte, PDF rendering, Save/Share cancellation and cache cleanup proof before native admission."
+    },
     {
       "route": "/wallet/open",
       "classification": "excluded-web-only",
@@ -324,7 +329,11 @@
       "expectedRoute": "/one/calendar",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
-      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/career",
@@ -1170,7 +1179,11 @@
       "expectedRoute": "/one/setup/calendar",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
-      "allowedDataStates": ["loaded", "empty-valid", "unavailable-valid"]
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/setup/connected-systems",

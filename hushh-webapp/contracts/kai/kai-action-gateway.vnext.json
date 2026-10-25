@@ -46,6 +46,7 @@
     "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
     "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
+    "hushh-webapp/components/consent/hosted-document-panel.voice-action-contract.json",
     "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-market-news-page.voice-action-contract.json",
@@ -1296,6 +1297,39 @@
             "ria"
           ]
         }
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_document_delivery",
+      "surface_title": "Protected document delivery",
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "contract_file": "hushh-webapp/components/consent/hosted-document-panel.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "routes": [
+            "/one/consent",
+            "/one/documents/open"
+          ],
+          "screens": [
+            "consents",
+            "one_documents"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": [
+            "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+          ]
+        },
+        "speaker_persona": "one"
       },
       "search": {},
       "orchestration": {
@@ -28997,6 +29031,1824 @@
               "route": "/one/consent",
               "screen": "consents"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.choose",
+      "surface_id": "one_document_delivery",
+      "label": "Choose PDFs from Drive",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The owner selects source file metadata with the official Drive picker. This does not authorize a hosted copy.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-choose"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.choose",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.choose",
+            "label": "Choose PDFs from Drive",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.prepare",
+      "surface_id": "one_document_delivery",
+      "label": "Authorize encrypted copies",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The owner reviews exact PDFs, price, deadline and the separate copy disclosure, then explicitly authorizes local source reads, watermarked previews, encryption and ciphertext upload.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-prepare"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.prepare",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.prepare",
+            "label": "Authorize encrypted copies",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.final_approve",
+      "surface_id": "one_document_delivery",
+      "label": "Approve prepared copies",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The owner explicitly confirms the immutable encrypted document package and final delivery terms before the recipient can pay.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-final-approve"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.final_approve",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.final_approve",
+            "label": "Approve prepared copies",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.pay",
+      "surface_id": "one_document_delivery",
+      "label": "Accept document terms and pay",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The recipient explicitly accepts the approved version, price, deadline and rights, proves possession of the exact recipient key, then opens checkout.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-pay"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.pay",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.pay",
+            "label": "Accept document terms and pay",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.preview",
+      "surface_id": "one_document_delivery",
+      "label": "Preview protected document",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The recipient explicitly opens a locally decrypted watermarked PDF preview under a current paid grant. Preview does not download a file.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-preview"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.preview",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.preview",
+            "label": "Preview protected document",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.download_copy",
+      "surface_id": "one_document_delivery",
+      "label": "Download watermarked copy",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The recipient explicitly downloads the locally decrypted watermarked PDF under current access. A completed browser handoff does not prove the file was saved.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-download-copy"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.download_copy",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.download_copy",
+            "label": "Download watermarked copy",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.download_original",
+      "surface_id": "one_document_delivery",
+      "label": "Download original document",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The recipient explicitly downloads the exact approved original PDF, preserving its bytes and signatures. Downloaded copies cannot be recalled.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-download-original"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.download_original",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.download_original",
+            "label": "Download original document",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.close_preview",
+      "surface_id": "one_document_delivery",
+      "label": "Close document preview",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "Closes the active preview layer and erases its in-memory decrypted bytes, returning to the document list.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "low",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-close-preview"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.close_preview",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.close_preview",
+            "label": "Close document preview",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.recovery_request",
+      "surface_id": "one_document_delivery",
+      "label": "Request document key recovery",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The recipient explicitly sets up or recovers a vault-backed connector key and proves possession to request owner-authorized rewrapping of the existing purchase.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentReader"
+      },
+      "control_ids": [
+        "document-hosting-recovery-request"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.recovery_request",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.recovery_request",
+            "label": "Request document key recovery",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.repair",
+      "surface_id": "one_document_delivery",
+      "label": "Repair recipient document access",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The owner explicitly rewraps the unchanged encrypted package to the recipient replacement key after verifying the paid package; this creates no extra charge.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-repair"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.repair",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.repair",
+            "label": "Repair recipient document access",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.revoke",
+      "surface_id": "one_document_delivery",
+      "label": "Stop hosted document access",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The owner explicitly ends future hosted reads. Previously downloaded copies cannot be recalled.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-revoke"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.revoke",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.revoke",
+            "label": "Stop hosted document access",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.refresh",
+      "surface_id": "one_document_delivery",
+      "label": "Refresh document status",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "Reads current delivery status and activity without changing consent, payment or the document package.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "low",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-refresh"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.refresh",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.refresh",
+            "label": "Refresh document status",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.revoke_drive",
+      "surface_id": "one_document_delivery",
+      "label": "Stop Drive access",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The owner explicitly requests removal only of app-created Drive permissions. Existing access remains and reconciliation may be pending. Hosted One access is unchanged.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-revoke-drive"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.revoke_drive",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.revoke_drive",
+            "label": "Stop Drive access",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.revoke_both",
+      "surface_id": "one_document_delivery",
+      "label": "Stop both document channels",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The owner explicitly stops future One hosted access and requests removal only of app-created Drive permissions. Drive reconciliation may remain pending; downloaded copies cannot be recalled.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible document control owns explicit consent, current request binding and local vault effects.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-revoke-both"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.revoke_both",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.revoke_both",
+            "label": "Stop both document channels",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.choose_receive_through",
+      "surface_id": "one_document_delivery",
+      "label": "Choose document delivery method",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "delivery method",
+        "Google Drive",
+        "secure One link"
+      ],
+      "meaning": "The requester manually chooses Google Drive, a secure One link, or both in the file request form. This changes only the draft delivery method: it grants no access to owner files, authorizes no hosted copy and submits no request. Secure One delivery also requires the separate activity disclosure; Drive delivery still requires the existing requester identity proof.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The file request form is open for an accepted connection, the requester is signed in with an unlocked vault, and hosted delivery readiness is enabled for this request."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The requester must choose the delivery method directly in the visible request form; choosing does not grant owner-file authority or hosted-copy consent.",
+        "intended_handler": "RequestFilesButton"
+      },
+      "control_ids": [
+        "document-hosting-receive-through"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /people/[personRef]"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.choose_receive_through",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.choose_receive_through",
+            "label": "Choose document delivery method",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.open_link",
+      "surface_id": "one_document_delivery",
+      "label": "Open protected One link",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "Opens the request-bound HTTPS One reader after final owner approval. The link grants no access, contains no file key, and still requires the approved recipient One account and unlocked vault.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "low",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible protected-link control binds the current approved request and checks the signed-in session. Link sharing grants no new access.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-open-link"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.open_link",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.open_link",
+            "label": "Open protected One link",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.share_link",
+      "surface_id": "one_document_delivery",
+      "label": "Share protected One link",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "Explicitly hands the request-bound protected One URL to the existing share sheet or clipboard. Forwarding grants no access or decryption authority and includes no file key.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "low",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible protected-link control binds the current approved request and checks the signed-in session. Link sharing grants no new access.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-share-link"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.share_link",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.share_link",
+            "label": "Share protected One link",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "document.hosted.load_activity",
+      "surface_id": "one_document_delivery",
+      "label": "Load newer document activity",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "protected copies"
+      ],
+      "meaning": "The owner reads one bounded page of activity after the last loaded event. Distinct visits remain separate. This changes no access, payment, consent or document package.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A current authorized request; signed-in participant and unlocked vault; hosted delivery admitted for both participants."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "low",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible activity control retains the current owner session and validated sequence cursor.",
+        "intended_handler": "HostedDocumentPanel"
+      },
+      "control_ids": [
+        "document-hosting-load-activity"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.document.hosted.load_activity",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "document.hosted.load_activity",
+            "label": "Load newer document activity",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {

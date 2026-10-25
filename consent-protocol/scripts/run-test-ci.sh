@@ -74,7 +74,7 @@ PARALLEL_TESTS=()
 POSTGRES_TESTS=()
 for test_file in "${TESTS[@]}"; do
   case "$test_file" in
-    *_postgres.py|tests/test_hashcoin_wallet.py|tests/services/test_drive_sharing_store.py|tests/services/test_drive_trusted_auto.py|tests/services/test_drive_owner_meeting_notes_scenario.py|tests/services/test_drive_feed_projection.py|tests/services/test_drive_request_payment_v1_lane.py) POSTGRES_TESTS+=("$test_file") ;;
+    *_postgres.py|tests/services/test_document_delivery*.py|tests/test_hashcoin_wallet.py|tests/services/test_drive_sharing_store.py|tests/services/test_drive_trusted_auto.py|tests/services/test_drive_owner_meeting_notes_scenario.py|tests/services/test_drive_feed_projection.py|tests/services/test_drive_request_payment_v1_lane.py) POSTGRES_TESTS+=("$test_file") ;;
     *) PARALLEL_TESTS+=("$test_file") ;;
   esac
 done

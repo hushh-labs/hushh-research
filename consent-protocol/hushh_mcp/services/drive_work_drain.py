@@ -13,6 +13,8 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
+from hushh_mcp.services.document_delivery.drain import run_sharing
+from hushh_mcp.services.document_delivery.lifecycle import DocumentDeliveryWorker
 from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_group_index_job import DriveGroupIndexJob
@@ -45,6 +47,7 @@ WORKER_JOB_LIMITS = {
     "refunds": 4,
     "owner_payouts": 4,
     "packet_orders": 20,
+    "document_deliveries": 8,
 }
 STAGE_WORKERS = {
     "groups": frozenset({"groups"}),
@@ -71,6 +74,7 @@ STAGE_WORKERS = {
             "refunds",
             "owner_payouts",
             "packet_orders",
+            "document_deliveries",
         }
     ),
 }
@@ -88,6 +92,7 @@ STAGE_MAX_SECONDS = {
     "refunds": 35,
     "owner_payouts": 40,
     "packet_orders": 35,
+    "document_deliveries": 35,
 }
 STAGE_MIN_SECONDS = {
     "period_packets": 35,
@@ -103,10 +108,14 @@ STAGE_MIN_SECONDS = {
     "refunds": 20,
     "owner_payouts": 20,
     "packet_orders": 20,
+    "document_deliveries": 5,
 }
 MAX_OUTCOME_COUNT = 500
 
 _WORKER_ALLOWED_OUTCOMES = {
+    "document_deliveries": frozenset(
+        {"released", "held", "removed", "pending", "unavailable", "deadline", "deferred"}
+    ),
     "period_packets": frozenset(
         {
             "queued",
@@ -365,6 +374,7 @@ class DriveWorkDrain:
         owner_payout_worker: DriveRequestOwnerPayoutWorker | None = None,
         packet_order_worker: PkmPacketOrderWorker | None = None,
         period_packet_worker: DrivePeriodPacketService | None = None,
+        document_delivery_worker: DocumentDeliveryWorker | None = None,
     ) -> None:
         # Sharing permissions precede notifications in the same stage. Other
         # stages run on their own fixed scheduler jobs, never in this request.
@@ -376,6 +386,7 @@ class DriveWorkDrain:
             ("period_packets", period_packet_worker or DrivePeriodPacketService()),
             ("permissions", permission_worker or DrivePermissionWorker()),
             ("bulk_shares", bulk_share_worker or DriveBulkShareWorker()),
+            ("document_deliveries", document_delivery_worker or DocumentDeliveryWorker()),
             ("bulk_removals", bulk_removal_worker or DriveRequestBulkRemovalWorker()),
             ("checkouts", checkout_worker or DriveRequestPaymentCheckoutWorker()),
             ("notifications", notification_worker or DriveShareNotificationWorker()),
@@ -459,35 +470,7 @@ class DriveWorkDrain:
                 )
             )
         elif stage == "sharing":
-            # Bind checkout sessions before dispatching payment-ready notices.
-            # Payment preparation can overlap grant work; its own authority
-            # check and provider call need not consume the grant budget.
-            async def grant_work():
-                for name, worker in self._workers:
-                    if name in {"permissions", "bulk_shares"}:
-                        await run_worker(name, worker)
-
-            await asyncio.gather(
-                grant_work(),
-                *(
-                    run_worker(name, worker)
-                    for name, worker in self._workers
-                    if name == "checkouts"
-                ),
-            )
-            # Snapshot confirmed delivery before claiming a prorated refund.
-            # A confirmed refund becomes payable in the next bounded sweep.
-            for name, worker in self._workers:
-                if name == "owner_payouts":
-                    await run_worker(name, worker)
-            # Refund reconciliation and revocations remain independent.
-            await asyncio.gather(
-                *(
-                    run_worker(name, worker)
-                    for name, worker in self._workers
-                    if name in {"bulk_removals", "notifications", "refunds", "packet_orders"}
-                )
-            )
+            await run_sharing(self._workers, run_worker)
         else:
             for name, worker in self._workers:
                 await run_worker(name, worker)

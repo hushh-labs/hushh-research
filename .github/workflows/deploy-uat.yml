@@ -301,6 +301,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp deploy/drive/resolve_protected_document_release.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          git log -1 --diff-filter=A --format=%H -- \
+            consent-protocol/api/routes/document_delivery.py \
+            > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
@@ -354,6 +360,10 @@ jobs:
         run: |
           set -euo pipefail
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
+          mkdir -p deploy/drive
+          cp "${RUNNER_TEMP}/release-tools/resolve_protected_document_release.py" deploy/drive/
+          cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/process_group.py" scripts/ci/
           # Keep the current opt-in contract when verifying an older approved build.
           cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
             scripts/ops/verify_uat_release.py
@@ -517,6 +527,23 @@ jobs:
             --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
             --predecessor /tmp/uat-predecessor-acceptance.json \
             --output /tmp/uat-dev-backend-image.json
+
+      - name: Resolve retained protected document maintenance
+        id: document-mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/drive/resolve_protected_document_release.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --environment uat \
+            --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
+            --github-output "$GITHUB_OUTPUT" \
+            | tee /tmp/uat-protected-document-release.json
+          if [ "${{ inputs.preserve_paused_drive_worker }}" = true ] \
+             && [ "$(python3 -c 'import json; print(str(json.load(open("/tmp/uat-protected-document-release.json"))["configured"]).lower())')" = true ]; then
+            echo "Hosted copies require the regular private sharing maintenance worker." >&2
+            exit 1
+          fi
 
       - name: Enforce UAT database connection budget before deployment
         shell: bash
@@ -1051,7 +1078,7 @@ jobs:
           echo "image_source=${image_source}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true' || steps.document-mode.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1059,6 +1086,19 @@ jobs:
             https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
             -o /usr/local/bin/cloud-sql-proxy
           chmod +x /usr/local/bin/cloud-sql-proxy
+
+      - name: Verify protected document reader and rollback compatibility
+        if: steps.document-mode.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" deploy/drive/resolve_protected_document_release.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --environment uat \
+            --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
+            --verify-previous --json-output /tmp/uat-document-reader-compatibility.json
+          echo "HUSHH_DOCUMENT_READER_GUARD_REPORT=/tmp/uat-document-reader-compatibility.json" >> "$GITHUB_ENV"
+          echo "HUSHH_DOCUMENT_READER_ENVIRONMENT=uat" >> "$GITHUB_ENV"
 
       - name: Qualify uninterrupted account deletion
         id: account-deletion-fence-decision
@@ -1445,6 +1485,9 @@ jobs:
           started_at="$(date +%s)"
           source deploy/drive/uat_stripe_bindings.sh
           SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          if grep -Fq '${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_PROTECTED_DOCUMENT_DELIVERY_ENABLED=${{ steps.document-mode.outputs.enabled || 'false' }}"
+          fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
@@ -3188,6 +3231,7 @@ jobs:
           CLOUDSQL_INSTANCE: ${{ env.UAT_CLOUDSQL_INSTANCE }}
           RELEASE_RUN_ID: ${{ github.run_id }}
           DRIVE_WORK_DRAIN_ENABLED: 'true'
+          PROTECTED_DOCUMENT_DELIVERY_ENABLED: ${{ steps.document-mode.outputs.enabled || 'false' }}
           DRIVE_REQUEST_PAYMENTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}
           DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}
           STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
@@ -3705,6 +3749,8 @@ jobs:
             /tmp/uat-backend-provenance.json
             /tmp/uat-frontend-provenance.json
             /tmp/uat-db-migration-guard-predeploy.json
+            /tmp/uat-protected-document-release.json
+            /tmp/uat-document-reader-compatibility.json
             /tmp/uat-email-auth-policy-activation.json
             /tmp/uat-db-migration-guard-postdeploy.json
             /tmp/uat-backend-image.json

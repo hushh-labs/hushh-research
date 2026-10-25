@@ -117,7 +117,17 @@ def _route_template(request: Request) -> str:
         path = getattr(route, "path", None)
         if isinstance(path, str) and path:
             return path
-    return request.url.path
+    from starlette.routing import Match
+
+    router = getattr(request.scope.get("app"), "router", None)
+    for candidate in getattr(router, "routes", ()):
+        match, _ = candidate.matches(request.scope)
+        path = getattr(candidate, "path", None)
+        if match in {Match.FULL, Match.PARTIAL} and isinstance(path, str) and path:
+            return path
+    # Before routing (and for 404s), a raw URL can contain opaque protected
+    # locators or credentials. It is never a telemetry route template.
+    return "<unmatched>"
 
 
 def _sanitize_request_id(raw: str | None) -> str | None:
@@ -243,10 +253,10 @@ async def observability_middleware(request: Request, call_next):
     token = _request_trace_ctx.set(trace_metadata)
     query_token = begin_query_telemetry()
 
-    # Inject the request_id as the audit trace_id so every log line emitted
-    # within this request is correlatable.  Canonical attach point for
+    # Audit and request metadata share the resolved trace correlation, while
+    # request_id retains its existing response-header compatibility. Canonical attach point for
     # hushh_mcp/consent/audit_logger.py (Integrated by Abdul Gaffar).
-    _audit_token = bind_trace_id(request_id)
+    _audit_token = bind_trace_id(trace_id)
 
     try:
         response = await call_next(request)

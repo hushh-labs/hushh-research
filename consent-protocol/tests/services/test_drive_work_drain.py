@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from itertools import chain, repeat
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -75,6 +76,7 @@ def _drain(
         owner_payout_worker=owner_payout_worker or _worker({"outcomes": {"disabled": 1}}),
         packet_order_worker=packet_order_worker or _worker({"outcomes": {"disabled": 1}}),
         period_packet_worker=period_packet_worker or _worker({"outcomes": {"disabled": 1}}),
+        document_delivery_worker=_worker({"outcomes": {"held": 1}}),
     )
 
 
@@ -120,6 +122,7 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
             "owner_payouts": {"deferred": 1},
             "packet_orders": {"deferred": 1},
             "period_packets": {"deferred": 1},
+            "document_deliveries": {"deferred": 1},
         },
     }
     workers[0].run.assert_awaited_once_with(max_jobs=20, deadline_seconds=180)
@@ -171,6 +174,7 @@ async def test_v1_stage_claims_only_marked_searches_approved_delivery_and_financ
         "owner_payouts": {"disabled": 1},
         "packet_orders": {"deferred": 1},
         "period_packets": {"deferred": 1},
+        "document_deliveries": {"deferred": 1},
     }
 
 
@@ -202,6 +206,7 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
         "owner_payouts": {"disabled": 1},
         "packet_orders": {"disabled": 1},
         "period_packets": {"deferred": 1},
+        "document_deliveries": {"held": 1},
     }
     assert "private" not in str(result)
 
@@ -248,7 +253,7 @@ async def test_sharing_snapshots_delivery_before_prorated_refunds():
 async def test_short_stage_budget_never_claims_work(monkeypatch, stage, elapsed, worker_index):
     workers = [_worker({"outcomes": {"not_claimed": 1}}) for _ in range(4)]
     drain = _drain(workers)
-    clock = iter([0] + [elapsed] * 8)
+    clock = chain([0], repeat(elapsed))
     monkeypatch.setattr(drain, "_now", lambda: next(clock))
 
     result = await drain.run(stage=stage)

@@ -10,6 +10,22 @@ import subprocess
 from pathlib import Path
 
 
+def cloudrun_revision(*, name: str, service: str, sha: str, intake: str | None = None) -> dict:
+    """Synthetic immutable revision with explicit service and optional intake policy."""
+    revision = {
+        "metadata": {
+            "name": name,
+            "labels": {"serving.knative.dev/service": service, "deploy-sha": sha},
+        },
+        "spec": {"containers": [{"image": "image@sha256:" + "a" * 64}]},
+    }
+    if intake is not None:
+        revision["spec"]["containers"][0]["env"] = [
+            {"name": "PROTECTED_DOCUMENT_DELIVERY_ENABLED", "value": intake}
+        ]
+    return revision
+
+
 def copy_candidate_tools(root, destination_root):
     if os.name == "nt":
         # Native Python searches System32 before PATH; pin Git Bash in this fixture.
@@ -99,6 +115,7 @@ printf '%s' "$code"
 
 DRIVE_PRODUCTION_TOOLS = (
     "resolve_prod_release_mode.py",
+    "resolve_protected_document_release.py",
     "verify_prod_prerequisites.py",
     "verify_hashcoin_config.sh",
     "setup_native_callback_log_exclusion.sh",
@@ -125,6 +142,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/process_group.py",
+        "scripts/ci/cloudrun-rollback.sh",
         "scripts/ci/runtime_capacity_inventory.py",
         "scripts/ci/account-deletion-fence-decision.py",
         "scripts/ci/managed_provider_readiness.py",
@@ -225,3 +243,35 @@ def uat_build_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def probe_worker_payment_bindings(
+    block,
+    mocked,
+    *,
+    enabled: bool,
+    missing: str = "",
+    previous_bound: bool = False,
+    hosted: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 - fixed repo shell block with a mocked gcloud
+        [
+            "bash",
+            "-c",
+            mocked
+            + 'hosted_maintenance="${HOSTED_MAINTENANCE:-false}"\n'
+            + block
+            + '\nprintf "%s" "$payment_secret_bindings"\n',
+        ],
+        env={
+            **os.environ,
+            "DRIVE_REQUEST_PAYMENTS_PROD_ENABLED": "true" if enabled else "false",
+            "MISSING_SECRET": missing,
+            "PREVIOUS_REVISION": "consent-protocol-drive-worker-prev" if previous_bound else "",
+            "PREVIOUS_STRIPE_BOUND": "true" if previous_bound else "false",
+            "HOSTED_MAINTENANCE": "true" if hosted else "false",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )

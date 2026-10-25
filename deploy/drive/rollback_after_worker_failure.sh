@@ -41,9 +41,7 @@ if [[ -z "${current}" ]]; then
   exit 1
 fi
 if [[ "${current}" != "${REVISION}" ]]; then
-  gcloud run services update-traffic "${SERVICE}" \
-    --project="${PROJECT_ID}" --region="${REGION}" \
-    --to-revisions="${REVISION}=100" --quiet
+  GCP_PROJECT_ID="${PROJECT_ID}" bash scripts/ci/cloudrun-rollback.sh "${SERVICE}" "${REGION}" "${REVISION}"
 fi
 actual="$(gcloud run services describe "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --format=json \

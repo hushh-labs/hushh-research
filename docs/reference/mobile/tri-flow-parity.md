@@ -87,9 +87,11 @@ cd hushh-webapp && node scripts/native/verify-native-static-parity.mjs
 
 ## Current exclusions
 
-17 routes, all with reasons. Two are recorded as gaps rather than permanent
-exclusions: `/one/calendar` and `/one/setup/calendar`. Those are real debt, and
-they are visible now instead of being absorbed into a classification.
+The inventory is authoritative for current counts. `/one/documents/open` records
+an initial native-support gap: `nativeViewerEnabled` remains false, with browser
+handoff for protected PDF preview/download and preparation. Native admission needs
+actual encrypted-byte transport, PDF rendering, Save/Share cancellation and cache
+cleanup proof on iOS and Android. The Calendar gaps remain separately declared.
 
 ## What this does not verify
 

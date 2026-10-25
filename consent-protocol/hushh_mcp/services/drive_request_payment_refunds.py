@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.document_delivery.refund_delivery import refund_delivery_eligible
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 # Stripe can prune idempotency keys after 24 hours. Start this shorter window
@@ -38,8 +39,10 @@ _REFUND_CANDIDATES_SQL = """
       ((r.payment_required=TRUE OR o.existing_access_waived_at IS NOT NULL) AND
        (o.reconciliation_required OR r.access_stop_requested_at IS NOT NULL OR r.status IN
          ('completed','partial','no_match','expired','cancelled','declined')
-         OR r.expires_at<=clock_timestamp())
-       AND NOT EXISTS (SELECT 1 FROM drive_bulk_share_effects e
+         OR r.expires_at<=clock_timestamp() OR EXISTS(SELECT 1 FROM document_delivery_contracts c
+          WHERE c.request_id=o.request_id AND (c.hosted_revoked_at IS NOT NULL OR c.access_expires_at<=clock_timestamp())))
+       AND (EXISTS (SELECT 1 FROM document_delivery_summary_for(o.request_id)) OR
+       (NOT EXISTS (SELECT 1 FROM drive_bulk_share_effects e
       JOIN drive_bulk_shares b ON b.share_id=e.share_id
       WHERE b.origin_request_id=o.request_id
         AND ((e.state IN ('succeeded','dispatching','unknown','present_unattributed')
@@ -48,7 +51,9 @@ _REFUND_CANDIDATES_SQL = """
       AND NOT EXISTS (SELECT 1 FROM drive_share_permission_operations p
       WHERE p.request_id=o.request_id AND p.kind='grant'
         AND p.state IN ('succeeded','preexisting','dispatching',
-                        'unknown','present_unattributed')))))
+                        'unknown','present_unattributed'))))
+      AND NOT EXISTS (SELECT 1 FROM document_delivery_summary_for(o.request_id) d
+        WHERE d.confirmed>0 OR d.unsettled>0))))
 """
 
 
@@ -91,6 +96,14 @@ def _claim_refunds(service, connection, *, limit: int, v1_only: bool = False) ->
             {"request": request_id},
         )
         if request is not None:
+            from hushh_mcp.services.document_delivery.store import has_contract
+
+            if has_contract(connection, str(request_id)):
+                service._row(
+                    connection,
+                    "SELECT request_id FROM document_delivery_contracts WHERE request_id=:request FOR UPDATE",
+                    {"request": request_id},
+                )
             service._row(
                 connection,
                 "SELECT request_id FROM drive_request_payment_orders WHERE request_id=:request FOR UPDATE",
@@ -132,77 +145,16 @@ def _claim_refunds(service, connection, *, limit: int, v1_only: bool = False) ->
         if not 0 < target_amount <= int(order["amount_cents"]):
             continue
         partial_refund = target_amount < int(order["amount_cents"])
-        if request is None:
-            if partial_refund and payout is not None and payout["erased_at"] is not None:
-                # Erasure snapshots the terminal approved-file denominator
-                # before batches disappear. The owner cannot receive an
-                # automatic transfer, but the requester is still owed the
-                # undelivered portion of the paid charge.
-                if order["delivery_unsettled_at_erasure"]:
-                    continue
-            elif (
-                order["erased_at"] is None
-                or not order["reconciliation_required"]
-                or (
-                    order["delivery_confirmed_at_erasure"]
-                    and order["existing_access_waived_at"] is None
-                )
-            ):
-                continue
-            if not partial_refund and order["delivery_unsettled_at_erasure"]:
-                connection.execute(
-                    text("""INSERT INTO drive_request_payment_refunds
-                  (request_id,attempt_id,status,first_dispatch_at,next_check_at)
-                  VALUES (:request,:attempt,'manual_review',clock_timestamp(),
-                          clock_timestamp()+interval '1 hour')
-                  ON CONFLICT (request_id) DO NOTHING"""),
-                    {"request": request_id, "attempt": str(uuid4())},
-                )
-                connection.execute(
-                    text("""UPDATE drive_request_payment_refunds
-                  SET status='manual_review',first_dispatch_at=COALESCE(
-                    first_dispatch_at,clock_timestamp()),updated_at=clock_timestamp()
-                  WHERE request_id=:request AND status IN ('queued','unknown')"""),
-                    {"request": request_id},
-                )
-        else:
-            # Queued grants have not reached a provider POST. The live order
-            # lock above fences both grant dispatch paths, which recheck paid
-            # authority before changing a queued effect to dispatching.
-            effects = service._row(
-                connection,
-                """SELECT
-          EXISTS(SELECT 1 FROM drive_bulk_share_effects e
-            JOIN drive_bulk_shares b ON b.share_id=e.share_id
-            WHERE b.origin_request_id=:request
-              AND (e.state='succeeded' OR (:count_preexisting AND e.state='preexisting'))) AS delivered,
-          EXISTS(SELECT 1 FROM drive_bulk_share_effects e
-            JOIN drive_bulk_shares b ON b.share_id=e.share_id
-            WHERE b.origin_request_id=:request
-              AND (e.state IN ('dispatching','unknown','present_unattributed')
-                   OR (e.state='failed' AND e.safe_error_code='permission_outcome_unknown')))
-            AS unsettled,
-          EXISTS(SELECT 1 FROM drive_share_permission_operations p
-            WHERE p.request_id=:request AND p.kind='grant'
-              AND p.state IN ('succeeded','preexisting')) AS legacy_delivered,
-          EXISTS(SELECT 1 FROM drive_share_permission_operations p
-            WHERE p.request_id=:request AND p.kind='grant'
-              AND p.state IN ('dispatching','unknown','present_unattributed'))
-            AS legacy_unsettled
-            """,
-                {
-                    "request": request_id,
-                    "count_preexisting": request.get("v1_live_request") is not True
-                    and order["existing_access_waived_at"] is None,
-                },
-            )
-            if (
-                (effects["delivered"] and not partial_refund)
-                or effects["unsettled"]
-                or (effects["legacy_delivered"] and not partial_refund)
-                or effects["legacy_unsettled"]
-            ):
-                continue
+        if not refund_delivery_eligible(
+            service,
+            connection,
+            request_id=request_id,
+            request=request,
+            order=order,
+            payout=payout,
+            partial_refund=partial_refund,
+        ):
+            continue
         if not partial_refund:
             connection.execute(
                 text("""UPDATE drive_request_payment_obligations

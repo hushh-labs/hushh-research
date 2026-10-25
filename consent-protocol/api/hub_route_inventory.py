@@ -7,6 +7,11 @@ _Classification = TypeVar("_Classification", bound=StrEnum)
 
 CONNECTOR_INVENTORY = """
 [CONTENT]
+GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/source-selection
+POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/approve
+POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/source-session
+POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/uploads
+POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/package
 GET /api/connectors/google_drive/groups
 GET /api/connectors/google_drive/groups/{shelf}/files
 POST /api/connectors/google_drive/groups/processing
@@ -55,6 +60,8 @@ POST /api/connectors/{connector_id}/mcp/oauth/complete
 POST /api/connectors/{connector_id}/mcp/review
 POST /api/connectors/{connector_id}/mcp/verify
 [AUTHORITY]
+GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/recipient-key
+POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/key-challenge
 GET /api/connectors/google_drive/sharing/packet-publications
 PUT /api/connectors/google_drive/sharing/packets/{packet_id}/public-summary
 POST /api/connectors/google_drive/documents/{document_id}/processing
@@ -62,6 +69,11 @@ POST /api/connectors/google_drive/live/background
 POST /api/connectors/google_drive/searches/{job_id}/stop
 POST /api/connectors/{connector_id}/mcp/confirm
 [NETWORK]
+POST /api/connectors/google_drive/sharing/delivery-requests
+GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/terms
+POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/recovery-amendment
+GET,POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/activity
+POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/revoke
 GET /api/connectors/google_drive/sharing/packets
 POST /api/connectors/google_drive/sharing/packets/{packet_id}/requests
 GET,PUT /api/connectors/google_drive/sharing/pricing
@@ -93,7 +105,14 @@ POST /api/connectors/google_drive/sharing/requests/{request_id}/payment/checkout
 POST /api/connectors/google_drive/sharing/requests/{request_id}/revocation/confirm
 POST /api/connectors/google_drive/sharing/requests/{request_id}/revocation/prepare
 POST /api/connectors/google_drive/sharing/rules/{rule_id}/revoke
+[CIPHERTEXT]
+GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/owner-package
+GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/package
+GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/artifacts/{artifact_id}
+PUT /api/connectors/google_drive/sharing/requests/{request_id}/delivery/uploads/{upload_id}
+POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/uploads/{upload_id}/finalize
 [CONNECTOR_ADMIN]
+GET /api/connectors/google_drive/sharing/delivery-readiness
 GET /api/connectors/features
 DELETE /api/connectors/google_drive/documents/{document_id}
 GET /api/connectors/google_drive/live/background

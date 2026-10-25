@@ -54,6 +54,7 @@ async function paymentRequest(
   firebaseIdToken: string,
   requestId: string,
   checkout: boolean,
+  acceptance?: { acceptedTermsRevision: number; acceptedTermsDigest: string; acceptedPackageDigest: string },
 ): Promise<Record<string, unknown>> {
   if (!firebaseIdToken) throw new Error("Sign in to view this payment");
   const response = await ApiService.apiFetch(
@@ -61,7 +62,8 @@ async function paymentRequest(
     {
       method: checkout ? "POST" : "GET",
       cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      headers: { Authorization: `Bearer ${firebaseIdToken}`, ...(acceptance ? { "Content-Type": "application/json" } : {}) },
+      ...(acceptance ? { body: JSON.stringify(acceptance) } : {}),
     },
   );
   if (!response.ok) {
@@ -108,8 +110,8 @@ export class DriveRequestPaymentService {
     return value as unknown as DriveRequestPayment;
   }
 
-  static async checkout(firebaseIdToken: string, requestId: string): Promise<string | { requestId: string; existingAccess: true }> {
-    const value = await paymentRequest(firebaseIdToken, requestId, true);
+  static async checkout(firebaseIdToken: string, requestId: string, acceptance?: { acceptedTermsRevision: number; acceptedTermsDigest: string; acceptedPackageDigest: string }): Promise<string | { requestId: string; existingAccess: true }> {
+    const value = await paymentRequest(firebaseIdToken, requestId, true, acceptance);
     if (value.existingAccess === true && value.requestId === requestId && value.checkoutUrl === undefined) {
       return { requestId, existingAccess: true };
     }

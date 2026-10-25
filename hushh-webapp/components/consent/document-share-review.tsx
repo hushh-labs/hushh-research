@@ -42,6 +42,7 @@ import {
   DocumentRequestPriceSheet,
 } from "@/components/consent/document-request-price-sheet";
 import { DocumentRequestRequesterPanel } from "@/components/consent/document-request-requester-panel";
+import { HostedDocumentPanel } from "@/components/consent/hosted-document-panel";
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
 import { ProfileConnectorsLink } from "@/components/profile/profile-connectors-link";
 import {
@@ -542,6 +543,7 @@ function UnlockedDocumentReview({
       guard();
       let status = await DriveSharingService.status(token, requestId, guard);
       guard();
+      if (status.hostedDelivery) return { status };
       const optionalOutgoingDelivery = async (): Promise<SharingDelivery | undefined> => {
         try {
           return await DriveSharingService.delivery(token, requestId, guard);
@@ -1533,7 +1535,8 @@ function UnlockedDocumentReview({
         </div>
       ) : null}
 
-      {outgoing && snapshot && !removal ? (
+      {snapshot?.status.hostedDelivery ? <HostedDocumentPanel requestId={requestId} onChanged={onChanged} /> : null}
+      {outgoing && snapshot && !snapshot.status.hostedDelivery && !removal ? (
         <DocumentRequestRequesterPanel
           requestId={requestId}
           status={snapshot.status}

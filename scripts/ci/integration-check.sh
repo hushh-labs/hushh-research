@@ -22,6 +22,10 @@ cd "$REPO_ROOT"
 # regardless of which side changed. Never depend on the narrower auth path pack.
 bash "$REPO_ROOT/scripts/ci/account-deletion-check.sh"
 
+# A new hosted path cannot pass on mocked component success or direct SQL-paid
+# assignment. This loop uses the production client, routes and financial store.
+bash "$REPO_ROOT/scripts/ci/document-delivery-check.sh"
+
 # Expensive zero-loss rehearsal belongs only to PKM upgrade compatibility
 # changes. GitHub workflows resolve this through the canonical changed-SHA
 # selector before invoking this script. A local caller without a proven plan

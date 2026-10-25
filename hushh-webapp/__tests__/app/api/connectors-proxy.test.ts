@@ -12,6 +12,41 @@ import { PUT } from "@/app/api/connectors/[...path]/route";
 afterEach(() => vi.restoreAllMocks());
 
 describe("connector proxy privacy", () => {
+  it("round-trips opaque ciphertext without JSON or UTF-8 conversion", async () => {
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    const objectId = "22222222-2222-4222-8222-222222222222";
+    const bytes = new Uint8Array([0, 255, 254, 128, 13, 10, 0]);
+    const uploadPath = ["google_drive", "sharing", "requests", requestId, "delivery", "uploads", objectId];
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ uploaded: true }))
+      .mockResolvedValueOnce(new Response(bytes, { headers: { "Content-Type": "application/octet-stream" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const uploaded = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${uploadPath.join("/")}`, {
+      method: "PUT", headers: { authorization: "Bearer synthetic-owner", "x-hushh-consent": "synthetic-vault",
+        "content-type": "application/octet-stream" }, body: bytes,
+    }), uploadPath);
+    expect(await uploaded.json()).toEqual({ uploaded: true });
+    expect(new Uint8Array(fetchMock.mock.calls[0][1].body)).toEqual(bytes);
+    expect(fetchMock.mock.calls[0][1].headers.get("x-hushh-consent")).toBe("synthetic-vault");
+    expect(fetchMock.mock.calls[0][1].redirect).toBe("error");
+    const downloadPath = [...uploadPath];
+    downloadPath[5] = "artifacts";
+    const downloaded = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${downloadPath.join("/")}`, {
+      headers: { authorization: "Bearer synthetic-recipient" },
+    }), downloadPath);
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(bytes);
+    expect(downloaded.headers.get("content-type")).toBe("application/octet-stream");
+    expect(downloaded.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("rejects unauthenticated ciphertext access before forwarding", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const path = ["google_drive", "sharing", "requests", "11111111-1111-4111-8111-111111111111",
+      "delivery", "artifacts", "22222222-2222-4222-8222-222222222222"];
+    const response = await proxyExternalConnectorRequest(new NextRequest(`https://app.test/api/connectors/${path.join("/")}`), path);
+    expect(response.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("forwards live search frames without buffering and cancels the observer with its caller", async () => {
     const abort = new AbortController();
     const path = ["google_drive", "searches", "11111111-1111-4111-8111-111111111111", "stream"];

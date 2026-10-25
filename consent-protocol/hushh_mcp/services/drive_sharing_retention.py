@@ -10,6 +10,7 @@ import json
 
 from sqlalchemy import text
 
+from hushh_mcp.services.document_delivery.lifecycle import erase_participant_custody, fence_erasure
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 
 
@@ -136,6 +137,7 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
                   WHERE request_id=:request FOR UPDATE"""),
                     identifiers,
                 )
+                fence_erasure(connection, request_id=context["request_id"])
                 # Dispatchers take the live order FOR SHARE before marking an
                 # effect dispatching. Wait for any such transaction to finish.
                 connection.execute(
@@ -388,11 +390,8 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
                     identifiers,
                 )
 
-    if _exists(connection, "drive_packet_heads"):
-        # Reset retains the connector's generation fence, so its FK cannot
-        # erase packet keys/manifests. Remove this owner's packet family after
-        # the request/financial erasure above has preserved its minimal ledger.
-        connection.execute(text("DELETE FROM drive_packet_heads WHERE user_id=:user"), params)
+    erase_participant_custody(connection, user_id=user_id, exists=_exists)
+
     if _exists(connection, "drive_document_rules"):
         connection.execute(
             text("DELETE FROM drive_document_rules WHERE user_id=:user OR recipient_user_id=:user"),

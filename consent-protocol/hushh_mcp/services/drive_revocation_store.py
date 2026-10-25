@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore, DocumentReviewAuthority
+from hushh_mcp.services.document_delivery import drive_bridge
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
 from hushh_mcp.services.drive_sharing_contract import MAX_FILES, DriveSharingError
@@ -424,20 +425,7 @@ class DriveRevocationStore(DrivePermissionStore):
                 ):
                     continue
                 removal = str(uuid4())
-                terms = {
-                    "grant_operation_id": str(grant["operation_id"]),
-                    "document_id": str(grant["document_id"]),
-                    "review_revision": grant["review_revision"],
-                    "file_lock_hmac": grant["file_lock_hmac"],
-                    "file_id": plan["file_id"],
-                    "file_name": plan["file_name"],
-                    "permission_id": created["permission_id"],
-                    "recipient_email": created["email"],
-                    "issuer": issuer,
-                    "source_kind": plan.get("source_kind", "indexed"),
-                    "revocation_revision": grant["revocation_revision"],
-                    "request_stop": True,
-                }
+                terms = drive_bridge.removal_terms(grant, plan, created, issuer)
                 envelope = self.sharing_cipher.seal(
                     terms,
                     user_id=grant["user_id"],

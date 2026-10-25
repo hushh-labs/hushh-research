@@ -81,6 +81,35 @@ def test_trace_metadata_reused_inside_request_flow():
     assert get_request_trace_metadata() is None
 
 
+def test_unknown_private_locator_never_becomes_a_route_template(caplog):
+    import logging
+
+    locator = "11111111-1111-4111-8111-111111111111-private-token"
+    with caplog.at_level(logging.INFO):
+        response = TestClient(_build_app()).get(f"/missing/{locator}?secret=private-query")
+    assert response.status_code == 404
+    summaries = [item.message for item in caplog.records if "request.summary" in item.message]
+    assert summaries and '"route_template":"<unmatched>"' in summaries[-1]
+    assert locator not in "".join(summaries)
+    assert "private-query" not in "".join(summaries)
+
+
+def test_audit_and_request_metadata_share_the_resolved_trace():
+    from hushh_mcp.consent.audit_logger import get_trace_id
+
+    app = _build_app()
+
+    @app.get("/audit-correlation")
+    async def correlation():
+        return {"audit": get_trace_id(), "metadata": get_request_trace_metadata().trace_id}
+
+    response = TestClient(app).get(
+        "/audit-correlation",
+        headers={REQUEST_ID_HEADER: "request-id-123", TRACE_ID_HEADER: "trace-id-456"},
+    )
+    assert response.json() == {"audit": "trace-id-456", "metadata": "trace-id-456"}
+
+
 def test_traceparent_header_reuses_distributed_trace_id():
     client = TestClient(_build_app())
     trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
