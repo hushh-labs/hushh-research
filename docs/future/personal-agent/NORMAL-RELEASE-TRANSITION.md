@@ -6,28 +6,33 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-**Current surgical follow-up — 25 October 2026, 17:23 UTC:**
-[Browser repair #8451](https://github.com/hushh-labs/hushh-research/pull/8451)
-and [publication #8457](https://github.com/hushh-labs/hushh-research/pull/8457)
-are on main. [Dev 40207330968](https://github.com/hushh-labs/hushh-research/actions/runs/40207330968)
-serves application `c4aeb1ca09` at 100%; the exact qualified pod remains source
-`9174abfbe594`, image `6e57f251…eeac423`. Azure's approved update is verified;
-GCP's completed Files bootstrap still has an unconfirmed image handoff. Preserve
-its held operation; the exhausted queue continuation must not be repeated.
+**Current surgical follow-up — 25 October 2026, 19:45 UTC:**
+[Continuity corrections #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
+landed as `2a74d28cd0` after exact CI and landed smoke. Peer Dev deployment targets
+`5ad9ef542d`, not that newer application, and remains unaccepted at account-cleanup
+activation. Audit logs identify missing access to the existing cleanup identity;
+scoped IAM repair is applied and the peer retry is running. Preserve the release
+fence and verify terminal activation before producing acceptance. Do not start a
+competing deployment or infer the application from the workflow-head SHA.
 
-UAT run `40208297820` targeted application `6afe430826`, not its workflow-head
-revision, and rolled back after missing portfolio analytics. Both UAT services
-remain `24545d1dc2`. Peer Dev run `40213126854` stopped at the unsettled Shared
-Files erasure fence. Reconcile these prerequisites before another rollout; keep
-cleanup uncertainty and historical checksums intact. The
-[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
-actual source, serving and installed-owner results.
+UAT remains `24545d1dc2`. The analytics repair is now on main; use the canonical
+read-only reviewer bootstrap and actual journey diagnostics on the next accepted
+candidate. No unchanged analytics retry or raised timeout substitutes for proof.
 
-Native Browser and predecessor recovery evidence remains valid for the immutable
-image. Installed controls, login, cloud session custody, reconnect and Puppy still
-need acceptance. Controlled-site qualification is not general website or GitHub
-compatibility. Batch the source corrections, run the completed candidate's core
-mirror once and exact-SHA hosted CI, then follow dev-first acceptance and UAT.
+The exact qualified pod remains source `9174abfbe594`, image `6e57f251…eeac423`.
+Azure's approved update and one Puppy/Gemma 12B response pass. GCP's approved Files
+operation still has an unconfirmed image handoff; preserve its held operation and
+never replay the exhausted queue continuation. Installed Browser takeover became
+uncertain without credential entry. The post-result settlement correction has
+focused proof, not an installed image receipt; earlier executor and owner journeys
+remain open. The temporary fixture is deleted. Capacity samples do not justify an
+upgrade. Existing fixed-term sharing is the confirmed scope, without recurring
+billing or changing the paid test cohort.
+
+The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+separates source, serving and installed-owner results. Batch completed source
+corrections, run one core mirror and exact-SHA hosted CI, then dev-first acceptance
+and UAT. Reuse unchanged native component and predecessor recovery evidence.
 
 Real-mail isolated acceptance completes two same-Firebase-UID deletion/enrollment
 cycles with retired-session refusal. Ordinary generation admission remains dark
