@@ -12,6 +12,8 @@ from opentelemetry.instrumentation.utils import suppress_instrumentation
 from hushh_mcp.services.pod_files.contracts import FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesGcsStore
 
+from . import bucket_admission
+
 MAX_CIPHERTEXT_BYTES = 4 * 1024 * 1024 + 128 * 1024
 
 
@@ -132,7 +134,9 @@ class SharedCipherStore(FilesGcsStore):
 
         return await asyncio.to_thread(upload)
 
-    async def status(self, uri: str, path: str, size: int) -> str:
+    async def status(
+        self, uri: str, path: str, size: int, *, admission: dict[str, Any] | str | None = None
+    ) -> str:
         uri = self._session_uri(uri, path)
 
         def probe() -> str:
@@ -155,7 +159,18 @@ class SharedCipherStore(FilesGcsStore):
             finally:
                 response.close()
 
-        return await asyncio.to_thread(probe)
+        status = await asyncio.to_thread(probe)
+        if status == "missing" and admission is not None:
+            # Google's exact resumable-session 404 means that URI has expired.
+            # A generic missing resource is insufficient: independently bind
+            # the current bucket to the incarnation sealed into session custody.
+            # https://cloud.google.com/storage/docs/resumable-uploads#session-uris
+            bucket_admission.verify(
+                {"bucket": self._bucket, "bucket_admission": admission},
+                await bucket_admission.observe(self, self._bucket),
+            )
+            return "expired"
+        return status
 
     async def cancel(self, uri: str, path: str) -> bool:
         uri = self._session_uri(uri, path)

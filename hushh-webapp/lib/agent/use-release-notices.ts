@@ -45,7 +45,14 @@ export function useReleaseNoticeController(ownerId: string | null) {
       await acknowledgement;
     });
   }, []);
-  const close = useCallback(() => { pending.current?.close(); pending.current = null; setShown(null); }, []);
+  const close = useCallback(() => {
+    // Explicit dismissal is presentation evidence even if autofocus was
+    // suppressed. Settle acknowledgement before the next queued notice checks it.
+    pending.current?.presented();
+    pending.current?.close();
+    pending.current = null;
+    setShown(null);
+  }, []);
   const presented = useCallback(() => { pending.current?.presented(); }, []);
   const notice = shown?.ownerId === ownerId && shown.epoch === epoch ? shown.notice : null;
   return { notice, present, close, presented };

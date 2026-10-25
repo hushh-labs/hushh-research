@@ -6,23 +6,28 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-**Current surgical follow-up — 25 October 2026, 14:46 UTC:**
+**Current surgical follow-up — 25 October 2026, 17:23 UTC:**
 [Browser repair #8451](https://github.com/hushh-labs/hushh-research/pull/8451)
-landed as `9174abfbe594`; exact CI, landed smoke and
-[dev release 40201425206](https://github.com/hushh-labs/hushh-research/actions/runs/40201425206)
-pass. Actual ADC readback confirms both dev services at 100% on that revision.
-UAT remains `24545d1dc2`. Peer source and immutable migrations remain preserved;
-`.agents` is the sole authored development framework. The
-[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
-current source, serving and installed-owner evidence.
+and [publication #8457](https://github.com/hushh-labs/hushh-research/pull/8457)
+are on main. [Dev 40207330968](https://github.com/hushh-labs/hushh-research/actions/runs/40207330968)
+serves application `c4aeb1ca09` at 100%; the exact qualified pod remains source
+`9174abfbe594`, image `6e57f251…eeac423`. Azure's approved update is verified;
+GCP's completed Files bootstrap still has an unconfirmed image handoff. Preserve
+its held operation; the exhausted queue continuation must not be repeated.
 
-The exact new image passes native Browser interactive component qualification and
-fresh recovery from both installed predecessors. Next publish reviewed qualification
-and recovery metadata using the original image/source/archive; do not rebuild it.
-Then install through normal exact owner approval, accept the installed journeys
-and promote the accepted application to UAT. Component controls and synthetic
-consent do not substitute for owner HTTP/reconnect acceptance. The controlled-site
-policy does not qualify broad website compatibility or authenticated GitHub.
+UAT run `40208297820` targeted application `6afe430826`, not its workflow-head
+revision, and rolled back after missing portfolio analytics. Both UAT services
+remain `24545d1dc2`. Peer Dev run `40213126854` stopped at the unsettled Shared
+Files erasure fence. Reconcile these prerequisites before another rollout; keep
+cleanup uncertainty and historical checksums intact. The
+[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
+actual source, serving and installed-owner results.
+
+Native Browser and predecessor recovery evidence remains valid for the immutable
+image. Installed controls, login, cloud session custody, reconnect and Puppy still
+need acceptance. Controlled-site qualification is not general website or GitHub
+compatibility. Batch the source corrections, run the completed candidate's core
+mirror once and exact-SHA hosted CI, then follow dev-first acceptance and UAT.
 
 Real-mail isolated acceptance completes two same-Firebase-UID deletion/enrollment
 cycles with retired-session refusal. Ordinary generation admission remains dark

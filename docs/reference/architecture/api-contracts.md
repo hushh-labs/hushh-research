@@ -57,6 +57,15 @@ flowchart TB
 
 ---
 
+## Request-specific revocation
+
+`POST /api/consent/revoke` preserves the optional `requestId` from the web client
+through the Next.js proxy to the canonical lifecycle service. A supplied selector
+must be a nonempty string of at most 128 characters; invalid selectors refuse
+before forwarding. Omitting it retains the existing scope-wide operation.
+The vault-owner token still authorizes only the authenticated owner's grants.
+Never discard a supplied selector and silently widen the requested revocation.
+
 ## Azure software-update continuation
 
 An `upgrade_started` result from the existing Azure authorization-completion
