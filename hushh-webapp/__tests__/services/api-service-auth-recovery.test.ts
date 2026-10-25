@@ -11,6 +11,7 @@ vi.mock("@/lib/observability/client", () => ({ toDurationBucket: () => "fast", t
 vi.mock("@/lib/observability/route-map", () => ({ resolveRouteId: () => "test-route" }));
 vi.mock("@/lib/motion/api-progress-tracker", () => ({ trackRequestStart: vi.fn(), trackRequestEnd: vi.fn() }));
 import { ApiService } from "@/lib/services/api-service";
+import { ComputerUseClient } from "@/lib/services/computer-use-client";
 import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { AUTH_SESSION_INVALIDATED_EVENT } from "@/lib/auth/session-invalidation";
 import { AuthService } from "@/lib/services/auth-service";
@@ -25,6 +26,25 @@ function makeUnsignedToken(payload: Record<string, unknown>): string {
 beforeEach(() => { vi.clearAllMocks(); mockFetch.mockReset(); publishValidatedAuthSessionOwner(null); });
 afterEach(() => vi.restoreAllMocks());
 describe("ApiService authentication recovery", () => {
+  it("admits Browser only with its captured Firebase/application principal and session episode", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user-1", ownerId, accountGeneration: 1 });
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "user-1" } as never);
+    const admission = vi.spyOn(ApiService, "getComputerUseAdmission").mockResolvedValue({ ownerId, podId: "pod", environment: "development" });
+    vi.spyOn(ApiService, "ownerPodRequest").mockImplementation(async () => jsonResponse({
+      available: true, owner_id: ownerId, pod_id: "pod", incarnation: "incarnation", environment: "development",
+    }));
+    const client = new ComputerUseClient(ownerId);
+    const signal = new AbortController().signal;
+    await expect(client.capability(signal)).resolves.toMatchObject({ available: true });
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "another-user" } as never);
+    await expect(client.capability(signal)).rejects.toThrow("BROWSER_OWNER_UNAVAILABLE");
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "user-1" } as never);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user-1", ownerId: "acct_" + "b".repeat(32), accountGeneration: 2 });
+    await expect(client.capability(signal)).rejects.toThrow("BROWSER_OWNER_UNAVAILABLE");
+    expect(admission).toHaveBeenCalledOnce();
+  });
+
   it("scopes a Firebase terminal response to the admitted replacement owner", async () => {
     const ownerId = "acct_" + "3".repeat(32);
     publishValidatedAuthSessionPrincipal({ firebaseUid: "user-1", ownerId, accountGeneration: 1 });

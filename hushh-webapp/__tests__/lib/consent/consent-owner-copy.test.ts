@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
+import { OwnerFacingConsentError } from "@/lib/consent/consent-owner-copy";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 
 import {
   consentEntryInformationLabel,
@@ -134,5 +139,22 @@ describe("the request's own labels", () => {
       metadata: { request_source: "one_person_profile" } })).toBe("Food preferences");
     expect(consentEntryInformationLabel({ scope: "attr.food.preferences.kind", scope_description: "Preferences" }))
       .toBe(consentInformationLabel({ scope: "attr.food.preferences.kind" }));
+  });
+});
+
+describe("owner consent error delivery", () => {
+  it.each([true, false])("shows only trusted owner-decision copy after failed Allow (trusted=%s)", async trusted => {
+    const message = "This request's information changed. Ask them to send a new request.";
+    const error = trusted ? new OwnerFacingConsentError(message) : new Error(message);
+    const showError = vi.spyOn(morphyToast, "error").mockReturnValue(1);
+    try {
+      render(createElement(FeedActionableRow, { item: {
+        id: "consent-request", title: "Information request", icon: () => null,
+        iconTone: "blue", description: "Waiting for your answer", sortAt: 0,
+        actions: [{ key: "allow", label: "Allow", tone: "primary", run: async () => { throw error; } }],
+      } }));
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Allow" })); });
+      expect(showError).toHaveBeenCalledWith(trusted ? message : "That didn't go through. Try again.");
+    } finally { showError.mockRestore(); }
   });
 });

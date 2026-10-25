@@ -30,6 +30,7 @@ in-context path did not exist yet.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -71,6 +72,28 @@ class _FakeDb:
 
     def table(self, name: str) -> _FakeQuery:
         return _FakeQuery(self._tables.get(name, []))
+
+
+class _CallerMetadataConnection:
+    def __init__(self, tables, owner):
+        self.tables, self.owner = tables, owner
+
+    async def fetch(self, statement, bound_owner):
+        assert bound_owner == self.owner
+        assert "WHERE user_id=$1" in statement
+        table = statement.split(" FROM ", 1)[1].split(" ", 1)[0]
+        return [
+            {
+                key: json.dumps(value) if isinstance(value, (dict, list)) else value
+                for key, value in row.items()
+            }
+            for row in self.tables.get(table, [])
+        ]
+
+
+class _ForbiddenDatabase:
+    def table(self, _name):
+        raise AssertionError("Caller transaction must not open a separate database read")
 
 
 def _generator_with_onboarded_manifest() -> DynamicScopeGenerator:
@@ -172,6 +195,7 @@ def test_information_scope_catalog_matches_token_scope_grammar():
     assert exact_entries == [
         {
             "scope": "attr.professional.profile.title",
+            "registry_handle": None,
             "label": "Title",
             "description": None,
             "domain": "professional",
@@ -182,6 +206,7 @@ def test_information_scope_catalog_matches_token_scope_grammar():
         },
         {
             "scope": "attr.professional.profile.entities._entities.summary",
+            "registry_handle": None,
             "label": "Entity summary",
             "description": None,
             "domain": "professional",
@@ -193,28 +218,7 @@ def test_information_scope_catalog_matches_token_scope_grammar():
     ]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "posture,enabled,state,count,visible,internal,eligible",
-    [
-        ("consent_required", True, "materialized", 1, True, False, True),
-        ("private", True, "materialized", 1, True, False, False),
-        ("consent_required", False, "materialized", 1, True, False, False),
-        ("consent_required", True, "empty", 0, True, False, False),
-        ("consent_required", True, "materialized", 1, False, False, False),
-        ("consent_required", True, "materialized", 1, True, True, False),
-    ],
-)
-async def test_answer_catalog_maps_opaque_registry_authority(
-    monkeypatch, posture, enabled, state, count, visible, internal, eligible
-):
-    from hushh_mcp.consent.answer_scope_resolution import validate_resolved_scopes
-    from hushh_mcp.services import connections_service
-    from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
-    from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
-
-    owner, requester = "synthetic-owner", "synthetic-requester"
-    opaque, scope = "s_0123456789ab", "attr.travel.trips.destination"
+def _policy_generator(opaque, *, posture, enabled, state, count, visible, internal):
     projection = {
         "top_level_scope_path": "trips",
         "materialization_state": state,
@@ -263,7 +267,48 @@ async def test_answer_catalog_maps_opaque_registry_authority(
             ],
         }
     )
-    entries = await generator.get_available_scope_entries(owner)
+    return generator
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "posture,enabled,state,count,visible,internal,eligible",
+    [
+        ("consent_required", True, "materialized", 1, True, False, True),
+        ("private", True, "materialized", 1, True, False, False),
+        ("consent_required", False, "materialized", 1, True, False, False),
+        ("consent_required", True, "empty", 0, True, False, False),
+        ("consent_required", True, "materialized", 1, False, False, False),
+        ("consent_required", True, "materialized", 1, True, True, False),
+    ],
+)
+@pytest.mark.parametrize("transactional", [False, True])
+async def test_answer_catalog_maps_opaque_registry_authority(
+    monkeypatch, posture, enabled, state, count, visible, internal, eligible, transactional
+):
+    from hushh_mcp.consent.answer_scope_resolution import validate_resolved_scopes
+    from hushh_mcp.services import connections_service
+    from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+    from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+    owner, requester = "synthetic-owner", "synthetic-requester"
+    opaque, scope = "s_0123456789ab", "attr.travel.trips.destination"
+    generator = _policy_generator(
+        opaque,
+        posture=posture,
+        enabled=enabled,
+        state=state,
+        count=count,
+        visible=visible,
+        internal=internal,
+    )
+    connection = None
+    if transactional:
+        tables = generator._db._tables
+
+        connection = _CallerMetadataConnection(tables, owner)
+        generator._db = _ForbiddenDatabase()
+    entries = await generator.get_available_scope_entries(owner, connection=connection)
     monkeypatch.setattr(
         connections_service,
         "_default_scope_entries_lookup",
