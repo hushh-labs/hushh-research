@@ -44,6 +44,9 @@ export async function getSafeJourneyState(page, expectedUserId) {
     const bootstrapStates = ["authenticated", "vault_unlocked", "auth_error", "uid_mismatch", "vault_error"];
     const path = window.location.pathname;
     const tab = new URLSearchParams(window.location.search).get("tab");
+    const text = document.body?.textContent || "";
+    const readinessMessages = ["Checking session", "Checking secure session", "Checking your setup", "Checking phone requirement", "Reconnecting securely"];
+    const placement = document.querySelector("[data-kai-placement]")?.getAttribute("data-kai-placement");
     return {
       route: ["/login", "/kai", "/one/kai"].includes(path) ? path : "other",
       tab: ["market", "portfolio", "profile"].includes(tab) ? tab : "other",
@@ -54,7 +57,12 @@ export async function getSafeJourneyState(page, expectedUserId) {
       portfolioPanelActive: Boolean(document.querySelector('#top-shell-finance-panel-portfolio[aria-hidden="false"]')),
       portfolioOverviewPresent: Boolean(document.querySelector('[data-testid="portfolio-overview"]')),
       portfolioImportPresent: Boolean(document.querySelector('[data-testid="portfolio-import-upload-statement"]')),
-      accountLoadingPresent: document.body?.textContent?.includes("Loading your account...") || false,
+      accountLoadingPresent: text.includes("Loading your account..."),
+      sessionVerificationPresent: Boolean(document.querySelector("#session-verification-title")),
+      registrationRecoveryPresent: Boolean(document.querySelector("#registration-recovery-title")),
+      vaultUnlockPresent: Boolean(document.querySelector("#unlock-passphrase")),
+      readinessMessage: readinessMessages.find(message => text.includes(message)) || "none",
+      kaiPlacement: ["private", "unverified"].includes(placement) ? placement : "none",
     };
   }, expectedUserId);
 }
