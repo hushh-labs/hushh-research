@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-19.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-25.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -15,6 +15,61 @@ another navigation stack, WebView, session, or information store.
 
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
+
+### Root-worktree coverage and Calendar mapping — 2026-10-25
+
+The root worktree supersedes the retired ADK checkout as the active source.
+The inspection baseline is `2737492a6a`; preserve subsequent peer changes.
+Profile and Chat are **partially native**, not completely qualified. The
+authored roster now contains 15 ordinary destinations, plus guarded Developer
+tools and Sign out. Older 13-destination runs cannot cover the expanded roster.
+
+| Shared family / destination | Current renderer and operation owner | Qualification / rollback |
+| --- | --- | --- |
+| Chat shell, One/Puppy, dock and History | Existing retained native adapters; React owns separate drafts, routes and operations. Transcript and rich cards remain React. | Qualification-only custom shell; ordinary builds retain the established renderer. |
+| Account, Pricing, Memory, World Model, Preferences, Security, Devices, Invite friends, Help and Legal | Existing typed Profile pages/editors and shared feature callbacks; rich/unaccepted details use the complete React handoff. | Source mapping exists; exact-current-candidate transitions, accessibility, mutations and Release performance are not established by this scan. |
+| Hosting and Software updates | Complete React `AgentSettingsPanel` inside the owned content pane. | Deliberate retained renderer; do not add page IDs without mapping deployment/recovery and provider states. |
+| Payouts | Complete React Payments and earnings owner. | Keep the legacy native Hashcoin projection disabled: it omits newer funding, refunds and Answer-return operations. |
+| Connectors, including Chat/Drive setup | Complete React feature owners; Profile's native connector projection requires a retained presentation port that its current caller does not supply. | Do not enable the stale projection or duplicate private/shared connector readers. |
+| Calendar workspace and setup | React content; existing `HushhAuth.connectCalendar` shared-runtime native authorization and ApiService transport. Private hosting retains the owner-pod connector flow. | Both routes now enter the native functional inventory. This is audit admission, not new SwiftUI/glass adoption or OAuth/device acceptance. |
+| Mail, Connect, Consent and Wallet swipe tabs | Existing React pager/query owners. | Keep their continuous motion and retained drafts; do not replace them with a second native selection authority. |
+
+The native route inventory previously excluded Calendar and its setup page
+despite their existing native authorization path. The surface-map author also
+described them as browser-only. Both are corrected together. Calendar setup
+now emits its own route/marker rather than impersonating the Calendar workspace;
+the nearest rendered-owner test binds both inventory rows to their actual
+authenticated, settled beacons. A failed connection read now reports `error`
+with a bounded code rather than passing as `unavailable-valid`; Retry restores
+the loading state and clears that code. The anonymous reschedule capability reader
+remains a browser-only exception. No new token store or mutation path is added.
+
+Next bounded adoption candidates are short directory/account menus and finite
+Calendar duration choices. The Connect directory trigger moves inside the
+existing pager/content: the current stationary 44-point native-control adapter
+is not sufficient. An independent native popup must own its complete lifetime
+without replacing that moving trigger. Calendar date inputs already use the
+platform form control; no glass overlay is needed merely to open a native picker.
+Mail/Consent/Wallet route tabs remain deliberate retained families.
+
+The installed iPhone app reports version 1.4.1 (69). It currently admits credential-free XCTest and normal
+passphrase unlock. One attach-only route/keyboard journey passes across three
+destinations with one composer and a retained warm session. It exercises the
+already-installed candidate, **not this newly mapped root source**; no new app
+was installed for this scan. Credentials stay process-only, raw private results
+are deleted, and no reviewer records are changed. OS authorization is observed
+now, not guaranteed indefinitely. Current-source physical visual/accessibility
+and three Release performance runs remain separate qualification gates.
+
+Verification for this mapping batch: 51 existing Calendar owner/service checks
+pass, including both rendered route/marker cases; restoring the old shared
+marker makes the setup case fail while the workspace case still passes. The
+corrected cases pass again. The existing retry test also fails on the earlier
+false-success status beacon. Native static parity and 501 existing Back-hierarchy
+checks pass. The existing UI-contract generator refreshes the surface map and
+dependent orchestration/capability/topology mirrors; it adds no new action or
+route authority. Founder Wiki freshness is unverified because no Wiki tool is
+available in this session.
 
 ### App haptics and shared cancellation checkpoint — 2026-10-19
 

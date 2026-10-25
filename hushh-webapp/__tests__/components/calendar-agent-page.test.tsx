@@ -90,6 +90,7 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), promise: v
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import nativeRoutes from "@/native-route-inventory.json";
 
 describe("CalendarAgentPage", () => {
   beforeEach(() => {
@@ -313,6 +314,23 @@ describe("CalendarAgentPage", () => {
     expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ["workspace", "/one/calendar"],
+    ["onboarding", "/one/setup/calendar"],
+  ] as const)("keeps the %s native audit bound to its actual route and rendered marker", async (journeyVariant, route) => {
+    mocks.native = true;
+    mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
+    render(<CalendarAgentPage journeyVariant={journeyVariant} />);
+    const entry = nativeRoutes.routes.find(candidate => candidate.route === route);
+    expect(entry?.classification).toBe("native-required-functional");
+    expect(entry).toHaveProperty("expectedMarker");
+    if (!entry || !("expectedMarker" in entry)) throw new Error("Calendar native audit entry is missing");
+    const beacon = await screen.findByTestId(entry.expectedMarker!);
+    await waitFor(() => expect(beacon).toHaveAttribute("data-native-data-state", "empty-valid"));
+    expect(beacon).toHaveAttribute("data-native-route-id", entry.expectedRoute);
+    expect(beacon).toHaveAttribute("data-native-auth-state", "authenticated");
+  });
+
   it("keeps the Calendar connection surface focused on connection", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
@@ -451,12 +469,16 @@ describe("CalendarAgentPage", () => {
     mocks.status.mockRejectedValueOnce(new Error("Request failed"));
     render(<CalendarAgentPage />);
     const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(screen.getByTestId("native-route-calendar")).toHaveAttribute("data-native-data-state", "error");
+    expect(screen.getByTestId("native-route-calendar")).toHaveAttribute("data-native-error-code", "calendar_status_unavailable");
     expect(screen.getByText("Calendar connection couldn’t load. Try again.")).toBeTruthy();
     expect(screen.queryByText("Checking Calendar connection…")).toBeNull();
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
     let resolveStatus!: (value: unknown) => void;
     mocks.status.mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
     fireEvent.click(retry);
+    expect(screen.getByTestId("native-route-calendar")).toHaveAttribute("data-native-data-state", "loading");
+    expect(screen.getByTestId("native-route-calendar")).toHaveAttribute("data-native-error-code", "");
     expect(screen.getByRole("status").textContent).toBe("Checking Calendar connection…");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
