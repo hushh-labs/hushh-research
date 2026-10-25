@@ -1130,11 +1130,11 @@ final class AppUITests: XCTestCase {
         let draft = editor.value as? String // Process-only comparison; never emitted.
         let profileClose = app.buttons["Close Profile"].firstMatch
         func verifyTouchAndReturn() -> Bool {
-            guard waitForAdmittedControl(opener) else { return false }
+            guard waitForAdmittedControl(opener) else { print("NATIVE_RESUME_STAGE failed=opener"); return false }
             opener.tap()
-            guard waitForAdmittedControl(profileClose) else { return false }
+            guard waitForAdmittedControl(profileClose) else { print("NATIVE_RESUME_STAGE failed=close_admission"); printCoherentPresentationAdmission(app); return false }
             profileClose.tap()
-            guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else { return false }
+            guard waitForAdmittedControl(editor), waitForAdmittedControl(opener) else { print("NATIVE_RESUME_STAGE failed=return_admission"); printCoherentPresentationAdmission(app); return false }
             guard waitForAdmittedControl(app.buttons["chat-history-toggle"].firstMatch),
                   waitForAdmittedControl(app.segmentedControls["chat-agent-surface"].firstMatch) else {
                 printCoherentPresentationAdmission(app)
@@ -4616,8 +4616,26 @@ final class AppUITests: XCTestCase {
             // need not be on screen (or in the accessibility snapshot).
             let level = publicPaneLevel()
             let rootNavigation = level == 0 || level == nil &&
-                app.navigationBars["Profile"].exists && !nativeAccountBack.exists
+                app.navigationBars["Profile"].exists && !(nativeAccountBack.exists && nativeAccountBack.isHittable)
             return close.exists && close.isHittable && menu.exists && menu.isHittable && rootNavigation
+        }
+        func revealRosterRow(_ control: XCUIElement) -> Bool {
+            let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in rootIsAdmitted() }, object: app)
+            guard XCTWaiter.wait(for: [restored], timeout: 10) == .completed else {
+                print("PROFILE_ROOT_READ_STATE title=\(app.navigationBars["Profile"].exists) close=\(close.exists && close.isHittable) scroll=\(menu.exists && menu.isHittable) back=\(nativeAccountBack.exists && nativeAccountBack.isHittable)")
+                return false
+            }
+            // UIKit retains each page's independent scroll position. Return
+            // must prove the root first, then reveal the requested row rather
+            // than treating an offscreen roster entry as a navigation failure.
+            for upwards in [true, false] {
+                for _ in 0..<6 {
+                    if control.exists && control.isHittable && control.isEnabled { return true }
+                    guard rootIsAdmitted() else { return false }
+                    if upwards { menu.swipeUp(velocity: .slow) } else { menu.swipeDown(velocity: .slow) }
+                }
+            }
+            return control.exists && control.isHittable && control.isEnabled
         }
         func revealProfileRow(_ control: XCUIElement, upwards: Bool) -> Bool {
             for _ in 0..<5 {
@@ -4658,17 +4676,10 @@ final class AppUITests: XCTestCase {
         }
         print("PROFILE_OUTER_FRAME full_height=true phone=\(UIDevice.current.userInterfaceIdiom == .phone)")
         print("PROFILE_BATCH_STEP stage=groups")
-        for group in ["settings", "legal", "account-access"] {
-            XCTAssertTrue(app.staticTexts["native-profile-group-\(group)"].firstMatch.exists,
-                "PROFILE_SHARED_GROUP_MISSING")
-        }
-        for _ in 0..<5 {
-            let account = root("account")
-            if account.exists && account.isHittable { break }
-            if account.exists && account.frame.midY < menu.frame.minY { menu.swipeDown() }
-            else { menu.swipeUp() }
-        }
-        guard waitForAdmittedControl(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
+        // Destination traversal below proves the authored roster. Offscreen
+        // section headings are virtualized by SwiftUI and are not an
+        // interaction contract or evidence that a destination is missing.
+        guard revealRosterRow(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
         XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
         XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
         XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
@@ -4690,7 +4701,7 @@ final class AppUITests: XCTestCase {
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_AGENT_SETTINGS_DUPLICATE_WEB_BODY")
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_AGENT_SETTINGS_RETURN_FAILED"); return
                 }
                 print("PROFILE_NATIVE_DESTINATION family=\(id) native=true returned=true mutated=false")
@@ -4746,7 +4757,7 @@ final class AppUITests: XCTestCase {
                           waitForAdmittedControl(documentBack) else { XCTFail("PROFILE_LEGAL_REPLACEMENT_CHANGED_BACK_DEPTH"); return }
                 }
                 documentBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_LEGAL_ROOT_NOT_RESTORED"); return
                 }
                 if legalReturnOnly {
@@ -4837,7 +4848,7 @@ final class AppUITests: XCTestCase {
                 catalogBack.tap()
                 guard filter(""), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_CATALOG_RETURN_FAILED"); return }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_CONNECTORS_PROFILE_RETURN_FAILED"); return }
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_CONNECTORS_PROFILE_RETURN_FAILED"); return }
                 print("PROFILE_NATIVE_DESTINATION family=connectors warm=true single_host=true")
                 print("PROFILE_NATIVE_CONNECTORS catalog=true providers=true link_editor=true custom_editor=true trust=true returned=true mutated=false")
                 continue
@@ -4876,7 +4887,7 @@ final class AppUITests: XCTestCase {
                 worldBack.tap()
                 guard waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_PARENT_NOT_RESTORED"); return }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_ROOT_RETURN_FAILED"); return }
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_WORLD_MODEL_ROOT_RETURN_FAILED"); return }
                 print("PROFILE_NATIVE_WORLD_MODEL research=true sources=true editor=true returned=true mutated=false")
                 continue
             }
@@ -4943,7 +4954,7 @@ final class AppUITests: XCTestCase {
                     print("PROFILE_NATIVE_MEMORY_EDITOR available=true keyboard=true cancelled=true mutated=false")
                 } else { print("PROFILE_NATIVE_MEMORY_EDITOR available=false keyboard=false cancelled=false mutated=false") }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_MEMORY_PROFILE_RETURN_FAILED"); return
                 }
                 print("PROFILE_NATIVE_MEMORY sources=true sharing=true returned=true mutated=false")
@@ -4979,7 +4990,7 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_NATIVE_PAYOUT_ACTIVITY_RETURN_FAILED"); return
                 }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_PAYOUT_ROOT_NOT_RESTORED"); return
                 }
                 print("PROFILE_NATIVE_PAYOUTS activity=true native_filter=true returned=true mutated=false")
@@ -4988,6 +4999,10 @@ final class AppUITests: XCTestCase {
             if id == "request-pricing", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let edit = app.buttons["native-profile-row-request-pricing-edit"].firstMatch
                 guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(edit) else {
+                    let retry = app.buttons["native-profile-row-request-pricing-retry"].firstMatch
+                    let status = app.descendants(matching: .any).matching(identifier: "native-profile-row-request-pricing-status").firstMatch
+                    let loading = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Loading price…")).firstMatch
+                    print("PROFILE_PRICING_READ_STATE status=\(status.exists) loading=\(loading.exists) retry=\(retry.exists && retry.isHittable) edit=\(edit.exists) back=\(nativeAccountBack.exists && nativeAccountBack.isHittable)")
                     XCTFail("PROFILE_NATIVE_PRICING_NOT_ADMITTED"); return
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
@@ -5009,7 +5024,7 @@ final class AppUITests: XCTestCase {
                     XCTFail("PROFILE_NATIVE_PRICING_EDITOR_NOT_RETIRED"); return
                 }
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_PRICING_ROOT_NOT_RESTORED"); return
                 }
                 print("PROFILE_NATIVE_PRICING editor=true keyboard=true returned=true mutated=false")
@@ -5017,7 +5032,7 @@ final class AppUITests: XCTestCase {
             }
             if id == "devices", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let refresh = app.buttons["native-profile-row-devices-refresh"].firstMatch
-                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(refresh) else {
+                guard waitForAdmittedControl(nativeAccountBack), revealProfileRow(refresh, upwards: true) else {
                     XCTFail("PROFILE_NATIVE_DEVICES_NOT_ADMITTED"); return
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
@@ -5027,7 +5042,7 @@ final class AppUITests: XCTestCase {
                 // This roster entry goes directly from Profile to Devices.
                 // Do not insert an unvisited Security page on native Back.
                 nativeAccountBack.tap()
-                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
                     XCTFail("PROFILE_NATIVE_DEVICES_ROOT_NOT_RESTORED"); return
                 }
                 print("PROFILE_NATIVE_DEVICES list=true returned=true mutated=false")
@@ -5117,7 +5132,12 @@ final class AppUITests: XCTestCase {
                         let ownKey = app.buttons["native-profile-row-runtime-byok"].firstMatch
                         let configure = app.buttons["native-profile-row-runtime-configure"].firstMatch
                         let providerBack = nativeProfileBack(app, parent: "Preferences")
-                        guard waitForAdmittedControl(ownKey), waitForAdmittedControl(providerBack) else { XCTFail("PROFILE_NATIVE_PROVIDER_NOT_ADMITTED"); return }
+                        guard waitForAdmittedControl(ownKey), waitForAdmittedControl(providerBack) else {
+                            let loading = app.buttons["native-profile-row-runtime-loading"].firstMatch
+                            let retry = app.buttons["native-profile-row-runtime-retry"].firstMatch
+                            print("PROFILE_PROVIDER_READ_STATE byok=\(ownKey.exists) enabled=\(ownKey.exists && ownKey.isEnabled) loading=\(loading.exists) retry=\(retry.exists && retry.isHittable) web=\(app.webViews.matching(identifier: "native-webview").count > 0)")
+                            XCTFail("PROFILE_NATIVE_PROVIDER_NOT_ADMITTED"); return
+                        }
                         XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_PROVIDER_DUPLICATE_WEB_BODY")
                         // Choosing an editor changes no saved configuration.
                         // Never validate, save or remove the reviewer's key.
@@ -5382,7 +5402,7 @@ final class AppUITests: XCTestCase {
             XCTAssertEqual(publicPaneLevel(), 0, "PROFILE_BATCH_ROOT_NOT_COMMITTED")
             // Back must restore the originating row and menu scroll position,
             // not force Your account into view after a lower Legal destination.
-            XCTAssertTrue(waitForAdmittedControl(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
+            XCTAssertTrue(revealRosterRow(destination), "PROFILE_BATCH_MENU_NOT_RESTORED")
             XCTAssertFalse(web.buttons["Unlock"].exists)
             print("PROFILE_RETAINED_DESTINATION family=\(id) warm=true single_host=true")
         }

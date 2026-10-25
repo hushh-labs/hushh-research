@@ -61,14 +61,32 @@ without replacing that moving trigger. Calendar date inputs already use the
 platform form control; no glass overlay is needed merely to open a native picker.
 Mail/Consent/Wallet route tabs remain deliberate retained families.
 
-The installed iPhone app reports version 1.4.1 (69). It currently admits credential-free XCTest and normal
-passphrase unlock. One attach-only route/keyboard journey passes across three
-destinations with one composer and a retained warm session. It exercises the
-already-installed candidate, **not this newly mapped root source**; no new app
-was installed for this scan. Credentials stay process-only, raw private results
-are deleted, and no reviewer records are changed. OS authorization is observed
-now, not guaranteed indefinitely. Current-source physical visual/accessibility
-and three Release performance runs remain separate qualification gates.
+The installed local Release qualification binary is `e211246c5f`, version
+1.4.1 (69), on iPhone 16e/iOS 27.2 Beta. Its 1,737 exported web files match the
+installed bundle; committed dependency pins and code signing were checked.
+Later changes through `edef3cea5e` affect the runner or documentation, not that
+product payload. Normal launch without diagnostic arguments and canonical
+passphrase unlock pass. This is a local candidate, not a TestFlight release.
+
+Current warm-session evidence covers Account confirmation cancellation, Phone
+keyboard/return without sending, Payments activity/filter, Memory's sources,
+sharing and private readers, World Model research/sources/editor return, and
+Security's Vault-method/protected-editor cancellation. Profile is full-height
+and phone-width. A Memory editor was unavailable and is not counted as tested.
+Connector traversal reached catalog, provider, link/custom editors and Drive
+trust; its root-return assertion exposed an offscreen-row assumption in the
+runner and needs completion after that correction. SwiftUI virtualizes roster
+headings, so their offscreen absence is not a missing-destination failure.
+
+This candidate explicitly uses the **dev replica**, serving `c927b76281`.
+UAT serves `24545d1dc2`, whose account-session response lacks the current owner
+and generation contract and cannot qualify this client. Dev's document-sharing
+flag is off; Request pricing correctly receives HTTP 503 and its editor remains
+unqualified. Provider readiness, remaining destinations, rendered transitions,
+accessibility and three physical Release performance runs still require their
+own evidence. Dev results do not establish UAT or distribution acceptance.
+Credentials remain process-only; raw private results are destroyed and reviewer
+records are unchanged. XCTest authorization is observed, not guaranteed to persist.
 
 Verification for this mapping batch: 51 existing Calendar owner/service checks
 pass, including both rendered route/marker cases; restoring the old shared

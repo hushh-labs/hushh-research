@@ -2,6 +2,7 @@
 
 ## Visual Context
 
+The [personal-agent map](README.md#visual-map) owns the architecture overview.
 The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
 current source, serving and installed-owner evidence.
 
