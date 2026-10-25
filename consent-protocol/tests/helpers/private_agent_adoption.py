@@ -1,5 +1,39 @@
 """Reviewed schema-only adoption fixtures; no owner rows or runtime authority."""
 
+import psycopg2
+import pytest
+
+
+def assert_receipt_ledger_preserved(connection, receipts, sequence):
+    """Prove retained 904 rows and independent 913 receipt chains on PostgreSQL."""
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT to_jsonb(r),ctid::text FROM public.consent_audit_receipts r
+          WHERE subject_id='synthetic-retained' ORDER BY id""")
+        assert cursor.fetchall() == [
+            ({**row, "ledger": "consent"}, row_location) for row, row_location in receipts
+        ]
+        cursor.execute("SELECT last_value,is_called FROM public.consent_audit_receipts_id_seq")
+        assert cursor.fetchone() == sequence
+        cursor.execute("""SELECT a.attnotnull,pg_get_expr(d.adbin,d.adrelid,true)
+          FROM pg_attribute a JOIN pg_attrdef d
+            ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+          WHERE a.attrelid='public.consent_audit_receipts'::regclass AND a.attname='ledger'""")
+        assert cursor.fetchone() == (True, "'consent'::text")
+        cursor.execute("BEGIN")
+        try:
+            cursor.execute("""INSERT INTO public.consent_audit_receipts
+              (subject_id,ledger,seq,event_type,issued_at_ms,prev_hash,hash,signature)
+              VALUES('synthetic-retained','internal',1,'synthetic-independent',0,'',
+                'synthetic-hash','synthetic-signature')""")
+            with pytest.raises(psycopg2.errors.UniqueViolation):
+                cursor.execute("""INSERT INTO public.consent_audit_receipts
+                  (subject_id,seq,event_type,issued_at_ms,prev_hash,hash,signature)
+                  VALUES('synthetic-retained',1,'synthetic-duplicate',0,'',
+                    'synthetic-hash','synthetic-signature')""")
+        finally:
+            cursor.execute("ROLLBACK")
+
+
 RECEIPT_PREDECESSORS = (
     (
         "904_consent_audit_receipts.sql",

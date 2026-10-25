@@ -33,6 +33,7 @@ from tests.helpers.private_agent_adoption import (
     LEGACY_PREDECESSOR_SCHEMA,
     LEGACY_TRIGGERS,
     RECEIPT_PREDECESSORS,
+    assert_receipt_ledger_preserved,
 )
 from tests.pkm_conformance.postgres_harness import find_pg_bin
 from tests.test_migrations_are_replay_safe import replay_pg
@@ -487,28 +488,5 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
         expected = () if mode is MigrationMode.LEDGER else (FOUNDATION,)
         assert asyncio.run(execute_mode(replay_pg, database, entry, mode)) == expected
         assert authorization_state(connection) == normalized
-        assert receipt_state(connection) == [
-            ({**row, "ledger": "consent"}, row_location) for row, row_location in receipts
-        ]
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT last_value,is_called FROM public.consent_audit_receipts_id_seq")
-            assert cursor.fetchone() == receipt_sequence
-            cursor.execute("""SELECT a.attnotnull,pg_get_expr(d.adbin,d.adrelid,true)
-              FROM pg_attribute a JOIN pg_attrdef d
-                ON d.adrelid=a.attrelid AND d.adnum=a.attnum
-              WHERE a.attrelid='public.consent_audit_receipts'::regclass AND a.attname='ledger'""")
-            assert cursor.fetchone() == (True, "'consent'::text")
-            cursor.execute("BEGIN")
-            try:
-                cursor.execute("""INSERT INTO public.consent_audit_receipts
-                  (subject_id,ledger,seq,event_type,issued_at_ms,prev_hash,hash,signature)
-                  VALUES('synthetic-retained','internal',1,'synthetic-independent',0,'',
-                    'synthetic-hash','synthetic-signature')""")
-                with pytest.raises(psycopg2.errors.UniqueViolation):
-                    cursor.execute("""INSERT INTO public.consent_audit_receipts
-                      (subject_id,seq,event_type,issued_at_ms,prev_hash,hash,signature)
-                      VALUES('synthetic-retained',1,'synthetic-duplicate',0,'',
-                        'synthetic-hash','synthetic-signature')""")
-            finally:
-                cursor.execute("ROLLBACK")
+        assert_receipt_ledger_preserved(connection, receipts, receipt_sequence)
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
