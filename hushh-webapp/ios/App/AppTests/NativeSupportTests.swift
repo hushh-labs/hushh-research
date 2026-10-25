@@ -1545,6 +1545,7 @@ final class NativeSupportTests: XCTestCase {
             await fulfillment(of: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 guard let frame = rowFrames[id] else { return false }
                 return !controller.model.navigationTransitioning &&
+                    controller.model.profileNavigationController?.hasCompletedProjectedDestination == true &&
                     controller.model.profileNavigationController?.viewControllers.count == controller.model.navigationPath.count + 1 &&
                     !frame.isEmpty && window.bounds.contains(frame)
             }, object: nil)], timeout: 3)
@@ -1609,6 +1610,12 @@ final class NativeSupportTests: XCTestCase {
         print("PUBLIC_PROFILE_TRANSITION back_writes=\(repeatedBackTitleWrites) title_writes=\(repeatedTitleWrites) bar_tint_writes=\(repeatedBarTintWrites) ancestor_tint_writes=\(repeatedTintWrites) style_writes=\(repeatedStyleWrites)")
         let accountController = try XCTUnwrap(envelopeNavigation.visibleViewController)
         let accountChildren = accountController.children
+        XCTAssertTrue(rootController.view.accessibilityElementsHidden,
+            "A retained covered Profile page cannot remain an accessibility owner")
+        XCTAssertFalse(rootController.view.isUserInteractionEnabled,
+            "Only the visible Profile destination may receive body interaction")
+        XCTAssertFalse(accountController.view.accessibilityElementsHidden)
+        XCTAssertTrue(accountController.view.isUserInteractionEnabled)
         XCTAssertEqual(accountController.navigationItem.backButtonDisplayMode, .minimal,
             "Nested pages must keep the same Back geometry for their own children")
         repeatedBackTitleWrites = 0; repeatedTitleWrites = 0; repeatedBarTintWrites = 0
@@ -1676,6 +1683,12 @@ final class NativeSupportTests: XCTestCase {
         controller.update(returned)
         await requireClose("Returned Profile root")
         await requireRow("row-handle")
+        XCTAssertTrue(envelopeNavigation.visibleViewController === rootController)
+        XCTAssertFalse(rootController.view.accessibilityElementsHidden)
+        XCTAssertTrue(rootController.view.isUserInteractionEnabled)
+        XCTAssertTrue(accountController.view.accessibilityElementsHidden,
+            "A popped cached destination must relinquish accessibility")
+        XCTAssertFalse(accountController.view.isUserInteractionEnabled)
         XCTAssertTrue(controller.model.allowsPageInteraction)
         XCTAssertTrue(controller.host === host)
         XCTAssertEqual(controller.motion.progress, 1)

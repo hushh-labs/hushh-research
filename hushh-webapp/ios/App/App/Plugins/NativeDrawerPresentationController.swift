@@ -365,8 +365,12 @@ final class NativeProfileNavigationController: UINavigationController, UINavigat
         navigationBar.isUserInteractionEnabled = admitted && !model.choicePending && model.projection.navigationLocked != true
         navigationBar.accessibilityElementsHidden = !admitted || model.choicePending || model.projection.navigationLocked == true
         for page in [rootPage] + Array(pages.values) {
-            page.viewIfLoaded?.isUserInteractionEnabled = admitted
-            page.viewIfLoaded?.accessibilityElementsHidden = !admitted
+            // Retention preserves the presentation, not interaction ownership.
+            // Covered and cached destinations must not compete with the
+            // visible page for touch or accessibility, including after a pop.
+            let active = admitted && page === visibleViewController
+            page.viewIfLoaded?.isUserInteractionEnabled = active
+            page.viewIfLoaded?.accessibilityElementsHidden = !active
         }
     }
     func retire() {

@@ -2170,6 +2170,18 @@ final class AppUITests: XCTestCase {
         let initialDraft = editor.value as? String // Process-only, never an artifact.
         let web = app.webViews.matching(identifier: "native-webview").firstMatch
         let webFrame = web.frame
+        var returnedToChat = false
+        // Register recovery before the first route change. Feed admission can
+        // fail too; that must not strand the next warm journey on another route.
+        defer {
+            if !returnedToChat {
+                perfTapNav(app, label: "Chat")
+                let restored = waitForAdmittedControl(editor)
+                print("NATIVE_BOTTOM_SCROLL_RETURN attempted=true restored=\(restored)")
+                XCTAssertTrue(restored, "NATIVE_BOTTOM_SCROLL_CHAT_RECOVERY_FAILED")
+                if restored { XCTAssertTrue((editor.value as? String) == initialDraft, "NATIVE_BOTTOM_SCROLL_RECOVERY_CHANGED_DRAFT") }
+            }
+        }
         // The compact launcher may correctly have no overflow. Qualify the
         // actual Feed page without changing roster preferences or adding rows.
         perfTapNav(app, label: "Feed")
@@ -2182,10 +2194,6 @@ final class AppUITests: XCTestCase {
         guard waitForAdmittedControl(bar), waitForAdmittedControl(dock) else {
             reportNativeDockAdmission(app)
             XCTFail("NATIVE_BOTTOM_SCROLL_FEED_NOT_ADMITTED"); return
-        }
-        var returnedToChat = false
-        defer {
-            if !returnedToChat { perfTapNav(app, label: "Chat") }
         }
         let layout = app.buttons["native-vault-layout"].firstMatch
         if layout.exists {
