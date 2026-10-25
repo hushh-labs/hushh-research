@@ -29793,7 +29793,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
       "siri_mode": "unsupported",
@@ -30197,7 +30197,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
       "siri_mode": "unsupported",
@@ -30601,7 +30601,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
       "siri_mode": "unsupported",
@@ -30702,7 +30702,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
       "siri_mode": "unsupported",
@@ -30803,7 +30803,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
       "siri_mode": "unsupported",

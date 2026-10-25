@@ -17,8 +17,10 @@ import {
 } from "@/lib/observability/env";
 import {
   resetWebGtmHitBudgetForTests,
+  refreshWebGtmPageContext,
   webGtmAdapter,
 } from "@/lib/observability/adapters/web-gtm";
+import { buildWebAnalyticsBootstrap, resolveAnalyticsPageContext } from "@/lib/observability/page-context";
 import type { ObservabilityEventName } from "@/lib/observability/events";
 
 declare global {
@@ -29,6 +31,23 @@ declare global {
 }
 
 const UAT_MEASUREMENT_ID = "G-H1KGXGZTCF";
+const DOCUMENT_REF = "11111111-2222-4333-8444-555555555555";
+
+function installContextAwareGtag() {
+  const globalContext: Record<string, unknown> = {};
+  const streamContext: Record<string, unknown> = {};
+  const hits: Array<Record<string, unknown>> = [];
+  const automatic = (event = "user_engagement", payload = {}) => {
+    hits.push({ event, page_location: window.location.href, page_referrer: document.referrer,
+      ...globalContext, ...streamContext, ...payload });
+  };
+  window.gtag = vi.fn((command: string, value: unknown, params?: Record<string, unknown>) => {
+    if (command === "set") Object.assign(globalContext, value);
+    if (command === "config") Object.assign(streamContext, params);
+    if (command === "event") automatic(String(value), params);
+  });
+  return { hits, automatic };
+}
 
 const api = (count: number): ObservabilityEventName[] =>
   Array.from({ length: count }, () => "api_request_completed");
@@ -115,10 +134,12 @@ describe("web observability transport", () => {
     window.gtag = vi.fn();
     delete window.google_tag_manager;
     resetWebGtmHitBudgetForTests();
+    window.history.replaceState(null, "", "/");
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("keeps product events deliverable when a dashboard burst meets gtag's event limit", async () => {
@@ -254,6 +275,8 @@ describe("web observability transport", () => {
         journey: "investor",
         step: "entered",
         app_version: "2.1.0",
+        page_location: "http://localhost/",
+        page_referrer: "",
       }
     );
   });
@@ -297,6 +320,8 @@ describe("web observability transport", () => {
         journey: "investor",
         portfolio_source: "statement",
         app_version: "2.1.0",
+        page_location: "http://localhost/",
+        page_referrer: "",
       }
     );
   });
@@ -318,5 +343,86 @@ describe("web observability transport", () => {
 
     expect(window.dataLayer).toEqual([]);
     expect(window.gtag).not.toHaveBeenCalled();
+  });
+
+  it("redacts protected locators from SDK defaults and explicit events", async () => {
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", UAT_MEASUREMENT_ID);
+    window.history.replaceState(null, "", `/one/documents/open?ref=${DOCUMENT_REF}#private-fragment`);
+    const sdk = installContextAwareGtag();
+    new Function("window", "document", buildWebAnalyticsBootstrap(UAT_MEASUREMENT_ID))(window, document);
+    sdk.automatic();
+    await trackThroughAdapter("page_view");
+    expect(sdk.hits).toHaveLength(2);
+    expect(sdk.hits.every((hit) => hit.page_location === "http://localhost/one/documents/open")).toBe(true);
+    expect(JSON.stringify(sdk.hits)).not.toContain(DOCUMENT_REF);
+    expect(JSON.stringify(window.dataLayer)).not.toContain(DOCUMENT_REF);
+  });
+
+  it("overrides implicit SDK URL defaults even before bootstrap context exists", async () => {
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", UAT_MEASUREMENT_ID);
+    window.history.replaceState(null, "", `/one/documents/open?ref=${DOCUMENT_REF}`);
+    vi.spyOn(document, "referrer", "get").mockReturnValue(window.location.href);
+    const sdk = installContextAwareGtag();
+    await trackThroughAdapter("page_view");
+    expect(sdk.hits).toHaveLength(1);
+    expect(sdk.hits[0].page_location).toBe("http://localhost/one/documents/open");
+    expect(sdk.hits[0].page_referrer).toBe("http://localhost/one/documents/open");
+    expect(JSON.stringify(sdk.hits)).not.toContain(DOCUMENT_REF);
+  });
+
+  it("keeps ordinary campaign URL defaults out of custom metadata-only dataLayer events", async () => {
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", UAT_MEASUREMENT_ID);
+    window.history.replaceState(null, "", "/one?utm_source=partner&email=synthetic%40example.invalid#private-id");
+    const referrer = "https://external.invalid/?utm_campaign=launch";
+    vi.spyOn(document, "referrer", "get").mockReturnValue(referrer);
+    const sdk = installContextAwareGtag();
+    await trackThroughAdapter("page_view");
+    expect(window.dataLayer).toEqual([{
+      event: "page_view", event_source: "observability_v2",
+      env: "uat", platform: "web", app_version: "1.1.0",
+    }]);
+    expect(JSON.stringify(window.dataLayer)).not.toContain("synthetic");
+    expect(window.dataLayer?.[0]).not.toHaveProperty("page_location");
+    expect(window.dataLayer?.[0]).not.toHaveProperty("page_referrer");
+    expect(sdk.hits[0].page_location).toBe(window.location.href);
+    expect(sdk.hits[0].page_referrer).toBe(referrer);
+  });
+
+  it("refreshes SDK defaults on exit and strips a protected first-party referrer", async () => {
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", UAT_MEASUREMENT_ID);
+    const protectedUrl = `http://localhost/one/documents/open?ref=${DOCUMENT_REF}#private-fragment`;
+    vi.spyOn(document, "referrer", "get").mockReturnValue(protectedUrl);
+    window.history.replaceState(null, "", `/one/documents/open?ref=${DOCUMENT_REF}`);
+    const sdk = installContextAwareGtag();
+    new Function("window", "document", buildWebAnalyticsBootstrap(UAT_MEASUREMENT_ID))(window, document);
+    window.history.replaceState(null, "", "/one?utm_source=partner&utm_campaign=launch#top");
+    refreshWebGtmPageContext();
+    expect(sdk.hits).toEqual([]);
+    sdk.automatic();
+    await trackThroughAdapter("page_view");
+    expect(sdk.hits.every((hit) => hit.page_location === window.location.href)).toBe(true);
+    expect(sdk.hits.every((hit) => hit.page_referrer === "http://localhost/one/documents/open")).toBe(true);
+    expect(JSON.stringify(sdk.hits)).not.toContain(DOCUMENT_REF);
+  });
+
+  it("keeps ordinary campaigns and external referrers while removing a protected login resume", () => {
+    const ordinary = "https://one.hussh.si/one?utm_source=Partner%20A&utm_campaign=launch#top";
+    const external = "https://external.invalid/one/documents/open?ref=external-campaign#section";
+    expect(resolveAnalyticsPageContext(ordinary, external)).toEqual({ page_location: ordinary, page_referrer: external });
+    const nested = `https://one.hussh.si/login?redirect=${encodeURIComponent(`/one/documents/open?ref=${DOCUMENT_REF}`)}&utm_source=partner#top`;
+    expect(resolveAnalyticsPageContext(nested, nested)).toEqual({
+      page_location: "https://one.hussh.si/login?utm_source=partner#top",
+      page_referrer: "https://one.hussh.si/login?utm_source=partner#top",
+    });
+    const neighbor = "https://one.hussh.si/one/documents/open-other?utm_source=partner#top";
+    expect(resolveAnalyticsPageContext(neighbor, ordinary)).toEqual({ page_location: neighbor, page_referrer: ordinary });
+  });
+
+  it("negative control: send_page_view false alone leaves automatic SDK URL defaults readable", () => {
+    window.history.replaceState(null, "", `/one/documents/open?ref=${DOCUMENT_REF}`);
+    const sdk = installContextAwareGtag();
+    new Function("window", "window.gtag('config','G-H1KGXGZTCF',{send_page_view:false});")(window);
+    sdk.automatic();
+    expect(JSON.stringify(sdk.hits)).toContain(DOCUMENT_REF);
   });
 });

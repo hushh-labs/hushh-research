@@ -169,6 +169,15 @@ bounded kinds, request/interaction/artifact binding and event-ID deduplication.
 Unknown country stays unknown. No arbitrary forwarded IP header becomes verified
 location; no exact location, screenshot or offline-forwarding claim is made.
 
+Product analytics uses the static `one_documents` route ID. Its SDK URL context
+removes document query/hash locators, including protected referrers and the
+document resume parameter nested in a login redirect. Custom `dataLayer` events
+retain their metadata-only schema; SDK configuration arguments are a separate
+context. Release verification must recheck that Enhanced Measurement is disabled
+on the governed web streams and inspect actual SDK collection with synthetic
+document locators. Payload tests do not qualify arbitrary custom vendor tags;
+changing those tags or enabling automatic collection requires fresh verification.
+
 Migration 423 registers ten request/crypto/obligation tables in the runtime
 data-plane contract. File/source metadata uses existing encrypted Drive custody;
 packages hold ciphertext descriptors and key envelopes, never plaintext keys.

@@ -219,7 +219,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
@@ -323,7 +323,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
@@ -441,7 +441,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
@@ -467,7 +467,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
@@ -493,7 +493,7 @@
         "vault_owner_token",
         "manual_user_execution"
       ],
-      "risk_level": "low",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
