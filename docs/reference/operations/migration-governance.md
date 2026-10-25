@@ -119,7 +119,8 @@ schema requires the separately reviewed forward qualification before re-enableme
 
 ## Canonical private-agent graduation and cleanup replay
 
-UAT run 1900 exposed a retained 904 receipt table without the later 913 `ledger`
+[UAT run 1900](https://github.com/hushh-labs/hushh-research/actions/runs/40196796880)
+exposed a retained 904 receipt table without the later 913 `ledger`
 column. The existing private-agent adoption adapter adds that reviewed column
 with the `consent` default before 420 validates the inventory and installs its
 ledger-aware indexes. Existing receipts and sequence positions are retained;

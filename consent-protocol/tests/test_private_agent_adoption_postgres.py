@@ -333,6 +333,11 @@ def reject_authorization_drift(connection, entry, before):
                 "ALTER TABLE public.consent_audit_receipts ALTER COLUMN ledger SET DEFAULT 'internal'",
                 "column",
             ),
+            (
+                "ALTER TABLE public.consent_audit_receipts ADD COLUMN IF NOT EXISTS ledger text NOT NULL DEFAULT 'consent'; "
+                "ALTER TABLE public.consent_audit_receipts ALTER COLUMN ledger DROP DEFAULT, ALTER COLUMN ledger TYPE boolean USING false",
+                "column",
+            ),
         )
     )
     with connection.cursor() as cursor:
