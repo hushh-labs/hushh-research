@@ -90,6 +90,14 @@ confirmation copy coexist with the lifecycle guards. The combined preview passed
 checks passed all 501 cases; combined Back/Search review receipts are regenerated.
 No broad source replacement or owner installation occurred.
 
+Main then advanced through [PR #8442](https://github.com/hushh-labs/hushh-research/pull/8442)
+to `ac37448c00` while the final push was running. Hosted run 40162104720
+correctly refused a stale combined Back receipt before expensive dependent
+suites. Merge `83ea60dc2b` preserves the incoming finance behavior and the
+shared API wrapper's lifecycle fences. The combined tree passes 168 frontend
+cases and 79 affected backend cases; no migration changed. All 501 Back cases pass and combined Back/Search receipts are regenerated.
+Exact-head hosted clearance remains required before landing.
+
 Main `3895a3d902` is now preserved through merge `fd67dcd5c9`, including its approved
 PWM lead policy and privacy-safe probe diagnostics. Its 99 affected backend cases
 pass. The retained ADK branch is unchanged at `48140fcd70`. The task-owned HTTPS
