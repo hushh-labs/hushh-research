@@ -337,7 +337,40 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
       const bounds = (await page.getByRole("button", { name: "Send message" }).boundingBox())!;
       return bounds.y + bounds.height;
     }).toBeLessThanOrEqual(height - keyboardHeight + 1);
+    await expect.poll(async () => {
+      const bounds = (await dock.boundingBox())!;
+      return height - keyboardHeight - bounds.y - bounds.height;
+    }).toBeGreaterThanOrEqual(6);
+    await expect.poll(async () => {
+      const bounds = (await dock.boundingBox())!;
+      return height - keyboardHeight - bounds.y - bounds.height;
+    }).toBeLessThanOrEqual(10);
+    await expect(page.locator("[data-direct-message-composer-input]")).toHaveValue("A draft above the keyboard");
     await assertTranscriptClear();
+    if (inset === 0 && width === 393) {
+      for (const mode of ["mobile-web", "resized"] as const) {
+        await page.setViewportSize({ width, height: mode === "resized" ? height - keyboardHeight : height });
+        await page.evaluate(mode => {
+          const root = document.documentElement;
+          root.classList.toggle("native-keyboard-inset", mode !== "mobile-web");
+          root.classList.toggle("kb-resizes", mode === "resized");
+          root.style.setProperty("--kb-height", mode === "resized" ? "0px" : "300px");
+          if (mode === "mobile-web") root.style.setProperty("--kb-visible-height", "544px");
+          else root.style.removeProperty("--kb-visible-height");
+          window.dispatchEvent(new Event("resize"));
+        }, mode);
+        await expect.poll(async () => {
+          const bounds = (await dock.boundingBox())!;
+          return height - keyboardHeight - bounds.y - bounds.height;
+        }).toBeGreaterThanOrEqual(6);
+        await expect.poll(async () => {
+          const bounds = (await dock.boundingBox())!;
+          return height - keyboardHeight - bounds.y - bounds.height;
+        }).toBeLessThanOrEqual(10);
+        await expect(page.locator("[data-direct-message-composer-input]")).toHaveValue("A draft above the keyboard");
+        await assertTranscriptClear();
+      }
+    }
   });
 }
 
@@ -625,6 +658,57 @@ for (const width of [320, 768]) test(`file and voice bubbles stay usable with na
   await page.screenshot({ path: test.info().outputPath(`file-voice-${width}.png`), animations: "disabled" });
   expect(errors).toEqual([]);
 });
+test("individual chats send, play, reload and reply to video attachments", async ({ page, browserName }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  const errors = await mount(page, false, false, false, "idle", { preview: true });
+  // A 64x48 H.264 clip recorded from a solid-color canvas, with no personal media.
+  const clip = Buffer.from("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", "base64");
+  await page.getByRole("button", { name: "Add attachment", exact: true }).click();
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("menuitem", { name: "Video", exact: true }).click();
+  await (await chooser).setFiles({ name: "Shared clip.mp4", mimeType: "video/mp4", buffer: clip });
+  await expect(page.getByLabel("Selected attachment")).toContainText("Shared clip.mp4");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  const sent = page.locator("[data-chat-message]").filter({ hasText: "Shared clip.mp4" });
+  await expect(sent).toBeVisible();
+  await expect(sent.getByRole("button", { name: "Download Shared clip.mp4", exact: true })).toBeEnabled();
+  await expect(sent.locator("video")).toHaveCount(0);
+  await sent.getByRole("button", { name: "Open video", exact: true }).click();
+  const video = sent.getByLabel("Video: Shared clip.mp4", { exact: true });
+  await expect(video).toBeVisible();
+  await expect(video).toHaveJSProperty("controls", true);
+  await expect(video).toHaveJSProperty("playsInline", true);
+  if (browserName === "webkit" && process.platform === "win32") {
+    // This WebKit build rejects the reference MP4 outside the app too.
+    // Keep picker/player/reply/lifecycle proof; qualify codec playback separately.
+    test.info().annotations.push({ type: "codec-limitation", description: "Windows WebKit rejects the reference MP4; actual playback is verified in Chromium." });
+  } else {
+    await expect.poll(() => video.evaluate((node: HTMLVideoElement) => node.readyState)).toBeGreaterThanOrEqual(1);
+    await video.evaluate(async (node: HTMLVideoElement) => { node.loop = true; await node.play(); });
+    await expect(video).toHaveJSProperty("paused", false);
+    await video.evaluate((node: HTMLVideoElement) => node.pause());
+  }
+  const firstUrl = await video.getAttribute("src");
+  await sent.getByRole("button", { name: "Reload video", exact: true }).click();
+  await expect.poll(() => video.getAttribute("src")).not.toBe(firstUrl);
+  if (browserName !== "webkit" || process.platform !== "win32") {
+    await expect.poll(() => video.evaluate((node: HTMLVideoElement) => node.readyState)).toBeGreaterThanOrEqual(1);
+    await video.evaluate(async (node: HTMLVideoElement) => { node.loop = true; await node.play(); });
+    await expect(video).toHaveJSProperty("paused", false);
+    await video.evaluate((node: HTMLVideoElement) => node.pause());
+  }
+  await page.screenshot({ path: test.info().outputPath("individual-chat-video.png"), animations: "disabled" });
+  await holdMessage(page, sent);
+  await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
+  await expect(page.locator('[class*="composerReplyPreview"]')).toContainText("Attachment");
+  await page.getByRole("textbox", { name: "Message Maya Rao", exact: true }).fill("A reply to the video");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Go to original message from you", exact: true })).toContainText("Attachment");
+  await page.getByRole("button", { name: "Back to messages", exact: true }).click();
+  await expect(page.locator("video")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 for (const scrollAway of [false, true]) test(`a delayed inline photo preserves ${scrollAway ? "the reader’s scrolled position" : "bottom alignment"}`, async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 }); const errors = await mount(page);
   await fixture(page, "fixture.addPhoto()");
