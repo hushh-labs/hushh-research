@@ -25,6 +25,13 @@ import {
 import { auth } from "@/lib/firebase/config";
 
 export class HushhAuthWeb implements HushhAuthPlugin {
+  async startPhoneDeletionVerification(): Promise<never> {
+    throw new Error("Use AuthService for web phone verification.");
+  }
+  async confirmPhoneDeletionVerification(): Promise<never> {
+    throw new Error("Use AuthService for web phone verification.");
+  }
+  async cancelPhoneDeletionVerification(): Promise<void> {}
   async authorizeGoogleContacts(_options: { expectedUserId: string }): Promise<import("../index").NativeGoogleContactsAuthorization> {
     throw new Error("Native Google Contacts authorization is unavailable on web.");
   }

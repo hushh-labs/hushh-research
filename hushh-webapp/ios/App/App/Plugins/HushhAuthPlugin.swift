@@ -119,6 +119,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authorizeGoogleContacts", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reauthenticateGoogleIdentity", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startPhoneDeletionVerification", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmPhoneDeletionVerification", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelPhoneDeletionVerification", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectGmail", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectCalendar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectDrive", returnType: CAPPluginReturnPromise),
@@ -132,6 +135,46 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - Properties
     private let TAG = "HushhAuth"
+    private var deletionPhoneProof: DeletionPhoneProof?
+
+    public override func load() {
+        super.load()
+        DispatchQueue.main.async {
+            if self.ensureFirebaseConfigured() {
+                self.deletionPhoneProof = try? DeletionPhoneProof(primary: Auth.auth())
+            }
+        }
+    }
+
+    deinit {
+        let proof = deletionPhoneProof
+        DispatchQueue.main.async { proof?.invalidate() }
+    }
+
+    @objc func startPhoneDeletionVerification(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let proof = self.deletionPhoneProof else {
+                call.reject("Phone verification is unavailable.", "phone_verification_failed"); return
+            }
+            proof.start(call)
+        }
+    }
+
+    @objc func confirmPhoneDeletionVerification(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let proof = self.deletionPhoneProof else {
+                call.reject("Request a new verification code.", "auth/session-expired"); return
+            }
+            proof.confirm(call)
+        }
+    }
+
+    @objc func cancelPhoneDeletionVerification(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.deletionPhoneProof?.cancel(call)
+            if self.deletionPhoneProof == nil { call.resolve() }
+        }
+    }
     private var currentIdToken: String?
     private var currentAccessToken: String?
     private var googleInteractiveInFlight = false
@@ -1269,6 +1312,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             DispatchQueue.main.async { self.signOut(call) }
             return
         }
+        deletionPhoneProof?.invalidate()
         if let operation = identityReauthentication { finishIdentity(operation, code: "session_changed") }
         if let capture = googleContactsCapture {
             rejectGoogleContacts(capture, code: "session_changed")

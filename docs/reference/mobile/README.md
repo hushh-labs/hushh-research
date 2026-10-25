@@ -261,3 +261,7 @@ host stops.
 - [capacitor-parity-audit-report.md](./capacitor-parity-audit-report.md): latest release-ready audit findings.
 - [render-performance-charter.md](./render-performance-charter.md): the frame-pacing bar in numbers, the in-app probe, the native instruments, and the ratchet that defends it.
 - [../architecture/frontend-native-surface-map.md](../architecture/frontend-native-surface-map.md): route to API/native/plugin/voice mapper scaffold.
+
+### Lost-vault deletion phone verification
+
+The shared lost-vault deletion form supports native country/phone entry and manual SMS codes through `HushhAuth.startPhoneDeletionVerification`, `confirmPhoneDeletionVerification`, and `cancelPhoneDeletionVerification`. Android also accepts instant verification. The bridge keeps phone proof separate from the signed-in Firebase identity and binds every result to an opaque attempt and the captured owner/session. See [the deletion contract](../one/lost-vault-account-deletion.md#current-implementation-boundaries) for SDK cleanup, persistence limits, and release requirements. Native SMS delivery and app-verification configuration require verification on a newly built app; browser viewport tests do not establish those behaviors.

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   validatePhone: vi.fn(),
   startPhoneProof: vi.fn(),
   getPhoneClaim: vi.fn(),
+  cancelPhoneProof: vi.fn(),
   deleteAccount: vi.fn(),
   prepareRecaptcha: vi.fn(),
   resetRecaptcha: vi.fn(),
@@ -41,7 +42,8 @@ vi.mock("@/lib/services/auth-service", () => ({
   AuthService: {
     reauthenticateAccountDeletionIdentity: mocks.reauthenticate,
     startPhoneDeletionVerification: mocks.startPhoneProof,
-    getPhoneClaimIdToken: mocks.getPhoneClaim,
+    confirmPhoneDeletionVerification: mocks.getPhoneClaim,
+    cancelPhoneDeletionVerification: mocks.cancelPhoneProof,
   },
 }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {} }));
@@ -122,8 +124,9 @@ describe("lost vault deletion", () => {
     mocks.resolvePhone.mockResolvedValue(null);
     mocks.reauthenticate.mockResolvedValue("fresh-provider-token");
     mocks.validatePhone.mockResolvedValue({ valid: true });
-    mocks.startPhoneProof.mockResolvedValue("verification-id");
+    mocks.startPhoneProof.mockResolvedValue({ verificationId: "verification-id" });
     mocks.getPhoneClaim.mockResolvedValue("phone-proof-token");
+    mocks.cancelPhoneProof.mockResolvedValue(undefined);
     mocks.prepareRecaptcha.mockResolvedValue({});
     mocks.deleteAccount.mockResolvedValue({
       success: true,
@@ -184,7 +187,7 @@ describe("lost vault deletion", () => {
         "fresh-provider-token",
         PHONE,
       );
-      expect(mocks.startPhoneProof).toHaveBeenCalledWith(PHONE, {});
+      expect(mocks.startPhoneProof).toHaveBeenCalledWith(PHONE, {}, { expectedUserId: user.uid, attemptId: expect.any(String) });
       expect(mocks.deleteAccount).not.toHaveBeenCalled();
       confirmDeletion();
       await screen.findByRole("link", { name: "Create a new account" });
@@ -282,7 +285,7 @@ describe("lost vault deletion", () => {
             ).toBeEnabled(),
           { timeout: 1600 },
         );
-        mocks.startPhoneProof.mockResolvedValue("new-verification-id");
+        mocks.startPhoneProof.mockResolvedValue({ verificationId: "new-verification-id" });
         fireEvent.click(
           screen.getByRole("button", { name: "Send another code" }),
         );
@@ -297,6 +300,8 @@ describe("lost vault deletion", () => {
       fireEvent.click(screen.getByRole("button", { name: "Verify code" }));
       await screen.findByRole("button", { name: "Permanently delete account" });
       expect(mocks.getPhoneClaim).toHaveBeenLastCalledWith({
+        expectedUserId: user.uid,
+        attemptId: expect.any(String),
         verificationCode: "123456",
         verificationId:
           code === "code-expired" ? "new-verification-id" : "verification-id",
@@ -375,7 +380,7 @@ describe("lost vault deletion", () => {
   });
 
   it("invalidates an outstanding SMS session on edit and prevents duplicate sends", async () => {
-    const late = deferred<string>();
+    const late = deferred<{ verificationId: string }>();
     mocks.startPhoneProof.mockReturnValue(late.promise);
     await openPhone();
     enterPhone();
@@ -386,7 +391,7 @@ describe("lost vault deletion", () => {
     });
     await waitFor(() => expect(mocks.startPhoneProof).toHaveBeenCalledTimes(1));
     enterPhone("+12125550100");
-    await act(async () => late.resolve("stale-verification-id"));
+    await act(async () => late.resolve({ verificationId: "stale-verification-id" }));
     expect(screen.queryByLabelText("Verification code")).toBeNull();
   });
 
@@ -444,14 +449,45 @@ describe("lost vault deletion", () => {
     expect(mocks.reauthenticate).not.toHaveBeenCalled();
   });
 
-  it("keeps native phone proof unavailable without exposing an unsupported sender", async () => {
+  it("supports native manual codes without web reCAPTCHA", async () => {
     mocks.native = true;
-    render(<LostVaultDeletePanel user={user} onBack={vi.fn()} />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Continue with Google" }),
-    );
-    expect(await screen.findByText(/unavailable in this app/)).toBeVisible();
-    expect(screen.queryByLabelText("Mobile number")).toBeNull();
-    expect(mocks.startPhoneProof).not.toHaveBeenCalled();
+    await openPhone();
+    await verifyPhone();
+    expect(mocks.validatePhone).toHaveBeenCalledWith("fresh-provider-token", PHONE);
+    expect(mocks.prepareRecaptcha).not.toHaveBeenCalled();
+    expect(mocks.startPhoneProof).toHaveBeenCalledWith(PHONE, undefined, {
+      expectedUserId: user.uid, attemptId: expect.any(String),
+    });
+    expect(await screen.findByRole("button", { name: "Permanently delete account" })).toBeDisabled();
+    expect(screen.queryByText(/phone check is unavailable/)).toBeNull();
+  });
+
+  it("accepts native instant proof but still requires deletion acknowledgement", async () => {
+    mocks.native = true;
+    mocks.startPhoneProof.mockResolvedValue({ phoneIdToken: "instant-phone-proof" });
+    await openPhone();
+    enterPhone();
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    expect(await screen.findByRole("button", { name: "Permanently delete account" })).toBeDisabled();
+    expect(screen.queryByLabelText("Verification code")).toBeNull();
+    expect(mocks.getPhoneClaim).not.toHaveBeenCalled();
+    confirmDeletion();
+    await screen.findByRole("link", { name: "Create a new account" });
+    expect(mocks.deleteAccount.mock.calls[0][0].phoneIdToken).toBe("instant-phone-proof");
+  });
+
+  it("cancels native pending proof on unmount and ignores a late instant result", async () => {
+    mocks.native = true;
+    const late = deferred<{ phoneIdToken: string }>();
+    mocks.startPhoneProof.mockReturnValue(late.promise);
+    const view = await openPhone();
+    enterPhone();
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    await waitFor(() => expect(mocks.startPhoneProof).toHaveBeenCalledTimes(1));
+    const attemptId = mocks.startPhoneProof.mock.calls[0][2].attemptId;
+    view.unmount();
+    expect(mocks.cancelPhoneProof).toHaveBeenCalledWith(attemptId);
+    await act(async () => late.resolve({ phoneIdToken: "stale-proof" }));
+    expect(mocks.deleteAccount).not.toHaveBeenCalled();
   });
 });
