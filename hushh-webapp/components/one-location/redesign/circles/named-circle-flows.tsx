@@ -2573,7 +2573,7 @@ export function CircleDetailFlow({
             </TabsList>
             <TabsContent value="chat" forceMount hidden={detailView !== "chat"} className="space-y-2">
               {renderChat?.(circle, { active: detailView === "chat", readingBlocked: photoSheetOpen || renameSheetOpen || inviteCodeSheetOpen || peopleSheetOpen || replaceCodeConfirmOpen })}
-              <button type="button" onClick={() => setDetailView("members")} className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-ring hover:bg-muted/40 sm:px-5" aria-label="View circle members">
+              <button type="button" data-circle-chat-members-summary onClick={() => setDetailView("members")} className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-ring hover:bg-muted/40 sm:px-5" aria-label="View circle members">
                 <span aria-hidden="true" className="flex shrink-0 -space-x-2">
                   {orbitMembers.slice(0, 4).map((member) => <ConnectionPersonAvatar key={member.userId} photoUrl={member.photoUrl} label={connectPersonName(member)} size="comfortable" className="!size-8 ring-2 ring-card" />)}
                   {visibleMemberCount > 4 ? <span className="flex size-8 items-center justify-center rounded-full bg-muted text-xs ring-2 ring-card">+{visibleMemberCount - 4}</span> : null}
