@@ -177,7 +177,15 @@ and supporting index definitions and validity before retiring them. The unchange
 420 body then installs the 948/916/913 successors in the same transaction. Existing
 `anypoint` placements still refuse the deployment-target transition. Noncanonical
 constraints or indexes refuse; receipt rows and their hashes are never rewritten.
-Canonical successors are retained without replacing their objects.
+Canonical successors are retained without replacing their objects. When an
+existing receipt table still lacks `ledger`, the same locked preparation must
+fully qualify and retire both 904 uniqueness constraints and its exact subject/id
+index before adding 913's `ledger TEXT NOT NULL DEFAULT 'consent'`. A partial or
+altered predecessor footprint refuses adoption; an existing ledger is left to
+420's exact column qualification. This adds the receipt namespace without
+updating existing payloads, sequence values, hashes or signatures. It does not
+re-sign old receipts or claim that a historical signing format passes the
+current cryptographic verifier.
 
 Qualification covers canonical-417 and rich-dev-972 upgrades, retained review,
 resource, consent, referral and encrypted credential records, backend/client roles,

@@ -211,9 +211,12 @@ def _predecessor_constraints_sql() -> str:
         "(" + ",".join("'" + value.replace("'", "''") + "'" for value in spec) + ")"
         for spec in _PREDECESSORS
     )
-    return """DO $private_agent_predecessors$
+    return (
+        """DO $private_agent_predecessors$
 DECLARE spec record; relation regclass; retained record; backing record; columns text[];
+ preledger boolean:=false; retired_receipt_uniques integer:=0; retired_receipt_index boolean:=false;
 BEGIN
+ @RECEIPT_STATE@
  FOR spec IN SELECT * FROM (VALUES @VALUES@)
   AS expected(table_name,name,kind,definition,successor_hash,columns) LOOP
   relation:=to_regclass(format('public.%I',spec.table_name));
@@ -259,18 +262,23 @@ BEGIN
    RAISE EXCEPTION 'Unqualified anypoint placement before private-agent adoption';
   END IF;
   EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I',spec.table_name,spec.name);
+  IF spec.kind='u' THEN retired_receipt_uniques:=retired_receipt_uniques+1; END IF;
  END LOOP;
+ @RECEIPT_LEDGER@
 END
 $private_agent_predecessors$;
 """.replace("@VALUES@", values)
+        .replace("@RECEIPT_STATE@", _preledger_state_sql())
+        .replace("@RECEIPT_LEDGER@", _preledger_finish_sql())
+    )
 
 
 def _predecessor_index_sql() -> str:
-    return """DO $private_agent_receipt_index$
+    return """<<receipt_index_adoption>>
 DECLARE relation regclass; retained record; signature text;
 BEGIN
  relation:=to_regclass('public.idx_consent_audit_receipts_subject');
- IF relation IS NULL THEN RETURN; END IF;
+ IF relation IS NULL THEN EXIT receipt_index_adoption; END IF;
  LOCK TABLE public.consent_audit_receipts IN SHARE UPDATE EXCLUSIVE MODE;
  SELECT i.*,pg_get_indexdef(i.indexrelid) AS definition INTO retained
   FROM pg_index i WHERE i.indexrelid=relation
@@ -284,14 +292,35 @@ BEGIN
   OR EXISTS(SELECT 1 FROM pg_constraint WHERE conindid=relation) THEN
   RAISE EXCEPTION 'Unqualified private-agent receipt index';
  END IF;
- IF signature='d9c1519f6ac0529791dfa55dd00d62de8a6a9b4de6a9bf7bd264bc8bc0debbb5' THEN RETURN; END IF;
+ IF signature='d9c1519f6ac0529791dfa55dd00d62de8a6a9b4de6a9bf7bd264bc8bc0debbb5' THEN EXIT receipt_index_adoption; END IF;
  IF signature<>'ceef0869d7a7093723742f8eb018a34a78b18a1af11a797ea3a2769a1858c3dd' THEN
   RAISE EXCEPTION 'Unqualified private-agent receipt index';
  END IF;
  LOCK TABLE public.consent_audit_receipts IN ACCESS EXCLUSIVE MODE;
  DROP INDEX public.idx_consent_audit_receipts_subject;
-END
-$private_agent_receipt_index$;
+ retired_receipt_index:=true;
+END receipt_index_adoption;
+"""
+
+
+def _preledger_state_sql() -> str:
+    return """IF to_regclass('public.consent_audit_receipts') IS NOT NULL THEN
+ LOCK TABLE public.consent_audit_receipts IN SHARE UPDATE EXCLUSIVE MODE;
+ preledger:=NOT EXISTS(SELECT 1 FROM pg_attribute
+  WHERE attrelid='public.consent_audit_receipts'::regclass AND attname='ledger'
+   AND attnum>0 AND NOT attisdropped);
+END IF;
+""" + _predecessor_index_sql()
+
+
+def _preledger_finish_sql() -> str:
+    return """IF preledger THEN
+ IF retired_receipt_uniques<>2 OR NOT retired_receipt_index THEN
+  RAISE EXCEPTION 'Incomplete pre-ledger consent receipt predecessor';
+ END IF;
+ --913 supplies a namespace, never a signature or a consent decision.
+ ALTER TABLE public.consent_audit_receipts ADD COLUMN ledger text NOT NULL DEFAULT 'consent';
+END IF;
 """
 
 
@@ -340,9 +369,7 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     column_anchor = "DO $pod_414$\nBEGIN\n IF EXISTS(SELECT 1 FROM pg_attribute a JOIN pg_class c"
     if entry.sql.count(column_anchor) != 1:
         raise MigrationAuthorityError("Private-agent adoption column inventory changed")
-    preparation = (
-        _authorization_attempts_sql() + _predecessor_constraints_sql() + _predecessor_index_sql()
-    )
+    preparation = _authorization_attempts_sql() + _predecessor_constraints_sql()
     sql = entry.sql.replace(column_anchor, preparation + column_anchor, 1)
     sql = _retention_inventory_sql(sql)
     qualified = block.replace(_ANCHOR, _ANCHOR + additions)
