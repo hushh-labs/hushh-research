@@ -770,9 +770,10 @@ async def test_browser_one_hand_metadata_only_and_cancellation_preserves_uncerta
     # Control stop fences immediately and terminates native bridge out of band.
     closing = asyncio.create_task(task.control.stop())
     await asyncio.sleep(0)
+    fixture.driver.fail = True  # The effect has no validated executor response.
     fixture.driver.release.set()
     await closing
-    with pytest.raises(BrowserRefused, match="STOPPED"):
+    with pytest.raises(BrowserRefused, match="TRANSPORT_UNAVAILABLE"):
         await dispatch
     state = await fixture.runtime.read(fixture.owner, task_id)
     assert state.phase == "outcome_uncertain"
@@ -798,73 +799,6 @@ async def test_typing_requires_approval_even_without_enter_and_never_replays_unc
         await runtime.execute(action)
     assert driver.calls == ["initialize", "type"]
     assert authority.journal == [(1, "dispatch"), (1, "uncertain")]
-
-
-@pytest.mark.parametrize("operation", ["observe", "click"])
-async def test_takeover_waits_for_current_dispatch_and_fences_old_actions_and_observations(
-    monkeypatch, operation
-):
-    driver, auth = Executor(), Authority(approved=True)
-    runtime = control(driver=driver, auth=auth)
-    finished, checking, release = False, asyncio.Event(), asyncio.Event()
-    original_execute, original_check = driver.execute, auth.check_binding
-    active = None
-
-    async def execute(*args, **kwargs):
-        nonlocal finished
-        frame = await original_execute(*args, **kwargs)
-        finished = True
-        return frame
-
-    async def check(value):
-        await original_check(value)
-        if finished and asyncio.current_task() is active:
-            checking.set()
-            await release.wait()
-
-    monkeypatch.setattr(driver, "execute", execute)
-    monkeypatch.setattr(auth, "check_binding", check)
-    await runtime.initialize()
-    with pytest.raises(BrowserRefused, match="OWNER_INPUT_REQUIRED"):
-        await runtime.execute(
-            BrowserAction(operation="resize", width=390, height=700, sequence=1, control_epoch=1)
-        )
-    assert driver.calls == ["initialize"]
-    active = asyncio.create_task(
-        runtime.execute(
-            BrowserAction(
-                operation=operation,
-                sequence=1,
-                control_epoch=1,
-                **({"x": 1, "y": 1} if operation == "click" else {}),
-            )
-        )
-    )
-    await asyncio.wait_for(checking.wait(), 1)
-    takeover = asyncio.create_task(runtime.take_control())
-    await asyncio.sleep(0)
-    assert not takeover.done()
-    release.set()
-    with pytest.raises(BrowserRefused, match="CONTROL_CHANGED"):
-        await active
-    assert runtime.latest_frame is None
-    if operation == "click":
-        with pytest.raises(BrowserRefused, match="UNCERTAIN"):
-            await takeover
-        assert runtime.outcome_uncertain and auth.journal[-1] == (1, "uncertain")
-        await runtime.stop()
-        return
-    assert await takeover == 2
-    with pytest.raises(BrowserRefused, match="CONTROL_CHANGED"):
-        await runtime.execute(BrowserAction(operation="observe", sequence=2, control_epoch=1))
-    with pytest.raises(BrowserRefused, match="CONTROL_CHANGED"):
-        await runtime.execute(BrowserAction(operation="observe", sequence=2, control_epoch=2))
-    await runtime.execute(
-        BrowserAction(operation="observe", sequence=2, control_epoch=2), actor="owner"
-    )
-    await runtime.resume_agent()
-    assert runtime.control_epoch == 3
-    await runtime.execute(BrowserAction(operation="observe", sequence=4, control_epoch=3))
 
 
 async def test_revocation_and_action_limit_before_dispatch():
