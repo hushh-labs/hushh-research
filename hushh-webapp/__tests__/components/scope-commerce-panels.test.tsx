@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import type { CommerceActivityItem, ScopeCommerceRequest, ScopeQuote } from "@/lib/services/scope-commerce-service";
 
 import { mocks, readiness, unavailable, balanceAccount } from "./scope-commerce-mocks.fixture";

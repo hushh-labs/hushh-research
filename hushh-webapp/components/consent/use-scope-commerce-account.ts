@@ -56,7 +56,8 @@ export function useScopeCommerceAccount({ active = true }: { active?: boolean } 
     value.recent_withdrawals?.some(item => ["queued", "pending", "processing", "transferred", "unknown"].includes(item.status)),
   ), active);
   const { user, data: account, refresh } = resource;
-  const current = useCallback(() => resource.capture()(), [resource.capture]);
+  const capture = resource.capture;
+  const current = useCallback(() => capture()(), [capture]);
   const actions = useCommerceAction(resource, "account");
   const { busy, message, setMessage, run } = actions;
   const managePayoutAccount = useCommerceManagement(resource, actions, ScopeCommerceService.managePayoutAccount);

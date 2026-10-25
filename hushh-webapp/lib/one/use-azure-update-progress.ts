@@ -234,6 +234,9 @@ function useRetryInPlace(watchSignIn: WatchSignIn, showError: (message: string |
  */
 export function useAzureUpdateProgress({ onSettled, enabled = true, ownerKey }: { onSettled?: () => void; enabled?: boolean; ownerKey?: string } = {}) {
   const scope = useMemo(() => ({ enabled, ownerKey, owner: snapshotValidatedAuthSessionOwner() }), [enabled, ownerKey]);
+  const [admittedScope, setAdmittedScope] = useState(scope);
+  const presenting = enabled && admittedScope === scope &&
+    (scope.ownerKey === undefined || !!scope.owner && isValidatedAuthSessionOwnerCurrent(scope.owner));
   const live = useRef<typeof scope | null>(scope);
   const current = useCallback(() => live.current === scope && scope.enabled &&
     (scope.ownerKey === undefined || !!scope.owner && isValidatedAuthSessionOwnerCurrent(scope.owner)), [scope]);
@@ -244,7 +247,7 @@ export function useAzureUpdateProgress({ onSettled, enabled = true, ownerKey }: 
   // faster than a render can land.
   const followedJob = useRef<string | null | undefined>(undefined);
   const settled = useCallback(() => { if (current()) onSettled?.(); }, [current, onSettled]);
-  const outcome = useAzureUpdateOutcome(current() ? follow : null, { onSettled: settled });
+  const outcome = useAzureUpdateOutcome(presenting ? follow : null, { onSettled: settled });
   const showClosed = useCallback(() => { if (current()) setPhase({ kind: "closed" }); }, [current]);
   const { start: startWatch, stop: stopWatch, markHandedOff } = usePopupCloseWatch(showClosed);
 
@@ -283,10 +286,11 @@ export function useAzureUpdateProgress({ onSettled, enabled = true, ownerKey }: 
   useLayoutEffect(() => {
     live.current = scope;
     dismiss();
+    setAdmittedScope(scope);
     return () => { if (live.current === scope) live.current = null; stopWatch(); };
   }, [scope, dismiss, stopWatch]);
 
-  const progress: AzureUpdateProgress = !current() ? IDLE : follow && outcome ? outcome : phase;
+  const progress: AzureUpdateProgress = !presenting ? IDLE : follow && outcome ? outcome : phase;
   return { progress, signInError, retrying, approve, watchSignIn, retry, dismiss };
 }
 

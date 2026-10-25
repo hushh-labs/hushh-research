@@ -25,7 +25,10 @@ export function usePrivateGoogleConnectorsModel({ open, visitKey }: { open: bool
   const transition = useGoogleConnectorTransitionReview(user?.uid, vaultEpoch);
   const { confirmTransition, cancelTransition } = transition;
   const auth = snapshotValidatedAuthSessionOwner();
-  const visit = useMemo(() => ({ open, uid: user?.uid, vaultEpoch, auth, visitKey }), [open, user?.uid, vaultEpoch, auth?.generation, visitKey]);
+  const authUserId = auth?.userId, authGeneration = auth?.generation;
+  const visit = useMemo(() => ({ open, uid: user?.uid, vaultEpoch, visitKey,
+    auth: authUserId && authGeneration !== undefined ? { userId: authUserId, generation: authGeneration } : null,
+  }), [open, user?.uid, vaultEpoch, authUserId, authGeneration, visitKey]);
   const live = useRef<typeof visit | null>(null);
   const pending = useRef<object | null>(null);
   const reads = useRef(0);

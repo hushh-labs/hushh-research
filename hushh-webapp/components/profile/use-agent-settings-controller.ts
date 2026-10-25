@@ -58,7 +58,10 @@ export function useAgentSettingsController({
   const router = useRouter();
   const follow = useAgentDeploymentFollow({ userId, enabled: enabled && !!userId });
   const auth = snapshotValidatedAuthSessionOwner();
-  const scope = useMemo(() => ({ userId, kind, enabled, auth }), [userId, kind, enabled, auth?.generation]);
+  const authUserId = auth?.userId, authGeneration = auth?.generation;
+  const scope = useMemo(() => ({ userId, kind, enabled,
+    auth: authUserId && authGeneration !== undefined ? { userId: authUserId, generation: authGeneration } : null,
+  }), [userId, kind, enabled, authUserId, authGeneration]);
   const liveScope = useRef<typeof scope | null>(scope);
   const displayedOwner = useRef(userId);
   // The follower resets its owner-scoped resource in its effect. Mask the

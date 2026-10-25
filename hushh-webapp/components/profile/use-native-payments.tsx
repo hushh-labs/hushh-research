@@ -10,12 +10,21 @@ import { parseCommerceDollarInput, formatCommerceMoney as money, formatCommerceM
 import { COMMERCE_SANDBOX_COPY } from "@/lib/services/scope-commerce-sandbox";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
-import type { NativeDrawerRow, NativeDrawerSection, NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import type { NativeDrawerRow, NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import { NativePaymentsEditor } from "./native-payments-editor";
 import type { NativePaymentsScene } from "@/lib/capacitor/native-profile-payments-scene";
 import { useNativePayouts } from "./use-native-payouts";
 
 type Panel = "funding" | "payouts" | "refunds" | "history" | null;
+class PaymentsVisit {
+  private live = false;
+  readonly handles = new Map<string, string>();
+  constructor(readonly enabled: boolean, readonly owner: string, readonly epoch: ReturnType<typeof snapshotVaultSessionEpoch>,
+    readonly auth: ReturnType<typeof snapshotValidatedAuthSessionOwner>) {}
+  isLive() { return this.live; }
+  activate() { this.live = true; }
+  retire() { this.live = false; this.handles.clear(); }
+}
 /** Compose, never pool, information-access, Answer and document financial owners. */
 export function useNativePayments(enabled: boolean, native: boolean, owner: string) {
   const pathname = usePathname(), query = useSearchParams(), router = useRouter();
@@ -24,14 +33,19 @@ export function useNativePayments(enabled: boolean, native: boolean, owner: stri
   const answer = useAnswerPayoutAccountModel(enabled && answerReturn);
   const document = useNativePayouts(native);
   const auth = snapshotValidatedAuthSessionOwner(), epoch = snapshotVaultSessionEpoch();
-  const visit = useMemo(() => ({ enabled, owner, auth, epoch, live: false,
-    handles: new Map<string, string>() }), [enabled, owner, auth?.generation, epoch]);
+  const authUserId = auth?.userId, authGeneration = auth?.generation;
+  const visit = useMemo(() => new PaymentsVisit(enabled, owner, epoch,
+    authUserId && authGeneration !== undefined ? { userId: authUserId, generation: authGeneration } : null),
+  [enabled, owner, authUserId, authGeneration, epoch]);
   const [admittedVisit, setAdmittedVisit] = useState<typeof visit>();
-  const current = useCallback(() => visit.enabled && visit.live && !!visit.auth && isValidatedAuthSessionOwnerCurrent(visit.auth) && isVaultSessionEpochCurrent(visit.epoch), [visit]);
+  const current = useCallback(() => visit.enabled && visit.isLive() && !!visit.auth && isValidatedAuthSessionOwnerCurrent(visit.auth) && isVaultSessionEpochCurrent(visit.epoch), [visit]);
   const [stored, setStored] = useState<{ visit: typeof visit; panel: Panel; receipt: string | null; page: number; form: NativePaymentsScene | null }>();
   const local = stored?.visit === visit ? stored : { visit, panel: null, receipt: null, page: 0, form: null };
-  const input = useRef<{ visit: typeof visit; scene: NativePaymentsScene; value: string; baseline: string; revision: number } | null>(null);
-  useLayoutEffect(() => { visit.live = true; setAdmittedVisit(visit); return () => { visit.live = false; visit.handles.clear(); if (input.current?.visit === visit) input.current = null; }; }, [visit]);
+  type Field = { id: object; visit: typeof visit; scene: NativePaymentsScene; value: string; baseline: string; revision: number };
+  const input = useRef<Field | null>(null);
+  const [fieldState, setFieldState] = useState<Field | null>(null);
+  useLayoutEffect(() => { input.current = fieldState?.visit === visit ? fieldState : null; }, [fieldState, visit]);
+  useLayoutEffect(() => { visit.activate(); setAdmittedVisit(visit); return () => { visit.retire(); if (input.current?.visit === visit) input.current = null; }; }, [visit]);
   const change = (patch: Partial<Omit<typeof local, "visit">>) => { if (current()) setStored({ ...local, ...patch }); };
   const history = useScopeCommerceActivity(enabled && native && local.panel === "history");
   const rows = new Map<string, () => Promise<void>>();
@@ -78,7 +92,8 @@ export function useNativePayments(enabled: boolean, native: boolean, owner: stri
   const openEditor = (scene: NativePaymentsScene) => {
     if (!current() || busy) return;
     const value = scene === "payment-funding" ? commerce.amount : commerce.country;
-    input.current = { visit, scene, value, baseline: value, revision: 0 }; change({ form: scene });
+    const field: Field = { id: {}, visit, scene, value, baseline: value, revision: 0 };
+    setFieldState(field); change({ form: scene });
   };
   if (local.panel === "funding") pages.push({ id: "commerce-funding", title: "Add funds", sections: [{ id: "commerce-funding-section", rows: [
     ...(a?.readiness?.capabilities.start_funding === true ? [action("commerce-amount", "Add to balance (USD)", () => openEditor("payment-funding"), busy), read("commerce-amount-value", "Amount", commerce.amount || "Not entered"),
@@ -152,7 +167,7 @@ export function useNativePayments(enabled: boolean, native: boolean, owner: stri
     const field = input.current;
     if (!current() || busy || !field || field.visit !== visit) return;
     if (!restore) { if (field.scene === "payment-funding") commerce.changeAmount(field.value); else commerce.changeCountry(field.value); }
-    input.current = null; change({ form: null });
+    input.current = null; setFieldState(null); change({ form: null });
   };
   const back = () => {
     if (busy) return true;
@@ -163,8 +178,8 @@ export function useNativePayments(enabled: boolean, native: boolean, owner: stri
     return document.back();
   };
   const reset = () => { if (busy) return false; commerce.closeReview(); closeEditor(true); change({ panel: null, receipt: null, page: 0, form: null }); document.reset(); return true; };
-  const field = input.current?.visit === visit ? input.current : null;
-  const validValue = () => { if (!field) return false; if (field.scene === "payment-country") return /^[A-Z]{2}$/.test(field.value); try { parseCommerceDollarInput(field.value, 50); return true; } catch { return false; } };
+  const field = fieldState?.visit === visit ? fieldState : null;
+  const validValue = (value: Field | null) => { if (!value) return false; if (value.scene === "payment-country") return /^[A-Z]{2}$/.test(value.value); try { parseCommerceDollarInput(value.value, 50); return true; } catch { return false; } };
   if (commerce.message && pages.length > 1) {
     const last = pages.at(-1)!;
     pages[pages.length - 1] = { ...last, sections: [...last.sections, { id: "payments-operation-state", rows: [read("payments-operation-message", commerce.message)] }] };
@@ -183,13 +198,14 @@ export function useNativePayments(enabled: boolean, native: boolean, owner: stri
     formScene: local.form,
     editor: (destinationId: string, onFallback: () => void) => field && local.form ? <NativePaymentsEditor owner={owner} destinationId={destinationId} scene={local.form}
       onClose={() => closeEditor(true)} onSaved={() => closeEditor(false)} onFallback={onFallback} model={{ current,
-        draft: { value: field.value }, inputRevision: () => field.revision, mutationPending: () => busy, busy, canSave: validValue(), error: null,
+        draft: { value: field.value }, inputRevision: () => input.current?.id === field.id ? input.current.revision : -1, mutationPending: () => busy, busy, canSave: validValue(field), error: null,
         changeDraft: (draft, expected) => {
-          if (!current() || busy || input.current !== field || expected !== undefined && expected !== field.revision || typeof draft.value !== "string" || draft.value.length > (field.scene === "payment-country" ? 2 : 64)) return false;
-          field.value = field.scene === "payment-country" ? draft.value.toUpperCase() : draft.value; field.revision++;
-          change({ form: field.scene });
+          const latest = input.current;
+          if (!current() || busy || !latest || latest.id !== field.id || expected !== undefined && expected !== latest.revision || typeof draft.value !== "string" || draft.value.length > (field.scene === "payment-country" ? 2 : 64)) return false;
+          const next = { ...latest, value: field.scene === "payment-country" ? draft.value.toUpperCase() : draft.value, revision: latest.revision + 1 };
+          input.current = next; setFieldState(next);
           return true;
-        }, save: async () => current() && !busy && validValue(),
+        }, save: async () => current() && !busy && input.current?.id === field.id && validValue(input.current),
       }} /> : null,
   };
 }
