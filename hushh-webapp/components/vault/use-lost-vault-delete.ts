@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type { User } from "firebase/auth";
+import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import {
   AccountService,
@@ -112,6 +113,7 @@ export function useLostVaultDelete(
       work: null as number | null,
       edited: false,
       submitted: false,
+      phoneAttempt: null as string | null,
     }),
     [generation],
   );
@@ -122,6 +124,10 @@ export function useLostVaultDelete(
     return () => {
       owner.active = false;
       owner.attempt += 1;
+      if (owner.phoneAttempt) {
+        void AuthService.cancelPhoneDeletionVerification(owner.phoneAttempt).catch(() => undefined);
+        owner.phoneAttempt = null;
+      }
       resetRecaptcha();
     };
   }, [owner]);
@@ -229,6 +235,10 @@ export function useLostVaultDelete(
     }
   }
   function clearPhoneProof() {
+    if (owner.phoneAttempt) {
+      void AuthService.cancelPhoneDeletionVerification(owner.phoneAttempt).catch(() => undefined);
+      owner.phoneAttempt = null;
+    }
     setVerificationId("");
     setPhoneProof("");
     setCode("");
@@ -297,20 +307,28 @@ export function useLostVaultDelete(
       );
       if (!valid(attempt)) return;
       if (match.valid !== true) throw new Error("phone_unavailable");
-      const verifier = await prepareRecaptchaVerifier(
-        "lost-vault-delete-recaptcha",
-      );
+      const verifier = Capacitor.isNativePlatform()
+        ? undefined
+        : await prepareRecaptchaVerifier("lost-vault-delete-recaptcha");
       if (!valid(attempt)) return;
-      const id = await AuthService.startPhoneDeletionVerification(
+      const phoneAttempt = crypto.randomUUID();
+      owner.phoneAttempt = phoneAttempt;
+      const result = await AuthService.startPhoneDeletionVerification(
         phone,
         verifier,
+        { expectedUserId: user.uid, attemptId: phoneAttempt },
       );
       if (!valid(attempt)) return;
-      setVerificationId(id);
+      if ("phoneIdToken" in result) {
+        owner.phoneAttempt = null;
+        setPhoneProof(result.phoneIdToken);
+        setStage("confirm");
+      } else setVerificationId(result.verificationId);
       setResendAt(Date.now() + RESEND_DELAY_MS);
       setNow(Date.now());
     } catch (cause) {
       if (!valid(attempt)) return;
+      clearPhoneProof();
       if (apiErrorCode(cause) === "ACCOUNT_DELETE_REAUTH_REQUIRED")
         requireReauthentication();
       else setError(phoneMessage(cause, true));
@@ -321,15 +339,18 @@ export function useLostVaultDelete(
   }
 
   async function verifyCode() {
-    if (!verificationId || !/^\d{6}$/.test(code)) return;
+    if (!verificationId || !owner.phoneAttempt || !/^\d{6}$/.test(code)) return;
     const attempt = begin();
     if (attempt === null) return;
     try {
-      const proof = await AuthService.getPhoneClaimIdToken({
+      const proof = await AuthService.confirmPhoneDeletionVerification({
+        expectedUserId: user.uid,
+        attemptId: owner.phoneAttempt!,
         verificationCode: code,
         verificationId,
       });
       if (!valid(attempt)) return;
+      owner.phoneAttempt = null;
       setPhoneProof(proof);
       setStage("confirm");
     } catch (cause) {

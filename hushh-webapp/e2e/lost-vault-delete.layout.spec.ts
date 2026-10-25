@@ -39,6 +39,15 @@ test.beforeAll(async () => {
     resolve: {
       alias: [
         {
+          find: "@capacitor/core",
+          replacement: path.join(root, "e2e/fixtures/lost-vault-delete-boundaries.tsx"),
+          // Keep session bootstrap on this fixture's synthetic web transport.
+          // The native variant covers phone UI, not native session restoration.
+          customResolver: (source, importer) => importer?.endsWith("/lib/firebase/auth-context.tsx")
+            ? path.join(root, "e2e/fixtures/profile-sign-out-boundaries.ts")
+            : source,
+        },
+        {
           find: /^(?:(?:.*\/)?(?:auth-service|api-service|account-identity-service)(?:\.ts)?|\.\.\/capacitor|\.\/config)$/,
           replacement: path.join(
             root,
@@ -47,7 +56,6 @@ test.beforeAll(async () => {
         },
         ...[
           "firebase/auth",
-          "@capacitor/core",
           "@/lib/firebase/config",
           "@/lib/services/auth-service",
           "@/lib/services/api-service",
@@ -138,11 +146,12 @@ test.afterAll(() => {
 });
 
 for (const viewport of [
-  { width: 393, height: 852 },
-  { width: 1440, height: 900 },
+  { width: 393, height: 852, native: false },
+  { width: 393, height: 852, native: true },
+  { width: 1440, height: 900, native: false },
 ]) {
   for (const outcome of ["identity_retained", "quarantined", "deleted"]) {
-    test(`lost-vault proof and terminal ${outcome} at ${viewport.width}px`, async ({
+    test(`lost-vault proof and terminal ${outcome} at ${viewport.width}px ${viewport.native ? "native" : "web"}`, async ({
       page,
     }, testInfo) => {
       const events: string[] = [];
@@ -162,7 +171,7 @@ for (const viewport of [
           body: `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><div id="root"></div><script>${script.replace(/<\/script/gi, "<\\/script")}</script></body></html>`,
         }),
       );
-      await page.goto(`https://lost-vault.test/one/connect?outcome=${outcome}`);
+      await page.goto(`https://lost-vault.test/one/connect?outcome=${outcome}&native=${viewport.native ? "1" : "0"}`);
       await awaitProductFont(page);
       await page.getByRole("button", { name: "Continue with Google" }).click();
       const phone = page.getByLabel("Mobile number");
