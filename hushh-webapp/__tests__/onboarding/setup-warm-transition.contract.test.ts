@@ -59,23 +59,10 @@ describe("setup warm-transition contract", () => {
     expect(bootstrap).not.toContain("VaultService.createVault(");
   });
 
-  it("keeps the native test vault bootstrap continuous while auth context publishes", () => {
-    const bootstrap = read("components/app-ui/native-test-bootstrap.tsx");
-
-    expect(bootstrap).toContain(
-      "await AuthService.signOut().catch(() => undefined)",
-    );
-    expect(bootstrap).toContain("setBootstrapUser(authenticatedUser)");
-    expect(bootstrap).toContain(
-      "nativeTestBootstrapUser ??\n      AuthService.getCurrentUser()",
-    );
-    expect(bootstrap).toContain("AuthService.restoreNativeSession()");
-    expect(bootstrap).toContain(
-      "PreVaultUserStateService.bootstrapState(vaultUser.uid)",
-    );
-    expect(bootstrap).toContain("if (!setupState.hasVault)");
-    expect(bootstrap).not.toContain("VaultService.checkVault(vaultUser.uid)");
-  });
+  // Owner-admitted auth handoff and delayed native restoration are exercised
+  // against NativeTestBootstrap in native-test-bootstrap-retry.test.tsx and
+  // native-test-bootstrap-persisted-session.test.tsx. A source-string fallback
+  // assertion here would require bypassing that application's owner admission.
 
   it("keeps native flow routing in one unlocked App Router document", () => {
     const router = read("components/app-ui/native-test-router.tsx");

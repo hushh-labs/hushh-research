@@ -121,8 +121,22 @@ describe("UAT analytics smoke delivery contract", () => {
     const diagnostic = await getSafeJourneyState(page, "synthetic-reviewer");
     expect(diagnostic).toEqual({ route: "other", tab: "other", bootstrapState: "other", bootstrapOwnerMatches: false,
       readOnly: true, financeWorkspacePresent: false, portfolioPanelActive: false, portfolioOverviewPresent: false,
-      portfolioImportPresent: false, accountLoadingPresent: false });
+      portfolioImportPresent: false, accountLoadingPresent: false, sessionVerificationPresent: false,
+      registrationRecoveryPresent: false, vaultUnlockPresent: false, readinessMessage: "none", kaiPlacement: "none" });
     expect(JSON.stringify(diagnostic)).not.toMatch(/private-|holdings|account details/i);
+  });
+
+  it("identifies a withheld session without exporting page text or unknown placement", async () => {
+    const page = { evaluate: (callback: (argument: unknown) => unknown, argument: unknown) =>
+      runInNewContext(`(${callback.toString()})(argument)`, { argument, URLSearchParams,
+        window: { location: { pathname: "/one/kai", search: "?tab=portfolio" } },
+        document: { querySelector: (selector: string) => selector === "#session-verification-title" ? {} :
+          selector === "[data-kai-placement]" ? { getAttribute: () => "private-owner-detail" } : null,
+          body: { textContent: "Checking secure session… private-account-secret" } },
+      }) };
+    const diagnostic = await getSafeJourneyState(page, "synthetic-reviewer");
+    expect(diagnostic).toMatchObject({ sessionVerificationPresent: true, readinessMessage: "Checking secure session", kaiPlacement: "none" });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/private-|account-secret/);
   });
 
   it("classifies requestfailed collect hits by their GA4 response", () => {
