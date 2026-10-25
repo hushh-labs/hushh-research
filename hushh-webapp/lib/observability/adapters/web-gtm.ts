@@ -77,8 +77,10 @@ export const webGtmAdapter: ObservabilityAdapter = {
     if (!this.isAvailable()) return;
     if (shouldDisableExternalTelemetryForAutomation()) return;
 
+    // GTM can dispatch synchronously on push. Refresh both SDK scopes before
+    // either transport, without expanding the schema-approved event payload.
+    refreshWebGtmPageContext();
     window.dataLayer = window.dataLayer || [];
-    const pageContext = resolveAnalyticsPageContext(window.location.href, document.referrer);
     const transportPayload = {
       event: eventName,
       event_source: "observability_v2",
@@ -101,7 +103,6 @@ export const webGtmAdapter: ObservabilityAdapter = {
       send_to: measurementId,
       event_source: "observability_v2",
       ...payload,
-      ...pageContext,
     });
   },
 };

@@ -172,8 +172,9 @@ location; no exact location, screenshot or offline-forwarding claim is made.
 Product analytics uses the static `one_documents` route ID. Its SDK URL context
 removes document query/hash locators, including protected referrers and the
 document resume parameter nested in a login redirect. Custom `dataLayer` events
-retain their metadata-only schema; SDK configuration arguments are a separate
-context. Release verification must recheck that Enhanced Measurement is disabled
+and direct SDK event parameters retain their metadata-only schema. SDK global and
+stream defaults refresh before dispatch; their configuration arguments carry the
+separate URL context. Release verification must recheck that Enhanced Measurement is disabled
 on the governed web streams and inspect actual SDK collection with synthetic
 document locators. Payload tests do not qualify arbitrary custom vendor tags;
 changing those tags or enabling automatic collection requires fresh verification.

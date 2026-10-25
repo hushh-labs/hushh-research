@@ -17,7 +17,6 @@ import {
 } from "@/lib/observability/env";
 import {
   resetWebGtmHitBudgetForTests,
-  refreshWebGtmPageContext,
   webGtmAdapter,
 } from "@/lib/observability/adapters/web-gtm";
 import { buildWebAnalyticsBootstrap, resolveAnalyticsPageContext } from "@/lib/observability/page-context";
@@ -262,7 +261,7 @@ describe("web observability transport", () => {
         app_version: "2.1.0",
       },
     ]);
-    expect(window.gtag).toHaveBeenCalledTimes(1);
+    expect(window.gtag).toHaveBeenCalledTimes(3);
     expect(window.gtag).toHaveBeenCalledWith(
       "event",
       "growth_funnel_step_completed",
@@ -275,8 +274,6 @@ describe("web observability transport", () => {
         journey: "investor",
         step: "entered",
         app_version: "2.1.0",
-        page_location: "http://localhost/",
-        page_referrer: "",
       }
     );
   });
@@ -307,7 +304,7 @@ describe("web observability transport", () => {
         app_version: "2.1.0",
       },
     ]);
-    expect(window.gtag).toHaveBeenCalledTimes(1);
+    expect(window.gtag).toHaveBeenCalledTimes(3);
     expect(window.gtag).toHaveBeenCalledWith(
       "event",
       "investor_activation_completed",
@@ -320,8 +317,6 @@ describe("web observability transport", () => {
         journey: "investor",
         portfolio_source: "statement",
         app_version: "2.1.0",
-        page_location: "http://localhost/",
-        page_referrer: "",
       }
     );
   });
@@ -370,6 +365,30 @@ describe("web observability transport", () => {
     expect(JSON.stringify(sdk.hits)).not.toContain(DOCUMENT_REF);
   });
 
+  it("refreshes both SDK scopes before synchronous GTM and metadata-only direct events", async () => {
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", UAT_MEASUREMENT_ID);
+    const sdk = installContextAwareGtag();
+    new Function("window", "document", buildWebAnalyticsBootstrap(UAT_MEASUREMENT_ID))(window, document);
+    window.history.replaceState(null, "", `/one/documents/open?ref=${DOCUMENT_REF}#private`);
+    const start = vi.mocked(window.gtag!).mock.calls.length;
+    const dataLayer = window.dataLayer!;
+    vi.spyOn(dataLayer, "push").mockImplementation((entry) => {
+      if (entry.event === "page_view") sdk.automatic("governed_gtm_dispatch", entry);
+      return Array.prototype.push.call(dataLayer, entry);
+    });
+    await trackThroughAdapter("page_view");
+    const commands = vi.mocked(window.gtag!).mock.calls.slice(start);
+    const safe = { page_location: "http://localhost/one/documents/open", page_referrer: "" };
+    expect(commands).toEqual([
+      ["set", safe],
+      ["config", UAT_MEASUREMENT_ID, { update: true, send_page_view: false, ...safe }],
+      ["event", "page_view", { send_to: UAT_MEASUREMENT_ID, event_source: "observability_v2", env: "uat", platform: "web", app_version: "1.1.0" }],
+    ]);
+    expect(sdk.hits).toHaveLength(2);
+    expect(sdk.hits.every((hit) => hit.page_location === safe.page_location)).toBe(true);
+    expect(JSON.stringify(sdk.hits)).not.toContain(DOCUMENT_REF);
+  });
+
   it("keeps ordinary campaign URL defaults out of custom metadata-only dataLayer events", async () => {
     vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", UAT_MEASUREMENT_ID);
     window.history.replaceState(null, "", "/one?utm_source=partner&email=synthetic%40example.invalid#private-id");
@@ -388,20 +407,29 @@ describe("web observability transport", () => {
     expect(sdk.hits[0].page_referrer).toBe(referrer);
   });
 
-  it("refreshes SDK defaults on exit and strips a protected first-party referrer", async () => {
+  it("refreshes stale protected SDK defaults at the event boundary on exit", async () => {
     vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", UAT_MEASUREMENT_ID);
     const protectedUrl = `http://localhost/one/documents/open?ref=${DOCUMENT_REF}#private-fragment`;
     vi.spyOn(document, "referrer", "get").mockReturnValue(protectedUrl);
     window.history.replaceState(null, "", `/one/documents/open?ref=${DOCUMENT_REF}`);
     const sdk = installContextAwareGtag();
     new Function("window", "document", buildWebAnalyticsBootstrap(UAT_MEASUREMENT_ID))(window, document);
+    // A stale stream value wins over global set. The event boundary must
+    // update both scopes, even when the route observer has not run yet.
+    const configure = window.gtag as unknown as (...args: unknown[]) => void;
+    configure("config", UAT_MEASUREMENT_ID, { page_location: protectedUrl, page_referrer: protectedUrl });
     window.history.replaceState(null, "", "/one?utm_source=partner&utm_campaign=launch#top");
-    refreshWebGtmPageContext();
     expect(sdk.hits).toEqual([]);
-    sdk.automatic();
     await trackThroughAdapter("page_view");
-    expect(sdk.hits.every((hit) => hit.page_location === window.location.href)).toBe(true);
-    expect(sdk.hits.every((hit) => hit.page_referrer === "http://localhost/one/documents/open")).toBe(true);
+    sdk.automatic();
+    const event = vi.mocked(window.gtag!).mock.calls.find(([command]) => command === "event");
+    expect(event?.[2]).not.toHaveProperty("page_location");
+    expect(event?.[2]).not.toHaveProperty("page_referrer");
+    expect(sdk.hits).toHaveLength(2);
+    for (const hit of sdk.hits) {
+      expect(hit.page_location).toBe(window.location.href);
+      expect(hit.page_referrer).toBe("http://localhost/one/documents/open");
+    }
     expect(JSON.stringify(sdk.hits)).not.toContain(DOCUMENT_REF);
   });
 

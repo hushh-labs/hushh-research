@@ -46,6 +46,18 @@ const leakyCheck = () => ({
 }) as LiveMemorySourceCheck;
 const LEAKED = /grant-7f3a|attr\.|UWHGe|2026-|42000|recordId|ownerId|lagMs/;
 
+function expectContextControlsBeforeEvents(calls: unknown[][], events: unknown[][]) {
+  const context = { page_location: window.location.href, page_referrer: document.referrer };
+  expect(calls).toHaveLength(events.length * 3);
+  for (let index = 0; index < events.length; index += 1) {
+    expect(calls.slice(index * 3, index * 3 + 2)).toEqual([
+      ["set", context],
+      ["config", "G-LIVEMEMORY1", { update: true, send_page_view: false, ...context }],
+    ]);
+    expect(calls[index * 3 + 2]).toEqual(events[index]);
+  }
+}
+
 describe("minute-scale and count buckets", () => {
   it.each([
     [null, "unknown"],
@@ -201,13 +213,15 @@ describe("live memory source telemetry on the web stream", () => {
       pending_bucket: "unknown", retry_bucket: "2_5",
     });
 
-    expect(gtag).toHaveBeenCalledTimes(2);
-    for (const [command, eventName, payload] of gtag.mock.calls) {
+    const events = gtag.mock.calls.filter(([command]) => command === "event");
+    expect(events).toHaveLength(2);
+    for (const [command, eventName, payload] of events) {
       expect([command, eventName]).toEqual(["event", "live_memory_source_verified"]);
       expect(Object.keys(payload).sort()).toEqual([
         ...DECLARED_KEYS, "app_version", "env", "event_category", "event_source", "platform", "send_to",
       ].sort());
     }
+    expectContextControlsBeforeEvents(gtag.mock.calls, events);
 
     // Negative control: nothing the check carried beyond its bands left the browser.
     expect(JSON.stringify([window.dataLayer, gtag.mock.calls])).not.toMatch(LEAKED);
