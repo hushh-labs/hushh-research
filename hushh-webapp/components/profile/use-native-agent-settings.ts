@@ -5,7 +5,7 @@ import type { NativeDrawerRow, NativeDrawerSection, NativeProfilePage } from "@/
 import { canInstallUpdate, releaseLabel, updateProgressStage } from "@/lib/feed/agent-update-status";
 import { isOwnerCloudTarget, ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { AZURE_UPDATE_COPY, azureUpdatedLabel } from "@/lib/one/azure-update-outcome";
-import { agentSettingsSummary, HOST_LABELS, type AgentSettingsController } from "./agent-settings-panel";
+import { agentSettingsSummary, HOST_LABELS, type AgentSettingsController } from "./use-agent-settings-controller";
 import { HOSTING_RECLAIMED_SENTENCE, HOSTING_UNCONFIRMED_SENTENCE, REBUILDING_SENTENCE, REBUILD_FAILED_FALLBACK } from "./azure-hosting-notice";
 
 /** Presentation only. All network reads, approvals and retries belong to the

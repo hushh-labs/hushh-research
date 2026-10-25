@@ -1,3 +1,5 @@
+import { validNativePayoutPath, validNativeAgentSettingsPath, type NativePayoutPageId, type NativeAgentSettingsPageId } from "./native-profile-paths";
+export { validNativePayoutPath, validNativeAgentSettingsPath } from "./native-profile-paths";
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
 import { PROFILE_PREPARATION_SCENES, type ProfilePreparationDescription } from "./native-profile-preparation";
@@ -45,12 +47,10 @@ export type NativeDrawerRow = {
 };
 export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
 /** Bounded native destinations, not URLs or another routing authority. */
-export type NativePayoutPageId = "payouts" | "commerce-funding" | "commerce-payouts" | "commerce-refunds" | "commerce-history" | "commerce-receipt" | "commerce-review" | "payout-activity" | "payout-stripe" | `payout-receipt-${1 | 2 | 3 | 4 | 5 | 6}`;
 export type NativeMemoryPageId = "memory" | "memory-domain" | "memory-section" | "memory-entity" | "memory-sharing" | "memory-connection" | "memory-confirm" | "memory-live" | "memory-record" | "memory-shared" | "memory-shared-person" | "memory-received" | "memory-received-files" | "memory-secrets" | "memory-secret" | "memory-secret-remove" | "memory-identity";
 export type NativeWorldModelPageId = "world-model" | "world-model-fact" | "world-model-remove" | "world-model-research" | "world-model-sources" | "world-model-invitations" | "world-model-review" | "world-model-review-fact";
 export type NativeConnectorPageId = "connectors" | "connector-detail" | "connector-confirm" | "connector-custom" | "connector-custom-detail" | "connector-custom-confirm" |
   "connector-preparation" | "connector-files" | "connector-group-files" | "connector-selection" | "connector-packets" | "connector-packet" | "connector-trust" | "connector-trust-rule" | "connector-trust-confirm";
-export type NativeAgentSettingsPageId = "hosting" | "software-updates" | "update-notes" | "update-verification" | "browser-review" | "browser-policy";
 export type NativeProfilePage = { id: NativeAgentSettingsPageId | NativeConnectorPageId | NativeWorldModelPageId | NativeMemoryPageId | NativePayoutPageId | "referrals" | "request-pricing" | "account" | "account-reset" | "account-delete" | "preferences" | "gemini" | "finance-preferences" | "finance-anchor" | "voice" | "security" | "session" | "devices" | "device-unlink" | "vault" | "vault-method" | "vault-remove" | "legal" | "privacy" | "terms";
   title: string; sections: readonly NativeDrawerSection[]; legalDocument?: NativeLegalDocument;
   /** Private feature filter (legacy wire name), submitted to its owning model. */
@@ -302,20 +302,6 @@ function validText(value: unknown, maximum: number): value is string {
 }
 function closedShape(value: object, keys: readonly string[]): boolean {
   return Object.keys(value).every(key => keys.includes(key));
-}
-
-/** Closed financial presentation ancestry; never admits arbitrary destinations. */
-export function validNativePayoutPath(pages: readonly NativeProfilePage[]): boolean {
-  if (pages[0]?.id !== "payouts" || pages.length > 8) return false;
-  if (pages[1]?.id.startsWith("commerce-")) return [["payouts", "commerce-funding"], ["payouts", "commerce-payouts"], ["payouts", "commerce-refunds"], ["payouts", "commerce-history"], ["payouts", "commerce-history", "commerce-receipt"],
-    ["payouts", "commerce-review"], ["payouts", "commerce-payouts", "commerce-review"], ["payouts", "commerce-refunds", "commerce-review"]].some(path => path.length === pages.length && path.every((id, index) => pages[index]?.id === id));
-  const start = ["payout-activity", "payout-stripe"].includes(pages[1]?.id ?? "") ? 2 : 1;
-  return pages.slice(start).every((page, index) => page?.id === `payout-receipt-${index + 1}`) && pages.length - start <= 6;
-}
-
-export function validNativeAgentSettingsPath(pages: readonly NativeProfilePage[]): boolean {
-  return [["hosting"], ["software-updates"], ["software-updates", "update-notes"], ["software-updates", "update-verification"],
-    ["software-updates", "browser-review"], ["software-updates", "browser-review", "browser-policy"]].some(path => path.length === pages.length && path.every((id, index) => pages[index]?.id === id));
 }
 
 export function validNativeMemoryPath(pages: readonly NativeProfilePage[]): boolean {

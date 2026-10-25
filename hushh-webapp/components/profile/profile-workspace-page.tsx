@@ -29,8 +29,8 @@ import accountStyles from "@/components/profile/profile-your-account.module.css"
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
-import { AgentSettingsPanel, useAgentSettingsController } from "@/components/profile/agent-settings-panel";
-import { useNativeAgentSettings } from "./use-native-agent-settings";
+import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { useNativeProfileFeatures } from "./use-native-profile-features";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
@@ -45,10 +45,8 @@ import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
 import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
-import { useNativePayments } from "./use-native-payments";
 import { useNativeReferrals } from "./use-native-referrals";
 import { ReferralsPanelView } from "./referrals-panel";
-import { useNativeConnectors } from "./use-native-connectors";
 import { useNativeMemory } from "./use-native-memory";
 import { NativeMemoryEditor } from "./native-memory-editor";
 import { validNativeMemoryDraft, type NativeMemoryDraft } from "@/lib/capacitor/native-profile-memory-scene";
@@ -983,18 +981,9 @@ function ProfilePageContent({
   const [nativeSharedMemoryAvailable, setNativeSharedMemoryAvailable] = useState(false);
   const [nativeSecretsAvailable, setNativeSecretsAvailable] = useState(false);
   const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
-  const [nativeConnectorsAvailable, setNativeConnectorsAvailable] = useState(false);
-  const [nativePaymentsAvailable, setNativePaymentsAvailable] = useState(false);
-  const [nativePaymentsFailed, setNativePaymentsFailed] = useState(false);
-  const agentSettingsActive = (activePanel === "hosting" || activePanel === "software-updates") &&
-    (presentation !== "native-page" || nativeMenuOpen) && vaultAccess.canMutateSecureData;
-  const agentSettings = useAgentSettingsController({ kind: activePanel === "hosting" ? "hosting" : "software-updates",
-    userId: applicationOwnerId || null, enabled: agentSettingsActive });
-  const nativeAgentSettings = useNativeAgentSettings(agentSettings, agentSettingsActive, nativeDetailOwner);
-  const nativeConnectorsWanted = presentation === "native-page" && nativeMenuOpen && nativeConnectorsAvailable &&
-    activePanel === "connectors" && vaultAccess.canMutateSecureData;
-  const nativeConnectors = useNativeConnectors(retainedConnectors, nativeDetailOwner, nativeConnectorsWanted);
-  const nativeConnectorsActive = nativeConnectorsWanted && (!retainedConnectors || nativeConnectors.mapped) && !nativeConnectors.failed;
+  const { agentSettingsActive, agentSettings, nativeAgentSettings, nativeConnectors, nativeConnectorsActive,
+    setNativeConnectorsAvailable, nativePayoutActive, nativePayout, setNativePaymentsAvailable, setNativePaymentsFailed } = useNativeProfileFeatures({
+    panel: activePanel, native: presentation === "native-page", open: nativeMenuOpen, secure: vaultAccess.canMutateSecureData, owner: nativeDetailOwner, userId: applicationOwnerId || null, connectors: retainedConnectors });
   useBackLayer(pathname, nativeConnectorsActive && nativeConnectors.nested ? 3 : 0, nativeConnectors.back, { profile_pane: "1" });
   const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
     activePanel === "world-model" && vaultAccess.canMutateSecureData;
@@ -1020,10 +1009,6 @@ function ProfilePageContent({
   const memorySecrets = useSecretsListModel({
     active: activePanel === "my-data" && isVaultUnlocked && (presentation !== "native-page" || nativeMenuOpen && (!nativeMemoryAvailable || nativeSecretsAvailable || nativeMemoryWebBody)),
     native: nativeMemoryActive && nativeSecretsAvailable && !nativeMemoryWebBody, current: contextVisit.current });
-  const paymentsEnabled = activePanel === "payouts" && vaultAccess.canMutateSecureData && (presentation !== "native-page" || nativeMenuOpen);
-  const nativePayoutActive = presentation === "native-page" && paymentsEnabled && nativePaymentsAvailable && !nativePaymentsFailed;
-  const nativePayout = useNativePayments(paymentsEnabled, nativePayoutActive, nativeDetailOwner);
-  useLayoutEffect(() => { if (!nativeMenuOpen || activePanel !== "payouts") setNativePaymentsFailed(false); }, [nativeMenuOpen, activePanel]);
   const nativeReferralActive = presentation === "native-page" && nativeMenuOpen &&
     activePanel === "referrals" && isVaultUnlocked;
   const nativeReferrals = useNativeReferrals(presentation === "native-page" && nativeMenuOpen && activePanel === "referrals", applicationOwnerId ?? null);
@@ -5267,9 +5252,6 @@ function ProfilePageContent({
 }
 
 export function ProfilePage(props: ProfilePageProps) {
-  // Profile cannot depend on a feature body's hosting admission. Connectors
-  // keeps its complete owner-aware React handoff until both hosting modes have
-  // a qualified native model port; the other native scenes remain independent.
   return <Suspense fallback={null}><ProfilePageContent {...props} /></Suspense>;
 }
 
