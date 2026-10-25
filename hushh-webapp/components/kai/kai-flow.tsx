@@ -97,6 +97,7 @@ import {
   useVoiceSurfaceControlTracking,
   type VoiceSurfacePublisherRole,
 } from "@/lib/kai/actions/voice-surface-metadata";
+import { projectSavedPortfolio } from "@/components/kai/views/portfolio-save-projection";
 import { trackEvent } from "@/lib/observability/client";
 import { preferPassphraseUnlockForAutomation } from "@/lib/testing/native-test";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
@@ -3324,51 +3325,7 @@ export function KaiFlow({
       // Normalize holdings to ensure unrealized_gain_loss_pct is computed
       const normalizedHoldings = normalizeHoldingsWithPct(savedData.holdings);
 
-      const portfolioData: PortfolioData = {
-        account_info: savedData.account_info
-          ? {
-              account_number: savedData.account_info.account_number,
-              brokerage_name: savedData.account_info.brokerage,
-              account_holder: savedData.account_info.holder_name,
-            }
-          : undefined,
-        account_summary: savedData.account_summary
-          ? {
-              beginning_value: savedData.account_summary.beginning_value,
-              ending_value:
-                savedData.account_summary.ending_value ??
-                savedData.total_value ??
-                0,
-              change_in_value: savedData.account_summary.change_in_value,
-              cash_balance: savedData.account_summary.cash_balance,
-              equities_value: savedData.account_summary.equities_value,
-            }
-          : undefined,
-        holdings: normalizedHoldings,
-        transactions: [],
-        asset_allocation: savedData.asset_allocation
-          ? {
-              cash_percent: savedData.asset_allocation.cash_pct,
-              equities_percent: savedData.asset_allocation.equities_pct,
-              bonds_percent: savedData.asset_allocation.bonds_pct,
-            }
-          : undefined,
-        income_summary: savedData.income_summary
-          ? {
-              dividends: savedData.income_summary.dividends_taxable,
-              interest: savedData.income_summary.interest_income,
-              total: savedData.income_summary.total_income,
-            }
-          : undefined,
-        realized_gain_loss: savedData.realized_gain_loss
-          ? {
-              short_term: savedData.realized_gain_loss.short_term_gain,
-              long_term: savedData.realized_gain_loss.long_term_gain,
-              total: savedData.realized_gain_loss.net_realized,
-            }
-          : undefined,
-        parse_fallback: savedData.parse_fallback,
-      };
+      const portfolioData = projectSavedPortfolio(savedData, normalizedHoldings);
 
       const holdingSymbols = normalizedHoldings?.map((h) => h.symbol) || [];
 

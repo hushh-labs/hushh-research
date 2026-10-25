@@ -62,3 +62,23 @@ def regular_session_clock(monkeypatch):
 
 async def _payload_fetcher():
     return {"rows": [{"symbol": "AAPL"}], "provider_status": {"quote:AAPL": "ok"}}
+
+
+class RecordedHistoryProvider:
+    name = "recorded"
+
+    def __init__(self, clock):
+        self.clock, self.calls, self.fail = clock, [], False
+
+    async def fetch(self, request):
+        import asyncio
+
+        self.calls.append(request)
+        await asyncio.sleep(0)
+        if self.fail:
+            raise RuntimeError("provider unavailable")
+        return {
+            "points": [{"t": 1792000000.0, "p": 230.0}, {"t": 1792086400.0, "p": 232.0}],
+            "source": "Recorded daily source",
+            "retrieved_at": datetime.fromtimestamp(self.clock[0]).isoformat(),
+        }

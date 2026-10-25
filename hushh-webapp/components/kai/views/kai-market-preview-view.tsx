@@ -374,7 +374,7 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
   const shown = columns.flatMap((column) => column.rows);
   const sharedCached = shown.length > 0 && shown.every((row) => row.degraded);
   const commonAsOf = shown[0]?.asOf ?? null;
-  const sharedTime = sharedCached && shown.every((row) => row.asOf === commonAsOf);
+  const sharedTime = shown.length > 0 && shown.every((row) => row.asOf === commonAsOf);
   const ranks = Math.max(1, ...columns.map((column) => column.rows.length));
   return (
     <div>
@@ -400,14 +400,14 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
                   <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="float-left mr-1 mt-px h-4 w-4 rounded-full [&_img]:h-4 [&_img]:w-4" />
                   {row.companyName}
                 </span>
-                {!sharedTime ? <span className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{!sharedCached && row.degraded ? "Cached" : formatMarketQuoteTime(row.asOf)}</span> : null}
+                {!sharedTime || (!sharedCached && row.degraded) ? <span className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{!sharedCached && row.degraded ? "Cached" : formatMarketQuoteTime(row.asOf)}</span> : null}
               </button>;
             })}
           </div>
         ))}
       </div>
-      {sharedCached ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
-        Cached quotes{sharedTime ? ` · ${formatOverviewAsOf(commonAsOf)}` : ""}
+      {sharedCached || sharedTime ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
+        {[sharedCached ? "Cached quotes" : null, sharedTime ? (commonAsOf ? formatOverviewAsOf(commonAsOf) : "Quote time unavailable") : null].filter(Boolean).join(" · ")}
       </p> : null}
     </div>
   );

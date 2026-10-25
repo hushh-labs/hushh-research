@@ -204,14 +204,15 @@ describe("toMoverGroups", () => {
 
   it("keeps mixed freshness and differing or missing observation times explicit", () => {
     const { container, rerender } = render(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, false)]) }));
-    expect(container.querySelector("[data-market-mover-freshness]")).toBeNull();
+    expect(container.querySelector("[data-market-mover-freshness]")).not.toHaveTextContent("Cached quotes");
     expect(screen.getByText("Cached", { exact: true })).toBeVisible();
     rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, true, null)]) }));
     expect(screen.getByText("Cached quotes", { exact: true })).toBeVisible();
     expect(screen.getByText("Time unavailable", { exact: true })).toBeVisible();
     expect(container.querySelectorAll("button > span[title]")).toHaveLength(2);
     rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1, false, null)], [mover("B", -1, false, null)], true) }));
-    expect(screen.getByText(/Cached quotes.*Timestamp unavailable/)).toBeVisible();
+    expect(screen.getByText(/Cached quotes.*Quote time unavailable/)).toBeVisible();
+    expect(screen.queryByText("Time unavailable", { exact: true })).not.toBeInTheDocument();
   });
 
   it("rejects a directionally invalid provider bucket and orders valid movers by magnitude", () => {

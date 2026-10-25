@@ -21,6 +21,8 @@ import { AnalysisSummaryView } from "../../components/kai/views/analysis-summary
 import { StockComparisonPreview } from "../../components/kai/cards/stock-comparison-preview";
 import { PortfolioAllocationBar } from "../../components/kai/charts/portfolio-allocation-bar";
 import { HoldingDetailsDrawer } from "../../components/kai/holdings/holding-details-drawer";
+import { DataTable } from "../../components/app-ui/data-table";
+import { holdingTableColumns } from "../../components/kai/holdings/holding-table-columns";
 import { toHoldingViewModel } from "../../components/kai/holdings/holding-view-model";
 import { mapPortfolioToDashboardViewModel } from "../../components/kai/views/dashboard-data-mapper";
 import type { PortfolioData } from "../../components/kai/types/portfolio";
@@ -36,6 +38,8 @@ const observedFixture = Array.from({ length: 31 }, (_, index) => ({
   date: new Date(Date.UTC(2026, 8, 20 + index)).toISOString(),
   value: 440 + index / 2 + Math.sin(index) * 3,
 }));
+
+const loadSampleHistory = async () => ({ points: observedFixture, stale: false, cached: true, source: "Synthetic daily fixture", retrievedAt: "2026-10-20T20:00:00Z" });
 
 function Fixture() {
   const [holdingOpen, setHoldingOpen] = useState(false);
@@ -70,7 +74,10 @@ function Fixture() {
       <p className="mb-4 text-xs text-muted-foreground">Design verification · Sample figures only</p>
       <PortfolioOverview model={sampleModel} portfolio={samplePortfolio} source="Sample" period="Sample statement · October 2026" onOpenSection={section => setAction(`Open ${section}`)} action={<PortfolioReportAction model={sampleModel} source="Sample" period="October 2026" onExport={() => setAction("Export report")} />} />
       <button className="mt-4 min-h-11" onClick={() => setHoldingOpen(true)}>Open sample holding</button>
-      <HoldingDetailsDrawer open={holdingOpen} onOpenChange={setHoldingOpen} holding={toHoldingViewModel({ ...samplePortfolio.holdings![0]!, client_id: "sample" }, 24680.42)} onEdit={() => setAction("Edit sample")} onToggleDelete={() => setAction("Delete sample")} />
+      <HoldingDetailsDrawer loadHistory={loadSampleHistory} open={holdingOpen} onOpenChange={setHoldingOpen} holding={toHoldingViewModel({ ...samplePortfolio.holdings![0]!, client_id: "sample" }, 24680.42)} onEdit={() => setAction("Edit sample")} onToggleDelete={() => setAction("Delete sample")} />
+    </section>
+    <section data-testid="holdings-table-fixture" className="mx-auto mt-8 w-full">
+      <DataTable columns={holdingTableColumns(24680.42)} data={samplePortfolio.holdings!.map((row, index) => ({ ...row, client_id: `sample-${index}` }))} tableClassName="w-full [&_th]:px-2 [&_td]:px-2 [&_td]:align-middle" />
     </section>
     <section data-testid="finance-history-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <AnalysisHistoryList entries={[savedEntry]} onOpen={() => setAction("Open saved")} onVersions={() => setAction("Open versions")} onDelete={() => setAction("Delete saved")} onDeleteTicker={() => setAction("Delete ticker")} />
@@ -85,6 +92,7 @@ function Fixture() {
     <section data-testid="market-iphone-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
       <RiaPicksList controlMode="adaptive-surface" loadHistory={async () => ({ points: observedFixture, stale: true, retrievedAt: "2026-10-20T20:00:00Z" })} rows={[
         { symbol: "BRK-B", company_name: "Berkshire Hathaway Inc. Class B", sector: "Financials", tier: "KING", market_cap: 850_000_000_000,
+          company_facts: { symbol: "BRK-B", summary: "This synthetic company profile describes several operating businesses. It serves customers through a range of subsidiaries. Additional details remain available in the complete profile for people who want to continue reading." },
           price: 456.78, change_pct: 1.2, volume: 1000, degraded: false, as_of: "2026-10-20T20:00:00Z", source_tags: ["layout fixture"] },
         { symbol: "AAPL", company_name: "Apple Inc", sector: "Technology", tier: "ACE", market_cap: 3_500_000_000_000,
           price: 234.56, change_pct: -0.4, volume: 1000, degraded: false, as_of: "2026-10-20T20:00:00Z", source_tags: ["layout fixture"] },

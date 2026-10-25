@@ -44,6 +44,7 @@ describe("financial statement snapshots", () => {
               statement_period_end: "2026-04-20",
             },
             canonical_v2: {
+              historical_values: [{ date: "2026-04-01", value: 180 }, { date: "2026-04-20", value: 200 }],
               holdings: [
                 { symbol: "BETA", name: "Beta", quantity: 2, market_value: 200 },
               ],
@@ -78,6 +79,14 @@ describe("financial statement snapshots", () => {
     const portfolio = getStatementPortfolio(financial);
     expect(portfolio?.holdings).toHaveLength(1);
     expect(portfolio?.holdings?.[0]?.symbol).toBe("BETA");
+    expect(portfolio?.account_info?.statement_period_end).toBe("2026-04-20");
+    expect(portfolio?.historical_values).toEqual(financial.sources.statement.snapshots[0].canonical_v2.historical_values);
+  });
+
+  it("recovers observations retained in the selected statement extraction only", () => {
+    const points = [{ date: "2026-04-01", value: 150 }, { date: "2026-04-20", value: 200 }];
+    const selected = { id: "observed", canonical_v2: { holdings: financial.sources.statement.snapshots[0].canonical_v2.holdings }, raw_extract_v2: { historical_values: points } };
+    expect(getStatementPortfolio({ sources: { statement: { active_snapshot_id: "observed", snapshots: [selected] } } })?.historical_values).toEqual(points);
   });
 
   it("switches between statement uploads without merging holdings", () => {
@@ -91,6 +100,7 @@ describe("financial statement snapshots", () => {
     const portfolio = getStatementPortfolio(switched);
     expect(portfolio?.holdings).toHaveLength(1);
     expect(portfolio?.holdings?.[0]?.symbol).toBe("ALPHA");
+    expect(portfolio?.historical_values).toBeUndefined();
   });
 
   it("deletes a saved statement snapshot and keeps the remaining statement active", () => {

@@ -9,6 +9,7 @@ import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
  */
 
 import { readKaiCompanyFacts } from "@/lib/services/kai-company-facts-read";
+import { readKaiStockHistory } from "@/lib/services/kai-stock-history-read";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import {
   HushhVault,
@@ -5213,13 +5214,7 @@ export class ApiService {
   static async getKaiStockPriceHistory(userId: string, symbol: string, signal?: AbortSignal): Promise<import("@/lib/kai/price-history").StockPriceHistory> {
     const authToken = await this.getFirebaseToken();
     if (!authToken) throw new Error("Missing authentication for price history");
-    const query = new URLSearchParams({ symbol });
-    const response = await apiFetch(`/api/kai/market/history/${encodeURIComponent(userId)}?${query}`, {
-      signal, headers: { Authorization: `Bearer ${authToken}` },
-    });
-    if (!response.ok) throw new Error("Price history is unavailable");
-    const payload = await response.json() as { points: Array<{ t: number; p: number }>; stale: boolean; retrieved_at: string | null };
-    return { points: payload.points.map(point => ({ date: new Date(point.t * 1000).toISOString(), value: point.p })), stale: payload.stale, retrievedAt: payload.retrieved_at };
+    return readKaiStockHistory(userId, symbol, authToken, apiFetch, signal);
   }
 
   static async getKaiMarketBaselineInsights(data: {

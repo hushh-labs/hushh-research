@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from hushh_mcp.services.market_history_policy import daily_history_cache_window
 from hushh_mcp.services.market_refresh_policy import (
     MarketPriceRefreshPaused,
     closed_price_snapshot_usable,
@@ -52,6 +53,8 @@ class PublicModuleCache:
             if key.startswith(self.sensitive_prefixes)
             else None
         )
+        if key.startswith("stock_history:"):
+            fresh_ttl_seconds, fresh_after_ts = daily_history_cache_window(moment)
 
         hit, store, l2_entry = await self.lookup(
             key, now_ts, moment, closed, fresh_ttl_seconds, fresh_after_ts
@@ -212,6 +215,10 @@ class PublicModuleCache:
             if key.startswith(self.sensitive_prefixes)
             else None
         )
+        if key.startswith("stock_history:"):
+            completed_session = daily_history_cache_window(
+                datetime.fromtimestamp(self.clock(), tz=timezone.utc)
+            )[1]
         if completed_session is not None and requested_at < completed_session:
             # Nested caches may have been read before opening. Rebuild once
             # under the new session before stamping this assembled snapshot.

@@ -21,7 +21,7 @@ Rules:
 1) Strict JSON:
 - valid JSON object only
 - no comments, no trailing text
-- no extra top-level keys
+- the only optional top-level key is historical_values; no other extra keys
 
 2) Completeness:
 - every required top-level key must exist
@@ -67,6 +67,14 @@ Rules:
 - fees
 - values must be numeric when present, else null
 - do not use alternative key names for these fields
+
+9) Optional historical_values contract:
+- include [{"date": "YYYY-MM-DD", "value": 123.45}] only for explicitly printed,
+  dated account balances belonging to this statement's account
+- preserve the printed dates and amounts, including an actual zero balance
+- omit the field or use [] when the statement has no dated balance history
+- never construct history from beginning/ending summary values, transactions,
+  current holdings, interpolation, public stock prices or guessed dates
 
 Final self-check before output:
 - all required keys exist

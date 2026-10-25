@@ -61,7 +61,6 @@ import {
   pickCancelledAnalysisReturnEntry,
   shouldShowAnalysisPreview,
 } from "@/lib/kai/analysis-route-intent";
-import { getAnalysisSuggestions } from "@/lib/kai/analysis-suggestions";
 import { getStockContext } from "@/lib/services/kai-service";
 import {
   buildKaiAnalysisPreviewRoute,
@@ -699,27 +698,6 @@ export function KaiAnalysisPageContent() {
     return rawTicker;
   }, [searchParams, showWorkspace]);
   const showStockBrowser = !showWorkspace && !previewTickerFromQuery && !analysisEntryId && !debateId && !activeRunTask && !resolvingEntry;
-  const analysisSuggestions = useMemo(() => {
-    if (!userId || showWorkspace || previewTickerFromQuery || activeRunTask) {
-      return [];
-    }
-    return getAnalysisSuggestions({
-      userId,
-      activeSymbol: activeTicker || null,
-      previewSymbol: previewTickerFromQuery || null,
-      recentSymbols: [activeEntry?.ticker, historyFallbackEntry?.ticker].filter(
-        (ticker): ticker is string => typeof ticker === "string",
-      ),
-    });
-  }, [
-    activeEntry?.ticker,
-    activeRunTask,
-    activeTicker,
-    historyFallbackEntry?.ticker,
-    previewTickerFromQuery,
-    showWorkspace,
-    userId,
-  ]);
 
   useEffect(() => {
     if (!shouldShowPreview || !hasActiveRouteIntent || !previewTickerRaw) return;
@@ -1473,32 +1451,6 @@ export function KaiAnalysisPageContent() {
                   <MorphyButton variant="none" effect="fade" onClick={handleBrowseRecommendations}>
                     Back to history
                   </MorphyButton>
-                </div>
-              </SurfaceCardContent>
-            </SurfaceCard>
-          ) : null}
-          {analysisSuggestions.length > 0 ? (
-            <SurfaceCard className="w-full">
-              <SurfaceCardContent className="flex flex-col gap-3 px-3 py-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="mr-1 text-xs font-medium text-muted-foreground">
-                    Research starters
-                  </span>
-                  {analysisSuggestions.map((suggestion) => (
-                    <MorphyButton
-                      key={suggestion.symbol}
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      className="h-8 rounded-full border border-border/70 pl-1.5 pr-3 text-xs text-foreground hover:bg-muted"
-                      onClick={() => handleSelectTicker(suggestion.symbol)}
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <SymbolAvatar symbol={suggestion.symbol} size="sm" />
-                        {suggestion.symbol}
-                      </span>
-                    </MorphyButton>
-                  ))}
                 </div>
               </SurfaceCardContent>
             </SurfaceCard>

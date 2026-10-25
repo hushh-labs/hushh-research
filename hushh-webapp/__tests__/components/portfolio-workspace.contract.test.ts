@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
+import { projectSavedPortfolio } from "@/components/kai/views/portfolio-save-projection";
 
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
@@ -49,6 +50,20 @@ describe("Portfolio workspace hierarchy", () => {
     expect(dashboard).toContain('className="hidden min-w-0 md:block"');
     expect(dashboard).not.toContain("handleOptimizePortfolio");
     expect(dashboard).not.toContain("Optimize Portfolio");
+  });
+
+  it("preserves the explicit statement valuation and date rather than repricing the holding", () => {
+    expect(toHoldingViewModel({ client_id: "statement", symbol: "TEST", name: "Sample", quantity: 2,
+      price: 80, market_value: 179, cost_basis: 100 }, 400,
+    { source: "Statement", statementAsOf: "2026-07-31" })).toMatchObject({ marketValue: 179,
+      gainLossValue: 79, currentPrice: 80, source: "Statement", statementAsOf: "2026-07-31", quoteAsOf: null });
+  });
+
+  it("keeps observed balances and statement periods in the saved dashboard projection", () => {
+    const history = [{ date: "2026-07-01", value: 100 }, { date: "2026-07-31", value: 130 }];
+    expect(projectSavedPortfolio({ historical_values: history, account_info: { statement_period_start: "2026-07-01", statement_period_end: "2026-07-31" } }, [])).toMatchObject({
+      historical_values: history, account_info: { statement_period_start: "2026-07-01", statement_period_end: "2026-07-31" },
+    });
   });
 
   it("owns finite detail routes through one shared detail component", () => {

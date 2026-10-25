@@ -20,6 +20,42 @@ from hushh_mcp.kai_import.normalize_v2 import (
 # ---------------------------------------------------------------------------
 
 
+def test_canonical_preserves_only_supplied_dated_balances_and_statement_dates():
+    from hushh_mcp.kai_import.statement_extract import build_raw_statement_extract
+
+    supplied = [
+        {"date": "2026-07-01", "value": 0},
+        {"date": "2026-07-31", "value": 1234.5},
+        {"date": "2026-07", "value": 1200},
+        {"date": "2026-02-30", "value": 1500},
+        {"date": "2026-08-01", "value": True},
+        {"date": "2026-08-02", "value": float("inf")},
+    ]
+    args = dict(
+        account_info={"statement_period_start": "2026-07-01", "statement_period_end": "2026-07-31"},
+        account_summary={"beginning_value": 1000, "ending_value": 1234.5},
+        holdings=[],
+        asset_allocation=[],
+        total_value=1234.5,
+        cash_balance=0,
+        quality_report_v2={},
+    )
+    raw = build_raw_statement_extract(
+        statement_details={},
+        portfolio_summary={},
+        detailed_holdings=[],
+        cash_balance=0,
+        total_value=1234.5,
+        historical_values=supplied,
+    )
+    canonical = build_financial_portfolio_canonical_v2(raw_extract_v2=raw, **args)
+    assert canonical["historical_values"] == supplied[:2]
+    assert canonical["account_info"]["statement_period_end"] == "2026-07-31"
+    assert (
+        build_financial_portfolio_canonical_v2(raw_extract_v2={}, **args)["historical_values"] == []
+    )
+
+
 class TestToNumStandard:
     def test_int(self) -> None:
         assert _to_num(42) == 42.0
