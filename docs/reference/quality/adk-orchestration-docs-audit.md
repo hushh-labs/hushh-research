@@ -19,24 +19,28 @@ retains its disclosed boundary.
 
 ## Current decision — 25 October 2026
 
-**[PR #8445](https://github.com/hushh-labs/hushh-research/pull/8445) landed through
-Admin SOP as `2737492a6a`, after 24 exact-head checks passed and three lanes were
-intentionally unselected. [Landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40179472423)
-passed.** It preserves main's financial Files work, migration 422 and peer edits.
-PR #8437 previously landed as `a65e4f5fd5` with all 27 checks passing.
+**[PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447) landed through
+Admin SOP as `c927b76281`.** Its reviewed head `94e1a43464` passed
+[exact CI](https://github.com/hushh-labs/hushh-research/actions/runs/40186976739)
+(24 successful jobs, three intentionally unselected lanes), followed by
+[landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40188831564).
+PRs #8437 and #8445 previously landed as `a65e4f5fd5` and `2737492a6a`.
 
-Corporate ADC readback at 10:07 UTC still found both applications serving
-`24545d1dc2`. The earlier [dev attempt](https://github.com/hushh-labs/hushh-research/actions/runs/40174285264)
-failed before switching traffic because immutable 420 refused two legitimate
-consumer-consent guards. Main's [PR #8446](https://github.com/hushh-labs/hushh-research/pull/8446)
-now supplies the single adoption authority. [PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447)
-consolidates the overlapping repair, refuses incomplete retained footprints and
-adds permanent owner-scoped consumer-connection erasure. Historical SQL and
-checksums stay unchanged; neighboring connections and the independent client remain.
-The combined 144 PostgreSQL/replay/cleanup cases pass. Peer financial and Calendar
-changes are inherited normally; exact candidate CI and deployment remain separate.
-A peer [dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/40183489218)
-from `7dcc0fba55` is in progress; its outcome is not yet an acceptance receipt.
+[Dev deployment 40189216380](https://github.com/hushh-labs/hushh-research/actions/runs/40189216380)
+completed successfully. Corporate ADC at **11:55 UTC** confirms `c927b76281`
+serves backend `consent-protocol-00237-qv8` and frontend
+`hushh-webapp-00203-p2g`, each at 100% traffic. Schema, environment parity,
+health and provenance pass. UAT still serves `24545d1dc2`; promotion remains
+separate from this dev receipt. The preceding peer rollout from `7dcc0fba55`
+recovered on its second attempt; its initial synthetic One-chat timeout is
+historical, not a current billing or IAM refusal.
+
+The consolidated repair uses main's single adoption authority for immutable 420,
+refuses incomplete retained consumer-consent footprints and permanently erases
+owner-scoped consumer connections. Historical SQL/checksums, neighboring
+connections and the independent client remain intact. Combined proof passes
+144 PostgreSQL/replay/cleanup cases, 40 Calendar cases and 501 Back cases.
+Peer financial and Calendar changes are inherited normally.
 
 Person approval now uses canonical discovery inside the caller's transaction and
 keeps exact scope/key refusals. The replacement-account Browser client uses the
@@ -48,8 +52,34 @@ Both normal owner browser sessions respond. GCP still reports predecessor
 `26bab163`; Azure still reports `8b846022`. Browser activation is unavailable on
 those installed images. Final-image qualification, recovery, exact owner updates
 and Browser/Puppy acceptance remain distinct from application deployment.
+The new image `c26fd848132e` passed synthetic encrypted recovery from both actual
+predecessors: identity, six log records, memory, revocation, provider consent and
+245,763 exact file bytes were preserved. Task-owned recovery compute, active
+objects and copied images were removed; GCP's seven-day soft-delete retention
+was preserved. This proves format recovery, not an owner update or active-work drain.
 Replacement enrollment stays off until controlled live acceptance; no existing
 Firebase identity or terminal tombstone is reset to obtain a pass.
+
+Two-owner information sharing acceptance covers the existing **fixed-term** flow:
+request, exact review, selected encrypted access and revocation/expiry. It does
+not add automatic renewal. Paid Sandbox admission for the intended pair is a
+separate configuration decision; free readiness does not establish paid access.
+
+The deployed GCP and Azure owner setup checks now preserve the Hosting return
+path, expose Finish for the saved connection and return there after finishing.
+Azure identifies its existing cloud connection as Azure AI. No owner placement
+or model selection was changed for these navigation checks.
+
+Interactive qualification found a new redirect defect after a separate fixture
+referrer-policy correction: the login POST succeeds, but its redirected request
+can arrive after the executor closes the action scope. The local repair joins
+explicit Chromium redirect chains under their original authority, refuses unknown
+parents and waits for the final document before returning a frame. The 83 nearest
+cases pass; the delayed-redirect regression fails against deployed source. Pinned
+local Chromium also passes manual login, observation suppression, encrypted
+remembering, new-task restoration, logout rejection, Forget, one reviewed save
+and Stop. These are **local driver receipts**, not cloud qualification or installed
+owner acceptance; the corrected immutable image still needs that evidence.
 
 ### PR #8437 verification history
 
