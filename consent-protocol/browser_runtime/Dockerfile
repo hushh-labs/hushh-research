@@ -16,6 +16,8 @@ COPY hushh_mcp/services/pod_browser/__init__.py \
      hushh_mcp/services/pod_browser/contracts.py \
      hushh_mcp/services/pod_browser/mailbox.py \
      hushh_mcp/services/pod_browser/playwright_executor.py \
+     hushh_mcp/services/pod_browser/playwright_actions.py \
+     hushh_mcp/services/pod_browser/playwright_interception.py \
      hushh_mcp/services/pod_browser/sandbox_runner.py \
      hushh_mcp/services/pod_browser/gcp_probe.py \
      hushh_mcp/services/pod_browser/worker_identity.py \
