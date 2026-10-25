@@ -17,69 +17,58 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026
+## Current decision — 25 October 2026, 14:46 UTC
 
-**[PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447) landed through
-Admin SOP as `c927b76281`.** Its reviewed head `94e1a43464` passed
-[exact CI](https://github.com/hushh-labs/hushh-research/actions/runs/40186976739)
-(24 successful jobs, three intentionally unselected lanes), followed by
-[landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40188831564).
-PRs #8437 and #8445 previously landed as `a65e4f5fd5` and `2737492a6a`.
+**Browser repair [#8451](https://github.com/hushh-labs/hushh-research/pull/8451)
+is on main as `9174abfbe594`.** Exact-head
+[CI](https://github.com/hushh-labs/hushh-research/actions/runs/40198710835),
+landed smoke and the governed
+[dev release](https://github.com/hushh-labs/hushh-research/actions/runs/40201425206)
+passed. The dev run took 23m58s without retry or rollback. Corporate ADC at
+14:41 UTC confirms backend `00239-7vz` and frontend `00205-jb4` serve that source
+at 100%. UAT still serves `24545d1dc2`; it has not received this candidate.
 
-[Dev deployment 40189216380](https://github.com/hushh-labs/hushh-research/actions/runs/40189216380)
-completed successfully. Corporate ADC at **11:55 UTC** confirms `c927b76281`
-serves backend `consent-protocol-00237-qv8` and frontend
-`hushh-webapp-00203-p2g`, each at 100% traffic. Schema, environment parity,
-health and provenance pass. UAT still serves `24545d1dc2`; promotion remains
-separate from this dev receipt. The preceding peer rollout from `7dcc0fba55`
-recovered on its second attempt; its initial synthetic One-chat timeout is
-historical, not a current billing or IAM refusal.
+| Boundary | Actual result | Remaining acceptance |
+|---|---|---|
+| Source and dev application | Explicit Chromium redirect chains retain their original authority; unknown parents refuse. Local core, exact CI, schema, parity and provenance pass | Accepted UAT promotion |
+| Browser executable | Exact image `6e57f2510819…eeac423`, source `9174abfbe594`, passes native interactive component checks on both clouds | Normal owner installation, active-task controls and reconnect |
+| Remembered login | Synthetic login suppresses model observations; encrypted remember, new-task restore, logout rejection, Forget, one reviewed save and Stop pass | Installed owner cloud custody and review flows |
+| Recovery | Both actual predecessors preserve identity, six records, revocation, consent and 245,763 exact file bytes | Normal approved update and active-work drain |
+| Account generations | Isolated real-mail candidate completes two delete/register cycles, same Firebase UID, generations 0/1/2, three application owners; both old sessions refuse | Deployed admission and remaining identity-integration compatibility |
+| Information sharing | Existing fixed-term flow is the accepted scope; no recurring billing is added | Two-owner request, review, selected access and revocation; paid Sandbox pair remains an explicit configuration decision |
 
-The consolidated repair uses main's single adoption authority for immutable 420,
-refuses incomplete retained consumer-consent footprints and permanently erases
-owner-scoped consumer connections. Historical SQL/checksums, neighboring
-connections and the independent client remain intact. Combined proof passes
-144 PostgreSQL/replay/cleanup cases, 40 Calendar cases and 501 Back cases.
-Peer financial and Calendar changes are inherited normally.
+The Browser image uses real Gemini `gemini-3.7-flash` on GCP and the owner's Azure
+`one-chat` deployment backed by GPT-5.6 Luna. It made two and three native model
+round trips respectively. One and Browser share the non-root owner container;
+GCP keeps Chromium's sandbox enabled, Azure explicitly disables it. Normal broker
+and approval enforcement do not contain compromised code in that shared boundary.
+The qualified interactive policy is limited to the temporary controlled HTTPS
+fixture. It establishes no general website or authenticated GitHub compatibility.
+The reviewed release pins must preserve that exact policy and model transport.
 
-Person approval now uses canonical discovery inside the caller's transaction and
-keeps exact scope/key refusals. The replacement-account Browser client uses the
-captured Firebase/application principal pair and session episode. Local core,
-43 combined migration/Files cases, 44 Browser/principal cases and the changed
-frontend stage pass; these are source receipts, not installed-owner acceptance.
+Task-owned qualification and recovery compute, temporary grants, active objects,
+images and Azure deleted vault were removed and read back. GCP's seven-day object
+soft-delete retention remains explicit. The controlled website remains temporarily
+available for owner acceptance. No existing owner pod has been upgraded by these probes.
+GCP still reports `26bab163`; Azure reports `8b846022`; neither reports active Browser.
 
-Both normal owner browser sessions respond. GCP still reports predecessor
-`26bab163`; Azure still reports `8b846022`. Browser activation is unavailable on
-those installed images. Final-image qualification, recovery, exact owner updates
-and Browser/Puppy acceptance remain distinct from application deployment.
-The new image `c26fd848132e` passed synthetic encrypted recovery from both actual
-predecessors: identity, six log records, memory, revocation, provider consent and
-245,763 exact file bytes were preserved. Task-owned recovery compute, active
-objects and copied images were removed; GCP's seven-day soft-delete retention
-was preserved. This proves format recovery, not an owner update or active-work drain.
-Replacement enrollment stays off until controlled live acceptance; no existing
-Firebase identity or terminal tombstone is reset to obtain a pass.
+The existing Hosting/AI checks preserve the saved connection, Back and Finish
+return to Hosting, and Azure identifies its existing cloud as Azure AI. No model
+selection or placement was changed. Person approval retains canonical scope/key
+checks; cleanup remains durable and repairable. Historical checksums and peer
+Calendar, financial, consent and deletion changes remain preserved.
 
-Two-owner information sharing acceptance covers the existing **fixed-term** flow:
-request, exact review, selected encrypted access and revocation/expiry. It does
-not add automatic renewal. Paid Sandbox admission for the intended pair is a
-separate configuration decision; free readiness does not establish paid access.
+Replacement enrollment remains disabled in ordinary environments pending deployed
+compatibility and acceptance. The successful two-cycle proof used an isolated
+canonical database, real purpose-bound email and legitimate encrypted vault setup;
+it did not reset personal accounts, terminal tombstones or the shared Firebase identity.
+An earlier isolated final-session 401 is retained as failed evidence, without an
+unproven root-cause claim. The successful run closed all owned processes and scratch.
 
-The deployed GCP and Azure owner setup checks now preserve the Hosting return
-path, expose Finish for the saved connection and return there after finishing.
-Azure identifies its existing cloud connection as Azure AI. No owner placement
-or model selection was changed for these navigation checks.
-
-Interactive qualification found a new redirect defect after a separate fixture
-referrer-policy correction: the login POST succeeds, but its redirected request
-can arrive after the executor closes the action scope. The local repair joins
-explicit Chromium redirect chains under their original authority, refuses unknown
-parents and waits for the final document before returning a frame. The 83 nearest
-cases pass; the delayed-redirect regression fails against deployed source. Pinned
-local Chromium also passes manual login, observation suppression, encrypted
-remembering, new-task restoration, logout rejection, Forget, one reviewed save
-and Stop. These are **local driver receipts**, not cloud qualification or installed
-owner acceptance; the corrected immutable image still needs that evidence.
+The next publication reuses the exact qualified executable instead of rebuilding
+it, and makes only the two recovery-qualified predecessors eligible. Exact owner
+approval, installed Browser/Puppy/Files acceptance and UAT remain separate steps.
+No production rollout, stable publication or automatic owner update is authorized.
 
 ### PR #8437 verification history
 

@@ -6,29 +6,28 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-**Current surgical follow-up — 25 October 2026:**
-[PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447) landed as
-`c927b76281`; exact-head CI and landed smoke pass. Main's financial Files,
-canonical lifecycle 418–421, migration 422 and peer source are preserved.
-Dev deployment [40189216380](https://github.com/hushh-labs/hushh-research/actions/runs/40189216380)
-is healthy: ADC at 11:55 UTC confirms both services at 100% on `c927b76281`,
-with schema, parity and provenance passing. UAT remains on `24545d1dc2` and
-requires its own accepted promotion. The previous dev attempt refused two retained
-consumer-memory consent guards at immutable 420. Qualify that exact predecessor
-through main's single pinned adoption authority (PR #8446); the consolidated
-PR #8447 preserves enforcement, records and checksums, adds incomplete-footprint
-refusal and permanent owner-scoped cleanup. Its 144 combined cases pass. Inherit
-peer Calendar and financial changes; no broad feature import or guard removal.
-The preceding peer dev rollout recovered on attempt two; its initial synthetic
-timeout is no longer a live blocker. `.agents` remains the sole authored development framework.
-The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
+**Current surgical follow-up — 25 October 2026, 14:46 UTC:**
+[Browser repair #8451](https://github.com/hushh-labs/hushh-research/pull/8451)
+landed as `9174abfbe594`; exact CI, landed smoke and
+[dev release 40201425206](https://github.com/hushh-labs/hushh-research/actions/runs/40201425206)
+pass. Actual ADC readback confirms both dev services at 100% on that revision.
+UAT remains `24545d1dc2`. Peer source and immutable migrations remain preserved;
+`.agents` is the sole authored development framework. The
+[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
 current source, serving and installed-owner evidence.
 
-The next bounded correction joins Browser login redirects before closing the
-original action scope. Local pinned Chromium and the focused regression pass;
-the deployed image remains unqualified for interactive login. Batch this repair
-with its affected verification before the next image build. Preserve the accepted
-application receipt and repeat only acceptance affected by the changed image.
+The exact new image passes native Browser interactive component qualification and
+fresh recovery from both installed predecessors. Next publish reviewed qualification
+and recovery metadata using the original image/source/archive; do not rebuild it.
+Then install through normal exact owner approval, accept the installed journeys
+and promote the accepted application to UAT. Component controls and synthetic
+consent do not substitute for owner HTTP/reconnect acceptance. The controlled-site
+policy does not qualify broad website compatibility or authenticated GitHub.
+
+Real-mail isolated acceptance completes two same-Firebase-UID deletion/enrollment
+cycles with retired-session refusal. Ordinary generation admission remains dark
+until deployed compatibility, including conditional identity integrations, is
+qualified. Reuse unchanged evidence; do not repeat unrelated model or test sweeps.
 
 **BYOC availability correction:** serving UAT omits the private-agent master flag
 and legitimately refuses cloud authorization; its frontend nevertheless offers
