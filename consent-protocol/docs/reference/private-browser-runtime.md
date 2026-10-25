@@ -9,7 +9,7 @@ mode, exact qualification and installed-journey evidence.
 
 ## Status and evidence
 
-**25 October 2026, 19:45 UTC — both clouds have exact-image component evidence;
+**25 October 2026, 20:23 UTC — both clouds have exact-image component evidence;
 Azure owner installation and one Puppy response are verified. Installed Browser
 journeys remain open.**
 
@@ -17,8 +17,10 @@ journeys remain open.**
 landed as `9174abfbe594`; [publication #8457](https://github.com/hushh-labs/hushh-research/pull/8457)
 retains that executable. Continuity corrections
 [#8459](https://github.com/hushh-labs/hushh-research/pull/8459) landed as `2a74d28cd0`
-with exact hosted CI and landed smoke. Dev's subsequent deployment currently targets
-`5ad9ef542d`; final cleanup activation and the newer application remain unaccepted.
+with exact hosted CI and landed smoke. Dev run `40224453087`, attempt 2, accepted
+application `5ad9ef542d`; corporate ADC confirms both services at 100%. Its cleanup
+worker and fence removal passed. Newer continuity and Browser corrections remain
+separate candidates; workflow-head metadata does not establish their deployment.
 The exact pod image is
 `sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423`.
 

@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026, 19:45 UTC
+## Current decision — 25 October 2026, 20:23 UTC
 
 **The continuity fixes are on main. Dev/UAT and installed Browser acceptance
 remain incomplete.** [PR #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
@@ -32,18 +32,23 @@ No source-only result is an installed-owner or deployment receipt.
 | Browser components | Both clouds pass controlled research, responsive controls, suppressed login, remember/restore, logout, Forget, reviewed save and Stop | Actual owner HTTP journey; broad websites and GitHub remain unqualified |
 | Browser correction | Post-result takeover race corrected; 103 nearest checks and original-source negative control pass | Exact-image qualification and installation; earlier connected-executor window remains open |
 | Recovery | Predecessors preserve identity, six encrypted records, consent, revocation and 245,763 exact file bytes | Installed active-work drain/recovery |
-| Account generations | Isolated real-mail two-cycle proof with unchanged Firebase UID and retired-session refusal | Public admission stays disabled pending environment sender/integration compatibility |
+| Account generations | Isolated real-mail two-cycle proof with unchanged Firebase UID and retired-session refusal | Federated recovery is independent of email; public admission remains disabled pending deployment qualification. UAT retains an unqualified WorkOS offboarding consumer |
 | Information sharing | Existing fixed-term access; no recurring billing. Normal owner readiness rechecked | Two-owner request/review/access/revocation; paid Sandbox cohort unchanged |
-| Dev application | Peer run serves `5ad9ef542d`; migration and semantic checks reached activation | Cleanup activation failed on deployer IAM; scoped repair applied, peer retry in progress. Newer `2a74d28cd0` not deployed |
-| UAT | Both services retain `24545d1dc2` | Accept the peer analytics repair through a healthy exact-SHA Dev receipt, then UAT |
+| Dev application | Run `40224453087`, attempt 2 accepted `5ad9ef542d`; corporate ADC confirms backend `00244-bg2` and frontend `00210-s8c` at 100% | Newer continuity and Browser corrections need their own accepted release |
+| UAT | Both services retain `24545d1dc2`; run `40228618750` is promoting Dev-accepted `5ad9ef542d` | Verify terminal analytics, schema, traffic and lifecycle evidence; workflow revision is distinct from the application |
 
-Audit logs identify the Dev activation failure: the deployer could not read the
-existing cleanup service account and then attempted creation. The authorized
-repair adds act-as/read authority only on that exact existing account. The
-required Scheduler and log-read grants were separately repaired; preserve their
-provenance. Do not remove the release fence manually. The earlier retained Shared
-fixture now records erased/zero writes; reconcile its cleanup provenance separately
-rather than presenting that state alone as provider-absence evidence.
+Audit logs identified missing read/act-as access on the existing cleanup identity.
+The scoped repair and separate Scheduler/log-read permissions allowed activation:
+a fresh authenticated worker invocation returned HTTP 200, 98 legacy shared-backend
+revisions were retired, and fence removal was confirmed. This is shared-backend
+release evidence, not deletion of customer pods.
+
+Peer [PR #8461](https://github.com/hushh-labs/hushh-research/pull/8461) supplies
+qualified GCS session-expiry recovery. The separate authorized canonical cleanup
+removed seven retained fixture object generations and preserved account/vault rows.
+Generic missing resources remain uncertain; restored session custody and original
+bucket incarnation qualify the provider's expiry response. The peer fix is retained
+through a normal merge, without replacing authored files.
 
 The installed Azure Browser attempt became uncertain during takeover; no
 credentials or forms were submitted and the goal was not replayed. Sampled memory

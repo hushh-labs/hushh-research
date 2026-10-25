@@ -6,18 +6,20 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-**Current surgical follow-up — 25 October 2026, 19:45 UTC:**
+**Current surgical follow-up — 25 October 2026, 20:23 UTC:**
 [Continuity corrections #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
-landed as `2a74d28cd0` after exact CI and landed smoke. Peer Dev deployment targets
-`5ad9ef542d`, not that newer application, and remains unaccepted at account-cleanup
-activation. Audit logs identify missing access to the existing cleanup identity;
-scoped IAM repair is applied and the peer retry is running. Preserve the release
-fence and verify terminal activation before producing acceptance. Do not start a
-competing deployment or infer the application from the workflow-head SHA.
+landed as `2a74d28cd0` after exact CI and landed smoke. Dev run `40224453087`,
+attempt 2, accepted application `5ad9ef542d`: worker invocation returned HTTP 200,
+98 legacy shared-backend revisions were retired and deletion fence removal passed.
+Corporate ADC confirms backend `00244-bg2` and frontend `00210-s8c` at 100%.
+Newer continuity and Browser corrections remain separate release candidates.
 
-UAT remains `24545d1dc2`. The analytics repair is now on main; use the canonical
-read-only reviewer bootstrap and actual journey diagnostics on the next accepted
-candidate. No unchanged analytics retry or raised timeout substitutes for proof.
+UAT run `40228618750` is promoting that exact Dev-accepted application; its
+workflow revision `e0cddfa231` does not change the application target. UAT still
+serves `24545d1dc2` until actual promotion/readback. Verify terminal analytics and
+lifecycle acceptance. Peer Files-expiry repair #8461 is integrated normally;
+its exact-session/provider-custody proof replaces the earlier unresolved fixture
+hypothesis without weakening generic missing-status recovery.
 
 The exact qualified pod remains source `9174abfbe594`, image `6e57f251…eeac423`.
 Azure's approved update and one Puppy/Gemma 12B response pass. GCP's approved Files
@@ -36,8 +38,11 @@ and UAT. Reuse unchanged native component and predecessor recovery evidence.
 
 Real-mail isolated acceptance completes two same-Firebase-UID deletion/enrollment
 cycles with retired-session refusal. Ordinary generation admission remains dark
-until deployed compatibility, including conditional identity integrations, is
-qualified. Reuse unchanged evidence; do not repeat unrelated model or test sweeps.
+until deployed compatibility is qualified. Google/Apple/Microsoft recovery has
+no mail-sender dependency. Email retains its own canonical sender/key admission.
+UAT WorkOS offboarding remains active while its webhook secret is retained, even
+with SSO disabled; it requires captured generation authority before public
+replacement admission. Preserve the guard and existing integration custody. Reuse unchanged evidence; do not repeat unrelated model or test sweeps.
 
 **BYOC availability correction:** serving UAT omits the private-agent master flag
 and legitimately refuses cloud authorization; its frontend nevertheless offers
