@@ -329,10 +329,9 @@ async def test_parallel_files_wait_for_real_oauth_refresh_before_granting(monkey
     assert sum(host == "oauth2.googleapis.com" for _, host, _ in calls) == 1
     assert sum(method == "POST" and host == "www.googleapis.com" for method, host, _ in calls) == 1
     store.release.assert_not_awaited()
-    assert [call.kwargs["state"] for call in store.settle.await_args_list] == [
-        "succeeded",
-        "preexisting",
-    ]
+    assert {
+        call.args[0]["position"]: call.kwargs["state"] for call in store.settle.await_args_list
+    } == {1: "succeeded", 2: "preexisting"}
 
 
 @pytest.mark.asyncio
