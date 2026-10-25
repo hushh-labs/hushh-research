@@ -43,6 +43,7 @@ ROLLBACK = ROOT / "db/migrations/rollback/418_one_area_discovery.rollback.sql"
 
 @asynccontextmanager
 async def isolated_database(url):
+    url = url.replace("postgresql+psycopg2://", "postgresql://", 1)
     admin = await asyncpg.connect(url)
     database = "area_test_" + uuid4().hex
     await admin.execute(f'CREATE DATABASE "{database}"')
