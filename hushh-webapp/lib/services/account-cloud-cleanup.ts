@@ -43,17 +43,18 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export function azureAccountCleanupRequired(error: unknown): boolean {
+export function accountCleanupProvider(error: unknown): "azure" | "gcp" | null {
   if (
     !(error instanceof ApiError) ||
     apiErrorCode(error) !==
       "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"
   )
-    return false;
+    return null;
   try {
-    return record(record(error.payload).detail).cleanupProvider === "azure";
+    const provider = record(record(error.payload).detail).cleanupProvider;
+    return provider === "azure" || provider === "gcp" ? provider : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

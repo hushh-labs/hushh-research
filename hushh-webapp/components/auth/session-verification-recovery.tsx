@@ -83,7 +83,7 @@ export function SessionVerificationRecovery({
             : deletionPending ? "Your account deletion is still being checked. Your private information stays hidden until we confirm the result." : "We couldn’t verify this account, so your private information stayed hidden. Check your connection and try again."}
         </p>
         {cleanup?.local_erasure_confirmation_required && <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Some keys are managed outside Hussh. Removing Hussh’s encrypted copy does not invalidate those keys with their providers.
+          This removes this environment’s encrypted copies. Shared provider access used by other environments and externally managed keys stay valid.
         </p>}
         {cleanup?.state === "action_required" && !cleanup.local_erasure_confirmation_required && <p className="mt-3 text-sm leading-6 text-muted-foreground">
           Provider access needs review before we can finish. Your account remains paused and your cleanup information is retained.

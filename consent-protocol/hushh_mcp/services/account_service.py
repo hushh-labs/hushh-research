@@ -1984,6 +1984,11 @@ class AccountService:
         def prepare():
             with get_db_connection() as conn:
                 conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
+                from hushh_mcp.services.account_deletion_release_admission import (
+                    admit_erasure_transaction,
+                )
+
+                admit_erasure_transaction(conn)
                 self._lock_fabric_receipt_users(conn, user_ids=(user_id,))
                 guard_answer_erasure(conn, user_id=user_id)
                 identity = user_id
@@ -2073,7 +2078,9 @@ class AccountService:
                 **extra,
             )
             if result["success"] and provider_cleanup is not None:
-                result["details"]["provider_grant_release"] = {"status": "confirmed_before_erasure"}
+                result["details"]["provider_grant_release"] = {
+                    "status": "cleanup_qualified_before_erasure"
+                }
                 result["details"]["cleanup_operation_id"] = provider_cleanup.cleanup_id
             elif result["success"]:
                 result["details"]["provider_grant_release"] = (
@@ -2257,12 +2264,17 @@ class AccountService:
                 # statement must roll back and release the privacy barrier
                 # before the HTTP transport or worker watchdog gives up.
                 conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
+                from hushh_mcp.services.account_deletion_release_admission import (
+                    admit_erasure_transaction,
+                )
+
                 if backend_only:
                     row = conn.execute(text(UAT_DATABASE_ATTESTATION_SQL)).mappings().first()
                     if not row or not is_attested_hushh_tech_uat_database(
                         parse_connected_database_identity(row)
                     ):
                         raise ValueError("backend_erasure_connected_database_not_uat")
+                admit_erasure_transaction(conn)
                 params = {"user_id": user_id}
                 # The authenticated account UID is the only identity this
                 # full-erasure authority may tombstone. Phone-orphan cleanup

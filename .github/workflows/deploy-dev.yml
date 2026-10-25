@@ -161,7 +161,20 @@ jobs:
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
+          mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
+          cp deploy/account-deletion/{install,remove}_release_fence.sql \
+            deploy/account-deletion/activate_release.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
+            deploy/account-deletion/verify_release_boundary.sql "${RUNNER_TEMP}/release-tools/account-deletion/"
+          cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
+          cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
+          mkdir -p deploy/account-deletion
+          cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/
+          cp "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
+          mkdir -p deploy/drive
+          cp "${RUNNER_TEMP}/release-tools/rollback_after_worker_failure.sh" deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/verify-cloudrun-revision-provenance.py" scripts/ci/
 
       - name: Validate Google Cloud workload identity configuration
@@ -545,6 +558,15 @@ jobs:
             -o /usr/local/bin/cloud-sql-proxy
           chmod +x /usr/local/bin/cloud-sql-proxy
 
+      - name: Install PostgreSQL client for selected lifecycle or preservation
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
       - name: Apply dev DB migrations and predeploy schema gate
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
@@ -618,6 +640,10 @@ jobs:
             "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
               --phase database --report-path /tmp/dev-preview-postmigration-database.json
           else
+            python3 deploy/account-deletion/activate_release.py --qualify-source "${{ steps.resolve-sha.outputs.sha }}"
+            PGHOST=127.0.0.1 PGPORT=6543 PGDATABASE="${DEV_DB_NAME}" PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" \
+              psql --no-psqlrc --set=ON_ERROR_STOP=1 --file deploy/account-deletion/install_release_fence.sql \
+              > /tmp/dev-account-deletion-fence-installation.log
             (
               cd consent-protocol
               "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release --migration-mode replay
@@ -641,15 +667,6 @@ jobs:
             --contract-file "$CONTRACT_FILE" \
             --report-path /tmp/dev-db-migration-guard-predeploy.json
 
-      - name: Install PostgreSQL client for selected preservation
-        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
-        shell: bash
-        run: |
-          if ! command -v psql >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq postgresql-client
-          fi
-
       - name: Verify selected PKM preservation before deployment
         id: verify-pkm-preservation
         if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
@@ -668,6 +685,9 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VERIFY_MANAGED_VERTEX_RUNTIME=true"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
+          if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" ]]; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=https://consent-protocol-621416509462.us-central1.run.app##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=account-deletion-cleanup@hushh-pda-dev.iam.gserviceaccount.com"
+          fi
           # Google connections use the normalized OAuth secret names. Keep the
           # dev lane aligned with backend.cloudbuild.yaml so these optional
           # credentials cannot silently disappear from the service.
@@ -1464,6 +1484,23 @@ jobs:
             echo "${component}_sha=${serving_sha}" >> "$GITHUB_OUTPUT"
           done
 
+      - name: Activate tombstone-aware account deletion
+        id: activate-account-deletion
+        if: env.DEV_TARGET == 'shared-dev' && steps.classify-dev-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/account-deletion/activate_release.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --region "${{ env.GCP_REGION }}" \
+            --backend-service "${{ env.BACKEND_SERVICE }}" \
+            --backend-url https://consent-protocol-621416509462.us-central1.run.app \
+            --oidc-audience https://consent-protocol-621416509462.us-central1.run.app \
+            --scheduler-job account-deletion-cleanup-dev --scheduler-service-account account-deletion-cleanup \
+            --expected-sha "${{ steps.resolve-sha.outputs.sha }}" --expected-run-id "${{ github.run_id }}" \
+            --cloudsql-instance "${{ env.DEV_CLOUDSQL_INSTANCE }}" --db-name "${DEV_DB_NAME}" \
+            --fence-required true --evidence-prefix /tmp/dev-account-deletion
+          echo "activated=true" >> "$GITHUB_OUTPUT"
+
       - name: Write dev release status artifact
         if: always()
         shell: bash
@@ -1476,6 +1513,9 @@ jobs:
 
           if [ "${{ steps.classify-dev-release.outputs.release_failed }}" = "false" ]; then
             STATUS="healthy"
+            if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" && "${{ steps.scope.outputs.deploy_backend }}" == "true" && "${{ steps.activate-account-deletion.outcome }}" != "success" ]]; then
+              STATUS="blocked"
+            fi
           else
             if [ "${{ steps.classify-dev-release.outputs.backend_failure }}" = "true" ] && [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] && [ "${{ steps.predeploy-state.outputs.backend_revision }}" != "" ]; then
               BACKEND_ROLLBACK_REQUIRED=true
@@ -1568,6 +1608,8 @@ jobs:
                   "attempt_2": "${{ steps.verify-dev-2.outcome }}",
                   "semantic_success": "${{ steps.classify-dev-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
+                  "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
+                  "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
                   "blocking_classifications": "${{ steps.classify-dev-release.outputs.blocking_classifications }}",
               },
               "rollback_targets": {
@@ -1650,6 +1692,8 @@ jobs:
             /tmp/dev-release-verify-attempt-2.json
             /tmp/dev-release-classification.json
             /tmp/dev-release-status.json
+            /tmp/dev-account-deletion-*.json
+            /tmp/dev-account-deletion-*.log
             /tmp/dev-verification-plan.json
 
       - name: Deployment summary

@@ -22,6 +22,7 @@ LIFECYCLE_PREFIXES = (
     "consent-protocol/db/migrations/",
 )
 LIFECYCLE_FILES = {
+    "consent-protocol/config/account-deletion-authority.json",
     "consent-protocol/api/routes/account.py",
     "consent-protocol/hushh_mcp/services/account_service.py",
     "consent-protocol/db/migrate.py",

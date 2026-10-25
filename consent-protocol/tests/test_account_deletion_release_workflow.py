@@ -8,12 +8,16 @@ import re
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy-uat.yml"
 SERVING_STATE_SCRIPT = ROOT / "scripts" / "ci" / "resolve-cloud-run-serving-state.py"
 SCHEDULER_ATTEMPT_SCRIPT = ROOT / "scripts" / "ci" / "verify-cloud-scheduler-attempt.py"
@@ -21,6 +25,241 @@ SCHEDULER_SETUP_SCRIPT = ROOT / "deploy" / "account-deletion" / "setup_cleanup_s
 FENCE_DECISION_SCRIPT = ROOT / "scripts" / "ci" / "account-deletion-fence-decision.py"
 CLOUD_RUN_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "cloud_run"
 CLOUD_SCHEDULER_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "cloud_scheduler"
+
+
+def _activation_module():
+    spec = importlib.util.spec_from_file_location(
+        "account_lifecycle_activation", ROOT / "deploy/account-deletion/activate_release.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _activation_adapter(module, args, failure, monkeypatch):
+    candidate = {
+        "metadata": {
+            "name": "consent-protocol-current",
+            "labels": {
+                "deploy-sha": "b" * 40 if failure == "candidate" else args.expected_sha,
+                "github-run-id": "123",
+                "account-deletion-contract": "v201",
+            },
+        }
+    }
+    legacy = {
+        "metadata": {
+            "name": "consent-protocol-legacy",
+            "labels": {"deploy-sha": "c" * 40, "account-deletion-contract": "v201"},
+        }
+    }
+    service = {
+        "status": {
+            "traffic": [
+                {"revisionName": "consent-protocol-current", "percent": 100},
+                {"revisionName": "consent-protocol-legacy", "tag": "legacy-test"},
+            ]
+        }
+    }
+    calls, deleted = [], []
+    monkeypatch.setattr(module, "supports_current_contract", lambda sha: sha == args.expected_sha)
+    ticks = iter([0, 361])
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(ticks))
+
+    @contextmanager
+    def database(_args):
+        yield {"fixture": "disposable-port"}
+
+    monkeypatch.setattr(module, "database", database)
+
+    def run(argv, **_kwargs):
+        calls.append(argv)
+        if argv[:4] == ["gcloud", "run", "services", "describe"]:
+            return json.dumps(service)
+        if argv[:4] == ["gcloud", "run", "revisions", "list"]:
+            return json.dumps(
+                [candidate] + ([legacy] if not deleted or failure == "retirement" else [])
+            )
+        if argv[:4] == ["gcloud", "run", "revisions", "delete"]:
+            deleted.append(argv[4])
+            return ""
+        if argv[:3] == ["gcloud", "logging", "read"]:
+            entry = {
+                "timestamp": (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(),
+                "jsonPayload": {
+                    "@type": "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished",
+                    "jobName": "projects/hushh-pda-uat/locations/us-central1/jobs/account-deletion-cleanup-uat",
+                    "url": "https://api.uat.hushh.ai/api/account/deletion-cleanup/drain?limit=10",
+                },
+                "httpRequest": {"status": 503 if failure == "scheduler" else 200},
+            }
+            return json.dumps([entry])
+        if argv[0] == "psql" and "--command" in argv:
+            return (
+                "1" if failure == "database" else "2" if "contract_version()" in argv[-1] else "{}"
+            )
+        return ""
+
+    monkeypatch.setattr(module, "run", run)
+    return calls, deleted
+
+
+@pytest.mark.parametrize("failure", [None, "candidate", "database", "scheduler", "retirement"])
+def test_activation_requires_exact_candidate_database_delivery_and_legacy_retirement(
+    monkeypatch, tmp_path, failure
+):
+    module = _activation_module()
+    args = SimpleNamespace(
+        project="hushh-pda-uat",
+        region="us-central1",
+        backend_service="consent-protocol",
+        backend_url="https://api.uat.hushh.ai",
+        oidc_audience="https://api.uat.hushh.ai",
+        scheduler_job="account-deletion-cleanup-uat",
+        scheduler_service_account="account-deletion-cleanup",
+        expected_sha="a" * 40,
+        expected_run_id="123",
+        fence_required=True,
+        evidence_prefix=str(tmp_path / "activation"),
+    )
+    calls, deleted = _activation_adapter(module, args, failure, monkeypatch)
+    evidence = {"status": "blocked"}
+    if failure:
+        with pytest.raises((ValueError, RuntimeError)):
+            module.activate(args, evidence)
+        assert evidence["status"] == "blocked"
+        assert not any("remove_release_fence.sql" in arg for call in calls for arg in call)
+        if failure in {"candidate", "database", "scheduler"}:
+            assert not deleted
+    else:
+        module.activate(args, evidence)
+        assert evidence["status"] == "activated"
+        assert evidence["scheduler"]["completion"]["http_status"] == 200
+        assert deleted == ["consent-protocol-legacy"]
+        retirement = next(
+            i
+            for i, call in enumerate(calls)
+            if call[:4] == ["gcloud", "run", "revisions", "delete"]
+        )
+        removal = next(
+            i
+            for i, call in enumerate(calls)
+            if any("remove_release_fence.sql" in arg for arg in call)
+        )
+        assert retirement < removal
+        assert "expected_fence_count=0" in calls[-1]
+        assert evidence["fence_removal"] == "confirmed_absent"
+        assert (tmp_path / "activation-boundary.log").is_file()
+
+
+@pytest.mark.parametrize(
+    ("project", "instance", "origin", "database", "port"),
+    [
+        (
+            "hushh-pda-dev",
+            "hushh-dev-pg",
+            "https://consent-protocol-621416509462.us-central1.run.app",
+            "postgres",
+            6543,
+        ),
+        ("hushh-pda-uat", "hushh-uat-pg", "https://api.uat.hushh.ai", "postgres", 6543),
+        ("hushh-pda", "hushh-vault-db", "https://api.hushh.ai", "hushh_vault", 6544),
+    ],
+)
+def test_activation_pins_environment_database_and_retains_failure_receipt(
+    monkeypatch, tmp_path, project, instance, origin, database, port
+):
+    module = _activation_module()
+    argv = [
+        "activation",
+        "--project",
+        project,
+        "--region",
+        "us-central1",
+        "--backend-service",
+        "consent-protocol",
+        "--backend-url",
+        origin,
+        "--oidc-audience",
+        origin,
+        "--scheduler-job",
+        "account-deletion-cleanup",
+        "--scheduler-service-account",
+        "account-deletion-cleanup",
+        "--expected-sha",
+        "a" * 40,
+        "--expected-run-id",
+        "123",
+        "--cloudsql-instance",
+        f"{project}:us-central1:{instance}",
+        "--evidence-prefix",
+        str(tmp_path / "release"),
+        "--fence-required",
+        "true",
+        "--db-name",
+        database,
+        "--db-port",
+        str(port),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    calls = []
+
+    def fail_after_removal_requested(args, evidence):
+        calls.append(args.db_name)
+        evidence["fence_removal"] = "requested_outcome_unconfirmed"
+        raise RuntimeError("psql_failed_1")
+
+    monkeypatch.setattr(module, "activate", fail_after_removal_requested)
+    assert module.main() == 1
+    receipt = json.loads((tmp_path / "release-activation.json").read_text())
+    assert calls == [database]
+    assert receipt["status"] == "blocked"
+    assert receipt["fence_removal"] == "requested_outcome_unconfirmed"
+    argv[argv.index("--db-name") + 1] = "wrong_database"
+    with pytest.raises(SystemExit):
+        module.main()
+    assert calls == [database]
+
+
+def test_shared_dev_requires_lifecycle_activation_before_healthy_acceptance():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    by_name = {step.get("name"): step for step in steps}
+    activation = by_name["Activate tombstone-aware account deletion"]
+    assert "env.DEV_TARGET == 'shared-dev'" in activation["if"]
+    assert "activate_release.py" in activation["run"]
+    assert "--fence-required true" in activation["run"]
+    installer = by_name["Install PostgreSQL client for selected lifecycle or preservation"]
+    assert "steps.scope.outputs.deploy_backend" in installer["if"]
+    assert steps.index(installer) < steps.index(
+        by_name["Apply dev DB migrations and predeploy schema gate"]
+    )
+    status = by_name["Write dev release status artifact"]["run"]
+    assert "steps.activate-account-deletion.outcome" in status
+    assert status.index("steps.activate-account-deletion.outcome") < status.index('"status":')
+
+
+@pytest.mark.parametrize(
+    ("workflow", "prefix"), [("dev", "dev"), ("uat", "uat"), ("production", "prod")]
+)
+def test_every_release_retains_activation_failure_evidence(workflow, prefix):
+    document = yaml.safe_load((ROOT / f".github/workflows/deploy-{workflow}.yml").read_text())
+    uploads = [
+        step
+        for step in document["jobs"]["deploy"]["steps"]
+        if "upload-artifact" in step.get("uses", "")
+    ]
+    assert any(
+        step.get("if") == "always()"
+        and any(
+            path in step["with"]["path"]
+            for path in [
+                f"/tmp/{prefix}-account-deletion-activation.json",  # noqa: S108 - workflow artifact path, never opened here
+                f"/tmp/{prefix}-account-deletion-*.json",  # noqa: S108 - workflow artifact path, never opened here
+            ]
+        )
+        for step in uploads
+    )
 
 
 def _workflow_steps() -> list[dict]:
@@ -101,6 +340,14 @@ def test_v201_rollout_keeps_deletion_available_only_for_safe_changes() -> None:
         )
         assert (
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
+            in by_name["Checkout deployment SHA"]["run"]
+        )
+        assert (
+            "deploy/account-deletion/{install,remove}_release_fence.sql"
+            in by_name["Preserve current release tooling"]["run"]
+        )
+        assert (
+            'cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/'
             in by_name["Checkout deployment SHA"]["run"]
         )
         qualifier = by_name["Qualify uninterrupted account deletion"]
@@ -284,31 +531,15 @@ def test_prebuilt_backend_step_runs_without_substitution_environment(
     assert "UNEXPECTED_" not in output
 
 
-def test_uat_activation_retires_legacy_revisions_before_removing_fence() -> None:
+def test_uat_activation_uses_the_qualified_shared_lifecycle_owner() -> None:
     activation = _step("Activate tombstone-aware account deletion")
-    activation_run = str(activation.get("run") or "")
-
-    assert activation.get("if") == (
+    assert activation["if"] == (
         "steps.classify-uat-release.outputs.release_failed == 'false' && "
         "steps.scope.outputs.deploy_backend == 'true'"
     )
-    assert "setup_cleanup_scheduler.sh" in activation_run
-    assert "gcloud scheduler jobs run" in activation_run
-    assert "gcloud logging read" in activation_run
-    assert "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" in activation_run
-    assert "verify-cloud-scheduler-attempt.py" in activation_run
-    assert "job.get('lastAttemptTime')" not in activation_run
-    assert "--format='value(lastAttemptTime)'" not in activation_run
-    assert "status.get('code') or '0'" not in activation_run
-    scheduler_verifier = SCHEDULER_ATTEMPT_SCRIPT.read_text(encoding="utf-8")
-    assert 'raw_http_status = http_request.get("status")' in scheduler_verifier
-    assert "not 200 <= http_status < 300" in scheduler_verifier
-    assert 'http_request.get("status") or' not in scheduler_verifier
-    assert "gcloud run revisions delete" in activation_run
-    assert "remaining_pre_v201_count" in activation_run
-    assert activation_run.index("gcloud run revisions delete") < activation_run.index(
-        "remove_release_fence.sql"
-    )
+    assert "python3 deploy/account-deletion/activate_release.py" in activation["run"]
+    assert '--expected-sha "${{ steps.resolve-sha.outputs.sha }}"' in activation["run"]
+    assert '--cloudsql-instance "${{ env.UAT_CLOUDSQL_INSTANCE }}"' in activation["run"]
 
 
 def test_uat_scheduler_service_account_id_is_valid_and_consistent() -> None:
@@ -316,20 +547,19 @@ def test_uat_scheduler_service_account_id_is_valid_and_consistent() -> None:
     scheduler_account_id = workflow["env"]["ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID"]
     deploy_run = str(_step("Deploy backend using Cloud Build").get("run") or "")
     activation = _step("Activate tombstone-aware account deletion")
-    activation_run = str(activation.get("run") or "")
     scheduler_setup = SCHEDULER_SETUP_SCRIPT.read_text(encoding="utf-8")
 
     assert 6 <= len(scheduler_account_id) <= 30
     assert re.fullmatch(r"[a-z][a-z0-9-]*[a-z0-9]", scheduler_account_id)
-    assert activation["env"]["SCHEDULER_SERVICE_ACCOUNT_NAME"] == (
-        "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}"
+    assert (
+        '--scheduler-service-account "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}"'
+        in activation["run"]
     )
     assert (
         "_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL="
         "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@"
         "${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
     ) in deploy_run
-    assert "expected_service_account_email" in activation_run
     assert f"SCHEDULER_SERVICE_ACCOUNT_NAME:-{scheduler_account_id}" in scheduler_setup
     assert "iam service-accounts add-iam-policy-binding" not in scheduler_setup
     assert "roles/iam.serviceAccountTokenCreator" not in scheduler_setup
@@ -522,6 +752,61 @@ def test_scheduler_setup_rejects_mismatched_explicit_email_before_gcloud(
     assert result.returncode == 1
     assert "must match SCHEDULER_SERVICE_ACCOUNT_NAME and PROJECT_ID" in result.stderr
     assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    "service,current,sha_valid,allowed",
+    [
+        ("consent-protocol", True, True, True),
+        ("consent-protocol", False, True, False),
+        ("consent-protocol", True, False, False),
+        ("hushh-webapp", False, False, True),
+    ],
+)
+def test_backend_rollback_qualifies_exact_source_before_traffic(
+    tmp_path, service, current, sha_valid, allowed
+):
+    commands = tmp_path / "commands"
+    sha = "a" * 40 if sha_valid else "unverified"
+    (tmp_path / "gcloud").write_text(
+        "#!/usr/bin/env python3\nimport os,sys\n"
+        "a=sys.argv[1:]\n"
+        "with open(os.environ['CALLS'],'a') as f: f.write(' '.join(a)+'\\n')\n"
+        "if a[:3]==['run','revisions','describe']: print(os.environ['SOURCE_SHA'])\n"
+        "elif a[:3]!=['run','services','update-traffic']: raise SystemExit(99)\n"
+    )
+    (tmp_path / "git").write_text(
+        "#!/usr/bin/env python3\nimport json,os,sys\n"
+        "assert sys.argv[1]=='show'\n"
+        "if os.environ['CURRENT']!='true': raise SystemExit(1)\n"
+        "print(json.dumps({'version':1} if sys.argv[2].endswith('account-deletion-authority.json') "
+        "else {'ordered_migrations':['423_account_shared_provider_authority.sql']}))\n"
+    )
+    for binary in ("gcloud", "git"):
+        (tmp_path / binary).chmod(0o700)
+    environment = {
+        **os.environ,
+        "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+        "CALLS": str(commands),
+        "SOURCE_SHA": sha,
+        "CURRENT": str(current).lower(),
+        "GCP_PROJECT_ID": "synthetic-project",
+    }
+    environment.pop("BASH_ENV", None)
+    result = subprocess.run(  # noqa: S603 - authored script and synthetic cloud/git ports
+        ["bash", str(ROOT / "scripts/ci/cloudrun-rollback.sh"), service, "us-central1", "prior"],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert (result.returncode == 0) is allowed, result.stderr
+    calls = commands.read_text().splitlines()
+    assert any("update-traffic" in call for call in calls) is allowed
+    if service == "consent-protocol":
+        assert calls[0].startswith("run revisions describe prior ")
+        assert "--project=synthetic-project" in calls[0]
 
 
 def test_pre_v201_backend_rollback_requires_fence_and_empty_tombstones() -> None:
@@ -880,44 +1165,17 @@ def test_production_backend_deploy_substitutions_are_declared_by_cloud_build() -
         assert name in declared
 
 
-def test_production_activation_retires_legacy_revisions_before_removing_fence() -> None:
+def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None:
     activation = _production_step("Activate tombstone-aware account deletion")
-    activation_run = str(activation.get("run") or "")
-
-    assert activation.get("if") == (
+    assert activation["if"] == (
         "steps.classify.outputs.release_failed == 'false' && "
         "steps.scope.outputs.deploy_backend == 'true'"
     )
-    assert activation_run.index('"${PROJECT_ID}" != "hushh-pda"') < activation_run.index(
-        "setup_cleanup_scheduler.sh"
-    )
-    assert activation["env"]["JOB_NAME"] == "${{ env.ACCOUNT_DELETION_SCHEDULER_JOB }}"
-    assert activation["env"]["PROJECT_ID"] == "${{ env.GCP_PROJECT_ID }}"
-    assert activation["env"]["BACKEND_URL"] == "${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
-    assert activation["env"]["OIDC_AUDIENCE"] == "${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
-    assert "https://api.hushh.ai/api/account/deletion-cleanup/drain?limit=10" in activation_run
-    assert "'audience': oidc.get('audience') == 'https://api.hushh.ai'" in activation_run
-    assert "gcloud scheduler jobs run" in activation_run
-    assert "gcloud logging read" in activation_run
-    assert "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" in activation_run
-    assert "verify-cloud-scheduler-attempt.py" in activation_run
-    assert "job.get('lastAttemptTime')" not in activation_run
-    assert "gcloud run revisions delete" in activation_run
-    assert "remaining_pre_v201_count" in activation_run
-    assert "--port 6544" in activation_run
-    assert 'export PGDATABASE="${{ env.PROD_DB_NAME }}"' in activation_run
-    _assert_no_uat_target(activation_run)
-    drain_verified = activation_run.index("verify-cloud-scheduler-attempt.py")
-    retired = activation_run.index("gcloud run revisions delete")
-    boundary = activation_run.index("verify_release_boundary.sql")
-    removal = activation_run.index("remove_release_fence.sql")
-    assert drain_verified < retired < boundary < removal
-
-    workflow = _production_workflow()
-    assert workflow["env"]["ACCOUNT_DELETION_SCHEDULER_JOB"] == (
-        "account-deletion-cleanup-production"
-    )
-    assert workflow["env"]["CONSENT_API_PUBLIC_ORIGIN"] == "https://api.hushh.ai"
+    assert "python3 deploy/account-deletion/activate_release.py" in activation["run"]
+    assert '--expected-sha "${{ github.event.inputs.sha }}"' in activation["run"]
+    assert '--cloudsql-instance "${{ env.PROD_CLOUDSQL_INSTANCE }}"' in activation["run"]
+    assert _production_workflow()["env"]["CONSENT_API_PUBLIC_ORIGIN"] == "https://api.hushh.ai"
+    _assert_no_uat_target(activation["run"])
 
 
 def test_production_scheduler_service_account_id_is_valid_and_consistent() -> None:
@@ -928,8 +1186,9 @@ def test_production_scheduler_service_account_id_is_valid_and_consistent() -> No
 
     assert scheduler_account_id == "account-deletion-cleanup"
     assert workflow["env"]["GCP_PROJECT_ID"] == "hushh-pda"
-    assert activation["env"]["SCHEDULER_SERVICE_ACCOUNT_NAME"] == (
-        "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}"
+    assert (
+        '--scheduler-service-account "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}"'
+        in activation["run"]
     )
     assert (
         "_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL="

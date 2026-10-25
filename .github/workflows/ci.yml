@@ -248,8 +248,27 @@ jobs:
               - 'deploy/plg/**'
               - 'packages/hushh-mcp/**'
               - 'deploy/backend.cloudbuild.yaml'
+              # Environment/infra-only edits can break the same deletion flow.
+              # Keep them on Protocol + Integration, including the required
+              # account-deletion pack, even without application source changes.
+              - 'deploy/account-deletion/**'
+              - 'deploy/drive/rollback_after_worker_failure.sh'
+              - 'deploy/backend-image.cloudbuild.yaml'
+              - 'deploy/frontend.cloudbuild.yaml'
+              - 'deploy/frontend-image.cloudbuild.yaml'
+              - 'deploy/dev.autodeploy.backend.cloudbuild.yaml'
+              - 'scripts/ops/sync_backend_runtime_secrets.py'
+              - 'scripts/ops/runtime_config_retention.py'
+              - 'scripts/ops/scope_commerce_runtime_policy.py'
+              - 'scripts/ops/shared_files_runtime_policy.py'
+              - 'scripts/ops/passkey_domain_policy.py'
+              - 'scripts/ops/upsert_gcp_secret.py'
+              - 'scripts/ops/sync_frontend_runtime_secrets.py'
+              - 'config/runtime-capacity.json'
               - '.github/workflows/ci.yml'
               - '.github/workflows/deploy-uat.yml'
+              - '.github/workflows/deploy-dev.yml'
+              - '.github/workflows/deploy-production.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
               # The protocol lane's guard pins it to the editor lane's steps.

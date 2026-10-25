@@ -3663,6 +3663,12 @@ class PersonalAgentProvisioningService:
                 AccountService().assert_personal_agent_external_resources_absent, user_id
             )
         except PersonalAgentDeprovisioningRequiredError:
+            from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+
+            # Admission precedes reservation, pod fencing, memory erasure and
+            # compute deletion. A later substrate guard cannot undo them.
+            if not personal_agent_substrate_teardown_enabled():
+                raise
             reserve = getattr(self._registry, "reserve_erasure", None)
             if reserve is not None:
                 try:

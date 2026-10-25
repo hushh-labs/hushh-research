@@ -6,6 +6,8 @@ BEGIN;
 SET LOCAL lock_timeout = '20s';
 SET LOCAL statement_timeout = '90s';
 
+SELECT pg_advisory_xact_lock(hashtextextended('hushh.account-deletion.release.v1', 0));
+
 LOCK TABLE public.actor_profiles, public.vault_keys
   IN SHARE ROW EXCLUSIVE MODE;
 

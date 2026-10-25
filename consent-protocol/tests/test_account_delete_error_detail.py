@@ -141,6 +141,26 @@ class TestAccountDeleteErrorDetail:
         assert self._SENTINEL not in resp.text
 
     @pytest.mark.parametrize(
+        "provider,expected", [("user_azure", "azure"), ("user_gcp", "gcp"), ("managed", None)]
+    )
+    def test_cloud_blocker_exposes_only_supported_reviewed_removal_provider(
+        self, provider, expected
+    ):
+        with patch.object(
+            account_module.AccountService,
+            "delete_account",
+            new_callable=AsyncMock,
+            return_value={
+                "success": False,
+                "error_code": account_module.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+                "cleanup_provider": provider,
+            },
+        ):
+            response = _client().delete(self._URL)
+        assert response.status_code == 409
+        assert response.json()["detail"].get("cleanupProvider") == expected
+
+    @pytest.mark.parametrize(
         ("code", "message"),
         [
             (

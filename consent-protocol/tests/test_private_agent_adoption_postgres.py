@@ -238,6 +238,35 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
         assert guard_catalog(connection) == before
         reject_guard_drift(connection, entry)
         assert_pending_ledger_receipt(replay_pg, database, connection, entry)
+        # The next release must preserve423's installed admission guard while
+        # replaying immutable420, rather than rejecting or removing it.
+        successor = (MIGRATIONS / "423_account_shared_provider_authority.sql").read_text()
+        with connection.cursor() as cursor:
+            cursor.execute(successor)
+        assert asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY)) == (
+            FOUNDATION,
+        )
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT public.account_provider_cleanup_contract_version()")
+            assert cursor.fetchone()[0] == 2
+            cursor.execute("""CREATE OR REPLACE FUNCTION public.guard_account_shared_provider_authority()
+                RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public
+                AS $$ BEGIN RETURN NEW; END $$""")
+        try:
+            with pytest.raises(asyncpg.RaiseError, match="shared provider authority successor"):
+                asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY))
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(successor)
+        with connection.cursor() as cursor:
+            cursor.execute("""CREATE OR REPLACE FUNCTION public.account_provider_cleanup_contract_version()
+                RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT NULL::integer $$""")
+        try:
+            with pytest.raises(asyncpg.RaiseError, match="shared provider authority successor"):
+                asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY))
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(successor)
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
 
 

@@ -28,6 +28,60 @@ application consumers and the qualified migration chain must be installed before
 these controls can be offered. See the [readiness decision](../quality/adk-orchestration-docs-audit.md)
 for source versus deployed evidence.
 
+## Reopened browser incident — 25 October 2026
+
+This follow-up is source qualification until an exact-SHA release and deployed
+owner journey prove otherwise. The 16:30–16:31 IST report matched a 271.6-second
+DELETE that returned `ACCOUNT_DELETION_PAUSED`. UAT run
+[40186576195](https://github.com/hushh-labs/hushh-research/actions/runs/40186576195)
+failed migration 200 on an `actor_profiles` lock. It retained the root fences and
+never deployed its candidate. Serving code was `24545d1`, not the newer staged
+provider lifecycle. The reported owner binding was checked in memory; private
+account identifiers and credentials do not belong in release evidence.
+
+Background verification must keep the sealed recovery surface mounted. The
+retained Account query cannot reopen Profile until authoritative session
+admission succeeds. A release pause must be checked before provider or Files
+work. New workers hold a shared dedicated-session admission lease through all
+owned work; fence installation/removal takes its exclusive counterpart. Lost
+sessions, unresolved dispatch receipts and erasing Files retain the pause.
+Cancelling Files work joins every started provider thread, including siblings
+of a failed DELETE. Local completion is separate from remote absence proof.
+
+Deletion is confined to its selected environment. The reviewed shared Google
+project hashes live in
+`consent-protocol/config/account-deletion-authority.json`. Google revocation
+covers every client in that project, so separate client IDs do not contain its
+effect. See [Google's revocation contract](https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke).
+For those grants, the immutable inventory records `retain_shared_google`.
+Explicit local-erasure confirmation permits removal of this environment's
+custody while retaining shared access. It permits no refresh, shared watch stop
+or revocation. Environment-exclusive grants retain the existing verified path.
+Changing the policy invalidates the prior descriptor; uncertain effects require
+reconciliation and cannot be converted into local approval.
+
+Forward migration 423 requires producer receipt version 2 on fresh preparation
+and rejects incompatible or shared-authority dispatch before external calls.
+Historical version-1 receipts remain intact. New preparation requires the
+installed contract. Application rollback retains this additive authority and
+requires forward recovery for incompatible pending operations. Old synchronous
+revisions cannot be protected retroactively by a receipt guard: deployment must
+retire pre-contract consumers before removing the existing release fence.
+
+`deploy/account-deletion/activate_release.py` composes the existing scheduler,
+fresh HTTP-completion verifier and catalog-boundary SQL for shared Dev, UAT and
+production. It qualifies exact serving SHA/run, installed producer contract and
+old-revision retirement before activation. Commerce preview remains separate.
+Failed activation cannot produce healthy acceptance. Current release tooling is
+preserved when checking out an older target; incompatible source is refused.
+
+Cleanup inspection/removal stays available when new provisioning is disabled.
+GCP substrate teardown still refuses before reservation or irreversible work
+when its independent control is off. The GCP account blocker uses the existing
+reviewed cloud-removal path before explicit account continuation; Azure retains
+its existing account-removal authority. These controls do not enable new
+provisioning or certify physical removal of provider-retained copies.
+
 ## Surgical follow-up boundary — 24 October 2026
 
 Fresh main `217007c715` is integrated locally, retaining its immutable 412–415
@@ -659,13 +713,13 @@ An old verifier ignores tombstones, and unchanged-UID UPDATE guards intentionall
 permit cleanup mutations; routing deleted identities to that code can recreate
 state outside the intended bridge.
 
-A rollback is allowed only when one of these paths is proven:
-
-- route 100% of traffic to a bridge revision that enforces tombstone lookup and
-  the namespace-171 then namespace-198 lock order; or
-- disable account deletion, prove every tombstone with a retained Firebase UID
-  is deleted or both disabled and refresh-token-revoked, prove no cleanup claim
-  is running, and keep migration 201 plus its write guards installed.
+Backend traffic rollback additionally requires the target revision's exact
+`deploy-sha` to pass the preserved current activation tool's `--qualify-source`
+check. A `v201` label alone is insufficient: some such revisions erase Files
+before reaching the SQL fence. The shared rollback helper enforces source
+qualification for Dev, UAT, production and late Drive-worker rollback; missing,
+unavailable or legacy source refuses the traffic mutation. An already-serving
+no-op is not compatibility proof. Keep the installed fence on release failure.
 
 Never drop a non-empty tombstone table. A code rollback leaves the additive
 schema and triggers in place. Schema rollback is limited to an unused migration
@@ -694,3 +748,43 @@ momentary `active` probe can be a pre-commit database snapshot while deletion
 is still finishing, so the client must clear local user state and must not offer
 automatic Retry. This avoids requiring a now-erased `VAULT_OWNER` token to
 repeat an already-committed destructive operation or racing that commit.
+
+The independent managed-Dev audit found an additional incomplete contract. Managed
+GCP pods may persist commit-log memory and Files under `pods/{hushhId}/` in a
+shared bucket and derive keys from a shared master. Existing completion requires
+BYOC setup and Memory Bank receipts, so it cannot establish managed completion.
+Fresh managed creation is hard-disabled by the hosted-tier guard, independently
+of deployment flags; existing registered resources still require cleanup.
+Keep this path refused while its owner-prefix generations, retention, historical
+memory modes and exact compute incarnation remain unqualified. Do not synthesize
+BYOC receipts, delete a shared bucket/master, or report compute absence as account
+erasure. The reported UAT owner had no registered pod/BYOC/lifecycle rows in the
+2026-10-25T12:28Z read-only observation. This is scope evidence for that incident,
+not a proof of managed-Dev deletion or a deployment result.
+
+Shared-authority classification uses the configured registration and retained
+owner/subject metadata before opening any token. It supplies no provider credential
+and still requires the digest-bound local-copy confirmation. This metadata does
+not prove the token’s historical client or external validity; report local-copy
+erasure and retained external authority. Exclusive and unknown grants keep their
+existing custody and verification requirements.
+
+Connector v2 cleanup reads frozen JSONB row snapshots, whose timestamp fields are
+ISO strings. Credential opening normalizes that representation before comparing
+the encrypted envelope’s exact expiry; it still rejects changed owner, connector,
+generation, version and expiry. The nearest credential regression covers typed
+and JSON snapshots plus substituted expiry, and runs in the required deletion
+check. A first read-only probe without complete adapter configuration is
+unevaluable; it must not be classified as corrupt stored credentials.
+
+Mixed provider inventories treat an explicitly approved, scoped shared Google
+watch as retained while allowing unrelated exclusive grants to finish. Pending,
+uncertain, unapproved or incorrectly scoped watch receipts still block revocation.
+The focused dispatch regression fails against the previous implementation.
+
+The existing CI backend path filter also selects deletion deployment helpers,
+Dev/UAT/production workflows, their runtime-configuration writers and image build
+inputs. Infrastructure-only edits therefore run Protocol and Integration,
+including the required deletion pack. The path-contract regression rejects
+excluded lifecycle/runtime inputs. Live console or secret changes still require
+environment-bound runtime attestation; path selection is not deployed proof.

@@ -40,6 +40,13 @@ class CleanupOperationNotFound(RuntimeError):
     """No cleanup operation belongs to this verified external identity."""
 
 
+def needs_local_erasure(item: dict) -> bool:
+    return (
+        item.get("revocationSupport") == "unsupported"
+        or item.get("authorityScope") == "retain_shared_google"
+    )
+
+
 def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) -> dict:
     """Purpose-bound aggregate status; no normal account or vault admission."""
     with get_db_connection() as conn:
@@ -65,9 +72,7 @@ def inspect_for_identity(firebase_uid: str, *, operation_id: str | None = None) 
         if row is None:
             raise CleanupOperationNotFound("cleanup operation is unavailable")
         inventory, receipt = row["provider_cleanup_inventory"], row["provider_cleanup_receipt"]
-        unsupported = sum(
-            item.get("revocationSupport") == "unsupported" for item in inventory.values()
-        )
+        unsupported = sum(needs_local_erasure(item) for item in inventory.values())
         if row["erasure_phase"] == "erased":
             state = "complete"
         elif row["cleanup_status"] == "quarantined":
@@ -133,8 +138,7 @@ def authorize_continuation(
         if receipt.get("inventorySha256") != inventory_sha256:
             raise ProviderCleanupNotReady("cleanup review changed")
         unsupported = any(
-            item.get("revocationSupport") == "unsupported"
-            for item in row["provider_cleanup_inventory"].values()
+            needs_local_erasure(item) for item in row["provider_cleanup_inventory"].values()
         )
         if accept_local_erasure:
             if not unsupported:
@@ -204,7 +208,8 @@ def available() -> bool:
         return (
             conn.execute(
                 text("""SELECT to_regprocedure(
-            'public.account_provider_cleanup_live_inventory(text)') IS NOT NULL""")
+            'public.account_provider_cleanup_live_inventory(text)') IS NOT NULL
+            AND to_regprocedure('public.account_provider_cleanup_contract_version()') IS NOT NULL""")
             ).scalar_one()
             is True
         )
@@ -430,7 +435,15 @@ def dispatch(claim: ProviderCleanupClaim, *, reference: str, phase: Phase) -> bo
             raise ProviderCleanupNotReady("provider outcome needs reconciliation")
         if phase == "revocation" and any(
             candidate["watchOutcome"] not in {"stopped", "not_required"}
-            for candidate in receipt["items"].values()
+            and not (
+                claim.inventory[ref].get("authorityScope") == "retain_shared_google"
+                and claim.inventory[ref].get("watchRequired") is True
+                and candidate.get("authorityScope") == "retain_shared_google"
+                and candidate.get("watchOutcome") == "retained_shared"
+                and candidate.get("revocation") == "local_erasure_approved"
+                and receipt.get("localErasureAccepted") is True
+            )
+            for ref, candidate in receipt["items"].items()
         ):
             raise ProviderCleanupNotReady("all watches must stop before grant revocation")
         item[phase] = "dispatched"
@@ -495,10 +508,21 @@ def settle_unsupported(claim: ProviderCleanupClaim, *, reference: str) -> None:
         receipt = _lock_claim(conn, claim)
         if (
             reference not in claim.inventory
-            or claim.inventory[reference]["revocationSupport"] != "unsupported"
+            or not needs_local_erasure(claim.inventory[reference])
             or receipt.get("localErasureAccepted") is not True
         ):
             raise ProviderCleanupNotReady("local erasure needs explicit owner confirmation")
+        item = receipt["items"][reference]
+        if (
+            item.get("refresh")
+            or item.get("revocation") in {"dispatched", "uncertain", "token_absent"}
+            or item.get("watchOutcome") in {"dispatched", "uncertain", "token_absent"}
+        ):
+            raise ProviderCleanupNotReady("provider outcome needs reconciliation")
+        if claim.inventory[reference].get("authorityScope") == "retain_shared_google":
+            item["watchOutcome"] = (
+                "retained_shared" if claim.inventory[reference]["watchRequired"] else "not_required"
+            )
         receipt["items"][reference]["revocation"] = "local_erasure_approved"
         _write_receipt(conn, claim, receipt)
 
