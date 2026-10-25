@@ -149,7 +149,7 @@ Sharing listeners addresses a measured capacity bottleneck; it does not prove
 that every acquisition timeout has the same cause.
 
 Focused regression command:
-`cd consent-protocol && .venv/bin/python -m pytest tests/test_pool_acquire_is_bounded.py tests/test_account_phone_routes.py tests/test_observability_middleware.py -m feature_auth_reliability -q`.
+`cd consent-protocol && .venv/bin/python -m pytest tests/test_listener_connection.py tests/test_account_phone_trace_loop.py tests/test_observability_middleware.py -m feature_auth_reliability -q`.
 The HTTP loop uses real routing/challenge validation and an isolated storage
 port; it does not establish live SMS delivery or TestFlight behavior.
 
