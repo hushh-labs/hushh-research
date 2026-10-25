@@ -339,3 +339,66 @@ async def test_expired_session_requires_bound_age_missing_status_and_current_buc
         await writes.reconcile(store, row, operation, retained)
         assert (await _pending_receipt(operation))["sessionObservedBy"] == observed
     assert await shared_storage.fetchval("SELECT 1 FROM vault_keys WHERE user_id='alice'") == 1
+
+
+@pytest.mark.feature_account_deletion
+@pytest.mark.trace_loop
+@pytest.mark.parametrize("defect", ["none", "changed_custody", "changed_bucket"])
+async def test_legacy_session_provider_expiry_settles_only_its_write(
+    shared_storage, monkeypatch, defect
+):
+    from hushh_mcp.services.shared_files import writes
+    from hushh_mcp.services.shared_files.uploads import SharedCipherStore
+    from tests.pod_azure_fakes import FakeResponse
+
+    monkeypatch.setenv("EXTERNAL_CONNECTOR_CREDENTIAL_KEY", "K" * 32)
+    row, epoch, lease, operation, reserved = await _reserve_receipt()
+    uri = "https://storage.googleapis.com/upload/storage/v1/b/synthetic-files/o?uploadType=resumable&upload_id=synthetic-session"
+    uncertain = {**reserved, "state": "uncertain"}
+    uncertain["session"] = write_receipts.seal(row, operation, uncertain, uri)
+    if defect == "changed_custody":
+        uncertain["session"]["iv"] = "invalid-synthetic-iv"
+    assert await write_receipts.transition(row, operation, reserved, uncertain, mode="recovery")
+    with pytest.raises(FilesRefused, match="FILES_ERASURE_WAITING_FOR_WRITES"):
+        await registry.fence("alice")
+    row = await registry.resource("alice")
+    calls = []
+
+    class Transport:
+        def put(self, url, **kwargs):
+            calls.append("status")
+            assert url == uri and kwargs["data"] == b""
+            assert kwargs["allow_redirects"] is False
+            assert kwargs["headers"]["Content-Range"] == "bytes */28"
+            return FakeResponse(404)
+
+        def get(self, url, **kwargs):
+            calls.append("bucket_identity")
+            assert url == "https://storage.googleapis.com/storage/v1/b/synthetic-files"
+            metadata = {**BUCKET, "generation": "2"} if defect == "changed_bucket" else BUCKET
+            return FakeResponse(200, body=metadata)
+
+    store = SharedCipherStore("synthetic-files", row["prefix"] + "/" + epoch, session=Transport())
+    monkeypatch.setattr(store, "_headers", lambda: {})
+    if defect == "none":
+        await writes.reconcile(store, row, operation, uncertain)
+        assert calls == ["status", "bucket_identity", "bucket_identity"]
+    else:
+        code = (
+            "FILES_UPLOAD_CUSTODY_UNVERIFIED"
+            if defect == "changed_custody"
+            else "FILES_STORAGE_IDENTITY_CHANGED"
+        )
+        with pytest.raises(FilesRefused, match=code):
+            await writes.reconcile(store, row, operation, uncertain)
+        assert calls == ([] if defect == "changed_custody" else ["status", "bucket_identity"])
+    retained = await registry.resource("alice")
+    pending = (
+        json.loads(retained["writes"])
+        if isinstance(retained["writes"], str)
+        else retained["writes"]
+    )
+    assert bool(pending) == (defect != "none")
+    assert retained["state"] == "erasing"  # Session settlement is not erasure completion.
+    assert not retained["receipt"]
+    assert await shared_storage.fetchval("SELECT count(*) FROM vault_keys") == 2
