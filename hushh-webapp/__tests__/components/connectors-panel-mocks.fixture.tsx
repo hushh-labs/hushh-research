@@ -47,7 +47,7 @@ vi.mock("@/components/profile/profile-connectors-section", () => ({
     </div>;
   },
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user, userId: state.user.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null,
   getVaultKey: () => state.token ? "synthetic-key" : null, getVaultOwnerToken: () => state.token }) }));
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ ...state.calendar, refresh: state.calendarRefresh }) }));

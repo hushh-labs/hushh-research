@@ -52,7 +52,7 @@ const auth = vi.hoisted(() => ({
   startPhoneReplacement: async () => undefined,
   confirmPhoneReplacement: async () => undefined,
 }));
-vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => auth }));
+vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ ...auth, userId: auth.user.uid }) }));
 // A real-shaped vault key: the chat key the requests carry is derived from it.
 const vault = vi.hoisted(() => ({
   vaultKey: "ab".repeat(32),

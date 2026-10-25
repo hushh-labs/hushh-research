@@ -1,8 +1,9 @@
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import type { CalendarAttendanceHandoff, CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/navigation/agent-navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
+    userId: mocks.ownerId,
     user: mocks.ownerId
       ? { uid: mocks.ownerId, email: `${mocks.ownerId}@example.com`, displayName: "Calendar owner", getIdToken: mocks.getIdToken }
       : null,
@@ -96,6 +98,7 @@ describe("CalendarAgentPage", () => {
     mocks.native = false;
     mocks.authLoading = false;
     mocks.ownerId = "calendar-user";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "calendar-user", ownerId: "calendar-user", accountGeneration: 0 });
     mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "shared" });
     mocks.popupAttempt = "";
     mocks.vaultOwnerToken = null;
@@ -819,3 +822,5 @@ describe("CalendarAgentPage", () => {
   });
 
 });
+
+afterEach(() => publishValidatedAuthSessionPrincipal(null));

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
@@ -34,7 +35,8 @@ function response(body: unknown, status = 200) {
 
 describe("native Gmail observability", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
+    vi.resetAllMocks();
     mocks.currentUserId = "owner";
     // Provider-observability cases run only after explicit Shared admission.
     mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "shared" });
@@ -116,11 +118,11 @@ describe("native Gmail observability", () => {
       }),
     );
 
-    await GmailReceiptsService.startConnect({
+    await expect(GmailReceiptsService.startConnect({
       idToken: "token",
       userId: "owner",
       includeGrantedScopes: false,
-    });
+    })).rejects.toThrow("PRIVATE_AGENT_SIGN_IN_REQUIRED");
 
     expect(mocks.trackEvent).not.toHaveBeenCalledWith(
       "gmail_connect_started",
@@ -280,3 +282,5 @@ describe("native Gmail observability", () => {
     ]);
   });
 });
+
+afterEach(() => publishValidatedAuthSessionPrincipal(null));

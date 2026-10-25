@@ -1214,6 +1214,19 @@ jobs:
           path: consent-protocol/.mypy_cache
           key: ${{ runner.os }}-mypy-py${{ env.PYTHON_VERSION }}-${{ hashFiles('consent-protocol/uv.lock', 'consent-protocol/pyproject.toml') }}
 
+      - name: Prepare native migration replay prerequisites
+        # These tests own disposable clusters, separate from the PG17 service.
+        # Noble's stock PG16 lacks vector.control; canonical migration 033 needs it.
+        shell: bash
+        timeout-minutes: 4
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y postgresql-16-pgvector=0.6.0-1
+          test -x /usr/lib/postgresql/16/bin/initdb
+          test -f /usr/share/postgresql/16/extension/vector.control
+          echo 'HUSHH_TEST_PG_BIN=/usr/lib/postgresql/16/bin' >> "$GITHUB_ENV"
+
       - name: Run protocol check script (single source of truth)
         # Hosted core took 630s vs 419s on the previous green run; the serial
         # database stage reached 93% at the old 22-minute cap. Preserve its

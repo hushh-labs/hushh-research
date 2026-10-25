@@ -17875,7 +17875,7 @@
       "limit": 500,
       "path": ".agents/skills/autonomous-rca-governance/scripts/rca_runner.py",
       "symbol": null,
-      "value": 832
+      "value": 887
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22177,7 +22177,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_rca_runner_can_say_it_did_not_look.py",
       "symbol": null,
-      "value": 511
+      "value": 620
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22492,7 +22492,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-agent-page.test.tsx",
       "symbol": null,
-      "value": 821
+      "value": 826
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22510,7 +22510,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/connections-panel.test.tsx",
       "symbol": null,
-      "value": 747
+      "value": 753
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22645,7 +22645,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/location-command-workflow.test.tsx",
       "symbol": null,
-      "value": 836
+      "value": 838
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23077,7 +23077,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
       "symbol": null,
-      "value": 1795
+      "value": 1797
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27761,7 +27761,7 @@
       "path": "hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx",
       "ratchet_reason": "new finding",
       "symbol": null,
-      "value": 694
+      "value": 697
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86143,6 +86143,54 @@
         "before": 811,
         "after": 824,
         "source_sha256": "b3d03326f91b5ff8dc618cadd569b795b863a29106d27f3a0643dbdb4cf1b599"
+      }
+    ]
+  },
+  "ci_auth_fixture_rca_review_20261025": {
+    "source_revision": "5794b9d556",
+    "review": "Independent frontend/authentication and CI reviewers approve only these existing module ceilings. Fixtures explicitly admit application principals, preserve ABA/owner/vault refusal tests and release fixture state. RCA observes exact-head/current-attempt hosted authority by default rather than starting duplicate full suites; local execution remains explicit. Existing runner import safety is preserved without a size-only split. No scanner, global budget, security gate or unrelated finding changes. Focused tests and actual hosted observation are required; these source ceilings do not establish deployment or owner acceptance.",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
+        "before": 1795,
+        "after": 1797,
+        "source_sha256": "ca358d7983a8ec3b8f8cae1895bbdeed9ad1226c6f96b0afb3cf5929a9848838"
+      },
+      {
+        "key": "module_size|.agents/skills/autonomous-rca-governance/scripts/rca_runner.py||module exceeds the advisory operon budget",
+        "before": 832,
+        "after": 887,
+        "source_sha256": "5078394def6f1bf1502dffd843ca53efe6ab105322a80407352b78b4e7dd1246"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/location-command-workflow.test.tsx||module exceeds the advisory operon budget",
+        "before": 836,
+        "after": 838,
+        "source_sha256": "03db581619920490c20bb30855ad7ec52d8848ba3613544751a56e2c89865511"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-agent-page.test.tsx||module exceeds the advisory operon budget",
+        "before": 821,
+        "after": 826,
+        "source_sha256": "195ee8d5ebba48dc978949762f0a45eb2bd8975a460861596ddc50fff2a322d7"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/connections-panel.test.tsx||module exceeds the advisory operon budget",
+        "before": 747,
+        "after": 753,
+        "source_sha256": "3045ec34b72e4505d3bd56f88327036a74d5153c897fa661b145de537d2c178a"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx||module exceeds the advisory operon budget",
+        "before": 694,
+        "after": 697,
+        "source_sha256": "acca8412053d84770edacc5e0e0f4050b9bfd07c4ece6d9abc0b4fd696072902"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_rca_runner_can_say_it_did_not_look.py||module exceeds the advisory operon budget",
+        "before": 511,
+        "after": 620,
+        "source_sha256": "b15cda82ef6dae5384480ea7a181b090ee16bb84781dc769d85e62e19d8c5f83"
       }
     ]
   }

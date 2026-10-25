@@ -9,7 +9,7 @@ const ports = vi.hoisted(() => ({
   token: () => "vault-token",
   key: () => "vault-key",
 }));
-vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: ports.userId ? { uid: ports.userId } : null }) }));
+vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: ports.userId ? { uid: ports.userId } : null, userId: ports.userId }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: ports.unlocked, getVaultKey: ports.key, getVaultOwnerToken: ports.token }) }));
 vi.mock("@/lib/consent/use-consent-pending-summary-count", () => ({ useConsentPendingSummaryCount: () => 0 }));
 vi.mock("@/lib/one-location/key-bootstrap", () => ({ bootstrapCurrentUserLocationRecipientKey: ports.bootstrap }));

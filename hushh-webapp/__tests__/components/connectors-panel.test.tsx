@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { state } from "./connectors-panel-mocks.fixture";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -84,6 +85,7 @@ const panel = (open = true) => <ConnectorsPanel open={open} {...callbacks} />;
 
 describe("supported connector catalog", () => {
   beforeEach(() => {
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-a", ownerId: "owner-a", accountGeneration: 0 });
     state.privatePlacement.mockReset().mockResolvedValue(false);
     state.ownerPodRequest.mockReset().mockImplementation(async (path: string) => new Response(JSON.stringify({ connectorId: path.split('/')[1], status: 'connected', capabilities: { read: true, manage: false }, accessLevel: 'read' })));
     state.user.uid = "owner-a";
@@ -116,7 +118,7 @@ describe("supported connector catalog", () => {
     state.connectGmail.mockReset();
     Object.values(callbacks).forEach((callback) => callback.mockClear());
   });
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); publishValidatedAuthSessionPrincipal(null); });
 
   it('private placement mounts only pod connectors and does not claim management access from a connection receipt', async () => {
     state.privatePlacement.mockResolvedValue(true);
@@ -821,6 +823,7 @@ describe("supported connector catalog", () => {
         const view = await connectHubspot();
         await waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
         state.user.uid = "owner-b";
+        publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-b", ownerId: "owner-b", accountGeneration: 0 });
         view.rerender(panel());
         await waitFor(() => expect(popup.close).toHaveBeenCalled());
         expect(assign).not.toHaveBeenCalled();
@@ -1433,6 +1436,7 @@ describe("supported connector catalog", () => {
     const view = render(panel());
     await waitFor(() => expect(state.overview).toHaveBeenCalledTimes(1));
     state.user.uid = "owner-b";
+        publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-b", ownerId: "owner-b", accountGeneration: 0 });
     state.token = "other-synthetic-token";
     view.rerender(panel());
     await act(async () => finish(overview([catalogItem])));

@@ -1,6 +1,6 @@
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { XIcon, PlusIcon, ShieldIcon, WalletIcon, Key, KeyRound, KeyIcon, AccentedKeyIcon, AccentedShareNetworkIcon, Share2, ShareNetworkIcon, PeoplePairIcon, Users, Trash2, TrashIcon } from "@/components/icons";
 import { ProfilePaneDeleteIcon, ProfilePanePrivacyIcon, ProfilePaneShareIcon } from "@/components/profile/profile-pane-icons";
@@ -136,12 +136,12 @@ it("keeps every row glyph on native outline geometry in an authored colour", () 
   }
 });
 
-it("resolves the host icon skill to the canonical agents source", () => {
+it("discovers the icon skill through the canonical agents framework", () => {
   const root = resolve("..");
   const canonical = readFileSync(resolve(root, ".agents/skills/hushh-icon-theme/SKILL.md"), "utf8");
-  const adapter = resolve(root, ".claude/skills/hushh-icon-theme/SKILL.md");
-  expect(realpathSync(adapter)).toBe(realpathSync(resolve(root, ".agents/skills/hushh-icon-theme/SKILL.md")));
-  expect(readFileSync(adapter, "utf8")).toBe(canonical);
+  expect(canonical).toContain("hushh-icon-theme");
+  expect(readFileSync(resolve(root, "AGENTS.md"), "utf8")).toContain(".agents/");
+  for (const legacy of [".claude", ".codex", ".qwen"]) expect(existsSync(resolve(root, legacy))).toBe(false);
 });
 
 it("renders the approved outline artwork in the actual Preferences controls", () => {

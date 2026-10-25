@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 import ts from "typescript";
-import { publishValidatedAuthSessionOwner, snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal, snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 
 const source = readFileSync(
@@ -14,7 +14,7 @@ const source = readFileSync(
 // Execute the same workspace callbacks at their service ports. The native
 // workspace cannot be mounted here; no authorization logic is copied to this fixture.
 function historyCallbacks() {
-  publishValidatedAuthSessionOwner("history-owner");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "history-owner", ownerId: "history-owner", accountGeneration: 0 });
   const from = source.indexOf("  const historyListRequest =");
   const list = source.slice(from >= 0 ? from : source.indexOf("  const loadConversationList ="), source.indexOf("  const handleSelectConversation ="));
   const actions = source.slice(source.indexOf("  const handleRenameConversation ="), source.indexOf("  /**\n   * Reveal one card"));
@@ -23,7 +23,7 @@ function historyCallbacks() {
   const deps = {
     useCallback: <T,>(callback: T) => callback,
     useRef: <T,>(value: T) => ({ current: value }),
-    user: { uid: "history-owner" },
+    applicationOwnerId: "history-owner", user: { uid: "history-owner" },
     workspaceOwnerIdRef: { current: "history-owner" },
     historyListOwner: { current: null as { auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null },
     snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent,
@@ -61,7 +61,7 @@ describe("History caller authority", () => {
     const rename = callbacks.handleRenameConversation("selected-chat", "Synthetic title");
     deps.setIsLoadingHistory.mockClear(); deps.setHistoryActionPendingId.mockClear();
     if (transition === "owner ABA") {
-      publishValidatedAuthSessionOwner("another-owner"); publishValidatedAuthSessionOwner("history-owner");
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "another-owner", ownerId: "another-owner", accountGeneration: 0 }); publishValidatedAuthSessionPrincipal({ firebaseUid: "history-owner", ownerId: "history-owner", accountGeneration: 0 });
     } else if (transition === "vault change") advanceVaultSessionEpoch();
     settleList({ conversations: [{ id: "selected-chat" }] }); settleRename({ id: "selected-chat" });
     await Promise.all([list, rename]);
@@ -76,7 +76,7 @@ describe("History caller authority", () => {
       expect(deps.setHistoryActionPendingId).not.toHaveBeenCalled();
       expect(deps.historyListOwner.current).toBeNull();
     }
-    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionPrincipal(null);
   });
 
   it("preserves text and attachment until deletion commits", async () => {
@@ -94,15 +94,15 @@ describe("History caller authority", () => {
     expect(deps.setConversations).toHaveBeenCalledTimes(1);
     expect(deps.clearAgentChatHistoryCache).toHaveBeenCalledWith("history-owner");
     expect(deps.clearAgentChatHistoryCache.mock.invocationCallOrder[0]).toBeLessThan(deps.warmAgentChatHistoryCache.mock.invocationCallOrder[0]);
-    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionPrincipal(null);
   });
 });
 
 describe("Initial history warm return", () => {
   it.each(["current", "watched turn", "selection", "typed turn", "owner ABA", "vault change", "cache invalidation", "refresh failure"])(
     "renders expired memory before network and fences %s", async (transition) => {
-      publishValidatedAuthSessionOwner("history-owner");
-      const start = source.indexOf('    const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;');
+      publishValidatedAuthSessionPrincipal({ firebaseUid: "history-owner", ownerId: "history-owner", accountGeneration: 0 });
+      const start = source.indexOf('    const loadKey = `${applicationOwnerId}:${vaultOwnerToken.slice(0, 12)}`;');
       const end = source.indexOf("    // History is never on the workspace", start);
       expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
       const compiled = ts.transpileModule(source.slice(start, end) + "\nreturn loadRecentConversation;",
@@ -113,7 +113,7 @@ describe("Initial history warm return", () => {
       let chatEpoch = 1, cacheCurrent = true;
       let settle!: (value: typeof cached) => void, fail!: (reason: Error) => void;
       const deps = {
-        user: { uid: "history-owner" }, vaultOwnerToken: "synthetic-token", vaultKeyRef: { current: "synthetic-key" },
+        applicationOwnerId: "history-owner", user: { uid: "history-owner" }, vaultOwnerToken: "synthetic-token", vaultKeyRef: { current: "synthetic-key" },
         skipInitialHistoryLoadRef: { current: false }, historyLoadKeyRef: { current: null }, historyRestoreEpochRef: { current: 1 },
         chatSessionRef: { current: { value: 1, isCurrent: (value: number) => value === chatEpoch } },
         workspaceOwnerIdRef: { current: "history-owner" }, historyListOwner: { current: null },
@@ -143,7 +143,7 @@ describe("Initial history warm return", () => {
       deps.setMessages.mockClear(); deps.setConversations.mockClear(); deps.setSlotHistoryFailed.mockClear();
       if (transition === "selection") chatEpoch++;
       if (transition === "typed turn") deps.historyRestoreEpochRef.current++;
-      if (transition === "owner ABA") { publishValidatedAuthSessionOwner("other-owner"); publishValidatedAuthSessionOwner("history-owner"); }
+      if (transition === "owner ABA") { publishValidatedAuthSessionPrincipal({ firebaseUid: "other-owner", ownerId: "other-owner", accountGeneration: 0 }); publishValidatedAuthSessionPrincipal({ firebaseUid: "history-owner", ownerId: "history-owner", accountGeneration: 0 }); }
       if (transition === "vault change") advanceVaultSessionEpoch();
       if (transition === "cache invalidation") cacheCurrent = false;
       if (transition === "refresh failure") fail(new Error("synthetic refresh failure"));
@@ -156,7 +156,7 @@ describe("Initial history warm return", () => {
         expect(deps.setMessages).not.toHaveBeenCalled();
       }
       expect(deps.setSlotHistoryFailed).not.toHaveBeenCalled();
-      publishValidatedAuthSessionOwner(null);
+      publishValidatedAuthSessionPrincipal(null);
     },
   );
 });
@@ -245,7 +245,7 @@ describe("Agent Chat email draft layout contract", () => {
 describe("Mail status owner-session boundary", () => {
   it("fences deferred tokens, ABA owners, duplicate checks and stale completion", async () => {
     const from = source.indexOf("  const getEmailDeliveryAuth =");
-    const block = source.slice(from, source.indexOf("\n  useEffect(() => {\n    if (!user?.uid || !isVaultUnlocked || !tokenIsFresh) return;", from));
+    const block = source.slice(from, source.indexOf("\n  useEffect(() => {\n    if (!user || !applicationOwnerId || !isVaultUnlocked || !tokenIsFresh) return;", from));
     const compiled = ts.transpileModule(block + "\nreturn { getEmailDeliveryAuth, checkEmailDeliveryStatus };",
       { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
     const deferred = <T,>() => {
@@ -264,7 +264,7 @@ describe("Mail status owner-session boundary", () => {
     const sendStatus = vi.fn();
     const deps = { emailScopeRef, workspaceOwnerIdRef, emailStatusOperationRef,
       isVaultSessionEpochCurrent: (value: number) => value === epoch,
-      user: { uid: "owner-a", getIdToken: vi.fn(() => token.promise) },
+      applicationOwnerId: "owner-a", user: { uid: "owner-a", getIdToken: vi.fn(() => token.promise) },
       isVaultUnlocked: true, tokenIsFresh: true, checkingEmailActionId: null,
       getVaultOwnerToken: () => "synthetic-owner-token", setCheckingEmailActionId,
       setVaultDialogOpen: vi.fn(), setEmailDeliveryHistory, forgetPendingEmailSendAction,
@@ -302,8 +302,8 @@ describe("Mail status owner-session boundary", () => {
     // A same-owner unlock must release stale checking UI without erasing history.
     const resetStart = source.indexOf("  useEffect(() => {", source.indexOf("const emailHistoryOwnerRef ="));
     const reset = source.slice(resetStart, source.indexOf("  const [activeFrontendToolCount", resetStart));
-    expect(reset).toContain("[user?.uid, vaultSessionEpoch]");
-    const resetDeps = { user: deps.user, vaultSessionEpoch: ++epoch,
+    expect(reset).toContain("[applicationOwnerId, vaultSessionEpoch]");
+    const resetDeps = { applicationOwnerId: deps.applicationOwnerId, user: deps.user, vaultSessionEpoch: ++epoch,
       emailStatusOperationRef, setCheckingEmailActionId,
       emailHistoryOwnerRef: { current: "owner-a" }, emailDeliveryActionByAttemptRef: { current: new Map() },
       setEmailDeliveryHistory, useEffect: (callback: () => void) => callback() };

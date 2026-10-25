@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import "fake-indexeddb/auto";
 
 import { createHash } from "node:crypto";
@@ -218,11 +219,13 @@ function rawCacheRecords(): Promise<Array<{ key: string }>> {
 }
 
 beforeEach(() => {
+  publishValidatedAuthSessionPrincipal({ firebaseUid: USER, ownerId: USER, accountGeneration: 0 });
   mocks.preview.mockReset();
   mocks.add.mockReset();
 });
 
 afterEach(async () => {
+  publishValidatedAuthSessionPrincipal(null);
   await clearSecureCache();
   localStorage.clear();
   sessionStorage.clear();

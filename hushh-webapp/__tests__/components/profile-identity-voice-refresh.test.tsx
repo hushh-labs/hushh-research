@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(async () => null),
 }));
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user, userId: mocks.user.uid }) }));
 vi.mock("@/lib/one-voice/session-store", () => ({
   useVoiceToolEffects: (effects: Effects) => {
     mocks.effects = effects;

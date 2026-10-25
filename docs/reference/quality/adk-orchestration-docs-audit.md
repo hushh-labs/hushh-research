@@ -23,6 +23,20 @@ retains its disclosed boundary.
 not the application currently serving dev or UAT. Installed Browser and Puppy
 acceptance remain separate.**
 
+[PR #8437](https://github.com/hushh-labs/hushh-research/pull/8437) carries this
+correction. Its first hosted run found stale application-owner test admission,
+a genuine unresolved-identity avatar crash, and missing pgvector in the native
+migration-test installation. The repair keeps generation admission explicit,
+guards the avatar read and provisions the matching PostgreSQL prerequisite;
+it does not skip migration 033 or weaken owner checks. The original crash fails
+the new regression when restored. All 21 affected web files have passing focused
+evidence across the repair runs; TypeScript and changed-source lint pass.
+Chromium and WebKit connector fixtures pass six cases each. The RCA command now
+observes existing hosted CI by default; exact-head/current-attempt clearance
+remains mandatory, and a local full suite requires explicit execution. Its 58
+focused tests pass. These repairs still require the finished candidate's hosted
+validation and deployment; no serving or installed-owner claim follows.
+
 At 01:38 UTC on 25 October (24 October Pacific), both dev services served
 `b2ee968a59ab` through [dev run 40148134757](https://github.com/hushh-labs/hushh-research/actions/runs/40148134757).
 A concurrent governed UAT rollout now serves the same `b2ee968a59ab` application
