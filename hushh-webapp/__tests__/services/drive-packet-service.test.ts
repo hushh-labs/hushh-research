@@ -53,6 +53,18 @@ describe("@feature_drive_packets @trace_loop query packet wire contract", () => 
         shareable: false, viewUrl: "https://drive.google.com/file/d/recording/view" }] };
     const owner = parseDrivePacket({ ...discovery, preview }, "owner");
     expect(owner).toMatchObject({ preview, version: 0, canList: false, canRequest: false });
+    const tagged = { ...preview, tagging: { status: "running", policyVersion: "test-v1",
+      counts: { financial: 0, review: 0, other: 0, pending: 1 } },
+      documents: [{ ...preview.documents[0], packetTag: { bucket: "review", reason: "no_evidence" } }] };
+    expect(parseDrivePacket({ ...discovery, preview: tagged }, "owner")).toMatchObject({ preview: tagged });
+    expect(parseDrivePacket({ ...discovery, preview: tagged })).not.toHaveProperty("preview");
+    for (const invalid of [null, { status: ["running"] }, { ...tagged.tagging, counts: { financial: -1 } }]) {
+      const parsed = parseDrivePacket({ ...discovery, preview: { ...tagged, tagging: invalid,
+        documents: [{ ...tagged.documents[0], packetTag: { bucket: ["financial"], reason: "invalid" } }] } }, "owner");
+      expect(parsed).not.toHaveProperty("preview.tagging");
+      expect(parsed).not.toHaveProperty("preview.documents.0.packetTag");
+      expect(parsed).toMatchObject({ preview: { documents: [{ viewUrl: preview.documents[0].viewUrl }] } });
+    }
     expect(parseDrivePacket({ ...discovery, preview })).not.toHaveProperty("preview");
     expect(() => parseDrivePacket({ ...discovery, preview: { ...preview, status: ["completed"], matched: null, complete: false } }, "owner")).toThrow();
     expect(() => parseDrivePacket({ ...discovery, preview: { ...preview, documents: [

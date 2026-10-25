@@ -308,6 +308,7 @@ async def test_live_verification_requires_a_drive_search_then_resumes_waiting_re
     monkeypatch.setattr(rest.GoogleDriveRestTransport, "probe", probe)
     resume = AsyncMock()
     service._prepare_drive_collection = AsyncMock()
+    service._prepare_financial_packets = AsyncMock()
 
     class Sharing:
         def __init__(self, **kwargs):
@@ -322,15 +323,18 @@ async def test_live_verification_requires_a_drive_search_then_resumes_waiting_re
     probe.assert_awaited_once()
     service.lifecycle.mark_verified.assert_not_awaited()
     service._prepare_drive_collection.assert_not_awaited()
+    service._prepare_financial_packets.assert_not_awaited()
     probe.side_effect = None
     # A superseded credential is not verified, so nothing resumes.
     service.lifecycle.mark_verified.return_value = False
     assert await service.verify_live(user_id="owner") is False
     resume.assert_not_awaited()
     service._prepare_drive_collection.assert_not_awaited()
+    service._prepare_financial_packets.assert_not_awaited()
     service.lifecycle.mark_verified.return_value = True
     assert await service.verify_live(user_id="owner") is True
     service._prepare_drive_collection.assert_awaited_once_with("owner")
+    service._prepare_financial_packets.assert_awaited_once_with("owner")
     resume.assert_awaited_once_with(user_id="owner")
 
     # The committed verification never fails or waits on a failed or slow resume.

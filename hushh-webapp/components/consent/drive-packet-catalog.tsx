@@ -58,7 +58,7 @@ const emptyList = (): PacketListValue => ({ packets: [], cursor: null, busy: fal
 export function useDrivePacketCatalogModel({ ownerPersonRef, ownerName = "the owner", refreshKey = 0, preparationPaused = false, enabled = true, periodPackets = false }: PacketCatalogOptions = {}) {
   const session = useDrivePacketSession(ownerPersonRef ?? "owner-packets");
   const lease = useMemo(() => ({ live: false, serial: 0, pages: 1, visit: 0, opened: null as string | null,
-    previewLocks: new Set<string>(), previewPages: new Map<string, { revision: number; start: string | null }>(), started: new Set<string>(), key: session.key, ownerPersonRef, token: session.token, guard: session.guard }), [session.key, session.token, session.guard, ownerPersonRef]);
+    previewLocks: new Set<string>(), previewPages: new Map<string, { revision: number; start: string | null; pages: number; tagging?: DrivePacketPreview["tagging"] }>(), started: new Set<string>(), key: session.key, ownerPersonRef, token: session.token, guard: session.guard }), [session.key, session.token, session.guard, ownerPersonRef]);
   const active = useRef(enabled);
   useLayoutEffect(() => { active.current = enabled; });
   useLayoutEffect(() => { lease.live = !!lease.token; return () => { lease.live = false; lease.serial += 1; }; }, [lease]);
@@ -115,14 +115,35 @@ export function useDrivePacketCatalogModel({ ownerPersonRef, ownerName = "the ow
           start = null; preview = await DrivePacketService.preview(lease.token, packetId, guard);
         }
       }
+      // A terminal tagging update must refresh earlier loaded pages as well as the tail.
+      const tagChanged = JSON.stringify(previousPage?.tagging) !== JSON.stringify(preview.tagging);
+      if (action === "read" && previousPage && previousPage.pages > 1 && tagChanged &&
+          preview.tagging && !["queued", "running"].includes(preview.tagging.status)) {
+        const revision = preview.revision, target = previousPage.pages;
+        start = null;
+        preview = await DrivePacketService.preview(lease.token, packetId, guard);
+        const documents = [...(preview.documents ?? [])], seen = new Set<string>();
+        for (let page = 1; page < target && preview.nextCursor; page++) {
+          guard();
+          if (seen.has(preview.nextCursor)) throw new Error("invalid_response");
+          start = preview.nextCursor; seen.add(start);
+          preview = await DrivePacketService.preview(lease.token, packetId, guard, start);
+          if (preview.revision !== revision) throw new Error("superseded");
+          documents.push(...(preview.documents ?? []));
+        }
+        preview = { ...preview, documents };
+      }
       guard();
       if (action === "start" || action === "refresh") lease.started.add(packetId);
-      lease.previewPages.set(packetId, { revision: preview.revision, start });
+      const samePage = previousPage?.revision === preview.revision;
+      const pages = samePage && start ? previousPage.pages + (action === "more" ? 1 : 0) : 1;
+      lease.previewPages.set(packetId, { revision: preview.revision, start, pages, tagging: preview.tagging });
       change(value => {
         const previous = value.previews[packetId];
         const keep = (action === "more" || action === "read") && previous?.revision === preview.revision && !previous.stale && !preview.stale;
-        const documents = keep ? [...(previous?.documents ?? []), ...(preview.documents ?? [])]
-          .filter((file, index, files) => files.findIndex(other => other.viewUrl === file.viewUrl && other.name === file.name) === index) : preview.documents;
+        // Canonical URLs identify originals; unlinked entries are preserved individually.
+        const documents = keep ? [...new Map([...(previous?.documents ?? []), ...(preview.documents ?? [])]
+          .map((file, index) => [file.viewUrl ?? `unlinked:${index}`, file] as const)).values()] : preview.documents;
         return { ...value, previews: { ...value.previews, [packetId]: { ...preview, documents } } };
       });
       if (preview.complete) void load();
@@ -146,21 +167,25 @@ export function useDrivePacketCatalogModel({ ownerPersonRef, ownerName = "the ow
   const live = useMemo(() => selected?.kind === "provider_discovery" && value.previews[selected.packetId]
     ? { ...selected, preview: value.previews[selected.packetId] } : selected, [selected, value.previews]);
   const previewStatus = live?.kind === "provider_discovery" ? live.preview?.status : undefined;
+  const taggingActive = live?.kind === "provider_discovery" &&
+    ["queued", "running"].includes(live.preview?.tagging?.status ?? "");
   const selectedSummary = selected?.kind === "provider_discovery" ? selected.preview : undefined;
   const localPreview = selected ? value.previews[selected.packetId] : undefined;
   const selectedId = selected?.packetId;
+  const selectedTagging = JSON.stringify(selectedSummary?.tagging);
   const catalogAhead = !!selectedSummary && (!localPreview || selectedSummary.revision > localPreview.revision ||
-    (selectedSummary.updatedAt ?? "") > (localPreview.updatedAt ?? "") || selectedSummary.status !== localPreview.status);
+    (selectedSummary.updatedAt ?? "") > (localPreview.updatedAt ?? "") || selectedSummary.status !== localPreview.status ||
+    selectedTagging !== JSON.stringify(localPreview.tagging));
   useEffect(() => {
     if (enabled && selectedId && catalogAhead && !ownerPersonRef) void loadPreview(selectedId, "read");
-  }, [catalogAhead, enabled, loadPreview, ownerPersonRef, selectedId, selectedSummary?.revision, selectedSummary?.updatedAt, selectedSummary?.status]);
+  }, [catalogAhead, enabled, loadPreview, ownerPersonRef, selectedId, selectedSummary?.revision, selectedSummary?.updatedAt, selectedSummary?.status, selectedTagging]);
   useEffect(() => {
     if (!enabled || ownerPersonRef || !value.opened || value.opened.kind !== "provider_discovery" ||
-      !["not_started", "queued", "searching", "partial"].includes(previewStatus ?? "not_started")) return;
+      !taggingActive && !["not_started", "queued", "searching", "partial"].includes(previewStatus ?? "not_started")) return;
     const packetId = value.opened.packetId;
     const timer = setInterval(() => { if (document.visibilityState === "visible") void loadPreview(packetId, "read"); }, 5000);
     return () => clearInterval(timer);
-  }, [enabled, loadPreview, ownerPersonRef, previewStatus, value.opened]);
+  }, [enabled, loadPreview, ownerPersonRef, previewStatus, taggingActive, value.opened]);
   useEffect(() => {
     if (enabled && value.opened && !live && value.cursor && !value.busy && !value.error) void load(value.cursor);
   }, [enabled, live, load, value.opened, value.cursor, value.busy, value.error]);
@@ -182,7 +207,9 @@ export function useDrivePacketCatalogModel({ ownerPersonRef, ownerName = "the ow
       change(value => ({ ...value, opened: packet, previewBusy: false, previewError: false }));
       if (!ownerPersonRef && packet.kind === "provider_discovery") {
         const started = lease.started.has(packet.packetId);
-        void loadPreview(packet.packetId, started ? "read" : "start");
+        const previous = value.previews[packet.packetId] ?? packet.preview;
+        const stale = previous?.complete && !!previous.updatedAt && Date.now() - Date.parse(previous.updatedAt) >= 5 * 60_000;
+        void loadPreview(packet.packetId, started && !stale ? "read" : "start");
       }
     },
     close,
@@ -327,16 +354,28 @@ export function ownerPacketSections(packet: DrivePacket, amount: number | null, 
       ...(document.viewUrl ? { onOpen: () => { if (current?.() && document.viewUrl) openExternalUrl(document.viewUrl); } } : {}) })),
     ...more > 0 ? [{ id: "more", title: `${more.toLocaleString("en-US")} more ${more === 1 ? "document" : "documents"}` }] : [],
   ] : [{ id: "count", title: ownerDocumentCount(packet) ?? "Files have not been counted yet", description: periodLabel(packetPeriod(packet)) ?? undefined }];
+  const grouped = packet.kind === "provider_discovery" && packet.category === "financial" && documents.length > 0;
+  const titles = { financial: "Financial", review: "Needs review", other: "Other matches" };
+  const buckets: PacketPageSection[] = grouped ? (["financial", "review", "other"] as const).map(bucket => {
+    const rows = documents.flatMap((document, index) =>
+      (document.packetTag?.bucket ?? "review") === bucket && inside[index] ? [inside[index]] : []);
+    return { id: `matches-${bucket}`, title: `${titles[bucket]} (${rows.length} shown)`, rows };
+  }).filter(section => section.rows.length > 0) : [];
   const summary = buyerSummary(packet);
   const shownPrice = ownerPacketPrice(packet) === null ? null : formatDocumentRequestPrice(amount ?? packet.priceCents);
   const sections: PacketPageSection[] = [
-    { id: "inside", title: "What’s inside", rows: inside },
+    ...(grouped ? [...buckets, ...(more > 0 ? [{ id: "more-results", title: "More search results", rows: inside.slice(documents.length) }] : [])]
+      : [{ id: "inside", title: "What’s inside", rows: inside }]),
     ...summary === null ? [] : [{ id: "buyers", title: "What buyers see", rows: [{ id: "listing", title: packet.title, description: summary },
       ...buyerNotes(packet).map((note, index) => ({ id: `note-${index}`, title: note }))] }],
     ...shownPrice === null ? [] : [{ id: "price", title: "Price", rows: [{ id: "price", title: "Price", value: shownPrice }],
     }],
     { id: "status", title: "Status", rows: [
       { id: "status", title: status.word, description: status.detail, tone: status.tone },
+      ...preview?.tagging ? [{ id: "organizing", title: {
+        queued: "Waiting to organize", running: "Organizing matches", completed: "Matches organized",
+        partial: "Some matches need review", failed: "Couldn’t finish organizing",
+      }[preview.tagging.status], description: `${preview.tagging.counts.financial} Financial · ${preview.tagging.counts.review} Needs review · ${preview.tagging.counts.other} Other matches · ${preview.tagging.counts.pending} awaiting labels across saved results` }] : [],
       ...preview?.updatedAt ? [{ id: "searched", title: preview.stale ? "Previous search" : "Last searched", value: new Date(preview.updatedAt).toLocaleString() }] : [],
       ...preview?.limited ? [{ id: "limited", title: "Showing saved files. Refresh to search for the remaining files.", tone: "attention" as const }] : [],
       ...packetGaps(packet).map((gap, index) => ({ id: `gap-${index}`, title: gap, tone: "attention" as const })),

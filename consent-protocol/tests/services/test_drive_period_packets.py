@@ -189,7 +189,14 @@ async def test_worker_threads_exact_head_lease_to_pre_send_guard(monkeypatch):
         "hushh_mcp.services.drive_period_packet_service.admit_hub_content", AsyncMock()
     )
     identity = str(uuid4())
-    work = {"packet_id": identity, "revision": 3, "lease_id": "lease-current", "build": {}}
+    work = {
+        "packet_id": identity,
+        "category": "bank",
+        "next_at": datetime.now(UTC),
+        "revision": 3,
+        "lease_id": "lease-current",
+        "build": {},
+    }
     store = SimpleNamespace(
         ensure_owner=AsyncMock(),
         claim_build=AsyncMock(return_value=work),
@@ -224,7 +231,7 @@ async def test_planning_reuses_only_this_exact_period_checkpoint(monkeypatch, ca
     current = AsyncMock()
     job = {
         "user_id": "owner",
-        "category": "financial",
+        "category": "bank",
         "period_timezone": "UTC",
         "period_start": date(2026, 3, 1),
         "period_end": date(2026, 4, 30),
