@@ -56,7 +56,7 @@ export type DeleteAccountAuthResolution =
  */
 export const DELETE_ACCOUNT_DIALOG_TITLE = "Delete account?";
 export const DELETE_ACCOUNT_DIALOG_DESCRIPTION =
-  "Deletes your account, vault, memory, chats, and connections. This can’t be undone.";
+  "Deletes your account, vault, memory, chats, and connections.";
 
 type AccountDeletionSessionUser = Pick<User, "uid" | "getIdToken">;
 type DeletionStatusProbe = "active" | "deleted" | "in_progress" | "unavailable";
