@@ -136,3 +136,89 @@ first in plan mode, then with `--apply`, then again in plan mode to require
 `metric unchanged` and `dashboard unchanged`. The dashboard and metrics are
 managed in the backend deployment project; the provider project is only a
 bounded dimension of those observations.
+
+## Auth availability
+
+Use the same reconciler for auth availability without SQL, dashboard, IAM or
+scheduler changes. It defaults to a read-only plan and disabled auth policies;
+ordinary capacity reconciliation does not touch these policies. Monitoring
+commands have a 60-second deadline. The auth path
+reuses existing enabled email channels and refuses duplicates or an explicitly
+unverified channel. It does not create another channel.
+
+```bash
+python3 deploy/observability/reconcile_capacity.py \
+  --project hushh-pda-uat --auth-only --enable-auth-alerts \
+  --email ankit@hushh.ai --email kushal@hushh.ai
+```
+
+Capture current policy JSON for rollback. Review this plan, append `--apply`,
+read the selected managed policies back, then run the same plan again and require
+`unchanged` for every metric and policy. Repeat separately for production with
+`--project hushh-pda`. Removing `--enable-auth-alerts` and applying disables the
+auth policies and clears their channels. It does not delete monitoring history.
+
+`[Managed] Auth Service Failures` opens after at least three server failures in
+five minutes across identity refresh, phone claim/finalization, test-phone
+start/confirm and vault bootstrap. It uses existing `request.summary` route
+templates and `server_error` outcomes, so invalid OTPs, ownership conflicts and
+ordinary client rate limits do not page. The incident aggregates revisions into
+one series and sends opening/recovery notices without repeat reminders. Keep
+the existing `[Managed] DB Pool Acquire Timeout` policy enabled and verify its
+channels independently: it catches even one acquisition timeout, including a
+`DATABASE_UNAVAILABLE` dependency failure before the auth spike threshold. Do
+not run the broad setup script merely to add auth coverage.
+
+`[Managed] Firebase Phone Provider Failures` covers direct Firebase phone send
+and verify calls from web, iOS and Android. Both deployment environments share
+Firebase project `hushh-pda`, so only that project's auth reconciliation manages
+this policy; UAT reconciliation excludes it. It reuses the same notification
+channels and enablement flag, with no extra log metric or dashboard.
+
+The policy requires **both** at least ten HTTP 403/429/5xx responses in an aligned
+five-minute window and a failure ratio above 20% sustained for five minutes.
+Its numerator and denominator use identical five-minute sum/reduction settings
+on `serviceruntime.googleapis.com/api/request_count`, scoped to Identity Toolkit
+`SendVerificationCode` and `SignInWithPhoneNumber`. Ordinary wrong-code HTTP 400
+responses are excluded. HTTP 403 permission/configuration failures count; provider failures represented
+as HTTP 400, browser errors before a provider request and undelivered SMS remain
+outside this signal. Low-volume failures below the ten-response floor do not page.
+Google documents one-minute sampling and up to **30 minutes** of ingestion delay,
+so this coverage is delayed rather than an immediate page. See the
+[service-runtime metric descriptor](https://docs.cloud.google.com/monitoring/api/metrics_gcp_p_z#gcp-serviceruntime)
+and [ratio aggregation contract](https://docs.cloud.google.com/monitoring/api/ref_v3/rest/v3/projects.alertPolicies#MetricThreshold).
+
+`[Managed] Auth Test Allowlist Health` consumes an explicit, content-free
+publication from the existing protected-list checker:
+
+```bash
+python3 scripts/ops/verify_secret_list_invariants.py \
+  --project hushh-pda-uat --emit-health-log
+```
+
+The checker keeps secret values in process memory and publishes only
+`auth.test_allowlist.health`, `status` (`healthy`, `failed`, `unavailable`) and
+a list count to `obs-auth-health`. Missing access, a failed previous-version read
+and a wiped list cannot produce a healthy status. Each gcloud operation has a
+45-second deadline. Publication failure returns a failed verification outcome,
+without copying provider diagnostics. Normal deploy checks remain read-only
+unless this flag is supplied.
+
+The existing **Verify Protected Configuration** workflow runs hourly and publishes
+the content-free health result. Its selected WIF identity requires
+`logging.logEntries.create` in each target project; the production WIF setup
+declares the narrow `roles/logging.logWriter` role. Verify the live binding
+before enabling the producer. Do not enable a heartbeat
+based on an unverified writer or a one-off local run. After the hourly producer
+has successfully published, add `--enable-auth-heartbeat` to the reconciler
+command to alert when no check result arrives for three hours. Monitoring
+absence conditions require an observed series; metric creation alone proves
+neither a scheduled producer nor failure detection.
+
+Read back only count/status fields when validating health logs. Test delivery
+through the existing safe notification proof described above; never inject a
+production auth error. These checks establish server availability and test-list
+integrity. They do not prove that a real SMS arrives or that a complete phone
+sign-in finishes. Keep that separate end-to-end proof on the existing authorized
+reviewer fixture, with OTPs, phone numbers and tokens excluded from logs and
+screenshots. No new credential-bearing synthetic loop or cron is installed here.

@@ -1,0 +1,5 @@
+{
+  "name": "obs_auth_allowlist_health_count",
+  "description": "Heartbeat from hourly protected phone allowlist verification, including failed checks; aggregate status only, no extracted labels.",
+  "filter": "resource.type=\"global\" AND logName=\"projects/__PROJECT_ID__/logs/obs-auth-health\" AND jsonPayload.message=\"auth.test_allowlist.health\""
+}

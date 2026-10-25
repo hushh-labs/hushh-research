@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reconcile only capacity log metrics, alert policies, and the managed dashboard.
+"""Reconcile managed operational log metrics, alert policies, and dashboards.
 
 The default is a read-only plan. Pass --apply after reviewing the plan. This
 entry point intentionally does not enable APIs, alter IAM, jobs, or datasets.
@@ -19,6 +19,10 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent
+_AUTH_SPEC = importlib.util.spec_from_file_location("auth_reliability", ROOT / "auth_reliability.py")
+assert _AUTH_SPEC and _AUTH_SPEC.loader
+_AUTH = importlib.util.module_from_spec(_AUTH_SPEC)
+_AUTH_SPEC.loader.exec_module(_AUTH)
 _CAPACITY_SPEC = importlib.util.spec_from_file_location(
     "runtime_capacity_budget", ROOT.parents[1] / "scripts/ci/runtime-capacity-budget.py"
 )
@@ -69,6 +73,7 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--sql-instance", default="")
+    _AUTH.add_arguments(parser)
     parser.add_argument("--commerce-only", action="store_true")
     parser.add_argument("--include-commerce", action="store_true")
     parser.add_argument("--console-only", action="store_true")
@@ -93,6 +98,7 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
         help="Reconcile One Voice metrics and the managed dashboard without alerts or channels",
     )
     args = parser.parse_args(argv)
+    _AUTH.validate_arguments(parser, args)
     if args.commerce_only and args.voice_only:
         parser.error("--commerce-only and --voice-only select different provisioners")
     if args.provider_only and (args.voice_only or args.sql_instance or args.commerce_only or args.include_commerce):
@@ -100,18 +106,18 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     if not PROJECT_RE.fullmatch(args.project):
         parser.error("--project must be a Google Cloud project ID")
     for key in ("sql_instance", "backend_service", "frontend_service", "dashboard_id"):
-        if key == "sql_instance" and (args.provider_only or (args.commerce_only and not args.sql_instance)):
+        if key == "sql_instance" and (args.auth_only or args.provider_only or (args.commerce_only and not args.sql_instance)):
             continue
         if not NAME_RE.fullmatch(getattr(args, key)):
             parser.error(f"--{key.replace('_', '-')} must be a resource name")
     if args.console_only and args.email:
         parser.error("--console-only cannot be combined with --email")
-    args.email = [] if args.console_only else list(dict.fromkeys(args.email or DEFAULT_EMAILS))
+    args.email = [] if _AUTH.delivery_disabled(args) else list(dict.fromkeys(args.email or DEFAULT_EMAILS))
     if not all(
         re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in args.email
     ):
         parser.error("--email must be an email address")
-    if not args.provider_only and not args.commerce_only:
+    if not args.auth_only and not args.provider_only and not args.commerce_only:
         try:
             _CAPACITY.sql_alert_thresholds(
                 json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
@@ -124,7 +130,10 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def run(*command: str, allow_missing: bool = False) -> Any:
-    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    try:
+        result = subprocess.run(command, text=True, capture_output=True, check=False, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{' '.join(command[:4])} timed out") from None
     if result.returncode:
         if allow_missing and (
             "NOT_FOUND" in result.stderr.upper() or "NOT FOUND" in result.stderr.upper()
@@ -138,7 +147,7 @@ def run(*command: str, allow_missing: bool = False) -> Any:
 
 def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
     source = path.read_text()
-    thresholds = {} if args.provider_only or args.commerce_only else _CAPACITY.sql_alert_thresholds(
+    thresholds = {} if args.auth_only or args.provider_only or args.commerce_only else _CAPACITY.sql_alert_thresholds(
         json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()), args.project, args.sql_instance
     )
     substitutions = {
@@ -293,7 +302,7 @@ def reconcile(args: argparse.Namespace) -> None:
             "--format=json",
         )
     }
-    metric_names = () if args.provider_only or args.commerce_only else VOICE_METRICS if args.voice_only else METRICS
+    metric_names = _AUTH.METRICS if args.auth_only else () if args.provider_only or args.commerce_only else VOICE_METRICS if args.voice_only else METRICS
     for name in metric_names:
         desired = render(ROOT / "log-metrics" / f"{name}.json", args)
         current = current_metrics.get(name)
@@ -339,10 +348,7 @@ def reconcile(args: argparse.Namespace) -> None:
             if channel.get("type") == "email"
             and channel.get("labels", {}).get("email_address") == email
         ]
-        if len(matches) > 1:
-            raise RuntimeError(
-                f"Multiple email channels for {email}; resolve before applying"
-            )
+        _AUTH.validate_channel(args, matches, email)
         if matches:
             channel_name = matches[0]["name"]
             print(f"channel unchanged: {channel_name}")
@@ -378,11 +384,12 @@ def reconcile(args: argparse.Namespace) -> None:
     by_name: dict[str, list[dict[str, Any]]] = {}
     for policy in policies:
         by_name.setdefault(policy["displayName"], []).append(policy)
-    selected_policies = ("scope-commerce-policy",) if args.commerce_only else PROVIDER_POLICIES if args.provider_only else POLICIES
+    selected_policies = _AUTH.selected_policies(args) if args.auth_only else ("scope-commerce-policy",) if args.commerce_only else PROVIDER_POLICIES if args.provider_only else POLICIES
     if args.include_commerce and not args.commerce_only:
         selected_policies += ("scope-commerce-policy",)
     for slug in selected_policies:
         desired = render(ROOT / "alerts" / f"{slug}.json.in", args)
+        _AUTH.configure_policy(args, slug, desired)
         current_matches = by_name.get(desired["displayName"], [])
         if len(current_matches) > 1:
             raise RuntimeError(
@@ -452,7 +459,8 @@ def reconcile(args: argparse.Namespace) -> None:
                 ]
             write_config(desired, command)
 
-    reconcile_dashboard(args)
+    if not args.auth_only:
+        reconcile_dashboard(args)
 
 
 if __name__ == "__main__":
