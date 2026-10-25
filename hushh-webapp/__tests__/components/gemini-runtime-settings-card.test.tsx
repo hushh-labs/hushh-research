@@ -924,8 +924,8 @@ it.each([false, true])(
     });
     loadRuntimeSecretMock.mockResolvedValue(null);
     storeRuntimeSecretMock.mockResolvedValue({ success: true });
-    ownerPodRequestMock.mockResolvedValue(
-      accepted
+    ownerPodRequestMock.mockImplementation(async (_path, init) =>
+      init?.method === "GET" ? Response.json({ configured: false }) : accepted
         ? Response.json({
             status: "active",
             provider: "gemini",
@@ -954,8 +954,8 @@ it.each([false, true])(
       target: { value: "synthetic-gemini-key" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Check and use" }));
-    await waitFor(() => expect(ownerPodRequestMock).toHaveBeenCalledOnce());
-    expect(ownerPodRequestMock.mock.calls[0][0]).toBe("ai-selection");
+    await waitFor(() => expect(ownerPodRequestMock.mock.calls.filter((call) => call[1]?.method === "PUT")).toHaveLength(1));
+    expect(ownerPodRequestMock.mock.calls.find((call) => call[1]?.method === "PUT")?.[0]).toBe("ai-selection");
     expect(validateGeminiRuntimeCredentialMock).not.toHaveBeenCalled();
     if (accepted)
       await waitFor(() => expect(storeRuntimeSecretMock).toHaveBeenCalled());
@@ -984,8 +984,10 @@ it("confirms a verified Azure default concisely and cancels AI editing through a
     },
   });
   loadRuntimeSecretMock.mockResolvedValue(null);
-  ownerPodRequestMock.mockResolvedValue(
-    Response.json({
+  let finishMetadata!: (response: Response) => void;
+  const metadata = new Promise<Response>((resolve) => { finishMetadata = resolve; });
+  ownerPodRequestMock.mockImplementation(async (_path, init) =>
+    init?.method === "GET" ? metadata : Response.json({
       status: "cleared",
       defaultProvider: "azure_openai",
       defaultModel: "synthetic-deployment",
@@ -1011,6 +1013,13 @@ it("confirms a verified Azure default concisely and cancels AI editing through a
   );
   fireEvent.click(runtimeChoice("profile-managed-runtime"));
   await screen.findByRole("button", { name: "Change AI" });
+  finishMetadata(Response.json({ configured: false, effectiveConnection: {
+    provider: "azure_openai", model: "stale-deployment", source: "cloud_default",
+    state: "configured", verification: "unverified",
+  } }));
+  await act(async () => { await metadata; });
+  expect(screen.getByRole("button", { name: "Change AI" })).toBeTruthy();
+  expect(screen.queryByText(/stale-deployment/)).toBeNull();
   expect(screen.queryByTestId("profile-byok-runtime")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Change AI" }));
   fireEvent.click(runtimeChoice("profile-byok-runtime"));
@@ -1023,8 +1032,8 @@ it("confirms a verified Azure default concisely and cancels AI editing through a
   expect(screen.queryByLabelText("Gemini API key")).toBeNull();
   expect(screen.getByRole("button", { name: "Change AI" })).toBeVisible();
   expect(ready).toHaveBeenLastCalledWith(true);
-  expect(ownerPodRequestMock).toHaveBeenCalledOnce();
-  expect(ownerPodRequestMock.mock.calls[0][1].method).toBe("PATCH");
+  expect(ownerPodRequestMock.mock.calls.filter((call) => call[1]?.method === "GET")).toHaveLength(1);
+  expect(ownerPodRequestMock.mock.calls.filter((call) => call[1]?.method === "PATCH")).toHaveLength(1);
 });
   it("retires the private key draft and pending validation when its owner changes", async () => {
     publishValidatedAuthSessionOwner("owner-a");

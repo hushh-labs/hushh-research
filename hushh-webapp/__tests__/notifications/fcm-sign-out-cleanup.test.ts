@@ -53,7 +53,7 @@ describe("sign-out push cleanup", () => {
   it("removes native preview keys even when obtaining a logout token rejects", async () => {
     mocks.native = true;
     const getIdToken = vi.fn().mockRejectedValue(new Error("offline"));
-    await settleSignOutNotifications({ uid: "owner", getIdToken } as unknown as User);
+    await settleSignOutNotifications({ uid: "owner", getIdToken } as unknown as User, "owner");
     expect(mocks.clearPreview).toHaveBeenCalledWith("owner");
     expect(mocks.unregister).not.toHaveBeenCalled();
   });
@@ -62,9 +62,17 @@ describe("sign-out push cleanup", () => {
     mocks.native = true;
     let release!: (token: string) => void;
     const getIdToken = vi.fn(() => new Promise<string>((resolve) => { release = resolve; }));
-    const cleanup = settleSignOutNotifications({ uid: "owner", getIdToken } as unknown as User);
+    const cleanup = settleSignOutNotifications({ uid: "owner", getIdToken } as unknown as User, "owner");
     await vi.waitFor(() => expect(mocks.clearPreview).toHaveBeenCalledWith("owner"));
     release("token"); await cleanup;
+  });
+
+  it("clears replacement-owner previews while retaining the external Firebase UID for authentication", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    const getIdToken = vi.fn().mockResolvedValue("firebase-token");
+    await settleSignOutNotifications({ uid: "external-uid", getIdToken } as unknown as User, ownerId);
+    expect(mocks.clearPreview).toHaveBeenCalledWith(ownerId);
+    expect(mocks.unregister).toHaveBeenCalledWith(ownerId, "firebase-token", undefined, expect.any(AbortSignal), expect.any(String));
   });
 
   it("clears an existing subscription without registering a worker during logout", async () => {

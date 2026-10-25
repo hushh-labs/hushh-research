@@ -144,7 +144,9 @@ async def test_device_bound_vault_owner_tokens_use_internal_ledger(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_validate_token_with_db_accepts_active_internal_vault_owner_token(monkeypatch):
+async def test_validate_token_with_db_accepts_active_internal_vault_owner_token(
+    monkeypatch, active_account_lifecycle
+):
     future_ms = int(time.time() * 1000) + 60_000
     token = issue_token(
         user_id="user_test",
@@ -176,7 +178,9 @@ async def test_validate_token_with_db_accepts_active_internal_vault_owner_token(
 
 
 @pytest.mark.asyncio
-async def test_validate_token_with_db_accepts_active_device_bound_vault_owner_token(monkeypatch):
+async def test_validate_token_with_db_accepts_active_device_bound_vault_owner_token(
+    monkeypatch, active_account_lifecycle
+):
     future_ms = int(time.time() * 1000) + 60_000
     token = issue_token(
         user_id="user_test",

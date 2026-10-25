@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
   return {
     toast,
     user,
+    ownerId: undefined as string | undefined,
     auth: { user: user as typeof user | null },
     platform: { value: "web", native: false },
     initializeFCM: vi.fn(),
@@ -50,7 +51,7 @@ vi.mock("@capacitor/core", async (importOriginal) => {
 });
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.auth.user }),
+  useAuth: () => ({ user: mocks.auth.user, userId: mocks.ownerId ?? mocks.auth.user?.uid ?? null }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -233,6 +234,7 @@ beforeEach(() => {
   window.sessionStorage.clear();
   vi.clearAllMocks();
   mocks.auth.user = mocks.user;
+  mocks.ownerId = undefined;
   mocks.platform.native = false;
   mocks.platform.value = "web";
   mocks.navigation.pathname = "/settings";
@@ -247,6 +249,14 @@ beforeEach(() => {
 });
 
 describe("connection-request Feed-first foreground policy", () => {
+  it("registers delivery for the replacement owner using its unchanged Firebase authentication", async () => {
+    mocks.ownerId = "acct_" + "a".repeat(32);
+    await renderProvider();
+    expect(mocks.initializeFCM).toHaveBeenCalledWith(mocks.ownerId, "firebase-token", { requestPermission: false });
+    dispatchDirectMessage({ user_id: mocks.ownerId, conversation_id: "11111111-2222-4333-8444-555555555555", message_id: "g1-message" });
+    expect(mocks.dispatchDirectMessagesUpdated).toHaveBeenCalledWith(expect.objectContaining({ userId: mocks.ownerId, messageId: "g1-message" }));
+  });
+
   it("refreshes the recipient Feed and inbox for a direct-message doorbell without a popup", async () => {
     await renderProvider();
 

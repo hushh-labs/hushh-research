@@ -3,9 +3,11 @@ import { AgentChatWorkspace } from "../../components/agent/agent-chat-workspace"
 import { AgentDockProvider, AgentDockVoiceBoundary } from "../../components/agent/agent-dock";
 import { AgentBarSurface } from "../../components/agent/agent-bar-surface";
 import { Toaster } from "../../components/ui/sonner";
-import { publishValidatedAuthSessionOwner } from "../../lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "../../lib/auth/session-owner";
 
-publishValidatedAuthSessionOwner(location.search.includes("anonymous=1") ? null : "new-chat-test-owner");
+publishValidatedAuthSessionPrincipal(location.search.includes("anonymous=1") ? null : {
+  firebaseUid: "new-chat-test-owner", ownerId: "new-chat-test-owner", accountGeneration: 0,
+});
 createRoot(document.getElementById("root")!).render(
   <AgentDockProvider>
     <div className="fixed inset-x-0 bottom-0 z-50 p-3">

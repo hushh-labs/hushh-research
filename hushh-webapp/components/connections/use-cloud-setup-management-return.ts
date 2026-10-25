@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { profileHostingSetupHref } from "@/lib/navigation/profile-routes";
+import { ROUTES } from "@/lib/navigation/routes";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
@@ -11,7 +12,12 @@ export function useCloudSetupManagementReturn(userId: string | undefined, ownerC
   const router = useRouter();
   const search = useSearchParams();
   useEffect(() => {
-    if (!userId || !ownerCurrent() || search.has("from") || search.has("return_to")) return;
+    if (!userId || !ownerCurrent() || search.has("from")) return;
+    if (search.get("return_to") === ROUTES.PROFILE_HOSTING) {
+      router.replace(profileHostingSetupHref());
+      return;
+    }
+    if (search.has("return_to")) return;
     let active = true;
     const apply = (completed: boolean) => {
       if (active && completed && ownerCurrent())

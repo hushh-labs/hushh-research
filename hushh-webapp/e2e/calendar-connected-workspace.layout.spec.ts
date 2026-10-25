@@ -268,8 +268,18 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("button", { name: new RegExp(`^${privateLongTitle}`) }).click();
     await expect(page.getByRole("dialog")).toContainText(privateLongTitle);
     await expect(page.getByRole("dialog")).toContainText(privateLongLocation);
-    await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
-    await expect.poll(() => page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
+    const previousReads = long.calls.filter(call => call.path.endsWith("/schedule/today")).length;
+    const releaseSchedule = long.holdSchedule();
+    try {
+      await page.getByTestId("calendar-fixture-lock").dispatchEvent("click");
+      await expect.poll(() => long.calls.filter(call => call.path.endsWith("/schedule/today")).length).toBeGreaterThan(previousReads);
+      // Distinguish retained private DOM from a new Firebase-authorized read.
+      await expect.poll(() => page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
+    } finally {
+      releaseSchedule("standard");
+    }
+    await expect(page.getByRole("button", { name: /^QA Product Sync/ })).toBeVisible();
+    expect(await page.evaluate(({ title, location }) => document.body.textContent?.includes(title) || document.body.textContent?.includes(location), { title: privateLongTitle, location: privateLongLocation })).toBe(false);
     expect(long.errors).toEqual([]);
     expect(long.unexpectedRequests).toEqual([]);
 

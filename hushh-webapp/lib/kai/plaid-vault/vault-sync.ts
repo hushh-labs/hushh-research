@@ -764,13 +764,20 @@ export async function revokeAllVaultPlaidAtPlaid(params: {
   userId: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  isCurrent?: () => boolean;
 }): Promise<{ revoked: number; failed: number }> {
+  const assertCurrent = () => {
+    if (params.isCurrent?.() === false) throw new Error("Account deletion cancelled before submission.");
+  };
+  assertCurrent();
   // A failed read throws and stops the erasure; null means no finance record.
   const financial = await loadFinancialForVault(params);
+  assertCurrent();
   const connections = vaultConnections(financial);
   let revoked = 0;
   let failed = 0;
   for (const connection of Object.values(connections)) {
+    assertCurrent();
     if (!connection?.access_token) continue;
     try {
       await removeVaultItem({ vaultOwnerToken: params.vaultOwnerToken, accessToken: connection.access_token });
@@ -779,6 +786,7 @@ export async function revokeAllVaultPlaidAtPlaid(params: {
       failed += 1;
     }
   }
+  assertCurrent();
   const pending = await recoverPendingSeals({ ...params, sealedItemIds: new Set(Object.keys(connections)) });
   return { revoked: revoked + pending.disconnected, failed: failed + pending.failed };
 }

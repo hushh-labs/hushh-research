@@ -113,7 +113,7 @@ async def bare_db() -> AsyncIterator[Any]:
 
 
 @pytest.fixture
-async def ledger(monkeypatch) -> AsyncIterator[Any]:
+async def ledger(monkeypatch, active_account_lifecycle) -> AsyncIterator[Any]:
     """173 then 275, replayed as every deploy does, behind both services' get_pool."""
     async for pool in _disposable_database():
         await pool.execute(M275)

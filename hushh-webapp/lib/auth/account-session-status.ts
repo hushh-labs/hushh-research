@@ -1,3 +1,4 @@
+import { parseAccountPrincipal, type AccountPrincipalBinding } from "./session-owner";
 import { authSessionLandingCodeFromBackendPayload, isAccountDeletionInProgressBackendPayload } from "./session-invalidation";
 
 const ACCOUNT_DELETION_REPROBE_DEFAULT_DELAY_MS = 2_000;
@@ -5,7 +6,7 @@ const ACCOUNT_DELETION_REPROBE_MAX_DELAY_MS = 2_000;
 const ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES = 4_096;
 
 type AccountSessionStatusInspection =
-  | { outcome: "active" }
+  | { outcome: "active"; principal: AccountPrincipalBinding }
   | { outcome: "credential_rejected" }
   | { outcome: "unavailable" }
   | { outcome: "deletion_in_progress"; response: Response }
@@ -48,13 +49,13 @@ export function withinAccountSessionValidationBudget<T>(
   });
 }
 
-function hasJsonResponseContentType(response: Response): boolean {
+export function hasJsonResponseContentType(response: Response): boolean {
   const contentType = response.headers.get("Content-Type")?.toLowerCase() ?? "";
   const mediaType = contentType.split(";", 1)[0]?.trim() ?? "";
   return mediaType === "application/json" || mediaType.endsWith("+json");
 }
 
-async function readBoundedAccountSessionStatusBody(
+export async function readBoundedAccountSessionStatusBody(
   response: Response,
   deadlineMs: number,
 ): Promise<string> {
@@ -79,23 +80,10 @@ async function readBoundedAccountSessionStatusBody(
   return payload;
 }
 
-function isAuthoritativeActiveSessionPayload(payload: string): boolean {
-  try {
-    const parsed: unknown = JSON.parse(payload);
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed) &&
-      (parsed as { active?: unknown }).active === true
-    );
-  } catch {
-    return false;
-  }
-}
-
 export async function inspectAccountSessionStatusResponse(
   response: Response,
   deadlineMs: number,
+  expectedFirebaseUid: string,
 ): Promise<AccountSessionStatusInspection> {
   if (response.status === 200) {
     if (!hasJsonResponseContentType(response)) {
@@ -106,8 +94,9 @@ export async function inspectAccountSessionStatusResponse(
         response,
         deadlineMs,
       );
-      return isAuthoritativeActiveSessionPayload(payload)
-        ? { outcome: "active" }
+      const principal = parseAccountPrincipal(JSON.parse(payload), expectedFirebaseUid);
+      return principal
+        ? { outcome: "active", principal }
         : { outcome: "unavailable" };
     } catch {
       return { outcome: "unavailable" };

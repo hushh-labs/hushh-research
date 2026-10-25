@@ -178,7 +178,14 @@ async def test_a_checked_selection_is_sealed_into_the_log_and_never_echoed(
         "model": None,
         "checkedAtMs": checked,
     }
-    assert got.json() == {
+    effective = got.json().pop("effectiveConnection", None)
+    assert effective and effective["provider"] == "openai"
+    from hushh_mcp.runtime_providers.owner_openai import OWNER_OPENAI_DEFAULT_MODEL
+
+    assert effective["model"] == OWNER_OPENAI_DEFAULT_MODEL
+    assert effective["source"] == "owner_key"
+    assert effective["verification"] == "unverified"
+    assert {key: value for key, value in got.json().items() if key != "effectiveConnection"} == {
         "configured": True,
         "provider": "openai",
         "model": None,
@@ -431,6 +438,8 @@ async def test_verified_default_refusal_preserves_the_working_owner_selection(
     async def refuse(**kwargs):
         raise RuntimeError("synthetic provider refusal")
 
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://synthetic.openai.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "synthetic-deployment")
     monkeypatch.setattr(
         azure_openai, "owner_azure_model", lambda: ("azure_openai", "synthetic-deployment")
     )
@@ -460,6 +469,8 @@ async def test_default_patch_requires_an_actual_response_and_no_configuration_bo
     async def reply(**kwargs):
         return SimpleNamespace(text=answer)
 
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://synthetic.openai.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "synthetic-deployment")
     monkeypatch.setattr(
         azure_openai, "owner_azure_model", lambda: ("azure_openai", "synthetic-deployment")
     )
@@ -482,3 +493,73 @@ async def test_default_patch_requires_an_actual_response_and_no_configuration_bo
     else:
         assert result.status_code == 422
         assert pod_ai_selection.active_ai_selection().provider == "openai"
+
+
+@pytest.mark.parametrize("provider", ["azure_openai", "gemini"])
+async def test_effective_default_uses_the_turn_authority_without_inference_or_selection_write(
+    pod, monkeypatch, provider
+):
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(pod_turn, "_resolve_model", lambda: ("gemini", "manifest-model"))
+    resolve = Mock(
+        return_value=(
+            None,
+            (
+                provider,
+                "actual-deployment",
+                "user_azure_mi" if provider == "azure_openai" else "user_adc",
+            ),
+        )
+    )
+    monkeypatch.setattr(pod_turn, "_resolve_owner_target", resolve)
+    before = await _records(pod)
+    state = await run_ai_selection_get(log=pod, **_local())
+    assert state["configured"] is False
+    assert state["effectiveConnection"] == {
+        "provider": provider,
+        "model": "actual-deployment",
+        "source": "cloud_default",
+        "state": "configured",
+        "checkedAtMs": None,
+        "verification": "unverified",
+    }
+    assert await _records(pod) == before
+    resolve.assert_called_once()
+
+
+async def test_default_verification_survives_replay_but_not_target_drift_or_unverified_clear(
+    pod, owner_session, monkeypatch
+):
+    from hushh_mcp.runtime_providers import azure_openai
+
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://synthetic.openai.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "synthetic-deployment")
+
+    async def reply(**kwargs):
+        return SimpleNamespace(text="OK")
+
+    monkeypatch.setattr(
+        azure_openai,
+        "owner_azure_client",
+        lambda *args: SimpleNamespace(
+            aio=SimpleNamespace(models=SimpleNamespace(generate_content=reply))
+        ),
+    )
+    # Already using the default: verification must still append its sealed receipt.
+    result = _client().patch(PATH, headers=OWNER_SESSION)
+    assert result.status_code == 200
+    assert "connectionFingerprint" not in result.json()
+    assert len(await _records(pod)) == 1
+    pod_ai_selection.set_active_ai_selection(None)
+    await pod_ai_selection.load_active_ai_selection(pod)
+    state = await run_ai_selection_get(log=pod, **_local())
+    assert state["effectiveConnection"]["verification"] == "previously_verified"
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://replacement.openai.azure.com/")
+    state = await run_ai_selection_get(log=pod, **_local())
+    assert state["effectiveConnection"]["verification"] == "unverified"
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://synthetic.openai.azure.com/")
+    assert _client().delete(PATH, headers=OWNER_SESSION).status_code == 200
+    await pod_ai_selection.load_active_ai_selection(pod)
+    state = await run_ai_selection_get(log=pod, **_local())
+    assert state["effectiveConnection"]["verification"] == "unverified"

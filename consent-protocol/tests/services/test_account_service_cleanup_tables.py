@@ -4,6 +4,7 @@ import json
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
@@ -21,6 +22,34 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 pytestmark = pytest.mark.usefixtures("legacy_account_without_shared_files")
+
+
+async def _finalize_recorded_cleanup(service, monkeypatch, user_id, *, requested_target="both"):
+    """These table-order units begin at the already-qualified journal boundary.
+
+    Real admission, atomic settlement and stale claims are covered by the
+    disposable PostgreSQL erasure suite, not by this recording connection.
+    """
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    claim = journal.ProviderCleanupClaim(
+        user_id, "firebase-identity", str(uuid4()), str(uuid4()), {}, {}, requested_target
+    )
+    monkeypatch.setattr(journal, "is_ready", lambda observed: observed == claim)
+
+    def admit(connection, observed):
+        assert observed == claim
+        AccountDeletionLifecycleService._lock_user_ids_in_transaction(
+            connection, user_ids=(user_id,)
+        )
+
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
+
+    monkeypatch.setattr(journal, "begin_local_erasure", admit)
+    monkeypatch.setattr(journal, "settle_local_erasure", MagicMock())
+    return await service.finalize_provider_cleanup(claim)
 
 
 def _legacy_table_exists(_conn, table):
@@ -197,7 +226,9 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     monkeypatch.setattr(service, "_delete_personal_agent_state", _delete_personal_agent_state)
 
     with patch("hushh_mcp.services.account_service.get_db_connection", side_effect=_committing_db):
-        result = await service._delete_full_account(
+        result = await _finalize_recorded_cleanup(
+            service,
+            monkeypatch,
             user_id,
             requested_target="both",
         )
@@ -245,26 +276,21 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     for table in ["circle_chat_messages", "circle_chat_recipients", "circle_chat_preferences"]:
         assert result["details"][table] is True
     assert result["details"]["account_deletion_tombstone"] is True
-    assert result["details"]["firebase_cleanup_intent_count"] == 1
+    assert result["details"]["firebase_cleanup_intent_count"] == 0
 
     _assert_wallet_grants_erased_before_sources(conn)
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
-    assert "INSERT INTO account_deletion_tombstones" in executed_sql
-    assert executed_sql.count("INSERT INTO account_deletion_tombstones") == 1
-    first_insert_offset = next(
+    assert "INSERT INTO account_deletion_tombstones" not in executed_sql
+    first_delete_call = next(
         index
         for index, call in enumerate(conn.execute.call_args_list)
-        if "INSERT INTO account_deletion_tombstones" in str(call.args[0])
+        if "DELETE FROM" in str(call.args[0])
     )
-    pre_insert_sql = "\n".join(
-        str(call.args[0]) for call in conn.execute.call_args_list[:first_insert_offset]
-    )
-    assert first_insert_offset == 4
-    assert pre_insert_sql.count("pg_advisory_xact_lock") == 3
+    initial_lock_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list[:4])
+    assert first_delete_call >= 4
+    assert initial_lock_sql.count("pg_advisory_xact_lock") == 3
     assert conn.execute.call_args_list[1].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
-    first_delete_offset = executed_sql.index("DELETE FROM")
-    assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
         "DELETE FROM email_auth_challenges",
         "DELETE FROM email_auth_enrollments",
@@ -767,7 +793,9 @@ async def test_full_delete_does_not_report_rollback_or_notification_failure_as_r
         "hushh_mcp.services.connections_service._notify_connection_graph_changed",
         failed_notification,
     )
-    result = await service._delete_full_account("departing", requested_target="both")
+    result = await _finalize_recorded_cleanup(
+        service, monkeypatch, "departing", requested_target="both"
+    )
     assert result["success"] is not rollback
     assert result["account_deleted"] is not rollback
     assert notifications == ([] if rollback else [{"peer"}])
@@ -1361,8 +1389,8 @@ async def test_full_account_deletion_demotes_system_circle_before_deleting_it(mo
     )
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account(
-            "user_with_system_circle", requested_target="both"
+        result = await _finalize_recorded_cleanup(
+            service, monkeypatch, "user_with_system_circle", requested_target="both"
         )
 
     assert result["success"] is True
@@ -1517,51 +1545,82 @@ def test_erasure_preflight_locks_owner_before_registry(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "outcome", ["complete", "pending", "exception", "already_complete", "database_failure"]
-)
+@pytest.mark.parametrize("outcome", ["prepared", "cloud_review", "database_failure"])
 async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
     from types import SimpleNamespace
-    from unittest.mock import AsyncMock
 
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+        PreparedProviderCleanup,
+    )
     from hushh_mcp.services.account_service import PersonalAgentDeprovisioningRequiredError
 
     service = AccountService()
-    blocked = {"success": False, "error_code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE}
-    completed = {"success": True, "account_deleted": True}
-    first = (
-        completed
-        if outcome == "already_complete"
-        else {"success": False}
-        if outcome == "database_failure"
-        else blocked
+    events = []
+    connection = MagicMock()
+    # This unit covers preparation outcomes on the legacy generation-zero
+    # schema. The real SQL suite owns generation binding and retirement.
+    table_exists = service._table_exists
+    monkeypatch.setattr(
+        service,
+        "_table_exists",
+        lambda conn, name: False if name == "account_generations" else table_exists(conn, name),
+    )
+
+    @contextmanager
+    def transaction():
+        with _db(connection):
+            yield connection
+        events.append("committed")
+
+    prepared = PreparedProviderCleanup(str(uuid4()), "cleaning_up", 2)
+    prepare = MagicMock(return_value=prepared)
+    if outcome == "cloud_review":
+        prepare.side_effect = PersonalAgentDeprovisioningRequiredError("review")
+    elif outcome == "database_failure":
+        prepare.side_effect = RuntimeError("synthetic failure")
+    monkeypatch.setattr(
+        AccountDeletionLifecycleService, "prepare_provider_cleanup_in_transaction", prepare
+    )
+    monkeypatch.setattr("hushh_mcp.services.account_service.get_db_connection", transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.guard_answer_erasure", lambda *args, **kwargs: None
+    )
+    release = AsyncMock()
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure", release
     )
     monkeypatch.setattr(
         "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
         lambda: SimpleNamespace(get=AsyncMock(return_value=None)),
     )
-    transaction = AsyncMock(side_effect=[first, completed])
     cleanup = AsyncMock()
-    if outcome == "pending":
-        cleanup.side_effect = PersonalAgentDeprovisioningRequiredError("pending")
-    elif outcome == "exception":
-        cleanup.side_effect = RuntimeError("synthetic failure")
-    monkeypatch.setattr(service, "_settle_full_account_transaction", transaction)
+    erasure = AsyncMock()
+    monkeypatch.setattr(service, "_settle_full_account_transaction", erasure)
     monkeypatch.setattr(
         "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
         lambda *, registry, backend: SimpleNamespace(deprovision=cleanup),  # the real signature
     )
     result = await service._delete_full_account("owner-one", requested_target="investor")
-    if outcome in {"already_complete", "database_failure"}:
-        cleanup.assert_not_awaited()
-        assert result == first
+    prepare.assert_called_once()
+    assert prepare.call_args.kwargs["user_id"] == "owner-one"
+    assert prepare.call_args.kwargs["firebase_uid"] == "owner-one"
+    assert prepare.call_args.kwargs["requested_target"] == "investor"
+    if outcome == "prepared":
+        assert events == ["committed"]
+        assert result["cleanup_pending"] is True
+        assert result["cleanup_operation"]["id"] == prepared.cleanup_id
     else:
-        cleanup.assert_awaited_once_with(user_id="owner-one")
-        assert result == (completed if outcome == "complete" else blocked)
-    assert transaction.await_count == (2 if outcome == "complete" else 1)
-    for call in transaction.await_args_list:
-        assert call.args == ("owner-one",)
-        assert call.kwargs == {"requested_target": "investor", "backend_only": False}
+        assert result["error_code"] == (
+            PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
+            if outcome == "cloud_review"
+            else "ACCOUNT_DELETION_CLEANUP_UNAVAILABLE"
+        )
+    assert result["account_deleted"] is False
+    cleanup.assert_not_awaited()
+    erasure.assert_not_awaited()
+    release.assert_not_awaited()
+    assert not any("DELETE FROM" in str(call.args[0]) for call in connection.execute.call_args_list)
 
 
 def _erasure_ready_service(monkeypatch):
@@ -1576,38 +1635,6 @@ def _erasure_ready_service(monkeypatch):
         ),
     )
     return service
-
-
-@pytest.mark.asyncio
-async def test_provider_grants_are_released_only_after_the_erasure_commits(monkeypatch):
-    service = _erasure_ready_service(monkeypatch)
-    events: list[str] = []
-
-    @contextmanager
-    def committing_db():
-        with _db(MagicMock()) as conn:
-            yield conn
-        events.append("committed")
-
-    async def release(snapshot):
-        events.append("released")
-        assert snapshot.user_id == "user_delete_123"
-        return {"status": "attempted", "google_connection": ["revoked"]}
-
-    monkeypatch.setattr(
-        "hushh_mcp.services.account_service.release_provider_grants_after_erasure", release
-    )
-    with patch(
-        "hushh_mcp.services.account_service.get_db_connection", return_value=committing_db()
-    ):
-        result = await service._delete_full_account("user_delete_123", requested_target="both")
-
-    assert result["success"] is True
-    assert events == ["committed", "released"]
-    assert result["details"]["provider_grant_release"] == {
-        "status": "attempted",
-        "google_connection": ["revoked"],
-    }
 
 
 @pytest.mark.asyncio
@@ -1765,7 +1792,9 @@ async def test_private_mcp_and_parent_scoped_rows_are_erased(monkeypatch):
     )
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account("user_delete_123", requested_target="both")
+        result = await _finalize_recorded_cleanup(
+            service, monkeypatch, "user_delete_123", requested_target="both"
+        )
 
     executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
     # Connector erasure owns private MCP registrations; they go only after the
@@ -1803,7 +1832,10 @@ class _FakePostgresError(Exception):
             "account deletion is temporarily unavailable during a lifecycle release",
             "ACCOUNT_DELETION_PAUSED",
         ),
-        ("generated account identity columns require an explicit deletion guard", None),
+        (
+            "generated account identity columns require an explicit deletion guard",
+            "ACCOUNT_DELETION_CLEANUP_UNAVAILABLE",
+        ),
     ],
 )
 async def test_release_fence_refusal_is_reported_as_paused(monkeypatch, message, expected_code):

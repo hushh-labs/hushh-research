@@ -53,7 +53,7 @@ Non-owned surfaces:
 
 ## Workflow
 
-1. Start with `./bin/hushh codex rca --surface <uat|runtime|ci>` and preserve the generated report.
+1. Start with `./bin/hushh codex rca --surface <uat|runtime|ci>` and preserve the generated report. CI observes the current branch's existing PR by default; use paired `--ci-pr <number> --ci-sha <full-sha>` for a frozen candidate. It never starts a suite on missing or refused hosted evidence. `--run-local-ci` is an explicit local execution request, not a monitoring step.
 2. Classify failures before editing anything. Domain classes, each meaning
    "a check RAN and found this":
    - `secret_missing`
@@ -87,7 +87,7 @@ Non-owned surfaces:
      runner and the gate in agreement; the divergence is what let the local one
      lie.
 4. Apply the smallest safe remediation for the highest-signal blocking class first.
-5. Rerun the authoritative checks twice after the remediation instead of trusting the first green pass.
+5. Run the smallest affected authoritative check after remediation, including a negative control for a real security regression. Reuse unchanged exact evidence. Run the final core mirror once; do not repeat a full local suite while hosted validation runs. Repeat only to investigate a concrete regression or after an environment repair.
 6. Do not call the RCA task complete while a relevant core run for the touched SHA is still `queued`, `in_progress`, or `requested`; keep monitoring until GitHub reaches a terminal state.
 7. Stop only when the blocking classifications are empty and the relevant core run chain is terminal green, or a real permissions/product boundary is explicit.
 8. Advisory doc/skill drift should be recorded, but it must not block the loop unless it masks a core runtime failure.
@@ -101,9 +101,9 @@ Non-owned surfaces:
 
 ## Required Checks
 
+Select only the affected surface; these are alternatives, not a three-surface sweep.
+
 ```bash
-./bin/hushh codex rca --surface runtime --text
 ./bin/hushh codex rca --surface ci --text
-./bin/hushh codex rca --surface uat --text
 python3 -m py_compile .agents/skills/autonomous-rca-governance/scripts/rca_runner.py
 ```

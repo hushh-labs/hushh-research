@@ -36,7 +36,9 @@ that model. These tests keep the two from diverging again.
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -509,3 +511,110 @@ def test_a_timed_out_check_cannot_produce_a_healthy_surface():
     verdict = rca._verdict([], unevaluable)
     assert verdict["status"] != "healthy"
     assert verdict["can_push_branch"] is False
+
+
+def _ci_result(payload, *, ok=True):
+    return {
+        "returncode": 0 if ok else 1,
+        "stdout": json.dumps(payload),
+        "stderr": "",
+        "ok": ok,
+        "outcome": rca.OUTCOME_SUCCESS if ok else rca.OUTCOME_FAILURE,
+    }
+
+
+@pytest.mark.parametrize("status", ["pending", "booting", "attention", "unknown"])
+def test_ci_monitor_never_starts_a_suite_or_clears_incomplete_evidence(monkeypatch, status):
+    calls = []
+
+    def observe(command, **_kwargs):
+        calls.append(command)
+        return _ci_result({"pr": {"number": 8437}, "overall_status": status})
+
+    monkeypatch.setattr(rca, "_run", observe)
+    result = rca._observe_hosted_ci(argparse.Namespace(ci_pr=8437, ci_sha="a" * 40))
+    assert result["outcome"] == rca.OUTCOME_UNEVALUABLE
+    assert calls == [["./bin/hushh", "codex", "ci-status", "--json", "--pr", "8437"]]
+
+
+@pytest.mark.parametrize(
+    "clearance",
+    [
+        {"pr": 8437, "head": "a" * 40, "status": "verified"},
+        {"pr": 8437, "head": "b" * 40, "status": "verified"},
+        {"pr": 8438, "head": "a" * 40, "status": "verified"},
+        {"status": "verified"},
+    ],
+)
+@pytest.mark.parametrize("strict_ok", [True, False])
+def test_ci_green_snapshot_requires_exact_authoritative_clearance(
+    monkeypatch, clearance, strict_ok
+):
+    calls = []
+
+    def observe(command, **_kwargs):
+        calls.append(command)
+        if len(calls) == 1:
+            return _ci_result({"pr": {"number": 8437}, "overall_status": "passing"})
+        return _ci_result(clearance, ok=strict_ok)
+
+    monkeypatch.setattr(rca, "_run", observe)
+    result = rca._observe_hosted_ci(argparse.Namespace(ci_pr=8437, ci_sha="a" * 40))
+    valid = strict_ok and clearance == {"pr": 8437, "head": "a" * 40, "status": "verified"}
+    assert result["outcome"] == (rca.OUTCOME_SUCCESS if valid else rca.OUTCOME_UNEVALUABLE)
+    assert calls[1] == [
+        "./bin/hushh",
+        "codex",
+        "ci-status",
+        "--pr",
+        "8437",
+        "--require-success",
+        "--expected-sha",
+        "a" * 40,
+        "--json",
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload", [None, {}, {"pr": {"number": 8438}, "overall_status": "passing"}]
+)
+def test_ci_malformed_or_other_pr_evidence_never_clears(monkeypatch, payload):
+    monkeypatch.setattr(rca, "_run", lambda *_a, **_k: _ci_result(payload))
+    assert (
+        rca._observe_hosted_ci(argparse.Namespace(ci_pr=8437, ci_sha="a" * 40))["outcome"]
+        == rca.OUTCOME_UNEVALUABLE
+    )
+
+
+def test_ci_failure_is_reported_without_starting_or_retrying_checks(monkeypatch):
+    calls = []
+
+    def observe(command, **_kwargs):
+        calls.append(command)
+        return _ci_result(
+            {
+                "pr": {"number": 8437},
+                "overall_status": "failing",
+                "failing_checks": [{"name": "Protocol", "conclusion": "failure"}],
+            }
+        )
+
+    monkeypatch.setattr(rca, "_run", observe)
+    result = rca._observe_hosted_ci(argparse.Namespace(ci_pr=8437, ci_sha="a" * 40))
+    assert result["outcome"] == rca.OUTCOME_FAILURE
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_ci_surface_local_execution_requires_explicit_opt_in(monkeypatch, tmp_path, local):
+    calls = []
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        return _ci_result({})
+
+    monkeypatch.setattr(rca, "_run", run)
+    monkeypatch.setattr(rca, "_project_python", lambda: (["python"], "test"))
+    monkeypatch.setattr(rca, "_observe_hosted_ci", lambda _args: _ci_result({}, ok=False))
+    rca._surface_ci(argparse.Namespace(run_local_ci=local), tmp_path)
+    assert calls.count(["./bin/hushh", "ci"]) == int(local)

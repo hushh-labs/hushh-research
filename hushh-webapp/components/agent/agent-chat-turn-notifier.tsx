@@ -61,11 +61,10 @@ function appIsActive(): boolean {
 }
 
 export function AgentChatTurnNotifier(): null {
-  const { user } = useAuth();
+  const { userId: ownerId } = useAuth();
   const { vaultKey, getVaultOwnerToken } = useVault();
   const pathname = usePathname();
   const router = useRouter();
-  const ownerId = user?.uid ?? null;
 
   const pathnameRef = useRef(pathname);
   const ownerRef = useRef(ownerId);

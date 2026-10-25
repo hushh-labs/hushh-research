@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { getAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { getAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { FinancialPacketSummaryService, type FinancialPacketSummary } from "@/lib/services/financial-packet-summary-service";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
@@ -27,16 +27,16 @@ const labels: Record<FinancialPacketSummary["viewerAction"], string> = {
 };
 /** The same owner-published metadata view for a person route or its Hub/Profile pane. */
 export function FinancialPacketSummaries(props: Props) {
-  const { user } = useAuth();
-  return user ? <SummarySession key={`${user.uid}:${getAuthSessionGeneration()}:${props.personRef}`} {...props} user={user} /> : null;
+  const { user, userId } = useAuth();
+  return user && userId ? <SummarySession key={`${userId}:${getAuthSessionGeneration()}:${props.personRef}`} {...props} user={user} userId={userId} /> : null;
 }
-function SummarySession({ personRef, ownerName, refreshKey, onConnect, onUnlock, connecting, user }: Props & { user: NonNullable<ReturnType<typeof useAuth>["user"]> }) {
+function SummarySession({ personRef, ownerName, refreshKey, onConnect, onUnlock, connecting, user, userId }: Props & { user: NonNullable<ReturnType<typeof useAuth>["user"]>; userId: string }) {
   const { isVaultUnlocked } = useVault();
-  const lease = useMemo(() => ({ live: false, serial: 0, pages: 1, personRef, user, owner: snapshotValidatedAuthSessionOwner() }), [personRef, user]);
+  const lease = useMemo(() => ({ live: false, serial: 0, pages: 1, personRef, user, owner: snapshotValidatedAuthSessionPrincipal() }), [personRef, user]);
   useLayoutEffect(() => { lease.live = true; return () => { lease.live = false; lease.serial++; }; }, [lease]);
   const guard = useCallback(() => {
-    if (!lease.live || !user || lease.owner?.userId !== user.uid || !isValidatedAuthSessionOwnerCurrent(lease.owner)) throw new Error("session_changed");
-  }, [lease, user]);
+    if (!lease.live || !lease.owner || lease.owner.userId !== userId || lease.owner.firebaseUid !== user.uid || !isValidatedAuthSessionOwnerCurrent(lease.owner)) throw new Error("session_changed");
+  }, [lease, user, userId]);
   const [value, setValue] = useState<{ packets: FinancialPacketSummary[]; cursor: string | null; loaded: boolean; error: boolean; busy: boolean }>({ packets: [], cursor: null, loaded: false, error: false, busy: false });
   const [opened, setOpened] = useState<FinancialPacketSummary | null>(null), [privateOpen, setPrivateOpen] = useState(false);
   const load = useCallback(async (cursor?: string | null) => {

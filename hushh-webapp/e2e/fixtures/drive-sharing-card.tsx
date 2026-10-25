@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DriveRecentSharing } from "../../components/agent/drive-background-search";
 import { DriveReadMemoryAction } from "../../components/agent/drive-read-memory-action";
-import { publishValidatedAuthSessionOwner } from "../../lib/auth/session-owner";
-publishValidatedAuthSessionOwner("synthetic-owner");
+import { publishValidatedAuthSessionPrincipal } from "../../lib/auth/session-owner";
+publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
 function Fixture() {
   const [draft, setDraft] = useState("");
   const [saved, setSaved] = useState(0);

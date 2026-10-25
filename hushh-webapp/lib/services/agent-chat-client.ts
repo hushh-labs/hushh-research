@@ -1,6 +1,7 @@
 import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
+import { AGENT_RESPONSE_REFUSAL_MESSAGE } from "./agent-event-boundary";
 import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { serverNow } from "@/lib/agent/server-clock";
@@ -1008,6 +1009,9 @@ const CHAT_KEY_REFUSAL_MESSAGES: Record<string, string> = {
 };
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
+  if (/^AGENT_(EVENT_(SIZE|DEPTH|COLLECTION)_EXCEEDED|STREAM_(INVALID|PROTOCOL_UNSUPPORTED))$/.test(code || message)) {
+    return AGENT_RESPONSE_REFUSAL_MESSAGE;
+  }
   // The direct path can refuse before a chat request exists. Its typed boundary
   // (or exact SDK message) maps to fixed copy, never to transport details.
   const ownerPodMessage = ownerPodTurnErrorMessage(message, code);
@@ -1022,10 +1026,10 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
   const ownerAiMessage = ownerAiRunErrorMessage(code, message); // own-key refusals link to Bring your own AI
   if (ownerAiMessage) return ownerAiMessage;
   if (code === "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE") {
-    return "Hussh managed Gemini is not available in this environment.";
+    return "Hussh AI is not available in this environment.";
   }
   if (code === "AGENT_RUNTIME_MODEL_UNAVAILABLE") {
-    return "One's configured Gemini model is not available for this runtime.";
+    return "One's configured model is not available for this runtime.";
   }
   if (code === "AGENT_RUNTIME_EMPTY_RESPONSE") {
     return "One did not receive a response from the configured model. Please try again.";

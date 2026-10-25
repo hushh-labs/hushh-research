@@ -412,6 +412,9 @@ for (const width of [390, 1440]) for (const dark of [false, true])
     expect(await requests()).toBe(1);
     await page.keyboard.press("Tab");
     await newChat.focus();
+    // WebKit does not infer keyboard modality from programmatic focus.
+    // Exercise a non-activating key on the focused action before checking its ring.
+    await page.keyboard.press("ArrowRight");
     expect(await newChat.evaluate(element => element.matches(":focus-visible"))).toBe(true);
     await page.keyboard.press("Enter");
     expect(await requests()).toBe(2);

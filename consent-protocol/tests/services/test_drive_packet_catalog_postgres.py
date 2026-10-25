@@ -44,7 +44,7 @@ from tests.services.test_drive_reusable_packets_postgres import (
     [("byoc", "AGENT_PRIVATE_RUNTIME_REQUIRED"), ("unknown", "AGENT_HOSTING_UNAVAILABLE")],
 )
 async def test_private_packet_catalog_refuses_owner_plaintext_before_store_read(
-    monkeypatch, mode, code
+    monkeypatch, mode, code, active_account_lifecycle
 ):
     monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
     monkeypatch.setattr(

@@ -2,7 +2,8 @@
 import React from "react";
 const noop = () => {};
 const unavailable = async () => { throw new Error("Network disabled in layout fixture"); };
-const router = { replace: noop, push: noop, prefetch: noop };
+const navigate = (route: string) => { document.body.dataset.destination = route; };
+const router = { replace: navigate, push: navigate, prefetch: noop };
 const params = new URLSearchParams();
 const listeners = new Set<(event: {type:string;key:string}) => void>();
 window.addEventListener("fixture:ai-choice-saved", () => {
@@ -10,7 +11,8 @@ window.addEventListener("fixture:ai-choice-saved", () => {
 });
 export const useRouter = () => router;
 export const useSearchParams = () => params;
-export const useAuth = () => ({user:{uid:"fixture"}});
+export const usePathname = () => "/one/setup/connections";
+export const useAuth = () => ({user:{uid:"fixture"},userId:"fixture"});
 export const useVault = () => ({isVaultUnlocked:false});
 export const VaultUnlockDialog = ({open}: {open:boolean}) => open ? <div>Set a lock</div> : null;
 export const NativeTestBeacon = () => null;
@@ -18,6 +20,7 @@ export const usePublishVoiceSurfaceMetadata = noop;
 export const useLocalOnboardingActionHandler = noop;
 export const useOneConversationSession = () => noop;
 export const notifyGeminiRuntimeConfigurationChanged = noop;
+export const onGeminiRuntimeConfigurationChanged = () => noop;
 export const acknowledgeOneSetupExit = unavailable;
 let draft = false;
 export const PreVaultSensitiveDraftService = {hasGeminiRuntime: () => draft, stageGeminiRuntime: () => {draft=true;}, clearGeminiRuntime: () => {draft=false;}};
@@ -30,17 +33,29 @@ export const PreVaultUserStateService = {
 };
 export const InitialContactsOnboardingService = {getSnapshot: () => ({ownerId:null})};
 export const CACHE_KEYS = { PRE_VAULT_BOOTSTRAP: (id:string) => `bootstrap:${id}` };
-export const CacheService = {getInstance: () => ({subscribe: (listener: (event:{type:string;key:string}) => void) => {listeners.add(listener);return () => listeners.delete(listener);}})};
+export const CACHE_TTL = { SHORT: 60_000, MEDIUM: 300_000 };
+export const CacheService = {getInstance: () => ({peek: () => null, set: noop, subscribe: (listener: (event:{type:string;key:string}) => void) => {listeners.add(listener);return () => listeners.delete(listener);}})};
 /* eslint-disable @next/next/no-img-element -- Browser fixture preserves image geometry. */
 export default function Image({alt="",unoptimized:_unoptimized,...props}:React.ImgHTMLAttributes<HTMLImageElement> & {unoptimized?:boolean}) {return <img alt={alt} {...props} />;}
 
 export const resolveKaiOnboardingCompletion = () => false;
 
-export const ApiService = { validateGeminiRuntimeCredential: async ({credential}:{credential:string}) => {if(credential!=="fixture-valid") throw new Error("This key could not be validated.");return {status:"ready"};} };
+export const ApiService = {
+  getPersonalAgentStatus: async () => ({ hostingMode: "shared" }),
+  selectManagedGeminiRuntime: async () => ({ agentScheduled: false, agentReason: "Using Shared." }),
+  getFirebaseIdToken: async () => null,
+  apiFetch: async () => Response.json({ providers: [
+    { id: "gemini", name: "Gemini", availability: "available", methods: ["own_key"] },
+    { id: "openai", name: "OpenAI", availability: "available", methods: ["own_key"] },
+    { id: "azure_openai", name: "Azure AI key", availability: "available", methods: ["own_key"] },
+  ] }),
+  validateGeminiRuntimeCredential: async ({credential}:{credential:string}) => {if(credential!=="fixture-valid") throw new Error("This key could not be validated.");return {status:"ready"};},
+};
 export const VaultService = {checkVault: async () => false};
 export const morphyToast = {success:noop,error:noop};
 export const PersonalKnowledgeModelService = {loadRuntimeSecret: unavailable,storeRuntimeSecret: unavailable,removeRuntimeSecret: unavailable};
 export const GEMINI_RUNTIME_CREDENTIAL_REF="fixture:credential";
+export const OPENAI_RUNTIME_CREDENTIAL_REF="fixture:openai-credential";
 export const GEMINI_RUNTIME_TRANSPORT_REF="fixture:transport";
 export const GEMINI_VERTEX_LOCATION_REF="fixture:location";
 export const GEMINI_VERTEX_PROJECT_REF="fixture:project";

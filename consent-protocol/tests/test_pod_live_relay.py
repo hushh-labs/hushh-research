@@ -13,7 +13,7 @@ from api.routes.one import pod_live_relay as module
 
 
 @pytest.fixture
-def shared_compatibility(monkeypatch):
+def shared_compatibility(monkeypatch, active_account_lifecycle):
     """Explicit legacy Shared helper contract; never an owner-cloud admission."""
     from unittest.mock import AsyncMock
 
@@ -26,7 +26,7 @@ def shared_compatibility(monkeypatch):
 
 
 @pytest.fixture
-def dependencies(monkeypatch):
+def dependencies(monkeypatch, active_account_lifecycle):
     row = {
         "status": "provisioned",
         "hushh_id": "pod-owner",

@@ -22,7 +22,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
+from api.utils.firebase_auth import current_auth_lane
 from hushh_mcp.runtime_settings import webauthn_enabled
+from hushh_mcp.services.account_generation_service import AccountGenerationService
 from hushh_mcp.services.webauthn_repo import WebAuthnChallengeStore, WebAuthnCredentialRepo
 from hushh_mcp.services.webauthn_service import WebAuthnService, get_webauthn_settings
 
@@ -67,9 +69,12 @@ def _mint_session(*, user_id: str, aal: str, credential_id: str) -> Optional[str
             return None
         from firebase_admin import auth as firebase_auth
 
+        identity_uid, binding = AccountGenerationService.custom_session_binding(
+            user_id, lane=current_auth_lane()
+        )
         token = firebase_auth.create_custom_token(
-            user_id,
-            {"amr": ["webauthn"], "aal": aal, "credId": credential_id},
+            identity_uid,
+            {**binding, "amr": ["webauthn"], "aal": aal, "credId": credential_id},
             app=get_firebase_auth_app(),
         )
         return token.decode("utf-8") if isinstance(token, bytes) else str(token)

@@ -144,12 +144,12 @@ Rules:
 
 Repo-scoped exception:
 
-1. Project-scoped settings live in `.agents/config.toml`; `.codex/config.toml` is its compatibility link. Authored agents live in `.agents/subagents/`.
+1. Project-scoped declarations live in `.agents/config.toml`; authored engineering lanes live in `.agents/subagents/`. Root `AGENTS.md` points every coding agent to this shared framework. Do not create vendor directories, discovery links or per-host adapters.
 2. Keep that repo config non-secret. MCP credentials and user-local server config still belong in the machine-local Codex config, not the repo.
 
 ## Repo-scoped custom agents
 
-Codex discovers the authored `.agents/subagents/` fleet through the checked `.codex/agents` link. In this repo, that surface is intentionally bounded:
+Read the authored `.agents/subagents/` lane through root `AGENTS.md`, then delegate using the active host's supported controls. These sources do not automatically register tools or custom agents in every host. The repository contract is intentionally bounded:
 
 1. Subagent use follows the root `AGENTS.md` delegation checkpoint: user-approved delegation, explicit workflow policy, or repo-global read-only evidence policy may authorize bounded lanes.
 2. Do not add uncontrolled fan-out. Every non-trivial task should run the checkpoint before choosing a local-only path.
@@ -157,7 +157,7 @@ Codex discovers the authored `.agents/subagents/` fleet through the checked `.co
 4. Most repo custom agents should stay `read-only`.
 5. Repo custom agents inherit the parent-session model family. Repo-scoped `default_reasoning_effort` pins are allowed only for curated high-risk evidence lanes and must stay visible in `agents/`.
 6. The parent session or the built-in `worker` owns edits unless a narrower workflow says otherwise.
-7. Repo-level fan-out stays capped in `.codex/config.toml`:
+7. Repo-level fan-out stays capped in `.agents/config.toml`:
    - `max_threads = 6`
    - `max_depth = 1`
 8. The effective-spawn budget is lower than the hard cap: count known open child threads, reserve one thread for recovery or synthesis, and spawn only the remaining safe lanes.
@@ -307,8 +307,8 @@ Operator precedence:
 18. Use `.agents/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
 19. Use `.agents/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
 20. Use `.agents/skills/planning-board/` for `Hussh Engineering Core` board work and `.agents/skills/comms-community/` for public/community explanation workflows.
-21. Use `.agents/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.codex/config.toml` agent limits, or delegation authority and handoff rules.
-22. Use `.agents/skills/pdf-artifact-generation/SKILL.md` for any portable PDF artifact. Codex keeps its governed route pointer under `.agents/skills/founder-brief-curation/`; Claude reaches the same behavior through `.claude/skills/pdf-artifact-generation/`. Do not create host-local PDF CSS or renderers.
+21. Use `.agents/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.agents/config.toml` agent limits, or delegation authority and handoff rules.
+22. Use `.agents/skills/pdf-artifact-generation/SKILL.md` for any portable PDF artifact. Every host reads the same canonical skill; `.agents/skills/founder-brief-curation/` retains its governed route pointer. Do not create host-local PDF CSS or renderers.
 23. Use [hussh-code-persona.md](./hussh-code-persona.md) as the durable engineering persona contract before turning founder-language or product non-deviation guidance into skill or agent policy.
 
 If a developer has not configured MCP yet:

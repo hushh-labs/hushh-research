@@ -650,8 +650,20 @@ def _replay_drive_cent_prices_sql(entry: MigrationManifestEntryV2) -> str:
 
 
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    from db.account_cleanup_replay import SOURCES as ACCOUNT_SOURCES
+    from db.account_cleanup_replay import account_cleanup_replay_sql
     from db.private_action_replay import SOURCES, private_action_replay_sql
 
+    if (entry.migration_id, entry.filename) in ACCOUNT_SOURCES:
+        try:
+            return account_cleanup_replay_sql(
+                entry,
+                qualified_referral_sql=_replay_referral_policy_v4_sql(entry)
+                if entry.migration_id == "347"
+                else None,
+            )
+        except ValueError as exc:
+            raise MigrationAuthorityError(str(exc)) from None
     if (entry.migration_id, entry.filename) in SOURCES:
         try:
             return private_action_replay_sql(entry)
@@ -672,8 +684,6 @@ def _replay_sql(entry: MigrationManifestEntryV2) -> str:
         return _replay_referral_policy_v2_sql(entry)
     if entry.migration_id == "338" and entry.filename == "338_one_referral_usd_catalogue.sql":
         return _replay_referral_policy_v3_sql(entry)
-    if entry.migration_id == "347" and entry.filename == "347_one_referral_dashboard_lifecycle.sql":
-        return _replay_referral_policy_v4_sql(entry)
     if entry.migration_id == "349" and entry.filename == "349_one_referral_dashboard_truth.sql":
         return _replay_referral_policy_v5_sql(entry)
     if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":

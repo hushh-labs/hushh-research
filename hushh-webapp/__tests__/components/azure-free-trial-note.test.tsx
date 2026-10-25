@@ -9,6 +9,7 @@
  */
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({ user: { uid: "owner" }, loading: false }),
@@ -100,9 +101,11 @@ function azureJob(
 describe("the free-trial line on the cloud step", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ hostingMode: "shared" });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
+    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ featureEnabled: true, hostingMode: "shared" });
   });
   afterEach(() => {
+    publishValidatedAuthSessionOwner(null);
     vi.restoreAllMocks();
   });
 
@@ -139,7 +142,7 @@ describe("the free-trial line on the cloud step", () => {
 
   it("keeps the line on the connected state once setup is recorded", async () => {
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
-      hostingMode: "byoc",
+      featureEnabled: true, hostingMode: "byoc",
       state: "active",
       deploymentTarget: "user_azure",
       cloudProject: null,
@@ -155,7 +158,7 @@ describe("the free-trial line on the cloud step", () => {
 
   it("shows no line on the connected state when the setup record names no trial", async () => {
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
-      hostingMode: "byoc",
+      featureEnabled: true, hostingMode: "byoc",
       state: "active",
       deploymentTarget: "user_azure",
       cloudProject: null,

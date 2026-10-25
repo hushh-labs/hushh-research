@@ -565,3 +565,19 @@ async def test_update_display_name_synced_shadow_is_plain_updated():
     )
     assert result.status == "updated"
     assert result.spoken_facts == ["Your Hussh name is now Ayesha S."]
+
+
+async def test_update_display_name_does_not_claim_no_change_after_uncertain_transport():
+    from hushh_mcp.services.account_firebase_mutations import FirebaseMutationTransportError
+
+    identity = IdentityDouble(_identity())
+    identity.update_error = FirebaseMutationTransportError("identity mutation outcome unconfirmed")
+    result = await profile.update_display_name(
+        _ctx(identity=identity), profile.UpdateDisplayNameInput(display_name="Ayesha")
+    )
+    assert result.status == "unavailable"
+    assert result.reason_code == "display_name_outcome_uncertain"
+    assert result.display_name is None
+    assert result.spoken_facts == [
+        "I couldn't confirm the name change. Check your profile before trying again."
+    ]

@@ -1,11 +1,56 @@
 """Regressions from taking control before Chromium startup or resize settles."""
 
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused
 from tests.helpers.pod_browser import approved_task, task_runtime_fixture
+
+
+@pytest.mark.parametrize("operation", ["remember", "restore", "forget"])
+async def test_public_policy_refuses_session_retention_but_preserves_forgetting(
+    monkeypatch, operation
+):
+    fixture = task_runtime_fixture(monkeypatch)
+    fixture.runtime._public_research_only = True
+    fixture.runtime._sessions_factory = lambda *_: None
+    assert not fixture.runtime.capability().remembered_sessions_available
+    snapshot = await approved_task(fixture)
+    sessions = SimpleNamespace(
+        site_id=lambda *_: "site",
+        forget=AsyncMock(
+            return_value=SimpleNamespace(
+                fenced=True, persisted=True, deletion_requested=True, physical_deletion="pending"
+            )
+        ),
+    )
+    fixture.runtime._tasks[snapshot.binding.task_id].sessions = sessions
+    try:
+        if operation == "forget":
+            result = await fixture.runtime.session(
+                fixture.owner,
+                snapshot.binding.task_id,
+                operation,
+                "https://example.com",
+                "account",
+            )
+            assert result["fenced"] and result["remote_logout"] is False
+            sessions.forget.assert_awaited_once()
+        else:
+            with pytest.raises(BrowserRefused, match="BROWSER_SESSION_NOT_QUALIFIED"):
+                await fixture.runtime.session(
+                    fixture.owner,
+                    snapshot.binding.task_id,
+                    operation,
+                    "https://example.com",
+                    "account",
+                )
+            sessions.forget.assert_not_awaited()
+    finally:
+        await fixture.runtime.drain()
 
 
 @pytest.mark.parametrize("ending", ["ready", "failed", "stop"])

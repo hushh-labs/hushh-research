@@ -899,7 +899,7 @@ class _FakeReader:
 
 
 @pytest.fixture
-def open_app(monkeypatch):
+def open_app(monkeypatch, active_account_lifecycle):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 

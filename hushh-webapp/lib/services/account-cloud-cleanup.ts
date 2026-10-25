@@ -22,10 +22,12 @@ export type CloudCleanupView = {
   provider?: "gcp" | "azure";
   confirmation?: string;
   keepAccount?: boolean;
+  canCancel?: boolean;
+  executionStarted?: boolean;
 };
 
 type CleanupRequest =
-  | { action: "status" | "inspect" | "execute" | "finalize"; operationId?: string; planDigest?: string }
+  | { action: "status" | "inspect" | "execute" | "finalize" | "cancel"; operationId?: string; planDigest?: string }
   | {
       action: "approve";
       planDigest: string;
@@ -101,7 +103,9 @@ export function parseCloudCleanupView(value: unknown): CloudCleanupView {
   } = data;
   if ((data.provider != null && data.provider !== "gcp" && data.provider !== "azure") ||
       (data.confirmation != null && (typeof data.confirmation !== "string" || data.confirmation.length > 1024)) ||
-      (data.keepAccount != null && typeof data.keepAccount !== "boolean")) throw new Error("CLOUD_CLEANUP_RESPONSE_INVALID");
+      (data.keepAccount != null && typeof data.keepAccount !== "boolean") ||
+      (data.canCancel != null && typeof data.canCancel !== "boolean") ||
+      (data.executionStarted != null && typeof data.executionStarted !== "boolean")) throw new Error("CLOUD_CLEANUP_RESPONSE_INVALID");
   if (
     typeof operationId !== "string" ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(operationId) ||
@@ -144,10 +148,20 @@ export function parseCloudCleanupView(value: unknown): CloudCleanupView {
     canFinalize,
     approvalRequired,
     ...cleanupProgress(data, canFinalize),
+    canCancel: data.canCancel === true && data.executionStarted !== true && !canFinalize,
+    executionStarted: data.executionStarted === true,
     ...(data.provider ? { provider: data.provider as "gcp" | "azure" } : {}),
     ...(typeof data.confirmation === "string" ? { confirmation: data.confirmation } : {}),
     ...(typeof data.keepAccount === "boolean" ? { keepAccount: data.keepAccount } : {}),
   };
+}
+
+/** Withdrawal is distinct from closing a view and never undoes approved work. */
+export async function cancelCloudRemoval(token: string, view: CloudCleanupView): Promise<void> {
+  if (view.canCancel !== true || view.executionStarted || view.canFinalize) throw new Error("CLOUD_REMOVAL_CANNOT_CANCEL");
+  const result = record(await request(token, { action: "cancel", operationId: view.operationId }, undefined, "remove_cloud"));
+  if (result.status !== "cloud_removal_cancelled" || result.operationId !== view.operationId || result.accountRetained !== true)
+    throw new Error("CLOUD_CLEANUP_RESPONSE_INVALID");
 }
 
 export async function readCloudCleanup(

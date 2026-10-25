@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { webcrypto } from "node:crypto";
 import {
   act,
@@ -300,6 +301,7 @@ function App() {
   );
 }
 beforeEach(async () => {
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   vi.clearAllMocks();
   vi.stubGlobal("crypto", webcrypto);
   window.history.replaceState({}, "", "/one/agents");
@@ -486,6 +488,7 @@ beforeEach(async () => {
   });
 });
 afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null);
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ read: vi.fn(), approve: vi.fn(), begin: vi.fn(), finishCloud: vi.fn(), auth: vi.fn(), popup: vi.fn() }));
-vi.mock("@/lib/services/account-cloud-cleanup", () => ({ cloudCleanupErrorMessage: () => "Cleanup paused", cloudCleanupAttentionMessage: () => "Cleanup paused", cloudCleanupNotStarted: (error: unknown) => error === "no-reservation", readCloudCleanup: mocks.read, approveCloudCleanup: mocks.approve, beginCloudCleanup: mocks.begin, finishCloudRemoval: mocks.finishCloud }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), approve: vi.fn(), begin: vi.fn(), finishCloud: vi.fn(), cancelCloud: vi.fn(), auth: vi.fn(), popup: vi.fn() }));
+vi.mock("@/lib/services/account-cloud-cleanup", () => ({ cloudCleanupErrorMessage: () => "Cleanup paused", cloudCleanupAttentionMessage: () => "Cleanup paused", cloudCleanupNotStarted: (error: unknown) => error === "no-reservation", readCloudCleanup: mocks.read, approveCloudCleanup: mocks.approve, beginCloudCleanup: mocks.begin, finishCloudRemoval: mocks.finishCloud, cancelCloudRemoval: mocks.cancelCloud }));
 vi.mock("@/lib/flows/delete-account", () => ({ resolveDeleteAccountAuth: mocks.auth }));
 vi.mock("@/lib/one/azure-sign-in", () => ({ AZURE_SIGN_IN_CHANNEL: "hussh-azure-sign-in", ANNOUNCE_WAIT_MS: 8000, isAzureSignInAvailable: () => true, openSignInPopup: mocks.popup, captureSignInPopupOwner: () => () => true }));
 vi.mock("@/lib/utils/browser-navigation", () => ({ assignWindowLocation: vi.fn() }));
@@ -21,6 +21,25 @@ beforeEach(() => {
   mocks.read.mockResolvedValue(plan); mocks.approve.mockResolvedValue({ ...plan, approvalRequired: false });
 });
 afterEach(() => { publishValidatedAuthSessionOwner(null); vi.restoreAllMocks(); vi.useRealTimers(); });
+it("withdraws only a server-qualified unapproved removal and resumes without deleting", async () => {
+  const review = { ...plan, canCancel: true, executionStarted: false };
+  mocks.read.mockResolvedValue(review);
+  mocks.cancelCloud.mockResolvedValue(undefined);
+  const onCancel = vi.fn(); const onFinish = vi.fn();
+  render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only" purpose="remove_cloud" onUnlock={vi.fn()} onFinish={onFinish} onCancel={onCancel} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel removal and resume agent" }));
+  await waitFor(() => expect(onCancel).toHaveBeenCalledOnce());
+  expect(mocks.cancelCloud).toHaveBeenCalledWith("synthetic-memory-only", review);
+  expect(mocks.begin).not.toHaveBeenCalled(); expect(mocks.finishCloud).not.toHaveBeenCalled(); expect(onFinish).not.toHaveBeenCalled();
+});
+
+it("keeps destructive cleanup resumable and offers no cancellation", async () => {
+  mocks.read.mockResolvedValue({ ...plan, canCancel: false, executionStarted: true, approvalRequired: false });
+  render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only" purpose="remove_cloud" onUnlock={vi.fn()} onFinish={vi.fn()} onCancel={vi.fn()} />);
+  await screen.findByText("Your exact cleanup plan is approved. Continue with Microsoft to perform or resume it.");
+  expect(screen.queryByRole("button", { name: "Cancel removal and resume agent" })).toBeNull();
+});
+
 it("loads retained progress while unlocked and never starts inspection or deletion automatically", async () => {
   mocks.read.mockResolvedValue({ ...plan, canFinalize: true, approvalRequired: false });
   const finish = vi.fn();

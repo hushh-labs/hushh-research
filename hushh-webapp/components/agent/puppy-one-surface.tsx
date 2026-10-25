@@ -18,7 +18,7 @@ import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 import { ROUTES } from "@/lib/navigation/routes";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 
 type PuppySurfaceProps = {
   className?: string;
@@ -33,10 +33,10 @@ type PuppySurfaceProps = {
 
 /** Placement is checked before either the local bridge or remote relay mounts. */
 export function PuppyOneSurface(props: PuppySurfaceProps) {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   // A different owner must never inherit a retained transcript or placement read.
   const generation = snapshotValidatedAuthSessionOwner()?.generation;
-  return <PuppyPlacement key={`${user?.uid ?? "signed-out"}:${generation}`} {...props} ownerId={user?.uid} />;
+  return <PuppyPlacement key={`${userId ?? "signed-out"}:${generation}`} {...props} ownerId={userId ?? undefined} />;
 }
 
 function PuppyPlacement({ ownerId, ...props }: PuppySurfaceProps & { ownerId?: string }) {
@@ -47,12 +47,12 @@ function PuppyPlacement({ ownerId, ...props }: PuppySurfaceProps & { ownerId?: s
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!active || !ownerId) return;
-    const owner = snapshotValidatedAuthSessionOwner();
+    const owner = snapshotValidatedAuthSessionPrincipal();
     if (owner?.userId !== ownerId) return;
     const request = new AbortController();
     setChecking(true);
     setFailed(false);
-    const current = () => !request.signal.aborted && AuthService.getCurrentUser()?.uid === ownerId &&
+    const current = () => !request.signal.aborted && AuthService.getCurrentUser()?.uid === owner.firebaseUid &&
       isValidatedAuthSessionOwnerCurrent(owner);
     void ApiService.getPersonalAgentStatus({ signal: request.signal })
       .then((value) => { if (current()) setStatus(value); })

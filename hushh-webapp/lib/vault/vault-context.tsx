@@ -152,10 +152,10 @@ function isGmailRoute(routePath: string): boolean {
 
 export function VaultProvider({ children }: VaultProviderProps) {
   // Access Auth Context to listen for logout
-  const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
+  const { user, userId: applicationOwnerId, loading: authLoading, sessionVerificationRequired } = useAuth();
   const authReady = !authLoading && !sessionVerificationRequired;
-  const authStateRef = useRef({ user, ready: authReady });
-  authStateRef.current = { user, ready: authReady };
+  const authStateRef = useRef({ user, ownerId: applicationOwnerId, ready: authReady });
+  authStateRef.current = { user, ownerId: applicationOwnerId, ready: authReady };
   const sessionEpochRef = useRef(0);
   const mountedRef = useRef(true);
   const renewalRef = useRef<{ epoch: number; promise: Promise<void> } | null>(
@@ -185,7 +185,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     null,
   );
   const [vaultUserId, setVaultUserId] = useState<string | null>(null);
-  const currentUserId = user?.uid ?? null;
+  const currentUserId = applicationOwnerId;
   const vaultIdentityMatches = Boolean(
     currentUserId && vaultUserId === currentUserId,
   );
@@ -359,6 +359,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     async (
       epoch: number,
       owner: NonNullable<typeof user>,
+      ownerId: string,
       key: string,
       token: string,
       expiresAt: number,
@@ -371,13 +372,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
         !mountedRef.current ||
         sessionEpochRef.current !== epoch ||
         authStateRef.current.user?.uid !== owner.uid ||
+        authStateRef.current.ownerId !== ownerId ||
         storedVaultKeyRef.current !== key ||
         storedVaultOwnerTokenRef.current !== token ||
         Date.now() >= expiresAt
       )
         return;
       await HushhConsent.publishIMessageSession({
-        userId: owner.uid,
+        userId: ownerId,
         vaultOwnerToken: token,
         vaultKey: key,
         expiresAt,
@@ -393,16 +395,18 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   const retryOwnerTokenRenewal = useCallback((): Promise<void> => {
     const owner = authStateRef.current.user;
+    const ownerId = authStateRef.current.ownerId;
     const epoch = sessionEpochRef.current;
     const key = storedVaultKeyRef.current;
     const priorToken = storedVaultOwnerTokenRef.current;
     const sessionOwner = snapshotValidatedAuthSessionOwner();
     if (
       !owner ||
+      !ownerId ||
       !key ||
       !priorToken ||
       !authStateRef.current.ready ||
-      vaultUserIdRef.current !== owner.uid
+      vaultUserIdRef.current !== ownerId
     ) {
       return Promise.resolve();
     }
@@ -411,6 +415,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       mountedRef.current &&
       sessionEpochRef.current === epoch &&
       authStateRef.current.user?.uid === owner.uid &&
+      authStateRef.current.ownerId === ownerId &&
       storedVaultKeyRef.current === key;
     setRenewalState("renewing");
     const promise = (async () => {
@@ -420,7 +425,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
             const firebaseToken = await owner.getIdToken(false);
             if (!stillCurrent() || !authStateRef.current.ready) return null;
             return VaultService.issueVaultOwnerToken(
-              owner.uid,
+              ownerId,
               firebaseToken,
               priorToken,
             );
@@ -444,7 +449,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         if (issued.token !== priorToken) advanceVaultSessionEpoch();
         storedVaultOwnerTokenRef.current = issued.token;
         tokenExpiresAtRef.current = issued.expiresAt;
-        renewMarkdownMemorySession({ userId: owner.uid, previousEpoch: priorVaultEpoch,
+        renewMarkdownMemorySession({ userId: ownerId, previousEpoch: priorVaultEpoch,
           vaultKey: key, vaultOwnerToken: issued.token,
           beforeEffect: async () => {
             if (!stillCurrent() || !authStateRef.current.ready || storedVaultOwnerTokenRef.current !== issued.token ||
@@ -457,6 +462,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         void publishNativeSession(
           epoch,
           owner,
+          ownerId,
           key,
           issued.token,
           issued.expiresAt,
@@ -477,7 +483,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         if (code) {
           dispatchAuthSessionInvalidated({
             code,
-            userId: owner.uid,
+            userId: ownerId,
             path: "vault_owner_renewal",
           });
           lockVault();
@@ -567,7 +573,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         typeof customEvent.detail?.path === "string" &&
         storedVaultKeyRef.current &&
         storedVaultOwnerTokenRef.current &&
-        vaultUserIdRef.current === authStateRef.current.user?.uid &&
+        vaultUserIdRef.current === authStateRef.current.ownerId &&
         tokenExpiresAtRef.current !== null &&
         Date.now() >= tokenExpiresAtRef.current
       ) {
@@ -584,7 +590,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // locking unconditionally here.
       if (
         customEvent.detail?.userId &&
-        customEvent.detail.userId !== authStateRef.current.user?.uid
+        customEvent.detail.userId !== authStateRef.current.ownerId
       ) {
         return;
       }
@@ -613,7 +619,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       if (
         !isAuthSessionInvalidationCode(detail?.code) ||
         !detail?.userId ||
-        detail.userId !== user?.uid
+        detail.userId !== applicationOwnerId
       ) {
         return;
       }
@@ -629,7 +635,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         AUTH_SESSION_INVALIDATED_EVENT,
         handleTerminalSessionInvalidation,
       );
-  }, [lockVault, user?.uid]);
+  }, [lockVault, applicationOwnerId]);
 
   useEffect(() => {
     const handleVaultRekeyed = (event: Event) => {
@@ -639,13 +645,13 @@ export function VaultProvider({ children }: VaultProviderProps) {
       }>;
       if (
         customEvent.detail?.userId &&
-        customEvent.detail.userId !== user?.uid
+        customEvent.detail.userId !== applicationOwnerId
       ) {
         return;
       }
-      if (user?.uid) {
+      if (applicationOwnerId) {
         PersonalKnowledgeModelService.invalidateSessionStateAfterVaultRekey(
-          user.uid,
+          applicationOwnerId,
         );
       }
       console.log(
@@ -657,10 +663,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
     window.addEventListener("vault-rekeyed", handleVaultRekeyed);
     return () =>
       window.removeEventListener("vault-rekeyed", handleVaultRekeyed);
-  }, [lockVault, user?.uid]);
+  }, [lockVault, applicationOwnerId]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!applicationOwnerId || !vaultKey || !vaultOwnerToken) {
       return;
     }
 
@@ -669,11 +675,11 @@ export function VaultProvider({ children }: VaultProviderProps) {
         userId?: string;
         domain?: string;
       }>;
-      if (customEvent.detail?.userId !== user.uid) {
+      if (customEvent.detail?.userId !== applicationOwnerId) {
         return;
       }
       void ConsentExportRefreshOrchestrator.ensureRunning({
-        userId: user.uid,
+        userId: applicationOwnerId,
         vaultKey,
         vaultOwnerToken,
         initiatedBy: "pkm_domain_store",
@@ -689,10 +695,10 @@ export function VaultProvider({ children }: VaultProviderProps) {
     return () => {
       window.removeEventListener("pkm-domain-stored", handleDomainStored);
     };
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
+  }, [applicationOwnerId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey) {
+    if (!applicationOwnerId || !vaultKey) {
       return;
     }
 
@@ -700,7 +706,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       void import("@/lib/kai/kai-financial-resource")
         .then(({ KaiFinancialResourceService }) =>
           KaiFinancialResourceService.hydrateFromSecureCache({
-            userId: user.uid,
+            userId: applicationOwnerId,
             vaultKey,
           }),
         )
@@ -709,7 +715,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       void import("@/lib/pkm/pkm-domain-resource")
         .then(({ PkmDomainResourceService }) =>
           PkmDomainResourceService.hydrateFromSecureCache({
-            userId: user.uid,
+            userId: applicationOwnerId,
             domain: "financial",
             vaultKey,
           }),
@@ -741,14 +747,14 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
     const timeoutId = globalThis.setTimeout(hydrateFinancialCaches, 1_000);
     return () => globalThis.clearTimeout(timeoutId);
-  }, [user?.uid, vaultKey]);
+  }, [applicationOwnerId, vaultKey]);
 
   useEffect(() => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!applicationOwnerId || !vaultKey || !vaultOwnerToken) {
       return;
     }
 
-    const kickoffKey = `${user.uid}:${vaultOwnerToken}`;
+    const kickoffKey = `${applicationOwnerId}:${vaultOwnerToken}`;
     if (lastUpgradeKickoffKeyRef.current === kickoffKey) {
       return;
     }
@@ -762,7 +768,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       if (cancelled) return;
       if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
       void PkmUpgradeOrchestrator.ensureRunning({
-        userId: user.uid,
+        userId: applicationOwnerId,
         vaultKey,
         vaultOwnerToken,
         initiatedBy: "app_entry",
@@ -804,7 +810,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         globalThis.clearTimeout(timeoutId);
       }
     };
-  }, [user?.uid, vaultKey, vaultOwnerToken]);
+  }, [applicationOwnerId, vaultKey, vaultOwnerToken]);
 
   /**
    * Prefetch common data after vault unlock to speed up page loads.
@@ -838,7 +844,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         // Firebase-authenticated warming; never retain credentials in its cache.
         void import("@/lib/services/wallet-presentation-resource")
           .then(({ WalletPresentationResource }) => {
-            if (mountedRef.current && sessionEpochRef.current === epoch && authStateRef.current.ready && authStateRef.current.user?.uid === userId) {
+            if (mountedRef.current && sessionEpochRef.current === epoch && authStateRef.current.ready && authStateRef.current.ownerId === userId) {
               return WalletPresentationResource.load({ userId, vaultKey: key, vaultOwnerToken: token });
             }
             return undefined;
@@ -865,7 +871,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         if (
           !mountedRef.current ||
           sessionEpochRef.current !== epoch ||
-          authStateRef.current.user?.uid !== userId
+          authStateRef.current.ownerId !== userId
         )
           return;
         await UnlockWarmOrchestrator.run({
@@ -885,12 +891,12 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const unlockEpoch = sessionEpochRef.current;
   const unlockVault = useCallback(
     (key: string, token: string, expiresAt: number) => {
-      const unlockingUserId = user?.uid?.trim() ?? "";
+      const unlockingUserId = applicationOwnerId?.trim() ?? "";
       if (
         !unlockingUserId ||
         !mountedRef.current ||
         unlockEpoch !== sessionEpochRef.current ||
-        authStateRef.current.user?.uid !== unlockingUserId ||
+        authStateRef.current.ownerId !== unlockingUserId ||
         !authStateRef.current.ready ||
         !key ||
         !token ||
@@ -931,7 +937,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
         }),
       );
 
-      if (user) void publishNativeSession(epoch, user, key, token, expiresAt);
+      if (user) void publishNativeSession(epoch, user, unlockingUserId, key, token, expiresAt);
 
       const routePath =
         typeof window !== "undefined" ? window.location.pathname : "";
@@ -944,17 +950,17 @@ export function VaultProvider({ children }: VaultProviderProps) {
         });
       }
 
-      if (user?.uid && !routePath.startsWith("/one/setup")) {
+      if (applicationOwnerId && !routePath.startsWith("/one/setup")) {
         const warmRoutePath = routePath || undefined;
         const scheduleWarm = () => {
           if (
             !mountedRef.current ||
             sessionEpochRef.current !== epoch ||
-            authStateRef.current.user?.uid !== user.uid
+            authStateRef.current.ownerId !== unlockingUserId
           )
             return;
           void prefetchDashboardData(
-            user.uid,
+            unlockingUserId,
             token,
             key,
             warmRoutePath,
@@ -988,12 +994,12 @@ export function VaultProvider({ children }: VaultProviderProps) {
       }
       return true;
     },
-    [user, unlockEpoch, prefetchDashboardData, publishNativeSession],
+    [user, applicationOwnerId, unlockEpoch, prefetchDashboardData, publishNativeSession],
   );
 
   const getVaultKey = useCallback(() => {
     return mountedRef.current &&
-      vaultUserIdRef.current === authStateRef.current.user?.uid
+      vaultUserIdRef.current === authStateRef.current.ownerId
       ? storedVaultKeyRef.current
       : null;
   }, []);
@@ -1002,7 +1008,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     // Detached work must observe live authentication readiness and expiry.
     return mountedRef.current &&
       authStateRef.current.ready &&
-      vaultUserIdRef.current === authStateRef.current.user?.uid &&
+      vaultUserIdRef.current === authStateRef.current.ownerId &&
       tokenExpiresAtRef.current !== null &&
       Date.now() < tokenExpiresAtRef.current
       ? storedVaultOwnerTokenRef.current

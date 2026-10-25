@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "firebase/auth";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+
+const publishOwner = (id: string | null) => publishValidatedAuthSessionPrincipal(id ? { firebaseUid: id, ownerId: id, accountGeneration: 0 } : null);
 
 const ports = vi.hoisted(() => ({
   native: false, bootstrap: vi.fn(), update: vi.fn(), identity: vi.fn(),
@@ -33,7 +35,7 @@ const result = { matches: [], autoConnectedCount: 0, alreadyConnectedCount: 0, p
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; };
 
 beforeEach(() => {
-  service.reset(); publishValidatedAuthSessionOwner("owner"); vi.resetAllMocks(); ports.native = false;
+  service.reset(); publishOwner("owner"); vi.resetAllMocks(); ports.native = false;
   ports.bootstrap.mockResolvedValue({ setupCompleted: false, initialContactsWelcomeAcknowledged: null });
   ports.update.mockResolvedValue({}); ports.identity.mockResolvedValue({ verified: true, phone_number: "+14155550000" });
   ports.people.mockReturnValue(vi.fn().mockResolvedValue(read));
@@ -69,15 +71,15 @@ describe("initial signup contacts", () => {
     const resolveHint = ports.sync.mock.calls[0][0].resolveAccountPhoneNumber;
     expect(resolveHint).toBeTypeOf("function");
     expect(resolveHint()).toBeNull();
-    publishValidatedAuthSessionOwner("other");
+    publishOwner("other");
     expect(() => resolveHint()).toThrow("Ended");
   });
 
   it.each(["replacement", "same-owner-relogin"])("suppresses late work after %s", async (change) => {
     await begin(); const identity = deferred<{ verified: boolean }>(); ports.identity.mockReturnValue(identity.promise);
     const task = service.matchWhenVerified();
-    publishValidatedAuthSessionOwner(change === "replacement" ? "other" : null);
-    if (change === "same-owner-relogin") publishValidatedAuthSessionOwner("owner");
+    publishOwner(change === "replacement" ? "other" : null);
+    if (change === "same-owner-relogin") publishOwner("owner");
     identity.resolve({ verified: true }); await task; await service.prepareCircle("vault");
     expect(ports.sync).not.toHaveBeenCalled(); expect(ports.circle).not.toHaveBeenCalled(); expect(ports.add).not.toHaveBeenCalled();
     expect(service.snapshotForOwner("owner").ownerId).toBeNull();
@@ -104,7 +106,7 @@ describe("initial signup contacts", () => {
     await begin();
     await service.acknowledge();
     service.reset();
-    publishValidatedAuthSessionOwner("owner");
+    publishOwner("owner");
     ports.bootstrap.mockResolvedValue({ setupCompleted: false, initialContactsWelcomeAcknowledged: null });
     ports.people.mockClear();
     ports.update.mockClear();
@@ -185,6 +187,18 @@ describe("initial signup contacts", () => {
     await preparing;
     expect(ports.add).toHaveBeenCalledExactlyOnceWith({ vaultOwnerToken: "vault", circleId: "circle", inviteeUserIds: ["friend"], context: "signup" });
     expect(service.getSnapshot().people[0].photoUrl).toBe("https://images.example.test/friend.jpg");
+  });
+
+  it("keeps replacement-owner state separate from the unchanged Firebase identity", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId, accountGeneration: 1 });
+    await begin();
+    expect(ports.bootstrap).toHaveBeenCalledWith(ownerId, { idToken: "token-owner" });
+    expect(service.getSnapshot().ownerId).toBe(ownerId);
+    expect(service.isOwnerCurrent(ownerId)).toBe(true);
+    await service.acknowledge(user());
+    expect(ports.update).toHaveBeenLastCalledWith(ownerId, { initialContactsWelcomeAcknowledged: true }, { idToken: "token-owner" });
+    expect(service.wasDismissed(ownerId)).toBe(true);
   });
 
   it("lets a validated returning account continue from a direct welcome entry", async () => {

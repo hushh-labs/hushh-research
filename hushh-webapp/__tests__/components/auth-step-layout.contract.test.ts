@@ -5,13 +5,16 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthStep } from "@/components/onboarding/AuthStep";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const settlement = vi.hoisted(() => {
   const begin = vi.fn().mockReturnValue(7);
   const complete = vi.fn();
+  const admit = vi.fn();
   return {
     currentUser: null as { uid: string } | null,
-    signIn: vi.fn(), begin, complete,
+    pendingUid: null as string | null,
+    signIn: vi.fn(), begin, complete, admit,
     contacts: vi.fn().mockResolvedValue(undefined),
     legal: vi.fn().mockResolvedValue(undefined),
     notify: vi.fn().mockResolvedValue(undefined),
@@ -22,9 +25,9 @@ const settlement = vi.hoisted(() => {
     progress: { registerSteps: vi.fn(), completeStep: vi.fn(), reset: vi.fn() },
     mint: vi.fn(), customSignIn: vi.fn(), reviewMode: false, reviewerTrigger: null as null | (() => void),
     native: { enabled: false, autoReviewerLogin: false, expectedUserId: "reviewer", reviewerSessionPassphrase: "mint-only", vaultPassphrase: null },
-    auth: { user: null, loading: false, sessionVerificationRequired: false,
+    auth: { user: null, userId: null as string | null, loading: false, sessionVerificationRequired: false,
       retrySessionVerification: vi.fn(), signOut: vi.fn(),
-      beginPostAuthSettlement: begin, completePostAuthSettlement: complete },
+      beginPostAuthSettlement: begin, admitPostAuthSettlement: admit, completePostAuthSettlement: complete },
   };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => settlement.router }));
@@ -84,8 +87,18 @@ describe("AuthStep committed provider settlement", () => {
     settlement.native.enabled = false; settlement.native.autoReviewerLogin = false;
     settlement.reviewMode = false;
     settlement.auth.user = null;
+    settlement.auth.userId = null;
+    settlement.pendingUid = null;
+    publishValidatedAuthSessionPrincipal(null);
+    settlement.begin.mockImplementation((user: { uid: string }) => { settlement.pendingUid = user.uid; return 7; });
+    settlement.admit.mockImplementation(async (episode: number) => {
+      const uid = settlement.pendingUid;
+      if (episode !== 7 || !uid || settlement.currentUser?.uid !== uid) return null;
+      publishValidatedAuthSessionPrincipal({ firebaseUid: uid, ownerId: uid, accountGeneration: 0 });
+      return uid;
+    });
   });
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); publishValidatedAuthSessionPrincipal(null); });
 
   it("leaves mint-only reviewer authentication to bootstrap, including tap and bridge triggers", async () => {
     settlement.native.enabled = true;
@@ -99,7 +112,8 @@ describe("AuthStep committed provider settlement", () => {
 
     const user = { uid: "reviewer", getIdToken: vi.fn().mockResolvedValue("firebase-token") };
     settlement.currentUser = user;
-    Object.assign(settlement.auth, { user });
+    Object.assign(settlement.auth, { user, userId: user.uid });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 });
     await act(async () => { view.rerender(createElement(AuthStep, { redirectPath: "/one" })); });
     expect(settlement.route).toHaveBeenCalledTimes(1);
     expect(settlement.router.replace).toHaveBeenCalledExactlyOnceWith("/one/setup");

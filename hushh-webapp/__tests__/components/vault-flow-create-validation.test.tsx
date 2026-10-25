@@ -1,7 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { VaultFlow } from "@/components/vault/vault-flow";
+import { VaultFlow as OwnerVaultFlow } from "@/components/vault/vault-flow";
+
+import { publishValidatedAuthSessionPrincipal, publishValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+
+// This fixture supplies the AuthProvider admission that production vault callers require.
+function VaultFlow(props: Parameters<typeof OwnerVaultFlow>[0]) {
+  if (snapshotValidatedAuthSessionPrincipal()?.firebaseUid !== props.user.uid)
+    publishValidatedAuthSessionPrincipal({ firebaseUid: props.user.uid, ownerId: props.user.uid, accountGeneration: 0 });
+  return <OwnerVaultFlow {...props} />;
+}
 
 const checkVaultMock = vi.fn();
 const getVaultStateMock = vi.fn();
@@ -274,6 +283,7 @@ describe("VaultFlow create validation", () => {
   });
 
   beforeEach(() => {
+    publishValidatedAuthSessionOwner(null);
     vi.clearAllMocks();
     cancelAuthenticationMock.mockResolvedValue(undefined);
     isNativePlatformMock = false;
@@ -370,6 +380,23 @@ describe("VaultFlow create validation", () => {
 
     view.unmount();
     expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("unlocks only the replacement owner's vault while Firebase UID stays unchanged", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId, accountGeneration: 1 });
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockResolvedValue("verified-fixture-key");
+    getOrIssueVaultOwnerTokenMock.mockResolvedValue({ token: "fixture-token", expiresAt: Date.now() + 60000 });
+    const onSuccess = vi.fn();
+    render(<OwnerVaultFlow user={user} onSuccess={onSuccess} />);
+    fireEvent.change(await screen.findByLabelText("Vault password"), { target: { value: "fixture-passphrase" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
+    expect(checkVaultMock).toHaveBeenCalledWith(ownerId);
+    expect(getOrIssueVaultOwnerTokenMock).toHaveBeenCalledWith(ownerId);
+    expect(getOrIssueVaultOwnerTokenMock).not.toHaveBeenCalledWith(user.uid);
   });
 
   it("opens fresh vault creation directly in the canonical credential layout", async () => {

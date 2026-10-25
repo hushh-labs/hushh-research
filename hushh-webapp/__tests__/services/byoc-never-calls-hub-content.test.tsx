@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 /**
  * An owner whose agent runs in their own cloud never calls a hub content route.
  *
@@ -43,7 +44,7 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: async () => null,
 }));
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "owner-a" } }),
+  useAuth: () => ({ user: { uid: "owner-a" }, userId: "owner-a" }),
 }));
 vi.mock("@/lib/services/api-client", () => ({
   apiJson: async (path: string) => {
@@ -95,6 +96,7 @@ vi.mock("@/lib/services/agent-chat-client", async () => ({
 const VAULT_KEY = "0f".repeat(32);
 
 beforeEach(() => {
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-a", ownerId: "owner-a", accountGeneration: 0 });
   calls.hub.length = 0;
   calls.direct.length = 0;
   calls.hosting = { hostingMode: "byoc" };
@@ -109,6 +111,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null);
   vi.unstubAllGlobals();
   expect(calls.hub.filter((path) => HUB_CONTENT.test(path))).toEqual([]);
 });

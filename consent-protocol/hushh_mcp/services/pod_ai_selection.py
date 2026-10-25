@@ -198,7 +198,13 @@ async def record_ai_selection(
     return recorded
 
 
-async def clear_ai_selection(log: Any, *, hushh_id: str, expected_floor: int | None = None) -> None:
+async def clear_ai_selection(
+    log: Any,
+    *,
+    hushh_id: str,
+    expected_floor: int | None = None,
+    verified_default: dict[str, Any] | None = None,
+) -> None:
     """Remove the selection; idempotent. The replay floor survives the clear."""
     if log is None:
         raise AiSelectionStoreMissing("this pod has no durable store for its owner's selection")
@@ -206,18 +212,21 @@ async def clear_ai_selection(log: Any, *, hushh_id: str, expected_floor: int | N
     def build(current: Optional[AiSelection], floor: int) -> tuple[Optional[dict], None]:
         if expected_floor is not None and floor != expected_floor:
             raise AiSelectionRefused(STALE_SELECTION)
-        if current is None:
-            return None, None
+        # Even an already-default connection needs a durable verification record.
+        # A legacy unverified clear also invalidates a prior verification receipt.
         return {
             "hushh_id": hushh_id,
             "version": POD_AI_SELECTION_VERSION,
             "cleared": True,
             "issuedAtMs": floor,
             "clearedAtMs": _now_ms(),
+            "verifiedDefault": verified_default,
         }, None
 
     await _append_against_snapshot(log, hushh_id=hushh_id, build=build)
     set_active_ai_selection(None)
+    global _DEFAULT_VERIFICATION
+    _DEFAULT_VERIFICATION = dict(verified_default) if verified_default else None
 
 
 # -- process-wide active copy and the last failure ----------------------------------
@@ -226,6 +235,11 @@ _ACTIVE: Optional[AiSelection] = None
 _LOAD_FAILED = False
 _REVISION = 0
 _LAST_FAILURE: Optional[dict[str, Any]] = None
+_DEFAULT_VERIFICATION: Optional[dict[str, Any]] = None
+
+
+def default_verification() -> Optional[dict[str, Any]]:
+    return dict(_DEFAULT_VERIFICATION) if not _LOAD_FAILED and _DEFAULT_VERIFICATION else None
 
 
 def active_ai_selection() -> Optional[AiSelection]:
@@ -250,10 +264,11 @@ def owner_ai_in_force() -> bool:
 
 
 def set_active_ai_selection(selection: Optional[AiSelection]) -> None:
-    global _ACTIVE, _LOAD_FAILED, _REVISION
+    global _ACTIVE, _LOAD_FAILED, _REVISION, _DEFAULT_VERIFICATION
     _ACTIVE = selection
     _LOAD_FAILED = False
     _REVISION += 1
+    _DEFAULT_VERIFICATION = None
 
 
 def ai_selection_revision() -> int:
@@ -294,7 +309,7 @@ async def load_active_ai_selection(
     that exists but cannot be read marks the copy unreadable, so turns refuse rather
     than fall back to a model the owner did not choose.
     """
-    global _LOAD_FAILED
+    global _LOAD_FAILED, _DEFAULT_VERIFICATION
     hushh_id = (os.environ.get("HUSSH_ID") or "").strip()
     try:
         if log is None:
@@ -303,6 +318,8 @@ async def load_active_ai_selection(
             log = _resolve_log()
         selection, _floor = None, 0
         if hushh_id:
+            if records is None:
+                records = await log.replay() if log is not None else []
             selection, _floor = (
                 selection_from_records(records, hushh_id=hushh_id, strict=True)
                 if records is not None
@@ -313,6 +330,15 @@ async def load_active_ai_selection(
         _LOAD_FAILED = True
         return None
     set_active_ai_selection(selection)
+    for record in records or []:
+        payload = (record or {}).get("payload") or {}
+        if (
+            (record or {}).get("kind") == POD_AI_SELECTION_RECORD_KIND
+            and isinstance(payload, Mapping)
+            and payload.get("hushh_id") == hushh_id
+        ):
+            receipt = payload.get("verifiedDefault") if payload.get("cleared") is True else None
+            _DEFAULT_VERIFICATION = dict(receipt) if isinstance(receipt, dict) else None
     logger.info(
         "pod_ai_selection.loaded configured=%s provider=%s",
         selection is not None,

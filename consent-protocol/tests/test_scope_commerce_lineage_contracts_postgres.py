@@ -140,6 +140,15 @@ async def test_prior_free_grant_and_two_paid_terms_preserve_independent_lineage(
     await assert_free_expiry_unchanged(ctx, free)
     assert (await ctx.service.balance(payer_user_id="payer"))["balanceCents"] == 50
 
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO account_deletion_tombstones VALUES($1,'erased')",
+            account_deletion_user_hash("owner"),
+        )
+    assert await free.exports() == [None] * 4
+
 
 @pytest.mark.parametrize("activated", [False, True])
 async def test_bulk_owner_revocation_ends_unusable_paid_terms_and_preserves_money(

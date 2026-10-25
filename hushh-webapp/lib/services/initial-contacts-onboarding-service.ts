@@ -14,7 +14,7 @@ import { AuthService, type AuthResult } from "./auth-service";
 import { PreVaultUserStateService, type PreVaultUserState } from "./pre-vault-user-state-service";
 import { RiaService, CONTACT_SYNC_MATCH_POLICY_VERSION } from "./ria-service";
 import { ConnectionsService, type ConnectionSummaryEntry } from "./connections-service";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, type AuthSessionOwnerSnapshot } from "@/lib/auth/session-owner";
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent, type AccountPrincipalBinding, type AuthSessionOwnerSnapshot } from "@/lib/auth/session-owner";
 
 export type InitialContactsSnapshot = {
   ownerId: string | null;
@@ -43,7 +43,7 @@ type Session = {
   filling: Promise<void> | null;
   filled: boolean;
   attemptedMembers: Set<string>;
-  owner: AuthSessionOwnerSnapshot;
+  owner: AuthSessionOwnerSnapshot & AccountPrincipalBinding;
 };
 
 /** Initial signup only. Provider tokens/address books never enter durable state. */
@@ -62,12 +62,12 @@ export class InitialContactsOnboardingService {
   static getSnapshot = () => this.snapshot;
   static getServerSnapshot = () => EMPTY;
   static snapshotForOwner = (ownerId: string) => this.snapshot.ownerId === ownerId && this.isOwnerCurrent(ownerId) ? this.snapshot : EMPTY;
-  static isOwnerCurrent = (ownerId: string) => this.session?.user.uid === ownerId && this.active(this.session);
+  static isOwnerCurrent = (ownerId: string) => this.session?.owner.ownerId === ownerId && this.active(this.session);
   static invalidateStale() { if (this.session && !this.active(this.session)) this.reset(); }
 
   private static active(session: Session): boolean {
     return this.session === session && !session.controller.signal.aborted
-      && isValidatedAuthSessionOwnerCurrent(session.owner);
+      && session.user.uid === session.owner.firebaseUid && isValidatedAuthSessionOwnerCurrent(session.owner);
   }
   private static publish(session: Session, updates: Partial<InitialContactsSnapshot>) {
     if (!this.active(session)) return;
@@ -83,9 +83,9 @@ export class InitialContactsOnboardingService {
 
   static async begin(result: AuthResult, provider: "google" | "apple", attemptId: string, findContacts: boolean): Promise<void> {
     const sequence = ++this.beginSequence;
-    const owner = snapshotValidatedAuthSessionOwner();
-    if (!owner || owner.userId !== result.user.uid) { delete result.contactsGrant; return; }
-    const state = await PreVaultUserStateService.bootstrapState(result.user.uid, { idToken: result.idToken });
+    const owner = snapshotValidatedAuthSessionPrincipal();
+    if (!owner || owner.firebaseUid !== result.user.uid) { delete result.contactsGrant; return; }
+    const state = await PreVaultUserStateService.bootstrapState(owner.ownerId, { idToken: result.idToken });
     if (sequence !== this.beginSequence || !isValidatedAuthSessionOwnerCurrent(owner)) { delete result.contactsGrant; return; }
     if (state.setupCompleted !== false || state.initialContactsWelcomeAcknowledged === true) {
       delete result.contactsGrant;
@@ -105,28 +105,27 @@ export class InitialContactsOnboardingService {
       matching: null, filling: null, filled: false, attemptedMembers: new Set(), owner,
     };
     this.session = session;
-    this.publish(session, { ownerId: result.user.uid, attemptId, source, status: "deferred" });
+    this.publish(session, { ownerId: owner.ownerId, attemptId, source, status: "deferred" });
     // Reading can run alongside phone verification. Normalization/matching waits.
     const grant = result.contactsGrant;
     delete result.contactsGrant;
     if (provider === "google" && findContacts && grant?.accessToken) {
       this.captureRead(session, googlePeopleContactSource(grant.accessToken, session.controller.signal)({ limit: 10_000 }));
     }
-    if (this.active(session) && state.initialContactsWelcomeAcknowledged !== false) await PreVaultUserStateService.updatePreVaultState(result.user.uid, { initialContactsSource: source }, { idToken: result.idToken });
+    if (this.active(session) && state.initialContactsWelcomeAcknowledged !== false) await PreVaultUserStateService.updatePreVaultState(owner.ownerId, { initialContactsSource: source }, { idToken: result.idToken });
   }
 
   static async restore(user: User, state: PreVaultUserState) {
-    if (state.initialContactsWelcomeAcknowledged !== false || this.snapshot.ownerId === user.uid) return;
+    const owner = snapshotValidatedAuthSessionPrincipal();
+    if (!owner || owner.firebaseUid !== user.uid || state.initialContactsWelcomeAcknowledged !== false || this.snapshot.ownerId === owner.ownerId) return;
     const sequence = this.beginSequence;
-    const owner = snapshotValidatedAuthSessionOwner();
-    if (!owner || owner.userId !== user.uid) return;
     const provider = await AuthService.initialContactsSignInProvider(user, () => isValidatedAuthSessionOwnerCurrent(owner));
-    if (sequence !== this.beginSequence || this.snapshot.ownerId === user.uid || !isValidatedAuthSessionOwnerCurrent(owner)) return;
+    if (sequence !== this.beginSequence || this.snapshot.ownerId === owner.ownerId || !isValidatedAuthSessionOwnerCurrent(owner)) return;
     this.clear();
-    const session: Session = { user, attemptId: `resume_${user.uid}`, controller: new AbortController(),
+    const session: Session = { user, attemptId: `resume_${owner.ownerId}`, controller: new AbortController(),
       read: null, matching: null, filling: null, filled: false, attemptedMembers: new Set(), owner };
     this.session = session;
-    this.publish(session, { ownerId: user.uid, attemptId: session.attemptId,
+    this.publish(session, { ownerId: owner.ownerId, attemptId: session.attemptId,
       source: provider === "apple.com" || provider === "google.com"
         ? initialContactSource(provider === "apple.com" ? "apple" : "google", Capacitor.isNativePlatform())
         : state.initialContactsSource ?? "none", status: "deferred" });
@@ -276,18 +275,18 @@ export class InitialContactsOnboardingService {
   static async acknowledge(user?: User): Promise<void> {
     const session = this.session;
     const ownerUser = user ?? session?.user;
-    const owner = snapshotValidatedAuthSessionOwner();
-    if (!ownerUser || !owner || owner.userId !== ownerUser.uid) return;
+    const owner = snapshotValidatedAuthSessionPrincipal();
+    if (!ownerUser || !owner || owner.firebaseUid !== ownerUser.uid) return;
     const isCurrent = () => isValidatedAuthSessionOwnerCurrent(owner);
     this.beginSequence += 1;
     try {
       const idToken = await ownerUser.getIdToken();
       if (!isCurrent()) return;
-      await PreVaultUserStateService.updatePreVaultState(ownerUser.uid, { initialContactsWelcomeAcknowledged: true }, { idToken });
+      await PreVaultUserStateService.updatePreVaultState(owner.ownerId, { initialContactsWelcomeAcknowledged: true }, { idToken });
     } finally {
       // Optional welcome failures cannot strand this authenticated session.
       // A failed durable ack may be retried on a fresh session, without refill.
-      if (isCurrent()) this.dismissedOwners.add(ownerUser.uid);
+      if (isCurrent()) this.dismissedOwners.add(owner.ownerId);
       if (session && this.session === session) this.clear();
     }
   }

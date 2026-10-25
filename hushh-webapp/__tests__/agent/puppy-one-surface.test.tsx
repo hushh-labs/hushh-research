@@ -10,12 +10,13 @@ const mocks = vi.hoisted(() => ({
   link: { current: null as unknown },
   localHost: true,
   owner: "owner",
+  firebaseUid: "owner",
   hosting: vi.fn(),
 }));
 
-vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: mocks.owner } }) }));
+vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: mocks.firebaseUid }, userId: mocks.owner }) }));
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { getCurrentUser: () => ({ uid: mocks.owner }) },
+  AuthService: { getCurrentUser: () => ({ uid: mocks.firebaseUid }) },
 }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { getPersonalAgentStatus: mocks.hosting },
@@ -56,7 +57,7 @@ import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
 import type { PuppyLink } from "@/lib/services/puppy-one-service";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
 import { useNativeDockPorts } from "@/components/agent/native-dock-port";
 
@@ -99,8 +100,9 @@ function reporting(): PuppyLink {
 
 beforeEach(() => {
   mocks.owner = "owner";
+  mocks.firebaseUid = "owner";
   publishValidatedAuthSessionOwner(null);
-  publishValidatedAuthSessionOwner(mocks.owner);
+  publishValidatedAuthSessionPrincipal({ firebaseUid: mocks.firebaseUid, ownerId: mocks.owner, accountGeneration: mocks.owner === mocks.firebaseUid ? 0 : 1 });
   mocks.hosting.mockResolvedValue({ hostingMode: "byoc", state: "active", hushhId: "pod-1" });
   mocks.localHost = true;
   mocks.fetchPuppyStatus.mockResolvedValue({ connected: false });
@@ -167,7 +169,8 @@ describe("PuppyOneSurface identity", () => {
     mocks.hosting.mockImplementationOnce(() => new Promise(value => { resolve = value; }));
     const view = render(<PuppyOneSurface />);
     mocks.owner = "next-owner";
-    publishValidatedAuthSessionOwner(mocks.owner);
+    mocks.firebaseUid = "next-owner";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: mocks.firebaseUid, ownerId: mocks.owner, accountGeneration: mocks.owner === mocks.firebaseUid ? 0 : 1 });
     mocks.hosting.mockResolvedValue({ hostingMode: "shared" });
     view.rerender(<PuppyOneSurface />);
     await screen.findByText("Puppy needs your own cloud.");
@@ -181,7 +184,7 @@ describe("PuppyOneSurface identity", () => {
     mocks.hosting.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
     const view = render(<PuppyOneSurface />);
     publishValidatedAuthSessionOwner(null);
-    publishValidatedAuthSessionOwner("owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
     mocks.hosting.mockResolvedValue({ hostingMode: "shared" });
     view.rerender(<PuppyOneSurface />);
     await screen.findByText("Puppy needs your own cloud.");
@@ -199,6 +202,16 @@ describe("PuppyOneSurface identity", () => {
     await screen.findByText("Couldn’t check your agent.");
     expect(screen.getByTestId("private-puppy-panel")).toBe(transcript);
     expect(transcript.closest("[inert]")).toBeNull();
+  });
+
+  it("admits a replacement owner through the same Firebase identity", async () => {
+    mocks.owner = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: mocks.firebaseUid, ownerId: mocks.owner, accountGeneration: 1 });
+    mocks.localHost = false;
+    render(<PuppyOneSurface />);
+    await screen.findByTestId("private-puppy-panel");
+    expect(mocks.hosting).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Checking your agent…")).not.toBeInTheDocument();
   });
 
   it("uses the owner pod relay on a deployed origin", async () => {

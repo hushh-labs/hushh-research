@@ -45,4 +45,4 @@ When a repo-local skill becomes a supported entrypoint, update:
 2. `docs/reference/operations/coding-agent-mcp.md`
 3. `docs/reference/quality/design-system.md` or `docs/reference/quality/frontend-ui-architecture-map.md` if the skill belongs to the frontend family
 4. the matching workflow pack under `.agents/workflows/` when the work is a recurring task shape
-5. generated host discovery: run `python3 .agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py --write`, then its `--check` gate; never hand-author a second procedure in a host directory
+5. canonical discovery: read root `AGENTS.md` and the skill under `.agents/skills/`; run the orchestration validator, which rejects vendor directories and duplicate host fleets; do not generate per-host adapters

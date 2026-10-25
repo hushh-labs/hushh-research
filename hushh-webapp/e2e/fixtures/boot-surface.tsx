@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { publishValidatedAuthSessionPrincipal } from "../../lib/auth/session-owner";
 
 import { BootRouteCommitted, BootSurface } from "../../components/app-ui/boot-surface";
 import { HushhLoader } from "../../components/app-ui/hushh-loader";
@@ -155,5 +156,8 @@ window.bootFixture = {
   state: () => getBootSurfaceState(),
   phases,
 };
+
+// The real vault flow requires an admitted application owner, including in layout fixtures.
+publishValidatedAuthSessionPrincipal({ firebaseUid: "layout-fixture", ownerId: "layout-fixture", accountGeneration: 0 });
 
 createRoot(document.getElementById("root")!).render(<Fixture />);

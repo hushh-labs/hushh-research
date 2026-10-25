@@ -94,8 +94,8 @@ import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemin
 export function OneSetupHub() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
-  const emailPreference = useMarketingPreference(user?.uid ?? null, "setup");
+  const { user, userId: ownerId } = useAuth();
+  const emailPreference = useMarketingPreference(ownerId ?? null, "setup");
   const initialContacts = useInitialContacts();
   const queueEntryWelcome = useOneConversationSession((state) => state.queueEntryWelcome);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
@@ -131,7 +131,7 @@ export function OneSetupHub() {
     cloud: "loading" | "required" | "complete";
     runtime: "loading" | "required" | "complete";
   }>({ userId: null, cloud: "loading", runtime: "loading" });
-  const prereqMatchesUser = prereqSnapshot.userId === (user?.uid ?? null);
+  const prereqMatchesUser = prereqSnapshot.userId === (ownerId ?? null);
   const cloudState = prereqMatchesUser ? prereqSnapshot.cloud : "loading";
   const runtimeChoiceState = prereqMatchesUser
     ? prereqSnapshot.runtime
@@ -145,17 +145,17 @@ export function OneSetupHub() {
     phone: "loading" | "required" | "complete";
   }>({ userId: null, phone: "loading" });
   const phoneVerified =
-    phoneState.userId === (user?.uid ?? null) &&
+    phoneState.userId === (ownerId ?? null) &&
     phoneState.phone === "complete";
   useEffect(() => {
-    if (!user?.uid) {
+    if (!ownerId) {
       setPhoneState({ userId: null, phone: "required" });
       return;
     }
     let active = true;
-    const cached = AccountIdentityService.peekCachedIdentity(user.uid)?.data;
+    const cached = AccountIdentityService.peekCachedIdentity(ownerId)?.data;
     setPhoneState({
-      userId: user.uid,
+      userId: ownerId,
       phone: AccountIdentityService.hasVerifiedPhone(cached)
         ? "complete"
         : "loading",
@@ -164,19 +164,19 @@ export function OneSetupHub() {
       .then((identity) => {
         if (!active) return;
         setPhoneState({
-          userId: user.uid,
+          userId: ownerId,
           phone: AccountIdentityService.hasVerifiedPhone(identity)
             ? "complete"
             : "required",
         });
       })
       .catch(() => {
-        if (active) setPhoneState({ userId: user.uid, phone: "required" });
+        if (active) setPhoneState({ userId: ownerId, phone: "required" });
       });
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [user, ownerId]);
   const returnTo = useMemo(() => {
     const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
     if (!raw) return null;
@@ -190,7 +190,7 @@ export function OneSetupHub() {
   const completionTarget = returnTo || ROUTES.HOME;
 
   useEffect(() => {
-    if (!user?.uid) {
+    if (!ownerId) {
       setPrereqSnapshot({
         userId: null,
         cloud: "required",
@@ -202,9 +202,9 @@ export function OneSetupHub() {
     let verification = 0;
     const project = (
       state: Parameters<typeof PreVaultUserStateService.hasOneCloudProject>[0],
-      ready = immediateRuntimeChoiceReadiness(user.uid, state, Boolean(vaultKey && vaultOwnerToken)),
+      ready = immediateRuntimeChoiceReadiness(ownerId, state, Boolean(vaultKey && vaultOwnerToken)),
     ) => ({
-      userId: user.uid,
+      userId: ownerId,
       cloud: PreVaultUserStateService.hasOneCloudProject(state)
         ? ("complete" as const)
         : ("required" as const),
@@ -217,21 +217,21 @@ export function OneSetupHub() {
       const snapshot = project(state);
       setPrereqSnapshot(snapshot);
       if (snapshot.runtime !== "loading") return;
-      void hasReadyRuntimeChoice({ userId: user.uid, state, vaultKey, vaultOwnerToken })
+      void hasReadyRuntimeChoice({ userId: ownerId, state, vaultKey, vaultOwnerToken })
         .then(ready => {
           if (active && revision === verification) setPrereqSnapshot(project(state, ready));
         });
     };
     const unsubscribe = CacheService.getInstance().subscribe((event) => {
-      if (!active || event.type !== "set" || event.key !== CACHE_KEYS.PRE_VAULT_BOOTSTRAP(user.uid)) return;
-      const saved = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      if (!active || event.type !== "set" || event.key !== CACHE_KEYS.PRE_VAULT_BOOTSTRAP(ownerId)) return;
+      const saved = PreVaultUserStateService.getCachedBootstrapState(ownerId);
       if (saved) publish(saved);
     });
     const cleanup = () => {
       active = false;
       unsubscribe();
     };
-    const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    const cached = PreVaultUserStateService.getCachedBootstrapState(ownerId);
     if (cached) {
       publish(cached);
       // Stale-while-revalidate: the cached record can predate a prerequisite
@@ -240,7 +240,7 @@ export function OneSetupHub() {
       // agent-home choice from a cache written before the save.
       // Render the cache instantly, confirm it in the background, and update
       // only when the truth differs.
-      void PreVaultUserStateService.bootstrapState(user.uid, { force: true })
+      void PreVaultUserStateService.bootstrapState(ownerId, { force: true })
         .then((state) => {
           if (active) publish(state);
         })
@@ -248,11 +248,11 @@ export function OneSetupHub() {
       return cleanup;
     }
     setPrereqSnapshot({
-      userId: user.uid,
+      userId: ownerId,
       cloud: "loading",
       runtime: "loading",
     });
-    void PreVaultUserStateService.bootstrapState(user.uid)
+    void PreVaultUserStateService.bootstrapState(ownerId)
       .then((state) => {
         if (!active) return;
         publish(state);
@@ -260,14 +260,14 @@ export function OneSetupHub() {
       .catch(() => {
         if (active) {
           setPrereqSnapshot({
-            userId: user.uid,
+            userId: ownerId,
             cloud: "required",
             runtime: "required",
           });
         }
       });
     return cleanup;
-  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [isVaultUnlocked, ownerId, vaultKey, vaultOwnerToken]);
 
   // The cloud setup runs as a background job; while it does, the row says so
   // ("step N of 6") instead of "Required", and the person keeps onboarding.
@@ -281,7 +281,7 @@ export function OneSetupHub() {
   const cloudComplete_forJob =
     prereqMatchesUser && prereqSnapshot.cloud === "complete";
   useEffect(() => {
-    if (!user?.uid || cloudComplete_forJob) {
+    if (!ownerId || cloudComplete_forJob) {
       setCloudSetupJob(null);
       return;
     }
@@ -301,14 +301,14 @@ export function OneSetupHub() {
         }
         setCloudSetupJob(null);
         if (status.status === "recorded") {
-          void PreVaultUserStateService.bootstrapState(user.uid, {
+          void PreVaultUserStateService.bootstrapState(ownerId, {
             force: true,
           })
             .then(async (state) => {
-              const ready = await hasReadyRuntimeChoice({ userId: user.uid, state, vaultKey, vaultOwnerToken });
+              const ready = await hasReadyRuntimeChoice({ userId: ownerId, state, vaultKey, vaultOwnerToken });
               if (!cancelled) {
                 setPrereqSnapshot({
-                  userId: user.uid,
+                  userId: ownerId,
                   cloud: PreVaultUserStateService.hasOneCloudProject(state)
                     ? "complete"
                     : "required",
@@ -329,7 +329,7 @@ export function OneSetupHub() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [user?.uid, cloudComplete_forJob, vaultKey, vaultOwnerToken]);
+  }, [ownerId, cloudComplete_forJob, vaultKey, vaultOwnerToken]);
   const cloudSetupRunning = cloudSetupJob !== null;
   const cloudSetupStageLabel = cloudSetupJob
     ? `Setting up (step ${Math.min(Math.max(cloudSetupJob.stagesReached, 1), 6)} of 6)`
@@ -393,21 +393,21 @@ export function OneSetupHub() {
   });
 
   const shouldShowContactsWelcome = useCallback(() => {
-    if (!user?.uid) return false;
-    const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    if (!ownerId) return false;
+    const bootstrap = PreVaultUserStateService.getCachedBootstrapState(ownerId);
     return bootstrap?.initialContactsWelcomeAcknowledged === false ||
-      InitialContacts.getSnapshot().ownerId === user.uid;
-  }, [user?.uid]);
+      InitialContacts.getSnapshot().ownerId === ownerId;
+  }, [ownerId]);
 
   const resolveFinalizedSetupTarget = useCallback(() => {
-    const target = user?.uid && PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
+    const target = ownerId && PreVaultSensitiveDraftService.hasFinanceIntent(ownerId)
       ? buildOneSetupFinanceImportRoute(returnTo)
       : completionTarget;
     return shouldShowContactsWelcome() ? buildInitialContactsWelcomeRoute(target) : target;
-  }, [completionTarget, returnTo, shouldShowContactsWelcome, user?.uid]);
+  }, [completionTarget, returnTo, shouldShowContactsWelcome, ownerId]);
 
   const completeSetupAfterVault = useCallback(async (): Promise<void> => {
-    if (!user?.uid) {
+    if (!ownerId) {
       router.replace(completionTarget);
       return;
     }
@@ -424,30 +424,30 @@ export function OneSetupHub() {
       // pre-vault origin remains in memory until its owning encrypted write
       // succeeds; neither a route change nor background warm-up can race it.
       await PreVaultSensitiveDraftService.finalizeForVault({
-        userId: user.uid,
+        userId: ownerId,
         vaultKey,
         vaultOwnerToken,
       });
-      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid)
-        ?? await PreVaultUserStateService.bootstrapState(user.uid, { force: true });
+      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(ownerId)
+        ?? await PreVaultUserStateService.bootstrapState(ownerId, { force: true });
       if (bootstrap.oneRuntimeSetupChoice === "byok_pending_vault" &&
-          !(await hasStoredAiKey(user.uid, vaultKey, vaultOwnerToken))) {
+          !(await hasStoredAiKey(ownerId, vaultKey, vaultOwnerToken))) {
         throw new Error("Your selected AI key was not saved. Choose your AI again.");
       }
       await PostUnlockSyncService.run({
-        userId: user.uid,
+        userId: ownerId,
         vaultKey,
         vaultOwnerToken,
       });
       await FinanceSetupDraftService.finalizeForVault({
-        userId: user.uid,
+        userId: ownerId,
         vaultKey,
         vaultOwnerToken,
       });
-      notifyGeminiRuntimeConfigurationChanged(user.uid);
+      notifyGeminiRuntimeConfigurationChanged(ownerId);
 
       const completion = acknowledgeOneSetupExit({
-        userId: user.uid,
+        userId: ownerId,
         skipped: false,
         isVaultUnlocked: true,
         vaultKey,
@@ -457,7 +457,7 @@ export function OneSetupHub() {
       // boundary. The Chat surface derives its summary from the unlocked
       // in-memory context and consumes this marker once; no private values
       // enter the route or conversation history.
-      if (!shouldShowContactsWelcome()) queueEntryWelcome(user.uid);
+      if (!shouldShowContactsWelcome()) queueEntryWelcome(ownerId);
       await completion;
       setVaultDialogOpen(false);
       setVaultInvitationOpen(false);
@@ -502,7 +502,7 @@ export function OneSetupHub() {
     shouldShowContactsWelcome,
     localFirstEnabled,
     router,
-    user?.uid,
+    ownerId,
     vaultKey,
     vaultOwnerToken,
   ]);
@@ -513,7 +513,7 @@ export function OneSetupHub() {
       !isVaultUnlocked ||
       !vaultKey ||
       !vaultOwnerToken ||
-      !user?.uid ||
+      !ownerId ||
       finalizationInFlightRef.current
     ) {
       return;
@@ -528,7 +528,7 @@ export function OneSetupHub() {
     vaultInvitationOpen,
     vaultKey,
     vaultOwnerToken,
-    user?.uid,
+    ownerId,
   ]);
 
   // Final drain, after the vault exists. Idempotent: anything already
@@ -543,7 +543,7 @@ export function OneSetupHub() {
       if (active) router.replace(resolveFinalizedSetupTarget());
     }, 8000);
 
-    if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+    if (!ownerId || !vaultKey || !vaultOwnerToken) {
       // Wait for the render that carries the freshly unlocked key.
       return () => {
         active = false;
@@ -552,7 +552,7 @@ export function OneSetupHub() {
     }
 
     void migrateOnboardingBuffer({
-      userId: user.uid,
+      userId: ownerId,
       vaultKey,
       vaultOwnerToken,
     })
@@ -575,7 +575,7 @@ export function OneSetupHub() {
     localFirstEnabled,
     localFirstStage,
     router,
-    user?.uid,
+    ownerId,
     vaultKey,
     vaultOwnerToken,
   ]);
@@ -585,9 +585,9 @@ export function OneSetupHub() {
   // so the vault is genuinely the last thing the person is asked for.
   const runGuidedConnection = async () => {
     setLocalFirstStage("migrating");
-    if (user?.uid) {
+    if (ownerId) {
       await migrateOnboardingBuffer({
-        userId: user.uid,
+        userId: ownerId,
         vaultKey,
         vaultOwnerToken,
       }).catch((error) => {
@@ -607,7 +607,7 @@ export function OneSetupHub() {
         summary: "Setup is already being finished.",
       };
     }
-    if (!user?.uid) {
+    if (!ownerId) {
       router.replace(completionTarget);
       return { status: "started" as const, summary: "Opening home." };
     }
@@ -619,9 +619,9 @@ export function OneSetupHub() {
       // must not trap the person, so fall back to the resolved client gate rather
       // than stranding them.
       let cloudConfirmed = cloudComplete;
-      const cachedRuntimeState = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+      const cachedRuntimeState = PreVaultUserStateService.getCachedBootstrapState(ownerId);
       let runtimeChoiceConfirmed = cachedRuntimeState
-        ? await hasReadyRuntimeChoice({ userId: user.uid, state: cachedRuntimeState, vaultKey, vaultOwnerToken })
+        ? await hasReadyRuntimeChoice({ userId: ownerId, state: cachedRuntimeState, vaultKey, vaultOwnerToken })
         : runtimeChoiceComplete;
       let phoneConfirmed = phoneVerified;
       if (!phoneConfirmed) {
@@ -631,23 +631,23 @@ export function OneSetupHub() {
           }).catch(() => null);
         phoneConfirmed = AccountIdentityService.hasVerifiedPhone(identity);
         setPhoneState({
-          userId: user.uid,
+          userId: ownerId,
           phone: phoneConfirmed ? "complete" : "required",
         });
       }
       if (!cloudConfirmed || !runtimeChoiceConfirmed) {
         try {
           const currentState = await PreVaultUserStateService.bootstrapState(
-            user.uid,
+            ownerId,
             { force: true },
           );
           cloudConfirmed =
             PreVaultUserStateService.hasOneCloudProject(currentState);
           runtimeChoiceConfirmed = await hasReadyRuntimeChoice({
-            userId: user.uid, state: currentState, vaultKey, vaultOwnerToken,
+            userId: ownerId, state: currentState, vaultKey, vaultOwnerToken,
           });
           setPrereqSnapshot({
-            userId: user.uid,
+            userId: ownerId,
             cloud: cloudConfirmed ? "complete" : "required",
             runtime: runtimeChoiceConfirmed ? "complete" : "required",
           });
@@ -807,7 +807,7 @@ export function OneSetupHub() {
           localFirstStage === "migrating" ? (
             <GuidedConnectionScreen
               agentReady={
-                user?.uid ? isPersonalAgentReadyFromCachedFeed(user.uid) : false
+                ownerId ? isPersonalAgentReadyFromCachedFeed(ownerId) : false
               }
               busy={localFirstStage === "migrating"}
               onContinue={() => void runGuidedConnection()}
@@ -830,7 +830,7 @@ export function OneSetupHub() {
           <SetupHubLoadingState />
         ) : (
           <>
-            {phoneVerified ? <PublicProfileDiscoveryCard userId={user?.uid} onboarding /> : null}
+            {phoneVerified ? <PublicProfileDiscoveryCard userId={ownerId} onboarding /> : null}
             <div className={styles.flatChecklist}>
               {/* The hosting choice comes first and stays first. It determines
                   whether the agent uses Shared or a pod. AI access is completed
@@ -909,7 +909,7 @@ export function OneSetupHub() {
                     until there is an agent state to report. */}
                 {runtimeChoiceComplete ? <OneAgentPresence /> : null}
               </SettingsGroup>
-              {initialContacts.ownerId === user?.uid ? (
+              {initialContacts.ownerId === ownerId ? (
                 <SettingsGroup separatorInset>
                   <SettingsRow title={initialContacts.source === "device" ? "Find people from your phone" : "Find people with Google Contacts"}
                     description={initialContacts.status === "ready"

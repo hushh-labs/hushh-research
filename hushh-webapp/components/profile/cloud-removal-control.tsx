@@ -18,8 +18,7 @@ type Provider = "gcp" | "azure";
 
 /** Inspect only the caller's recorded cloud. Opening a menu never starts cleanup. */
 function useRemovalProvider(menuOpen: boolean | undefined, provider?: Provider) {
-  const { user } = useAuth();
-  const ownerId = user?.uid;
+  const { userId: ownerId } = useAuth();
   const [observed, setObserved] = useState<{ provider: Provider; current: () => boolean } | null>(null);
   useEffect(() => {
     if ((!menuOpen && !provider) || !ownerId) return;
@@ -38,15 +37,14 @@ function useRemovalProvider(menuOpen: boolean | undefined, provider?: Provider) 
 
 export function useCloudRemovalControl({ menuOpen, provider }: { menuOpen?: boolean; provider?: Provider }) {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, userId: ownerId } = useAuth();
   const { vaultOwnerToken } = useVault();
   const available = useRemovalProvider(menuOpen, provider);
   const [selected, setSelected] = useState<Provider | null>(null);
   const [unlock, setUnlock] = useState(false);
   const [open, setOpen] = useState(false);
-  const ownerId = user?.uid;
   useEffect(() => { setOpen(false); setUnlock(false); setSelected(null); }, [ownerId]);
-  if (!user) return { action: null, dialogs: null };
+  if (!user || !ownerId) return { action: null, dialogs: null };
   const begin = () => { if (available) { setSelected(available); setOpen(true); } };
   const action = available ? menuOpen !== undefined
       ? <DropdownMenuItem variant="destructive" onSelect={begin}>Remove cloud</DropdownMenuItem>
@@ -58,9 +56,10 @@ export function useCloudRemovalControl({ menuOpen, provider }: { menuOpen?: bool
           <AlertDialogTitle>Remove cloud, keep account?</AlertDialogTitle>
           <AlertDialogDescription>Review your private agent’s resources before removing them.</AlertDialogDescription>
         </AlertDialogHeader>
-        {open && selected ? <AccountCloudCleanup key={`${user.uid}:${selected}`} userId={user.uid} token={vaultOwnerToken ?? null}
+        {open && selected ? <AccountCloudCleanup key={`${ownerId}:${selected}`} userId={ownerId} token={vaultOwnerToken ?? null}
           purpose="remove_cloud" provider={selected}
           onUnlock={() => { setOpen(false); setUnlock(true); }}
+          onCancel={() => { setOpen(false); dispatchFeedStateChanged(); router.refresh(); }}
           onFinish={async () => { setOpen(false); dispatchFeedStateChanged(); router.push(ROUTES.ONE_SETUP_CLOUD); router.refresh(); }} /> : null}
         <AlertDialogFooter><AlertDialogCancel>Close</AlertDialogCancel></AlertDialogFooter>
       </AlertDialogContent>

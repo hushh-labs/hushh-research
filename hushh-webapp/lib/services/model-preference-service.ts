@@ -25,6 +25,8 @@ export type ModelPreference = {
   effective_model: string;
   source: "user" | "deployment" | "fallback" | "administrator_policy" | "owner_pod";
   choices: ModelChoice[];
+  effective_provider?: string;
+  verification?: "unverified" | "previously_verified";
 };
 
 const ENDPOINT = "/api/one/models/preference";
@@ -58,7 +60,15 @@ export const ModelPreferenceService = {
       if (!access.current()) throw new Error("MODEL_PREFERENCE_OWNER_CHANGED");
       // A pod owns its connection. Its current selection is not an admitted
       // multi-model catalog; missing/old-image metadata never borrows Shared's.
-      if (!selection?.configured || !selection.model || selection.lastFailure) return null;
+      if (!selection) return null;
+      const effective = selection.effectiveConnection;
+      if (effective) {
+        if (effective.state !== "configured" || !effective.model || !effective.provider || effective.verification === "failed") return null;
+        return { user_id: access.ownerId, selected_model: selection.model,
+          effective_model: effective.model, effective_provider: effective.provider,
+          verification: effective.verification, source: "owner_pod", choices: [] };
+      }
+      if (!selection.configured || !selection.model || selection.lastFailure) return null;
       return { user_id: access.ownerId, selected_model: selection.model,
         effective_model: selection.model, source: "owner_pod", choices: [] };
     }

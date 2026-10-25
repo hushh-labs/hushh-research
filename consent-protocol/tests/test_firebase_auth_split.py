@@ -59,6 +59,67 @@ def test_verify_firebase_bearer_preserves_global_revocation_check(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "mode", ["active", "old_authentication", "old_custom_token", "database_outage"]
+)
+def test_generation_admission_captures_owner_and_refuses_stale_authority(monkeypatch, mode):
+    import firebase_admin.auth as firebase_auth
+
+    from hushh_mcp.services import account_generation_service as generations
+
+    identity, owner = "stable_firebase_uid", "acct_" + "a" * 32
+    claims = {"uid": identity, "auth_time": 1000, "firebase": {"sign_in_provider": "google.com"}}
+    row = {
+        "identity_hash": generations.account_deletion_user_hash(identity),
+        "owner_hash": generations.account_deletion_user_hash(owner),
+        "owner_id": owner,
+        "identity_uid": identity,
+        "generation": 1,
+        "retired_at": None,
+        "admitted_after": 900,
+    }
+    if mode == "old_authentication":
+        claims["auth_time"] = 899
+        claims["iat"] = 1000
+    if mode == "old_custom_token":
+        claims["firebase"] = {"sign_in_provider": "custom"}
+        claims["hussh_account_owner"] = identity
+        claims["hussh_account_lane"] = "development"
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test"))
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    verification_modes = []
+
+    def verified(_token, *, app, check_revoked):
+        verification_modes.append(check_revoked)
+        return claims
+
+    def resolve(verified_claims, *, lane):
+        if mode == "database_outage":
+            raise ConnectionError("synthetic generation storage outage")
+        return generations.validate_principal(verified_claims, row, lane=lane, now=1000)
+
+    guards = []
+    monkeypatch.setattr(firebase_auth, "verify_id_token", verified)
+    monkeypatch.setattr(generations.AccountGenerationService, "resolve_verified_identity", resolve)
+    monkeypatch.setattr(
+        AccountDeletionLifecycleService,
+        "is_tombstoned",
+        lambda candidate: guards.append(candidate) or False,
+    )
+    if mode == "active":
+        principal = firebase_auth_module.verify_firebase_principal("Bearer generation-fixture")
+        assert principal == generations.AccountPrincipal(identity, owner, 1)
+        assert guards == [owner]
+    else:
+        with pytest.raises(HTTPException) as raised:
+            firebase_auth_module.verify_firebase_principal("Bearer generation-fixture")
+        assert raised.value.status_code == (503 if mode == "database_outage" else 401)
+        assert guards == []
+    assert verification_modes == [False, True]
+
+
+@pytest.mark.parametrize(
     "origin,provider,method,deprovisioned,allowed",
     [
         ("created", "microsoft.com", None, None, True),
@@ -797,3 +858,246 @@ def test_get_firebase_auth_app_falls_back_to_default_app(monkeypatch):
     )
 
     assert get_firebase_auth_app() is default_app
+
+
+async def test_owned_firebase_mutation_joins_sdk_and_settlement_on_cancellation(monkeypatch):
+    """A cancelled HTTP task cannot strand a running SDK thread outside the receipt."""
+    import asyncio
+    from threading import Event
+
+    from hushh_mcp.services import account_firebase_mutations as mutations
+
+    started, release = Event(), Event()
+    permit = mutations.FirebaseMutationPermit(
+        "operation", "owner-hash", "identity-hash", "nonce", "external-uid"
+    )
+    settlements, invocations = [], []
+    monkeypatch.setattr(mutations, "begin", lambda *_args, **_kwargs: permit)
+    monkeypatch.setattr(
+        mutations, "settle", lambda captured, state: settlements.append((captured, state))
+    )
+
+    def sdk(identity):
+        invocations.append(identity)
+        started.set()
+        assert release.wait(5), "synthetic SDK release timed out"
+        return "accepted"
+
+    task = asyncio.create_task(
+        mutations.run(
+            "opaque-owner", purpose="display_name", authority_project="test-project", operation=sdk
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 3)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert invocations == ["external-uid"]
+        assert settlements == [(permit, "succeeded")]
+    finally:
+        release.set()
+        if not task.done():
+            await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_firebase_mutation_does_not_replay_an_uncertain_sdk_failure(monkeypatch):
+    from hushh_mcp.services import account_firebase_mutations as mutations
+
+    permit = mutations.FirebaseMutationPermit(
+        "operation", "owner-hash", "identity-hash", "nonce", "external-uid"
+    )
+    settlements, invocations = [], []
+    monkeypatch.setattr(mutations, "begin", lambda *_args, **_kwargs: permit)
+    monkeypatch.setattr(
+        mutations, "settle", lambda captured, state: settlements.append((captured, state))
+    )
+
+    def sdk(identity):
+        invocations.append(identity)
+        raise ConnectionError("synthetic lost provider response")
+
+    with pytest.raises(mutations.FirebaseMutationTransportError):
+        await mutations.run(
+            "opaque-owner", purpose="display_name", authority_project="test-project", operation=sdk
+        )
+    assert invocations == ["external-uid"]
+    assert settlements == [(permit, "uncertain")]
+
+
+@pytest.mark.parametrize("failure", ["lost_response", "status", "redirect", "success"])
+async def test_identity_mutation_transport_sends_one_post_and_records_outcome(monkeypatch, failure):
+    """Exercise requests/AuthorizedSession; a mocked SDK hides its internal retries."""
+    import asyncio
+    import json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+    from types import SimpleNamespace
+
+    import requests
+    from google.auth.credentials import AnonymousCredentials
+
+    from hushh_mcp.services import account_firebase_mutations as mutations
+
+    physical_posts = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            size = int(self.headers["Content-Length"])
+            physical_posts.append((self.path, json.loads(self.rfile.read(size))))
+            if failure == "lost_response":
+                self.close_connection = True
+                return
+            body = json.dumps({"localId": "external-uid"}).encode() if failure == "success" else b""
+            self.send_response(200 if failure == "success" else 503 if failure == "status" else 307)
+            self.send_header("Content-Length", str(len(body)))
+            if failure == "redirect":
+                self.send_header("Location", "/unexpected-replay")
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    monkeypatch.setattr(mutations, "_IDENTITY_ORIGIN", f"http://127.0.0.1:{server.server_port}")
+    app = SimpleNamespace(
+        project_id="synthetic-project",
+        credential=SimpleNamespace(get_credential=AnonymousCredentials),
+    )
+    permit = mutations.FirebaseMutationPermit(
+        "operation", "owner-hash", "identity-hash", "nonce", "external-uid"
+    )
+    outcomes = []
+    monkeypatch.setattr(mutations, "begin", lambda *_args, **_kwargs: permit)
+    monkeypatch.setattr(
+        mutations, "settle", lambda captured, state: outcomes.append((captured, state))
+    )
+    try:
+        execution = mutations.run(
+            "captured-owner",
+            purpose="display_name",
+            authority_project=app.project_id,
+            operation=lambda uid: mutations.set_display_name(app, uid, "Synthetic Name"),
+        )
+        if failure == "success":
+            assert (await execution).settled is True
+        else:
+            with pytest.raises(
+                (requests.RequestException, mutations.FirebaseMutationTransportError)
+            ):
+                await execution
+        assert physical_posts == [
+            (
+                "/v1/projects/synthetic-project/accounts:update",
+                {"localId": "external-uid", "displayName": "Synthetic Name"},
+            )
+        ]
+        assert outcomes == [(permit, "succeeded" if failure == "success" else "uncertain")]
+    finally:
+        await asyncio.to_thread(server.shutdown)
+        server.server_close()
+        await asyncio.to_thread(worker.join, 2)
+        assert not worker.is_alive()
+
+
+def test_registration_identity_proof_never_admits_a_retired_application_owner(monkeypatch):
+    import firebase_admin.auth as firebase_auth
+
+    claims = {
+        "uid": "retired-firebase-uid",
+        "auth_time": 900,
+        "firebase": {"sign_in_provider": "google.com"},
+    }
+    monkeypatch.setattr(
+        firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test-project")
+    )
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(firebase_auth, "verify_id_token", lambda *_args, **_kwargs: claims)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: True)
+    proof = firebase_auth_module.verify_account_registration_bearer(
+        "Bearer synthetic-registration-proof"
+    )
+    assert proof == claims
+    with pytest.raises(HTTPException) as refused:
+        firebase_auth_module.verify_firebase_bearer("Bearer synthetic-registration-proof")
+    assert refused.value.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "extra", [{"hushh_review_mint": "development"}, {"trusted_device_id": "old-device"}]
+)
+def test_registration_proof_refuses_device_and_review_mints(monkeypatch, extra):
+    import firebase_admin.auth as firebase_auth
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(
+        firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test-project")
+    )
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth, "verify_id_token", lambda *_args, **_kwargs: {"uid": "identity", **extra}
+    )
+    with pytest.raises(HTTPException) as refused:
+        firebase_auth_module.verify_account_registration_bearer("Bearer synthetic-purpose-proof")
+    assert refused.value.status_code == 401
+
+
+def test_registration_review_preserves_cleanup_fences_and_exact_terms():
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from hushh_mcp.services import account_generation_service as generations
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+
+    claims = {"uid": "identity", "auth_time": 900, "firebase": {"sign_in_provider": "google.com"}}
+    row = {
+        "identity_hash": account_deletion_user_hash("identity"),
+        "generation": 0,
+        "retired_at": datetime.fromtimestamp(800, UTC),
+        "cleanup_confirmed": True,
+        "cleanup_operation": str(uuid4()),
+    }
+    operation = str(uuid4())
+    review = generations.registration_review(
+        claims, row, mutations_settled=True, operation_id=operation, now=1000
+    )
+    assert review["state"] == "ready"
+    assert review["review"]["expires_at"] == 1200
+    assert review["review"]["digest"] == generations.enrollment_review_digest(
+        row["identity_hash"], 0, row["cleanup_operation"], operation, 900, 860
+    )
+    assert generations.registration_review(
+        claims, {**row, "cleanup_confirmed": False}, mutations_settled=True, now=1000
+    ) == {"state": "action_required", "reason": "historical_cleanup_unconfirmed"}
+    assert generations.registration_review(claims, row, mutations_settled=False, now=1000) == {
+        "state": "action_required",
+        "reason": "identity_write_unconfirmed",
+    }
+    assert generations.registration_review(claims, row, mutations_settled=True, now=850) == {
+        "state": "waiting_for_identity",
+        "retry_at": 861,
+    }
+    for changed in (
+        {**claims, "auth_time": 859},
+        {**claims, "auth_time": 1001},
+        {**claims, "auth_time": 600},
+        {**claims, "firebase": {"sign_in_provider": "custom"}},
+    ):
+        assert (
+            generations.registration_review(changed, row, mutations_settled=True, now=1000)["state"]
+            == "fresh_identity_required"
+        )
+    changed = generations.registration_review(
+        claims,
+        {**row, "cleanup_operation": str(uuid4())},
+        mutations_settled=True,
+        operation_id=operation,
+        now=1000,
+    )
+    assert changed["review"]["digest"] != review["review"]["digest"]

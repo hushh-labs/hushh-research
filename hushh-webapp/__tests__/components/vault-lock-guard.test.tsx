@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   retryOwnerTokenRenewal: vi.fn(),
   authState: {
     user: { uid: "user_1" } as { uid: string } | null,
+    ownerId: undefined as string | null | undefined,
     loading: false,
     sessionVerificationRequired: false,
   },
@@ -43,6 +44,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: mocks.authState.user,
+    userId: mocks.authState.ownerId === undefined ? mocks.authState.user?.uid ?? null : mocks.authState.ownerId,
     loading: mocks.authState.loading,
     sessionVerificationRequired: mocks.authState.sessionVerificationRequired,
     retrySessionVerification: mocks.retrySessionVerification,
@@ -277,6 +279,7 @@ describe("VaultLockGuard", () => {
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/one/profile");
     mocks.authState.user = { uid: "user_1" };
+    mocks.authState.ownerId = undefined;
     mocks.authState.loading = false;
     mocks.authState.sessionVerificationRequired = false;
     mocks.hasIncompleteNativeUiFlowSession.mockReturnValue(false);
@@ -285,6 +288,16 @@ describe("VaultLockGuard", () => {
     mocks.vaultUnlocked = false;
     mocks.ownerTokenStatus = "valid";
     delete window.__HUSHH_NATIVE_TEST__;
+  });
+
+  it("keeps a retained Firebase identity without an admitted owner on recovery", async () => {
+    mocks.authState.ownerId = null;
+    mocks.authState.sessionVerificationRequired = true;
+    render(<VaultLockGuard><div>Protected route</div></VaultLockGuard>);
+    await screen.findByRole("button", { name: "Try again" });
+    expect(screen.queryByText("Protected route")).toBeNull();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.checkVault).not.toHaveBeenCalled();
   });
 
   it("keeps a protected PWM claim token out of the login redirect on session loss", async () => {

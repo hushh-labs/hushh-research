@@ -22,6 +22,7 @@ import {
   beginCloudCleanup,
   readCloudCleanup,
   finishCloudRemoval,
+  cancelCloudRemoval,
   type CloudCleanupPurpose,
   type CloudCleanupView,
 } from "@/lib/services/account-cloud-cleanup";
@@ -33,10 +34,11 @@ type Props = {
   token: string | null;
   onUnlock: () => void;
   onFinish: () => Promise<unknown>;
+  onCancel?: () => void;
   purpose?: CloudCleanupPurpose;
   provider?: "gcp" | "azure";
 };
-type Action = "inspect" | "refresh" | "approve" | "execute";
+type Action = "inspect" | "refresh" | "approve" | "execute" | "cancel";
 
 async function prepareCleanupAction(props: Props, action: Action, view: CloudCleanupView | null, group: string, isCurrent: () => boolean) {
   const auth = await resolveDeleteAccountAuth({ userId: props.userId, existingVaultOwnerToken: props.token });
@@ -44,6 +46,11 @@ async function prepareCleanupAction(props: Props, action: Action, view: CloudCle
   if (auth.kind === "needs_unlock") {
     props.onUnlock();
     throw new Error("Unlock your vault to continue.");
+  }
+  if (action === "cancel") {
+    if (props.purpose !== "remove_cloud" || !view) throw new Error("CLOUD_REMOVAL_CANNOT_CANCEL");
+    await cancelCloudRemoval(auth.token, view);
+    return { kind: "cancelled" as const };
   }
   if (action === "refresh") return { kind: "view" as const, view: await readCloudCleanup(auth.token, undefined, props.purpose) };
   if (action === "approve") {
@@ -86,7 +93,9 @@ function useCloudCleanup(props: Props) {
           (async () => {
             const result = await prepareCleanupAction(props, action, view, group, () => isCurrent() && !popup?.closed && ownsPopup());
             if (!isCurrent() || popup?.closed || !ownsPopup()) throw new Error("CLOUD_CLEANUP_VIEW_CLOSED");
-            if (result.kind === "view") {
+            if (result.kind === "cancelled") {
+              props.onCancel?.();
+            } else if (result.kind === "view") {
               const updated = result.view;
               setObserved({ view: updated, isCurrent });
               if (updated.inProgress) observation.startFollow(updated.operationId, isCurrent);
@@ -181,6 +190,7 @@ export function AccountCloudCleanup(props: Props) {
           : <p className="text-sm text-muted-foreground">{gcp ? "Your reviewed request can be performed or resumed." : "Your exact cleanup plan is approved. Continue with Microsoft to perform or resume it."}</p>}
       </> : <p className="text-sm text-muted-foreground">{gcp ? "Inspect the resources recorded for your agent, then review what will be removed." : "Sign in to Microsoft for a read-only inspection, then return here to review."}</p>}
     <AlertDialogFooter className="flex-wrap gap-2">
+      {keepAccount && view?.canCancel && props.onCancel ? <Button className="min-h-11" variant="outline" disabled={busy || finishing} onClick={() => void run("cancel")}>Cancel removal and resume agent</Button> : null}
       <Button className="min-h-11" variant="outline" disabled={busy || finishing} onClick={() => void run("refresh")} data-testid="cloud-cleanup-refresh">Refresh status</Button>
       {!view?.planDigest || !view.approvalRequired || view.canFinalize ? <AlertDialogAction className="min-h-11" variant={view?.planDigest ? "destructive" : "default"}
         disabled={busy || finishing || executing} data-testid="cloud-cleanup-continue" onClick={(event) => {

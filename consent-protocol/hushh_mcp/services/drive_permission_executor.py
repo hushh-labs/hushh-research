@@ -27,6 +27,7 @@ from hushh_mcp.services.google_drive_permission_adapter import (
     GoogleDrivePermissionAdapter,
     same_expiration,
 )
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
 from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_check
 
 # Reasons a reconciled absence may carry instead of a generic rejection.
@@ -37,13 +38,18 @@ async def require_recipient_identity(recipient: dict) -> None:
     """Recheck the same verified address before access or link delivery."""
     try:
         async with asyncio.timeout(6):
+            identity_uid = await asyncio.to_thread(
+                firebase_uid_for_owner_read, recipient["user_id"]
+            )
             user = await asyncio.to_thread(
-                firebase_auth.get_user, recipient["user_id"], app=get_firebase_auth_app()
+                firebase_auth.get_user, identity_uid, app=get_firebase_auth_app()
             )
         kind = recipient.get("kind", "google_provider")
         if kind == "verified_email":
             try:
-                current = recipient_from_verified_firebase_email(recipient["user_id"], user)
+                current = recipient_from_verified_firebase_email(
+                    recipient["user_id"], user, firebase_uid=identity_uid
+                )
             except DriveSharingError:
                 raise DriveSharingError("recipient_changed") from None
             if current.subject != recipient["subject"] or current.email != recipient["email"]:
@@ -51,7 +57,7 @@ async def require_recipient_identity(recipient: dict) -> None:
         elif kind == "google_provider":
             candidates = [item for item in user.provider_data if item.provider_id == "google.com"]
             if (
-                user.uid != recipient["user_id"]
+                user.uid != identity_uid
                 or user.disabled
                 or len(candidates) != 1
                 or candidates[0].uid != recipient["subject"]
@@ -70,17 +76,18 @@ async def recipient_identity_for_user(user_id: str) -> VerifiedGoogleRecipient:
     """B's current Google identity, or a verified One email without one."""
     try:
         async with asyncio.timeout(6):
+            identity_uid = await asyncio.to_thread(firebase_uid_for_owner_read, user_id)
             user = await asyncio.to_thread(
-                firebase_auth.get_user, user_id, app=get_firebase_auth_app()
+                firebase_auth.get_user, identity_uid, app=get_firebase_auth_app()
             )
     except Exception:
         raise DriveSharingError("recipient_verification_unavailable", retryable=True) from None
     candidates = [item for item in user.provider_data if item.provider_id == "google.com"]
-    if user.uid != user_id or user.disabled or len(candidates) > 1:
+    if user.uid != identity_uid or user.disabled or len(candidates) > 1:
         raise DriveSharingError("recipient_google_identity_required")
     if candidates:
         return recipient_from_google_provider(user_id, candidates[0])
-    return recipient_from_verified_firebase_email(user_id, user)
+    return recipient_from_verified_firebase_email(user_id, user, firebase_uid=identity_uid)
 
 
 def existing_individual_permission(snapshot, *, email: str) -> dict | None:

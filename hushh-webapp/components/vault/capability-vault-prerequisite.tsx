@@ -14,6 +14,8 @@ import {
   useNativeTestConfig,
 } from "@/lib/testing/native-test";
 
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
+
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 
 type VaultPrerequisiteState =
@@ -52,9 +54,8 @@ export function CapabilityVaultPrerequisite({
   allowVaultCreation = true,
 }: CapabilityVaultPrerequisiteProps) {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userId, loading: authLoading, retrySessionVerification, signOut } = useAuth();
   const nativeTestConfig = useNativeTestConfig();
-  const userId = user?.uid ?? null;
   const { vaultOwnerToken } = useVault();
   const [state, setState] = useState<VaultPrerequisiteState>("checking");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -65,9 +66,9 @@ export function CapabilityVaultPrerequisite({
     state === "create_required" || state === "unlock_required" || vaultHandoffPending;
 
   useEffect(() => {
-    if (authLoading || userId) return;
+    if (authLoading || user || userId) return;
     router.replace(`/login?redirect=${encodeURIComponent(routeKey)}`);
-  }, [authLoading, routeKey, router, userId]);
+  }, [authLoading, routeKey, router, user, userId]);
 
   useEffect(() => {
     if (authLoading) {
@@ -148,6 +149,8 @@ export function CapabilityVaultPrerequisite({
   // A token is memory-only and is the actual authority for the capability.
   // Render immediately once it arrives instead of briefly flashing a loader
   // while the status effect catches up after vault settlement.
+  if (user && !userId) return <SessionVerificationRecovery onRetry={() => void retrySessionVerification()}
+    onSignOut={() => void signOut({ skipFcmCleanup: true })} />;
   if (vaultOwnerToken || state === "ready") return <>{children}</>;
   if (!userId) {
     return <RouteLoadingState label="Redirecting to sign in…" />;

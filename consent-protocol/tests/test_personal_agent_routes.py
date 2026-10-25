@@ -43,9 +43,13 @@ def _build(monkeypatch, *, enabled=True, phone_verified=True):
             calls["deprovision"] = kw
             return {"status": "deprovisioned", "hushhId": "ha1_x"}
 
+    class FakeRegistry:
+        async def get(self, user_id):
+            return None
+
     monkeypatch.setattr(pa, "ActorIdentityService", lambda: FakeIdentity())
     monkeypatch.setattr(pa, "PersonalAgentProvisioningService", FakeProvisioning)
-    monkeypatch.setattr(pa, "PersonalAgentRegistryRepo", lambda: object())
+    monkeypatch.setattr(pa, "PersonalAgentRegistryRepo", FakeRegistry)
 
     app = FastAPI()
     app.include_router(pa.router)

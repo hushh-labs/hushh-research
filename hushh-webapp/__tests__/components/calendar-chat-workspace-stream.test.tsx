@@ -10,7 +10,7 @@ import { AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/ag
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { ApiService } from "@/lib/services/api-service";
 import { GoogleCalendarService, GoogleCalendarError } from "@/lib/services/google-calendar-service";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { reduceChatOnboarding } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -34,7 +34,7 @@ const fixture = vi.hoisted(() => {
   };
 });
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: () => null }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => fixture.auth }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ ...fixture.auth, userId: fixture.auth.user.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => fixture.vault }));
 vi.mock("@/lib/persona/persona-context", () => ({ usePersonaState: () => fixture.persona }));
 vi.mock("@/lib/agent/chat-onboarding/use-chat-onboarding", async importOriginal => {
@@ -71,7 +71,7 @@ beforeEach(() => {
   vi.mocked(PkmWriteCoordinator.saveMergedDomain).mockReset().mockResolvedValue({ success: true, saveState: "saved" } as never);
   fixture.vault.isVaultUnlocked = true;
   fixture.auth.user.uid = "owner";
-  publishValidatedAuthSessionOwner("owner");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   vi.spyOn(GoogleCalendarService, "status").mockResolvedValue({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never);
   vi.spyOn(ApiService, "getPendingConsents").mockResolvedValue({ pending: [] } as never);
   // The owner-aware facade owns routing; this suite supplies its stream port.
@@ -80,7 +80,7 @@ beforeEach(() => {
   vi.spyOn(ApiService, "listAgentChatConversations").mockResolvedValue(Response.json({ conversations: [] }));
   vi.spyOn(ApiService, "getAgentChatHistory").mockResolvedValue(Response.json({ messages: [] }));
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionOwner(null); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionPrincipal(null); });
 
 function workspace() {
   return render(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
@@ -583,7 +583,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     await waitFor(() => expect(resolveStatus).toBeTypeOf("function"));
 
     fixture.auth.user.uid = "replacement";
-    publishValidatedAuthSessionOwner("replacement");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 });
     view.rerender(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
     await waitFor(() => expect(screen.queryByTestId("agent-calendar-proposal-card")).toBeNull());
     await act(async () => { resolveStatus({ connected: true, google_email: "owner@example.com", access_level: "manage" } as never); });
@@ -600,7 +600,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await screen.findByRole("button", { name: "Schedule meeting" });
     fixture.auth.user.uid = "replacement";
-    publishValidatedAuthSessionOwner("replacement");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 });
     view.rerender(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull());
     expect(execute).not.toHaveBeenCalled();
@@ -696,7 +696,7 @@ it.each(["navigation", "vault lock", "owner change", "verification required"])(
     await screen.findByRole("button", { name: "Schedule meeting" });
     view.unmount();
     if (boundary === "vault lock") advanceVaultSessionEpoch();
-    if (boundary === "owner change") publishValidatedAuthSessionOwner("replacement");
+    if (boundary === "owner change") publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 });
     if (boundary === "verification required") fixture.tokenAccess.available = false;
     await act(async () => finish({ cards: [{
       card_id: "robotics", source_text: "I build robots.", write_mode: "can_save",
@@ -773,7 +773,7 @@ it("discards pending meeting context when the workspace owner changes", async ()
   await waitFor(() => expect(contextRead).toHaveBeenCalled());
   const signal = contextRead.mock.calls[0][3];
   fixture.auth.user.uid = "replacement";
-  publishValidatedAuthSessionOwner("replacement");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 });
   view.rerender(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
   await waitFor(() => expect(signal?.aborted).toBe(true));
   await act(async () => finish({ title: "Private", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Must be discarded" }] }));
@@ -878,8 +878,8 @@ it.each(["untouched", "edited-and-cleared", "edited-inflight", "owner-replaced",
     fireEvent.change(lockedComposer, { target: { value: "" } });
   } else if (scenario === "owner-replaced") {
     // ABA must not inherit an earlier authentication generation's operation.
-    publishValidatedAuthSessionOwner("another-owner");
-    publishValidatedAuthSessionOwner("owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "another-owner", ownerId: "another-owner", accountGeneration: 0 });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   }
   if (scenario === "permission-revoked") read.mockRejectedValueOnce(new Error("Permission revoked"));
   else read.mockResolvedValueOnce({ title: "Review", sources: [{ title: "Notes", url: "https://docs.google.com/document/d/f", text: "Fresh recovery source" }] });

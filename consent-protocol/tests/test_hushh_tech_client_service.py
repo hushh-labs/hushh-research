@@ -552,6 +552,26 @@ async def test_hash_mismatch_revoke_and_stale_shadow_states():
 
 
 @pytest.mark.asyncio
+async def test_unqualified_product_exchange_cannot_select_a_replacement_owner(monkeypatch):
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    store = MemoryStore()
+    service = HushhTechClientService(store=store)
+    with pytest.raises(HushhTechClientError) as refused:
+        await service.get_link_status(firebase_uid=UID_A, app_id=APP_ID)
+    assert refused.value.state == "ACCOUNT_GENERATION_UNSUPPORTED"
+    with pytest.raises(HushhTechClientError) as exchange:
+        await service.exchange_launch(
+            code="retained-authorization-code",
+            code_verifier=VERIFIER,
+            audience=AUDIENCE,
+            redirect_uri=REDIRECT,
+            now_ms=NOW_MS,
+        )
+    assert exchange.value.state == "ACCOUNT_GENERATION_UNSUPPORTED"
+    assert not store.launches and not store.links and not store.events
+
+
+@pytest.mark.asyncio
 async def test_production_and_non_allowlisted_users_stay_disabled(monkeypatch: pytest.MonkeyPatch):
     service = HushhTechClientService(store=MemoryStore())
     monkeypatch.setenv("ENVIRONMENT", "production")

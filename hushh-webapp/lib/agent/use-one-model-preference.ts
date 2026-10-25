@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { onGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 import { ModelPreferenceService, type ModelPreference } from "@/lib/services/model-preference-service";
 
@@ -32,8 +32,8 @@ export function useOneModelPreference(user: Owner | null, active: boolean) {
       }
       savingRequest.current = null;
       setSaving(false);
-      const owner = snapshotValidatedAuthSessionOwner();
-      const ownerCurrent = () => alive && !!owner && user?.uid === owner.userId && isValidatedAuthSessionOwnerCurrent(owner);
+      const owner = snapshotValidatedAuthSessionPrincipal();
+      const ownerCurrent = () => alive && !!owner && user?.uid === owner.firebaseUid && isValidatedAuthSessionOwnerCurrent(owner);
       const current = () => ownerCurrent() && sequence.current === request;
       if (!active || !user || !current() || document.visibilityState === "hidden") return;
       void (async () => {

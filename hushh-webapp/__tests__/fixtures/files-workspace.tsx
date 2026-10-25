@@ -1,8 +1,9 @@
 import { beforeEach, vi } from "vitest";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import type { FileEntry, FilesSettings } from "@/lib/files/service";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 const session = vi.hoisted(() => ({
+  ownerId: "synthetic-owner",
   vaultKey: "synthetic-memory-only" as string | null,
   vaultOwnerToken: "synthetic-token",
 }));
@@ -32,7 +33,7 @@ const files = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/files/service", () => ({ FilesService: files }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: "synthetic-owner" } }),
+  useAuth: () => ({ user: { uid: "synthetic-owner" }, userId: session.ownerId }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => session,
@@ -108,5 +109,6 @@ export { files, session };
 
 beforeEach(() => {
   publishValidatedAuthSessionOwner(null);
-  publishValidatedAuthSessionOwner("synthetic-owner");
+  session.ownerId = "synthetic-owner";
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: session.ownerId, accountGeneration: 0 });
 });

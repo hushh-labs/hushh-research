@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+publishValidatedAuthSessionPrincipal({ firebaseUid: "fixture-owner", ownerId: "fixture-owner", accountGeneration: 0 });
 import {
   AgentConnectionsDrawer,
   transitionConnectionsDrawer,

@@ -74,12 +74,12 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   const {
     user,
+    userId,
     loading: authLoading,
     retrySessionVerification,
     sessionVerificationRequired,
     signOut,
   } = useAuth();
-  const userId = user?.uid ?? null;
   const lastUserIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (userId) lastUserIdRef.current = userId;
@@ -197,7 +197,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   // Redirect unauthenticated users (side-effect outside render)
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || sessionVerificationRequired || user) return;
     if (userId) return;
     if (holdRouteForNativeTest) return;
     if (isNativePlatform && !nativeAuthGraceElapsed) return;
@@ -215,6 +215,8 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     }
   }, [
     authLoading,
+    sessionVerificationRequired,
+    user,
     holdRouteForNativeTest,
     isNativePlatform,
     nativeAuthGraceElapsed,

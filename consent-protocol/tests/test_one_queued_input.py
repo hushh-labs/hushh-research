@@ -337,7 +337,7 @@ async def test_failed_session_append_never_reports_unsaved_input_as_delivered():
 
 
 @pytest.fixture
-def queue_client(monkeypatch):
+def queue_client(monkeypatch, active_account_lifecycle):
     from api.middleware import require_vault_owner_token
     from api.routes.one import agent_chat
 

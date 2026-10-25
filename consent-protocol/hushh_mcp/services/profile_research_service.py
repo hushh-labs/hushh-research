@@ -17,6 +17,7 @@ from hushh_mcp.services.magic_intelligence_admission import (
 )
 from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
 from hushh_mcp.services.one_owner_admission import (
+    firebase_record_matches_owner,
     lookup_fresh_owner_identity,
     owner_setup_resolved,
 )
@@ -67,7 +68,7 @@ async def offer_profile_research(
     if not await asyncio.wait_for(setup_check(user_id), 5):
         return {"status": "not_ready", "pkm_written": False}
     record = await asyncio.wait_for(run_in_threadpool(identity_lookup, user_id), 5)
-    if getattr(record, "uid", None) != user_id or getattr(record, "disabled", True):
+    if not firebase_record_matches_owner(user_id, record) or getattr(record, "disabled", True):
         raise PermissionError("Account identity changed")
     if not magic_intelligence_owner_admitted(user_id, record):
         return {"status": "disabled", "pkm_written": False}

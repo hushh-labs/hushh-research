@@ -22,7 +22,7 @@ from hushh_mcp.services.gmail_reply_source_service import resolve_source_bound_r
 
 
 @pytest.fixture(autouse=True)
-def shared_owner_placement(monkeypatch):
+def shared_owner_placement(monkeypatch, active_account_lifecycle):
     """These route fixtures exercise Shared mail; private refusals live in the route-wall suite."""
     from hushh_mcp.services import owner_placement_guard
 

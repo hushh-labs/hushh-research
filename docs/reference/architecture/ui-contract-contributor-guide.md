@@ -142,6 +142,8 @@ the full UI source set and authored route cases; Search still hashes the complet
 route import graph. Relevant source changes require the exact receipt for the current
 sources. An unrelated PR may inherit its target branch's evidence when none of the
 owner's sources, authored contracts or validator inputs changed against that base.
+All current inputs must be tracked in that repository; an ignored workspace or
+fixture cannot inherit its enclosing repository's review evidence.
 CI pins the PR/merge-group base SHA; local checks use an ancestor `origin/main`.
 Missing history, invalid bases, deleted/new UI modules and changed imported information
 fail closed. Validation never creates or repairs evidence. Existing history-bypass,

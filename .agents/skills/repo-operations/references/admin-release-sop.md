@@ -79,13 +79,23 @@ Admin PR landing preflight:
 5. require clean mergeability, no unresolved conversations, DCO, secret hygiene,
    and changed-surface verification; classify unrelated local changes and stop
    only when they overlap or make exact-head proof unsafe;
-6. re-read the PR head SHA and abort if it differs from the reviewed SHA.
+6. run the existing CI command in strict admission mode:
+   `./bin/hushh codex ci-status --pr <pr> --require-success --expected-sha <head-sha>`.
+   Require exit zero. This checks the canonical source, exact run attempt and
+   aggregate job inventory, then re-reads the run and head. Ordinary monitoring
+   may exit zero while work is pending and cannot replace this admission;
+7. re-read the PR head SHA and abort if it differs from the reviewed SHA.
 
 Then land only that reviewed head:
 
 ```bash
 gh pr merge <pr> --admin --merge --match-head-commit <head-sha>
 ```
+
+Execute preflight and merge as separately checked operations. In a shell driver,
+use `set -euo pipefail` and propagate every failed assertion; a later successful
+command must never mask a failed preflight. Do not dispatch the merge after a
+nonzero, missing or unparsed admission result.
 
 Report this truthfully as an Admin queue bypass. Never describe it as merge-queue
 execution or claim `Queue Validation` ran when it did not. Monitor the resulting

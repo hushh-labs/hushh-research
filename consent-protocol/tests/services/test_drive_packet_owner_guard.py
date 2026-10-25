@@ -269,7 +269,7 @@ def worker(store, **fakes):
     )
 
 
-async def test_worker_passes_the_owner_on_file_to_the_builder():
+async def test_worker_passes_the_owner_on_file_to_the_builder(active_account_lifecycle):
     members = [statement(holder="Jane Example")]
     store = FakePacketStore(job("construct"), members, owner=OWNER)
     constructor = AsyncMock(return_value=proposal(members))
@@ -280,7 +280,7 @@ async def test_worker_passes_the_owner_on_file_to_the_builder():
     assert store.committed[0][1] == "verify" and store.released == []
 
 
-async def test_worker_passes_the_owner_on_file_to_the_final_checker():
+async def test_worker_passes_the_owner_on_file_to_the_final_checker(active_account_lifecycle):
     members = [statement(holder="Jane Example")]
     build = {
         "assessment": proposal(members),
@@ -295,7 +295,7 @@ async def test_worker_passes_the_owner_on_file_to_the_final_checker():
     assert checker.await_args.kwargs["batch_scope"]["mode"] == "complete_compact_summary"
 
 
-async def test_worker_fails_closed_when_the_owner_name_cannot_be_read():
+async def test_worker_fails_closed_when_the_owner_name_cannot_be_read(active_account_lifecycle):
     members = [statement(holder="Manish Example")]
     store = FakePacketStore(
         job("construct"),

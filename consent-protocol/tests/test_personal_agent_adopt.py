@@ -259,6 +259,21 @@ async def test_adopt_reconstructs_a_connecting_row_and_reaches_provisioned(monke
     assert handed["backend_metadata"]["url"] == "https://one-pod.run.app"
 
 
+async def test_adoption_refusal_precedes_registry_or_grant_publication(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_adoption import PodAdoptionRefused
+
+    row = {"status": "needs_reinit", "hushh_id": "ha1_abc", "phone_e164_hash": "hash"}
+    svc, registry, backend, refresh = _service(monkeypatch, row=row, handle=_handle())
+    backend.verify_adoption = AsyncMock(side_effect=PodAdoptionRefused("identity changed"))
+    with pytest.raises(PodAdoptionRefused):
+        await svc.adopt_orphan(user_id="uid-1")
+    assert registry.upserts == []
+    assert refresh.rows == []
+    assert backend.create_calls == 0
+
+
 @pytest.mark.asyncio
 async def test_adopt_returns_none_when_no_row(monkeypatch):
     svc, _r, _b, _f = _service(monkeypatch, row=None, handle=_handle())

@@ -549,8 +549,13 @@ async def startup_widen_default_executor() -> None:
 @app.on_event("startup")
 async def startup_one_runtime_dependency_guard() -> None:
     """Reject a process launched with an interpreter outside the pinned ADK contract."""
-    from hushh_mcp.runtime_readiness import assert_pinned_google_adk, runtime_dependency_evidence
+    from hushh_mcp.runtime_readiness import (
+        assert_account_generation_configuration,
+        assert_pinned_google_adk,
+        runtime_dependency_evidence,
+    )
 
+    assert_account_generation_configuration()
     assert_pinned_google_adk()
     evidence = runtime_dependency_evidence()
     logger.info(

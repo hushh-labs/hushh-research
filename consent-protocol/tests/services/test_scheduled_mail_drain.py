@@ -29,7 +29,7 @@ from hushh_mcp.services.gmail_scheduled_drain import drain_scheduled_mail
 
 
 @pytest.fixture(autouse=True)
-def shared_placement(monkeypatch):
+def shared_placement(monkeypatch, active_account_lifecycle):
     from hushh_mcp.services import owner_placement_guard as guard
 
     monkeypatch.setattr(guard, "pod_mode", lambda: False)

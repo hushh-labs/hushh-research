@@ -1,7 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { VaultFlow } from "@/components/vault/vault-flow";
+import { VaultFlow as OwnerVaultFlow } from "@/components/vault/vault-flow";
+
+import { publishValidatedAuthSessionPrincipal, publishValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+
+// This fixture supplies the AuthProvider admission that production vault callers require.
+function VaultFlow(props: Parameters<typeof OwnerVaultFlow>[0]) {
+  if (snapshotValidatedAuthSessionPrincipal()?.firebaseUid !== props.user.uid)
+    publishValidatedAuthSessionPrincipal({ firebaseUid: props.user.uid, ownerId: props.user.uid, accountGeneration: 0 });
+  return <OwnerVaultFlow {...props} />;
+}
 
 const checkVaultMock = vi.fn();
 const getVaultStateMock = vi.fn();
@@ -159,6 +168,7 @@ describe("VaultFlow quick-unlock trust (native: automatic only after a success o
   const user = { uid: "user-trust" } as Parameters<typeof VaultFlow>[0]["user"];
 
   beforeEach(() => {
+  publishValidatedAuthSessionOwner(null);
     vi.clearAllMocks();
     cancelAuthenticationMock.mockResolvedValue(undefined);
     isNativePlatformMock = false;

@@ -31,6 +31,7 @@ import os
 import re
 import time
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from anyio import CancelScope, fail_after
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
@@ -50,12 +51,16 @@ from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
 from api.routes.account_lost_vault import LostVaultDeleteRequest
 from api.routes.account_lost_vault import router as lost_vault_router
+from api.routes.account_registration import router as registration_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
     carries_review_mint,
+    current_auth_lane,
     refuse_foreign_review_mint,
-    verify_firebase_bearer,
+    verify_account_cleanup_bearer,
+    verify_firebase_principal,
 )
+from hushh_mcp.services import account_firebase_mutations
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     CleanupIntentKind,
@@ -63,6 +68,11 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     drain_account_deletion_cleanup_intents,
 )
 from hushh_mcp.services.account_export_stream import AccountExportBusy, AccountExportStream
+from hushh_mcp.services.account_generation_service import (
+    AccountGenerationRefused,
+    AccountGenerationService,
+    AccountPrincipal,
+)
 from hushh_mcp.services.account_service import (
     ACCOUNT_DELETION_FAILED_CODE,
     ACCOUNT_DELETION_PAUSED_CODE,
@@ -108,6 +118,76 @@ router = APIRouter(prefix="/api/account", tags=["Account"])
 # Terms and Privacy acceptance lives in its own module, mounted under this prefix.
 router.include_router(legal_acceptance_router)
 router.include_router(lost_vault_router)
+router.include_router(registration_router)
+
+
+@router.get("/deletion-cleanup")
+async def account_deletion_cleanup_status(
+    response: Response,
+    authorization: str | None = Header(None),
+    operation_id: UUID | None = Query(None),
+):
+    """Discover only this identity's durable cleanup, including after refresh."""
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    response.headers["Cache-Control"] = "private, no-store"
+    selected = str(operation_id) if operation_id is not None else None
+    identity = await run_in_threadpool(
+        verify_account_cleanup_bearer, authorization, operation_id=selected
+    )
+    operation = await run_in_threadpool(
+        journal.inspect_for_identity, identity, operation_id=selected
+    )
+    if operation["retry_after_seconds"] is not None:
+        response.headers["Retry-After"] = str(operation["retry_after_seconds"])
+    return {"operation": operation}
+
+
+class AccountCleanupContinuation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    operation_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    inventory_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    accept_local_erasure: bool = False
+
+
+@router.post("/deletion-cleanup/continue")
+async def continue_account_deletion_cleanup(
+    payload: AccountCleanupContinuation,
+    response: Response,
+    authorization: str | None = Header(None),
+):
+    """Confirm local-only erasure or retry safe work for the exact inventory."""
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        operation_id = str(UUID(payload.operation_id))
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail={"code": "ACCOUNT_CLEANUP_OPERATION_INVALID"}
+        ) from None
+    identity = await run_in_threadpool(
+        verify_account_cleanup_bearer, authorization, operation_id=operation_id
+    )
+    try:
+        await run_in_threadpool(
+            journal.authorize_continuation,
+            identity,
+            operation_id=operation_id,
+            inventory_sha256=payload.inventory_sha256,
+            accept_local_erasure=payload.accept_local_erasure,
+        )
+    except journal.CleanupOperationNotFound:
+        raise HTTPException(status_code=404, detail={"code": "ACCOUNT_CLEANUP_NOT_FOUND"}) from None
+    except journal.ProviderCleanupNotReady:
+        raise HTTPException(
+            status_code=409, detail={"code": "ACCOUNT_CLEANUP_REVIEW_REQUIRED"}
+        ) from None
+    return {
+        "operation": await run_in_threadpool(
+            journal.inspect_for_identity, identity, operation_id=operation_id
+        )
+    }
 
 
 @router.post("/welcome")
@@ -121,7 +201,12 @@ async def send_first_account_welcome(
     from firebase_admin import auth as firebase_auth
 
     try:
-        user = await run_in_threadpool(firebase_auth.get_user, firebase_uid, app=app)
+        identity_uid = firebase_uid
+        if re.fullmatch(r"acct_[0-9a-f]{32}", firebase_uid):
+            identity_uid = await run_in_threadpool(
+                AccountGenerationService.firebase_identity_for_owner, firebase_uid
+            )
+        user = await run_in_threadpool(firebase_auth.get_user, identity_uid, app=app)
     except Exception as exc:
         logger.warning("account_welcome.identity_unavailable")
         raise HTTPException(status_code=503, detail={"code": "ACCOUNT_LOOKUP_UNAVAILABLE"}) from exc
@@ -150,11 +235,25 @@ async def send_first_account_welcome(
         logger.error("account_welcome.delivery_failed")
         return {"status": "failed"}
     try:
-        await run_in_threadpool(
-            firebase_auth.set_custom_user_claims,
+
+        def mark_welcome(identity_uid: str) -> None:
+            # Merge from the current claims inside the serialized remote write,
+            # not the snapshot read before email delivery.
+            current = firebase_auth.get_user(identity_uid, app=app)
+            account_firebase_mutations.set_welcome_claims(
+                app,
+                identity_uid,
+                {
+                    **(getattr(current, "custom_claims", None) or {}),
+                    "hushhWelcomeMailAt": int(time.time()),
+                },
+            )
+
+        await account_firebase_mutations.run(
             firebase_uid,
-            {**claims, "hushhWelcomeMailAt": int(time.time())},
-            app=app,
+            purpose="welcome_marker",
+            authority_project=str(getattr(app, "project_id", "")),
+            operation=mark_welcome,
         )
     except Exception:
         logger.warning("account_welcome.marker_failed")
@@ -291,14 +390,14 @@ async def drain_account_deletion_cleanup(
 
 async def _require_session_status_auth(
     authorization: str | None = Header(None, description="Bearer token with Firebase ID token"),
-) -> str:
+) -> AccountPrincipal:
     try:
         # This lifecycle probe keeps the global revoked/disabled-token
         # guarantee explicit and adds an endpoint-level request budget. The
         # shared verifier deduplicates and bounds the remote Firebase lookup.
         return await asyncio.wait_for(
             run_in_threadpool(
-                verify_firebase_bearer,
+                verify_firebase_principal,
                 authorization,
                 check_revoked=True,
             ),
@@ -326,11 +425,16 @@ async def _require_session_status_auth(
 @router.get("/session-status")
 async def get_account_session_status(
     response: Response,
-    _firebase_uid: str = Depends(_require_session_status_auth),
+    principal: AccountPrincipal = Depends(_require_session_status_auth),
 ):
     """Read-only liveness probe after the auth dependency's lifecycle check."""
     response.headers["Cache-Control"] = "private, no-store"
-    return {"active": True}
+    return {
+        "active": True,
+        "firebase_uid": principal.firebase_uid,
+        "owner_id": principal.owner_id,
+        "account_generation": principal.generation,
+    }
 
 
 class TrustedDeviceAuthorizationRequest(BaseModel):
@@ -470,6 +574,18 @@ async def _verify_browser_enrollment_identity(authorization: str | None) -> str:
                 "message": "Approve a trusted device from your signed-in browser session.",
             },
         )
+    if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
+        try:
+            principal = await run_in_threadpool(
+                AccountGenerationService.resolve_verified_identity, claims, lane=current_auth_lane()
+            )
+            return principal.owner_id
+        except AccountGenerationRefused:
+            raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from None
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail={"code": "AUTH_SESSION_STATUS_UNAVAILABLE"}
+            ) from None
     return str(claims.get("uid") or claims.get("sub") or "").strip()
 
 
@@ -493,7 +609,12 @@ async def _verified_account_email(user_id: str) -> str:
     try:
         from firebase_admin import auth as firebase_auth
 
-        record = await run_in_threadpool(firebase_auth.get_user, user_id, app=app)
+        identity_uid = user_id
+        if re.fullmatch(r"acct_[0-9a-f]{32}", user_id):
+            identity_uid = await run_in_threadpool(
+                AccountGenerationService.firebase_identity_for_owner, user_id
+            )
+        record = await run_in_threadpool(firebase_auth.get_user, identity_uid, app=app)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -644,10 +765,15 @@ async def exchange_trusted_device_authorization(payload: TrustedDeviceExchangeRe
         from firebase_admin import auth as firebase_auth
 
         account_email = await _verified_account_email(str(device["user_id"]))
+        identity_uid, binding = await run_in_threadpool(
+            AccountGenerationService.custom_session_binding,
+            str(device["user_id"]),
+            lane=current_auth_lane(),
+        )
         custom_token = await run_in_threadpool(
             firebase_auth.create_custom_token,
-            device["user_id"],
-            {"trusted_device_id": device["device_id"]},
+            identity_uid,
+            {**binding, "trusted_device_id": device["device_id"]},
             app=app,
         )
     except Exception:
@@ -1383,6 +1509,14 @@ async def update_account_display_name(
         raise HTTPException(
             status_code=422, detail={"code": "DISPLAY_NAME_INVALID", "message": str(exc)}
         ) from None
+    except account_firebase_mutations.FirebaseMutationTransportError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DISPLAY_NAME_OUTCOME_UNCERTAIN",
+                "message": "We couldn't confirm the name change. Refresh your profile before trying again.",
+            },
+        ) from None
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503, detail={"code": "IDENTITY_PROVIDER_UNAVAILABLE", "message": str(exc)}
@@ -1774,10 +1908,20 @@ async def claim_account_phone(
     """Persist a Firebase phone-auth session as the app-level verified phone claim."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
+    protected_identity = firebase_uid
+    if re.fullmatch(r"acct_[0-9a-f]{32}", firebase_uid):
+        try:
+            protected_identity = await run_in_threadpool(
+                AccountGenerationService.firebase_identity_for_owner, firebase_uid
+            )
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail={"code": "ACCOUNT_IDENTITY_UNAVAILABLE"}
+            ) from None
     phone_session_cleanup = await _prepare_safe_phone_session_cleanup_intent(
         uid=phone_session_uid,
         phone_number=phone_number,
-        protected_uid=firebase_uid,
+        protected_uid=protected_identity,
     )
     if phone_session_cleanup == "unavailable":
         raise HTTPException(
@@ -1934,6 +2078,17 @@ def _recent_federated_claims(authorization: str | None, expected_uid: str) -> di
     ):
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"})
 
+    if re.fullmatch(r"acct_[0-9a-f]{32}", expected_uid):
+        try:
+            expected_uid = AccountGenerationService.firebase_identity_for_owner(expected_uid)
+        except AccountGenerationRefused:
+            raise HTTPException(
+                status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"}
+            ) from None
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail={"code": "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE"}
+            ) from None
     try:
         from firebase_admin import auth as firebase_auth
 
@@ -1981,8 +2136,13 @@ async def _lost_vault_deletion_options(user_id: str) -> tuple[str | None, list[s
 
         from firebase_admin import auth as firebase_auth
 
+        identity_uid = user_id
+        if re.fullmatch(r"acct_[0-9a-f]{32}", user_id):
+            identity_uid = await run_in_threadpool(
+                AccountGenerationService.firebase_identity_for_owner, user_id
+            )
         firebase_user = await asyncio.wait_for(
-            run_in_threadpool(firebase_auth.get_user, user_id, app=get_firebase_auth_app()),
+            run_in_threadpool(firebase_auth.get_user, identity_uid, app=get_firebase_auth_app()),
             timeout=_LOST_VAULT_IDENTITY_TIMEOUT_SECONDS,
         )
         firebase_phone = str(getattr(firebase_user, "phone_number", None) or "").strip()
@@ -2069,7 +2229,7 @@ async def delete_lost_vault_account(
     firebase_uid: str = Depends(require_firebase_auth_read_only),
 ):
     """Erase the entire account after fresh identity proof without unlocking the vault."""
-    claims = _recent_federated_claims(authorization, firebase_uid)
+    claims = await run_in_threadpool(_recent_federated_claims, authorization, firebase_uid)
     phone, providers = await _lost_vault_deletion_options(firebase_uid)
     provider = str((claims.get("firebase") or {}).get("sign_in_provider") or "")
     if provider not in providers:
@@ -2134,6 +2294,13 @@ async def _perform_account_deletion(user_id: str, *, target: str):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
     result = await _delete_account_result(user_id, target=target)
+
+    if result.get("success") is True and result.get("cleanup_pending") is True:
+        return JSONResponse(
+            status_code=202,
+            content=result,
+            headers={"Cache-Control": "private, no-store", "Retry-After": "2"},
+        )
 
     if not result["success"]:
         if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:

@@ -11,6 +11,7 @@ deletes an account.
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -27,6 +28,12 @@ CLAIM_ORIGIN = "workosOrigin"  # "created" (SSO made the account) or "linked" (i
 CLAIM_DEPROVISIONED_AT = "workosDeprovisionedAt"
 ORIGIN_CREATED = "created"
 ORIGIN_LINKED = "linked"
+
+
+def require_generation_compatibility() -> None:
+    """WorkOS callbacks have no captured account-generation mutation authority yet."""
+    if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
+        raise EnterpriseSsoError("sso_generation_unavailable", 503)
 
 
 @dataclass(frozen=True)
@@ -71,6 +78,7 @@ class FirebaseAdminIdentity:
 
     @staticmethod
     def _auth():
+        require_generation_compatibility()
         from firebase_admin import auth as firebase_auth
 
         from api.utils.firebase_admin import get_firebase_auth_app

@@ -8,6 +8,7 @@ import type { ReleaseNotice } from "../../lib/agent/managed-app-release";
 import { ProfileConnectorsLink } from "../../components/profile/profile-connectors-link";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 import { useAuth } from "@/hooks/use-auth";
+import { publishValidatedAuthSessionPrincipal } from "../../lib/auth/session-owner";
 import {
   closeProfilePane,
   openProfilePane,
@@ -16,6 +17,8 @@ import {
   PROFILE_PANE_OPEN_EVENT,
   type ProfilePaneOpenDetail,
 } from "../../lib/navigation/profile-pane";
+
+publishValidatedAuthSessionPrincipal({ firebaseUid: "fixture-owner", ownerId: "fixture-owner", accountGeneration: 0 });
 
 function subscribe(listener: () => void) {
   window.addEventListener("popstate", listener);

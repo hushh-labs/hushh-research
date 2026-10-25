@@ -29,7 +29,7 @@ from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceip
 
 
 @pytest.fixture(autouse=True)
-def _shared_legacy_monitor_owner(monkeypatch):
+def _shared_legacy_monitor_owner(monkeypatch, active_account_lifecycle):
     from hushh_mcp.services import owner_placement_guard
 
     async def resolve(owner):

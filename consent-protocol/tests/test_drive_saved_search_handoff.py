@@ -124,7 +124,9 @@ async def test_selected_search_result_is_server_resolved_for_one_turn(monkeypatc
     )
 
 
-async def test_chat_ingress_discards_client_pointer_and_keeps_only_ephemeral_context(monkeypatch):
+async def test_chat_ingress_discards_client_pointer_and_keeps_only_ephemeral_context(
+    monkeypatch, active_account_lifecycle
+):
     monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     monkeypatch.setattr(
         agent_chat,

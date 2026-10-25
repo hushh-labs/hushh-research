@@ -35,7 +35,11 @@ from hushh_mcp.runtime_settings import one_profile_research_enabled
 from hushh_mcp.services.chat_key import get_chat_key_provider, retain_request_chat_key
 from hushh_mcp.services.magic_intelligence_admission import magic_intelligence_owner_admitted
 from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
-from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
+from hushh_mcp.services.one_owner_admission import (
+    firebase_record_matches_owner,
+    lookup_fresh_owner_identity,
+    owner_setup_resolved,
+)
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 from hushh_mcp.services.profile_research_service import (
     offer_profile_research,
@@ -144,7 +148,7 @@ async def admission(user_id: str, consent_token: str) -> tuple[dict[str, Any] | 
     if not await asyncio.wait_for(owner_setup_resolved(user_id), 5):
         return {"status": "not_ready", "pkm_written": False}, ""
     record = await asyncio.wait_for(run_in_threadpool(lookup_fresh_owner_identity, user_id), 5)
-    if getattr(record, "uid", None) != user_id or getattr(record, "disabled", True):
+    if not firebase_record_matches_owner(user_id, record) or getattr(record, "disabled", True):
         raise PermissionError("Account identity changed")
     if not magic_intelligence_owner_admitted(user_id, record):
         return {"status": "disabled", "pkm_written": False}, ""

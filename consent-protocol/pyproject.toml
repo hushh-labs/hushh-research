@@ -239,6 +239,8 @@ module = [
     "hushh_mcp.services.location_public_link_writer",
     # Shared/private connector callbacks retain their typed URL contract.
     "hushh_mcp.services.oauth_redirect_policy",
+    # Preserve immutable owner/generation types at the authentication boundary.
+    "hushh_mcp.services.account_generation_service",
     "hushh_mcp.services.connections_service",
     # Preserve shared directory matching return types at both service boundaries.
     "hushh_mcp.services.people_search_sql",
