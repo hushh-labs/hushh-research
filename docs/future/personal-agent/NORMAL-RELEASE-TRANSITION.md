@@ -6,9 +6,11 @@
 canonical lifecycle 418–421, migration 422 and peer source are preserved.
 Dev/UAT still require deployment. The previous dev attempt refused two retained
 consumer-memory consent guards at immutable 420. Qualify that exact predecessor
-through pinned replay compatibility; preserve its enforcement, records and
-checksums before retrying. No broad feature import or guard removal is authorized
-by that repair. `.agents` remains the sole authored development framework.
+through main's single pinned adoption authority (PR #8446); the consolidated
+PR #8447 preserves enforcement, records and checksums, adds incomplete-footprint
+refusal and permanent owner-scoped cleanup. Its 144 combined cases pass. Inherit
+peer Calendar and financial changes; no broad feature import or guard removal.
+Peer dev rollout 40183489218 is in progress, not yet accepted. `.agents` remains the sole authored development framework.
 The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns
 current source, serving and installed-owner evidence.
 

@@ -25,13 +25,18 @@ intentionally unselected. [Landed smoke](https://github.com/hushh-labs/hushh-res
 passed.** It preserves main's financial Files work, migration 422 and peer edits.
 PR #8437 previously landed as `a65e4f5fd5` with all 27 checks passing.
 
-Last corporate ADC readback at 08:17 UTC found both applications serving
-`24545d1dc2`. A preceding [dev attempt](https://github.com/hushh-labs/hushh-research/actions/runs/40174285264)
-failed before switching traffic: immutable 420 refused two legitimate consent
-triggers installed by separate consumer-MCP work. The compatibility repair keeps
-their exact enforcement, qualifies the retained pair and preserves all migration
-checksums and other drift refusals. Its read-only predicate passes against the
-actual dev catalog; focused PostgreSQL replay and erasure acceptance precede rollout.
+Corporate ADC readback at 10:07 UTC still found both applications serving
+`24545d1dc2`. The earlier [dev attempt](https://github.com/hushh-labs/hushh-research/actions/runs/40174285264)
+failed before switching traffic because immutable 420 refused two legitimate
+consumer-consent guards. Main's [PR #8446](https://github.com/hushh-labs/hushh-research/pull/8446)
+now supplies the single adoption authority. [PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447)
+consolidates the overlapping repair, refuses incomplete retained footprints and
+adds permanent owner-scoped consumer-connection erasure. Historical SQL and
+checksums stay unchanged; neighboring connections and the independent client remain.
+The combined 144 PostgreSQL/replay/cleanup cases pass. Peer financial and Calendar
+changes are inherited normally; exact candidate CI and deployment remain separate.
+A peer [dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/40183489218)
+from `7dcc0fba55` is in progress; its outcome is not yet an acceptance receipt.
 
 Person approval now uses canonical discovery inside the caller's transaction and
 keeps exact scope/key refusals. The replacement-account Browser client uses the
