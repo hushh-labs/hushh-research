@@ -1,12 +1,16 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 
 import { describe, expect, it } from "vitest";
+import { installReviewerBridge } from "../../../.agents/skills/reviewer-app-testing/scripts/reviewer-session-bootstrap.mjs";
+import { shouldDisableExternalTelemetryForAutomation, shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 import {
   BEACON_POST_RESPONSE_ABORT,
   classifyCollectSettlement,
 } from "../../scripts/testing/analytics-collect-delivery.mjs";
+import { getSafeJourneyState } from "../../scripts/testing/analytics-smoke-failure.mjs";
 
 const SMOKE = readFileSync(
   path.resolve(__dirname, "../../scripts/testing/run-uat-analytics-smoke.mjs"),
@@ -67,6 +71,60 @@ describe("classifyCollectSettlement", () => {
 });
 
 describe("UAT analytics smoke delivery contract", () => {
+  it.each([false, true])("uses canonical read-only admission without suppressing real analytics (reverse init order: %s)", async reverse => {
+    const initializers: { callback: (argument: unknown) => unknown; argument: unknown }[] = [];
+    const page = { addInitScript: async (callback: (argument: unknown) => unknown, argument: unknown) => {
+      initializers.push({ callback, argument });
+    } };
+    const start = SMOKE.indexOf("async function installAnalyticsCapture(page)");
+    const end = SMOKE.indexOf("async function getSmokeState(page)", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    await runInNewContext(`${SMOKE.slice(start, end)}; installAnalyticsCapture(page)`, {
+      page, installReviewerBridge, smokeUserId: "synthetic-reviewer", reviewerPassphrase: "synthetic-memory-only",
+      appOrigin: "https://uat.one.hushh.ai",
+    });
+    expect(initializers.some(item => item.callback === installReviewerBridge)).toBe(true);
+    const rejectPersistence = () => { throw new Error("Reviewer admission must remain memory-only"); };
+    const isolatedWindow = { __HUSHH_NATIVE_TEST__: { enabled: false, retained: true },
+      localStorage: { setItem: rejectPersistence }, sessionStorage: { setItem: rejectPersistence } };
+    for (const { callback, argument } of reverse ? [...initializers].reverse() : initializers) {
+      runInNewContext(`(${callback.toString()})(argument)`, { window: isolatedWindow, argument,
+        localStorage: isolatedWindow.localStorage, sessionStorage: isolatedWindow.sessionStorage });
+    }
+    expect(isolatedWindow.__HUSHH_NATIVE_TEST__).toMatchObject({ retained: true, enabled: true,
+      autoReviewerLogin: true, expectedUserId: "synthetic-reviewer", reviewerMutationPolicy: "read_only",
+      vaultPassphrase: "synthetic-memory-only", reviewerSessionPassphrase: "synthetic-memory-only",
+      allowUatAnalyticsSmokeTelemetry: true });
+    const previous = window.__HUSHH_NATIVE_TEST__;
+    try {
+      window.__HUSHH_NATIVE_TEST__ = isolatedWindow.__HUSHH_NATIVE_TEST__;
+      expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(true);
+      expect(shouldDisableExternalTelemetryForAutomation(undefined, "uat.one.hushh.ai")).toBe(false);
+      expect(shouldDisableExternalTelemetryForAutomation(undefined, "production.example")).toBe(true);
+      // The previous analytics bridge unlocked but did not declare read-only admission.
+      window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true,
+        expectedUserId: "synthetic-reviewer", vaultPassphrase: "synthetic-memory-only",
+        allowUatAnalyticsSmokeTelemetry: true };
+      expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(false);
+    } finally { window.__HUSHH_NATIVE_TEST__ = previous; }
+  });
+
+  it("reports only closed journey states and booleans when private values reach diagnostics", async () => {
+    const page = { evaluate: (callback: (argument: unknown) => unknown, argument: unknown) =>
+      runInNewContext(`(${callback.toString()})(argument)`, { argument, URLSearchParams,
+        window: { location: { pathname: "/people/private-person", search: "?tab=private-tab&token=private-token" },
+          __HUSHH_NATIVE_TEST__: { bootstrapState: "private-error-detail", bootstrapUserId: "private-owner",
+            vaultPassphrase: "private-passphrase", reviewerMutationPolicy: "read_only" } },
+        document: { querySelector: () => null, body: { textContent: "Private holdings and account details" } },
+      }) };
+    const diagnostic = await getSafeJourneyState(page, "synthetic-reviewer");
+    expect(diagnostic).toEqual({ route: "other", tab: "other", bootstrapState: "other", bootstrapOwnerMatches: false,
+      readOnly: true, financeWorkspacePresent: false, portfolioPanelActive: false, portfolioOverviewPresent: false,
+      portfolioImportPresent: false, accountLoadingPresent: false });
+    expect(JSON.stringify(diagnostic)).not.toMatch(/private-|holdings|account details/i);
+  });
+
   it("classifies requestfailed collect hits by their GA4 response", () => {
     expect(SMOKE).toContain('from "./analytics-collect-delivery.mjs"');
     const failureHandler = SMOKE.slice(
