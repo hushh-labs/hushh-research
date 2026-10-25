@@ -15,7 +15,13 @@ from pydantic import Field
 from hushh_mcp.services.pod_commit_log import PodCommitLog, PodLogConflict
 
 from .consent import private_commitment
-from .contracts import BrowserBinding, BrowserRefused, StrictContract
+from .contracts import (
+    BrowserAction,
+    BrowserAuthorityPort,
+    BrowserBinding,
+    BrowserRefused,
+    StrictContract,
+)
 
 KIND = "browser_dispatch_v1"
 Lane = Literal["action", "network"]
@@ -144,3 +150,20 @@ class BrowserDispatchJournal:
                 except PodLogConflict:
                     continue
         raise BrowserRefused("BROWSER_DISPATCH_BUSY")
+
+
+async def settle_interrupted_action(
+    authority: BrowserAuthorityPort,
+    binding: BrowserBinding,
+    action: BrowserAction,
+    *,
+    confirmed: bool,
+) -> bool:
+    # Retry only the original receipt after a lost acknowledgement, never
+    # execution. Unconfirmed dispatch remains uncertain even if recorded.
+    try:
+        async with asyncio.timeout(5):
+            await authority.settle_dispatch(binding, action, uncertain=not confirmed)
+        return confirmed
+    except (Exception, asyncio.CancelledError):
+        return False  # Pending intent remains authoritative if persistence cannot settle.
