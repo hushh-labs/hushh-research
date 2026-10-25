@@ -26,14 +26,18 @@ Landed-SHA [smoke 40170482003](https://github.com/hushh-labs/hushh-research/acti
 passed. Corporate ADC readback at 06:23 UTC still found both applications
 serving `24545d1dc2`; source landing is not deployment or owner installation.
 
-A newly reported person-request approval regression is a separate local correction.
+A newly reported person-request approval regression is addressed in
+[PR #8445](https://github.com/hushh-labs/hushh-research/pull/8445).
 Read-only UAT metadata found three pending requests: one canonical/SQL handle
 mismatch, one genuinely changed scope and one matching binding. The repair reuses
 canonical discovery inside the caller's existing transaction, retains scope/key
 refusals and carries only authored recovery copy through Chat and Feed. Focused
 proof passes 68 backend, 73 frontend and 501 Back cases; the original wildcard
 mismatch fails before repair. TypeScript, targeted mypy/lint and UI contracts pass.
-This correction is not yet published. Dev/UAT promotion waits for its acceptance;
+The local core passed; 43 combined migration/Files checks preserve main
+`a1ae9d80f9` and schema 422. A replacement-account Browser client regression now
+uses the captured Firebase/application principal pair without weakening owner or
+session-episode refusal. Hosted validation precedes landing; dev/UAT promotion waits for acceptance;
 installed Browser/Puppy and historical recovery remain separate evidence gates.
 
 ### PR #8437 verification history
@@ -463,15 +467,15 @@ explicit lifecycle before promising a fresh start.
 
 ## Security
 
-At 01:37 UTC on 25 October, GitHub reports **15 open dependency alerts**
-(4 high, 5 moderate and 6 low): four records in the standalone mail lock,
-five each in the Python lock and requirements export, and one frontend record.
-Compatible fixes remain on this branch, so they must not be counted as resolved
-on main or on the separately deployed mail service. The dated seven-day inventory
-ending 00:05 UTC records **165 fixed alert records**, representing 103 distinct
-advisories and 81 CVEs across the repository; this is not attribution to one agent.
-The exact-candidate secret scan finds no leaks and zero open secret-scanning
-alerts. These inventories are not substitutes for deployed acceptance.
+At 07:48 UTC on 25 October, GitHub reports **3 open dependency alerts**
+(1 high and 2 moderate), down from 15 after PR #8437 landed. These are the
+constrained Zod record and two OpenTelemetry manifest records; no alerts were
+dismissed to obtain this reduction. The rolling seven-day inventory records
+**177 fixed alert records**, representing 111 distinct advisories and 85 CVEs
+across the repository; this is not attribution to one agent. The standalone
+mail deployment still requires independent serving evidence. Exact-candidate
+secret scanning finds no leaks and zero open secret-scanning alerts. Source
+landing and inventory clearance do not establish deployed acceptance.
 
 The remaining constrained OpenTelemetry and Zod findings retain explicit
 mitigations. The pinned ADK cap excludes the fixed telemetry version. Incoming

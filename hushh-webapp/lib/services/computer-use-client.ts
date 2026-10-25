@@ -3,6 +3,7 @@ import { AuthService } from "./auth-service";
 import {
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
+  snapshotValidatedAuthSessionPrincipal,
 } from "@/lib/auth/session-owner";
 import {
   createDirectComputerUseTransport,
@@ -59,6 +60,7 @@ export class ComputerUseClient {
 
   private readonly receipts = new Map<string, string>();
   private readonly ownerSession = snapshotValidatedAuthSessionOwner();
+  private readonly principal = snapshotValidatedAuthSessionPrincipal();
 
   constructor(
     private readonly ownerId: string,
@@ -68,7 +70,7 @@ export class ComputerUseClient {
   private isCurrent = (): boolean => {
     const current = this.ownerSession?.userId === this.ownerId
       && isValidatedAuthSessionOwnerCurrent(this.ownerSession)
-      && AuthService.getCurrentUser()?.uid === this.ownerId;
+      && AuthService.getCurrentUser()?.uid === (this.principal?.firebaseUid ?? this.ownerId);
     if (!current) this.receipts.clear();
     return current;
   };

@@ -5,7 +5,9 @@
 Admin SOP as `a65e4f5fd5` after all 27 exact-head checks passed. It preserves main
 `24545d1dc2`, peer source and immutable migration history; canonical 418–421 carry
 the lifecycle correction. `.agents` remains authoritative. Landed smoke passed; actual deployment remains separate from source landing. The newly reported person-approval
-catalog mismatch is a separate local correction; accept it before dev/UAT
+catalog mismatch and replacement-account Browser admission are in
+[PR #8445](https://github.com/hushh-labs/hushh-research/pull/8445). Its local core
+and combined schema422/Files checks pass; accept the exact candidate before dev/UAT
 promotion. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
 owns current readback and remaining installed journeys; older receipts below are history.
 
