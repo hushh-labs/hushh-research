@@ -30,7 +30,7 @@ _EXPECTED = {
     _CONTEXT: "CHECK((((channel='typed_chat'::text)AND(conversation_idISNOTNULL)AND(session_idISNULL))OR((channel=ANY(ARRAY['voice'::text,'command'::text,'adk_chat'::text,'pod_chat'::text]))AND(session_idISNOTNULL)AND(conversation_idISNULL))OR((channel='document_review'::text)AND(conversation_idISNULL)AND(session_idISNULL))))",
     "pod_chat_action_identity": "CHECK(((channel<>'pod_chat'::text)OR((adk_app_nameISNULL)AND(action_id=ANY(ARRAY['connector.mcp.invoke'::text,'browser.model_process'::text,'browser.disclose'::text,'browser.session_remember'::text,'browser.session_restore'::text,'browser.provider_safety'::text]))ANDrequires_confirmationANDtrusted_activation_requiredAND(resource_binding_hmacISNOTNULL))))",
 }
-_MARKERS = ("private-action-channel.v1/971", "private-action-channel.v1/419")
+_MARKERS = ("private-action-channel.v1/971", "private-action-channel.v1/420")
 
 
 def _literal(value: str) -> str:
@@ -58,7 +58,7 @@ BEGIN
  ELSE
   IF to_regclass('schema_migrations') IS NOT NULL THEN
    IF EXISTS (SELECT 1 FROM schema_migrations
-      WHERE migration_id IN ('971','419') AND status='applied') THEN
+      WHERE migration_id IN ('971','420') AND status='applied') THEN
     RAISE EXCEPTION 'Private action successor marker missing; refusing historical replay';
    END IF;
   END IF;

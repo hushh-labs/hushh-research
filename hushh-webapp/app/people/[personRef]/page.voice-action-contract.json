@@ -361,6 +361,52 @@
       ]
     },
     {
+      "action_id": "people.profile.browse_financial_summaries",
+      "label": "Browse public Financial summaries",
+      "meaning": "Shows Financial packet summaries this person explicitly published to signed-in people. Connect to request; an accepted connection and unlock are required to request files. Browsing and connecting grant no document access. You pay only after owner approval.",
+      "aliases": [
+        "show financial documents",
+        "browse published Financial packets",
+        "show public Financial summaries"
+      ],
+      "search_keywords": [
+        "financial",
+        "documents",
+        "public",
+        "summary",
+        "period"
+      ],
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Sign in to browse owner-published Financial summaries."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.browse_financial_summaries"
+      },
+      "control_ids": [
+        "person-profile-browse-financial-summaries"
+      ],
+      "state_exposure": [
+        "owner-published summary availability",
+        "relationship state"
+      ]
+    },
+    {
       "action_id": "people.profile.request_card",
       "label": "Request cards",
       "meaning": "Opens a card request review for this connected person. Sending requires explicit confirmation. The owner chooses a card and duration before sharing; requesting grants no access.",

@@ -122,7 +122,7 @@ export function BuyerPacketPage({ packet, ownerName, token, guard, requests, onC
   ];
   const actions: PacketPageAction[] = request ? [{ id: "open", label: request.existingAccess || request.purchaseState === "delivered" ? "View files" : "View request",
     href: buildConsentCenterHref("pending", { requestId: `document_share_request:${request.requestId}`, requestView: "sent" }) }]
-    : packet.canRequest ? [{ id: "buy", label: busy ? "Sending…" : needsGoogle ? "Add Google account" : `Buy for ${price}`,
+    : packet.canRequest ? [{ id: "buy", label: busy ? "Sending…" : needsGoogle ? "Add Google account" : packet.kind === "provider_discovery" ? `Request for ${price}` : `Buy for ${price}`,
       onSelect: () => void buy(), disabled: busy }] : [];
   return <PacketPage open onOpenChange={next => { if (!next) onClose(); }} title={packet.title}
     description={buyerPacketStatus(packet, request, ownerName).line} sections={sections} actions={actions} message={message || undefined} />;

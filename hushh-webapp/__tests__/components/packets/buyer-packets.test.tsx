@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ uid: "buyer", token: "private-token", unlocked: true,
   packets: vi.fn(), listing: vi.fn(), request: vi.fn(), identity: vi.fn(), linkIdentity: vi.fn(), checkout: vi.fn() }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, isVaultUnlocked: state.unlocked }) }));
 vi.mock("@/lib/services/drive-packet-service", () => ({ DrivePacketService: state }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { documentRequestIdentityToken: state.identity, linkGoogleIdentity: state.linkIdentity } }));
@@ -11,7 +11,7 @@ vi.mock("@/lib/services/auth-service", () => ({ AuthService: { documentRequestId
 vi.mock("@/lib/services/drive-request-payment-service", () => ({ DriveRequestPaymentService: { checkout: state.checkout } }));
 
 import { DrivePacketCatalog } from "@/components/consent/drive-packet-catalog";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 // Synthetic packets only: a seller's listed packets as a buyer's list receives them.
@@ -40,13 +40,13 @@ beforeEach(() => {
   // Only this file's mocks: resetting every mock would also wipe the shared matchMedia stub the sheet reads.
   for (const mock of [state.packets, state.listing, state.request, state.identity, state.linkIdentity, state.checkout]) mock.mockReset();
   state.uid = "buyer"; state.token = "private-token"; state.unlocked = true;
-  publishValidatedAuthSessionOwner("buyer");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "buyer", ownerId: "buyer", accountGeneration: 0 });
   state.packets.mockImplementation(async (_token, guard) => { guard(); return { packets: ALL, nextCursor: null }; });
   state.identity.mockImplementation(async (_uid, current) => { if (!current()) throw new Error("session_changed"); return "firebase-token"; });
   state.linkIdentity.mockResolvedValue("linked-firebase-token");
   state.request.mockResolvedValue({ requestId: REQUEST, existingAccess: false });
 });
-afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionOwner(null); });
+afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionPrincipal(null); });
 
 const Catalog = () => <DrivePacketCatalog ownerPersonRef={seller} ownerName="Avery" />;
 const row = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
@@ -280,7 +280,7 @@ describe("a seller's packets, as a buyer sees them", () => {
     const page = await openPacket("Example Bank statements");
     fireEvent.click(within(page).getByRole("button", { name: "Buy for $12.34" }));
     await waitFor(() => expect(state.request).toHaveBeenCalledOnce());
-    state.uid = "other-buyer"; state.token = "other-token"; publishValidatedAuthSessionOwner("other-buyer");
+    state.uid = "other-buyer"; state.token = "other-token"; publishValidatedAuthSessionPrincipal({ firebaseUid: "other-buyer", ownerId: "other-buyer", accountGeneration: 0 });
     state.packets.mockImplementation(async (_token, guard) => { guard(); return { packets: [], nextCursor: null }; });
     view.rerender(<Catalog />);
     await act(async () => finish({ requestId: REQUEST, existingAccess: false }));

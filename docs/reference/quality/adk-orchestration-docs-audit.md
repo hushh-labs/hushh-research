@@ -96,7 +96,18 @@ correctly refused a stale combined Back receipt before expensive dependent
 suites. Merge `83ea60dc2b` preserves the incoming finance behavior and the
 shared API wrapper's lifecycle fences. The combined tree passes 168 frontend
 cases and 79 affected backend cases; no migration changed. All 501 Back cases pass and combined Back/Search receipts are regenerated.
-Exact-head hosted clearance remains required before landing.
+That candidate’s [run 40162519198](https://github.com/hushh-labs/hushh-research/actions/runs/40162519198)
+passed all 27 jobs. Its two backend phases overlapped and completed in 10m36s,
+with 25,468 passes and 143 skips. This does not establish the later combined candidate.
+
+The final Admin preflight then refused main drift: [PR #8440](https://github.com/hushh-labs/hushh-research/pull/8440)
+added immutable migration 417 and financial-summary behavior. The integration
+preserves it and moves only the unapplied lifecycle chain to 418–421. Both
+canonical 417 and retained dev 972 rehearsals, plus affected Drive PostgreSQL cases,
+pass 49 cases. Two replacement-generation packet regressions fail before the fix;
+proper Firebase/application-principal separation then passes 144 nearby frontend
+cases. All 501 Back cases pass. Combined generated contracts and fresh exact-head
+hosted validation are required before landing.
 
 Main `3895a3d902` is now preserved through merge `fd67dcd5c9`, including its approved
 PWM lead policy and privacy-safe probe diagnostics. Its 99 affected backend cases
@@ -135,7 +146,8 @@ host fleets have been removed. User-level tool installations, the external share
 handoff and peer edits remain preserved.
 
 Main’s later financial-packet change owns migration 416. The unapplied lifecycle
-chain is now 417–420; its canonical successor marker is `/419`. Historical
+chain is now 418–421, preserving main’s additional financial-summary migration 417;
+its canonical successor marker is `/420`. Historical
 measurements below retain their original numbering. Both canonical-416 and rich-dev-972 retained-state upgrades passed on the new
 chain in 94.68 seconds. Main’s affected backend cases passed86 tests and its
 packet interface passed35 tests; these do not replace hosted validation.

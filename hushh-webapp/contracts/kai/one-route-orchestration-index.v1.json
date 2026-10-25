@@ -6527,6 +6527,7 @@
       "canonical_screen": "one_person_profile",
       "voice_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
       "action_ids": [
+        "people.profile.browse_financial_summaries",
         "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",

@@ -10,17 +10,21 @@ later migration added. Rollbacks keep evidence: estimates and delivered asks.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from psycopg2 import connect
 from psycopg2.errors import CheckViolation
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from db.migration_authority import _replay_sql, build_manifest_entries
+from db.migration_authority import MigrationAuthorityError, _replay_sql, build_manifest_entries
 from tests.services.test_drive_feed_projection import feed, feed_rows  # noqa: F401
 from tests.services.test_drive_live_query import store  # noqa: F401
 from tests.services.test_drive_sharing_store import (  # noqa: F401
@@ -32,6 +36,7 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
     request,
     sharing,
 )
+from tests.test_migration_authority import referral_replay_postgres  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "db" / "migrations"
@@ -321,3 +326,175 @@ async def test_cent_price_replay_refuses_unreviewed_waiver_successors(sharing, d
     with pytest.raises(CheckViolation):
         _execute(sharing, _replay_sql(entry))
     assert _nocharge_state(sharing) == before
+
+
+RETIREMENT = "360_uat_drive_collection_retirement.sql"
+
+
+def _retirement_schema(connection, *, successor=True):
+    connection.autocommit = True
+    with connection.cursor() as cursor:
+        cursor.execute("""
+          CREATE TABLE drive_collection_sync(processing_enabled BOOLEAN,revision INTEGER,
+            lease_id UUID,lease_expires_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
+          CREATE TABLE connected_documents(source_profile TEXT,processing_enabled BOOLEAN,
+            processing_revision INTEGER,lease_id UUID,lease_expires_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ);
+          CREATE TABLE drive_packet_heads(packet_id UUID PRIMARY KEY,user_id TEXT);
+          CREATE TABLE drive_packet_versions(packet_id UUID,user_id TEXT,available BOOLEAN,
+            manifest_envelope JSONB DEFAULT '{"synthetic":"retained"}',digest TEXT DEFAULT 'synthetic');
+          CREATE TABLE drive_packet_listings(packet_id UUID,user_id TEXT,enabled BOOLEAN,
+            revision INTEGER,updated_at TIMESTAMPTZ);
+          CREATE TABLE drive_owner_search_jobs(job_id UUID PRIMARY KEY);
+          INSERT INTO drive_collection_sync VALUES(TRUE,2,gen_random_uuid(),now(),now());
+          INSERT INTO connected_documents VALUES
+            ('live',TRUE,3,gen_random_uuid(),now(),now()),
+            ('picker',TRUE,4,NULL,NULL,now());
+          INSERT INTO drive_packet_heads SELECT
+            ('00000000-0000-0000-0000-00000000000'||n)::uuid,'owner'
+            FROM generate_series(1,3) AS n;
+          INSERT INTO drive_packet_versions(packet_id,user_id,available)
+            SELECT packet_id,user_id,packet_id::text NOT LIKE '%003' FROM drive_packet_heads;
+          INSERT INTO drive_packet_listings SELECT packet_id,user_id,
+            packet_id::text NOT LIKE '%003',7,now() FROM drive_packet_heads;
+        """)
+        if successor:
+            cursor.execute(_sql("411_drive_period_packets.sql"))
+            cursor.execute("""UPDATE drive_packet_heads SET packet_kind='provider_discovery',
+              category='financial',period_start='2026-01-01',period_end='2026-02-28',
+              period_timezone='UTC' WHERE packet_id::text NOT LIKE '%001'""")
+
+
+def _retirement_rows(connection):
+    result = {}
+    with connection.cursor() as cursor:
+        for table, key in (
+            ("drive_collection_sync", "revision"),
+            ("connected_documents", "source_profile"),
+            ("drive_packet_listings", "packet_id"),
+            ("drive_packet_versions", "packet_id"),
+        ):
+            cursor.execute(f"SELECT row_to_json(t) FROM {table} t ORDER BY {key}")
+            result[table] = [row[0] for row in cursor.fetchall()]
+    return result
+
+
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
+@pytest.mark.parametrize("adapted", [False, True], ids=["published-negative-control", "replay"])
+def test_retirement_replay_preserves_only_qualified_provider_packets(
+    referral_replay_postgres, adapted
+):
+    connection, fixture_dsn = referral_replay_postgres
+    _retirement_schema(connection)
+    before = _retirement_rows(connection)
+    [entry] = build_manifest_entries(MIGRATIONS, [RETIREMENT])
+    with closing(connect(fixture_dsn)) as writer, writer.cursor() as locks:
+        locks.execute("LOCK TABLE drive_packet_heads IN ROW EXCLUSIVE MODE")
+        with connection.cursor() as cursor:
+            cursor.execute("SET lock_timeout = '500ms'")
+            cursor.execute(_replay_sql(entry) if adapted else entry.sql)
+        after = _retirement_rows(connection)
+        assert after["drive_collection_sync"][0]["processing_enabled"] is False
+        assert after["drive_collection_sync"][0]["revision"] == 3
+        assert after["drive_collection_sync"][0]["lease_id"] is None
+        live, picker = after["connected_documents"]
+        assert live["processing_enabled"] is False and live["processing_revision"] == 4
+        assert live["lease_id"] is None and live["lease_expires_at"] is None
+        assert picker == before["connected_documents"][1]
+        for table, enabled in [
+            ("drive_packet_listings", "enabled"),
+            ("drive_packet_versions", "available"),
+        ]:
+            assert after[table][0][enabled] is False  # content_facts still retires.
+            if adapted:
+                assert (
+                    after[table][1:] == before[table][1:]
+                )  # Both ON and already-OFF provider rows.
+            else:
+                assert before[table][1][enabled] is True and after[table][1][enabled] is False
+            assert after[table][2] == before[table][2]
+        with connection.cursor() as cursor:
+            cursor.execute(_replay_sql(entry) if adapted else entry.sql)
+        assert _retirement_rows(connection) == after
+
+
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
+def test_retirement_without_period_successor_keeps_legacy_retirement(referral_replay_postgres):
+    connection, _ = referral_replay_postgres
+    _retirement_schema(connection, successor=False)
+    [entry] = build_manifest_entries(MIGRATIONS, [RETIREMENT])
+    with connection.cursor() as cursor:
+        cursor.execute(_replay_sql(entry))
+    after = _retirement_rows(connection)
+    assert all(not row["enabled"] for row in after["drive_packet_listings"])
+    assert all(not row["available"] for row in after["drive_packet_versions"])
+    assert after["drive_collection_sync"][0]["processing_enabled"] is False
+
+
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
+@pytest.mark.parametrize(
+    "drift", ["weak_check", "unvalidated", "kind_type", "kind_default", "nullable"]
+)
+def test_retirement_refuses_drifted_period_successor_before_any_writes(
+    referral_replay_postgres, drift
+):
+    connection, _ = referral_replay_postgres
+    _retirement_schema(connection)
+    with connection.cursor() as cursor:
+        if drift in ("weak_check", "unvalidated"):
+            cursor.execute("""SELECT pg_get_constraintdef(oid) FROM pg_constraint
+              WHERE conrelid='drive_packet_heads'::regclass AND conname='drive_packet_period_kind'""")
+            rule = cursor.fetchone()[0]
+            cursor.execute(
+                "ALTER TABLE drive_packet_heads DROP CONSTRAINT drive_packet_period_kind"
+            )
+            cursor.execute(
+                "ALTER TABLE drive_packet_heads ADD CONSTRAINT drive_packet_period_kind "
+                + (
+                    "CHECK (packet_kind IN ('content_facts','provider_discovery'))"
+                    if drift == "weak_check"
+                    else rule + " NOT VALID"
+                )
+            )
+        else:
+            cursor.execute(
+                "ALTER TABLE drive_packet_heads ALTER COLUMN packet_kind "
+                + {
+                    "kind_type": "TYPE VARCHAR(64)",
+                    "kind_default": "SET DEFAULT 'provider_discovery'",
+                    "nullable": "DROP NOT NULL",
+                }[drift]
+            )
+    before = _retirement_rows(connection)
+    [entry] = build_manifest_entries(MIGRATIONS, [RETIREMENT])
+    with connection.cursor() as cursor, pytest.raises(CheckViolation):
+        cursor.execute(_replay_sql(entry))
+    connection.rollback()
+    with connection.cursor() as cursor:
+        cursor.execute("ROLLBACK")  # The rejected adapter owns the original explicit BEGIN.
+    assert _retirement_rows(connection) == before
+
+
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
+@pytest.mark.parametrize("drift", ["declared_checksum", "body", "rehashed_body"])
+def test_retirement_replay_rejects_source_drift(drift):
+    [entry] = build_manifest_entries(MIGRATIONS, [RETIREMENT])
+    if drift == "declared_checksum":
+        changed = replace(entry, checksum_sha256="0" * 64)
+    else:
+        body = entry.sql + "\n-- unreviewed body\n"
+        changed = replace(
+            entry,
+            sql=body,
+            checksum_sha256=(
+                hashlib.sha256(body.encode()).hexdigest()
+                if drift == "rehashed_body"
+                else entry.checksum_sha256
+            ),
+        )
+    with pytest.raises(MigrationAuthorityError):
+        _replay_sql(changed)

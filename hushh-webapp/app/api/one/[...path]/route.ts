@@ -270,6 +270,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
     const response = await fetch(url, {
       method: request.method,
+      ...(/^people\/[^/]+\/financial-packets$/.test(path) ? { cache: "no-store" as const } : {}),
       headers,
       body,
       signal: resolveUpstreamSignal(

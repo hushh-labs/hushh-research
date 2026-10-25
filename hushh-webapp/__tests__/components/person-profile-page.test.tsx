@@ -50,7 +50,7 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user, loading: mocks.authLoading }),
+  useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null, loading: mocks.authLoading }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -221,7 +221,7 @@ beforeEach(() => {
 
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { CacheService } from "@/lib/services/cache-service";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { PersonProfilePage } from "@/components/connections/person-profile-page";
 import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
 
@@ -505,7 +505,7 @@ describe("PersonProfilePage native profile route", () => {
         (button) =>
           button.getAttribute("aria-label") || button.textContent?.trim(),
       ),
-    ).toEqual(["Request", "Share profile", "Ask about files", "Request a card", "Manage access"]);
+    ).toEqual(["Request", "Share profile", "Ask about files", "Request a card", "Financial documents", "Manage access"]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
@@ -527,7 +527,7 @@ describe("PersonProfilePage native profile route", () => {
     const cards = labels.map((name) => within(actions).getByRole("button", { name, exact: true }));
     expect(cards.every((card) => card.parentElement === cards[0].parentElement)).toBe(true);
     expect(Array.from(actions.querySelectorAll("button"), (button) => button.getAttribute("aria-label") || button.textContent?.trim()))
-      .toEqual(["Request", "Share profile", ...labels, "Manage access"]);
+      .toEqual(["Request", "Share profile", ...labels, "Financial documents", "Manage access"]);
     fireEvent.click(cards[0]);
     expect(await screen.findByRole("dialog", { name: "Request files", exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
@@ -1861,7 +1861,7 @@ describe("PersonProfilePage packets a connection has listed", () => {
     mocks.search = "";
     mocks.vaultKey = "vault-key";
     mocks.vaultOwnerToken = "owner-token";
-    publishValidatedAuthSessionOwner("viewer-1");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "viewer-1", ownerId: "viewer-1", accountGeneration: 0 });
     mocks.packets.mockReset().mockImplementation(async (_token: string, guard: () => void) => {
       guard();
       return { packets: [listed], nextCursor: null };
@@ -1871,7 +1871,7 @@ describe("PersonProfilePage packets a connection has listed", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
-    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionPrincipal(null);
   });
 
   it("shows them as history rows, not a card in a card, and the page names who approves", async () => {

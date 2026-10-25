@@ -119,14 +119,14 @@ schema requires the separately reviewed forward qualification before re-enableme
 
 ## Canonical private-agent graduation and cleanup replay
 
-Local release head 420 graduates the final dev authority through new forward SQL;
-applied 900–972 files and checksums remain immutable. Canonical 419 installs the
+Local release head 421 graduates the final dev authority through new forward SQL;
+applied 900–972 files and checksums remain immutable. Canonical 420 installs the
 final schema and accepts only reviewed predecessor/successor definitions. It does
 not repeat historical Shared cohort inference or destructive chat cleanup. Recovery
-is 420. The new channel constraints carry `private-action-channel.v1/419`; an
+is 421. The new channel constraints carry `private-action-channel.v1/420`; an
 existing qualified 971 marker is preserved, never fabricated in the ledger.
 
-The pinned `db/account_cleanup_replay.py` adapter preserves 417/418 cleanup and
+The pinned `db/account_cleanup_replay.py` adapter preserves 418/419 cleanup and
 generation function/trigger successors during replay. Historical owner bootstrap
 statements exclude captured tombstoned identities; Gmail backfills exclude pending
 provider cleanup. The ordinary database guards remain the final concurrency fence.
@@ -134,9 +134,9 @@ Referral filtering composes with the existing policy-successor verifier and reta
 the unresolved-genealogy refusal. Changed source, missing successor or changed
 function/trigger definitions refuse replay rather than restoring old authority.
 
-Qualification covers canonical-416 and rich-dev-972 upgrades, retained review,
+Qualification covers canonical-417 and rich-dev-972 upgrades, retained review,
 resource, consent, referral and encrypted credential records, backend/client roles,
-and unknown authority objects. SQL rollback of 417–420 deliberately refuses with
+and unknown authority objects. SQL rollback of 418–421 deliberately refuses with
 forward-recovery guidance. Application rollback must retain these additive guards
 and receipts; once replacement generations are activated, an old generation-unaware
 binary cannot serve those accounts. Local qualification is not a live schema receipt.
@@ -208,6 +208,17 @@ no generated/default waiver. This preserves completed no-charge quotes during
 later deploys without restoring the older payment-required-only check. Boolean
 grouping, all other cent-price checks and immutable ledger checksums remain
 enforced; an unknown or unvalidated successor cannot use this exception.
+
+Migration 360's replay adapter preserves the exact validated 411 period-packet
+successor. Before that successor exists, the historical retirement still runs.
+After verifying its five typed columns, defaults and complete CHECK, replay
+retires only legacy `content_facts` listings and versions. Collection/document
+retirement remains unchanged. Partial or drifted successor definitions refuse
+the transaction. Existing unavailable versions and withdrawn listings remain
+OFF; their prior approval or source availability cannot be reconstructed from
+those flags. Historical SQL, ledger checksums and observe/ledger behavior remain
+unchanged. Repeated real PostgreSQL replay must preserve both provider ON and
+OFF states while continuing legacy retirement.
 
 ## UAT Zero-Loss Baseline Gate
 

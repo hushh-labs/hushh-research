@@ -229,6 +229,9 @@ async def snapshot_search(store, job, build, search_job_id):
         updated = {**store._build(head), **build, "search_job_id": str(search_job_id)}
         if files or complete or not updated.get("preview"):
             updated.update(preview=saved, refresh_pending=False)
+            from hushh_mcp.services.drive_packet_public_summary import update_preview_projection
+
+            update_preview_projection(connection, head, saved, updated)
         write_build(store, connection, head, updated)
         if head["category"] == "financial":
             connection.execute(

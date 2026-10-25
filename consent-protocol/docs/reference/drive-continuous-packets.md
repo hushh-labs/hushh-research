@@ -417,3 +417,16 @@ alter discovery proof or immutable purchase manifests. Code rollback retains the
 additive queue columns and saved results; disable period preparation and let
 owned leases drain before reverting the runtime. Synthetic loop timings prove
 the fixture execution, not real Google Drive latency or personal-account recall.
+
+Private connections listings remain current authority for new purchase effects
+after the owner's exact-version Allow. Checkout, pending permission dispatch and
+new existing-access completion recheck the sealed packet identity and manifest
+digest against the current available version and enabled listing. Withdrawing
+that listing or superseding the version stops those new effects. A price edit
+does not reprice an already approved quote. Public summary visibility is separate
+metadata authority and grants neither checkout nor original-file access.
+Completed charges, grants and no-charge receipts retain their history and
+idempotent replay; an uncertain provider write still uses its original read-only
+reconciliation path, rather than issuing a new grant or charge. Exact server-bound
+undated packets reuse the existing document-scope exception; ordinary requests
+still require their date window.

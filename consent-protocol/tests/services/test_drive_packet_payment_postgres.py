@@ -16,6 +16,10 @@ from hushh_mcp.services.drive_request_payment_service import DriveRequestPayment
 from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
+from tests.services.drive_packet_purchase_test_support import (
+    _assert_packet_purchase_fenced,
+    _withdraw_before_dispatch,
+)
 from tests.services.test_drive_request_bulk_postgres import request_bulk
 from tests.services.test_drive_request_index_reuse_postgres import (
     catalog,
@@ -35,8 +39,22 @@ from tests.services.test_drive_request_index_reuse_postgres import (
 from tests.services.test_drive_request_payment import _checkout_sdk_response
 from tests.services.test_drive_sharing_store import request
 
+pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
 
-@pytest.mark.parametrize("listing_change", [None, "price", "disable", "retire"])
+
+@pytest.mark.parametrize(
+    "listing_change",
+    [
+        None,
+        "price",
+        "disable",
+        "retire",
+        "disable_open",
+        "disable_paid",
+        "disable_unknown",
+        "supersede",
+    ],
+)
 async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
     catalog, request_bulk, reusable, sharing, monkeypatch, listing_change
 ):
@@ -116,6 +134,9 @@ async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
     await DriveTrustedAutoService(sharing=sharing)._undated_packet_current(
         user_id="owner", context=context
     )
+    if listing_change == "disable":
+        _assert_packet_purchase_fenced(sharing, request_id)
+        return
     frozen = await request_bulk.create_review(
         user_id="owner",
         search_job_id=found["jobId"],
@@ -254,19 +275,10 @@ async def test_undated_catalog_allow_freeze_and_checkout_is_idempotent(
             "packets"
         ] == []
         assert await reusable.worker.run_packet_one(user_id="owner") == "idle"
-    if listing_change == "disable":
-        from hushh_mcp.services.google_drive_adapter import DriveReadError
-
-        with sharing.db.engine.begin() as connection:
-            connection.execute(
-                text(
-                    "UPDATE connected_documents SET source_version='2' WHERE source_profile='live'"
-                )
-            )
-        with pytest.raises(DriveReadError, match="packet_unavailable"):
-            await DriveTrustedAutoService(sharing=sharing)._undated_packet_current(
-                user_id="owner", context=context
-            )
+    if listing_change in {"disable_open", "disable_paid", "disable_unknown", "supersede"}:
+        await _withdraw_before_dispatch(
+            sharing, reusable, catalog[1], payment, frozen, request_id, listing_change
+        )
 
 
 @pytest.mark.parametrize("money", ["none", "unreserved", "attempt", "session", "paid"])

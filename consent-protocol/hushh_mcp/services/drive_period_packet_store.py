@@ -109,8 +109,9 @@ class DrivePeriodPacketStore(DrivePacketStore):
                 connection,
                 """SELECT * FROM drive_packet_heads
                 WHERE user_id=:user AND connection_generation=:generation
-                  AND packet_kind='provider_discovery' AND current_version=0 AND dirty
-                  AND (attempts<8 OR (category='financial' AND predefined_query_version IS DISTINCT FROM :template)) AND next_at<=clock_timestamp()
+                  AND packet_kind='provider_discovery' AND current_version=0
+                  AND ((dirty AND attempts<8 AND next_at<=clock_timestamp())
+                    OR (category='financial' AND predefined_query_version IS DISTINCT FROM :template))
                   AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
                   AND (:packet IS NULL OR packet_id=CAST(:packet AS uuid))
                   AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs j WHERE j.user_id=:user

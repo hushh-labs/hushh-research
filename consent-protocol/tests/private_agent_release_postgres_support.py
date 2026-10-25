@@ -138,10 +138,10 @@ def verify_retained_release_records(conn, cp):
         payload["ordered_migrations"]
         + payload["environment_overlays"]["uat"]
         + [
-            "417_account_provider_cleanup_staging.sql",
-            "418_account_generations.sql",
-            "419_private_agent_lifecycle_foundation.sql",
-            "420_cloud_removal_recovery.sql",
+            "418_account_provider_cleanup_staging.sql",
+            "419_account_generations.sql",
+            "420_private_agent_lifecycle_foundation.sql",
+            "421_cloud_removal_recovery.sql",
         ]
     )
     files = sorted(set(files), key=lambda x: int(x[:3]))

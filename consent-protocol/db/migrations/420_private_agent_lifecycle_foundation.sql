@@ -11576,7 +11576,7 @@ $pod_414$;
 
 DO $pod_414$
 BEGIN
- IF obj_description((SELECT oid FROM pg_constraint WHERE conrelid='public.one_action_directive_ledger'::regclass AND conname='one_action_directive_ledger_channel_check'),'pg_constraint') IS NULL THEN COMMENT ON CONSTRAINT "one_action_directive_ledger_channel_check" ON public."one_action_directive_ledger" IS 'private-action-channel.v1/419'; END IF;
+ IF obj_description((SELECT oid FROM pg_constraint WHERE conrelid='public.one_action_directive_ledger'::regclass AND conname='one_action_directive_ledger_channel_check'),'pg_constraint') IS NULL THEN COMMENT ON CONSTRAINT "one_action_directive_ledger_channel_check" ON public."one_action_directive_ledger" IS 'private-action-channel.v1/420'; END IF;
 END
 $pod_414$;
 
@@ -11600,7 +11600,7 @@ $pod_414$;
 
 DO $pod_414$
 BEGIN
- IF obj_description((SELECT oid FROM pg_constraint WHERE conrelid='public.one_action_directive_ledger'::regclass AND conname='one_action_directive_ledger_check'),'pg_constraint') IS NULL THEN COMMENT ON CONSTRAINT "one_action_directive_ledger_check" ON public."one_action_directive_ledger" IS 'private-action-channel.v1/419'; END IF;
+ IF obj_description((SELECT oid FROM pg_constraint WHERE conrelid='public.one_action_directive_ledger'::regclass AND conname='one_action_directive_ledger_check'),'pg_constraint') IS NULL THEN COMMENT ON CONSTRAINT "one_action_directive_ledger_check" ON public."one_action_directive_ledger" IS 'private-action-channel.v1/420'; END IF;
 END
 $pod_414$;
 

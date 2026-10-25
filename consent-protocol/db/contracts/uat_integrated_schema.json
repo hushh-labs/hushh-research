@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 420,
+  "expected_migration_version": 421,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -1417,6 +1417,15 @@
       "period_start",
       "period_timezone",
       "predefined_query_version",
+      "preview_complete",
+      "preview_document_count",
+      "preview_updated_at",
+      "public_summary_accepted_at",
+      "public_summary_disclosure",
+      "public_summary_enabled",
+      "public_summary_generation",
+      "public_summary_revision",
+      "public_summary_version",
       "revision",
       "tagging_next_at",
       "tagging_pending",
@@ -4415,5 +4424,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 420
+  "expected_schema_head": 421
 }

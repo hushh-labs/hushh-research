@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ uid: "owner", token: "private-token", unlocked: true,
   packets: vi.fn(), preview: vi.fn(), preparePreview: vi.fn(), listing: vi.fn(), request: vi.fn(), collection: vi.fn(), setProcessing: vi.fn(), identity: vi.fn(), linkIdentity: vi.fn(), openExternal: vi.fn() }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, isVaultUnlocked: state.unlocked }) }));
 vi.mock("@/lib/services/drive-packet-service", () => ({ DrivePacketService: state }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { documentRequestIdentityToken: state.identity, linkGoogleIdentity: state.linkIdentity } }));
@@ -15,7 +15,7 @@ import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-
 import type { NativeDrawerChoice } from "@/lib/capacitor/native-drawers";
 import type { DrivePacket } from "@/lib/services/drive-packet-service";
 import { DriveCollectionPanel } from "@/components/agent/drive-collection-panel";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 const person = "11111111-1111-4111-8111-111111111111";
@@ -31,7 +31,7 @@ const status = { enabled: false, backgroundEnabled: true, state: "not_enabled", 
 beforeEach(() => {
   for (const mock of [state.packets, state.preview, state.preparePreview, state.listing, state.request, state.collection, state.setProcessing, state.identity, state.linkIdentity, state.openExternal]) mock.mockReset();
   state.uid = "owner"; state.token = "private-token"; state.unlocked = true;
-  publishValidatedAuthSessionOwner("owner");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   state.identity.mockImplementation(async (_uid, current) => { if (!current()) throw new Error("session_changed"); return "firebase-token"; });
   state.linkIdentity.mockResolvedValue("linked-firebase-token");
   state.packets.mockImplementation(async (_token, guard) => { guard(); return { packets: [packet], nextCursor: null }; });
@@ -41,7 +41,7 @@ beforeEach(() => {
   state.preview.mockResolvedValue(preview); state.preparePreview.mockResolvedValue(preview);
   state.collection.mockImplementation(async (_token, guard) => { guard(); return status; });
 });
-afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionOwner(null); });
+afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionPrincipal(null); });
 describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
   it("shows four owner category entrypoints before packets exist without starting preparation", async () => {
     state.packets.mockResolvedValue({ packets: [], nextCursor: null });
@@ -184,7 +184,7 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open Account statements" }));
     fireEvent.click(await screen.findByRole("button", { name: /^Mar–Apr 2026/ }));
     await waitFor(() => expect(state.preparePreview).toHaveBeenCalledOnce());
-    state.uid = "replacement"; state.token = "replacement-token"; publishValidatedAuthSessionOwner("replacement");
+    state.uid = "replacement"; state.token = "replacement-token"; publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 });
     state.packets.mockResolvedValue({ packets: [], nextCursor: null });
     view.rerender(<DrivePacketCatalog />);
     await act(async () => resolve({ status: "completed", matched: 1, documents: [{ name: "Private old-owner statement" }] }));
@@ -282,7 +282,7 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
     state.packets.mockReturnValueOnce(new Promise(done => { resolve = done; })).mockResolvedValue({ packets: [], nextCursor: null });
     const view = render(<DrivePacketCatalog />);
     await waitFor(() => expect(state.packets).toHaveBeenCalledTimes(1));
-    state.uid = "new-owner"; state.token = "new-token"; publishValidatedAuthSessionOwner("new-owner");
+    state.uid = "new-owner"; state.token = "new-token"; publishValidatedAuthSessionPrincipal({ firebaseUid: "new-owner", ownerId: "new-owner", accountGeneration: 0 });
     view.rerender(<DrivePacketCatalog />);
     await act(async () => resolve({ packets: [packet], nextCursor: null }));
     expect(screen.queryByText("Example Bank statements")).toBeNull();

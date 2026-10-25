@@ -18,6 +18,9 @@ from hushh_mcp.services.drive_period_packet_contract import (
     current_year_periods,
     period_packet_key,
 )
+from hushh_mcp.services.drive_telemetry import correlation_tag
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
 async def ensure_owner(store, *, user_id, timezone="UTC", now=None):
@@ -25,6 +28,13 @@ async def ensure_owner(store, *, user_id, timezone="UTC", now=None):
 
     def operation(connection):
         active = store._period_access(connection, owner=user_id)
+        if store._row(
+            connection,
+            """SELECT user_id_hash FROM account_deletion_tombstones
+          WHERE user_id_hash='sha256:'||encode(sha256(convert_to(:user,'UTF8')),'hex')""",
+            {"user": user_id},
+        ):
+            raise DriveReadError("account_deleted")
         for category, title in CATEGORY_PURPOSES.items():
             if category != "financial":
                 continue
@@ -60,6 +70,19 @@ async def ensure_owner(store, *, user_id, timezone="UTC", now=None):
                         "timezone": timezone,
                     },
                 )
+        # Accept stale private preparation now; never move an earlier queue time forward.
+        connection.execute(
+            text("""UPDATE drive_packet_heads SET dirty=TRUE,next_at=LEAST(next_at,clock_timestamp())
+            WHERE user_id=:user AND connection_generation=:generation
+            AND packet_kind='provider_discovery' AND category='financial' AND current_version=0
+            AND predefined_query_version IS DISTINCT FROM :template
+            AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())"""),
+            {
+                "user": user_id,
+                "generation": active["connection_generation"],
+                "template": QUERY_VERSION,
+            },
+        )
         # Preserve completed source discovery and sale versions; organize
         # their existing owner results once, without relabeling query origin.
         connection.execute(
@@ -81,6 +104,7 @@ async def candidate_owners(store):
     cohort = connector_feature_owner_cohort("drive_period_packets", "google_drive_live")
     if cohort == ():
         return []
+    current_start = current_year_periods(datetime.now(UTC), "UTC")[-1].start
 
     def operation(connection):
         return [
@@ -91,17 +115,24 @@ async def candidate_owners(store):
             WHERE c.connector_id='google_drive' AND c.status='connected'
               AND c.validation_state='verified' AND (p.user_id IS NULL OR p.background_enabled)
               AND (:all_owners OR c.user_id=ANY(CAST(:owners AS text[])))
+              AND NOT EXISTS(SELECT 1 FROM account_deletion_tombstones deleted
+                WHERE deleted.user_id_hash='sha256:'||encode(sha256(convert_to(c.user_id,'UTF8')),'hex'))
               AND NOT EXISTS(SELECT 1 FROM drive_owner_search_jobs ordinary WHERE ordinary.user_id=c.user_id
                 AND ordinary.period_packet_id IS NULL AND ordinary.status IN ('queued','running')
                 AND ordinary.expires_at>clock_timestamp())
               AND (NOT EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                 AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
-                AND h.category='financial' AND h.period_start=make_date(EXTRACT(YEAR FROM clock_timestamp() AT TIME ZONE 'UTC')::int,
-                  ((EXTRACT(MONTH FROM clock_timestamp() AT TIME ZONE 'UTC')::int-1)/2)*2+1,1))
+                AND h.category='financial' AND h.period_start=:current_start)
                 OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
                   AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
-                  AND h.current_version=0 AND h.dirty AND (h.attempts<8 OR (h.category='financial' AND h.predefined_query_version IS DISTINCT FROM :template)) AND h.next_at<=clock_timestamp()
-                  AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp())))
+                  AND h.current_version=0
+                  AND ((h.dirty AND h.attempts<8 AND h.next_at<=clock_timestamp())
+                    OR (h.category='financial' AND h.predefined_query_version IS DISTINCT FROM :template))
+                  AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp()))
+                OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
+                  AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
+                  AND h.category='financial' AND h.current_version>0 AND h.build_envelope IS NOT NULL
+                  AND h.tagging_next_at IS NULL))
             ORDER BY COALESCE(c.drive_packet_inspected_at,'epoch'::timestamptz),COALESCE((SELECT max(h.updated_at) FROM drive_packet_heads h
               WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
                 AND h.packet_kind='provider_discovery'),c.updated_at),c.user_id
@@ -109,6 +140,7 @@ async def candidate_owners(store):
                 {
                     "limit": ENROLLMENT_SCAN_LIMIT,
                     "template": QUERY_VERSION,
+                    "current_start": current_start,
                     "all_owners": cohort is None,
                     "owners": list(cohort or ()),
                 },
@@ -123,28 +155,55 @@ async def due_owners(store, limit=4):
     from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
     admitted = []
+    scanned = 0
+    exclusions = {"private": 0, "unverified": 0, "timeout": 0, "storage": 0}
     deadline = asyncio.get_running_loop().time() + 5
     for user in await candidate_owners(store):
         remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             break
-        await store._transaction(
-            lambda connection, user=user: (
-                connection.execute(
-                    text("""UPDATE user_external_connector_connections SET drive_packet_inspected_at=clock_timestamp()
-            WHERE user_id=:user AND connector_id='google_drive'"""),
-                    {"user": user},
-                ).rowcount
-            )
-        )
+        scanned += 1
         try:
             async with asyncio.timeout(remaining):
+                await store._transaction(
+                    lambda connection, user=user: (
+                        connection.execute(
+                            text("""UPDATE user_external_connector_connections SET drive_packet_inspected_at=clock_timestamp()
+                    WHERE user_id=:user AND connector_id='google_drive'"""),
+                            {"user": user},
+                        ).rowcount
+                    )
+                )
                 await admit_hub_content(user, "drive_period_packets")
-        except (HTTPException, TimeoutError):
+        except (HTTPException, TimeoutError, ConnectorLifecycleError) as error:
+            code = (
+                error.detail.get("code")
+                if isinstance(error, HTTPException) and isinstance(error.detail, dict)
+                else None
+            )
+            reason = (
+                "storage"
+                if isinstance(error, ConnectorLifecycleError)
+                else "timeout"
+                if isinstance(error, TimeoutError)
+                else "private"
+                if code == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+                else "unverified"
+            )
+            exclusions[reason] += 1
             continue
         admitted.append(user)
         if len(admitted) >= max(1, min(limit, 20)):
             break
+    logger.info(
+        "period_packet.enrollment trigger=scheduled_sweep scanned=%d admitted=%d private=%d unverified=%d timeout=%d storage=%d",
+        scanned,
+        len(admitted),
+        exclusions["private"],
+        exclusions["unverified"],
+        exclusions["timeout"],
+        exclusions["storage"],
+    )
     return admitted
 
 
@@ -163,6 +222,10 @@ async def prepare_financial_packets(db, user_id: str, *, feature_enabled, timeou
 
             await DrivePeriodPacketService(store=DrivePeriodPacketStore(db=db)).ensure_owner(
                 user_id=user_id
+            )
+            logger.info(
+                "period_packet.enrollment trigger=verified_connection owner_tag=%s outcome=enrolled",
+                correlation_tag(user_id),
             )
             await wake_drive_work("suggestions")
     except Exception as error:

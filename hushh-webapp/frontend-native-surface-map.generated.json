@@ -9313,6 +9313,7 @@
       },
       "voice_action_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "people.profile.browse_financial_summaries",
         "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
@@ -10900,5 +10901,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "26c91ac24c32c444d2d19da29592009e5fb420f15de172fc9267e1b9b9e51238"
+  "content_sha256": "f2ad859fed63168819ced697388b6870316da2422cf2c51615c22eac450ebbb3"
 }
