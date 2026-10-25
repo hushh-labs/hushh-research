@@ -10,7 +10,7 @@ import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
  * and fail if any `/api/one/(agent-chat|email|location|information|kai)` or
  * `/api/kai` request reaches the hub for such an owner.
  */
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const HUB_CONTENT =
@@ -23,7 +23,6 @@ const calls = vi.hoisted(() => ({
   directReply: (route: string): unknown => ({ route }),
   hubReply: (_path: string): unknown => ({}),
   hubStatus: 200,
-  authReady: true,
 }));
 
 const record = vi.hoisted(() => ({
@@ -45,12 +44,7 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: async () => null,
 }));
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({
-    user: { uid: "owner-a" }, userId: "owner-a", loading: !calls.authReady,
-    accountPrincipal: calls.authReady
-      ? { firebaseUid: "owner-a", ownerId: "owner-a", accountGeneration: 0 }
-      : null,
-  }),
+  useAuth: () => ({ user: { uid: "owner-a" }, userId: "owner-a" }),
 }));
 vi.mock("@/lib/services/api-client", () => ({
   apiJson: async (path: string) => {
@@ -109,7 +103,6 @@ beforeEach(() => {
   calls.directReply = (route: string) => ({ route });
   calls.hubReply = () => ({});
   calls.hubStatus = 200;
-  calls.authReady = true;
   streamAgentChat.mockClear();
   vi.stubGlobal("fetch", async (url: string) => {
     calls.hub.push(String(url));
@@ -366,37 +359,6 @@ describe("the specialist tabs ask the owner's agent with a closed focus", () => 
       "/api/pkm/memory/proposals",
     ]);
     calls.hub.length = 0; // the afterEach guard is for private owners
-  });
-});
-
-describe("Kai for an own-cloud owner", () => {
-  it("opens Shared Finance after the same Firebase owner's validation settles", async () => {
-    calls.hosting = { hostingMode: "shared" };
-    await import("@/lib/services/api-service");
-    await import("@/lib/services/owner-pod-endpoint");
-    calls.authReady = false;
-    publishValidatedAuthSessionPrincipal(null);
-    const { KaiPrivateAgentGate } = await import("@/components/kai/kai-private-agent-gate");
-    const view = render(<KaiPrivateAgentGate><div>kai workspace</div></KaiPrivateAgentGate>);
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-a", ownerId: "owner-a", accountGeneration: 0 });
-    calls.authReady = true;
-    view.rerender(<KaiPrivateAgentGate><div>kai workspace</div></KaiPrivateAgentGate>);
-    expect(await screen.findByText("kai workspace")).toBeTruthy();
-  });
-
-  it("shows that Kai is coming to their agent and renders no Kai surface", async () => {
-    const { KaiPrivateAgentGate } =
-      await import("@/components/kai/kai-private-agent-gate");
-    render(
-      <KaiPrivateAgentGate>
-        <div>kai workspace</div>
-      </KaiPrivateAgentGate>,
-    );
-    expect(
-      await screen.findByText("Kai will be available on your agent soon."),
-    ).toBeTruthy();
-    expect(screen.queryByText("kai workspace")).toBeNull();
   });
 });
 

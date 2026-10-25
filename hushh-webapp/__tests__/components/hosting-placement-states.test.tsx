@@ -6,7 +6,7 @@
  * a stopped attach -> its typed reason; Hussh Pods -> paused with two moves; an
  * organization policy refusing direct access -> a typed blocker with Retry.
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
@@ -14,8 +14,20 @@ import { ApiService } from "@/lib/services/api-service";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { readHostingMode } from "@/lib/one/hosting-placement";
 
+const authState = vi.hoisted(() => ({ ready: true }));
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "owner" }, loading: false }),
+  useAuth: () => ({
+    user: { uid: "owner" }, loading: !authState.ready,
+    accountPrincipal: authState.ready
+      ? { firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 }
+      : null,
+  }),
+}));
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: { getCurrentUser: () => ({ uid: "owner" }) },
+}));
+vi.mock("@/lib/services/owner-pod-endpoint", () => ({
+  loadPinnedEndpoint: async () => null,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
@@ -71,8 +83,32 @@ function given(agent: Record<string, unknown>, job: Record<string, unknown> = NO
 describe("cloud step placement states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.ready = true;
     publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
     vi.mocked(ApiService.suggestByocProject).mockResolvedValue(null as never);
+  });
+
+  it("opens Shared Finance after the same Firebase owner's validation settles", async () => {
+    given({ hostingMode: "shared", state: "none" });
+    await import("@/lib/services/owner-pod-endpoint");
+    authState.ready = false;
+    publishValidatedAuthSessionPrincipal(null);
+    const { KaiPrivateAgentGate } = await import("@/components/kai/kai-private-agent-gate");
+    const view = render(<KaiPrivateAgentGate><div>kai workspace</div></KaiPrivateAgentGate>);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
+    authState.ready = true;
+    view.rerender(<KaiPrivateAgentGate><div>kai workspace</div></KaiPrivateAgentGate>);
+    expect(await screen.findByText("kai workspace")).toBeTruthy();
+  });
+
+  it("keeps private Finance off the hub", async () => {
+    given({ hostingMode: "byoc", state: "active" });
+    const { KaiPrivateAgentGate } = await import("@/components/kai/kai-private-agent-gate");
+    render(<KaiPrivateAgentGate><div>kai workspace</div></KaiPrivateAgentGate>);
+    expect(await screen.findByText("Kai will be available on your agent soon.")).toBeTruthy();
+    expect(screen.queryByText("kai workspace")).toBeNull();
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
   });
 
   it("reads an unrecognised mode as unknown, never as Shared", () => {
