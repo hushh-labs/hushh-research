@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { ClipboardList } from "@/components/icons";
+import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { TodoListPkmService, type TodoItem } from "@/lib/services/todo-list-pkm-service";
 import { TodoRow, DueReceiptRow, extractDueReceipts, groupByDate } from "@/components/todos/todo-list-presentation";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
@@ -119,9 +120,9 @@ export function OneTodoPreview({
   const deleteTask = (task: TodoItem) => persistTask(task, "deleted");
 
   return (
-    <div className={`${styles.todo} profile-home-content`}>
+    <div className={`${styles.todo} profile-home-content`} data-profile-type-scale="todo">
       <div className={styles.sectionHeading}>
-        <h3>To-do list</h3>
+        <h3 data-profile-role="header">To-do list</h3>
       </div>
 
       {ready && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
@@ -151,14 +152,14 @@ export function OneTodoPreview({
           <span>Tasks and due payments will appear here.</span>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* 1. Any time section comes FIRST */}
           {anytimeGroup ? (
             <section key={anytimeGroup.id} className="space-y-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+              <h4 data-profile-role="group-label" className="px-1">
                 {anytimeGroup.label}
               </h4>
-              <div className="space-y-2">
+              <SurfaceInset className="divide-y divide-border/60 p-0">
                 {anytimeGroup.tasks.map((task) => (
                   <TodoRow
                     key={task.id}
@@ -168,31 +169,31 @@ export function OneTodoPreview({
                     onDelete={deleteTask}
                   />
                 ))}
-              </div>
+              </SurfaceInset>
             </section>
           ) : null}
 
           {/* 2. Receipts in between */}
           {dueReceipts.length > 0 ? (
             <section className="space-y-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+              <h4 data-profile-role="group-label" className="px-1">
                 Receipts & Due Payments
               </h4>
-              <div className="space-y-2">
+              <SurfaceInset className="divide-y divide-border/60 p-0">
                 {dueReceipts.map((receipt) => (
                   <DueReceiptRow key={receipt.id} receipt={receipt} />
                 ))}
-              </div>
+              </SurfaceInset>
             </section>
           ) : null}
 
           {/* 3. Dated events below */}
           {datedGroups.map((group) => (
             <section key={group.id} className="space-y-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">
+              <h4 data-profile-role="group-label" className="px-1">
                 {group.label}
               </h4>
-              <div className="space-y-2">
+              <SurfaceInset className="divide-y divide-border/60 p-0">
                 {group.tasks.map((task) => (
                   <TodoRow
                     key={task.id}
@@ -202,7 +203,7 @@ export function OneTodoPreview({
                     onDelete={deleteTask}
                   />
                 ))}
-              </div>
+              </SurfaceInset>
             </section>
           ))}
         </div>

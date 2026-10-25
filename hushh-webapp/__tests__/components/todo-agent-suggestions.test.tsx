@@ -11,7 +11,7 @@ vi.mock("@/lib/services/todo-list-pkm-service", () => ({ createTodo: vi.fn() }))
 const item = { key: "meeting", capability: "calendar" as const, title: "Prepare meeting notes", reason: "A team meeting is coming up.", href: "/one/calendar" };
 const props = () => ({ userId: "owner", vaultKey: "fixture-key", vaultOwnerToken: "fixture-token", evidence: [{ key: "meeting", capability: "calendar" as const, summary: "An upcoming team meeting", href: "/one/calendar" }], coverage: [], loading: false, onRefresh: vi.fn(), onSaved: vi.fn() });
 async function approve() {
-  const checkbox = screen.getByRole("checkbox", { name: "Use my task summaries with One to suggest next steps." });
+  const checkbox = screen.getByRole("checkbox", { name: "Let One suggest tasks from summaries." });
   await waitFor(() => expect(checkbox).toBeEnabled());
   fireEvent.click(checkbox);
   fireEvent.click(screen.getByRole("button", { name: "Suggest tasks" }));
@@ -29,6 +29,8 @@ describe("agentic To-do review", () => {
     fireEvent.click(screen.getByText("Task sources"));
     for (const title of ["Messages", "Finance", "Wallet", "Location", "Advisor", "Mail", "Calendar", "Memory", "Consent"]) expect(screen.getByText(title)).toBeVisible();
     expect(screen.getByRole("button", { name: "Suggest tasks" })).toBeDisabled();
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(screen.getByText("Up to 100 loaded summaries; no message content, card details or Memory content. Review before adding.")).toBeVisible();
     expect(suggestTodoTasks).not.toHaveBeenCalled();
     expect(createTodo).not.toHaveBeenCalled();
   });
@@ -73,14 +75,14 @@ describe("agentic To-do review", () => {
   });
   it("explains when there is no source evidence instead of claiming that One found no new work", async () => {
     render(<TodoAgentSuggestions {...props()} evidence={[]} />);
-    expect(await screen.findByText("No task summaries are available to assess yet.")).toBeVisible();
+    expect(await screen.findByText("No task summaries yet.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Suggest tasks" })).toBeDisabled();
     expect(suggestTodoTasks).not.toHaveBeenCalled();
   });
   it("keeps the suggestion action unavailable when the runtime feature is off", async () => {
     vi.mocked(todoSuggestionsAvailable).mockResolvedValue(false);
     render(<TodoAgentSuggestions {...props()} />);
-    expect(await screen.findByText("Task suggestions are not available on this agent yet.")).toBeVisible();
+    expect(await screen.findByText("Suggestions aren’t available for this agent.")).toBeVisible();
     expect(screen.getByRole("checkbox")).toBeDisabled();
     expect(suggestTodoTasks).not.toHaveBeenCalled();
   });

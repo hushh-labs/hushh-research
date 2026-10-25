@@ -13,7 +13,7 @@ import {
   Trash2,
 } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { SurfaceCard } from "@/components/app-ui/surfaces";
+import { SurfaceInset } from "@/components/app-ui/surfaces";
 import {
   CaptionText,
   HelperText,
@@ -133,7 +133,7 @@ function CircularCheckbox({
           : "!text-[color:var(--app-accent)]",
       )}
     >
-      <Check className="size-5" aria-hidden="true" />
+      <Check className="size-4" aria-hidden="true" />
     </ShellActionSurface>
   );
 }
@@ -210,10 +210,10 @@ export function TodoRow({
       : null;
 
   return (
-    <SurfaceCard data-todo-item={task.id}>
+    <div data-todo-item={task.id}>
       <div
         data-no-route-swipe
-        className="grid touch-pan-y grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-4 py-3 sm:gap-x-4 sm:px-5 sm:py-4"
+        className="grid touch-pan-y grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5"
         {...swipe}
       >
         <MediumRowLabel
@@ -226,7 +226,7 @@ export function TodoRow({
         >
           {task.title}
         </MediumRowLabel>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center">
           <CircularCheckbox
             checked={task.status === "done"}
             disabled={saving}
@@ -243,7 +243,7 @@ export function TodoRow({
           </ShellActionSurface>
         </div>
         {time || source || task.link ? (
-          <div className="col-span-2 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             {time ? (
               <CaptionText
                 data-profile-role="description"
@@ -274,7 +274,8 @@ export function TodoRow({
                 variant="none"
                 effect="fade"
                 size="compact"
-                className="ml-auto !px-2 !text-[color:var(--app-accent)]"
+                data-profile-role="action"
+                className="ml-auto min-h-11 !px-2 !text-[color:var(--app-accent)]"
               >
                 {task.link.startsWith("/") ? (
                   <Link href={task.link} aria-label={`Open ${task.title}`}>
@@ -304,7 +305,7 @@ export function TodoRow({
           </HelperText>
         ) : null}
       </div>
-    </SurfaceCard>
+    </div>
   );
 }
 
@@ -404,18 +405,19 @@ export function extractDueReceipts(
 
 export function DueReceiptRow({ receipt }: { receipt: DueReceiptItem }) {
   return (
-    <SurfaceCard data-receipt-item={receipt.id}>
-      <div className="flex items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-foreground">
+    <div data-receipt-item={receipt.id}>
+      <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[color:var(--app-neutral-fill)] text-foreground">
             <Receipt className="size-4" aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <MediumRowLabel as="h3" data-profile-role="name" className="truncate">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <MediumRowLabel as="h3" data-profile-role="name" className="min-w-0 break-words [overflow-wrap:anywhere]">
                 {receipt.merchantName}
               </MediumRowLabel>
               <span
+                data-profile-role="description"
                 className={cn(
                   "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
                   receipt.status === "overdue" ||
@@ -451,7 +453,8 @@ export function DueReceiptRow({ receipt }: { receipt: DueReceiptItem }) {
           variant="none"
           effect="fade"
           size="compact"
-          className="shrink-0 !px-2 !text-[color:var(--app-accent)]"
+          data-profile-role="action"
+          className="min-h-11 shrink-0 !px-2 !text-[color:var(--app-accent)]"
         >
           <Link
             href={receipt.href}
@@ -462,7 +465,7 @@ export function DueReceiptRow({ receipt }: { receipt: DueReceiptItem }) {
           </Link>
         </Button>
       </div>
-    </SurfaceCard>
+    </div>
   );
 }
 
@@ -482,11 +485,11 @@ export function DueReceiptsSection({
           {receipts.length}
         </CaptionText>
       </div>
-      <div className="space-y-2.5">
+      <SurfaceInset className="divide-y divide-border/60 p-0">
         {receipts.map((receipt) => (
           <DueReceiptRow key={receipt.id} receipt={receipt} />
         ))}
-      </div>
+      </SurfaceInset>
     </section>
   );
 }
@@ -509,7 +512,7 @@ export function TodoRows({
   const datedGroups = groups.filter((g) => g.id !== "anytime");
 
   return (
-    <div className="space-y-6" data-no-auto-fade="true">
+    <div className="space-y-3" data-no-auto-fade="true">
       {anytimeGroup ? (
         <section
           key={anytimeGroup.id}
@@ -535,7 +538,7 @@ export function TodoRows({
               {anytimeGroup.tasks.length}
             </CaptionText>
           </div>
-          <div className="space-y-2.5">
+          <SurfaceInset className="divide-y divide-border/60 p-0">
             {anytimeGroup.tasks.map((task) => (
               <TodoRow
                 key={task.id}
@@ -545,7 +548,7 @@ export function TodoRows({
                 onDelete={onDelete}
               />
             ))}
-          </div>
+          </SurfaceInset>
         </section>
       ) : null}
 
@@ -566,7 +569,7 @@ export function TodoRows({
               {group.tasks.length}
             </CaptionText>
           </div>
-          <div className="space-y-2.5">
+          <SurfaceInset className="divide-y divide-border/60 p-0">
             {group.tasks.map((task) => (
               <TodoRow
                 key={task.id}
@@ -576,7 +579,7 @@ export function TodoRows({
                 onDelete={onDelete}
               />
             ))}
-          </div>
+          </SurfaceInset>
         </section>
       ))}
     </div>
