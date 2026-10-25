@@ -149,6 +149,12 @@ session-open fence and a 120-second cadence. Fetches crossing a session edge
 are rebuilt before stamping. Saved points retain their source and retrieval
 time on reuse or stale fallback, and never populate spot quote keys.
 
+The `daily_history` adapter supplies `points: [{t: number, p: number}]` (Unix
+seconds and observed USD price), `source: string` and `retrieved_at: string`
+(UTC ISO timestamp of the actual provider read). At least two finite, positive
+observations are required. Return an explicit unavailable capability when real
+observations cannot be supplied; never substitute fixtures or manufactured bars.
+
 The previous route returned before consulting history when the exchange was
 closed. Its separate outer history cache was populated only by visits during
 trading, leaving first-visit charts empty even when lower caches had observations.

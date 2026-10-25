@@ -14,5 +14,7 @@ export async function readKaiStockHistory(userId: string, symbol: string, token:
     Number.isFinite(new Date(point.t * 1000).getTime()));
   return { points: normalizePriceHistory(points.map(point => ({ date: new Date(point.t * 1000).toISOString(), value: point.p }))),
     stale: payload.stale === true, retrievedAt: payload.retrieved_at ?? null,
-    source: payload.source, cached: payload.cached === true, unavailableReason: payload.unavailable_reason };
+    ...(typeof payload.source === "string" ? { source: payload.source } : {}),
+    ...(typeof payload.cached === "boolean" ? { cached: payload.cached } : {}),
+    ...(payload.unavailable_reason !== undefined ? { unavailableReason: payload.unavailable_reason } : {}) };
 }

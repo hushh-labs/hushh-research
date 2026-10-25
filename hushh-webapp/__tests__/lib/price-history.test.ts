@@ -10,6 +10,8 @@ describe("Observed chart history", () => {
     })));
     expect(result.points).toHaveLength(2);
     expect(result).toMatchObject({ source: "Recorded daily source", stale: true, cached: true, retrievedAt: "2026-10-20T20:00:00Z" });
+    const legacy = await readKaiStockHistory("owner", "TEST", "synthetic-token", async () => new Response(JSON.stringify({ points: [], stale: true, retrieved_at: null })));
+    expect(legacy).toEqual({ points: [], stale: true, retrievedAt: null });
     expect((await readKaiStockHistory("owner", "CUSIP", "synthetic-token", async () => new Response(null, { status: 422 }))).unavailableReason).toBe("unsupported_symbol");
   });
   it("rejects invalid observations, deduplicates timestamps, and preserves a genuine zero balance", () => {
