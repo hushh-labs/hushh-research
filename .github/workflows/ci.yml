@@ -726,17 +726,20 @@ jobs:
           WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
-      # The final layout pack owns these source-coupled synthetic fixtures.
+      # The layout pack owns these source-coupled synthetic fixtures.
       # Never upload the whole output directory or protected reviewer traces.
-      - name: Upload synthetic Wallet failure evidence
+      - name: Upload synthetic layout failure evidence
         if: failure() && matrix.part == 'browser'
         uses: actions/upload-artifact@v6
         with:
-          name: wallet-layout-failures-${{ matrix.label }}
+          name: synthetic-layout-failures-${{ matrix.label }}
           path: |
             hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip
             hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png
             hushh-webapp/test-results/wallet-workspace.layout-*/error-context.md
+            hushh-webapp/test-results/calendar-connected-*/trace.zip
+            hushh-webapp/test-results/calendar-connected-*/test-failed-*.png
+            hushh-webapp/test-results/calendar-connected-*/error-context.md
           if-no-files-found: ignore
           retention-days: 7
 

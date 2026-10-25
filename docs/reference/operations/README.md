@@ -72,7 +72,7 @@ Repo governance baseline:
 - DCO signoff on PR commits
 - `uv` as the canonical backend Python toolchain
 - one required aggregate PR gate: `CI Status Gate`
-- project-scoped custom agents live under `agents/`; bounded repo defaults for subagent fan-out live in `.codex/config.toml`
+- project-scoped development subagents live under `.agents/subagents/`; bounded execution defaults live in `.agents/config.toml`
 - repo-scoped custom agents inherit the runtime-selected model by default and are enforced through the existing `Governance` lane plus local Codex validation
 
 ## Codex skills

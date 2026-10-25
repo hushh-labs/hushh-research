@@ -619,11 +619,18 @@ also runs the web dependency install, is bounded at 8 minutes and retries a
 failed browser install once, so a stalled apt mirror or browser download
 fails the shard early instead of holding a runner to the job limit.
 
-Failed final Wallet layout runs retain `wallet-layout-failures-<matrix-label>`
-for seven days: only the synthetic workspace fixture's trace, failure screenshot
-and error context are admitted. Protected reviewer journeys must never enter
-these artifacts. Earlier commands can clear their output; this does not prove
-retention for preceding packs or failures that pass on retry.
+Failed synthetic Wallet and connected Calendar layout runs retain
+`synthetic-layout-failures-<matrix-label>` for seven days: only those fixtures'
+traces, failure screenshots and error context are admitted. Protected reviewer
+journeys must never enter these artifacts. Earlier commands can clear their
+output; this does not prove retention for preceding packs or failures that pass
+on retry.
+
+Calendar's lock regression holds the next Schedule response while asserting that
+the prior private view is cleared, then releases distinct fresh information.
+This distinguishes stale private DOM from a new Firebase-authorized read, which
+Schedule supports while the vault is locked; it does not relax the whole-page
+privacy assertion.
 
 Fail-fast contract:
 
