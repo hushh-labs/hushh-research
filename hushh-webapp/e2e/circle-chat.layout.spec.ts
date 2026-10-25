@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 import { readCircleInboxGeometry } from "./fixtures/messages-navigation-proof";
+import { registerCircleChatKeyboardCases } from "./fixtures/circle-chat-keyboard-cases";
 
 // Production React component and CSS; fixture replaces only the service port.
 // Protocol/crypto proofs are separate and do not claim this adapter is a backend.
@@ -79,29 +80,7 @@ async function openMessageOptions(page: Page, message: Locator) {
   }
 }
 
-test("phone Circle actions open on hold and the keyboard adds no gap before members", async ({ page }) => {
-  await page.setViewportSize({ width: 393, height: 844 });
-  await mount(page, false, true);
-  await expect(page.getByText("Only circle members can read these messages.", { exact: true })).toHaveCount(0);
-  const message = page.locator('[data-chat-message="hello"]');
-  const options = message.getByRole("button", { name: "Message options" });
-  await expect(options.locator("..")).toHaveCSS("opacity", "0");
-  await openMessageOptions(page, message);
-  await page.getByRole("menuitem", { name: "React ❤️", exact: true }).click();
-  await expect(message.getByRole("button", { name: "❤️, 1 reactions, you reacted" })).toBeVisible();
-  await expect(page.getByRole("menu")).toHaveCount(0);
-  await openMessageOptions(page, message);
-  await page.getByRole("menuitem", { name: "More reactions…", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Emoji picker" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "Emoji picker" })).not.toBeVisible();
-  for (const inset of [0, 300]) {
-    await page.evaluate((inset) => { document.documentElement.style.setProperty("--kb-height", `${inset}px`); document.documentElement.classList.toggle("kb-open", inset > 0); }, inset);
-    const gap = await page.getByRole("button", { name: "View circle members" }).evaluate((node) => node.getBoundingClientRect().top - document.querySelector("[data-one-chat-surface]")!.getBoundingClientRect().bottom);
-    expect(gap).toBeGreaterThanOrEqual(0);
-    expect(gap).toBeLessThanOrEqual(16);
-  }
-});
+registerCircleChatKeyboardCases({ mount, openMessageOptions });
 
 for (const width of [320, 393, 768, 1440]) test(`short circle messages keep timestamps inline at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 1000 });
