@@ -34,6 +34,7 @@ def daily_history_snapshot(points: list[dict[str, Any]], *, source: str) -> dict
 async def fetch_daily_history(symbol: str) -> dict[str, Any]:
     # The history route's existing public L1/L2 cache owns freshness and single
     # flight. Do not create a second cache or enter the live-price refresh scope.
-    return await get_market_runtime().fetch(
+    snapshot: dict[str, Any] = await get_market_runtime().fetch(
         MarketDataRequest("daily_history", (symbol,), days_back=30), cached=False
     )
+    return snapshot
