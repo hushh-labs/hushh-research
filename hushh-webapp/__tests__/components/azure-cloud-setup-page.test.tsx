@@ -60,7 +60,7 @@ vi.mock("@/components/app-ui/page-sections", () => ({
   PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
 }));
 
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { ApiService } from "@/lib/services/api-service";
 import { AzureByocError } from "@/lib/services/azure-byoc-contract";
@@ -94,8 +94,8 @@ async function openOwnCloud() {
 describe("Connect Azure on the cloud step", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    publishValidatedAuthSessionOwner("owner");
-    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ hostingMode: "shared" });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
+    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ featureEnabled: true, hostingMode: "shared" });
     vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({ ...NO_JOB });
     vi.mocked(ApiService.beginAzureByocAuthorize).mockResolvedValue({ authorizationUrl: SIGN_IN });
     // A blocked popup: the sign-in continues in this tab (the popup path has its own tests).
@@ -291,7 +291,7 @@ describe("Connect Azure on the cloud step", () => {
 
   it("shows an assigned Azure home as connected without asking for a Google project", async () => {
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
-      hostingMode: "byoc",
+      featureEnabled: true, hostingMode: "byoc",
       state: "active",
       deploymentTarget: "user_azure",
       cloudProject: null,
@@ -308,8 +308,8 @@ describe("Connect Azure on the cloud step", () => {
     // Founder-hit 2026-10-05: read once as "pending" mid-job, the page sat on
     // "still in progress" with Finish disabled after the job had recorded.
     vi.mocked(ApiService.getPersonalAgentStatus)
-      .mockResolvedValueOnce({ hostingMode: "pending", state: "reserved", deploymentTarget: "user_azure" })
-      .mockResolvedValue({ hostingMode: "byoc", state: "reserved", deploymentTarget: "user_azure" });
+      .mockResolvedValueOnce({ featureEnabled: true, hostingMode: "pending", state: "reserved", deploymentTarget: "user_azure" })
+      .mockResolvedValue({ featureEnabled: true, hostingMode: "byoc", state: "reserved", deploymentTarget: "user_azure" });
     vi.mocked(ApiService.getByocSetupStatus)
       .mockResolvedValueOnce(azureJob("deploying_agent", ["creating_resource_group", "deploying_agent"]))
       .mockResolvedValue({ ...azureJob("proving", ["creating_resource_group", "proving"]), status: "recorded" });
@@ -323,7 +323,7 @@ describe("Connect Azure on the cloud step", () => {
 
   it("deploys a reserved Azure home through the Microsoft sign-in", async () => {
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
-      hostingMode: "pending",
+      featureEnabled: true, hostingMode: "pending",
       state: "reserved",
       deploymentTarget: "user_azure",
       cloudProject: "rg-hussh-one-abc",

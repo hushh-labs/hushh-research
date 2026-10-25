@@ -1661,6 +1661,9 @@ export class ApiService {
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       const detail = payload?.detail;
+      if (detail?.code === "BYOC_UNAVAILABLE") {
+        throw new Error("Cloud setup is unavailable in this environment. Your existing setup is unchanged.");
+      }
       if (["FILES_SETUP_UNAVAILABLE", "FILES_RECOVERY_CONTRACT_UNAVAILABLE", "POD_ASSIGNMENT_PRESERVED", "INVALID_PROJECT_ID"].includes(detail?.code)) {
         const reason = detail.message ?? detail.reason;
         if (typeof reason === "string" && reason.length <= 240) throw new Error(reason);

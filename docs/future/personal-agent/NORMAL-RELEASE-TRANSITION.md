@@ -1,23 +1,34 @@
 # Private agent: normal release transition
 
-**Current surgical follow-up — 24 October 2026:** lifecycle checkpoint `4752ed2688`
-and main-integration checkpoint `e0deca33af` include fresh main `217007c715` without
-dropping its bounded erasure, mobile or consent work. Framework checkpoint
-`dd4444f1d2` preserves local host settings under `.agents`. The follow-up
-adds durable cleanup, explicit federated/email Start fresh and application-owner
-continuity alongside the relevant preserved native ADK fixes. It is not pushed, frozen, merged or deployed. Admission remains off;
-forward migrations 416–419 are registered locally but remain unapplied. Corporate ADC last
-verified peer dev/UAT rollouts serving `2732b301cc9e` at 12:41 UTC. Live read-only
-catalog inspection confirms UAT lacks dev's cloud-removal authorities. New canonical 418 derives the final private-agent authority without replaying
-historical cohort inference or destructive history cleanup; recovery is now draft
-419. One disposable 353-migration replay preserved eight retained record families.
-The strengthened 82-case suite passed in 92.34 seconds. Registered-contract checks
-passed against both local schema lineages. Fresh main `217007c715` owns 412–415
-for recovery indexes; preserve those files and use 416–419 for this unapplied chain.
-Both renumbered upgrade/replay cases passed in 86.03 seconds. Final combined and hosted qualification
-still precede deployment and UAT acceptance. The
-[readiness memo](../../reference/quality/adk-orchestration-docs-audit.md) owns the
-current evidence and remaining acceptance; earlier releases below are historical.
+**Current surgical follow-up — 24 October 2026:** the preserved branch includes
+main `b2ee968a59ab` through checkpoint `c1861b4ae2`. Peer source and historical
+migration bytes remain intact. Canonical 416–419 carry the unapplied lifecycle
+correction; `.agents` is the sole authored development framework. The combined
+correction is not merged or deployed. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+owns current serving readback and verification; older receipts below are history.
+
+**BYOC availability correction:** serving UAT omits the private-agent master flag
+and legitimately refuses cloud authorization; its frontend nevertheless offers
+setup and hides the typed refusal. The bounded repair consumes authoritative
+availability, prevents doomed retries and preserves Shared and pending choices.
+Dev has the flag enabled; its complete journey still needs acceptance.
+
+**UAT pod graduation precedes enablement:** extend the existing release authority
+with an explicit non-stable UAT channel and `deploy-uat` provenance, publish and
+preserve the exact qualified image in UAT's repository, and configure UAT-owned
+broker/invoker identities, OAuth returns and independent feed signing. Separate
+BYOC runtime flags from dev simulation. Never copy dev's master-key storage,
+shared pod identity, phone bypass, managed hosting or automatic signup creation.
+Canonical schema replay alone is insufficient. Dev archive reuse cannot silently
+be relabelled as a UAT publication. Browser's environment qualification and actual
+UAT owner custody/recovery require separate proof before offering that capability.
+
+The correction release follows exact-candidate hosted validation, Admin SOP,
+landed-SHA smoke, governed dev acceptance and UAT promotion. Replacement enrollment
+stays disabled until generation-aware consumers and live two-cycle acceptance
+pass. Historical incomplete cleanup remains repairable and must not be marked
+complete to bypass enrollment. No production, stable or automatic owner upgrade
+is authorized.
 
 **Prior accepted delivery:**
 [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as

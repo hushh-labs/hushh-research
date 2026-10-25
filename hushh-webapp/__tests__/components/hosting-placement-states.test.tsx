@@ -9,7 +9,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { readHostingMode } from "@/lib/one/hosting-placement";
@@ -64,14 +64,14 @@ const NO_JOB = {
 };
 
 function given(agent: Record<string, unknown>, job: Record<string, unknown> = NO_JOB) {
-  vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue(agent as never);
+  vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ featureEnabled: true, ...agent } as never);
   vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(job as never);
 }
 
 describe("cloud step placement states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    publishValidatedAuthSessionOwner("owner");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
     vi.mocked(ApiService.suggestByocProject).mockResolvedValue(null as never);
   });
 
@@ -229,5 +229,21 @@ describe("cloud step placement states", () => {
     render(<ByocCloudSetupPage />);
     expect(await screen.findByTestId("hosting-direct-blocked")).toBeInTheDocument();
     expect(screen.queryByTestId("hosting-direct-retry")).toBeNull();
+  });
+
+  it.each(["direct", "attach"])("preserves a paused cloud's %s blocker without a doomed retry", async (kind) => {
+    const direct = kind === "direct";
+    given({
+      featureEnabled: false, hostingMode: direct ? "byoc" : "pending",
+      state: direct ? "active" : "reserved", deploymentTarget: "user_gcp", cloudProject: "owner-project",
+      ...(direct ? { directIngressBlocker: { code: "ORG_POLICY_REFUSES_PUBLIC_INVOKER", retryable: true } } : {}),
+    }, direct ? NO_JOB : {
+      ...NO_JOB, status: "recorded", stage: "proving", projectId: "owner-project", attachBlocked: "ATTACH_FAILED",
+    });
+    render(<ByocCloudSetupPage />);
+    expect(await screen.findByTestId(`hosting-${kind}-blocked`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`hosting-${kind}-retry`)).toBeNull();
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
+    expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
   });
 });

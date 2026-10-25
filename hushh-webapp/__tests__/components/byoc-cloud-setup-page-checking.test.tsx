@@ -90,12 +90,40 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     publishValidatedAuthSessionPrincipal({ firebaseUid: fixture.user.uid, ownerId: fixture.user.uid, accountGeneration: 0 });
     mockStatus.mockReset();
     mockAgentStatus.mockReset();
-    mockAgentStatus.mockResolvedValue({ hostingMode: "shared" } as never);
+    vi.mocked(ApiService.selectSharedHosting).mockReset();
+    vi.mocked(ApiService.beginByocAuthorize).mockReset();
+    mockAgentStatus.mockResolvedValue({ featureEnabled: true, hostingMode: "shared" } as never);
     mockStatus.mockResolvedValue({ status: "none" } as never);
   });
   afterEach(() => {
     publishValidatedAuthSessionOwner(null);
     vi.useRealTimers();
+  });
+
+  it.each([false, undefined])("keeps Shared usable and refuses new cloud setup when availability is %s", async (featureEnabled) => {
+    mockAgentStatus.mockResolvedValue({ hostingMode: "unplaced", featureEnabled });
+    vi.mocked(ApiService.selectSharedHosting).mockResolvedValue({ hostingMode: "shared" } as never);
+    fixture.search = "intent=migrate";
+    render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(screen.getByTestId("cloud-tier-own")).toBeDisabled();
+    expect(screen.queryByTestId("byoc-cloud-card")).toBeNull();
+    expect(screen.getByTestId("byoc-setup-unavailable")).toHaveTextContent("continue with Hussh Shared");
+    fireEvent.click(screen.getByTestId("cloud-tier-shared-option"));
+    await act(async () => { fireEvent.click(screen.getByTestId("cloud-tier-shared")); });
+    expect(ApiService.selectSharedHosting).toHaveBeenCalledOnce();
+    expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
+  });
+
+  it("preserves a reserved cloud and disables deployment when setup is paused", async () => {
+    mockAgentStatus.mockResolvedValue({ hostingMode: "pending", state: "reserved", deploymentTarget: "user_gcp", cloudProject: "saved-project", featureEnabled: false });
+    render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(screen.getByTestId("byoc-reserved-project")).toHaveTextContent("saved-project");
+    expect(screen.getByTestId("byoc-reserved-project-deploy")).toBeDisabled();
+    expect(screen.getByTestId("byoc-setup-unavailable")).toHaveTextContent("saved progress is kept");
+    expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
+    expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
   });
 
   it("finishes a replacement owner's verified hosting without confusing its Firebase identity", async () => {
@@ -213,7 +241,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
   });
 
   it("keeps a provisioning assignment on its pending screen", async () => {
-    mockAgentStatus.mockResolvedValue({ hostingMode: "pending" } as never);
+    mockAgentStatus.mockResolvedValue({ featureEnabled: true, hostingMode: "pending" } as never);
     render(<ByocCloudSetupPage />);
 
     await act(async () => {
@@ -229,7 +257,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     "offers the saved project only for an unassigned %s BYOC reservation",
     async (hostingMode) => {
       mockAgentStatus.mockResolvedValue({
-        hostingMode,
+        featureEnabled: true, hostingMode,
         state: "reserved",
         deploymentTarget: "user_gcp",
         cloudProject: "saved-owner-project",
@@ -248,7 +276,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
 
   it("keeps a saved project closed when its setup job cannot be read", async () => {
     mockAgentStatus.mockResolvedValue({
-      hostingMode: "byoc",
+      featureEnabled: true, hostingMode: "byoc",
       state: "reserved",
       deploymentTarget: "user_gcp",
       cloudProject: "saved-owner-project",
@@ -267,7 +295,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
 
   it("never retries a failed job for a different saved project", async () => {
     mockAgentStatus.mockResolvedValue({
-      hostingMode: "pending",
+      featureEnabled: true, hostingMode: "pending",
       state: "reserved",
       deploymentTarget: "user_gcp",
       cloudProject: "saved-owner-project",

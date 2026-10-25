@@ -258,6 +258,16 @@ describe("ApiService.apiFetch", () => {
     vi.unstubAllEnvs();
   });
 
+  it("explains a paused GCP setup instead of suggesting a transient retry", async () => {
+    vi.mocked(AuthService.getIdToken).mockResolvedValue("firebase-id-token");
+    mockFetch.mockResolvedValue(jsonResponse({ detail: {
+      code: "BYOC_UNAVAILABLE", message: "Untrusted server detail",
+    } }, 503));
+    await expect(ApiService.beginByocAuthorize({ projectId: "owner-project" })).rejects.toThrow(
+      "Cloud setup is unavailable in this environment. Your existing setup is unchanged.",
+    );
+  });
+
   it("rechecks effect authority after asynchronous transport setup", async () => {
     let current = true;
     vi.mocked(trackRequestStart).mockImplementationOnce(() => { current = false; });

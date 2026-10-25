@@ -23086,7 +23086,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/api-service-fetch.test.ts",
       "symbol": null,
-      "value": 1747
+      "value": 1757
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23698,7 +23698,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
       "symbol": null,
-      "value": 811
+      "value": 824
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25489,7 +25489,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 6229
+      "value": 6232
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86119,6 +86119,30 @@
         "before": 1736,
         "after": 1792,
         "source_sha256": "e59fac1090ee323e88124ff98bdeb63e79c0f3fed2863a82bfd958ee775dc722"
+      }
+    ]
+  },
+  "byoc_availability_review_20261024": {
+    "source_revision": "c1861b4ae2",
+    "review": "Independent frontend/capability reviewer approves exactly these three existing module ceilings: bounded known-refusal API handling, nearest transport regression, and current-owner setup availability.166 focused tests cover disabled/unknown availability, preserved reserved/failed/attach/direct state and Shared continuation. No authority split for line count, scanner changes, global budget increases or unrelated findings. This is source evidence; serving acceptance remains required.",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+        "before": 6229,
+        "after": 6232,
+        "source_sha256": "3caa4dde24af43d7a1cbad36bc36da10515faad452a980ec7bf1ee3072729aa8"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/api-service-fetch.test.ts||module exceeds the advisory operon budget",
+        "before": 1747,
+        "after": 1757,
+        "source_sha256": "86c6774f15fee2c133d52732d80a5ef12fc052bf363d256e1c8d8e112b023394"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
+        "before": 811,
+        "after": 824,
+        "source_sha256": "b3d03326f91b5ff8dc618cadd569b795b863a29106d27f3a0643dbdb4cf1b599"
       }
     ]
   }

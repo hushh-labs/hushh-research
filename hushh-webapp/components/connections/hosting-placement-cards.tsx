@@ -34,9 +34,11 @@ export const CONNECTING_POLL_MS = 5_000;
 export function hostingOptionsFor({
   azureSelectable,
   hostedUnderMaintenance,
+  ownCloudAvailable,
 }: {
   azureSelectable: boolean;
   hostedUnderMaintenance: boolean;
+  ownCloudAvailable: boolean;
 }): HostingChoiceOption[] {
   return [
     {
@@ -46,13 +48,14 @@ export function hostingOptionsFor({
       description: azureSelectable
         ? "Your agent runs in your own Google Cloud Platform or Microsoft Azure account. You own it and pay for it."
         : "Your agent runs in your own Google Cloud Platform account. You own it and pay for it.",
-      supporting: (
+      supporting: !ownCloudAvailable ? "Cloud setup is unavailable in this environment." : (
         <>
           <GoogleCloudLogo decorative className="h-4" />
           {azureSelectable ? <MicrosoftAzureLogo decorative className="h-4 w-4" /> : null}
         </>
       ),
-      supportingDecorative: true,
+      supportingDecorative: ownCloudAvailable,
+      unavailable: !ownCloudAvailable,
       testId: "cloud-tier-own",
     },
     {
@@ -134,7 +137,7 @@ export function ConnectingToAgentCard({ onRefresh }: { onRefresh: () => void }) 
 }
 
 /** The automatic attach after a recorded setup stopped; the reason, typed by the hub. */
-export function AttachBlockedCard({ code, onRetry }: { code: string; onRetry: () => void }) {
+export function AttachBlockedCard({ code, onRetry }: { code: string; onRetry: (() => void) | null }) {
   const copy = attachBlockedCopy(code);
   if (!copy) return null;
   return (
@@ -145,12 +148,12 @@ export function AttachBlockedCard({ code, onRetry }: { code: string; onRetry: ()
         <a className={ACTION} href={ROUTES.PHONE_MANDATE} data-testid="hosting-attach-verify-phone">
           Verify your phone number
         </a>
-      ) : (
+      ) : onRetry ? (
         <button type="button" className={ACTION} onClick={onRetry}
           data-testid="hosting-attach-retry">
           Try again
         </button>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -161,7 +164,7 @@ export function DirectIngressBlockedCard({
   onRetry,
 }: {
   blocker: DirectIngressBlocker;
-  onRetry: () => void;
+  onRetry: (() => void) | null;
 }) {
   return (
     <div className={CARD} role="alert" data-testid="hosting-direct-blocked" data-code={blocker.code}>
@@ -171,7 +174,7 @@ export function DirectIngressBlockedCard({
           "Your agent is running in your cloud, and a policy there does not allow this app to reach it directly. Ask your cloud administrator to allow public access for your agent, then try again."}
       </p>
       <p className={BODY}>Hussh does not work around the policy.</p>
-      {blocker.retryable ? (
+      {blocker.retryable && onRetry ? (
         <button type="button" className={ACTION} onClick={onRetry} data-testid="hosting-direct-retry">
           Retry
         </button>

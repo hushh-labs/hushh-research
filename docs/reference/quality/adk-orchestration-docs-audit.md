@@ -19,23 +19,42 @@ retains its disclosed boundary.
 
 ## Current decision — 24 October 2026
 
-**The prior application correction is accepted on dev and UAT. The surgical
-lifecycle follow-up is local; it has not been merged or deployed.
-Installed-pod and desktop acceptance remain separate.**
+**The surgical correction remains on the preserved infrastructure branch; it is
+not the application currently serving dev or UAT. Installed Browser and Puppy
+acceptance remain separate.**
 
-The latest local checkpoints are `4752ed2688` (canonical lifecycle graduation),
-`e0deca33af` (fresh main `217007c715` reconciled by behavior) and `dd4444f1d2`
-(unified host-local settings). Main's migration 412–415 bytes, bounded recovery
-batching, mobile composer and mounted-consent changes are preserved. Final affected
-checks passed 144 auth/flow/proxy, 31 voice/outcome and 501 Back cases; three real
-PostgreSQL batch/index cases and the 127.64-second cleanup consumer passed. The
-combined canonical-415/rich-dev upgrades and actual contract reads passed in 85.89
-seconds. The observer-withdrawal rollback regression failed before its correction
-and passed afterward. TypeScript, changed-source lint, UI contracts and docs passed.
-These are local source checks; the exact frozen core/hosted candidate, installed
-Browser/Puppy and dev/UAT acceptance remain required. Native discovery contains 68
-linked skills and no regular authored files under `.claude`/`.codex`; local settings
-were preserved byte-for-byte and the unused discovery log was archived.
+At 01:29 UTC on 25 October (24 October Pacific), both dev services served
+`b2ee968a59ab` through [dev run 40148134757](https://github.com/hushh-labs/hushh-research/actions/runs/40148134757).
+Both UAT services still served `217007c71544` through
+[UAT run 40134067349](https://github.com/hushh-labs/hushh-research/actions/runs/40134067349).
+Read-only corporate ADC inspection confirmed `PERSONAL_AGENT_ENABLED=true` in dev
+and absent in UAT. Twelve hours of bounded request logs contained five UAT
+`/byoc/authorize/begin` responses with HTTP 503, while setup-status and suggestion
+reads succeeded. No matching dev requests appeared in that bounded window; this
+does not establish dev onboarding success or the cause of a separate dev failure.
+
+The local repair consumes the existing status capability before offering cloud
+authorization, preserves assignments and pending work, keeps Shared selectable,
+and explains the known environment refusal without transient retry advice. It
+also fences attach/direct-ingress retries when the surface is paused. UAT needs
+explicit non-stable pod publication, owner-cloud identities, qualified custody
+and lifecycle configuration before BYOC can be enabled. Copying dev's simulation
+block or changing only the master flag is not an acceptable rollout.
+
+Main `b2ee968a59ab` is preserved through merge `c1861b4ae2`, including its parallel
+UAT frontend handoff and stronger SQL proof. The new SQL tests exposed admission
+resetting erasure's statement timeout; the repair restores the erasure budget
+before destructive batches. All five real PostgreSQL cases passed in 2.51 seconds.
+The preceding candidate passed web-core in 144.85 seconds and governance in 134.6
+seconds; changed-surface checks follow the additional repair. These are local
+results, not exact-candidate hosted or serving acceptance.
+
+`.agents` and root `AGENTS.md` are the single authored development framework.
+Repository vendor discovery directories, adapters, startup hooks and generated
+host fleets have been removed. User-level tool installations, the external shared
+handoff and peer edits remain preserved.
+
+### Earlier local evidence (historical checkpoints)
 
 The preserved infrastructure branch now includes observed main `163ddb96a33e`
 through merge `912592cf7d`, without dropping main content or overwriting peer edits.
