@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from typing import TYPE_CHECKING, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 if TYPE_CHECKING:
     from playwright.async_api import (
@@ -28,40 +28,15 @@ from .contracts import (
     BrowserRequest,
     BrowserResponse,
 )
+from .playwright_actions import _argument, perform_action
+from .playwright_interception import BrowserRedirects, request_from_event
+from .playwright_interception import fulfill_headers as fulfill_headers
 from .public_profile import CHROMIUM_LANGUAGES, LANGUAGE, USER_AGENT
 from .session_state import RememberedState
-
-T = TypeVar("T")
-
-
-def _argument(value: T | None) -> T:
-    if value is None:
-        raise BrowserRefused("BROWSER_ACTION_INVALID")
-    return value
 
 
 class BrowserFetchPort(Protocol):
     async def fetch(self, request: BrowserRequest) -> BrowserResponse: ...
-
-
-def fulfill_headers(headers: tuple[tuple[str, str], ...]) -> dict[str, str]:
-    """Pinned Chromium splits newline-delimited Set-Cookie into separate headers.
-
-    Never comma-join cookies (Expires contains commas). Original header values
-    cannot contain CR/LF. Ambiguous singleton headers are refused.
-    """
-    result: dict[str, str] = {}
-    for name, value in headers:
-        name = name.lower()
-        if not name or any(c in name + value for c in "\r\n"):
-            raise BrowserRefused("BROWSER_RESPONSE_HEADERS_REFUSED")
-        if name in result:
-            if name in {"location", "content-length", "content-type"}:
-                raise BrowserRefused("BROWSER_RESPONSE_HEADERS_REFUSED")
-            result[name] += ("\n" if name == "set-cookie" else ", ") + value
-        else:
-            result[name] = value
-    return result
 
 
 class PlaywrightExecutor:
@@ -82,42 +57,24 @@ class PlaywrightExecutor:
         self._navigation_target: tuple[int, str] | None = None
         self._captured_navigation: tuple[int, str] | None = None
         self._main_frame_id: str | None = None
-        self._redirects: dict[
-            str, tuple[BrowserExecutionScope | None, asyncio.Future[None], str | None]
-        ] = {}
-        self._document_target: str | None = None
-        self._navigation_failed = False
+        self._redirects = BrowserRedirects()
 
     def _request_paused(self, event: dict) -> None:
         # Capture synchronously at delivery. Never consult a later input's
         # identity after awaiting. Exact request commitments still need review;
         # this is an execution bound, not proof of JavaScript causality.
-        predecessor = event.get("redirectedRequestId")
-        pending = self._redirects.pop(predecessor, None) if predecessor else None
-        # A late redirect belongs to its original action, including after
-        # takeover. Never borrow the next input's currently active scope.
-        scope = pending[0] if pending else None if predecessor else self._scope
+        scope, successor = self._redirects.capture(event, self._scope)
         task = asyncio.create_task(self._paused_request(event, scope=scope))
         self._requests.add(task)
         task.add_done_callback(self._requests.discard)
-        if pending and not pending[1].done():
-            pending[1].set_result(None)
+        if successor is not None and not successor.done():
+            successor.set_result(None)
 
     def _network_finished(self, event: dict, *, failed: bool = False) -> None:
-        for identifier, (_, successor, network_id) in tuple(self._redirects.items()):
-            if network_id is not None and network_id == event.get("requestId"):
-                self._redirects.pop(identifier)
-                self._navigation_failed |= failed
-                if not successor.done():
-                    successor.set_result(None)
+        self._redirects.finished(event, failed=failed)
 
     async def _settle_requests(self) -> None:
-        while self._requests or self._redirects:
-            await asyncio.gather(
-                *tuple(self._requests), *(entry[1] for entry in self._redirects.values())
-            )
-        if self._navigation_failed:
-            raise BrowserRefused("BROWSER_ACTION_FAILED")
+        await self._redirects.settle(self._requests)
 
     async def _paused_request(
         self, event: dict, *, scope: BrowserExecutionScope | None = None
@@ -133,33 +90,7 @@ class PlaywrightExecutor:
         if cdp is None or self._closed:
             return
         try:
-            if event.get("redirectedRequestId") and scope is None:
-                raise BrowserRefused("BROWSER_ACTION_SCOPE_REFUSED")
-            body = b""
-            if request.get("hasPostData"):
-                entries = request.get("postDataEntries")
-                if entries and all("bytes" in entry for entry in entries):
-                    body = b"".join(
-                        base64.b64decode(entry["bytes"], validate=True) for entry in entries
-                    )
-                elif "postData" in request:
-                    body = request["postData"].encode()
-                else:
-                    raise BrowserRefused("BROWSER_REQUEST_BODY_UNAVAILABLE")
-            response = await self._network.fetch(
-                BrowserRequest(
-                    scope=scope,
-                    url=request["url"],
-                    method=request["method"],
-                    body=body,
-                    headers=tuple(
-                        (name, str(value))
-                        for name, value in request["headers"].items()
-                        if name.lower()
-                        not in {"host", "connection", "content-length", "accept-encoding"}
-                    ),
-                )
-            )
+            response = await self._network.fetch(request_from_event(event, scope))
             # Validate original headers, then preserve the multimap in CDP.
             if (
                 response.download_id is not None
@@ -171,24 +102,7 @@ class PlaywrightExecutor:
             ):
                 self._captured_navigation = self._navigation_target
             fulfill_headers(response.headers)
-            if response.status in {301, 302, 303, 307, 308} and any(
-                name.lower() == "location" for name, _ in response.headers
-            ):
-                if len(self._redirects) >= 64 or request_id in self._redirects:
-                    raise BrowserRefused("BROWSER_REDIRECT_LIMIT")
-                # Register before fulfillment: Chromium may deliver the next
-                # paused request after this handler has returned. Keep the host
-                # action scope alive until that exact chain has settled.
-                self._redirects[request_id] = (
-                    scope,
-                    asyncio.get_running_loop().create_future(),
-                    event.get("networkId"),
-                )
-            elif (
-                event.get("resourceType") == "Document"
-                and event.get("frameId") == self._main_frame_id
-            ):
-                self._document_target = request["url"]
+            self._redirects.prepare(event, response, scope, self._main_frame_id)
             headers = response.headers + (
                 (
                     "content-security-policy",
@@ -208,9 +122,7 @@ class PlaywrightExecutor:
                 },
             )
         except Exception as exc:
-            pending = self._redirects.pop(request_id, None)
-            if pending and not pending[1].done():
-                pending[1].set_result(None)
+            self._redirects.discard(request_id)
             if isinstance(exc, BrowserRefused) and exc.code == "BROWSER_OUTCOME_UNCERTAIN":
                 self._uncertain = True
             if self._cdp is not None:
@@ -314,69 +226,14 @@ class PlaywrightExecutor:
             raise BrowserRefused("BROWSER_OUTCOME_UNCERTAIN")
         try:
             self._scope = scope
-            self._document_target = None
-            self._navigation_failed = False
+            self._redirects.begin_action()
             timeout_ms = scope.remaining() * 1000 if scope is not None else 15000
-            match action.operation:
-                case "navigate":
-                    await self._navigate_with_download(page, action, timeout_ms)
-                case "click":
-                    await page.mouse.click(_argument(action.x), _argument(action.y))
-                case "hover":
-                    await page.mouse.move(_argument(action.x), _argument(action.y))
-                case "type":
-                    if not action.focus_existing:
-                        await page.mouse.click(_argument(action.x), _argument(action.y))
-                    if action.clear_before_typing:
-                        await page.keyboard.press("ControlOrMeta+A")
-                        await page.keyboard.press("Backspace")
-                    await page.keyboard.insert_text(_argument(action.text))
-                    if action.press_enter:
-                        await page.keyboard.press("Enter")
-                case "scroll":
-                    if action.magnitude is None or action.direction is None:
-                        raise BrowserRefused("BROWSER_ACTION_INVALID")
-                    if action.x is not None:
-                        await page.mouse.move(action.x, _argument(action.y))
-                    x, y = {
-                        "up": (0, -action.magnitude),
-                        "down": (0, action.magnitude),
-                        "left": (-action.magnitude, 0),
-                        "right": (action.magnitude, 0),
-                    }[action.direction]
-                    await page.mouse.wheel(x, y)
-                case "back":
-                    await page.go_back(wait_until="domcontentloaded", timeout=timeout_ms)
-                case "forward":
-                    await page.go_forward(wait_until="domcontentloaded", timeout=timeout_ms)
-                case "keys":
-                    await page.keyboard.press("+".join(action.keys))
-                case "drag":
-                    await page.mouse.move(_argument(action.x), _argument(action.y))
-                    await page.mouse.down()
-                    try:
-                        await page.mouse.move(
-                            _argument(action.destination_x),
-                            _argument(action.destination_y),
-                            steps=5,
-                        )
-                    finally:
-                        await page.mouse.up()
-                case "observe":
-                    pass
-                case "resize":
-                    await page.set_viewport_size(
-                        {"width": _argument(action.width), "height": _argument(action.height)}
-                    )
+            await perform_action(page, action, timeout_ms, self._navigate_with_download)
             await self._settle_requests()
-            if self._document_target is not None:
-                target = self._document_target
-                await page.wait_for_url(
-                    lambda url: str(url) == target,
-                    wait_until="domcontentloaded",
-                    timeout=scope.remaining() * 1000 if scope is not None else timeout_ms,
-                )
-                await self._settle_requests()
+            await self._redirects.wait_for_document(
+                page, scope.remaining() * 1000 if scope is not None else timeout_ms
+            )
+            await self._settle_requests()
             png = await page.screenshot(
                 type="png", timeout=scope.remaining() * 1000 if scope is not None else 10000
             )
@@ -412,10 +269,7 @@ class PlaywrightExecutor:
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
         self._requests.clear()
-        for _, successor, _ in self._redirects.values():
-            successor.cancel()
-        self._redirects.clear()
-        self._document_target = None
+        self._redirects.close()
         self._scope = None
         browser, playwright = self._browser, self._playwright
         self._cdp = None

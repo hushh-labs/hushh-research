@@ -71,6 +71,8 @@ COPY hushh_mcp/services/pod_browser/launch_protocol.py \
      hushh_mcp/services/pod_browser/contracts.py \
      hushh_mcp/services/pod_browser/mailbox.py \
      hushh_mcp/services/pod_browser/playwright_executor.py \
+     hushh_mcp/services/pod_browser/playwright_actions.py \
+     hushh_mcp/services/pod_browser/playwright_interception.py \
      hushh_mcp/services/pod_browser/session_state.py \
      hushh_mcp/services/pod_browser/scratch.py \
      hushh_mcp/services/pod_browser/public_profile.py \

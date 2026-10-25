@@ -18,6 +18,8 @@ COPY hushh_mcp/services/pod_browser/namespace_probe.py \
      hushh_mcp/services/pod_browser/contracts.py \
      hushh_mcp/services/pod_browser/mailbox.py \
      hushh_mcp/services/pod_browser/playwright_executor.py \
+     hushh_mcp/services/pod_browser/playwright_actions.py \
+     hushh_mcp/services/pod_browser/playwright_interception.py \
      hushh_mcp/services/pod_browser/session_state.py \
      hushh_mcp/services/pod_browser/origin.py \
      /opt/probe/hushh_mcp/services/pod_browser/
