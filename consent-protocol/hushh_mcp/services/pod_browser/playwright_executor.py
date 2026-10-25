@@ -82,19 +82,42 @@ class PlaywrightExecutor:
         self._navigation_target: tuple[int, str] | None = None
         self._captured_navigation: tuple[int, str] | None = None
         self._main_frame_id: str | None = None
+        self._redirects: dict[
+            str, tuple[BrowserExecutionScope | None, asyncio.Future[None], str | None]
+        ] = {}
+        self._document_target: str | None = None
+        self._navigation_failed = False
 
     def _request_paused(self, event: dict) -> None:
         # Capture synchronously at delivery. Never consult a later input's
         # identity after awaiting. Exact request commitments still need review;
         # this is an execution bound, not proof of JavaScript causality.
-        scope = self._scope
+        predecessor = event.get("redirectedRequestId")
+        pending = self._redirects.pop(predecessor, None) if predecessor else None
+        # A late redirect belongs to its original action, including after
+        # takeover. Never borrow the next input's currently active scope.
+        scope = pending[0] if pending else None if predecessor else self._scope
         task = asyncio.create_task(self._paused_request(event, scope=scope))
         self._requests.add(task)
         task.add_done_callback(self._requests.discard)
+        if pending and not pending[1].done():
+            pending[1].set_result(None)
+
+    def _network_finished(self, event: dict, *, failed: bool = False) -> None:
+        for identifier, (_, successor, network_id) in tuple(self._redirects.items()):
+            if network_id is not None and network_id == event.get("requestId"):
+                self._redirects.pop(identifier)
+                self._navigation_failed |= failed
+                if not successor.done():
+                    successor.set_result(None)
 
     async def _settle_requests(self) -> None:
-        while self._requests:
-            await asyncio.gather(*tuple(self._requests))
+        while self._requests or self._redirects:
+            await asyncio.gather(
+                *tuple(self._requests), *(entry[1] for entry in self._redirects.values())
+            )
+        if self._navigation_failed:
+            raise BrowserRefused("BROWSER_ACTION_FAILED")
 
     async def _paused_request(
         self, event: dict, *, scope: BrowserExecutionScope | None = None
@@ -110,6 +133,8 @@ class PlaywrightExecutor:
         if cdp is None or self._closed:
             return
         try:
+            if event.get("redirectedRequestId") and scope is None:
+                raise BrowserRefused("BROWSER_ACTION_SCOPE_REFUSED")
             body = b""
             if request.get("hasPostData"):
                 entries = request.get("postDataEntries")
@@ -146,6 +171,24 @@ class PlaywrightExecutor:
             ):
                 self._captured_navigation = self._navigation_target
             fulfill_headers(response.headers)
+            if response.status in {301, 302, 303, 307, 308} and any(
+                name.lower() == "location" for name, _ in response.headers
+            ):
+                if len(self._redirects) >= 64 or request_id in self._redirects:
+                    raise BrowserRefused("BROWSER_REDIRECT_LIMIT")
+                # Register before fulfillment: Chromium may deliver the next
+                # paused request after this handler has returned. Keep the host
+                # action scope alive until that exact chain has settled.
+                self._redirects[request_id] = (
+                    scope,
+                    asyncio.get_running_loop().create_future(),
+                    event.get("networkId"),
+                )
+            elif (
+                event.get("resourceType") == "Document"
+                and event.get("frameId") == self._main_frame_id
+            ):
+                self._document_target = request["url"]
             headers = response.headers + (
                 (
                     "content-security-policy",
@@ -165,6 +208,9 @@ class PlaywrightExecutor:
                 },
             )
         except Exception as exc:
+            pending = self._redirects.pop(request_id, None)
+            if pending and not pending[1].done():
+                pending[1].set_result(None)
             if isinstance(exc, BrowserRefused) and exc.code == "BROWSER_OUTCOME_UNCERTAIN":
                 self._uncertain = True
             if self._cdp is not None:
@@ -221,6 +267,11 @@ class PlaywrightExecutor:
             tree = await self._cdp.send("Page.getFrameTree")
             self._main_frame_id = tree["frameTree"]["frame"]["id"]
             self._cdp.on("Fetch.requestPaused", self._request_paused)
+            self._cdp.on("Network.loadingFinished", self._network_finished)
+            self._cdp.on(
+                "Network.loadingFailed", lambda event: self._network_finished(event, failed=True)
+            )
+            await self._cdp.send("Network.enable")
             await self._cdp.send(
                 "Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]}
             )
@@ -263,6 +314,8 @@ class PlaywrightExecutor:
             raise BrowserRefused("BROWSER_OUTCOME_UNCERTAIN")
         try:
             self._scope = scope
+            self._document_target = None
+            self._navigation_failed = False
             timeout_ms = scope.remaining() * 1000 if scope is not None else 15000
             match action.operation:
                 case "navigate":
@@ -316,6 +369,14 @@ class PlaywrightExecutor:
                         {"width": _argument(action.width), "height": _argument(action.height)}
                     )
             await self._settle_requests()
+            if self._document_target is not None:
+                target = self._document_target
+                await page.wait_for_url(
+                    lambda url: str(url) == target,
+                    wait_until="domcontentloaded",
+                    timeout=scope.remaining() * 1000 if scope is not None else timeout_ms,
+                )
+                await self._settle_requests()
             png = await page.screenshot(
                 type="png", timeout=scope.remaining() * 1000 if scope is not None else 10000
             )
@@ -329,6 +390,11 @@ class PlaywrightExecutor:
                 url=page.url,
                 png=png,
             )
+        except asyncio.CancelledError:
+            # A cancelled chain cannot be reused with cancelled successor
+            # futures or acquire authority from another action.
+            await self.close()
+            raise
         except BrowserRefused:
             raise
         except Exception:
@@ -346,6 +412,10 @@ class PlaywrightExecutor:
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
         self._requests.clear()
+        for _, successor, _ in self._redirects.values():
+            successor.cancel()
+        self._redirects.clear()
+        self._document_target = None
         self._scope = None
         browser, playwright = self._browser, self._playwright
         self._cdp = None
