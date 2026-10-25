@@ -153,6 +153,8 @@ ALTER TABLE public.personal_agent_registry
 ALTER TABLE public.consent_audit_receipts
  DROP CONSTRAINT IF EXISTS consent_audit_receipts_subject_id_ledger_hash_key,
  DROP CONSTRAINT IF EXISTS consent_audit_receipts_subject_id_ledger_seq_key,
+ DROP CONSTRAINT IF EXISTS consent_audit_receipts_subject_id_hash_key,
+ DROP CONSTRAINT IF EXISTS consent_audit_receipts_subject_id_seq_key,
  ADD CONSTRAINT consent_audit_receipts_subject_id_hash_key UNIQUE(subject_id,hash),
  ADD CONSTRAINT consent_audit_receipts_subject_id_seq_key UNIQUE(subject_id,seq);
 DROP INDEX IF EXISTS public.idx_consent_audit_receipts_subject;
