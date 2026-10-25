@@ -491,6 +491,14 @@ suppression inputs. A declaration is neither independent public evidence nor an
 identity bridge; sources, identity assessment and new findings retain their
 received-evidence validation and owner review requirements.
 
+The Azure planner admits those explicitly approved leads alongside seeds and
+received evidence. During the identity phase, a safe untried lead can supply an
+identity-discovery question and related topics without fabricating a candidate or
+anchor. A coherent candidate awaiting review still follows the coverage path.
+The strict synthetic readiness check rejects ignored leads and records only
+authored boolean conditions on a planner failure; it never logs the model answer,
+identity fields or lead text.
+
 Both page refresh entrypoints refuse an unreviewed queue, an in-flight review
 save, or pending/paused research. Accepted statements stay in **Confirmed by
 you** and normalized rejected statements stay hidden as new batches arrive.
