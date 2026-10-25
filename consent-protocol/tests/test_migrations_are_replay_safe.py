@@ -466,12 +466,9 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
                     continue
                 with conn.cursor() as cur:
                     cur.execute((MIGRATIONS_DIR / "parked" / filename).read_text())
-        for filename in (
-            "418_account_provider_cleanup_staging.sql",
-            "419_account_generations.sql",
-            "420_private_agent_lifecycle_foundation.sql",
-            "421_cloud_removal_recovery.sql",
-        ):
+        for filename in migrate.RELEASE_MIGRATION_FILES:
+            if int(filename[:3]) <= 417:
+                continue
             with conn.cursor() as cur:
                 cur.execute((MIGRATIONS_DIR / filename).read_text())
         # Run the release guard's actual catalog reader against this disposable DB.

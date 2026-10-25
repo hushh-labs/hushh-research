@@ -153,7 +153,9 @@ class DrivePeriodPacketStore(DrivePacketStore):
 
         return await self._transaction(operation)
 
-    async def save_build(self, job, build, *, error=None, preview_complete=False):
+    async def save_build(
+        self, job, build, *, error=None, preview_complete=False, final_owner_preview=False
+    ):
         def operation(connection):
             row = self.current_period_head(
                 connection,
@@ -167,8 +169,10 @@ class DrivePeriodPacketStore(DrivePacketStore):
             connection.execute(
                 text("""UPDATE drive_packet_heads SET
               build_envelope=CAST(:build AS jsonb),lease_id=NULL,lease_expires_at=NULL,
-              next_at=CASE WHEN :complete THEN LEAST(clock_timestamp()+INTERVAL '1 day',
-                (period_end+1)::timestamp AT TIME ZONE period_timezone)
+              dirty=CASE WHEN :final_preview THEN FALSE ELSE dirty END,
+              next_at=CASE WHEN :complete THEN CASE
+                WHEN :final_preview THEN clock_timestamp()+INTERVAL '1 day'
+                ELSE LEAST(clock_timestamp()+INTERVAL '1 day',(period_end+1)::timestamp AT TIME ZONE period_timezone) END
                 ELSE clock_timestamp()+make_interval(secs=>:delay) END,error_code=:error,
               attempts=CASE WHEN :error IS NULL THEN 0 ELSE attempts+1 END,updated_at=clock_timestamp()
               WHERE packet_id=:id"""),
@@ -180,6 +184,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
                     "delay": 300 if error else 1,
                     "error": error,
                     "complete": preview_complete,
+                    "final_preview": final_owner_preview,
                 },
             )
 

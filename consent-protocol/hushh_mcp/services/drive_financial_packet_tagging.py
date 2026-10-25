@@ -15,11 +15,31 @@ from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, Trans
 from hushh_mcp.services.drive_groups.indexer import classify_candidates
 from hushh_mcp.services.drive_groups.models import load_bundle
 from hushh_mcp.services.drive_telemetry import correlation_tag, drive_logger, drive_stage
+from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_adapter import RAW_PREFIX_LIMIT, DriveReadError
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 logger = drive_logger("financial_packet_tagging")
+
+
+_OAUTH_FAILURE_CODES = frozenset(
+    {
+        "connector_unavailable",
+        "invalid_argument",
+        "reconnect_required",
+        "connection_changed",
+        "insufficient_scope",
+        "unexpected_scope",
+    }
+)
+
+
+def _failure_code(error):
+    if isinstance(error, DriveOAuthError):
+        code = str(error)
+        return code if code in _OAUTH_FAILURE_CODES else "oauth_unavailable"
+    return "processing_timeout" if isinstance(error, TimeoutError) else "processing_unavailable"
 
 
 class CandidateReads:
@@ -178,6 +198,7 @@ class FinancialPacketTagger:
             )
             return outcome
         except (
+            DriveOAuthError,
             DriveReadError,
             PermissionError,
             ValueError,
@@ -188,8 +209,13 @@ class FinancialPacketTagger:
             # No file, source evidence, sale version or owner result is removed.
             try:
                 await tags.commit(self.store, job, error=True)
-            except (DriveReadError, PermissionError, HTTPException):
+            except (DriveOAuthError, DriveReadError, PermissionError, HTTPException):
                 pass
+            logger.info(
+                "period_packet.tagging outcome=deferred code=%s packet_tag=%s",
+                _failure_code(error),
+                correlation_tag(str(job["packet_id"])),
+            )
             if isinstance(error, asyncio.CancelledError):
                 raise
             return "deferred"

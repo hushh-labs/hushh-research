@@ -18,6 +18,12 @@ from datetime import UTC, date, datetime, timedelta, timezone
 from functools import partial
 from zoneinfo import ZoneInfo
 
+from hushh_mcp.services.drive_financial_packet_search_limits import (
+    drive_page_token,
+    financial_discovery_authorized,
+    page_token,
+    page_work_limit,
+)
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
 from hushh_mcp.services.drive_owner_index_port import MAX_LOCAL_CANDIDATES, default_owner_index
@@ -1378,17 +1384,8 @@ def _v1_unsupported_candidate(
     )
 
 
-def _token(payload, current, checkpoint):
-    token = payload.get("nextPageToken")
-    if token is not None and (not isinstance(token, str) or len(token) > 1024):
-        raise DriveReadError("provider_response_invalid")
-    if token:
-        digest = hashlib.sha256(token.encode()).hexdigest()
-        seen = checkpoint.setdefault("seen_tokens", [])
-        if token == current or digest in seen or len(seen) >= 1000:
-            raise DriveReadError("provider_response_invalid")
-        seen.append(digest)
-    return token or None
+def _token(payload, current, checkpoint, *, financial=False):
+    return page_token(payload, current, checkpoint, financial=financial)
 
 
 def _phase(checkpoint, name):
@@ -2792,6 +2789,7 @@ class DriveOwnerSearchService:
             or job["checkpoint"].get("phase") == "index"
         ):
             return await self._indexed_page(job)
+        financial = financial_discovery_authorized(job)
         checkpoint = copy.deepcopy(job["checkpoint"])
         if (
             checkpoint.get("request_origin_id")
@@ -2851,9 +2849,7 @@ class DriveOwnerSearchService:
             ):
                 raise DriveReadError("provider_response_invalid")
             # Drive-list tokens have their own cycle guard across each file scan.
-            token_state = {"seen_tokens": checkpoint["drive_tokens"]}
-            next_token = _token(payload, checkpoint["drive_page_token"], token_state)
-            checkpoint["drive_page_token"] = next_token
+            next_token = drive_page_token(payload, checkpoint, financial=financial)
             checkpoint["drives"] = list(dict.fromkeys(item["id"] for item in drives))
             checkpoint["drive_index"] = 0
             if drives:
@@ -3018,7 +3014,7 @@ class DriveOwnerSearchService:
                         "openUrl": match["open_url"],
                     }
                 )
-        next_token = _token(payload, checkpoint["page_token"], checkpoint)
+        next_token = _token(payload, checkpoint["page_token"], checkpoint, financial=financial)
         if next_token and bounded_complete:
             _counter(checkpoint, "boundedCorporaCompleted")
             checkpoint["request_rank_pruned"] = True
@@ -3054,11 +3050,12 @@ class DriveOwnerSearchService:
                 _phase(checkpoint, "drives")
             else:
                 done = _advance_query(checkpoint)
-        if (checkpoint.get("request_origin_id") or checkpoint.get("period_packet_origin")) and (
-            checkpoint["coverage_counts"].get("providerFilePages", 0) >= MAX_REQUEST_FILE_PAGES
-            and not done
-            or len(json.dumps(checkpoint, ensure_ascii=False).encode("utf-8"))
-            > MAX_CHECKPOINT_BYTES
+        if page_work_limit(
+            checkpoint,
+            done,
+            financial,
+            page_limit=MAX_REQUEST_FILE_PAGES,
+            checkpoint_bytes=MAX_CHECKPOINT_BYTES,
         ):
             checkpoint["coverage_counts"]["workLimitReached"] = True
             incomplete, done = True, True
