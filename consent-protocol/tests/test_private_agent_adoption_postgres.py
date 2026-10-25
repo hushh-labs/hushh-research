@@ -172,13 +172,13 @@ def reject_guard_drift(connection, entry):
                 cursor.execute(cleanup)
 
 
-async def execute_mode(server, database, entry, mode):
+async def execute_mode(server, database, entry, mode, *, following=()):
     connection = await asyncpg.connect(
         host=server.dir, port=server.port, user="hushh", database=database
     )
     try:
         return await apply_manifest_entries(
-            connection, (entry,), mode=mode, deploy_sha="synthetic-adoption-head"
+            connection, (entry, *following), mode=mode, deploy_sha="synthetic-adoption-head"
         )
     finally:
         await connection.close()
@@ -315,6 +315,7 @@ def seed_legacy_authorization(connection):
 
 
 def reject_authorization_drift(connection, entry, before):
+    receipts = receipt_state(connection)
     mutations = (
         tuple(
             (ddl, "authorization_attempts")
@@ -336,6 +337,7 @@ def reject_authorization_drift(connection, entry, before):
             finally:
                 cursor.execute("ROLLBACK")
             assert authorization_state(connection) == before
+            assert receipt_state(connection) == receipts
         cursor.execute(
             "CREATE UNIQUE INDEX synthetic_adoption_drift ON public.personal_agent_registry(space_id)"
         )
@@ -344,6 +346,7 @@ def reject_authorization_drift(connection, entry, before):
                 cursor.execute(execution_sql(entry))
             cursor.execute("ROLLBACK")
             assert authorization_state(connection) == before
+            assert receipt_state(connection) == receipts
         finally:
             cursor.execute("ROLLBACK")
             cursor.execute("DROP INDEX synthetic_adoption_drift")
@@ -448,6 +451,7 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
         before = seed_legacy_authorization(connection)
         receipts = receipt_state(connection)
         assert len(receipts) == 1
+        assert "ledger" not in receipts[0][0]
         assert before[0] == ("jsonb", False, None, "", "")
         with connection.cursor() as cursor:
             with pytest.raises(psycopg2.errors.RaiseException, match="column"):
@@ -475,5 +479,22 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
         expected = () if mode is MigrationMode.LEDGER else (FOUNDATION,)
         assert asyncio.run(execute_mode(replay_pg, database, entry, mode)) == expected
         assert authorization_state(connection) == normalized
-        assert receipt_state(connection) == receipts
+        following = build_manifest_entries(
+            MIGRATIONS,
+            ["421_cloud_removal_recovery.sql", "422_financial_packet_discovery_capacity.sql"],
+        )
+        assert asyncio.run(
+            execute_mode(replay_pg, database, following[0], mode, following=following[1:])
+        ) == tuple(e.filename for e in following)
+        expected = (
+            () if mode is MigrationMode.LEDGER else (FOUNDATION, *(e.filename for e in following))
+        )
+        assert (
+            asyncio.run(execute_mode(replay_pg, database, entry, mode, following=following))
+            == expected
+        )
+        assert authorization_state(connection) == normalized
+        assert receipt_state(connection) == [
+            ({**row, "ledger": "consent"}, ctid) for row, ctid in receipts
+        ]
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
