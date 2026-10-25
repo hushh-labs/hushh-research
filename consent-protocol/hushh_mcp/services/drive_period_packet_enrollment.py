@@ -6,6 +6,7 @@ import os
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from fastapi import HTTPException
 from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_owner_cohort
@@ -73,7 +74,10 @@ async def ensure_owner(store, *, user_id, timezone="UTC", now=None):
     return await store._transaction(operation)
 
 
-async def due_owners(store, limit=4):
+ENROLLMENT_SCAN_LIMIT = 20
+
+
+async def candidate_owners(store):
     cohort = connector_feature_owner_cohort("drive_period_packets", "google_drive_live")
     if cohort == ():
         return []
@@ -98,12 +102,12 @@ async def due_owners(store, limit=4):
                   AND h.connection_generation=c.connection_generation AND h.packet_kind='provider_discovery'
                   AND h.current_version=0 AND h.dirty AND (h.attempts<8 OR (h.category='financial' AND h.predefined_query_version IS DISTINCT FROM :template)) AND h.next_at<=clock_timestamp()
                   AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp())))
-            ORDER BY COALESCE((SELECT max(h.updated_at) FROM drive_packet_heads h
+            ORDER BY COALESCE(c.drive_packet_inspected_at,'epoch'::timestamptz),COALESCE((SELECT max(h.updated_at) FROM drive_packet_heads h
               WHERE h.user_id=c.user_id AND h.connection_generation=c.connection_generation
                 AND h.packet_kind='provider_discovery'),c.updated_at),c.user_id
             LIMIT :limit"""),
                 {
-                    "limit": max(1, min(limit, 20)),
+                    "limit": ENROLLMENT_SCAN_LIMIT,
                     "template": QUERY_VERSION,
                     "all_owners": cohort is None,
                     "owners": list(cohort or ()),
@@ -112,6 +116,36 @@ async def due_owners(store, limit=4):
         ]
 
     return await store._transaction(operation)
+
+
+async def due_owners(store, limit=4):
+    """Refused opaque owners cannot consume admitted slots or pin the scan prefix."""
+    from hushh_mcp.services.owner_placement_guard import admit_hub_content
+
+    admitted = []
+    deadline = asyncio.get_running_loop().time() + 5
+    for user in await candidate_owners(store):
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            break
+        await store._transaction(
+            lambda connection, user=user: (
+                connection.execute(
+                    text("""UPDATE user_external_connector_connections SET drive_packet_inspected_at=clock_timestamp()
+            WHERE user_id=:user AND connector_id='google_drive'"""),
+                    {"user": user},
+                ).rowcount
+            )
+        )
+        try:
+            async with asyncio.timeout(remaining):
+                await admit_hub_content(user, "drive_period_packets")
+        except (HTTPException, TimeoutError):
+            continue
+        admitted.append(user)
+        if len(admitted) >= max(1, min(limit, 20)):
+            break
+    return admitted
 
 
 logger = logging.getLogger(__name__)

@@ -3857,6 +3857,7 @@
       "credential_iv",
       "credential_tag",
       "credential_version",
+      "drive_packet_inspected_at",
       "envelope_version",
       "last_error_code",
       "last_used_at",

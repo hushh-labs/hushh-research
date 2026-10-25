@@ -340,3 +340,63 @@ async def test_retention_advances_past_pinned_current_and_previous_previews(reus
             ).scalar_one()
             == 2
         )
+
+
+async def test_enrollment_advances_past_a_refused_prefix_without_accessing_it(
+    reusable, monkeypatch
+):
+    from hushh_mcp.services import drive_period_packet_enrollment as enrollment
+
+    service, _, planner, transport = await preview_runtime(reusable, monkeypatch)
+    refused = [f"deferred-owner-{i}" for i in range(4)]
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", ",".join([*refused, "owner"]))
+    monkeypatch.setattr(enrollment, "ENROLLMENT_SCAN_LIMIT", 2)
+
+    async def placement(user):
+        return "shared" if user == "owner" else "byoc" if user.endswith(("0", "2")) else "unknown"
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode", placement
+    )
+    with service.store.db.engine.begin() as connection:
+        connection.execute(text("DELETE FROM drive_packet_heads WHERE user_id='owner'"))
+        for user in refused:
+            connection.execute(
+                text("""INSERT INTO user_external_connector_connections
+              SELECT (jsonb_populate_record(NULL::user_external_connector_connections,
+                to_jsonb(c)||jsonb_build_object('user_id',:user,'updated_at','2000-01-01T00:00:00Z',
+                  'drive_packet_inspected_at',NULL,'credential_ciphertext',NULL,
+                  'credential_iv',NULL,'credential_tag',NULL))).*
+              FROM user_external_connector_connections c WHERE c.user_id='owner' AND c.connector_id='google_drive'"""),
+                {"user": user},
+            )
+    selected = []
+    for _ in range(3):
+        selected = await service.store.due_owners(limit=1)
+        if selected:
+            assert selected == ["owner"]
+            await service.ensure_owner(user_id="owner")
+            break
+    assert selected == ["owner"]
+    with service.store.db.engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT DISTINCT user_id FROM drive_packet_heads")
+        ).scalars().all() == ["owner"]
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM user_external_connector_connections WHERE user_id=ANY(:owners) AND drive_packet_inspected_at IS NOT NULL AND updated_at='2000-01-01T00:00:00Z'"
+                ),
+                {"owners": refused},
+            ).scalar_one()
+            == 4
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_live_preferences WHERE user_id=ANY(:owners)"),
+                {"owners": refused},
+            ).scalar_one()
+            == 0
+        )
+    planner.assert_not_awaited()
+    transport.read_tool.assert_not_awaited()

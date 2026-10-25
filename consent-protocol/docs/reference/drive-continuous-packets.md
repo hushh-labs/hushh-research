@@ -377,7 +377,10 @@ For an eligible connected owner, preparation enrolls current-year two-month
 periods, current first. Missing background preference defaults on; explicit Off,
 revoked scopes and owner placement still fence all processing. Successful live
 Drive verification enrolls new connections; the bounded existing worker enrolls
-existing owners. Reopening an open preview older than five minutes requests a
+existing owners. The bounded enrollment scan advances an opaque-owner inspection
+timestamp for refused placements, without touching OAuth freshness or reading
+their files, so an ineligible prefix cannot pin eligible owners behind it.
+Reopening an open preview older than five minutes requests a
 refresh; completed open previews refresh daily. GET polling only reads saved
 state. Date placement remains title date, else creation date, else modification
 date; this is not proof of a statement's coverage period. There is no new index,
