@@ -15,6 +15,11 @@ const record = (event: string) => {
     }
   ).recordSignOutEvent(event);
 };
+export const Capacitor = {
+  isNativePlatform: () => new URLSearchParams(window.location.search).get("native") === "1",
+  getPlatform: () => new URLSearchParams(window.location.search).get("native") === "1" ? "android" : "web",
+  isPluginAvailable: () => false,
+};
 export const registerPlugin = () => ({});
 export class WebPlugin {}
 export const usePathname = () => window.location.pathname;
@@ -41,15 +46,17 @@ export const toast = Object.assign(() => undefined, {
 });
 export const AuthService = {
   ...authPorts,
+  restoreNativeSession: async () => authPorts.getCurrentUser(),
   reauthenticateAccountDeletionIdentity: async () => {
     record("provider-verified");
     return "synthetic-provider-proof";
   },
   startPhoneDeletionVerification: async () => {
     record("sms-requested");
-    return "synthetic-sms-session";
+    return { verificationId: "synthetic-sms-session" };
   },
-  getPhoneClaimIdToken: async ({
+  cancelPhoneDeletionVerification: async () => {},
+  confirmPhoneDeletionVerification: async ({
     verificationCode,
   }: {
     verificationCode: string;
