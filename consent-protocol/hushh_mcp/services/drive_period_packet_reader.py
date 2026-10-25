@@ -85,7 +85,7 @@ def project_packet(store, row, *, is_owner, owner_contents):
         "timezone": row["period_timezone"],
         "state": state,
         "title": key["title"],
-        "description": "Google Drive query matches; contents were not read.",
+        "description": "Files found by Google Drive search.",
         "coverageSummary": "Files selected by provider search and metadata dates.",
         "documentCount": row["document_count"] or 0,
         "priceCents": PERIOD_PACKET_PRICE_CENTS,
@@ -109,8 +109,10 @@ def project_packet(store, row, *, is_owner, owner_contents):
         ),
     }
     if is_owner and owner_contents:
+        from hushh_mcp.services.drive_packet_public_summary import owner_public_summary
         from hushh_mcp.services.drive_period_packet_preview import preview_summary
 
+        result["publicSummary"] = owner_public_summary(row)
         result["preview"] = preview_summary(store, row)
         documents = []
         for source in list((manifest or {}).get("source_metadata", {}).values())[:120]:
@@ -158,7 +160,8 @@ async def list_packets(
             ORDER BY r.created_at DESC LIMIT 1) buyer ON TRUE
           WHERE h.user_id=:owner AND h.connection_generation=:generation
             AND h.packet_kind='provider_discovery' AND (:after IS NULL OR h.packet_id>CAST(:after AS uuid))
-            AND (:is_owner OR l.enabled) ORDER BY h.packet_id LIMIT :limit"""),
+            AND (:is_owner OR l.enabled OR buyer.request_id IS NOT NULL)
+          ORDER BY h.packet_id LIMIT :limit"""),
             {
                 "owner": owner,
                 "viewer": user_id,

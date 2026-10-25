@@ -14,6 +14,8 @@ from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_period_packet_contract import CATEGORY_PURPOSES
+from hushh_mcp.services.drive_period_packet_metrics import claimed
+from hushh_mcp.services.drive_period_packet_metrics import snapshot as record_snapshot
 from hushh_mcp.services.drive_period_packet_preview import snapshot_search
 from hushh_mcp.services.drive_period_packet_search import (
     advance_search,
@@ -27,6 +29,7 @@ from hushh_mcp.services.drive_suggestion_service import (
     plan_semantic_live_search,
 )
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation, drive_stage
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
@@ -175,11 +178,13 @@ class DrivePeriodPacketService:
                         QUERY_SOURCE["version"],
                     )
                 state = await self._search_job(job, plan, binding)
+                build = claimed(logger, job, build, state, first_results_only=first_results_only)
 
                 async def snapshot(**_):
                     nonlocal build
                     with drive_stage(logger, "packet_snapshot"):
                         build = await snapshot_search(self.store, job, build, state["jobId"])
+                        record_snapshot(logger, job, build)
 
                 await snapshot()
                 state = await advance_search(
@@ -220,7 +225,14 @@ class DrivePeriodPacketService:
                         user_id=user_id, deadline_seconds=max(1, min(75, deadline_seconds - 1))
                     )
                 ] += 1
-            except (DriveReadError, ValueError, TimeoutError, PermissionError, HTTPException):
+            except (
+                DriveReadError,
+                ValueError,
+                TimeoutError,
+                PermissionError,
+                HTTPException,
+                ConnectorLifecycleError,
+            ):
                 counts["unavailable"] += 1
 
         async def organize():
@@ -229,7 +241,11 @@ class DrivePeriodPacketService:
                 counts[
                     "tagging_" + await tagger.run_one(deadline_seconds=max(1, deadline_seconds - 2))
                 ] += 1
-            except (DriveReadError, ValueError, TimeoutError, PermissionError, HTTPException):
+            except Exception as error:  # Advisory organizing must not cancel discovery siblings.
+                logger.warning(
+                    "period_packet.tagging outcome=deferred code=local_classifier_failure type=%s",
+                    type(error).__name__,
+                )
                 counts["tagging_deferred"] += 1
 
         # Independent saved-result organizing never consumes the discovery budget.

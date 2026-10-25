@@ -89,7 +89,9 @@ import {
 import { TrustedDocumentRulesView, useTrustedDocumentRules, type TrustedDocumentRulesModel } from "@/components/consent/trusted-document-rules";
 import { DriveCollectionView, useDriveCollectionModel, type DriveCollectionModel } from "@/components/agent/drive-collection-panel";
 import { DriveDataPacketsView, useDriveDataPackets, type DriveDataPacketsModel } from "@/components/agent/drive-data-packets";
-import { DrivePacketCatalogView, useDrivePacketCatalogModel, useOwnerPacketPageModel, type DrivePacketCatalogModel, type OwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
+import { DrivePacketCatalogView, type DrivePacketCatalogModel, type OwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
+import { PacketPublicationsView, type PacketPublicationsModel } from "@/components/consent/packets/packet-publications";
+import { useConnectorPacketModels } from "@/components/consent/packets/connector-packet-models";
 import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/components/agent/custom-connectors-settings";
 import { PrivateOwnerConnectorsPanel } from "@/components/connections/private-owner-connectors-panel";
 import { connectorAccessPurpose } from "@/lib/agent/connector-access-copy";
@@ -175,7 +177,7 @@ export type ConnectorDetailPresentation =
       selection: { files: readonly { name: string }[]; background: boolean; canPrepare: boolean; busy: boolean; changeBackground: (next: boolean) => void;
         confirm: ConnectorDetailAction; cancel: ConnectorDetailAction } | null;
       files: readonly { key: string; name: string; status: string; background: boolean; changeBackground?: (next: boolean) => void; sync?: ConnectorDetailAction; remove: ConnectorDetailAction }[];
-      collection: DriveCollectionModel | null; groups: DriveDataPacketsModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; trust: TrustedDocumentRulesModel }
+      collection: DriveCollectionModel | null; groups: DriveDataPacketsModel | null; packets: DrivePacketCatalogModel; packet: OwnerPacketPageModel; publications: PacketPublicationsModel; trust: TrustedDocumentRulesModel }
   | { kind: "gmail"; account: string; status: string; message: string; connected: boolean;
       sendAllowed: boolean; draftsAllowed: boolean; connect?: ConnectorDetailAction; disconnect?: ConnectorDetailAction;
       retry?: ConnectorDetailAction; enableDrafts?: ConnectorDetailAction; cancelSignIn?: ConnectorDetailAction }
@@ -838,13 +840,9 @@ function OwnerConnectorsPanel({
   const groupsActive = drivePageActive && overview?.features.drive_four_group_index === true &&
     drive?.profile === "live" && drive.status === "connected";
   const driveGroups = useDriveDataPackets(groupsActive, `${drive?.accountLabel ?? ""}:${drive?.connectedAt ?? ""}`, liveBackground);
-  const drivePackets = useDrivePacketCatalogModel({ enabled: packetCatalogActive,
-    periodPackets: overview?.features.drive_period_packets === true,
-    refreshKey: driveCollection.revision, preparationPaused: overview?.features.drive_period_packets !== true && (driveCollection.paused || !driveCollection.status?.enabled) });
-  const ownerPacket = useOwnerPacketPageModel({ packet: drivePageActive && drivePackets.opened ? drivePackets.live ?? (drivePackets.cursor ? drivePackets.opened : null) : null,
-    token: drivePackets.session.token, guard: drivePackets.session.guard, onChanged: () => { void drivePackets.load(); },
-    onPreview: drivePackets.preview, onMorePreview: drivePackets.morePreview,
-    previewBusy: drivePackets.previewBusy, previewError: drivePackets.previewError });
+  const { packets: drivePackets, packet: ownerPacket, publications: drivePublications } = useConnectorPacketModels({ ownerActive: drivePageActive, enabled: packetCatalogActive,
+    periodPackets: overview?.features.drive_period_packets === true, refreshKey: driveCollection.revision,
+    preparationPaused: overview?.features.drive_period_packets !== true && (driveCollection.paused || !driveCollection.status?.enabled) });
   const documentTrust = useTrustedDocumentRules(vaultOwnerToken, drivePageActive);
   useEffect(() => {
     if (!open || !vaultOwnerToken || drive?.profile !== "live" || drive.status !== "connected") {
@@ -2380,7 +2378,7 @@ function OwnerConnectorsPanel({
     status: loading ? "Checking Drive…" : !statusChecked ? "Connection status unavailable" : drive ?
       drive.status === "verifying" && drive.profile === "live" ? "Authorized · connection check needed" : labels[drive.status] ?? "Status unavailable" : "Not connected",
     message: drivePopupPending ? "Preparing secure Google sign-in…" : driveBusy ? "Updating Drive…" : driveMessage,
-    connected: drive?.status === "connected", busy: driveBusy, mutationPending: () => driveLock.current,
+    connected: drive?.status === "connected", busy: driveBusy, mutationPending: () => driveLock.current || drivePublications.mutationPending(),
     notes: [
       ...(overview?.features.google_drive_live === true && (drive?.status !== "connected" || drive.profile !== "live") ? [overview.driveAgentPackagesEnabled === true ?
         "Agent One prepares packets from your Drive automatically." : "Full Drive access lets One find and share matching files for approved document requests. You can turn background access off anytime."] : []),
@@ -2416,7 +2414,7 @@ function OwnerConnectorsPanel({
       remove: detailAction("Remove", driveBusy, () => setConfirm(item.documentId), true),
     })),
     collection: collectionActive ? driveCollection : null, groups: groupsActive ? driveGroups : null,
-    packets: drivePackets, packet: ownerPacket, trust: documentTrust,
+    packets: drivePackets, packet: ownerPacket, publications: drivePublications, trust: documentTrust,
   };
   const mailDetail: Extract<ConnectorDetailPresentation, { kind: "gmail" }> = {
     kind: "gmail", account: gmail.status?.google_email || "Gmail",
@@ -2806,6 +2804,7 @@ function OwnerConnectorsPanel({
               {overview?.driveAgentPackagesEnabled === true && overview.features.drive_document_indexing === true &&
                 drive?.profile === "live" && drive.status === "connected" &&
                 <DriveCollectionView model={driveCollection} packets={null} />}
+              <PacketPublicationsView model={drivePublications} />
               {packetCatalogActive && <DrivePacketCatalogView model={drivePackets} ownerModel={ownerPacket} />}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <details className="group rounded-2xl bg-foreground/5 text-sm">

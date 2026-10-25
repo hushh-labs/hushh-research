@@ -405,26 +405,16 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         ):
             raise checkout_refusal("request_closed")
         private = sharing._open_request(request)
+        from hushh_mcp.services.drive_packet_purchase_authority import (
+            require_checkout_disclosure,
+            require_current_packet_purchase,
+        )
+
+        require_current_packet_purchase(connection, request=request, private=private)
         if semantic_search_request(private):
             self._require_semantic_search_plan(connection, request=request, sharing=sharing)
         if require_package_disclosure:
-            from hushh_mcp.services.drive_request_package_disclosure import (
-                buyer_package_disclosure,
-                manual_buyer_disclosure,
-            )
-
-            if private.get("agent_package_required") is True:
-                disclosure = buyer_package_disclosure(
-                    private,
-                    request_revision=request["revision"],
-                    owner_allowed_at=request["owner_allowed_at"],
-                )
-            elif private.get("v1_live_request") is True:
-                disclosure = manual_buyer_disclosure(private, request_revision=request["revision"])
-            else:
-                disclosure = True
-            if disclosure is None:
-                raise checkout_refusal("disclosure_missing")
+            require_checkout_disclosure(request=request, private=private)
         if request["status"] == "pending" and not request_has_document_scope(private):
             raise DriveSharingError("date_range_required")
         if private.get("trusted_auto") is True and (

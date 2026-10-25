@@ -21,8 +21,7 @@ from api.middlewares.observability import get_request_trace_metadata, observabil
 from api.routes import drive_packet_previews
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_telemetry import correlation_tag
-from hushh_mcp.services.google_drive_adapter import DriveReadError, GoogleDriveAdapter
-from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_financial_packet_recovery_postgres import (
     assert_predefined_preview_saved,
     assert_retained_preview_after_expiry,
@@ -41,6 +40,7 @@ from tests.services.test_drive_period_packet_previews_postgres import (
     reusable,
     sharing,
 )
+from tests.services.test_drive_period_packets import seed_scheduled_owners, wire_packet_provider
 
 pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
 
@@ -197,22 +197,6 @@ def assert_persisted(service, matched):
             connection.execute(text("SELECT count(*) FROM drive_bulk_share_effects")).scalar_one()
             == 0
         )
-
-
-def wire_packet_provider(service, lifecycle):
-    """Retain the production OAuth lifecycle port, REST transport and HTTP adapter."""
-    adapter = GoogleDriveAdapter()
-
-    async def credential(**kwargs):
-        return await lifecycle.read(user_id=kwargs["user_id"], connector_id="google_drive"), {
-            "accessToken": "synthetic"
-        }
-
-    oauth = SimpleNamespace(current_credential=credential, lifecycle=lifecycle)
-    service.search = DriveOwnerSearchService(
-        store=service.search.store, transport=GoogleDriveRestTransport(oauth=oauth, adapter=adapter)
-    )
-    return adapter
 
 
 async def assert_owner_original_pages(client, path, headers, result):
@@ -458,5 +442,47 @@ async def test_background_organizer_uses_saved_candidates_and_keeps_every_origin
             == 0
         )
     assert "read_file_content" in calls and set(calls) == {"get_file_metadata", "read_file_content"}
+    planner.assert_not_awaited()
+    assert_persisted(service, 26)
+
+
+async def test_tagging_advances_past_twenty_refused_owners(reusable, monkeypatch):
+    from hushh_mcp.services import drive_financial_packet_tag_store as tags
+
+    service, head, planner, transport = await preview_runtime(reusable, monkeypatch)
+    assert (await completed_preview(service, str(head["packet_id"])))["complete"]
+    refused = [f"refused-tag-{i}" for i in range(20)]
+    seed_scheduled_owners(service.store, refused, clear_heads=False)
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", ",".join([*refused, "owner"]))
+
+    async def placement(user):
+        return "shared" if user == "owner" else "byoc"
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode", placement
+    )
+    with service.store.db.engine.begin() as connection:
+        for user in refused:
+            connection.execute(
+                text("""INSERT INTO drive_packet_heads
+              SELECT (jsonb_populate_record(NULL::drive_packet_heads,to_jsonb(h)||
+                jsonb_build_object('packet_id',gen_random_uuid(),'user_id',:user,
+                  'tagging_next_at','2000-01-01T00:00:00Z'))).*
+              FROM drive_packet_heads h WHERE packet_id=:id"""),
+                {"user": user, "id": head["packet_id"]},
+            )
+    assert await tags.claim(service.store, "synthetic-organizer") is None
+    job = await tags.claim(service.store, "synthetic-organizer")
+    assert job and job["user_id"] == "owner" and len(job["items"]) == tags.BATCH
+    with service.store.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_packet_heads
+          WHERE user_id=ANY(:owners) AND tagging_pending AND tagging_next_at>clock_timestamp()
+            AND lease_id IS NULL"""),
+                {"owners": refused},
+            ).scalar_one()
+            == 20
+        )
     planner.assert_not_awaited()
     assert_persisted(service, 26)

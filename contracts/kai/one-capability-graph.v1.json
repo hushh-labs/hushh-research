@@ -28089,6 +28089,156 @@
     },
     {
       "aliases": [
+        "Browse public Financial summaries",
+        "show financial documents",
+        "browse published Financial packets",
+        "show public Financial summaries"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "people.profile.browse_financial_summaries",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Shows Financial packet summaries this person explicitly published to signed-in people. Connect to request; an accepted connection and unlock are required to request files. Browsing and connecting grant no document access. You pay only after owner approval.",
+      "execution": {
+        "binding_ref": "semantic_action:people.profile.browse_financial_summaries",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "people.profile.browse_financial_summaries"
+        }
+      },
+      "goal_id": "goal.people.profile.browse_financial_summaries",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Browse public Financial summaries",
+      "navigation": {
+        "fallback": "people.profile.browse_financial_summaries",
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "financial",
+        "documents",
+        "public",
+        "summary",
+        "period"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Request cards",
         "request a card",
         "ask them to share a card"
@@ -45412,7 +45562,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "8841404fd3178e3691297b5e2f44c1f8fff9ba5b74b30d537833af626e774643",
+      "projection_digest": "58d81753d7039a9e49cc5e8034a115213f460dafd91c19d74edea6410874d81d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -45431,7 +45581,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4f5bda58994aac11",
+      "source_revision": "6c50871945709c21",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -46949,7 +47099,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4f5bda58994aac11",
+    "source_revision": "6c50871945709c21",
     "web": {
       "actions": [
         {
@@ -46992,7 +47142,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "30f62cf2d5ffd1d6976ce27013fb655b52fa7f1d0e4da41e26c9c47876ca80db",
+      "projection_digest": "04f9f14da8f7df03d2f49db4445dc448a78a6e804d7b8b3d31c6dacd946c7c8a",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -47011,7 +47161,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4f5bda58994aac11",
+      "source_revision": "6c50871945709c21",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -48568,7 +48718,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4f5bda58994aac11",
+  "revision": "6c50871945709c21",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -50254,6 +50404,7 @@
     },
     {
       "action_ids": [
+        "people.profile.browse_financial_summaries",
         "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
@@ -50532,18 +50683,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:people.profile.browse_financial_summaries"
+    ],
     "breaking": [],
     "changed": [
-      "actions:profile.world_model.public_profiles",
-      "actions:profile.world_model.refresh"
+      "screens:screen:/people/[personRef]"
     ],
     "compatible": [],
-    "deprecated": [
-      "actions:profile.world_model.public_profiles",
-      "actions:profile.world_model.refresh"
-    ],
-    "from_revision": "960bad66c0a7f295",
+    "deprecated": [],
+    "from_revision": "4f5bda58994aac11",
     "migrated": [],
     "removed": []
   },
@@ -52852,18 +53001,18 @@
     "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "5cbf2c42876c25839568b1a5ea1c9f6323a85f4c36ea5d89ebe86d365d1d09cf",
+    "kai_action_gateway": "701eea9ef4092300ba7dc903e189164060bcc479632579aa9c27e4837fdf9c01",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "route_orchestration_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",
+    "route_orchestration_index": "c64a0fe8fe9b233eb5f6f4979d150f7a01d29572342dcf7f435c0831f434ee9d",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "4f5bda58994aac11",
+  "source_revision": "6c50871945709c21",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4f5bda58994aac11",
+    "current_graph_revision": "6c50871945709c21",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -52947,6 +53096,7 @@
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
+          "4f5bda58994aac11",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
@@ -53213,6 +53363,7 @@
           "45be718cd9891cd4",
           "49f1882f17ca746a",
           "4d911004af4b252b",
+          "4f5bda58994aac11",
           "53c411e01494034b",
           "5996287e8a4d4b35",
           "6372c447ad7f5790",
@@ -53284,6 +53435,7 @@
           "43c428db7505bdee",
           "45be718cd9891cd4",
           "4d911004af4b252b",
+          "4f5bda58994aac11",
           "53c411e01494034b",
           "5996287e8a4d4b35",
           "63a45baaa90e4e2f",
@@ -53623,6 +53775,7 @@
           "4b63581cd41944f9",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
+          "4f5bda58994aac11",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "514233a33ab8fa37",
@@ -53959,6 +54112,7 @@
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
+          "4f5bda58994aac11",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
@@ -54286,6 +54440,7 @@
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
+          "4f5bda58994aac11",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
@@ -54613,6 +54768,7 @@
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
+          "4f5bda58994aac11",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
@@ -54938,6 +55094,7 @@
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
+          "4f5bda58994aac11",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",

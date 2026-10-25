@@ -357,3 +357,23 @@ Execution is reported with the change. No real provider sign-in, connection,
 file selection, external write, listing or revocation was performed here.
 Source review does not establish deployed flags, provider configuration,
 account registry contents, native availability or actual callback delivery.
+
+### Public Financial summary
+
+Financial packet details have a separate **Public summary** section on web and the
+native connector drawer. Publishing requires an explicit disclosure acknowledgment
+and a version/revision-bound owner write (`drive-packet-public-summary-v1`). Default
+visibility is off. Publishing exposes metadata to signed-in nonconnections; it does
+not enable the separate connections listing or approve a buyer. A newly frozen
+version needs a new publication acknowledgment. **Hide public summary** remains
+available after an earlier publication even when sale/background access is paused.
+The server remains authoritative; the UI waits for persisted readback and never
+copies owner files, links, preview progress or tagging into the public projection.
+
+The Drive detail also exposes **Public summary settings** after a cold reload,
+even when background access is off or Drive is disconnected. Its vault-owner-only
+`GET /sharing/packet-publications` reads scalar saved publication receipts without
+opening the private packet catalog or contacting Google. Web and native share the
+same hide-only model and revision-CAS writer. A saved receipt is not a claim that
+the summary is currently visible: version/generation drift can already hide it.
+Withdrawal preserves the accepted publication version and exact receipt revision.
