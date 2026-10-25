@@ -9,16 +9,18 @@ mode, exact qualification and installed-journey evidence.
 
 ## Status and evidence
 
-**25 October 2026, 17:23 UTC — both clouds have exact-image component evidence;
-Azure owner installation is verified. Installed Browser journeys remain open.**
+**25 October 2026, 20:23 UTC — both clouds have exact-image component evidence;
+Azure owner installation and one Puppy response are verified. Installed Browser
+journeys remain open.**
 
-[PR #8451](https://github.com/hushh-labs/hushh-research/pull/8451) landed as
-`9174abfbe594`; its governed dev release is
-[40201425206](https://github.com/hushh-labs/hushh-research/actions/runs/40201425206).
-Publication [#8457](https://github.com/hushh-labs/hushh-research/pull/8457) reuses
-that executable. Dev application `c4aeb1ca09` serves at 100% through
-[40207330968](https://github.com/hushh-labs/hushh-research/actions/runs/40207330968),
-confirmed by corporate ADC at 17:22 UTC.
+[Browser repair #8451](https://github.com/hushh-labs/hushh-research/pull/8451)
+landed as `9174abfbe594`; [publication #8457](https://github.com/hushh-labs/hushh-research/pull/8457)
+retains that executable. Continuity corrections
+[#8459](https://github.com/hushh-labs/hushh-research/pull/8459) landed as `2a74d28cd0`
+with exact hosted CI and landed smoke. Dev run `40224453087`, attempt 2, accepted
+application `5ad9ef542d`; corporate ADC confirms both services at 100%. Its cleanup
+worker and fence removal passed. Newer continuity and Browser corrections remain
+separate candidates; workflow-head metadata does not establish their deployment.
 The exact pod image is
 `sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423`.
 
@@ -103,6 +105,21 @@ qualified. Session, interactive-policy, information and transfer joins still
 need installed acceptance. No receipt or environment flag alone enables them.
 Reconnect discovers existing work and uncertain outcomes; it never resubmits a
 goal. Stop retains update admission until joined shutdown and sealed settlement.
+
+The installed Azure attempt reached an uncertain outcome during active takeover;
+it does not qualify direct control, login or reconnect. Its sampled working-set
+peak was 873,693,184 bytes of 2 GiB, with zero container restarts and one missing
+minute. These samples do not exclude a brief spike or establish a capacity limit.
+
+The follow-up control correction separates a validated executor result from
+permission to disclose its frame: settle the original action first, then recheck
+owner authority and control epoch. Cancellation may retry only that exact receipt;
+failed acknowledgement and genuinely interrupted execution remain uncertain.
+The corrected handoff cases cover epoch change, cancellation, lost settlement
+acknowledgement, failed persistence and revocation. The original controller fails
+the focused negative control. This fixes the post-result control window; the
+connected executor's earlier post-reply check and installed acceptance remain open.
+
 
 The [agent-development procedure](./agent-development.md) owns registration;
 the [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)

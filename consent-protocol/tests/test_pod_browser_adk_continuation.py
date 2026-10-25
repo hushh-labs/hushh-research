@@ -1,8 +1,10 @@
 """Native same-task handback; scripted model traffic never qualifies a cloud."""
 
+import asyncio
+
 import pytest
 
-from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+from hushh_mcp.services.pod_browser.contracts import BrowserAction, BrowserRefused
 from tests.helpers.pod_browser import (
     Authority,
     Executor,
@@ -148,3 +150,131 @@ async def test_native_handback_retains_session_without_repeating_goal_or_pending
     finally:
         await runtime.stop()
         await native.release_task(runtime.binding)
+
+
+@pytest.fixture
+async def confirmed_dispatch(monkeypatch, interruption):
+    from types import SimpleNamespace
+
+    driver, auth = Executor(), Authority(approved=True)
+    state = SimpleNamespace(
+        driver=driver,
+        auth=auth,
+        runtime=control(driver=driver, auth=auth),
+        finished=False,
+        checking=asyncio.Event(),
+        release=asyncio.Event(),
+        active=None,
+        takeover=None,
+        attempts=0,
+    )
+    execute, check, settle = driver.execute, auth.check_binding, auth.settle_dispatch
+
+    async def executing(*args, **kwargs):
+        frame = await execute(*args, **kwargs)
+        state.finished = True
+        return frame
+
+    async def checking_binding(value):
+        if state.finished and asyncio.current_task() is state.active and interruption != "lost_ack":
+            state.checking.set()
+            await state.release.wait()
+        await check(value)
+
+    async def settling(value, action, *, uncertain):
+        state.attempts += 1
+        if interruption == "settlement_failed":
+            state.checking.set()
+            await state.release.wait()
+            raise RuntimeError("synthetic unavailable journal")
+        if (action.sequence, "settled") not in auth.journal:
+            await settle(value, action, uncertain=uncertain)
+        if interruption == "lost_ack" and state.attempts == 1:
+            state.checking.set()
+            await state.release.wait()
+
+    monkeypatch.setattr(driver, "execute", executing)
+    monkeypatch.setattr(auth, "check_binding", checking_binding)
+    monkeypatch.setattr(auth, "settle_dispatch", settling)
+    await state.runtime.initialize()
+    try:
+        yield state
+    finally:
+        workers = [worker for worker in (state.active, state.takeover) if worker is not None]
+        for worker in workers:
+            if not worker.done():
+                worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        await state.runtime.stop()
+
+
+@pytest.mark.parametrize(
+    "operation, interruption",
+    [
+        ("observe", "epoch"),
+        ("click", "epoch"),
+        ("click", "cancel"),
+        ("click", "lost_ack"),
+        ("click", "settlement_failed"),
+        ("click", "revoked"),
+    ],
+)
+async def test_confirmed_dispatch_survives_takeover_without_disclosing_old_frame(
+    confirmed_dispatch, operation, interruption
+):
+    state = confirmed_dispatch
+    runtime = state.runtime
+    state.active = asyncio.create_task(
+        runtime.execute(
+            BrowserAction(
+                operation=operation,
+                sequence=1,
+                control_epoch=1,
+                **({"x": 1, "y": 1} if operation == "click" else {}),
+            )
+        )
+    )
+    await asyncio.wait_for(state.checking.wait(), 1)
+    cancel = interruption in {"cancel", "lost_ack"}
+
+    async def interrupt():
+        state.active.cancel()
+        await asyncio.gather(state.active, return_exceptions=True)
+
+    if interruption == "revoked":
+        state.auth.revoked = True
+    else:
+        state.takeover = asyncio.create_task(
+            runtime.take_control(interrupt=interrupt if cancel else None)
+        )
+        await asyncio.sleep(0)
+    state.release.set()
+    expected = (
+        asyncio.CancelledError
+        if cancel
+        else RuntimeError
+        if interruption == "settlement_failed"
+        else BrowserRefused
+    )
+    with pytest.raises(expected):
+        await state.active
+    assert runtime.latest_frame is None
+    if interruption == "settlement_failed":
+        with pytest.raises(BrowserRefused, match="UNCERTAIN"):
+            await state.takeover
+        assert runtime.outcome_uncertain and state.attempts == 2
+        return
+    assert not runtime.outcome_uncertain
+    assert state.driver.calls == ["initialize", operation]
+    assert state.auth.journal == ([(1, "dispatch"), (1, "settled")] if operation == "click" else [])
+    if state.takeover is None:
+        return
+    assert await state.takeover == 2 and runtime.control_owner == "owner"
+    with pytest.raises(BrowserRefused, match="CONTROL_CHANGED"):
+        await runtime.execute(BrowserAction(operation="observe", sequence=2, control_epoch=1))
+    await runtime.execute(
+        BrowserAction(operation="observe", sequence=2, control_epoch=2), actor="owner"
+    )
+    await runtime.resume_agent()
+    assert runtime.control_epoch == 3
+    await runtime.execute(BrowserAction(operation="observe", sequence=4, control_epoch=3))

@@ -17,51 +17,53 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026, 17:23 UTC
+## Current decision — 25 October 2026, 20:23 UTC
 
-**Dev is healthy; installed and UAT acceptance remain incomplete.**
-[Browser repair #8451](https://github.com/hushh-labs/hushh-research/pull/8451)
-and [qualification publication #8457](https://github.com/hushh-labs/hushh-research/pull/8457)
-are on main. [Dev 40207330968](https://github.com/hushh-labs/hushh-research/actions/runs/40207330968)
-passed in 23m19s without retry or rollback. Corporate ADC at 17:22 UTC confirms
-application `c4aeb1ca09` at 100%: backend `00241-8p9`, frontend `00207-hjf`.
-Peer main `8d24c6a6ce` and local corrections are not that serving application.
+**The continuity fixes are on main. Dev/UAT and installed Browser acceptance
+remain incomplete.** [PR #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
+landed as `2a74d28cd0`: exact CI passed in 22m41s and landed smoke in 3m19s.
+Its local core mirror passed in 23m20s. It preserves the peer analytics repair.
+No source-only result is an installed-owner or deployment receipt.
 
 | Boundary | Verified outcome | Remaining acceptance |
 |---|---|---|
-| Azure owner update | Exact approved Dev 30 update verified at 16:03 UTC, image `6e57f251…eeac423`, source `9174abfbe594` | Installed Browser controls, login, reconnect and Puppy response |
-| GCP owner update | Approved Files queue, identity and IAM checkpoints completed | Image handoff remains unconfirmed; old `26bab163` serves. Preserve the held operation and reconcile; do not repeat the exhausted queue continuation |
-| Browser components | Both native clouds pass research, responsive controls, suppressed login observations, encrypted remember/restore, logout, Forget, reviewed synthetic save and Stop | Installed owner HTTP controls and cloud custody; controlled-site qualification does not establish general website compatibility |
-| Recovery | Actual predecessors preserve identity, six records, consent, revocation and 245,763 exact file bytes | Installed active-work drain and recovery |
-| Account generations | Isolated real-mail two-cycle proof passes with one Firebase UID and three application owners; retired sessions refuse | Public admission stays disabled pending environment sender and identity-integration compatibility |
-| Information sharing | Existing fixed-term access is the confirmed scope; no recurring billing | Two-owner request/review/access/revocation. Paid Sandbox remains the existing two-account cohort until explicitly changed |
-| UAT | [40208297820](https://github.com/hushh-labs/hushh-research/actions/runs/40208297820) rolled back application `6afe430826`; retained `24545d1dc2` serves both services at 100% | Expected portfolio analytics absent; authenticated overview and information read succeed, so investigate the missing event without another unchanged rollout |
+| Azure owner | Approved Dev 30/image `6e57f251…eeac423`; one complete Puppy/Gemma 12B response, then observed zero replicas | Browser takeover, login, reconnect and cloud session custody |
+| GCP owner | Approved Files queue, identity and IAM checkpoints | Held image handoff remains unconfirmed; preserve the operation and do not replay its exhausted queue continuation |
+| Browser components | Both clouds pass controlled research, responsive controls, suppressed login, remember/restore, logout, Forget, reviewed save and Stop | Actual owner HTTP journey; broad websites and GitHub remain unqualified |
+| Browser correction | Post-result takeover race corrected; 103 nearest checks and original-source negative control pass | Exact-image qualification and installation; earlier connected-executor window remains open |
+| Recovery | Predecessors preserve identity, six encrypted records, consent, revocation and 245,763 exact file bytes | Installed active-work drain/recovery |
+| Account generations | Isolated real-mail two-cycle proof with unchanged Firebase UID and retired-session refusal | Federated recovery is independent of email; public admission remains disabled pending deployment qualification. UAT retains an unqualified WorkOS offboarding consumer |
+| Information sharing | Existing fixed-term access; no recurring billing. Normal owner readiness rechecked | Two-owner request/review/access/revocation; paid Sandbox cohort unchanged |
+| Dev application | Run `40224453087`, attempt 2 accepted `5ad9ef542d`; corporate ADC confirms backend `00244-bg2` and frontend `00210-s8c` at 100% | Newer continuity and Browser corrections need their own accepted release |
+| UAT | Both services retain `24545d1dc2`; run `40228618750` is promoting Dev-accepted `5ad9ef542d` | Verify terminal analytics, schema, traffic and lifecycle evidence; workflow revision is distinct from the application |
 
-The subsequent [Dev attempt 40213126854](https://github.com/hushh-labs/hushh-research/actions/runs/40213126854)
-correctly stopped before migration: one retained synthetic Shared Files upload is
-still fenced as uncertain during erasure. No customer record was reset. Its exact
-session now returns 404; that alone does not satisfy the retained expiry proof.
-The release fence and cleanup state remain intact. Actual Dev traffic stays on the
-accepted application. Do not remove the fence or mark cleanup complete to deploy.
+Audit logs identified missing read/act-as access on the existing cleanup identity.
+The scoped repair and separate Scheduler/log-read permissions allowed activation:
+a fresh authenticated worker invocation returned HTTP 200, 98 legacy shared-backend
+revisions were retired, and fence removal was confirmed. This is shared-backend
+release evidence, not deletion of customer pods.
 
-The local follow-up fixes repeated update notices after explicit dismissal,
-preserves the exact request selector through web consent revocation, and refreshes
-GCP's resource version only after proving post-IAM configuration is unchanged. Eleven notice cases and 82 upgrade/bootstrap cases pass; the original
-sources fail their focused negative controls. These are source results, not an
-installed-operation repair or a new deployment receipt.
+Peer [PR #8461](https://github.com/hushh-labs/hushh-research/pull/8461) supplies
+qualified GCS session-expiry recovery. The separate authorized canonical cleanup
+removed seven retained fixture object generations and preserved account/vault rows.
+Generic missing resources remain uncertain; restored session custody and original
+bucket incarnation qualify the provider's expiry response. The peer fix is retained
+through a normal merge, without replacing authored files.
 
-The qualified Browser uses Gemini `gemini-3.7-flash` through ADK on GCP and Azure
-`one-chat`, backed by GPT-5.6 Luna. One and Browser share the non-root owner
-container; GCP keeps Chromium's sandbox, Azure explicitly disables it. Normal
-broker/consent enforcement does not contain compromised code. The interactive
-policy covers a temporary controlled HTTPS fixture; authenticated GitHub, selected
-PKM disclosure and Browser-to-Files retain separate acceptance.
+The installed Azure Browser attempt became uncertain during takeover; no
+credentials or forms were submitted and the goal was not replayed. Sampled memory
+peaked near 833 MiB of 2 GiB with no container restart. This does not establish
+OOM absence or justify increasing capacity. The control fix settles validated
+execution before rechecking observation permission, without replaying effects or
+clearing genuinely uncertain outcomes.
 
-Qualification/recovery compute, grants, active objects, copied images and Azure
-deleted vault were removed and read back. GCP's seven-day soft-delete retention is
-explicit. The temporary website remains inventoried for acceptance. Approved GCP
-Files resources belong to the retained owner operation and must not be swept as
-orphans. No production, stable publication or automatic owner upgrade is authorized.
+One and Browser share the non-root owner container. GCP retains Chromium's
+sandbox; Azure explicitly disables it. Application policy does not contain a
+compromised process. Exact qualification covers the controlled HTTPS fixture,
+which has now been deleted with resource-absence readback. New fixture acceptance
+requires a fresh qualified site. Authenticated GitHub, selected PKM disclosure and
+Browser-to-Files retain separate gates. No production, stable publication or
+automatic owner upgrade is authorized.
 
 ### PR #8437 verification history
 
