@@ -199,7 +199,11 @@ def guard_catalog(connection):
 
 
 def assert_absent_guard_qualification_blocks_concurrent_install(connection, server, database):
-    trigger = LEGACY_TRIGGERS.split(";\n", 1)[0]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE FUNCTION synthetic_adoption_lock_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$"
+        )
+    trigger = "CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION synthetic_adoption_lock_guard()"
     with (
         connection.cursor() as admitted,
         closing(
@@ -230,6 +234,8 @@ def assert_absent_guard_qualification_blocks_concurrent_install(connection, serv
         finally:
             admitted.execute("ROLLBACK")
     assert guard_catalog(connection) == []
+    with connection.cursor() as cursor:
+        cursor.execute("DROP FUNCTION synthetic_adoption_lock_guard()")
 
 
 def reject_guard_drift(connection, entry):
@@ -245,6 +251,25 @@ def reject_guard_drift(connection, entry):
         (
             "DROP TRIGGER zz_preserve_consumer_memory_consent ON public.consent_audit",
             LEGACY_TRIGGERS.split(";\n", 1)[1],
+        ),
+        (
+            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; DROP TRIGGER zz_preserve_consumer_memory_consent ON public.consent_audit",
+            LEGACY_TRIGGERS,
+        ),
+        (
+            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent AFTER INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent()",
+            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
+            + LEGACY_TRIGGERS.split(";\n", 1)[0],
+        ),
+        (
+            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent('extra')",
+            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
+            + LEGACY_TRIGGERS.split(";\n", 1)[0],
+        ),
+        (
+            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW WHEN(NEW.scope IS NOT NULL) EXECUTE FUNCTION public.guard_consumer_memory_consent()",
+            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
+            + LEGACY_TRIGGERS.split(";\n", 1)[0],
         ),
         (
             "CREATE OR REPLACE FUNCTION public.guard_consumer_memory_consent() RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$ BEGIN RETURN NEW; END; $$",
@@ -322,10 +347,8 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
             FOUNDATION,
         )
         assert guard_catalog(connection) == []
-        install_legacy_guards(connection, triggers=False)
         assert_absent_guard_qualification_blocks_concurrent_install(connection, replay_pg, database)
-        with connection.cursor() as cursor:
-            cursor.execute(LEGACY_TRIGGERS)
+        install_legacy_guards(connection)
         before = guard_catalog(connection)
         assert len(before) == 2
         with connection.cursor() as cursor:

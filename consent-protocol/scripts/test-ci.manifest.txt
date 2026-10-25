@@ -1470,3 +1470,5 @@ tests/test_pwm_runtime_probe.py
 
 tests/services/test_drive_packet_public_summary_postgres.py
 tests/test_drive_packet_public_summary_routes.py
+
+tests/test_consumer_consent_replay_postgres.py
