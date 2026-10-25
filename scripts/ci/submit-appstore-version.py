@@ -233,72 +233,13 @@ def verify_reviewer_account(token: str, version_id: str) -> None:
 
 
 def ensure_app_store_version(
-    token: str,
-    app_id: str,
-    marketing_version: str,
-    platform: str,
-    release_type: str,
+    token: str, app_id: str, marketing_version: str, platform: str, release_type: str,
 ) -> dict:
-    """Return an editable App Store version, creating it (MANUAL) if absent."""
-    existing = find_app_store_version(token, app_id, marketing_version, platform)
-    if existing is not None:
-        version_id = existing["id"]
-        attrs = existing.get("attributes") or {}
-        state = attrs.get("appStoreState") or attrs.get("appVersionState")
-        current_release = attrs.get("releaseType")
-        log(
-            f"App Store version {marketing_version} exists (id={version_id}, "
-            f"state={state}, releaseType={current_release})"
-        )
-        if state not in EDITABLE_VERSION_STATES:
-            die(
-                f"App Store version {marketing_version} is in state '{state}', "
-                "which is not editable; refusing to mutate a version that is "
-                "already submitted, in review, or live. Bump MARKETING_VERSION "
-                "for a new release train."
-            )
-        if current_release != release_type:
-            log(
-                f"patching releaseType {current_release} -> {release_type} "
-                f"for version {version_id}"
-            )
-            asc_patch(
-                f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}",
-                token,
-                {
-                    "data": {
-                        "type": "appStoreVersions",
-                        "id": version_id,
-                        "attributes": {"releaseType": release_type},
-                    }
-                },
-            )
-        return existing
-
-    log(
-        f"creating App Store version {marketing_version} "
-        f"(platform={platform}, releaseType={release_type})"
-    )
-    created = asc_post(
-        f"{ASC_API_ROOT}/v1/appStoreVersions",
-        token,
-        {
-            "data": {
-                "type": "appStoreVersions",
-                "attributes": {
-                    "platform": platform,
-                    "versionString": marketing_version,
-                    "releaseType": release_type,
-                },
-                "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
-            }
-        },
-    )
-    version = created.get("data")
-    if not version:
-        die("App Store version creation returned no data")
-    log(f"created App Store version id = {version['id']}")
-    return version
+    from ios_packaging_version import ensure_app_store_version as prepare_version
+    return prepare_version(token, app_id, marketing_version, platform, release_type,
+                           find_exact=find_app_store_version, asc_get=asc_get, asc_post=asc_post,
+                           asc_patch=asc_patch, die=die, log=log, api_root=ASC_API_ROOT,
+                           editable_states=EDITABLE_VERSION_STATES)
 
 
 def find_build(

@@ -396,6 +396,34 @@ governed production operator may run:
 gh workflow run release-cadence.yml --ref main -f full_reconcile=true
 ```
 
+If the prerelease version floor exceeds the current editable public draft,
+preparation advances that same draft's version and release type. It requires a
+single numerically latest draft on the selected platform, a strictly higher
+target, a fresh identity/state check and matching readback. It never renames a
+reviewed or live version, downgrades a draft or creates a second draft after an
+ambiguous update. Apple version-creation conflicts remain failures until verified.
+After a successful upload, recover preparation through the failed Ubuntu job
+only; its current-main tooling retains the original source/version/build outputs.
+The observer binds the preparation receipt to that attempt's successful upload
+window, origin and immutable digest, preserving the original Mac upload receipt.
+
+A historical TestFlight source can contain an API-test fixture that inherits the
+real packaging version. The workflow clears that variable only for the synthetic
+API unit commands; archive packaging retains the resolved version floor. If a
+frozen workflow already failed at that gate, a governed production operator may
+request `retry_failed_native_run_id` with the exact `reviewed_ledger_sha` on a
+dedicated manual controller. This is limited to one replacement per milestone:
+the recorded failed attempt must have a successful source preflight and assertion,
+the API gate as its sole native failure, every archive/upload step explicitly
+skipped, skipped unallocated distribution jobs, and a complete empty artifact
+inventory. The controller rechecks the unchanged attempt, audits the previous
+child and proof digest, then replaces only that lane's dispatch authority through
+the normal ledger CAS. Source, ordinal, request origin and UAT counts remain
+unchanged. Admission still yields to UAT and active bundles; the previous run
+cannot acquire new authority. Any uploaded or uncertain build requires its
+existing-upload recovery instead. Replacement, retirement and checkpoint recovery
+cannot be combined.
+
 Disabling `config/release-cadence.json` stops accounting and release admission.
 The observer still verifies the existing immutable checkpoint and reports its
 last certified count and timestamp, rather than claiming a new accounting pass.

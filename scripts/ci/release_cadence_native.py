@@ -12,6 +12,99 @@ UPLOAD_FIELDS = ("source_sha", "build_number", "marketing_version", "bundle_id")
 RESUME = "resume-ios-testflight.yml"
 
 
+def preupload_failure_proof(repository: str, run: dict) -> dict:
+    """Prove the narrow API-gate failure cannot have created an Apple upload."""
+    from release_cadence_github import api
+    require(run.get("status") == "completed" and run.get("conclusion") == "failure"
+            and type(run.get("run_attempt")) is int and run["run_attempt"] > 0,
+            "Replacement requires a terminal failed exact attempt")
+    base = f"repos/{repository}/actions/runs/{run['id']}"
+    artifacts = api(f"{base}/artifacts?per_page=100")
+    require(isinstance(artifacts, dict) and type(artifacts.get("total_count")) is int and artifacts["total_count"] == 0
+            and artifacts.get("artifacts") == [], "Replacement requires an empty complete artifact inventory")
+    value = api(f"{base}/attempts/{run['run_attempt']}/jobs?per_page=100")
+    require(isinstance(value, dict) and isinstance(value.get("jobs"), list)
+            and value.get("total_count") == len(value["jobs"]), "Replacement job inventory is incomplete")
+    jobs = value["jobs"]
+    names = {"Resolve green UAT release source", "Build and distribute normal UAT TestFlight build",
+             "Prove physical iPhone capture gate", "Process and distribute uploaded TestFlight build"}
+    require(len(jobs) == len(names) and {job.get("name") for job in jobs} == names,
+            "Replacement workflow job boundaries changed")
+    require(all(job.get("run_id") == run["id"] and job.get("run_attempt") == run["run_attempt"]
+                and job.get("head_sha") == run["head_sha"] and job.get("head_branch") == "main"
+                and job.get("status") == "completed" for job in jobs), "Replacement job origin mismatch")
+    by_name = {job["name"]: job for job in jobs}
+    require(by_name["Resolve green UAT release source"].get("conclusion") == "success",
+            "Replacement source preflight did not pass")
+    for name in ("Prove physical iPhone capture gate", "Process and distribute uploaded TestFlight build"):
+        require(by_name[name].get("conclusion") == "skipped" and not by_name[name].get("runner_name")
+                and not by_name[name].get("runner_id"),
+                "Replacement distribution or optional physical work was allocated")
+    native = by_name["Build and distribute normal UAT TestFlight build"]
+    steps = native.get("steps", [])
+    require(native.get("conclusion") == "failure"
+            and [step.get("name") for step in steps if step.get("conclusion") == "failure"] == ["Run TestFlight API unit gates"],
+            "Replacement only supports a failed prearchive API unit gate")
+    skipped = {"Create UAT archive", "Verify archived app and extension versions",
+               "Verify archive assets, privacy, and own symbols", "Export and upload TestFlight build",
+               "Preserve dry-run UAT IPA in private bucket", "Upload redacted private IPA receipt",
+               "Preserve uploaded build identity for recovery", "Upload recovery receipt before Apple processing",
+               "Preserve redacted distribution outputs"}
+    required = skipped | {"Assert source SHA", "Resolve next TestFlight build number", "Remove protected runner files"}
+    require(all(sum(step.get("name") == name for step in steps) == 1 for name in required),
+            "Replacement native step evidence is missing or ambiguous")
+    results = {step.get("name"): step.get("conclusion") for step in steps}
+    require(all(results[name] == "skipped" for name in skipped)
+            and all(results[name] == "success" for name in required - skipped),
+            "Replacement archive/upload was not positively skipped or source/cleanup failed")
+    return {"run": run, "jobs": jobs, "artifacts": artifacts}
+
+
+def appstore_evidence(repository: str, run: dict) -> dict:
+    """Read the successful preparation attempt without replacing the binary upload."""
+    from datetime import datetime
+    import json
+    from pathlib import Path
+    import subprocess
+    import tempfile
+    import release_artifact_receipts as receipts
+    from release_cadence_github import api, configuration
+    _, governance = configuration()
+    allowed = governance["production"]["manual_dispatch_users"]
+    attempt = run.get("run_attempt")
+    require(trusted_run(run, repository, "release-ios-appstore.yml")
+            and run.get("event") == "workflow_dispatch" and run.get("status") == "completed"
+            and run.get("conclusion") == "success" and type(attempt) is int and attempt > 0
+            and (run.get("actor") or {}).get("login") in ["github-actions[bot]", *allowed]
+            and (attempt == 1 or (run.get("triggering_actor") or {}).get("login") in allowed),
+            "App Store preparation origin or retry actor is unverified")
+    job, step = "Process and prepare uploaded App Store build", "Upload redacted release evidence"
+    require(completed_steps(repository, run, job, {step}), "App Store preparation upload is unverified")
+
+    def timestamp(value):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else None
+        except (AttributeError, ValueError):
+            return None
+
+    try:
+        artifact = receipts.select_attempt_upload(
+            repository, run, f"ios-appstore-redacted-evidence-{run['id']}",
+            {"deploy_job": job, "upload_step": step}, timestamp=timestamp,
+            api=lambda repo, path: api(f"repos/{repo}/actions/{path}"))
+        with tempfile.TemporaryDirectory(prefix="appstore-attempt-receipt-") as directory:
+            filename = "ios-appstore-release-evidence.json"
+            receipts.download_replayed_artifact(repository, artifact, Path(directory), filename,
+                                                run_command=receipts.retention.run_command, timeout=30)
+            result = json.loads(Path(directory, filename).read_text())
+        require(isinstance(result, dict), "Invalid App Store preparation receipt")
+        return result
+    except (receipts.retention.UnsafeState, receipts.retention.BudgetExpired,
+            subprocess.CalledProcessError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise UnsafeRelease("Exact-attempt App Store preparation receipt is unverified") from exc
+
+
 def bind_recovery(upload_run: dict, upload: dict, run_id: int, attempt: int, distribution: dict) -> dict:
     require(distribution.get("internal") == "active" and distribution.get("build_id"),
             "Recovered TestFlight distribution is not active")

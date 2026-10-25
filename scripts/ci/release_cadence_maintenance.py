@@ -163,6 +163,72 @@ def disabled_snapshot(repository: str, controller_id: int, event: dict) -> dict:
             "Disabled cadence has no certified ledger to report")
     return {"mode": "disabled", "state": ledger.state, "checkpoint": checkpoint}
 
+
+def check_operator_inputs(controller: dict, full: bool, recovery_head: str, retire_before: int,
+                          reviewed_head: str, retry_run_id: int) -> None:
+    require(type(retire_before) is int and retire_before >= 0 and type(retry_run_id) is int and retry_run_id >= 0,
+            "Invalid operator recovery identity")
+    actions = bool(retire_before) + bool(retry_run_id)
+    require(actions <= 1 and bool(actions) == bool(reviewed_head), "Choose one recovery action and its reviewed ledger head")
+    if actions:
+        require(controller["event"] == "workflow_dispatch" and not full and not recovery_head,
+                "Operator release recovery requires a dedicated governed manual reconciliation")
+    if controller["event"] == "repository_dispatch":
+        require(not full and not recovery_head, "Clock events cannot request full replay or checkpoint recovery")
+
+
+def replace_preupload_testflight(ledger, run_id: int, reviewed_head: str, controller: dict) -> None:
+    """One reviewed replacement of a proven prearchive TestFlight API-gate failure."""
+    from copy import deepcopy
+    import release_cadence_github as github
+    from release_cadence import state_digest
+    from release_cadence_native import preupload_failure_proof
+    require(type(run_id) is int and run_id > 0, "Replacement run identity must be positive")
+    require(controller["event"] == "workflow_dispatch", "Replacement requires a governed manual controller")
+    _, governance = github.configuration()
+    github.verify_controller(controller, ledger.repository, governance)
+    require(reviewed_head == ledger.head and re.fullmatch(r"[0-9a-f]{40}", reviewed_head),
+            "Reviewed replacement head differs from the certified ledger")
+    require(ledger.state is not None, "Replacement requires certified source accounting")
+    matches = [(ordinal, request, request["lanes"]["testflight"]) for ordinal, request in ledger.state["requests"].items()
+               if request["lanes"].get("testflight", {}).get("run_id") == run_id]
+    require(len(matches) == 1, "Replacement must name exactly one recorded TestFlight child")
+    ordinal, request, child = matches[0]
+    require(child.get("state") == "failure" and not child.get("completion_error"),
+            "Replacement requires a failed child without any known uploaded build")
+    require(request.get("preupload_replacements", []) == [], "This milestone already used its TestFlight replacement")
+    require(not any(value["state"] in {"running", "dispatching"} for item in ledger.state["requests"].values()
+                    for value in item["lanes"].values()), "Replacement cannot race an active recorded release")
+    failed = github.run_info(ledger.repository, run_id)
+    _, lane = verify_child(ledger.state, failed, ledger.repository, ordinal, str(request["origin_run_id"]))
+    require(lane == "testflight" and failed.get("run_attempt") == child.get("run_attempt", 1),
+            "Replacement recorded attempt mismatch")
+    require(failed["run_attempt"] == 1 or (failed.get("triggering_actor") or {}).get("login")
+            in governance["uat"]["manual_dispatch_users"], "Replacement retry actor is unverified")
+    proof = preupload_failure_proof(ledger.repository, failed)
+    # Ledger CAS does not detect a concurrent human rerun. Re-read its exact
+    # attempt and identity after the complete no-upload proof, before mutation.
+    require(github.run_info(ledger.repository, run_id) == failed, "Replacement attempt changed; review again")
+    audit = {"lane": lane, "previous_child": deepcopy(child), "proof_sha256": state_digest(proof),
+             "reviewed_head": reviewed_head, "controller_run_id": controller["id"],
+             "operator": controller["actor"]["login"], "reason": "prearchive_api_gate_failure"}
+    request["preupload_replacements"] = [audit]
+    request["lanes"]["testflight"] = {"state": "pending"}
+    ledger.save()
+
+
+def operator_recovery(ledger, controller: dict, retire_before: int, reviewed_head: str, retry_run_id: int) -> bool:
+    if retire_before:
+        retire_obsolete_failures(ledger, retire_before, reviewed_head, controller)
+    if retry_run_id:
+        import release_cadence_github as github
+        replace_preupload_testflight(ledger, retry_run_id, reviewed_head, controller)
+        github.reconcile_children(ledger)
+        github.dispatch_pending(ledger)
+        return True
+    return False
+
+
 def retire_obsolete_failures(ledger, before: int, reviewed_head: str, controller: dict) -> None:
     """Retire reviewed failures only with positive proof that native upload never ran."""
     import release_cadence_github as github
