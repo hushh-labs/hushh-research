@@ -3,6 +3,7 @@ import { ScopeCommerceService, commerceReadinessCopy } from "@/lib/services/scop
 import { AuthService } from "@/lib/services/auth-service";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import type { PendingConsent } from "@/lib/consent/use-consent-actions";
+import { CommerceActionError } from "@/lib/services/scope-commerce-readiness";
 
 export function isPkmScope(scope: string): boolean { return scope === "pkm.read" || scope.startsWith("attr."); }
 export function usePaidApprovalState() {
@@ -21,7 +22,13 @@ export async function approvePaidOwnerTerms(consent: PendingConsent, vaultOwnerT
   const firebaseToken = await AuthService.getIdToken();
   requireCurrent();
   if (!firebaseToken) throw ownerError("Sign in again before reviewing this request.");
-  const request = await ScopeCommerceService.scopeRequest(firebaseToken, consent.id);
+  const request = await ScopeCommerceService.scopeRequest(firebaseToken, consent.id).catch(error => {
+    if (error instanceof CommerceActionError && error.code &&
+      ["scope_unavailable", "recipient_key_changed", "recipient_or_scope_unavailable"].includes(error.code)) {
+      throw ownerError(error.message);
+    }
+    throw error;
+  });
   requireCurrent();
   if (request.role !== "owner") throw ownerError("Open this request in the information owner's account.");
   if (request.tariff && request.tariff.price_cents > 0) {

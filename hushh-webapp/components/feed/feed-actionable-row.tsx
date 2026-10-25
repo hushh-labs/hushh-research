@@ -15,6 +15,7 @@ import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
+import { ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { FeedRowMetadata, FeedRowTimestamp, FEED_INLINE_ROW_CLASSNAME } from "./feed-row-metadata";
 import type {
   FeedActionButton,
@@ -240,8 +241,8 @@ function ActionButtons({
     setRunningActionKey(action.key);
     try {
       await action.run();
-    } catch {
-      toast.error("That didn't go through. Try again.");
+    } catch (error) {
+      toast.error(ownerFacingConsentError(error, "That didn't go through. Try again."));
     } finally {
       runningRef.current = false;
       setRunningActionKey(null);

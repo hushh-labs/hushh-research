@@ -463,6 +463,89 @@ async def test_readiness_reports_unverified_pin_and_ineligible_seller(paid_contr
     assert not data["capabilities"]["start_funding"]
 
 
+@pytest.mark.parametrize("wildcard", [True, False])
+@pytest.mark.parametrize("paid", [True, False])
+@pytest.mark.parametrize("nested", [True, False])
+async def test_person_request_handle_matches_discovery_without_relaxing_rotation(
+    paid_contract: PaidContract, wildcard: bool, paid: bool, nested: bool
+):
+    from hushh_mcp.services import scope_commerce_requests
+
+    ctx = paid_contract
+    await fixtures.bind_person_request(ctx.pool, ctx.request_id)
+    path_name = "preferences.documents" if nested else "preferences"
+    scope = "attr.travel." + path_name + (".*" if wildcard else "")
+    leaf_handle = "s_distinct_manifest_path"
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE pkm_manifests SET top_level_scope_paths=$1::jsonb",
+            json.dumps([path_name]),
+        )
+        await conn.execute(
+            "UPDATE pkm_scope_registry SET summary_projection="
+            "jsonb_set(summary_projection,'{top_level_scope_path}',to_jsonb($1::text))",
+            path_name,
+        )
+        if not nested or not wildcard:
+            await conn.execute(
+                "INSERT INTO pkm_manifest_paths(user_id,domain,json_path,exposure_eligibility,scope_handle) "
+                "VALUES('owner','travel',$1,true,$2)",
+                path_name,
+                leaf_handle,
+            )
+    entries = await scope_commerce_requests.get_scope_generator().get_available_scope_entries(
+        "owner"
+    )
+    handle = next(entry["registry_handle"] for entry in entries if entry["scope"] == scope)
+    assert handle == (HANDLE if wildcard else leaf_handle)
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE consent_audit SET scope=$1, metadata=(metadata-'commercial_required') "
+            "|| jsonb_build_object('scope_handle',$2::text)",
+            scope,
+            handle,
+        )
+    if paid:
+        tariff = await ctx.post(
+            "/tariffs",
+            {
+                "idempotency_key": str(uuid4()),
+                "scope_handle": handle,
+                "machine_scope": scope,
+                "price_cents": 1,
+                "base_duration_seconds": 3600,
+            },
+            "owner",
+        )
+        assert tariff.status_code == 200, tariff.text
+    path = "/requests/" + ctx.request_id
+    response = await ctx.get(path, "owner")
+    assert response.status_code == 200, response.text
+    assert response.json()["scope_handle"] == handle
+    assert bool(response.json()["tariff"]) is paid
+    assert (await ctx.get(path, "stranger")).status_code == 404
+
+    async with ctx.pool.acquire() as conn:
+        table = "pkm_scope_registry" if wildcard else "pkm_manifest_paths"
+        await conn.execute(f"UPDATE {table} SET scope_handle='s_rotated'")
+    changed_scope = await ctx.get(path, "owner")
+    assert changed_scope.status_code == 409
+    assert changed_scope.json()["detail"]["code"] == "scope_unavailable"
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(f"UPDATE {table} SET scope_handle=$1", handle)
+        await conn.execute("UPDATE one_kyc_client_connectors SET status='revoked'")
+    changed_recipient = await ctx.get(path, "owner")
+    assert changed_recipient.status_code == 409
+    assert changed_recipient.json()["detail"]["code"] == "recipient_or_scope_unavailable"
+    async with ctx.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE one_kyc_client_connectors SET status='active',connector_public_key='malformed'"
+        )
+    malformed_key = await ctx.get(path, "owner")
+    assert malformed_key.status_code == 409
+    assert malformed_key.json()["detail"]["code"] == "recipient_or_scope_unavailable"
+
+
 async def test_legacy_free_request_read_requires_binding_and_never_downgrades_paid(
     paid_contract: PaidContract,
 ):

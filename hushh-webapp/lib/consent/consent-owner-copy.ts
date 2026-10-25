@@ -13,6 +13,21 @@
 
 import { humanizeConsentScope } from "@/lib/consent/consent-display";
 import { requestDurationLabel } from "@/lib/agent/action-directive-summary";
+import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
+
+/** Only authored, sanitized decision copy can pass between owner surfaces. */
+export class OwnerFacingConsentError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "OwnerFacingConsentError";
+  }
+}
+
+export function ownerFacingConsentError(error: unknown, fallback: string): string {
+  return error instanceof OwnerFacingConsentError
+    ? oneLocationErrorMessage(error, fallback)
+    : fallback;
+}
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 

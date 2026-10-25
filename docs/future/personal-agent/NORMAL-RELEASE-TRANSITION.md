@@ -1,12 +1,14 @@
 # Private agent: normal release transition
 
-**Current surgical follow-up — 24 October 2026:** the preserved branch includes
-main `24545d1dc2`, preserving the earlier `44d8efecaf` and `b2ee968a59ab` integrations. Peer source and historical
-migration bytes remain intact. Canonical 418–421 carry the unapplied lifecycle
-correction; main’s financial migrations 416 and 417 remain byte-for-byte unchanged.
-`.agents` is the sole authored development framework. The combined
-correction is not merged or deployed. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
-owns current serving readback and verification; older receipts below are history.
+**Current surgical follow-up — 25 October 2026:**
+[PR #8437](https://github.com/hushh-labs/hushh-research/pull/8437) landed through
+Admin SOP as `a65e4f5fd5` after all 27 exact-head checks passed. It preserves main
+`24545d1dc2`, peer source and immutable migration history; canonical 418–421 carry
+the lifecycle correction. `.agents` remains authoritative. Landed smoke and actual
+deployment are separate from source landing. The newly reported person-approval
+catalog mismatch is a separate local correction; accept it before dev/UAT
+promotion. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+owns current readback and remaining installed journeys; older receipts below are history.
 
 **BYOC availability correction:** serving UAT omits the private-agent master flag
 and legitimately refuses cloud authorization; its frontend nevertheless offers
