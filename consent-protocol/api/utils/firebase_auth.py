@@ -289,13 +289,21 @@ def verify_firebase_bearer(
     authorization: Optional[str],
     *,
     check_revoked: bool = True,
+    require_independent_signin: bool = False,
 ) -> str:
     """Return the admitted application owner, preserving generation-zero UIDs."""
-    return verify_firebase_principal(authorization, check_revoked=check_revoked).owner_id
+    return verify_firebase_principal(
+        authorization,
+        check_revoked=check_revoked,
+        require_independent_signin=require_independent_signin,
+    ).owner_id
 
 
 def verify_firebase_principal(
-    authorization: Optional[str], *, check_revoked: bool = True
+    authorization: Optional[str],
+    *,
+    check_revoked: bool = True,
+    require_independent_signin: bool = False,
 ) -> AccountPrincipal:
     """Keep external authentication and immutable application ownership distinct.
 
@@ -313,6 +321,17 @@ def verify_firebase_principal(
 
     def resolve(claims: Mapping[str, Any]) -> str:
         nonlocal principal
+        if (
+            require_independent_signin
+            and (claims.get("firebase") or {}).get("sign_in_provider") == "phone"
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "AUTH_INDEPENDENT_SIGN_IN_REQUIRED",
+                    "message": "Sign in with your Google or Apple account to open your vault.",
+                },
+            )
         try:
             if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
                 principal = AccountGenerationService.resolve_verified_identity(
@@ -330,6 +349,18 @@ def verify_firebase_principal(
                 detail=detail,
                 headers={"Cache-Control": "private, no-store"},
             ) from None
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "AUTH_SESSION_STATUS_UNAVAILABLE"},
+                headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
+            ) from None
+        try:
+            from hushh_mcp.services.phone_transfer_service import assert_phone_admission
+
+            assert_phone_admission(principal.owner_id, claims)
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(
                 status_code=503,

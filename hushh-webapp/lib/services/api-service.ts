@@ -2448,10 +2448,25 @@ export class ApiService {
             : typeof payload.error === "string"
               ? payload.error
               : `Phone claim failed with HTTP ${response.status}`;
-      throw new Error(message);
+      const { ApiError } = await import("./api-client");
+      throw new ApiError(message, response.status, payload);
     }
 
     return payload as unknown as AccountPhoneClaimResponse;
+  }
+
+  static async phoneTransferRequest<T>(path: string, idToken: string, body?: Record<string, unknown>): Promise<T> {
+    const response = await apiFetch(`/api/account/phone/transfer/${path}`, {
+      method: body ? "POST" : "GET",
+      headers: { Authorization: `Bearer ${idToken}` },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const { ApiError } = await import("./api-client");
+      throw new ApiError(payload?.detail?.message ?? "Phone transfer is temporarily unavailable. Please retry.", response.status, payload);
+    }
+    return payload as T;
   }
 
   static async startUatPhoneTestVerification(

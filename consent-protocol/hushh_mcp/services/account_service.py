@@ -2006,8 +2006,17 @@ class AccountService:
                     requested_target=requested_target,
                 )
 
+        from hushh_mcp.services.phone_transfer_service import PhoneTransferInProgressError
+
         try:
             prepared = await settle_cleanup_database_call(prepare)
+        except PhoneTransferInProgressError:
+            return {
+                "success": False,
+                "account_deleted": False,
+                "error_code": "PHONE_TRANSFER_IN_PROGRESS",
+                "error": "PHONE_TRANSFER_IN_PROGRESS",
+            }
         except PersonalAgentDeprovisioningRequiredError:
             from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 

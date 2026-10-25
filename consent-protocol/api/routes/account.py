@@ -568,6 +568,14 @@ async def _verify_browser_enrollment_identity(authorization: str | None) -> str:
                 "message": "A review session cannot approve a trusted device.",
             },
         )
+    if (claims.get("firebase") or {}).get("sign_in_provider") == "phone":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "AUTH_INDEPENDENT_SIGN_IN_REQUIRED",
+                "message": "Sign in with Google or Apple before approving a device.",
+            },
+        )
     if str(claims.get("trusted_device_id") or "").strip():
         raise HTTPException(
             status_code=403,
@@ -1653,6 +1661,15 @@ class PhoneClaimRequest(BaseModel):
     expected_user_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
+class PhoneTransferPrepareRequest(PhoneClaimRequest):
+    expected_user_id: str = Field(min_length=1, max_length=128)
+
+
+class PhoneTransferConfirmRequest(PhoneTransferPrepareRequest):
+    transfer_id: UUID
+    confirmed: Literal[True]
+
+
 class UatPhoneTestStartRequest(BaseModel):
     phone_number: str = Field(min_length=3, max_length=32)
 
@@ -1671,7 +1688,9 @@ def _raise_alias_error(exc: ActorIdentityAliasError) -> None:
     ) from exc
 
 
-async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]:
+async def _verify_phone_claim_id_token(
+    raw_token: str, *, transfer: bool = False, proof_metadata: dict | None = None
+) -> tuple[str, str | None]:
     normalized_token = str(raw_token or "").strip()
     if not normalized_token:
         raise HTTPException(
@@ -1693,7 +1712,37 @@ async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]
                 check_revoked=True,
             )
         )
+    except (asyncio.TimeoutError, ConnectionError) as exc:
+        logger.warning("phone.transfer.proof_provider_unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "PHONE_PROOF_SERVICE_UNAVAILABLE",
+                "message": "Phone verification is temporarily unavailable. Please retry.",
+            },
+        ) from exc
     except Exception as exc:
+        from firebase_admin import exceptions as firebase_errors
+        from requests.exceptions import RequestException
+
+        if isinstance(
+            exc,
+            (
+                firebase_auth.CertificateFetchError,
+                firebase_errors.UnavailableError,
+                firebase_errors.InternalError,
+                firebase_errors.DeadlineExceededError,
+                RequestException,
+            ),
+        ):
+            logger.warning("phone.transfer.proof_provider_unavailable")
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "PHONE_PROOF_SERVICE_UNAVAILABLE",
+                    "message": "Phone verification is temporarily unavailable. Please retry.",
+                },
+            ) from exc
         logger.info("Phone claim token verification failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=401,
@@ -1738,7 +1787,66 @@ async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]
         )
 
     phone_session_uid = str(claims.get("uid") or claims.get("sub") or "").strip() or None
+    if transfer:
+        from hushh_mcp.services.phone_transfer_service import require_fresh_sms_claims
+
+        require_fresh_sms_claims(claims, phone_number)
+        if proof_metadata is not None:
+            # Authentication-event identity survives token refresh; a rotated JWT
+            # must not turn one SMS proof into a second transferable claim.
+            proof_metadata["event"] = f"{phone_session_uid}:{phone_number}:{claims['auth_time']}"
+            proof_metadata["valid_until"] = claims["auth_time"] + 300
     return phone_number, phone_session_uid
+
+
+@router.post("/phone/transfer/prepare")
+async def prepare_phone_transfer(
+    payload: PhoneTransferPrepareRequest, firebase_uid: str = Depends(require_firebase_auth)
+):
+    from hushh_mcp.services.phone_transfer_service import prepare
+
+    _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
+    proof: dict = {}
+    phone, uid = await _verify_phone_claim_id_token(
+        payload.phone_id_token, transfer=True, proof_metadata=proof
+    )
+    if not uid:
+        raise HTTPException(status_code=401, detail={"code": "INVALID_PHONE_ID_TOKEN"})
+    return await prepare(
+        firebase_uid,
+        phone,
+        proof["event"],
+        uid,
+        get_firebase_auth_app(),
+        proof_valid_until=proof["valid_until"],
+    )
+
+
+@router.post("/phone/transfer/confirm")
+async def confirm_phone_transfer(
+    payload: PhoneTransferConfirmRequest, firebase_uid: str = Depends(require_firebase_auth)
+):
+    from hushh_mcp.services.phone_transfer_service import confirm
+
+    _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
+    proof: dict = {}
+    phone, uid = await _verify_phone_claim_id_token(
+        payload.phone_id_token, transfer=True, proof_metadata=proof
+    )
+    if not uid:
+        raise HTTPException(status_code=401, detail={"code": "INVALID_PHONE_ID_TOKEN"})
+    return await confirm(
+        firebase_uid, phone, proof["event"], uid, str(payload.transfer_id), get_firebase_auth_app()
+    )
+
+
+@router.get("/phone/transfer/{transfer_id}")
+async def phone_transfer_status(
+    transfer_id: UUID, firebase_uid: str = Depends(require_firebase_auth)
+):
+    from hushh_mcp.services.phone_transfer_service import status
+
+    return await status(firebase_uid, str(transfer_id), get_firebase_auth_app())
 
 
 async def _delete_firebase_auth_user(
@@ -1899,6 +2007,12 @@ async def claim_account_phone(
     """Persist a Firebase phone-auth session as the app-level verified phone claim."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
+    from hushh_mcp.services.phone_transfer_service import refuse
+
+    if not await ActorIdentityService().can_claim_test_phone(
+        user_id=firebase_uid, phone_number=phone_number
+    ):
+        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED")
     protected_identity = firebase_uid
     if re.fullmatch(r"acct_[0-9a-f]{32}", firebase_uid):
         try:
@@ -1934,10 +2048,12 @@ async def claim_account_phone(
             },
         )
 
-    identity = await ActorIdentityService().claim_verified_phone(
-        user_id=firebase_uid,
-        phone_number=phone_number,
-    )
+    try:
+        identity = await ActorIdentityService().claim_verified_phone(
+            user_id=firebase_uid, phone_number=phone_number
+        )
+    except ActorIdentityPhoneClaimConflictError:
+        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED") from None
     if not identity:
         raise HTTPException(
             status_code=503,
@@ -2305,6 +2421,19 @@ async def _perform_account_deletion(user_id: str, *, target: str):
         )
 
     if not result["success"]:
+        if result.get(
+            "error_code"
+        ) == "PHONE_TRANSFER_IN_PROGRESS" or "PHONE_TRANSFER_IN_PROGRESS" in str(
+            result.get("error", "")
+        ):
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "code": ACCOUNT_DELETION_FAILED_CODE,
+                    "detail": "Phone transfer is still in progress. Check its progress, then retry account deletion.",
+                },
+                headers={"Cache-Control": "private, no-store"},
+            )
         if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
             raise HTTPException(
                 status_code=409,

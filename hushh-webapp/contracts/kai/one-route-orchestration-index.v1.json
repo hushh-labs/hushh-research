@@ -6875,7 +6875,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Phone verification completes only after the submitted code is accepted.",
+        "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
         "next_route": "/one/setup",
         "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

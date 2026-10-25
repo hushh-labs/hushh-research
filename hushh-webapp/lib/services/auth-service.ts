@@ -14,11 +14,11 @@
 import { Capacitor } from "@capacitor/core";
 import {
   startDeletionPhoneProof, confirmDeletionPhoneProof, cancelDeletionPhoneProof, mintPhoneClaimIdToken,
+  startManualPhoneProof, isManualPhoneProof,
   type PhoneDeletionContext, type PhoneDeletionConfirmation, type PhoneClaimConfirmation,
 } from "./phone-deletion-verification";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 import { getPhoneReliabilityFlags } from "@/lib/auth/phone-reliability";
-import { startNativePhoneVerification } from "@/lib/auth/native-phone-verification";
 import { authenticateCustomToken } from "@/lib/auth/custom-token-auth";
 import {
   type ApplicationVerifier,
@@ -40,7 +40,6 @@ import {
 import { auth } from "@/lib/firebase/config";
 import {
   FirebaseAuthentication,
-  ProviderId,
 } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
@@ -1478,6 +1477,7 @@ export class AuthService {
       resendCode?: boolean;
       timeout?: number;
       signal?: AbortSignal;
+      allowLinkedPhoneProof?: boolean;
     },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("replace", phoneNumber, options);
@@ -1503,8 +1503,6 @@ export class AuthService {
       auth.currentUser?.phoneNumber ?? "",
     ).trim();
     const allowLinkedPhoneProof =
-      intent === "link" &&
-      !Capacitor.isNativePlatform() &&
       options?.allowLinkedPhoneProof === true &&
       getPhoneReliabilityFlags().recovery;
     if (
@@ -1530,26 +1528,10 @@ export class AuthService {
     }
 
     if (Capacitor.isNativePlatform()) {
-      return startNativePhoneVerification({
-        intent,
-        phoneNumber: normalizedPhoneNumber,
-        currentPhoneNumber,
-        fenceSessions: getPhoneReliabilityFlags().sessionFencing,
-        resendCode: options?.resendCode,
-        timeout: options?.timeout,
-        signal: options?.signal,
-      }, {
-        isSignedIn: () => this.isSignedIn(),
-        onCodeSent: callback => FirebaseAuthentication.addListener("phoneCodeSent", callback),
-        onFailure: callback => FirebaseAuthentication.addListener("phoneVerificationFailed", callback),
-        onCompleted: callback => FirebaseAuthentication.addListener("phoneVerificationCompleted", callback),
-        unlinkPhone: () => FirebaseAuthentication.unlink({ providerId: ProviderId.PHONE }),
-        sendPhone: options => FirebaseAuthentication.linkWithPhoneNumber(options),
-        restoreSession: () => this.restoreNativeSession(),
-        normalizeError: error => this.normalizePhoneVerificationError(
-          error, intent === "replace" ? "replace_start" : "link_start",
-        ),
-      });
+      const current = await this.restoreNativeSession({ nativeOnly: true });
+      if (!current) throw new Error("Sign in before verifying a phone number.");
+      try { return await startManualPhoneProof(normalizedPhoneNumber, current.uid, options?.signal); }
+      catch (error) { throw this.normalizePhoneVerificationError(error, "link_start"); }
     }
 
     if (!auth.currentUser) {
@@ -1610,6 +1592,8 @@ export class AuthService {
   static getPhoneClaimIdToken(params: PhoneClaimConfirmation): Promise<string> {
     return mintPhoneClaimIdToken(params, (error) => this.normalizePhoneVerificationError(error, "link_confirm"));
   }
+
+  static isManualPhoneProof = isManualPhoneProof;
 
   static async confirmPhoneReplacementVerification(params: {
     verificationCode: string;
@@ -1741,6 +1725,15 @@ export class AuthService {
       "link_start" | "link_confirm" | "replace_start" | "replace_confirm",
   ): Error {
     const code = this.getPhoneVerificationErrorCode(error);
+
+    if (code === "phone-verification-required" || code === "session-expired")
+      return this.createPhoneVerificationError("phone-verification-required", "This device no longer has the verification session. Request a new code.");
+    if (code === "network-request-failed")
+      return this.createPhoneVerificationError(code, "Phone verification is temporarily unavailable. Check your connection and retry.");
+    if (code === "phone_manual_sms_required")
+      return this.createPhoneVerificationError(code, "A fresh manually entered SMS code is required. Request another code.");
+    if (code === "session_changed")
+      return this.createPhoneVerificationError(code, "Your signed-in account changed. Start phone verification again.");
 
     if (code === "phone-already-linked-to-current-user") {
       return this.createPhoneVerificationError(

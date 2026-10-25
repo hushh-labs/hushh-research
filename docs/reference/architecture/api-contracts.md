@@ -2629,9 +2629,9 @@ Signup phone verification is account-scoped: deleting only an RIA persona retain
 the shared identity row and its verified phone, email and avatar. Full account
 deletion still removes it. Passive Firebase hydration cannot transfer a phone
 already verified for another account; ownership is rechecked under the existing
-phone advisory lock and ordered identity row locks. An explicit validated phone
-claim retains the transfer path, and Firebase phone replacement still updates an
-account when the new number is unbound.
+phone advisory lock and ordered identity row locks. An ordinary validated phone claim cannot displace another owner. Fresh real SMS
+proof plus a separate explicit transfer confirmation uses the same identity writer.
+An unbound replacement still uses ordinary phone claiming.
 
 If an incomplete identity cannot be refreshed because the provider or persistence
 is unavailable, both contact-sync endpoints return retryable HTTP 503 with
@@ -5251,3 +5251,81 @@ independent section reads with a sanitized `one_location.read_batch_fallback`
 warning. Standing-preference failures still fail visibly. Query budgets and
 latency targets require request-level runtime verification; batching alone does
 not prove those targets.
+
+
+### Phone conflict recovery and trusted-device boundary
+
+Web, iOS and Android use the same phone conflict model. A conflict reveals no
+previous-account name, email, identifiers, devices or information. The choices
+are **Use this number on this account**, **Recover my previous account**, and
+**Delete my previous account**. The latter two open the existing Google/Apple
+sign-in and Profile flow. Deletion still needs that account's existing owner
+capability, re-authentication and destructive confirmation. Phone-origin proof
+is accepted only as the secondary possession proof and cannot admit a primary
+application session, read a previous owner profile, mint an owner capability or approve a new trusted device. Existing
+owner-authenticated trusted-device listing and revocation keep their hub-first,
+pod-propagation and uncertain-outcome contracts. This does not create a universal
+browser/mobile session registry; currently enrolled trusted devices retain their
+existing platform coverage.
+
+`POST /api/account/phone/transfer/prepare` requires the current Firebase bearer,
+`expected_user_id` matching the captured application owner and an independent
+`phone_id_token`. The server verifies its phone provider, revocation, exact UID,
+authentication age, application fixtures and provider fictional-number config.
+The response is an opaque `transfer_id` and intent `expires_at`. This is a
+server authorization deadline, not a promise about provider OTP lifetime.
+Fixture, emulator, reviewer and shared test-code proofs cannot transfer a number.
+If removing the phone would strand an established phone-only identity, existing
+account recovery is required first.
+
+`POST /api/account/phone/transfer/confirm` repeats those proofs and requires
+`transfer_id` and literal `confirmed: true`. The canonical phone writer consumes
+the proof event and expected source/receiving binding revisions atomically under
+existing lifecycle, identity-generation, per-phone and ordered row locks. A
+stale/expired intent, generation change, ABA binding change or concurrent loser
+moves nothing. Only the old phone link changes; old files, encrypted PKM, vault
+and account remain. A phone credential already owned by the receiving identity
+is preserved. A temporary phone-only proof identity is also never unlinked or
+deleted by transfer; it supplies possession only. Established phone-only accounts
+require independent recovery. Old phone-origin admission is fenced, and existing owner-token
+lineage is retired under its canonical renewal lock; Google/Apple access can
+renew through the existing owner flow.
+
+External unlink reserves the existing Firebase mutation journal in that same
+transaction and dispatches at most once. It never deletes or disables an identity,
+and does not explicitly revoke independent Google/Apple refresh sessions.
+`GET /api/account/phone/transfer/{transfer_id}` is owner-scoped and read-only:
+`not_started`, `in_progress`, `action_required`, or `completed`. A lost confirm
+response permits only status checks until authoritative readback. The hub worker
+resumes reserved effects, fairly scans uncertain receipts and reconciles local completion from the journal
+without replaying an uncertain POST. A transient provider read cannot settle an
+uncertain write or release its generation fence. An unchanged uncertain provider
+outcome needs operator reconciliation; the screen names support rather than
+claiming ongoing automatic completion. Account erasure waits for committed
+provider work so its recovery context cannot disappear. Existing deletion 202
+and cleanup-pending behavior remains authoritative.
+
+Native verification extends the existing isolated proof bridge rather than
+linking the primary Firebase user. Owner/attempt fences suppress stale native
+callbacks. Harmless rerenders, typing and background/foreground events do not
+start a challenge. Resend is explicit and retires the prior local challenge.
+No provider expiry countdown is invented. Native provider error mapping follows
+[Firebase's published error contract](https://docs.cloud.google.com/identity-platform/docs/error-codes);
+wrong code, provider-expired code, missing local session, ownership conflict and
+provider outage remain distinct.
+
+Migration `424` holds short-lived transfer receipts and independent hash-only
+retired-phone admission fences. Unsettled remote work blocks rollback; rollback
+removes its erasure trigger before the workflow table and retains security fences.
+The existing `AUTH_PHONE_RECOVERY_ENABLED` rollout flag and request-scoped auth
+traces are reused. Monitoring extends the existing auth failure metric, without
+phone/token labels. The existing verified-email gate sends static phone-link
+security notices after the binding commit; uncertain sends are not blindly replayed.
+
+Verification has separate lanes: focused unit/component tests, disposable
+PostgreSQL concurrency/rollback proof, generated UI/native contracts, hosted CI,
+deployment schema/provider qualification, and physical-device real-SMS journeys.
+Passing an earlier lane does not declare a later lane complete. Release requires
+Identity Platform config-read permission, permitted identity mutation authority,
+qualified migration 424, existing alert delivery and real Web/iOS/Android SMS,
+resend, account-switch, outage and device-revocation rehearsals.

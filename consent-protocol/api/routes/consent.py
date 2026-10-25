@@ -1580,7 +1580,9 @@ async def issue_vault_owner_token(request: Request):
         if not user_id:
             raise HTTPException(status_code=400, detail="userId is required")
 
-        firebase_uid = await run_in_threadpool(verify_firebase_bearer, auth_header)
+        firebase_uid = await run_in_threadpool(
+            verify_firebase_bearer, auth_header, require_independent_signin=True
+        )
 
         # Ensure user is requesting token for their own vault
         if firebase_uid != user_id:

@@ -913,6 +913,8 @@ def test_phone_session_cleanup_intent_binds_the_exact_verified_uid(monkeypatch):
 def test_phone_session_cleanup_never_tombstones_an_existing_phone_only_account(monkeypatch):
     from firebase_admin import auth as firebase_auth
 
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+
     class _Provider:
         provider_id = "phone"
 

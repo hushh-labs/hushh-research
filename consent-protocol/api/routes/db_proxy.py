@@ -23,7 +23,6 @@ import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
@@ -60,30 +59,16 @@ def _is_passkey_method(method: str) -> bool:
 
 
 async def _send_vault_change_notice(user_id: str, kind: AccountNoticeKind) -> None:
-    """Best effort after commit; no client event can request an account notice."""
-    try:
-        app = get_firebase_auth_app()
-        if app is None:
-            raise RuntimeError("account lookup unavailable")
-        from firebase_admin import auth as firebase_auth
+    """Compatibility facade for the shared verified-channel gate."""
+    from hushh_mcp.services.support_email_service import send_verified_account_notice
 
-        identity_uid = await run_in_threadpool(firebase_uid_for_owner_read, user_id)
-        account = await run_in_threadpool(firebase_auth.get_user, identity_uid, app=app)
-        if not getattr(account, "email_verified", False) or not getattr(account, "email", None):
-            logger.warning(
-                "account_security_email.skipped reason=verified_email_required kind=%s", kind
-            )
-            return
-        await run_in_threadpool(
-            get_support_email_service().send_account_notice,
-            kind=kind,
-            to_email=str(account.email),
-        )
-        logger.info("account_security_email.accepted kind=%s", kind)
-    except Exception as exc:
-        logger.error(
-            "account_security_email.failed kind=%s error_type=%s", kind, type(exc).__name__
-        )
+    await send_verified_account_notice(
+        user_id,
+        kind,
+        app_factory=get_firebase_auth_app,
+        sender_factory=get_support_email_service,
+        identity_lookup=firebase_uid_for_owner_read,
+    )
 
 
 def _mask_user_id(user_id: str) -> str:

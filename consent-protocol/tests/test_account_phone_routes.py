@@ -425,3 +425,120 @@ def test_confirm_uat_test_phone_verification_rejects_wrong_code(monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "UAT_PHONE_TEST_INVALID_CODE"
+
+
+def test_transfer_routes_require_current_owner_and_explicit_confirmation(monkeypatch):
+    from uuid import uuid4
+
+    from hushh_mcp.services import phone_transfer_service
+
+    app = _build_app()
+    app.dependency_overrides[require_firebase_auth] = lambda: "receiving"
+    verify = AsyncMock(return_value=("+16505550101", "previous"))
+    confirm = AsyncMock()
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", verify)
+    monkeypatch.setattr(phone_transfer_service, "confirm", confirm)
+    client = TestClient(app)
+    base = {
+        "phone_id_token": "synthetic-proof",
+        "expected_user_id": "receiving",
+        "transfer_id": str(uuid4()),
+    }
+    assert client.post("/api/account/phone/transfer/confirm", json=base).status_code == 422
+    assert (
+        client.post(
+            "/api/account/phone/transfer/confirm", json={**base, "confirmed": False}
+        ).status_code
+        == 422
+    )
+    switched = client.post(
+        "/api/account/phone/transfer/confirm",
+        json={**base, "confirmed": True, "expected_user_id": "retired-owner"},
+    )
+    assert switched.status_code == 409
+    verify.assert_not_called()
+    confirm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_transfer_uses_authentication_event_not_refreshable_jwt_bytes(monkeypatch):
+    import time
+
+    from firebase_admin import auth as firebase_auth
+
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    stamp = int(time.time())
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "previous",
+            "phone_number": "+16505550101",
+            "auth_time": stamp,
+            "firebase": {"sign_in_provider": "phone"},
+        },
+    )
+    first, refreshed = {}, {}
+    assert await account._verify_phone_claim_id_token(
+        "first-signed-jwt", transfer=True, proof_metadata=first
+    ) == ("+16505550101", "previous")
+    await account._verify_phone_claim_id_token(
+        "refreshed-signed-jwt", transfer=True, proof_metadata=refreshed
+    )
+    assert first == refreshed
+    assert first["valid_until"] == stamp + 300
+
+
+@pytest.mark.asyncio
+async def test_proof_provider_outage_is_not_an_invalid_code(monkeypatch, caplog):
+    from fastapi import HTTPException
+    from firebase_admin import auth as firebase_auth
+
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+
+    def outage(*_args, **_kwargs):
+        raise ConnectionError("synthetic-private-provider-body")
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", outage)
+    with pytest.raises(HTTPException) as refused:
+        await account._verify_phone_claim_id_token("synthetic-proof", transfer=True)
+    assert refused.value.status_code == 503
+    assert refused.value.detail["code"] == "PHONE_PROOF_SERVICE_UNAVAILABLE"
+    assert "proof_provider_unavailable" in caplog.text
+    assert "synthetic-private-provider-body" not in caplog.text
+
+
+@pytest.mark.parametrize("independent", [False, True])
+def test_unlink_preserves_other_credentials_and_requires_independent_recovery(
+    monkeypatch, independent
+):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin
+    from hushh_mcp.services import account_firebase_mutations as mutations
+
+    app = object()
+    phone = "+16505550101"
+    record = SimpleNamespace(
+        phone_number=phone,
+        provider_data=[SimpleNamespace(provider_id="google.com")] if independent else [],
+    )
+    get_user = Mock(side_effect=[record, SimpleNamespace(phone_number=None)])
+    post = Mock()
+    monkeypatch.setattr(
+        firebase_admin, "assert_firebase_identity_mutation_allowed", lambda _app: None
+    )
+    monkeypatch.setattr(auth, "get_user", get_user)
+    monkeypatch.setattr(mutations, "_update_identity", post)
+    if independent:
+        mutations.unlink_phone(app, "previous", phone)
+        post.assert_called_once_with(app, "previous", {"deleteProvider": ["phone"]})
+    else:
+        with pytest.raises(
+            mutations.FirebaseMutationTransportError, match="independent recovery required"
+        ):
+            mutations.unlink_phone(app, "previous", phone)
+        post.assert_not_called()

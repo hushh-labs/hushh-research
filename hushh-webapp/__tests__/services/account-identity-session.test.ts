@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "firebase/auth";
 
-const { refreshShadow, writeIdentity, claimPhone, uploadAvatar } = vi.hoisted(() => ({ refreshShadow: vi.fn(), writeIdentity: vi.fn(), claimPhone: vi.fn(), uploadAvatar: vi.fn() }));
+const { refreshShadow, writeIdentity, claimPhone, uploadAvatar, phoneTransfer } = vi.hoisted(() => ({ refreshShadow: vi.fn(), writeIdentity: vi.fn(), claimPhone: vi.fn(), uploadAvatar: vi.fn(), phoneTransfer: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { refreshAccountIdentityShadow: refreshShadow, claimAccountPhone: claimPhone, uploadAvatar, createSession: vi.fn().mockResolvedValue(undefined) },
+  ApiService: { refreshAccountIdentityShadow: refreshShadow, claimAccountPhone: claimPhone, uploadAvatar, phoneTransferRequest: phoneTransfer, createSession: vi.fn().mockResolvedValue(undefined) },
 }));
 vi.mock("@/lib/services/api-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/api-client")>(),
@@ -24,7 +24,7 @@ describe("account identity session admission", () => {
     publishValidatedAuthSessionOwner("owner-a");
     refreshShadow.mockReset();
     writeIdentity.mockReset();
-    claimPhone.mockReset();
+    claimPhone.mockReset(); phoneTransfer.mockReset();
     uploadAvatar.mockReset();
     AccountIdentityService.invalidateCachedIdentity("owner-a");
     AccountIdentityService.invalidateCachedIdentity("owner-b");
@@ -262,5 +262,30 @@ describe("account identity session admission", () => {
     expect(error.message).toContain(message);
     expect(error.message).not.toContain("untrusted server diagnostic");
     expect(AccountIdentityService.peekCachedIdentity("owner-a")).toBeNull();
+  });
+});
+
+
+describe("owner-bound phone transfer response loss", () => {
+  afterEach(() => publishValidatedAuthSessionOwner(null));
+  it("retains the intent after lost confirmation and only reads status on retry", async () => {
+    publishValidatedAuthSessionOwner("owner-a");
+    phoneTransfer.mockReset();
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("primary-token") } as unknown as User;
+    const proof = { token: "memory-only-phone-proof" };
+    phoneTransfer.mockResolvedValueOnce({ transfer_id: "opaque-intent" }).mockRejectedValueOnce(new Error("response lost"));
+    await expect(AccountIdentityService.transferCurrentUserPhone(user, proof, () => true)).rejects.toMatchObject({ payload: { code: "PHONE_TRANSFER_IN_PROGRESS" } });
+    const identity = { user_id: "owner-a", phone_verified: true, phone_number: "+16505550101" };
+    phoneTransfer.mockResolvedValueOnce({ transfer_status: "completed", identity });
+    await expect(AccountIdentityService.transferCurrentUserPhone(user, proof, () => true)).resolves.toEqual(identity);
+    expect(phoneTransfer.mock.calls.map(call => call[0])).toEqual(["prepare", "confirm", "opaque-intent"]);
+    expect(phoneTransfer.mock.calls[2]).toHaveLength(2);
+  });
+  it("an account switch while preparing cannot dispatch confirmation", async () => {
+    publishValidatedAuthSessionOwner("owner-a"); phoneTransfer.mockReset();
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("primary-token") } as unknown as User;
+    phoneTransfer.mockImplementationOnce(async () => { publishValidatedAuthSessionOwner("owner-b"); return { transfer_id: "retired-intent" }; });
+    await expect(AccountIdentityService.transferCurrentUserPhone(user, { token: "memory-proof" }, () => true)).rejects.toThrow("account changed");
+    expect(phoneTransfer).toHaveBeenCalledTimes(1);
   });
 });

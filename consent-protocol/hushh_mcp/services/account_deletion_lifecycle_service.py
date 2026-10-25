@@ -380,6 +380,9 @@ class AccountDeletionLifecycleService:
         ):
             raise RuntimeError("current provider cleanup contract is required")
         AccountDeletionLifecycleService._lock_user_ids_in_transaction(conn, user_ids=(owner,))
+        from hushh_mcp.services.phone_transfer_service import assert_erasure_ready
+
+        assert_erasure_ready(conn, owner, table_exists)
         from hushh_mcp.services.account_personal_agent_erasure import (
             assert_external_resources_absent,
         )

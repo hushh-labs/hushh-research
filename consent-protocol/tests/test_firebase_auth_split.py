@@ -1101,3 +1101,31 @@ def test_registration_review_preserves_cleanup_fences_and_exact_terms():
         now=1000,
     )
     assert changed["review"]["digest"] != review["review"]["digest"]
+
+
+def test_phone_proof_cannot_mint_owner_authority_but_social_signin_can(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "false")
+    monkeypatch.setattr(firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test"))
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {"uid": "previous", "firebase": {"sign_in_provider": "phone"}},
+    )
+    with pytest.raises(HTTPException) as error:
+        verify_firebase_bearer("Bearer synthetic-phone-proof", require_independent_signin=True)
+    assert error.value.detail["code"] == "AUTH_INDEPENDENT_SIGN_IN_REQUIRED"
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {
+            "uid": "previous",
+            "firebase": {"sign_in_provider": "google.com"},
+        },
+    )
+    assert (
+        verify_firebase_bearer("Bearer synthetic-social-proof", require_independent_signin=True)
+        == "previous"
+    )

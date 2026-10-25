@@ -7,9 +7,13 @@ import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.phone_transfer_service import ConfirmedTransfer
 
 import asyncpg
+from fastapi import HTTPException
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
@@ -1171,6 +1175,7 @@ class ActorIdentityService:
         user_id: str,
         phone_number: str,
         source: str = "firebase_phone_claim",
+        transfer: ConfirmedTransfer | None = None,
     ) -> dict[str, Any] | None:
         normalized_user_id = str(user_id or "").strip()
         normalized_phone_number = str(phone_number or "").strip()
@@ -1225,7 +1230,13 @@ class ActorIdentityService:
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
+                    if transfer is not None:
+                        from hushh_mcp.services.phone_transfer_service import consume, lock_transfer
+
+                        await lock_transfer(conn, normalized_user_id, transfer)
                     await self._ensure_actor_spine(conn, normalized_user_id)
+                    if transfer is not None:
+                        await consume(conn, normalized_user_id, normalized_phone_number, transfer)
                     phone_write_allowed = await self._lock_and_clear_verified_phone_binding(
                         conn,
                         user_id=normalized_user_id,
@@ -1233,7 +1244,7 @@ class ActorIdentityService:
                         # Fixed test codes do not prove fresh phone possession.
                         # Only the Firebase phone-token route can transfer a
                         # verified owner; retries by the same owner remain valid.
-                        allow_owner_transfer=normalized_source == "firebase_phone_claim",
+                        allow_owner_transfer=transfer is not None,
                     )
                     if not phone_write_allowed:
                         raise ActorIdentityPhoneClaimConflictError()
@@ -1261,7 +1272,7 @@ class ActorIdentityService:
                             normalized_phone_number,
                             normalized_source,
                         )
-        except ActorIdentityPhoneClaimConflictError:
+        except (ActorIdentityPhoneClaimConflictError, HTTPException):
             raise
         except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
             logger.debug(

@@ -563,6 +563,7 @@ function ProfilePageContent({
     signOut,
     startPhoneVerification,
     confirmPhoneVerification,
+    confirmPhoneTransfer,
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
@@ -4286,6 +4287,9 @@ function ProfilePageContent({
               confirmVerification={
                 phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification
               }
+              confirmTransfer={confirmPhoneTransfer}
+              recoverPreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
+              deletePreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
               onCompleted={handleAccountPhoneCompleted}
               onBackStepChange={bindPhoneBackStep}
               onCancel={popProfileStack}
@@ -5141,6 +5145,9 @@ function ProfilePageContent({
         webHost={nativePhoneHost} mode={phoneNumber ? "replace" : "link"} currentPhoneNumber={phoneNumber}
         startVerification={phoneNumber ? startPhoneReplacement : startPhoneVerification}
         confirmVerification={phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification}
+        confirmTransfer={confirmPhoneTransfer}
+        recoverPreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
+        deletePreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
         onCompleted={handleAccountPhoneCompleted} onBackStepChange={bindPhoneBackStep} onCancel={popProfileStack}
         confirmLabel="Save phone number" helperText={phoneNumber ? "Enter the new phone number." : "Enter your phone number."}
         className={cn("gap-5", isPanePresentation && accountStyles.phoneDetail)} /> }}
