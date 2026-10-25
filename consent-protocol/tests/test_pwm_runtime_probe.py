@@ -127,7 +127,7 @@ def test_azure_pwm_primary_probe_requires_actual_attribution_decisions(monkeypat
     assert all("supported" not in case for case in request["payload"]["cases"])
 
 
-@pytest.mark.parametrize("defect", ["ignored_planner", "ignored_query"])
+@pytest.mark.parametrize("defect", ["ignored_planner", "finished_planner", "ignored_query"])
 def test_azure_pwm_probe_fails_when_confirmed_leads_are_ignored(defect, capsys):
     from unittest.mock import AsyncMock
 
@@ -143,17 +143,32 @@ def test_azure_pwm_probe_fails_when_confirmed_leads_are_ignored(defect, capsys):
         "topics": ["career" if defect == "ignored_planner" else "publications"],
         "question": "Find public original work.",
     }
+    choice = (
+        {"action": "finish", "plan": None}
+        if defect == "finished_planner"
+        else {"action": "search", "plan": plan}
+    )
     gateway = SimpleNamespace(
-        plan=AsyncMock(return_value={"action": "search", "plan": plan}),
+        plan=AsyncMock(return_value=choice),
         structured=AsyncMock(return_value={"query": "Alex Example generic"}),
     )
     with pytest.raises(RuntimeError, match="evaluation failed"):
         asyncio.run(module._probe_confirmed_guidance(gateway))
     receipt = json.loads(capsys.readouterr().out)
     assert receipt["failed_fields"] == [
-        "planner_lead" if defect == "ignored_planner" else "query_lead"
+        "query_lead" if defect == "ignored_query" else "planner_lead"
     ]
+    if defect != "ignored_query":
+        has_plan = defect != "finished_planner"
+        assert receipt["planner_conditions"] == {
+            "search_plan": has_plan,
+            "identity_purpose": has_plan,
+            "no_anchors": has_plan,
+            "no_candidate": has_plan,
+            "publications": False,
+        }
     assert "Alex" not in json.dumps(receipt)
+    assert "LumenForge" not in json.dumps(receipt)
 
 
 def pwm_proof_fixture(document):
