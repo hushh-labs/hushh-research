@@ -33,6 +33,7 @@ the pool needs at least one connection more than there are listeners.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
@@ -329,7 +330,13 @@ def test_every_listener_is_declared() -> None:
         path.relative_to(BACKEND_ROOT).as_posix()
         for top in ("api", "db", "hushh_mcp", "mcp_modules")
         for path in (BACKEND_ROOT / top).rglob("*.py")
-        if "add_listener(" in path.read_text(encoding="utf-8")
+        # Count registrations, not an adapter's method declaration or comments.
+        if any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_listener"
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        )
     }
     undeclared = sorted(found - set(LISTENER_MODULES))
     assert not undeclared, (

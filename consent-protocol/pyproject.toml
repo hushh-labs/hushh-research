@@ -263,6 +263,7 @@ addopts = "-v --tb=short"
 asyncio_mode = "auto"  # Enable pytest-asyncio auto mode
 asyncio_default_fixture_loop_scope = "function"  # Set event loop scope
 markers = [
+    "feature_auth_reliability: bounded phone verification and database admission recovery",
     "feature_account_deletion: atomic account erasure and authoritative client completion",
     "feature_drive_packets: owner packet preview runtime and API contract",
     "feature_protected_documents: device-encrypted hosted document delivery",

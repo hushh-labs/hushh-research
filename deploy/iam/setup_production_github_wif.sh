@@ -19,6 +19,7 @@ readonly ATTRIBUTE_CONDITION="assertion.sub == 'repo:${GITHUB_REPOSITORY}:enviro
 
 readonly -a DEPLOY_PROJECT_ROLES=(
   "roles/cloudbuild.builds.editor"
+  "roles/logging.logWriter"
   "roles/run.admin"
   "roles/secretmanager.admin"
   "roles/secretmanager.secretAccessor"

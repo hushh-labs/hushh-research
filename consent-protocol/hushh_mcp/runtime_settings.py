@@ -78,6 +78,7 @@ BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     **runtime_environment.SCOPE_COMMERCE_ENV_MAP,
+    "auth_db_listener_isolation_enabled": "AUTH_DB_LISTENER_ISOLATION_ENABLED",
     "pod_dev_inference_bridge_json": "HUSSH_POD_DEV_INFERENCE_BRIDGE_JSON",
     "hussh_shared_files_enabled": "HUSSH_SHARED_FILES_ENABLED",
     "hussh_shared_files_bucket": "HUSSH_SHARED_FILES_BUCKET",

@@ -30,6 +30,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple, TypedDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG = REPO_ROOT / "config" / "protected-lists.json"
@@ -49,16 +50,19 @@ def entries(raw: str) -> list[str]:
 
 
 def gcloud(args: list[str]) -> tuple[int, str]:
-    proc = subprocess.run(
-        ["gcloud", *args], capture_output=True, text=True, check=False
-    )
+    try:
+        proc = subprocess.run(
+            ["gcloud", *args], capture_output=True, text=True, check=False, timeout=45
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return 124, ""
     return proc.returncode, proc.stdout
 
 
 def versions(secret: str, project: str) -> list[str]:
     code, out = gcloud(
         ["secrets", "versions", "list", secret, f"--project={project}",
-         "--filter=state:ENABLED", "--format=value(name)", "--limit=2"]
+         "--filter=state:ENABLED", "--sort-by=~createTime", "--format=value(name)", "--limit=2"]
     )
     return out.split() if code == 0 else []
 
@@ -71,64 +75,84 @@ def read(secret: str, project: str, version: str) -> str | None:
     return out if code == 0 else None
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--project", help="only check secrets in this project")
-    args = ap.parse_args()
+def publish_phone_health(project: str, status: str, checked: int) -> bool:
+    """Publish only bounded status/count metadata, never a secret or provider error."""
+    payload = json.dumps({
+        "message": "auth.test_allowlist.health",
+        "status": status,
+        "checked_lists": checked,
+    }, separators=(",", ":"))
+    code, _ = gcloud([
+        "logging", "write", "obs-auth-health", payload, f"--project={project}",
+        "--payload-type=json", "--severity=INFO" if status == "healthy" else "--severity=ERROR",
+    ])
+    return code == 0
 
-    config = json.loads(CONFIG.read_text(encoding="utf-8"))
-    tracked = [
-        s for s in config["secrets"]
-        if not args.project or s["project"] == args.project
-    ]
-    if not tracked:
-        print("No tracked secrets for that project.")
-        return 0
 
+class ProtectedListSpec(TypedDict):
+    name: str
+    project: str
+    min_entries: int
+    max_shrink: int
+
+
+class ListCheck(NamedTuple):
+    """A secret check retains only counts and sanitized operational diagnostics."""
+
+    summary: str | None
+    failures: list[str]
+    unavailable: list[str]
+
+    @property
+    def status(self) -> str:
+        if self.failures:
+            return "failed"
+        return "unavailable" if self.unavailable else "healthy"
+
+
+def check_list(spec: ProtectedListSpec) -> ListCheck:
+    name, project = spec["name"], spec["project"]
+    label = f"{project}/{name}"
+    vs = versions(name, project)
+    if not vs:
+        return ListCheck(None, [], [f"{label}: cannot list versions (missing, or no access)"])
+    current_raw = read(name, project, vs[0])
+    if current_raw is None:
+        return ListCheck(None, [], [f"{label}: cannot read version {vs[0]}"])
+    current = entries(current_raw)
     failures: list[str] = []
-    unchecked: list[str] = []
+    unavailable: list[str] = []
+    line = f"  {label:46s} v{vs[0]:<4s} {len(current):4d} entries"
+    if len(current) < spec["min_entries"]:
+        failures.append(
+            f"{label}: {len(current)} entries is below the floor of "
+            f"{spec['min_entries']}. This list has been wiped. "
+            f"Restore with: scripts/ops/secret_list_edit.py --secret {name} "
+            f"--project {project} --restore-from <last good version> --apply"
+        )
+        line += "   *** BELOW FLOOR ***"
+    if len(vs) > 1:
+        prev_raw = read(name, project, vs[1])
+        if prev_raw is None:
+            unavailable.append(f"{label}: cannot verify previous enabled version")
+        else:
+            prev = entries(prev_raw)
+            current_set = set(current)
+            lost = [entry for entry in prev if entry not in current_set]
+            line += f"   (prev v{vs[1]}: {len(prev)}, lost {len(lost)})"
+            if len(lost) > spec["max_shrink"]:
+                failures.append(
+                    f"{label}: {len(lost)} entries present in v{vs[1]} are gone from "
+                    f"v{vs[0]} (limit {spec['max_shrink']}). A write replaced the list "
+                    f"instead of adding to it. Restore with: "
+                    f"scripts/ops/secret_list_edit.py --secret {name} "
+                    f"--project {project} --restore-from {vs[1]} --apply"
+                )
+                line += "   *** ENTRIES LOST ***"
+    return ListCheck(line, failures, unavailable)
 
-    for spec in tracked:
-        name, project = spec["name"], spec["project"]
-        label = f"{project}/{name}"
-        vs = versions(name, project)
-        if not vs:
-            unchecked.append(f"{label}: cannot list versions (missing, or no access)")
-            continue
 
-        current_raw = read(name, project, vs[0])
-        if current_raw is None:
-            unchecked.append(f"{label}: cannot read version {vs[0]}")
-            continue
-        current = entries(current_raw)
-
-        line = f"  {label:46s} v{vs[0]:<4s} {len(current):4d} entries"
-        if len(current) < spec["min_entries"]:
-            failures.append(
-                f"{label}: {len(current)} entries is below the floor of "
-                f"{spec['min_entries']}. This list has been wiped. "
-                f"Restore with: scripts/ops/secret_list_edit.py --secret {name} "
-                f"--project {project} --restore-from <last good version> --apply"
-            )
-            line += "   *** BELOW FLOOR ***"
-
-        if len(vs) > 1:
-            prev_raw = read(name, project, vs[1])
-            if prev_raw is not None:
-                prev = entries(prev_raw)
-                lost = [e for e in prev if e not in set(current)]
-                line += f"   (prev v{vs[1]}: {len(prev)}, lost {len(lost)})"
-                if len(lost) > spec["max_shrink"]:
-                    failures.append(
-                        f"{label}: {len(lost)} entries present in v{vs[1]} are gone from "
-                        f"v{vs[0]} (limit {spec['max_shrink']}). A write replaced the list "
-                        f"instead of adding to it. Restore with: "
-                        f"scripts/ops/secret_list_edit.py --secret {name} "
-                        f"--project {project} --restore-from {vs[1]} --apply"
-                    )
-                    line += "   *** ENTRIES LOST ***"
-        print(line)
-
+def report_results(tracked_count: int, failures: list[str], unchecked: list[str]) -> int:
     if unchecked:
         print("\nCould not check:", file=sys.stderr)
         for item in unchecked:
@@ -144,8 +168,48 @@ def main() -> int:
         # Never report healthy for something that was not actually read.
         return 2
 
-    print(f"\nAll {len(tracked)} tracked list secrets are intact.")
+    print(f"\nAll {tracked_count} tracked list secrets are intact.")
     return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--project", help="only check secrets in this project")
+    ap.add_argument("--publish-health", "--emit-health-log", action="store_true",
+                    help="Publish content-free phone-list status to Cloud Logging (explicit opt-in)")
+    args = ap.parse_args()
+    if args.publish_health and args.project not in {"hushh-pda", "hushh-pda-uat"}:
+        ap.error("--publish-health requires one governed --project")
+
+    config = json.loads(CONFIG.read_text(encoding="utf-8"))
+    tracked = [
+        s for s in config["secrets"]
+        if not args.project or s["project"] == args.project
+    ]
+    if not tracked:
+        print("No tracked secrets for that project.")
+        return 0
+
+    failures: list[str] = []
+    unchecked: list[str] = []
+    phone_results: list[str] = []
+
+    for spec in tracked:
+        result = check_list(spec)
+        failures.extend(result.failures)
+        unchecked.extend(result.unavailable)
+        if result.summary is not None:
+            print(result.summary)
+        if spec["name"] in {"HUSHH_UAT_PHONE_TEST_NUMBERS", "HUSHH_PROD_PHONE_TEST_NUMBERS"}:
+            phone_results.append(result.status)
+
+    if args.publish_health:
+        status = ("failed" if "failed" in phone_results else
+                  "unavailable" if not phone_results or "unavailable" in phone_results else "healthy")
+        if not publish_phone_health(args.project, status, len(phone_results)):
+            unchecked.append("Auth phone-list health publication unavailable; check logging writer permission")
+
+    return report_results(len(tracked), failures, unchecked)
 
 
 if __name__ == "__main__":

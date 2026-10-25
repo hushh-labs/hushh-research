@@ -549,6 +549,23 @@ Web's existing secondary Firebase phone-token claim remains unchanged.
 If provider linking succeeds while persistence is unavailable, retrying the
 same linked phone rechecks provider proof and finalizes without another OTP.
 
+With `NEXT_PUBLIC_AUTH_PHONE_RECOVERY_ENABLED` enabled (the default), web
+finalization conflicts `PHONE_ALREADY_VERIFIED` and `PHONE_VERIFICATION_CHANGED`
+can request fresh Firebase OTP proof through the existing isolated phone-token
+claim. A cached provider phone alone never transfers ownership. Native conflicts,
+unrecognized conflicts and provider/persistence outages remain explicit failures.
+Strict finalization preserves the backend error code instead of flattening it.
+An expired challenge retires only its captured owner/attempt; a newer resend
+remains valid. Missing local state is `phone-verification-required`, distinct
+from a provider-reported `code-expired`.
+
+`NEXT_PUBLIC_AUTH_PHONE_SESSION_FENCING_ENABLED` defaults on and rejects
+pre-dispatch retained native callbacks and overlapping starts. It does not
+configure Firebase SMS validity: Android's native timeout controls automatic
+retrieval, and the inspected send APIs expose no OTP TTL setting. Explicit
+resend replaces the previous challenge. Native events arriving after dispatch
+still lack a request identifier; real-device qualification remains required.
+
 Backend and updated native shared JavaScript must ship together for native
 replacement. Older clients without explicit intent retain the existing app
 phone and fail their exact-number completion check rather than overwrite it.
