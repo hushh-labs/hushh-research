@@ -175,7 +175,10 @@ approval and installed readback. UAT/production do not inherit this dev flag.
 A reused publication is archived under that image source and the new publisher
 run, so a later reviewed pin can resolve it without changing image provenance.
 A mismatch aborts publication. Remove the reuse pin before the next pod
-image build. This path neither proves compatibility nor approves installation.
+image build. Also retire the active Browser qualification pins and reset
+`supportedUpgradeDigests` until the new image's own qualification and predecessor
+recovery pass. Keep historical receipt files; their evidence still describes the
+older image. This path neither proves compatibility nor approves installation.
 
 An empty `supportedUpgradeDigests` list offers no installation path for existing
 pods. Add a predecessor only after proving its migration, encrypted recovery and

@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026, 22:20 UTC
+## Current decision — 25 October 2026, 22:58 UTC
 
 **Browser and Finance continuity repairs are on main; the application is accepted
 on Dev. A retained publication pin reused the older pod executable, so the Browser
@@ -36,7 +36,7 @@ No source-only result is an installed-owner or deployment receipt.
 | Account generations | Isolated real-mail two-cycle proof with unchanged Firebase UID and retired-session refusal | Federated recovery is independent of email; public admission remains disabled pending deployment qualification. UAT retains an unqualified WorkOS offboarding consumer |
 | Information sharing | Existing fixed-term access; no recurring billing. Temporary Dev pair 97/1711 explicitly authorized, with original pair restoration required | Two-owner request/review/access/revocation; cohort change prepared but not applied |
 | Dev application | Run `40237168620` accepted `c0e1a52506`; backend `00246-ggt` and frontend `00212-hkg` serve 100%; schema, semantic, provenance and cleanup activation pass | New pod image; ordinary-owner acceptance |
-| UAT | Corrected application `c0e1a52506` is in run `40239257465`; previous rollback retained `24545d1dc2` | Terminal acceptance and serving readback; no timeout increase or fixture reset |
+| UAT | Run `40239257465` refused promotion and retained `24545d1dc2`: Finance never mounted and `portfolio_viewed` was absent | Correct vault-bootstrap admission, then exact-candidate acceptance and serving readback; no timeout increase or fixture reset |
 
 The canonical UAT reviewer has an explicit Shared choice, no pod registry row and
 no pending cloud job. Metadata-only headless verification of the older serving
@@ -50,9 +50,19 @@ fail closed. Its deployed acceptance and the failed candidate's exact admission
 state remain unproven; do not silently change the fixture's placement. The exact
 candidate passed local core and hosted CI, then landed smoke and Dev deployment.
 
+The reviewer vault bootstrap could start before authentication settled and ignore
+a refused unlock callback, then falsely publish `vault_unlocked`. The vault itself
+remained sealed. The correction waits for the verified application owner, fences
+stale work and reports success only from the unlocked context. The original
+source fails the focused web/native regression. This explains a possible false
+acceptance prerequisite; it does not yet prove the deployed UAT failure resolved
+or explain the separate ordinary-owner session hold. A green continue-on-error
+workflow step is not a successful acceptance receipt.
+
 The pod publication retained image source `9174abfbe5` despite changed Browser
 control and dispatch modules. Archive provenance exposed the mismatch before any
-new owner installation. The corrective release removes that pin and adds a
+new owner installation. The corrective release removes that pin, retires the
+old image's active Browser qualification/compatibility offer, and adds a
 pre-upload source comparison; its focused regression refuses changed image inputs
 while preserving metadata-only reuse. A successful application rollout does not
 establish that a private pod received its new executable.

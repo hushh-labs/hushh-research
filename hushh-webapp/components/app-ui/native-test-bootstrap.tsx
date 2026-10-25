@@ -16,7 +16,7 @@ import { isHumanReviewerSession, humanReviewerAdmissionStage } from "@/lib/testi
 import { updateBootstrapStatus } from "@/lib/testing/reviewer-bootstrap-status";
 import { withNativeTestVaultRetry, withVaultBootstrapTimeout } from "@/lib/testing/native-test-vault-retry";
 import { useVault } from "@/lib/vault/vault-context";
-import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /** Six characters of a uid: enough to tell two identities apart in a log line, never a secret. */
@@ -47,8 +47,10 @@ export function NativeTestBootstrap() {
   const humanReviewer = isHumanReviewerSession(config);
   const operatorReviewer = config.reviewerAuthMode === "operator_issued_token";
   const operatorAdmissionRef = useRef<"fresh" | "issuing" | "verified" | "retired">("fresh");
-  const { loading: authLoading, user, setNativeUser } = useAuth();
+  const { loading: authLoading, user, userId, accountPrincipal, sessionVerificationRequired, setNativeUser } = useAuth();
   const { isVaultUnlocked, unlockVault } = useVault();
+  const unlockVaultRef = useRef(unlockVault);
+  unlockVaultRef.current = unlockVault;
   const [authRetryTick, setAuthRetryTick] = useState(0);
   // Native Firebase can resolve a custom-token sign-in before AuthContext has
   // published its next render. Keep that authenticated user in memory only so
@@ -60,7 +62,7 @@ export function NativeTestBootstrap() {
   const identityMismatchForExpectedUserRef = useRef<string | null>(null);
   const identityMismatchObservedUidRef = useRef<string | null>(null);
   const replacedPersistedUidRef = useRef<string | null>(null);
-  const unlockInFlightForUidRef = useRef<string | null>(null);
+  const unlockInFlightRef = useRef<object | null>(null);
   const nativeSessionRecoveryInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -360,8 +362,17 @@ export function NativeTestBootstrap() {
       return;
     }
 
+    // An SDK identity is sufficient for authentication recovery, not vault
+    // admission. The callback below must belong to the verified owner render.
+    const owner = snapshotValidatedAuthSessionOwner();
+    if (authLoading || sessionVerificationRequired || !user || !userId ||
+        accountPrincipal?.firebaseUid !== user.uid || accountPrincipal.ownerId !== userId ||
+        owner?.userId !== userId) {
+      updateBootstrapStatus("waiting_auth", { userId: "", invalidate: true });
+      return;
+    }
+
     if (isVaultUnlocked) {
-      unlockInFlightForUidRef.current = null;
       updateBootstrapStatus("vault_unlocked", {
         userId: vaultUser.uid,
       });
@@ -372,11 +383,14 @@ export function NativeTestBootstrap() {
     // that real unlocked context above even when automatic unlock was not armed.
     if (!config.vaultPassphrase) return;
 
-    if (unlockInFlightForUidRef.current === vaultUser.uid) {
+    if (unlockInFlightRef.current) {
       return;
     }
 
-    unlockInFlightForUidRef.current = vaultUser.uid;
+    const attempt = {};
+    unlockInFlightRef.current = attempt;
+    let cancelled = false;
+    const current = () => !cancelled && isValidatedAuthSessionOwnerCurrent(owner);
     updateBootstrapStatus("loading_vault_state", {
       userId: vaultUser.uid,
     });
@@ -389,8 +403,9 @@ export function NativeTestBootstrap() {
         // stuck in `checking vault` while this authoritative snapshot waited.
         const setupState = await withNativeTestVaultRetry(
           "Setup state load",
-          () => PreVaultUserStateService.bootstrapState(vaultUser.uid),
+          () => PreVaultUserStateService.bootstrapState(userId),
         );
+        if (!current()) return;
         if (!setupState.hasVault) {
           throw new Error(
             "Reviewer fixture has no existing vault; native audit will not create one",
@@ -399,8 +414,9 @@ export function NativeTestBootstrap() {
 
         const vaultState = await withNativeTestVaultRetry(
           "Vault state load",
-          () => VaultService.getVaultState(vaultUser.uid),
+          () => VaultService.getVaultState(userId),
         );
+        if (!current()) return;
         updateBootstrapStatus("unlocking_vault", {
           userId: vaultUser.uid,
         });
@@ -412,6 +428,7 @@ export function NativeTestBootstrap() {
             secretMaterial: config.vaultPassphrase!,
           })
         );
+        if (!current()) return;
 
         if (!decryptedKey) {
           throw new Error("Vault unlock returned no decrypted key");
@@ -425,18 +442,22 @@ export function NativeTestBootstrap() {
 
         const { token, expiresAt } = await withVaultBootstrapTimeout(
           "Vault owner token issue",
-          VaultService.getOrIssueVaultOwnerToken(vaultUser.uid)
+          VaultService.getOrIssueVaultOwnerToken(userId)
         );
+        if (!current()) return;
+        if (unlockVault(decryptedKey, token, expiresAt) !== true) {
+          throw new Error("Vault admission changed before unlock");
+        }
         if (typeof window !== "undefined" && window.__HUSHH_NATIVE_TEST__?.enabled) {
           window.__HUSHH_NATIVE_TEST__.replayVaultUnlock = () => {
-            unlockVault(decryptedKey, token, expiresAt);
+            if (isValidatedAuthSessionOwnerCurrent(owner)) {
+              unlockVaultRef.current(decryptedKey, token, expiresAt);
+            }
           };
         }
-        unlockVault(decryptedKey, token, expiresAt);
-        updateBootstrapStatus("vault_unlocked", {
-          userId: vaultUser.uid,
-        });
+        // Only the subsequent unlocked context render may publish success.
       } catch (error) {
+        if (!current()) return;
         updateBootstrapStatus("vault_error", {
           userId: vaultUser.uid,
           errorClass: nativeTestErrorClass(error),
@@ -445,11 +466,15 @@ export function NativeTestBootstrap() {
           `[NativeTestBootstrap] Vault bootstrap failed: ${nativeTestErrorClass(error)}`,
         );
       } finally {
-        if (unlockInFlightForUidRef.current === vaultUser.uid) {
-          unlockInFlightForUidRef.current = null;
+        if (unlockInFlightRef.current === attempt) {
+          unlockInFlightRef.current = null;
         }
       }
     })();
+    return () => {
+      cancelled = true;
+      if (unlockInFlightRef.current === attempt) unlockInFlightRef.current = null;
+    };
   }, [
     authLoading,
     config.autoReviewerLogin,
@@ -460,6 +485,9 @@ export function NativeTestBootstrap() {
     config.vaultPassphrase,
     operatorReviewer,
     isVaultUnlocked,
+    userId,
+    accountPrincipal,
+    sessionVerificationRequired,
     setNativeUser,
     unlockVault,
     user,
