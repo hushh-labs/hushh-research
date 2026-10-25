@@ -1027,7 +1027,10 @@ async def test_packet_claim_failure_is_logged_without_changing_exception_or_expo
         await worker.run_packet_one(user_id="private-owner-id")
     assert captured.value is error
     admission.assert_awaited_once_with(
-        "private-owner-id", "drive_packet_build_claim", resolve_mode=None
+        "private-owner-id",
+        "drive_packet_build_claim",
+        resolve_mode=None,
+        assert_account_active=None,
     )
     store.release_packet.assert_not_awaited()
     assert (

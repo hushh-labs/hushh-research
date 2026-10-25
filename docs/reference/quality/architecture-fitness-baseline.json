@@ -22915,7 +22915,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/flows/delete-account.test.ts",
       "symbol": null,
-      "value": 816
+      "value": 841
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24967,7 +24967,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/flows/delete-account.ts",
       "symbol": null,
-      "value": 555
+      "value": 556
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27551,7 +27551,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 2118
+      "value": 2119
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32291,7 +32291,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
       "symbol": null,
-      "value": 1669
+      "value": 1736
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86058,6 +86058,36 @@
         "before": 502,
         "after": 505,
         "source_sha256": "baa738f79b053be36a5d8a606fe43de14472e0c1d9195c186e7d0fc8172bac1f"
+      }
+    ]
+  },
+  "surgical_main_and_serial_fixture_review_20261024": {
+    "source_revision": "62c7eb2120",
+    "review": "Independent reviewer approves exactly four measured module ceilings for inherited main bounded erasure/scan cases, real session-epoch preflight regression, mandatory captured owner and lifecycle-port mock shape. Six fixture changes preserve real Files erasure and bind lifecycle lock/tombstone SQL to the paid-contract disposable schema, with an actual retired-owner export refusal. No scanner, global budget, exclusion or unrelated finding changes. These checks do not establish installed-owner or cloud acceptance.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "before": 2118,
+        "after": 2119,
+        "source_sha256": "5ca3d016a66e72bfc162ee8e98dede17488a3c93951fc94cc226fc88a3f67b28"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+        "before": 1669,
+        "after": 1736,
+        "source_sha256": "34b093963eac8e9497c0f1597446fcdc0efbd84fb09e4841949c2fda2194b2d3"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/flows/delete-account.test.ts||module exceeds the advisory operon budget",
+        "before": 816,
+        "after": 841,
+        "source_sha256": "0e7f77f095275a0418adff65397469f4d14b1efa63686d9cedd566e49ef9ad18"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/flows/delete-account.ts||module exceeds the advisory operon budget",
+        "before": 555,
+        "after": 556,
+        "source_sha256": "bb42620529765cebb220255ccbf3f028e70686f0cefd2fe424de461252d71c20"
       }
     ]
   }
