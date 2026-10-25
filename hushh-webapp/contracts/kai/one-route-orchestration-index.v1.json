@@ -1560,7 +1560,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "vault",
-      "native_surface_id": null
+      "native_surface_id": "native-route-calendar"
     },
     {
       "route_pattern": "/one/career",
@@ -5755,7 +5755,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-setup-calendar"
     },
     {
       "route_pattern": "/one/setup/cloud",

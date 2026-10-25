@@ -19,26 +19,37 @@ retains its disclosed boundary.
 
 ## Current decision — 25 October 2026
 
-**[PR #8437](https://github.com/hushh-labs/hushh-research/pull/8437) landed through
-Admin SOP as `a65e4f5fd5`, after all 27 exact-head jobs passed on `c6e21f86e0`.
-Main's finance, Profile and migration changes are preserved.**
-Landed-SHA [smoke 40170482003](https://github.com/hushh-labs/hushh-research/actions/runs/40170482003)
-passed. Corporate ADC readback at 06:23 UTC still found both applications
-serving `24545d1dc2`; source landing is not deployment or owner installation.
+**[PR #8445](https://github.com/hushh-labs/hushh-research/pull/8445) landed through
+Admin SOP as `2737492a6a`, after 24 exact-head checks passed and three lanes were
+intentionally unselected. [Landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40179472423)
+passed.** It preserves main's financial Files work, migration 422 and peer edits.
+PR #8437 previously landed as `a65e4f5fd5` with all 27 checks passing.
 
-A newly reported person-request approval regression is addressed in
-[PR #8445](https://github.com/hushh-labs/hushh-research/pull/8445).
-Read-only UAT metadata found three pending requests: one canonical/SQL handle
-mismatch, one genuinely changed scope and one matching binding. The repair reuses
-canonical discovery inside the caller's existing transaction, retains scope/key
-refusals and carries only authored recovery copy through Chat and Feed. Focused
-proof passes 68 backend, 73 frontend and 501 Back cases; the original wildcard
-mismatch fails before repair. TypeScript, targeted mypy/lint and UI contracts pass.
-The local core passed; 43 combined migration/Files checks preserve main
-`a1ae9d80f9` and schema 422. A replacement-account Browser client regression now
-uses the captured Firebase/application principal pair without weakening owner or
-session-episode refusal. Hosted validation precedes landing; dev/UAT promotion waits for acceptance;
-installed Browser/Puppy and historical recovery remain separate evidence gates.
+Corporate ADC readback at 10:07 UTC still found both applications serving
+`24545d1dc2`. The earlier [dev attempt](https://github.com/hushh-labs/hushh-research/actions/runs/40174285264)
+failed before switching traffic because immutable 420 refused two legitimate
+consumer-consent guards. Main's [PR #8446](https://github.com/hushh-labs/hushh-research/pull/8446)
+now supplies the single adoption authority. [PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447)
+consolidates the overlapping repair, refuses incomplete retained footprints and
+adds permanent owner-scoped consumer-connection erasure. Historical SQL and
+checksums stay unchanged; neighboring connections and the independent client remain.
+The combined 144 PostgreSQL/replay/cleanup cases pass. Peer financial and Calendar
+changes are inherited normally; exact candidate CI and deployment remain separate.
+A peer [dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/40183489218)
+from `7dcc0fba55` is in progress; its outcome is not yet an acceptance receipt.
+
+Person approval now uses canonical discovery inside the caller's transaction and
+keeps exact scope/key refusals. The replacement-account Browser client uses the
+captured Firebase/application principal pair and session episode. Local core,
+43 combined migration/Files cases, 44 Browser/principal cases and the changed
+frontend stage pass; these are source receipts, not installed-owner acceptance.
+
+Both normal owner browser sessions respond. GCP still reports predecessor
+`26bab163`; Azure still reports `8b846022`. Browser activation is unavailable on
+those installed images. Final-image qualification, recovery, exact owner updates
+and Browser/Puppy acceptance remain distinct from application deployment.
+Replacement enrollment stays off until controlled live acceptance; no existing
+Firebase identity or terminal tombstone is reset to obtain a pass.
 
 ### PR #8437 verification history
 

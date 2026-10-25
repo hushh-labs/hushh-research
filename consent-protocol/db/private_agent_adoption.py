@@ -1,9 +1,9 @@
 """Qualify reviewed predecessor states before immutable lifecycle adoption.
 
 Column, constraint and index predecessors have canonical/parked SQL lineage.
-Only the retained consumer-memory guard pair has external legacy provenance;
-its exact reviewed catalog definitions grant no product consent. Those guards
-are never called, replaced, disabled or removed by this qualification.
+Retained guards come from peer migrations 938/939 (253e89abe8/ac86743508).
+Their exact reviewed definitions are compatibility evidence, not new product consent.
+The qualification never calls, replaces, disables or removes either guard.
 """
 
 from __future__ import annotations
@@ -57,11 +57,21 @@ BEGIN
  SELECT count(*) INTO found_count FROM pg_trigger t
  WHERE t.tgrelid=to_regclass('public.consent_audit')
   AND t.tgname IN ('zz_consumer_memory_consent','zz_preserve_consumer_memory_consent');
- IF found_count=0 THEN RETURN; END IF;
+ IF found_count=0
+  AND to_regclass('public.consumer_mcp_connections') IS NULL
+  AND to_regprocedure('public.guard_consumer_memory_consent()') IS NULL
+  AND to_regprocedure('public.preserve_consumer_memory_consent()') IS NULL
+ THEN RETURN; END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_class
+   WHERE oid=to_regclass('public.consumer_mcp_connections')
+    AND relkind='r' AND relpersistence='p') THEN
+  RAISE EXCEPTION 'Missing legacy consumer consent relation';
+ END IF;
  IF found_count<>2 THEN RAISE EXCEPTION 'Incomplete legacy consumer consent guards'; END IF;
  FOR spec IN SELECT * FROM (VALUES {values})
   AS expected(name,function_name,kind,trigger_hash,function_hash,configuration) LOOP
-  SELECT t.*,p.prosecdef,p.proconfig,p.proname,n.nspname AS function_schema,
+  SELECT t.*,p.prosecdef,p.proconfig,p.proname,p.proowner,p.proleakproof,
+   n.nspname AS function_schema,
    pg_get_triggerdef(t.oid,true) AS trigger_definition,
    pg_get_functiondef(p.oid) AS function_definition INTO installed
   FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
@@ -75,6 +85,8 @@ BEGIN
    OR installed.tgqual IS NOT NULL OR installed.tgoldtable IS NOT NULL
    OR installed.tgnewtable IS NOT NULL OR installed.function_schema<>'public'
    OR installed.proname<>spec.function_name OR installed.prosecdef
+   OR installed.proleakproof OR installed.proowner IS DISTINCT FROM
+     (SELECT relowner FROM pg_class WHERE oid='public.consent_audit'::regclass)
    OR installed.proconfig IS DISTINCT FROM spec.configuration
    OR installed.tgfoid IS DISTINCT FROM
      to_regprocedure(format('public.%I()',spec.function_name))::oid
@@ -333,7 +345,11 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     sql = entry.sql.replace(column_anchor, preparation + column_anchor, 1)
     sql = _retention_inventory_sql(sql)
     qualified = block.replace(_ANCHOR, _ANCHOR + additions)
-    return sql.replace(block, _qualification_sql() + qualified, 1)
+    if not entry.sql.rstrip().endswith("COMMIT;"):
+        raise MigrationAuthorityError("Private-agent adoption transaction source changed")
+    adapted = sql.replace(block, _qualification_sql() + qualified, 1)
+    before_commit, commit = adapted.rsplit("COMMIT;", 1)
+    return before_commit + _qualification_sql() + "COMMIT;" + commit
 
 
 def execution_sql(
