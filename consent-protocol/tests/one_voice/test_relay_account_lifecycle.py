@@ -243,6 +243,34 @@ async def test_delete_device_reports_deleted_but_no_tombstone_is_not_narrated_as
     await asyncio.wait_for(task, 3)
 
 
+async def test_pending_delete_server_barrier_reaches_narration_without_sign_in_or_retry(doubles):
+    life, _account = doubles
+    transport = FakeTransport([AUTH])
+    fake = FakeLive([_tool_call("c1", "delete_account"), None])
+    session, task, card = await _card(transport, fake, MemoryPendingStore())
+    await _tap(transport, card)
+    step = transport.frames("client_step.request")[-1]
+    life.error = lifecycle.AccountDeletionInProgressError("busy")
+    transport.push(
+        {
+            "type": "client_step.result",
+            "step_id": step["step_id"],
+            "status": "failed",
+            "payload": {"outcome": "unknown", "reason": "deletion_in_progress"},
+        }
+    )
+    await transport.wait_for_frame("pending_action.resolved", count=2)
+    report = transport.frames("pending_action.resolved")[-1]["result_public"]
+    assert report["status"] == "unverified"
+    assert report["reason_code"] == "deletion_in_progress"
+    assert "still being checked" in report["spoken_facts"][0]
+    assert "sign in" not in report["spoken_facts"][0].lower()
+    assert "try again" not in report["spoken_facts"][0].lower()
+    assert transport.frames("tool.result")[-1]["ok"] is False
+    transport.push({"type": "end"})
+    await asyncio.wait_for(task, 3)
+
+
 async def test_delete_tombstone_settles_deleted_even_when_the_device_reply_is_lost(doubles):
     life, _account = doubles
     transport = FakeTransport([AUTH])

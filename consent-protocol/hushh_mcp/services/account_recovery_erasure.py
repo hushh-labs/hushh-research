@@ -14,6 +14,8 @@ def recovery_erasure_queries() -> dict[str, TextClause]:
                   JOIN pkm_domain_revisions AS revisions USING (revision_id)
                   WHERE revisions.user_id = :user_id
                     AND (CAST(:after_revision_id AS UUID) IS NULL OR
+                      revisions.revision_id >= CAST(:after_revision_id AS UUID))
+                    AND (CAST(:after_revision_id AS UUID) IS NULL OR
                       (segments.revision_id, segments.segment_id) >
                       (CAST(:after_revision_id AS UUID), :after_segment_id))
                   ORDER BY segments.revision_id, segments.segment_id
