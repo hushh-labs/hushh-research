@@ -58,11 +58,52 @@ def test_dev_reuse_preserves_the_archived_image_and_source(release):
     )
 
 
+def _reuse_source_repository(tmp_path, source_changed):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git(*arguments):
+        return (
+            subprocess.check_output(  # noqa: S603 -- fixed git with fixture-only arguments.
+                [
+                    "git",
+                    "-c",
+                    "user.name=Release fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    *arguments,
+                ],
+                cwd=repository,
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
+
+    git("init", "-q")
+    runtime = repository / "consent-protocol" / "runtime.py"
+    runtime.parent.mkdir()
+    runtime.write_text("version = 1\n")
+    git("add", ".")
+    git("commit", "-qm", "Original executable")
+    source_sha = git("rev-parse", "HEAD")
+    if source_changed:
+        runtime.write_text("version = 2\n")
+    else:
+        (repository / "release-notes.json").write_text("{}\n")
+    git("add", ".")
+    git("commit", "-qm", "Candidate")
+    return repository, source_sha, git("rev-parse", "HEAD")
+
+
 @pytest.mark.parametrize("tampered", [False, True])
+@pytest.mark.parametrize("source_changed", [False, True])
 def test_dev_reuse_writes_provenance_only_after_manifest_verification(
-    release, tmp_path, monkeypatch, tampered
+    release, tmp_path, monkeypatch, tampered, source_changed
 ):
     helper = _reuse_helper()
+    repository, source_sha, descriptor_sha = _reuse_source_repository(tmp_path, source_changed)
+    monkeypatch.setattr(helper, "ROOT", repository)
     manifest = json.dumps(
         {
             "schemaVersion": 2,
@@ -76,6 +117,7 @@ def test_dev_reuse_writes_provenance_only_after_manifest_verification(
         }
     ).encode()
     source = deepcopy(release)
+    source["sourceRevision"] = source_sha
     source["image"] = (
         "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + hashlib.sha256(manifest).hexdigest()
     )
@@ -89,7 +131,6 @@ def test_dev_reuse_writes_provenance_only_after_manifest_verification(
     config = tmp_path / "pin.json"
     config.write_text(json.dumps(pin))
     output = tmp_path / "output"
-    descriptor_sha = "d" * 40
 
     def cloud(*args):
         if args[:2] == ("storage", "cat"):
@@ -127,8 +168,8 @@ def test_dev_reuse_writes_provenance_only_after_manifest_verification(
             str(output),
         ],
     )
-    assert helper.main() == (1 if tampered else 0)
-    if tampered:
+    assert helper.main() == (1 if tampered or source_changed else 0)
+    if tampered or source_changed:
         assert not output.exists()
         return
     assert (output / "pod-image-reference").read_text().strip() == source["image"]

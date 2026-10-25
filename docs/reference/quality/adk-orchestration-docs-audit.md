@@ -17,10 +17,11 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026, 20:55 UTC
+## Current decision — 25 October 2026, 22:20 UTC
 
-**Browser settlement and prior continuity repairs are on main. The next Finance
-continuity correction is local; Dev/UAT and installed Browser acceptance remain incomplete.** [PR #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
+**Browser and Finance continuity repairs are on main; the application is accepted
+on Dev. A retained publication pin reused the older pod executable, so the Browser
+repair still needs a genuine image build and installed acceptance.** [PR #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
 landed as `2a74d28cd0`: exact CI passed in 22m41s and landed smoke in 3m19s.
 Its local core mirror passed in 23m20s. It preserves the peer analytics repair.
 No source-only result is an installed-owner or deployment receipt.
@@ -33,19 +34,28 @@ No source-only result is an installed-owner or deployment receipt.
 | Browser correction | [PR #8462](https://github.com/hushh-labs/hushh-research/pull/8462) landed as `eb855fbb57` through authorized Admin landing after exact-head CI and landed smoke; local core and 203 combined Browser/Files cases pass | Exact-image qualification and installation; earlier connected-executor window remains open |
 | Recovery | Predecessors preserve identity, six encrypted records, consent, revocation and 245,763 exact file bytes | Installed active-work drain/recovery |
 | Account generations | Isolated real-mail two-cycle proof with unchanged Firebase UID and retired-session refusal | Federated recovery is independent of email; public admission remains disabled pending deployment qualification. UAT retains an unqualified WorkOS offboarding consumer |
-| Information sharing | Existing fixed-term access; no recurring billing. Normal owner readiness rechecked | Two-owner request/review/access/revocation; paid Sandbox cohort unchanged |
-| Dev application | Run `40224453087`, attempt 2 accepted `5ad9ef542d`; corporate ADC confirms backend `00244-bg2` and frontend `00210-s8c` at 100% | Newer continuity and Browser corrections need their own accepted release |
-| UAT | Run `40228618750` rolled back `5ad9ef542d`; both services retain `24545d1dc2`. Finance did not mount before the analytics deadline | Qualify the corrected application; no timeout increase or fixture reset |
+| Information sharing | Existing fixed-term access; no recurring billing. Temporary Dev pair 97/1711 explicitly authorized, with original pair restoration required | Two-owner request/review/access/revocation; cohort change prepared but not applied |
+| Dev application | Run `40237168620` accepted `c0e1a52506`; backend `00246-ggt` and frontend `00212-hkg` serve 100%; schema, semantic, provenance and cleanup activation pass | New pod image; ordinary-owner acceptance |
+| UAT | Corrected application `c0e1a52506` is in run `40239257465`; previous rollback retained `24545d1dc2` | Terminal acceptance and serving readback; no timeout increase or fixture reset |
 
 The canonical UAT reviewer has an explicit Shared choice, no pod registry row and
 no pending cloud job. Metadata-only headless verification of the older serving
 application unlocked and rendered Finance; it does not qualify the failed candidate.
-A deterministic same-account pending-to-validated regression fails on current source:
+A deterministic same-account pending-to-validated regression fails on the prior source:
 Finance placement can retain an early refusal after authentication recovers. The
-local correction rechecks the validated UID, owner and account generation; all 34
+correction in [PR #8464](https://github.com/hushh-labs/hushh-research/pull/8464)
+rechecks the validated UID, owner and account generation; all 34
 nearest cases, TypeScript, lint and UI contracts pass. Private routing remains
 fail closed. Its deployed acceptance and the failed candidate's exact admission
-state remain unproven; do not silently change the fixture's placement.
+state remain unproven; do not silently change the fixture's placement. The exact
+candidate passed local core and hosted CI, then landed smoke and Dev deployment.
+
+The pod publication retained image source `9174abfbe5` despite changed Browser
+control and dispatch modules. Archive provenance exposed the mismatch before any
+new owner installation. The corrective release removes that pin and adds a
+pre-upload source comparison; its focused regression refuses changed image inputs
+while preserving metadata-only reuse. A successful application rollout does not
+establish that a private pod received its new executable.
 
 A new read-only GCP observation confirms the original service UID, old image,
 generation 21, Ready state and 100% old-revision traffic without the approved
@@ -75,8 +85,9 @@ clearing genuinely uncertain outcomes.
 One and Browser share the non-root owner container. GCP retains Chromium's
 sandbox; Azure explicitly disables it. Application policy does not contain a
 compromised process. Exact qualification covers the controlled HTTPS fixture,
-which has now been deleted with resource-absence readback. New fixture acceptance
-requires a fresh qualified site. Authenticated GitHub, selected PKM disclosure and
+whose earlier instance was deleted with resource-absence readback. Its replacement
+passes eight HTTPS fixture controls; installed acceptance and final cleanup remain
+required. Authenticated GitHub, selected PKM disclosure and
 Browser-to-Files retain separate gates. No production, stable publication or
 automatic owner upgrade is authorized.
 
