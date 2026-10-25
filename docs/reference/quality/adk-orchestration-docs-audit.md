@@ -44,9 +44,9 @@ session now returns 404; that alone does not satisfy the retained expiry proof.
 The release fence and cleanup state remain intact. Actual Dev traffic stays on the
 accepted application. Do not remove the fence or mark cleanup complete to deploy.
 
-The local follow-up fixes repeated update notices after explicit dismissal and
-refreshes GCP's resource version only after proving post-IAM configuration is
-unchanged. Eleven notice cases and 82 upgrade/bootstrap cases pass; the original
+The local follow-up fixes repeated update notices after explicit dismissal,
+preserves the exact request selector through web consent revocation, and refreshes
+GCP's resource version only after proving post-IAM configuration is unchanged. Eleven notice cases and 82 upgrade/bootstrap cases pass; the original
 sources fail their focused negative controls. These are source results, not an
 installed-operation repair or a new deployment receipt.
 
