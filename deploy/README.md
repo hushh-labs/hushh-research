@@ -67,14 +67,25 @@ duplicate build; actual deployment duration still requires hosted measurement.
 See [the repository-scoped IAM plan](iam/README.md#uat-image-promotion) before
 enabling cross-project image reads. IAM grants require separate authorization.
 
-After migrations and preservation checks, a completed, pinned frontend image
-can roll out at zero traffic in the same Cloud Build as the backend candidate
-and provider probes. The UAT scheduling adapter derives every frontend check,
+After migrations and preservation checks, a frontend image can roll out at zero
+traffic in the same Cloud Build as the backend candidate and provider probes.
+A still-building image waits in an independent branch after backend image and
+runtime-IAM verification. Its exact run/attempt image build must succeed before
+the existing manifest resolver verifies raw bytes and pins the executable digest.
+The canonical frontend steps consume only that pin; GitHub collects its original
+native [build-step output](https://docs.cloud.google.com/build/docs/api/reference/rest/v1/projects.builds#Results)
+instead of resolving the tag again. The raw manifest artifact is fetched by that
+immutable index and independently revalidated. Exact build-step wait timing is
+reported separately from pin collection; wait can overlap provider probes and
+does not by itself measure critical-path cost. A failed image build,
+digest mismatch or missing/misbound receipt fails the required build or release.
+The UAT scheduling adapter derives every frontend check,
 secret binding and deploy step from the shared frontend template, with separate
 substitutions for its runtime identity, image and capacity. The whole build must
 succeed before candidate verification, paired analytics smoke or exact-revision
-traffic promotion. Cold image builds and frontend-only scopes retain the serial
-frontend deploy. Release receipts and summaries identify the shared build so
+traffic promotion. Frontend-only scopes and historical targets without the
+prebuilt-image contract retain the existing serial frontend deploy. Release
+receipts and summaries identify the shared build so
 overlapped rollout time is not reported as a zero-second deployment.
 
 Worker rollback captures and scheduler verification use one response per

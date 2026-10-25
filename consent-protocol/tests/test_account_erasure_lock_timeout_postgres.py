@@ -234,40 +234,56 @@ def _seed_erasure_spine(conn):
     conn.execute(text((ROOT / "db/migrations/201_account_deletion_tombstones.sql").read_text()))
 
 
-def _slow_erasure_boundaries(conn, rollback):
+def _guard_erasure_boundaries(conn, failure):
     from sqlalchemy import text
 
-    # A deterministic stand-in for expensive TOAST removal: the old
-    # 300-row statement exceeds 700ms, while 100-row batches fit.
+    # Assert the actual statement row bound, independently of host scheduling.
     conn.execute(
-        text(
-            "CREATE FUNCTION slow_erasure() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(0.004); RETURN OLD; END $$"
-        )
+        text("""
+        CREATE FUNCTION guard_erasure_batch() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+        BEGIN
+          IF current_setting('lock_timeout') <> '300ms'
+             OR current_setting('statement_timeout') <> '700ms' THEN
+            RAISE EXCEPTION 'synthetic SQL deadlines missing';
+          END IF;
+          IF (SELECT count(*) FROM erased_rows) > 100 THEN
+            RAISE EXCEPTION 'synthetic batch overflow: %', TG_TABLE_NAME;
+          END IF;
+          RETURN NULL;
+        END $$
+    """)
     )
-    conn.execute(
-        text(
-            "CREATE TRIGGER slow_erasure BEFORE DELETE ON pkm_domain_revision_segments FOR EACH ROW EXECUTE FUNCTION slow_erasure()"
-        )
-    )
-    conn.execute(
-        text(
-            "CREATE TRIGGER slow_revision_erasure BEFORE DELETE ON pkm_domain_revisions FOR EACH ROW EXECUTE FUNCTION slow_erasure()"
-        )
-    )
-    if rollback:
+    for table in ("pkm_domain_revision_segments", "pkm_domain_revisions"):
         conn.execute(
-            text(
-                "CREATE FUNCTION fail_final_erasure() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic final erasure failure'; END $$"
-            )
+            text(f"""
+            CREATE TRIGGER guard_erasure_batch AFTER DELETE ON {table}
+            REFERENCING OLD TABLE AS erased_rows FOR EACH STATEMENT
+            EXECUTE FUNCTION guard_erasure_batch()
+        """)
         )
+    if failure == "statement_timeout":
+        # Far above the existing 700ms deadline: prove real QueryCanceled and
+        # rollback without relying on hundreds of tiny timer wakeups.
         conn.execute(
-            text(
-                "CREATE TRIGGER fail_final_erasure BEFORE DELETE ON vault_keys FOR EACH ROW EXECUTE FUNCTION fail_final_erasure()"
-            )
+            text("""
+            CREATE FUNCTION slow_erasure() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+            BEGIN PERFORM pg_sleep(10); RETURN OLD; END $$;
+            CREATE TRIGGER slow_erasure BEFORE DELETE ON pkm_domain_revision_segments
+            FOR EACH ROW EXECUTE FUNCTION slow_erasure()
+        """)
+        )
+    if failure == "final_failure":
+        conn.execute(
+            text("""
+            CREATE FUNCTION fail_final_erasure() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'synthetic final erasure failure'; END $$;
+            CREATE TRIGGER fail_final_erasure BEFORE DELETE ON vault_keys
+            FOR EACH ROW EXECUTE FUNCTION fail_final_erasure()
+        """)
         )
 
 
-def _request_full_erasure(engine, trace_id, rollback):
+def _request_full_erasure(engine, trace_id, rollback, *, deadline_seconds=12):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from sqlalchemy import text
@@ -301,7 +317,7 @@ def _request_full_erasure(engine, trace_id, rollback):
             json={"target": "both"},
             headers={"X-Request-Id": trace_id},
         )
-        assert monotonic() - started < 12
+        assert monotonic() - started < deadline_seconds
         assert response.headers["x-request-id"] == trace_id
         assert response.headers["x-trace-id"] == trace_id
         assert response.status_code == (500 if rollback else 200), response.text
@@ -342,21 +358,26 @@ def _assert_recovery_counts(engine, rollback):
         ).scalar() == (1 if rollback else 0)
 
 
-@pytest.mark.parametrize("rollback", [False, True], ids=["commit", "rollback"])
-def test_large_recovery_history_erasure_is_bounded_atomic_and_owner_scoped(database_url, rollback):
-    """HTTP -> real account transaction -> both recovery tables -> commit/rollback."""
+@pytest.mark.parametrize(
+    "failure",
+    [None, "final_failure", "statement_timeout", "unbounded_segments", "unbounded_revisions"],
+)
+def test_large_recovery_history_erasure_is_bounded_atomic_and_owner_scoped(database_url, failure):
+    """HTTP -> real account SQL; row bounds, timeout and full atomic rollback."""
     from sqlalchemy import event, text
     from sqlalchemy.engine import make_url
 
     from api.middlewares.observability import get_request_id
 
-    database = "erasure_rollback" if rollback else "erasure_commit"
+    rollback = failure is not None
+    database = "erasure_" + (failure or "commit")
     admin = create_engine(database_url, isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
         conn.execute(text(f"CREATE DATABASE {database}"))
     engine = create_engine(make_url(database_url).set(database=database))
     trace_id = f"account-deletion-loop-{database}"
     sql_trace: list[tuple[str, str]] = []
+    errors = []
 
     def trace_query(_conn, _cursor, statement, _parameters, _context, _many):
         if "DELETE FROM pkm_domain_revision_segments" in statement:
@@ -365,13 +386,48 @@ def test_large_recovery_history_erasure_is_bounded_atomic_and_owner_scoped(datab
             sql_trace.append(("revisions", get_request_id()))
 
     event.listen(engine, "before_cursor_execute", trace_query)
+    event.listen(engine, "handle_error", lambda context: errors.append(context.original_exception))
     try:
+        queries = account.recovery_erasure_queries()
+        if failure in {"unbounded_segments", "unbounded_revisions"}:
+            table = (
+                "pkm_domain_revision_segments"
+                if failure.endswith("segments")
+                else "pkm_domain_revisions"
+            )
+            # Negative controls exercise each real production query independently.
+            query = str(queries[table])
+            assert query.count("LIMIT 100") == 1
+            queries[table] = text(query.replace("LIMIT 100", ""))
         with engine.begin() as conn:
             _seed_erasure_spine(conn)
-            _slow_erasure_boundaries(conn, rollback)
-        _request_full_erasure(engine, trace_id, rollback)
-        assert {name for name, _ in sql_trace} == {"segments", "revisions"}
+            _guard_erasure_boundaries(conn, failure)
+        with patch.object(account, "recovery_erasure_queries", return_value=queries):
+            _request_full_erasure(
+                engine,
+                trace_id,
+                rollback,
+                deadline_seconds=6 if failure == "statement_timeout" else 12,
+            )
+        expected = (
+            {"segments"}
+            if failure in {"statement_timeout", "unbounded_segments"}
+            else {"segments", "revisions"}
+        )
+        assert {name for name, _ in sql_trace} == expected
         assert all(request_id == trace_id for _, request_id in sql_trace)
+        if failure == "statement_timeout":
+            assert len(errors) == 1 and errors[0].pgcode == "57014"
+        elif failure in {"unbounded_segments", "unbounded_revisions"}:
+            assert len(errors) == 1
+            assert errors[0].diag.message_primary == "synthetic batch overflow: " + table
+        elif failure == "final_failure":
+            assert (
+                len(errors) == 1
+                and errors[0].diag.message_primary == "synthetic final erasure failure"
+            )
+        else:
+            assert not errors
         _assert_recovery_counts(engine, rollback)
     finally:
         engine.dispose()
