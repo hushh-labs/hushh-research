@@ -182,9 +182,14 @@ class AzurePwmTrustError(RuntimeError):
     """A received model answer violated an authored attribution/trust case."""
 
 
-def _failure(check: str, fields: list[str]) -> None:
-    """Emit authored case/field names only; suppress model text and provider errors."""
-    print(json.dumps({"azure_pwm_probe_failure": check, "failed_fields": fields}), flush=True)
+def _failure(
+    check: str, fields: list[str], *, planner_conditions: dict[str, bool] | None = None
+) -> None:
+    """Emit authored names and booleans only; suppress model and provider text."""
+    event: dict[str, object] = {"azure_pwm_probe_failure": check, "failed_fields": fields}
+    if planner_conditions is not None:
+        event["planner_conditions"] = planner_conditions
+    print(json.dumps(event), flush=True)
     raise AzurePwmTrustError(f"Azure {check} evaluation failed")
 
 
@@ -356,14 +361,17 @@ async def _probe_confirmed_guidance(gateway) -> None:
         }
     )
     plan = _planner_choice(choice, identity=identity, assessment=None)
-    if (
-        plan is None
-        or plan.purpose != "identity"
-        or plan.anchor_ids
-        or plan.candidate_id
-        or "publications" not in plan.topics
-    ):
-        _failure("confirmed research guidance", ["planner_lead"])
+    planner_conditions = {
+        "search_plan": plan is not None,
+        "identity_purpose": plan is not None and plan.purpose == "identity",
+        "no_anchors": plan is not None and not plan.anchor_ids,
+        "no_candidate": plan is not None and not plan.candidate_id,
+        "publications": plan is not None and "publications" in plan.topics,
+    }
+    if not all(planner_conditions.values()):
+        _failure(
+            "confirmed research guidance", ["planner_lead"], planner_conditions=planner_conditions
+        )
     query = await plan_public_search_query(
         {
             "exact_owner_fields": {"full_name": identity["full_name"]},
