@@ -118,8 +118,8 @@ remains required before any future push.
 
 ## Closed-session prices (2026-10-22, local)
 
-US price requests now run only during the offline XNYS regular session. Quotes,
-indices, movers, sectors and price history share this rule across Market,
+Live US price requests run only during the offline XNYS regular session. Quotes,
+indices, movers and sectors share this rule across Market,
 analysis and public quote callers. News, SEC filings and company facts keep
 their existing refresh behavior. This pauses outbound price-provider requests;
 authenticated application reads, cache/database reads and analysis model calls
@@ -133,6 +133,48 @@ fallback. Existing opening fences revalidate prices when regular trading resumes
 The price warmer sleeps until that opening; displayed closed status uses the
 offline calendar instead of fetching a provider status.
 
+### On-demand daily history exception (2026-10-25)
+
+Opening a supported stock or holding detail may request its bounded month of
+observed daily prices, including while the exchange is closed. This is an
+explicit historical backfill, not live quote polling. The `daily_history` port
+uses the transitional adapter; background `quote`, `quotes`, `intraday` and
+`session_history` operations retain the closed-session guard. News and filings
+continue refreshing independently.
+
+The existing `stock_history:v1:{symbol}:1mo` public L1/L2 cache owns single flight
+and saved observations. Closed history uses a fixed seven-day TTL and the last
+completed session's close as a freshness fence; opening revalidates on the
+session-open fence and a 120-second cadence. Fetches crossing a session edge
+are rebuilt before stamping. Saved points retain their source and retrieval
+time on reuse or stale fallback, and never populate spot quote keys.
+
+The `daily_history` adapter supplies `points: [{t: number, p: number}]` (Unix
+seconds and observed USD price), `source: string` and `retrieved_at: string`
+(UTC ISO timestamp of the actual provider read). At least two finite, positive
+observations are required. Return an explicit unavailable capability when real
+observations cannot be supplied; never substitute fixtures or manufactured bars.
+
+The previous route returned before consulting history when the exchange was
+closed. Its separate outer history cache was populated only by visits during
+trading, leaving first-visit charts empty even when lower caches had observations.
+The separate port removes that rejection without opening live quote traffic.
+
+Portfolio balances have a different authority. The statement extraction prompt,
+structured output schema and strict JSON parser now permit optional
+`historical_values: [{date: "YYYY-MM-DD", value: number}]` for explicitly printed
+account observations only. Required fields and unknown-key rejection remain.
+Validation preserves zero, rejects invalid dates/amounts, and never interpolates
+or derives a timeline from summary endpoints or today's holdings. Review/save,
+selected statement and post-save dashboard projections retain supplied history
+and statement dates. Existing statements lacking observations still show a
+balance snapshot; these code changes cannot recover observations never saved.
+
+Holding details show the company logo and separately labelled stock price
+history. The holding value stays the explicit saved valuation. Statement dates
+come from the selected statement; missing linked-account quote times remain
+unknown, and import/sync timestamps never substitute for observation times.
+
 The shared price scope checks before each HTTP/yfinance send and after a refresh
 finishes. Already-sent requests may finish, but a partial refresh that crosses
 closing cannot overwrite the previous complete snapshot. News and filings run
@@ -144,7 +186,8 @@ An empty mover symbol set skips the series lookup. A missing closed-session
 series or failed series provider preserves already loaded news, indices and
 movers, with unavailable history recorded in provider status. A cold price
 cache still remains unavailable until trading resumes; this fallback does not
-permit a closed-session price-provider request.
+permit a closed-session live-price request. The explicitly requested historical
+backfill exception below applies only to an opened stock or holding detail.
 
 Focused offline tests pass 135 cases. Six negative controls reproduce the old
 closed-session calls, extra quote/profile send and partial-snapshot overwrite by

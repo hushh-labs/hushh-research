@@ -130,7 +130,7 @@ badge read is not itself approval of information access.
 | Delete account preparation | `resolveDeleteAccountAuth`: existing token reused; existing vault without token unlocks; no-vault branch may issue token. This is not erasure. |
 | Token preparation | F POST `/api/consent/vault-owner-token`, `{userId,renewalOfToken}`→`token,expiresAt,scope,renewalValidated?`; native existing HushhConsent bridge. Token issuance doesn't delete. |
 | Unlock | `Unlock Vault to Delete Account` / `Unlock your Vault to confirm account deletion. This permanent action removes your saved Vault information.` Success retries preparation after300ms; Cancel no delete. |
-| Confirmation | `Delete account?` / `Deletes your account, vault, memory, chats, and connections. This can’t be undone.` |
+| Confirmation | `Delete account?` / `Deletes your account, vault, memory, chats, and connections.` |
 | Cancel | No verified erasure. Cancel/Delete buttons disabled busy, but root onOpenChange is not busy-guarded; universal dismissal blocking would be a false claim. |
 | Delete account / Deleting... | Re-resolve authority→shared [verified deletion](../../lib/flows/delete-account.ts); exact erasure/deprovision/recovery in [Profile](./profile.md). |
 | Feedback | `Failed to delete account. Please try again.`; `Deleting your account...`; `Account deleted.`; outcome-specific errors from shared owner. |

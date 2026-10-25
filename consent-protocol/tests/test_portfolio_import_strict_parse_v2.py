@@ -32,6 +32,29 @@ def test_parse_json_strict_v2_accepts_exact_required_shape() -> None:
     assert diagnostics["mode"] == "strict_json_only"
 
 
+def test_declared_history_is_optional_without_relaxing_unknown_key_rejection():
+    import json
+
+    payload = {"required": 1, "historical_values": [{"date": "2026-07-01", "value": 0}]}
+    assert (
+        parse_json_strict_v2(
+            json.dumps(payload), required_keys={"required"}, optional_keys={"historical_values"}
+        )[0]
+        == payload
+    )
+    assert parse_json_strict_v2(
+        '{"required": 1}', required_keys={"required"}, optional_keys={"historical_values"}
+    )[0] == {"required": 1}
+    with pytest.raises(ImportStrictParseError):
+        parse_json_strict_v2(json.dumps(payload), required_keys={"required"})
+    with pytest.raises(ImportStrictParseError):
+        parse_json_strict_v2(
+            '{"required": 1, "unrecognized": []}',
+            required_keys={"required"},
+            optional_keys={"historical_values"},
+        )
+
+
 def test_parse_json_strict_v2_accepts_first_object_when_model_appends_extra_data() -> None:
     parsed, diagnostics = parse_json_strict_v2(
         '{"a": 1, "b": []}\n{"a": 2, "b": []}',

@@ -379,16 +379,20 @@ async def test_sector_periods_use_distinct_observed_session_closes(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stock_history_auth_currency_and_closed_session_boundary(monkeypatch):
+async def test_stock_history_closed_backfill_cache_fences_and_stale_fallback(monkeypatch):
     from types import SimpleNamespace
 
     from fastapi import HTTPException
 
     from api.routes.kai import price_history
+    from hushh_mcp.market_data.ports import bind_market_data_provider
 
-    called = []
-    saved = None
-    degraded = False
+    now = [datetime.fromisoformat("2026-07-19T16:00:00+00:00").timestamp()]
+    monkeypatch.setattr(cache_module.time, "time", lambda: now[0])
+    monkeypatch.setattr(market_insights, "time", lambda: now[0])
+    cache, store = MarketInsightsCache(), _FakeStore()
+    monkeypatch.setattr(market_insights, "market_insights_cache", cache)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
     supported = {"exchange": "Nasdaq"}
     monkeypatch.setattr(
         price_history,
@@ -396,60 +400,69 @@ async def test_stock_history_auth_currency_and_closed_session_boundary(monkeypat
         lambda: SimpleNamespace(get_ticker_metadata=lambda _: supported),
     )
 
-    async def public_module(**kwargs):
-        nonlocal saved
-        called.append(kwargs["key"])
-        try:
-            saved = await kwargs["fetcher"]()
-        except RuntimeError:
-            if saved is None:
-                raise
-            return saved, True, 10, "stale", True
-        return saved, False, 0, "live", False
+    from tests.helpers.market_public_cache import RecordedHistoryProvider
 
-    async def observed(symbols):
-        called.append("provider")
-        if degraded:
-            from hushh_mcp.services.market_provider_telemetry import record_provider_degradation
+    provider = RecordedHistoryProvider(now)
+    with bind_market_data_provider(provider):
+        with pytest.raises(HTTPException) as error:
+            await price_history.get_stock_price_history("owner", "AAPL", "another-owner")
+        assert error.value.status_code == 403
+        supported["exchange"] = "NSE"
+        with pytest.raises(HTTPException) as error:
+            await price_history.get_stock_price_history("owner", "AAPL", "owner")
+        assert error.value.status_code == 422 and provider.calls == []
+        supported["exchange"] = "Nasdaq"
+        first, second = await asyncio.gather(
+            *[price_history.get_stock_price_history("owner", "AAPL", "owner") for _ in range(2)]
+        )
+        assert len(provider.calls) == 1 and provider.calls[0].operation == "daily_history"
+        assert first["points"] == second["points"] and not first["unavailable"]
+        assert first["currency"] == "USD" and first["interval"] == "1d"
+        assert list(store.entries) == ["stock_history:v1:AAPL:1mo"]
+        # Monday before opening retains Sunday's backfill; cold L1 also reuses L2.
+        now[0] = datetime.fromisoformat("2026-07-20T13:29:00+00:00").timestamp()
+        monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+        cached = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+        assert cached["cached"] and cached["retrieved_at"] == first["retrieved_at"]
+        assert len(provider.calls) == 1
+        for edge in ("2026-07-20T13:30:00+00:00", "2026-07-20T20:01:00+00:00"):
+            now[0] = datetime.fromisoformat(edge).timestamp()
+            refreshed = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+            assert not refreshed["stale"]
+        assert len(provider.calls) == 3
+        # Next opening fails: keep actual saved points and provenance, not a new stamp.
+        now[0] = datetime.fromisoformat("2026-07-21T13:30:00+00:00").timestamp()
+        provider.fail = True
+        fallback = await price_history.get_stock_price_history("owner", "AAPL", "owner")
+        assert (
+            fallback["stale"] and fallback["cached"] and fallback["points"] == refreshed["points"]
+        )
+        assert (
+            fallback["source"] == refreshed["source"]
+            and fallback["retrieved_at"] == refreshed["retrieved_at"]
+        )
+        unavailable = await price_history.get_stock_price_history("owner", "MSFT", "owner")
+        assert (
+            unavailable["unavailable_reason"] == "provider_unavailable"
+            and unavailable["points"] == []
+        )
 
-            record_provider_degradation("fixture:session_history")
-        return {
-            symbols[0]: [
-                {"t": 1792000000, "p": 230.0},
-                {"t": 1792086400, "p": 232.0},
-                {"t": 1792086401, "p": float("nan")},
-            ]
-        }
 
-    monkeypatch.setattr(market_insights, "_get_or_refresh_public_module", public_module)
-    monkeypatch.setattr(price_history, "fetch_market_session_history", observed)
-    monkeypatch.setattr(price_history, "us_market_is_open", lambda: False)
-    with pytest.raises(HTTPException) as error:
-        await price_history.get_stock_price_history("owner", "AAPL", "another-owner")
-    assert error.value.status_code == 403
-    assert called == []
-    supported["exchange"] = "NSE"
-    with pytest.raises(HTTPException) as error:
-        await price_history.get_stock_price_history("owner", "AAPL", "owner")
-    assert error.value.status_code == 422
-    assert called == []
-    supported["exchange"] = "Nasdaq"
-    closed = await price_history.get_stock_price_history("owner", "AAPL", "owner")
-    assert closed["unavailable"] is True and closed["points"] == []
-    assert "provider" not in called
-    monkeypatch.setattr(price_history, "us_market_is_open", lambda: True)
-    opened = await price_history.get_stock_price_history("owner", "AAPL", "owner")
-    assert opened["currency"] == "USD" and opened["interval"] == "1d"
-    assert opened["points"] == [{"t": 1792000000.0, "p": 230.0}, {"t": 1792086400.0, "p": 232.0}]
-    assert opened["stale"] is False and opened["unavailable"] is False
-    assert called.count("provider") == 1
+def test_daily_snapshot_keeps_only_real_observations():
+    from hushh_mcp.market_data.history import daily_history_snapshot
+    from hushh_mcp.market_data.ports import MarketDataUnavailable
 
-    degraded = True
-    fallback = await price_history.get_stock_price_history("owner", "AAPL", "owner")
-    assert fallback["stale"] is True
-    assert fallback["retrieved_at"] == opened["retrieved_at"]
-    assert fallback["points"] == opened["points"]
-    saved = None
-    cold = await price_history.get_stock_price_history("owner", "AAPL", "owner")
-    assert cold["stale"] is True and cold["unavailable"] is True
-    assert cold["retrieved_at"] is None
+    points = [
+        {"t": 3, "p": 230},
+        {"t": 2, "p": 231},
+        {"t": 3, "p": 232},
+        {"t": 4, "p": float("nan")},
+        {"t": True, "p": 5},
+        {"t": 5, "p": -1},
+    ]
+    assert daily_history_snapshot(points, source="recorded")["points"] == [
+        {"t": 2.0, "p": 231.0},
+        {"t": 3.0, "p": 232.0},
+    ]
+    with pytest.raises(MarketDataUnavailable, match="insufficient_observations"):
+        daily_history_snapshot(points[:1], source="recorded")

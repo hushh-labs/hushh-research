@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeStatementPortfolio } from "./statement-portfolio";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { toPortfolioData as toVaultPortfolioData } from "@/lib/kai/plaid-vault/projection";
@@ -78,6 +79,9 @@ function buildFinancialCoreV7Portfolio(
   const portfolio = normalizeStoredPortfolio({
     holdings,
     account_summary: asRecord(core.account_summary) ?? {},
+    account_info: asRecord(core.account_info) ?? {},
+    historical_values: asArray(core.historical_values),
+    source_metadata: asRecord(core.source_metadata) ?? {},
     total_value: core.total_value,
     cash_balance: core.cash_balance,
   }) as PortfolioData;
@@ -189,7 +193,8 @@ export function getStatementPortfolio(financial: AnyObj | null | undefined): Por
     asRecord(financial?.portfolio) ??
     activeSnapshot;
   if (!candidate) return null;
-  const normalized = normalizeStoredPortfolio(candidate as AnyObj) as PortfolioData;
+  const normalized = normalizeStatementPortfolio(candidate,
+    candidate === activeSnapshot?.canonical_v2 || candidate === activeSnapshot ? activeSnapshot : null);
   return hasHoldings(normalized) ? normalized : null;
 }
 

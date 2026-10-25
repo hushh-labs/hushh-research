@@ -353,7 +353,8 @@
     "414_pkm_recovery_erasure_index.sql",
     "415_validate_pkm_recovery_erasure_indexes.sql",
     "416_financial_packet_tag_work.sql",
-    "417_one_area_discovery.sql"
+    "417_drive_packet_public_summary.sql",
+    "418_one_area_discovery.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -749,6 +750,7 @@
     "414_pkm_recovery_erasure_index.sql": "rollback/414_pkm_recovery_erasure_index.rollback.sql",
     "415_validate_pkm_recovery_erasure_indexes.sql": "rollback/415_validate_pkm_recovery_erasure_indexes.rollback.sql",
     "416_financial_packet_tag_work.sql": "rollback/416_financial_packet_tag_work.rollback.sql",
-    "417_one_area_discovery.sql": "rollback/417_one_area_discovery.rollback.sql"
+    "417_drive_packet_public_summary.sql": "rollback/417_drive_packet_public_summary.rollback.sql",
+    "418_one_area_discovery.sql": "rollback/418_one_area_discovery.rollback.sql"
   }
 }

@@ -1368,3 +1368,31 @@ current-authority gated. A same-revision first-page refresh retains loaded catal
 pages and selection; a changed revision or pagination reset revalidates choices.
 Feature credential renewal rechecks readiness without remounting the composer.
 No short client timeout rejects an otherwise current slow API result.
+
+## Owner-published Financial packets
+
+Signed-in people can browse the Financial summaries the profile owner explicitly
+published, including before connecting or unlocking. The same
+`FinancialPacketSummaries` view mounts on the person route used by Connect and
+Profile/Hub person entrypoints; it does not add a PKM marketplace checkout.
+Only a generic title, period, nullable search/sale count, completion and availability,
+$5 one-time price, and viewer action cross this metadata boundary. Unknown counts
+are not displayed as zero, and search matches are not verified financial records.
+
+Connect to request sends the existing social request. Pending connections cannot
+resend from the summary. Accepted people unlock before the existing private buyer
+page rechecks the exact packet/version; requesting does not charge. The owner
+approves, then checkout happens on the existing request. Existing access and saved
+purchase receipts reopen that request’s files instead of buying again. Owner files
+remain free through the existing connected-Drive packet detail.
+
+Summary reads use Firebase authentication and no-store transport, are isolated by
+viewer UID/auth generation/person, and refresh on relationship/consent changes and
+visible 30-second reconciliation. They never reuse the person-only public profile
+cache. The sheet uses the existing PacketPage overlay Back owner; closing or changing
+accounts drops late reads. Private request resolution retains vault/session fences.
+
+The public browse action is `people.profile.browse_financial_summaries` and requires
+sign-in only. The existing `people.profile.browse_packets` action retains its
+connected/unlocked private-catalog meaning, guards and separate control. Neither
+action changes document access or checkout authority.

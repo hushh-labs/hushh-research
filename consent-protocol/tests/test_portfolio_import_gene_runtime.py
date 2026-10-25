@@ -47,6 +47,10 @@ _EXTRACTED = {
     ],
     "cash_balance": None,
     "total_value": 2301.0,
+    "historical_values": [
+        {"date": "2026-07-01", "value": 2100.0},
+        {"date": "2026-07-31", "value": 2301.0},
+    ],
 }
 
 
@@ -123,6 +127,15 @@ async def test_extraction_runs_with_multiple_configured_vertex_locations(monkeyp
     )
 
     assert payload["detailed_holdings"][0]["symbol"] == "AAPL"
+    from hushh_mcp.kai_import.strict_json import parse_statement_extraction
+
+    assert (
+        parse_statement_extraction(payload)["historical_values"] == _EXTRACTED["historical_values"]
+    )
+    assert set(_EXTRACTION_SCHEMA["properties"]["historical_values"]["items"]["properties"]) == {
+        "date",
+        "value",
+    }
     assert locations == ["global"]
 
 

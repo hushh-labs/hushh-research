@@ -22,6 +22,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     automatic_recipient_current,
     autoshare_request,
     package_allow_marker,
+    request_has_document_scope,
 )
 from hushh_mcp.services.drive_request_checkout_refusals import checkout_refusal
 from hushh_mcp.services.drive_request_queue import automatic_start_parked
@@ -173,10 +174,7 @@ def issue_list(reasons):
 
 
 def _request_missing_dates(private):
-    purpose = private.get("purpose")
-    if not isinstance(purpose, dict):
-        return True
-    return not (purpose.get("periodStart") and purpose.get("periodEnd"))
+    return not request_has_document_scope(private)
 
 
 def bulk_outcome_summary(
@@ -483,38 +481,11 @@ class DriveBulkShareStore(DriveLivePreferences):
         )
 
     def _package_allow(self, connection, request, *, search_job_id, generation):
-        private = self._open(
-            request["request_envelope"],
-            user_id=request["user_id"],
-            resource_id=str(request["request_id"]),
-            purpose="request",
+        from hushh_mcp.services.drive_packet_purchase_authority import current_package_allow
+
+        return current_package_allow(
+            self, connection, request, search_job_id=search_job_id, generation=generation
         )
-        if private.get("agent_package_required") is not True:
-            return None
-        marker = package_allow_marker(private)
-        if (
-            marker is None
-            or marker["request_revision"] != request["revision"]
-            or marker["search_job_id"] != str(search_job_id)
-            or marker["connection_generation"] != generation
-            or request_requires_owner_review(
-                connection,
-                user_id=request["user_id"],
-                request_id=request["request_id"],
-                revision=request["revision"],
-                cipher=self.cipher,
-                search_job_id=search_job_id,
-            )
-            or not automatic_recipient_current(
-                connection,
-                request["user_id"],
-                request["recipient_user_id"],
-                private,
-                request_id=request["request_id"],
-            )
-        ):
-            raise DriveSharingError("package_not_allowed")
-        return marker
 
     def _share_recipient_current(self, connection, share, owner, recipient, *, for_retry=False):
         if share["origin_request_id"] is None:

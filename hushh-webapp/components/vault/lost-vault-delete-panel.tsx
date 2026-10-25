@@ -160,8 +160,8 @@ function LostVaultDeleteJourney({
             ) : (
               <>
                 <div className="flex items-end gap-3">
-                  <div className="min-w-[5.5rem] shrink-0 space-y-2">
-                    <Label className="type-footnote">Country code</Label>
+                  <div className="flex min-w-[5.5rem] shrink-0 flex-col gap-[var(--app-form-field-gap)]">
+                    <Label htmlFor="phone-flow-country">Country code</Label>
                     <CountryPicker
                       open={countryOpen}
                       onOpenChange={(open) => {
@@ -182,7 +182,7 @@ function LostVaultDeleteJourney({
                       }}
                     />
                   </div>
-                  <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-[var(--app-form-field-gap)]">
                     <Label htmlFor="lost-vault-delete-phone">
                       Mobile number
                     </Label>
@@ -191,6 +191,7 @@ function LostVaultDeleteJourney({
                       type="tel"
                       inputMode="tel"
                       autoComplete="tel-national"
+                      className="h-[54px] focus-visible:border-[color:var(--app-accent-border)] focus-visible:ring-0"
                       value={flow.number}
                       onChange={(event) => flow.editNumber(event.target.value)}
                     />

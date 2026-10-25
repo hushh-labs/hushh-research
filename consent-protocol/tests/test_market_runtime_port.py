@@ -81,7 +81,10 @@ async def test_closed_price_dispatchers_refuse_cold_reads_without_blocking_news(
         assert calls == []
         await fetchers.fetch_market_news("AAPL", "public")
         await fetchers.fetch_market_company_facts("AAPL")
-    assert calls == ["news", "ratios"]
+        from hushh_mcp.market_data.history import fetch_daily_history
+
+        await fetch_daily_history("AAPL")
+    assert calls == ["news", "ratios", "daily_history"]
 
 
 @pytest.mark.parametrize("provider", ["finnhub", "pmp"])
@@ -364,3 +367,35 @@ async def test_bound_runtime_replaces_provider_and_public_cache_without_owner_co
     ]
     with pytest.raises(AssertionError, match="shared provider/cache"):
         await fetchers.fetch_market_data("AAPL", "user_1", "token")
+
+
+async def test_closed_daily_history_uses_observed_bars_without_seeding_spot_quotes(monkeypatch):
+    from hushh_mcp.market_data.history import fetch_daily_history
+
+    now = datetime.fromisoformat("2026-07-19T16:00:00+00:00").timestamp()
+    monkeypatch.setattr(fetchers.time, "time", lambda: now)
+    calls = []
+
+    async def recorded_get(self, url, *, params):
+        calls.append((url, params))
+        chart = {
+            "meta": {
+                "symbol": "MSFT",
+                "currency": "USD",
+                "regularMarketPrice": 103,
+                "chartPreviousClose": 100,
+                "exchangeTimezoneName": "America/New_York",
+            },
+            "timestamp": [1784208600, 1784295000],
+            "indicators": {"quote": [{"close": [100, 103]}]},
+        }
+        return httpx.Response(
+            200, json={"chart": {"result": [chart]}}, request=httpx.Request("GET", url)
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", recorded_get)
+    result = await fetch_daily_history("MSFT")
+    assert len(calls) == 1 and calls[0][1] == {"range": "1mo", "interval": "1d"}
+    assert result["points"] == [{"t": 1784208600.0, "p": 100.0}, {"t": 1784295000.0, "p": 103.0}]
+    assert result["source"] == "Yahoo Chart (Batch)"
+    assert fetchers._MARKET_DATA_CACHE == {}

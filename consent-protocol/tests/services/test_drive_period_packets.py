@@ -1,7 +1,9 @@
 """Metadata packet calendar, exact source provenance and no-reader boundaries."""
 
+# ruff: noqa: F811 -- canonical disposable PostgreSQL fixture dependencies
+
 from copy import deepcopy
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -18,6 +20,23 @@ from hushh_mcp.services.drive_request_discovery import (
 )
 from hushh_mcp.services.drive_request_semantic_plan import semantic_plan_digest
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+# Disposable PostgreSQL fixture graph for the owner isolation regression.
+from tests.services.test_drive_period_packet_previews_postgres import (  # noqa: F401
+    collection,
+    collection_pages,
+    connector_postgres_url,
+    documents,
+    drive,
+    drive_connect,
+    ingestion,
+    lifecycle,
+    preview_runtime,
+    reusable,
+    sharing,
+)
+
+pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
 
 
 def semantic():
@@ -245,3 +264,192 @@ async def test_planning_reuses_only_this_exact_period_checkpoint(monkeypatch, ca
     else:
         request = json.loads(plan.await_args.kwargs["prompt"])["document_request"]
         assert request["periodStart"] == "2026-03-01" and request["periodEnd"] == "2026-04-30"
+
+
+def wire_packet_provider(service, lifecycle):
+    """Retain the production OAuth lifecycle port, REST transport and HTTP adapter."""
+    from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+    from hushh_mcp.services.google_drive_adapter import GoogleDriveAdapter
+    from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
+
+    adapter = GoogleDriveAdapter()
+
+    async def credential(**kwargs):
+        return await lifecycle.read(user_id=kwargs["user_id"], connector_id="google_drive"), {
+            "accessToken": "synthetic"
+        }
+
+    oauth = SimpleNamespace(current_credential=credential, lifecycle=lifecycle)
+    service.search = DriveOwnerSearchService(
+        store=service.search.store, transport=GoogleDriveRestTransport(oauth=oauth, adapter=adapter)
+    )
+    return adapter
+
+
+def seed_scheduled_owners(store, users, *, clear_heads=True):
+    """Clone only synthetic connected-account state, never OAuth or background grants."""
+    from sqlalchemy import text
+
+    with store.db.engine.begin() as connection:
+        if clear_heads:
+            connection.execute(text("DELETE FROM drive_packet_heads WHERE user_id='owner'"))
+        for user in users:
+            connection.execute(
+                text("""INSERT INTO user_external_connector_connections
+              SELECT (jsonb_populate_record(NULL::user_external_connector_connections,
+                to_jsonb(c)||jsonb_build_object('user_id',:user,'updated_at','2000-01-01T00:00:00Z',
+                  'drive_packet_inspected_at',NULL,'credential_ciphertext',NULL,
+                  'credential_iv',NULL,'credential_tag',NULL))).*
+              FROM user_external_connector_connections c
+              WHERE c.user_id='owner' AND c.connector_id='google_drive'"""),
+                {"user": user},
+            )
+
+
+def scheduled_drive(eligible, periods, calls):
+    from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+
+    async def read(*, user_id, tool_name, arguments):
+        assert user_id in eligible
+        calls.append((user_id, tool_name))
+        if tool_name == "list_shared_drives":
+            return ExternalMcpToolResult(False, {"drives": []}, False)
+        assert tool_name in {"list_files", "search_files"}
+        page = bool(arguments.get("pageToken"))
+        files = [
+            {
+                "id": f"{user_id}-{period.start}-{i}",
+                "title": "Synthetic record",
+                "mimeType": "video/mp4" if i == 0 else "application/pdf",
+                "version": "1",
+                "createdTime": f"{period.start}T12:00:00Z",
+                "modifiedTime": f"{period.start}T12:00:00Z",
+                "capabilities": {"canShare": i != 0},
+            }
+            for period in periods
+            for i in ([1, 2] if page else [0, 1])
+        ]
+        return ExternalMcpToolResult(
+            False,
+            {
+                "files": files,
+                "nextPageToken": None if page else "second",
+                "incompleteSearch": False,
+            },
+            False,
+        )
+
+    return SimpleNamespace(read_tool=AsyncMock(side_effect=read))
+
+
+def advance_scheduled_calendar(periods):
+    """Advance only the injected product calendar; database lease clocks stay real."""
+    start = periods[-1].end + timedelta(days=1)
+    periods.append(
+        current_year_periods(datetime.combine(start, datetime.min.time(), UTC), "UTC")[-1]
+    )
+
+
+def scheduled_snapshot(store):
+    from sqlalchemy import text
+
+    with store.db.engine.connect() as connection:
+        rows = list(
+            connection.execute(
+                text("SELECT * FROM drive_packet_heads ORDER BY user_id,period_start")
+            ).mappings()
+        )
+        effects = [
+            connection.execute(text(f"SELECT count(*) FROM {table}")).scalar_one()
+            for table in ("drive_request_payment_orders", "drive_bulk_share_effects")
+        ]
+    assert effects == [0, 0]
+    return {
+        (row["user_id"], row["period_start"]): (
+            row["current_version"],
+            row["revision"],
+            store._build(row).get("preview", {}),
+        )
+        for row in rows
+    }
+
+
+@pytest.mark.parametrize("failure", ["inspection", "discovery", "deleted"])
+async def test_refused_owner_cannot_cancel_other_owner_discovery(reusable, monkeypatch, failure):
+    from sqlalchemy import text
+
+    service, _, planner, _ = await preview_runtime(reusable, monkeypatch)
+    seed_scheduled_owners(service.store, ["blocked", "healthy"])
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "blocked,healthy")
+    monkeypatch.setattr(
+        "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode",
+        AsyncMock(return_value="shared"),
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_financial_packet_tagging.FinancialPacketTagger.run_one",
+        AsyncMock(return_value="idle"),
+    )
+    periods = current_year_periods(datetime.now(UTC), "UTC")
+    calls = []
+    service.search.transport = scheduled_drive(["healthy"], periods, calls)
+    with service.store.db.engine.begin() as connection:
+        if failure == "deleted":
+            connection.execute(
+                text(
+                    "INSERT INTO account_deletion_tombstones VALUES ('sha256:'||encode(sha256(convert_to('blocked','UTF8')),'hex'))"
+                )
+            )
+        else:
+            table, event = (
+                ("user_external_connector_connections", "UPDATE")
+                if failure == "inspection"
+                else ("drive_packet_heads", "INSERT")
+            )
+            connection.exec_driver_sql("""CREATE FUNCTION refuse_blocked_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+              BEGIN IF NEW.user_id='blocked' THEN RAISE EXCEPTION 'synthetic storage refusal' USING ERRCODE='23514'; END IF; RETURN NEW; END $$""")
+            connection.exec_driver_sql(
+                f"CREATE TRIGGER refuse_blocked BEFORE {event} ON {table} FOR EACH ROW EXECUTE FUNCTION refuse_blocked_owner()"
+            )
+    if failure == "deleted":
+        with pytest.raises(DriveReadError, match="account_deleted"):
+            await service.ensure_owner(user_id="blocked")
+    result = await service.run(max_jobs=2, deadline_seconds=10)
+    assert result["outcomes"]["completed"] == 1
+    assert {owner for owner, _ in calls} == {"healthy"}
+    planner.assert_not_awaited()
+    with service.store.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_packet_heads WHERE user_id='blocked'")
+            ).scalar_one()
+            == 0
+        )
+
+
+async def test_owner_catalog_poll_only_reads_saved_heads(reusable, monkeypatch):
+    from sqlalchemy import text
+
+    from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
+
+    service, _, _, transport = await preview_runtime(reusable, monkeypatch)
+    ensure = AsyncMock(side_effect=AssertionError("catalog poll enrolled owner"))
+    monkeypatch.setattr(DrivePeriodPacketStore, "ensure_owner", ensure)
+
+    def saved():
+        with service.store.db.engine.connect() as connection:
+            return connection.execute(
+                text(
+                    "SELECT packet_id,revision,updated_at,tagging_pending,tagging_next_at FROM drive_packet_heads ORDER BY packet_id"
+                )
+            ).all()
+
+    before = saved()
+    assert before
+    result = await service.store.list_packets(user_id="owner", owner_contents=True)
+    assert len(result["packets"]) == len(before) and saved() == before
+    with service.store.db.engine.begin() as connection:
+        connection.exec_driver_sql("DELETE FROM drive_packet_heads")
+    assert (await service.store.list_packets(user_id="owner", owner_contents=True))["packets"] == []
+    assert saved() == []
+    ensure.assert_not_awaited()
+    transport.read_tool.assert_not_awaited()

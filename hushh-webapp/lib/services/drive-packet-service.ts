@@ -1,3 +1,4 @@
+import { parsePacketPublicSummary, type PacketPublicSummary } from "@/lib/services/financial-packet-summary-service";
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import { ApiService } from "@/lib/services/api-service";
@@ -34,6 +35,7 @@ export type DiscoveryDrivePacket = PacketBase & {
   requestId: string | null; purchaseState: "none" | "pending" | "paid" | "delivered";
   /** Own-account search progress; never sale readiness or buyer information. */
   preview?: DrivePacketPreview;
+  publicSummary?: PacketPublicSummary;
 };
 export type DrivePacketPreview = {
   status: "not_started" | "queued" | "searching" | "partial" | "completed" | "failed";
@@ -200,6 +202,7 @@ function discoveryPacket(item: RecordValue, view: "owner" | "buyer"): DiscoveryD
     purchaseState: purchaseState as DiscoveryDrivePacket["purchaseState"],
     ...(view === "owner" && item.contents !== undefined ? { contents: contents(item.contents) } : {}),
     ...(view === "owner" && item.preview !== undefined ? { preview: parsePacketPreview(item.preview) } : {}),
+    ...(view === "owner" && item.publicSummary !== undefined ? { publicSummary: parsePacketPublicSummary(item.publicSummary) } : {}),
   };
   if (result.version > 1 || result.state === "ready" && result.version !== 1 || result.state === "building" && result.version !== 0 ||
       result.state !== "ready" && result.listingEnabled ||

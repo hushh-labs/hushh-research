@@ -55,6 +55,8 @@ POST /api/connectors/{connector_id}/mcp/oauth/complete
 POST /api/connectors/{connector_id}/mcp/review
 POST /api/connectors/{connector_id}/mcp/verify
 [AUTHORITY]
+GET /api/connectors/google_drive/sharing/packet-publications
+PUT /api/connectors/google_drive/sharing/packets/{packet_id}/public-summary
 POST /api/connectors/google_drive/documents/{document_id}/processing
 POST /api/connectors/google_drive/live/background
 POST /api/connectors/google_drive/searches/{job_id}/stop
@@ -114,6 +116,7 @@ POST /api/one/area-discovery/search
 DELETE /api/one/location/circle-types
 DELETE /api/one/messages/conversations/{conversation_id}
 GET /api/one/people/{person_ref}/relationship
+GET /api/one/people/{person_ref}/financial-packets
 DELETE /api/one/wallet/card-access/grants/{grant_id}
 GET /api/one/answer-requests/answerable
 GET /api/one/answer-requests/availability

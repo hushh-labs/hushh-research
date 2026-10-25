@@ -37,8 +37,8 @@ def test_area_accepts_only_coarse_zip_not_coordinates_or_free_text():
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION = ROOT / "db/migrations/417_one_area_discovery.sql"
-ROLLBACK = ROOT / "db/migrations/rollback/417_one_area_discovery.rollback.sql"
+MIGRATION = ROOT / "db/migrations/418_one_area_discovery.sql"
+ROLLBACK = ROOT / "db/migrations/rollback/418_one_area_discovery.rollback.sql"
 
 
 @asynccontextmanager

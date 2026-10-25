@@ -25,6 +25,8 @@ describe("financial reader compatibility", () => {
       pkm_contract_version: "7.0.0",
       financial_core_v7: {
         active_source: "statement",
+        account_info: { statement_period_end: "2026-07-31" },
+        historical_values: [{ date: "2026-07-01", value: 18 }, { date: "2026-07-31", value: 20 }],
         profile: { risk_tolerance: "balanced" },
         accounts: { account_1: { account_id: "account_1" } },
         securities: {
@@ -60,6 +62,8 @@ describe("financial reader compatibility", () => {
       ])
     );
     expect(v7.profile).toEqual(v6.profile);
+    expect(v7.activePortfolio?.account_info?.statement_period_end).toBe("2026-07-31");
+    expect(v7.activePortfolio?.historical_values).toHaveLength(2);
     expect(v7.sourceArtifactRefs).toEqual(["sha256:statement-sentinel"]);
   });
 });

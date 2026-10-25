@@ -34,6 +34,8 @@ from tests.services.test_drive_request_index_reuse_postgres import (
     sharing,
 )
 
+pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
+
 
 @pytest.fixture
 async def approved_access(catalog, reusable, sharing, monkeypatch):
@@ -109,6 +111,9 @@ async def test_existing_access_finishes_exact_delivery_without_payment_or_manage
         await completion.complete(user_id="owner", request_id=result.request_id, result=result)
         == expected
     )
+    # Withdrawal prevents new delivery, not replay of an already completed receipt.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(text("UPDATE drive_packet_listings SET enabled=FALSE"))
     assert (
         await completion.complete(user_id="owner", request_id=result.request_id, result=result)
         == expected
@@ -145,7 +150,16 @@ async def test_existing_access_finishes_exact_delivery_without_payment_or_manage
 
 
 @pytest.mark.parametrize(
-    "change", ["stale", "expired_permission", "changed_source", "revoked_processing", "mixed"]
+    "change",
+    [
+        "stale",
+        "expired_permission",
+        "changed_source",
+        "revoked_processing",
+        "mixed",
+        "withdrawn",
+        "superseded",
+    ],
 )
 async def test_changed_or_unproven_existing_access_never_commits_delivery(
     approved_access, sharing, change
@@ -168,12 +182,13 @@ async def test_changed_or_unproven_existing_access_never_commits_delivery(
         result = replace(result, status="mixed")
     else:
         with sharing.db.engine.begin() as connection:
-            sql = (
-                "UPDATE connected_documents SET source_version='2'"
-                if change == "changed_source"
-                else "UPDATE connected_documents SET processing_enabled=FALSE"
-            )
-            connection.execute(text(sql))
+            statements = {
+                "changed_source": "UPDATE connected_documents SET source_version='2'",
+                "revoked_processing": "UPDATE connected_documents SET processing_enabled=FALSE",
+                "withdrawn": "UPDATE drive_packet_listings SET enabled=FALSE",
+                "superseded": "UPDATE drive_packet_heads SET current_version=2",
+            }
+            connection.execute(text(statements[change]))
     with pytest.raises(DriveReadError):
         await completion.complete(user_id="owner", request_id=result.request_id, result=result)
     with sharing.db.engine.connect() as connection:

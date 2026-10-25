@@ -95,6 +95,7 @@ def tagging_work(build, search_id, model_version):
             "cursor": 0,
             "counts": {"financial": 0, "review": 0, "other": 0},
             "attempts": 0,
+            "started_at": datetime.now(UTC).isoformat(),
         }
     return work
 
@@ -216,6 +217,17 @@ async def claim(store, model_version):
             ).scalars()
         )
 
+    async def defer_owner(owner):
+        # Queue housekeeping only: no content, authorization or OFF preference changes.
+        await store._transaction(
+            lambda connection: connection.execute(
+                text("""UPDATE drive_packet_heads SET tagging_next_at=clock_timestamp()+INTERVAL '5 minutes'
+              WHERE user_id=:owner AND tagging_pending AND tagging_next_at<=clock_timestamp()
+                AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())"""),
+                {"owner": owner},
+            )
+        )
+
     for owner in await store._transaction(owners):
         try:
             await admit_hub_content(owner, "drive_period_packets")
@@ -223,7 +235,8 @@ async def claim(store, model_version):
             if job:
                 return job
         except (DriveReadError, HTTPException, PermissionError):
-            continue
+            pass
+        await defer_owner(owner)
     return None
 
 
@@ -334,6 +347,8 @@ async def commit(store, job, tags=None, error=None):
             else "partial"
         )
         build.pop("lease_kind", None)
+        if status == "completed":
+            work["completed_at"] = datetime.now(UTC).isoformat()
         build["tagging"] = {
             "status": status,
             "policyVersion": POLICY,

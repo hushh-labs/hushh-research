@@ -185,6 +185,17 @@ later deploys without restoring the older payment-required-only check. Boolean
 grouping, all other cent-price checks and immutable ledger checksums remain
 enforced; an unknown or unvalidated successor cannot use this exception.
 
+Migration 360's replay adapter preserves the exact validated 411 period-packet
+successor. Before that successor exists, the historical retirement still runs.
+After verifying its five typed columns, defaults and complete CHECK, replay
+retires only legacy `content_facts` listings and versions. Collection/document
+retirement remains unchanged. Partial or drifted successor definitions refuse
+the transaction. Existing unavailable versions and withdrawn listings remain
+OFF; their prior approval or source availability cannot be reconstructed from
+those flags. Historical SQL, ledger checksums and observe/ledger behavior remain
+unchanged. Repeated real PostgreSQL replay must preserve both provider ON and
+OFF states while continuing legacy retirement.
+
 ## UAT Zero-Loss Baseline Gate
 
 The same preservation authority supports an explicitly authorized Dev cutover.
