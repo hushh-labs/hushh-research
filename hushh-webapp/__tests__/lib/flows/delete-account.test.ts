@@ -681,7 +681,33 @@ describe("@feature_account_deletion @trace_loop banks sealed in the vault are re
     vi.clearAllMocks();
     publishValidatedAuthSessionPrincipal(null);
     publishValidatedAuthSessionPrincipal({ firebaseUid: "user_123", ownerId: "user_123", accountGeneration: 0 });
+    mockSnapshotOwner.mockReturnValue(null);
+    mockOwnerIsCurrent.mockReturnValue(true);
     mockDeleteAccount.mockResolvedValue({ success: true, account_deleted: true });
+  });
+
+  it("does not reuse deletion approval after sign-out and same-owner return during bank preflight", async () => {
+    const principal = { firebaseUid: "user_123", ownerId: "user_123", accountGeneration: 0 };
+    publishValidatedAuthSessionPrincipal(principal);
+    let finishPreflight!: (outcome: { revoked: number; failed: number }) => void;
+    mockRevokeAllVaultPlaid.mockImplementation(() => new Promise((resolve) => {
+      finishPreflight = resolve;
+    }));
+    const action = executeVerifiedAccountDeletion({
+      userId: "user_123",
+      vaultOwnerToken: "vault-owner-token",
+      sessionUser: makeSessionUser(),
+      vaultKey: "vault-key",
+    });
+    const rejected = expect(action).rejects.toThrow("cancelled before submission");
+    await vi.waitFor(() => expect(mockRevokeAllVaultPlaid).toHaveBeenCalledOnce());
+    publishValidatedAuthSessionPrincipal(null);
+    publishValidatedAuthSessionPrincipal(principal);
+    finishPreflight({ revoked: 0, failed: 0 });
+    await rejected;
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+    expect(mockRequireVerification).not.toHaveBeenCalled();
+    expect(mockClearForUser).not.toHaveBeenCalled();
   });
 
   it("revokes every connection at Plaid before the delete request", async () => {

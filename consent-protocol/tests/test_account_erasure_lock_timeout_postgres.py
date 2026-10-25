@@ -1483,6 +1483,12 @@ def _seed_erasure_spine(conn):
             "INSERT INTO pkm_domain_revision_segments SELECT revision_id, n::TEXT, 'synthetic-ciphertext' FROM pkm_domain_revisions CROSS JOIN generate_series(1,201) n WHERE revision_id=md5(user_id || '1')::uuid"
         )
     )
+    # Segmentless parents must not terminate erasure before later populated ones.
+    conn.execute(
+        text(
+            "INSERT INTO pkm_domain_revisions SELECT md5(owner || n)::uuid, owner FROM (VALUES ('departing'), ('peer')) owners(owner) CROSS JOIN generate_series(301,310) n"
+        )
+    )
     conn.execute(text("INSERT INTO actor_profiles(user_id) VALUES ('departing'), ('peer')"))
     conn.execute(text("INSERT INTO vault_keys VALUES ('departing'), ('peer')"))
     conn.execute(text((ROOT / "db/migrations/201_account_deletion_tombstones.sql").read_text()))
@@ -1619,12 +1625,12 @@ def _assert_recovery_counts(engine, rollback):
         assert counts == ({"departing": 501, "peer": 501} if rollback else {"peer": 501})
         assert conn.execute(
             text("SELECT count(*) FROM pkm_domain_revisions WHERE user_id='departing'")
-        ).scalar() == (300 if rollback else 0)
+        ).scalar() == (310 if rollback else 0)
         assert (
             conn.execute(
                 text("SELECT count(*) FROM pkm_domain_revisions WHERE user_id='peer'")
             ).scalar()
-            == 300
+            == 310
         )
         assert conn.execute(
             text("SELECT count(*) FROM vault_keys WHERE user_id='departing'")
@@ -1667,3 +1673,64 @@ def test_large_recovery_history_erasure_is_bounded_atomic_and_owner_scoped(datab
         with admin.connect() as conn:
             conn.execute(text(f"DROP DATABASE {database} WITH (FORCE)"))
         admin.dispose()
+
+
+def test_late_recovery_cursor_bounds_parent_scan_work(database_url):
+    """A child cursor must not revisit the already traversed parent prefix."""
+    from sqlalchemy import text
+
+    from hushh_mcp.services.account_recovery_erasure import recovery_erasure_queries
+
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as conn, conn.begin() as transaction:
+            # Disposable temporary tables shadow runtime names only here. ANALYZE
+            # executes the production DELETE; the transaction rolls back on exit.
+            conn.execute(
+                text(
+                    "CREATE TEMP TABLE pkm_domain_revisions (revision_id UUID PRIMARY KEY, user_id TEXT NOT NULL) ON COMMIT DROP"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE TEMP TABLE pkm_domain_revision_segments (revision_id UUID REFERENCES pkm_domain_revisions, segment_id TEXT, PRIMARY KEY (revision_id, segment_id)) ON COMMIT DROP"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO pkm_domain_revisions SELECT lpad(to_hex(n),32,'0')::uuid, 'departing' FROM generate_series(1,3000) n"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO pkm_domain_revision_segments SELECT revision_id, 'base' FROM pkm_domain_revisions"
+                )
+            )
+            conn.execute(text("ANALYZE pkm_domain_revisions; ANALYZE pkm_domain_revision_segments"))
+            query = recovery_erasure_queries()["pkm_domain_revision_segments"]
+            plan = conn.execute(
+                text("EXPLAIN (ANALYZE, TIMING OFF, FORMAT JSON) " + str(query)),
+                {
+                    "user_id": "departing",
+                    "after_revision_id": f"{2800:032x}",
+                    "after_segment_id": "base",
+                },
+            ).scalar()[0]["Plan"]
+            assert plan["Actual Rows"] == 100
+            assert _parent_scan_work(plan) < 500, "late batches rescanned the erased parent prefix"
+            assert (
+                conn.execute(text("SELECT count(*) FROM pkm_domain_revision_segments")).scalar()
+                == 2900
+            )
+            transaction.rollback()
+    finally:
+        engine.dispose()
+
+
+def _parent_scan_work(plan):
+    own_work = 0
+    if plan.get("Relation Name") == "pkm_domain_revisions":
+        own_work = (plan["Actual Rows"] + plan.get("Rows Removed by Filter", 0)) * plan[
+            "Actual Loops"
+        ]
+    return own_work + sum(_parent_scan_work(child) for child in plan.get("Plans", []))

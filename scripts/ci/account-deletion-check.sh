@@ -24,6 +24,8 @@ echo '== Account deletion: client completion, proxy outcomes and atomic SQL eras
     tests/test_account_delete_error_detail.py \
     tests/services/test_account_erasure_covers_every_user_table.py \
     tests/services/test_account_deletion_provider_cleanup.py \
-    tests/test_account_erasure_lock_timeout_postgres.py
+    tests/test_account_erasure_lock_timeout_postgres.py \
+    tests/one_voice/test_tools_account_lifecycle.py \
+    tests/one_voice/test_relay_account_lifecycle.py
 )
 echo "Account deletion gate passed in $((SECONDS - started))s."

@@ -472,6 +472,15 @@ recovery tables; another owner's history survives. The existing request context
 is asserted across the HTTP response and database worker. Client tests cover
 delayed status replies and pending-lock recovery without another DELETE or a
 premature uncertain sign-out.
+A late-cursor PostgreSQL execution-plan regression bounds actual parent scan
+work as well as the batch size. The parent cursor uses an inclusive lower bound
+so remaining segments within the current revision are preserved; segmentless
+parents cannot terminate the erasure early.
+The initiating owner generation is captured before bank preflight; returning to
+the same account after sign-out cannot reuse that deletion approval. Voice tool
+and relay tests require an authoritative lifecycle lock to stay pending in
+narration without sign-in or retry instructions. Client claims never establish
+that pending state or a completed deletion.
 Recovery-reference indexes are replayed, validated and rolled back on the same
 disposable database. This establishes these contracts with synthetic information;
 it does not measure deletion time for a real person's full recovery history.

@@ -1891,7 +1891,7 @@ function OwnerVaultFlow({
                       aria-pressed={showPassphrase}
                       title={showPassphrase ? "Hide password" : "Show password"}
                     >
-                      {showPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
+                      {showPassphrase ? <ProfilePanePreviewOffIcon size={18} /> : <ProfilePanePreviewIcon size={18} />}
                     </button>
                   </div>
               </div>
@@ -1929,7 +1929,7 @@ function OwnerVaultFlow({
                       aria-pressed={showConfirmPassphrase}
                       title={showConfirmPassphrase ? "Hide password" : "Show password"}
                     >
-                      {showConfirmPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
+                      {showConfirmPassphrase ? <ProfilePanePreviewOffIcon size={18} /> : <ProfilePanePreviewIcon size={18} />}
                     </button>
                   </div>
                 {createPassphraseHelperText && (
@@ -2063,7 +2063,7 @@ function OwnerVaultFlow({
                       aria-pressed={showPassphrase}
                       title={showPassphrase ? "Hide password" : "Show password"}
                     >
-                      {showPassphrase ? <ProfilePanePreviewIcon size={18} /> : <ProfilePanePreviewOffIcon size={18} />}
+                      {showPassphrase ? <ProfilePanePreviewOffIcon size={18} /> : <ProfilePanePreviewIcon size={18} />}
                     </button>
                   </div>
                 </div>

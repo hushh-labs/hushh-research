@@ -159,7 +159,7 @@ export class AccountDeletionPendingError extends Error {
 
 export class AccountDeletionInProgressError extends Error {
   constructor() {
-    super("Your account deletion is still running. Please wait while we check its status.");
+    super("Your account deletion status is still being checked. Please wait for confirmation.");
     this.name = "AccountDeletionInProgressError";
   }
 }
@@ -389,12 +389,13 @@ export async function executeLostVaultAccountDeletion(params: {
 async function executeAccountDeletion(params: {
   userId: string;
   sessionUser: AccountDeletionSessionUser;
-  owner?: AccountDeletionOwner;
+  owner: AccountDeletionOwner;
   performDeletion: () => Promise<AccountDeletionResult>;
   isKnownPrecommitError?: (error: unknown) => boolean;
   isCurrent?: () => boolean;
 }): Promise<AccountDeletionResult> {
-  const owner = params.owner ?? captureAccountDeletionOwner(params.userId);
+  // Preserve the exact approval owner across bank preflight and token capture.
+  const owner = params.owner;
   if (params.sessionUser.uid !== owner.firebaseUid || owner.ownerId !== params.userId) {
     throw new Error("Account deletion session identity changed. Please retry.");
   }
@@ -470,7 +471,7 @@ async function executeAccountDeletion(params: {
           ).catch(() => "unavailable" as const);
     if (deletionStatus === "in_progress" && owner &&
         isValidatedAuthSessionOwnerCurrent(owner)) {
-      // A lifecycle lock proves work is still running, not a lost identity.
+      // A busy lifecycle barrier leaves deletion unconfirmed, not identity lost.
       // The existing UID/generation-scoped privacy gate seals protected UI and
       // owns bounded status reads with backoff. Never submit DELETE again.
       dispatchAuthSessionVerificationRequired(owner, "account_deletion_in_progress");
