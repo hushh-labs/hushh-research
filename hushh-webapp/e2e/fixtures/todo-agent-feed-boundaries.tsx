@@ -7,6 +7,7 @@ let state = {
   error: false,
   failSave: false,
   hideAgent: false,
+  preview: false,
   revision: 0,
   message: "",
   href: "",
@@ -57,10 +58,15 @@ export const items = [
     ],
   },
 ] as FeedActionable[];
+const previewItems: FeedActionable[] = [items[0], {
+  ...items[0],
+  id: "connection:fixture-follow-up",
+  todo: { source: "connections", title: "Review the team's follow-up request", href: "/one/consent?requestId=fixture-follow-up" },
+}];
 export function useFeedActionables({ enabled }: { enabled: boolean }) {
   const value = useFixture();
   return {
-    actionables: enabled && !value.hideAgent ? items : [],
+    actionables: enabled && !value.hideAgent ? (value.preview ? previewItems : items) : [],
     loading: false,
     progressLoading: false,
     progressError: null,

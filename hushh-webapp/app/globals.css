@@ -9964,7 +9964,7 @@ html:has([data-profile-type-scale]),
   }
 
   /* Surface header: a page's own title. */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"], [data-profile-type-scale="todo"])
     [data-profile-role="header"] {
     font-size: var(--profile-type-header-size) !important;
     line-height: var(--profile-type-header-line) !important;
@@ -9974,7 +9974,7 @@ html:has([data-profile-type-scale]),
 
   /* Primary label: tab labels, the controls that name a list, and names of
      things you open (an agent, a section). */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"], [data-profile-type-scale="todo"])
     :is(
       [data-profile-role="label"],
       [data-ui-role="agent-tab-label"],
@@ -9987,7 +9987,7 @@ html:has([data-profile-type-scale]),
   }
 
   /* Group label: a heading nested under a list's own title. */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"], [data-profile-type-scale="todo"])
     :is([data-profile-role="group-label"], [data-slot="settings-group-heading"]) {
     font-family: var(--font-app-body) !important;
     color: var(--ios-account-secondary-label) !important;
@@ -9998,7 +9998,7 @@ html:has([data-profile-type-scale]),
   }
 
   /* Row label (Profile detail rows). */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"], [data-profile-type-scale="todo"])
     :is(
       [data-profile-role="name"],
       [data-row-layout] [data-slot="settings-row-title"]
@@ -10012,7 +10012,7 @@ html:has([data-profile-type-scale]),
 
   /* Secondary line and count: one role, so a date, an email, a helper and a
      "1 action" all read alike. */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"], [data-profile-type-scale="todo"])
     :is(
       [data-profile-role="description"],
       [data-row-layout] [data-slot="settings-row-description"],
@@ -10027,7 +10027,7 @@ html:has([data-profile-type-scale]),
     text-wrap: balance;
   }
 
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"], [data-profile-type-scale="todo"])
     :is(
       [data-row-layout] [data-slot="settings-row-description"],
       [data-settings-density] [data-slot="settings-group-description"]
@@ -10036,7 +10036,7 @@ html:has([data-profile-type-scale]),
   }
 
   /* Action label (Profile's inline "Edit" / "Change"). */
-  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"])
+  :is(.app-page-shell[data-profile-type-scale], .app-page-shell [data-profile-type-scale], [data-profile-type-scale="circles"], [data-profile-type-scale="feed"], [data-profile-type-scale="todo"])
     [data-profile-role="action"] {
     font-size: var(--profile-type-action-size) !important;
     line-height: var(--profile-type-action-line) !important;
