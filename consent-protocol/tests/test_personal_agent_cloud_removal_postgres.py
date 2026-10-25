@@ -74,7 +74,7 @@ def _admit_cloud_removal(pg, owner, current):
         / "db/migrations/parked/972_personal_agent_cloud_removal.sql"
     )
     pg.apply_file(
-        Path(__file__).resolve().parents[1] / "db/migrations/419_cloud_removal_recovery.sql"
+        Path(__file__).resolve().parents[1] / "db/migrations/420_cloud_removal_recovery.sql"
     )
     digest = _value(
         pg,
@@ -284,7 +284,7 @@ def test_cloud_review_cancel_restores_only_an_undispatched_snapshot(cleanup_pg):
     pg, owner, _, _ = cleanup_pg
     root = Path(__file__).resolve().parents[1] / "db/migrations"
     pg.apply_file(root / "parked/972_personal_agent_cloud_removal.sql")
-    pg.apply_file(root / "419_cloud_removal_recovery.sql")
+    pg.apply_file(root / "420_cloud_removal_recovery.sql")
     original = _row(pg, owner)
     snapshot_digest = _value(
         pg,
@@ -339,7 +339,7 @@ def test_cloud_approval_and_cancel_serialize_under_owner_authority(cleanup_pg):
     pg, owner, _, _ = cleanup_pg
     root = Path(__file__).resolve().parents[1] / "db/migrations"
     pg.apply_file(root / "parked/972_personal_agent_cloud_removal.sql")
-    pg.apply_file(root / "419_cloud_removal_recovery.sql")
+    pg.apply_file(root / "420_cloud_removal_recovery.sql")
     original = _row(pg, owner)
     digest = _value(
         pg,

@@ -1,9 +1,10 @@
 # Private agent: normal release transition
 
 **Current surgical follow-up — 24 October 2026:** the preserved branch includes
-main `b2ee968a59ab` through checkpoint `c1861b4ae2`. Peer source and historical
-migration bytes remain intact. Canonical 416–419 carry the unapplied lifecycle
-correction; `.agents` is the sole authored development framework. The combined
+main `44d8efecaf`, preserving the earlier `b2ee968a59ab` integration. Peer source and historical
+migration bytes remain intact. Canonical 417–420 carry the unapplied lifecycle
+correction; main’s 416 financial-packet migration is preserved byte-for-byte.
+`.agents` is the sole authored development framework. The combined
 correction is not merged or deployed. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
 owns current serving readback and verification; older receipts below are history.
 

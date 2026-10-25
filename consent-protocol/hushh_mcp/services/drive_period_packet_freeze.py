@@ -83,6 +83,7 @@ def frozen_manifest(job, row, period, search_job_id, checkpoint, metadata):
         ],
         "source_metadata": metadata,
         "search": {
+            "query_source": checkpoint.get("query_source"),
             "job_id": str(search_job_id),
             "plan": checkpoint["semantic_plan"],
             "authored_plan": job["build"]["plan"],

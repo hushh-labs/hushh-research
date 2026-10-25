@@ -55,6 +55,20 @@ Repository vendor discovery directories, adapters, startup hooks and generated
 host fleets have been removed. User-level tool installations, the external shared
 handoff and peer edits remain preserved.
 
+Main’s later financial-packet change owns migration 416. The unapplied lifecycle
+chain is now 417–420; its canonical successor marker is `/419`. Historical
+measurements below retain their original numbering. Both canonical-416 and rich-dev-972 retained-state upgrades passed on the new
+chain in 94.68 seconds. Main’s affected backend cases passed86 tests and its
+packet interface passed35 tests; these do not replace hosted validation.
+
+Read-only live catalog inspection at 01:43 UTC found 22 dev and 413 UAT
+account-deletion records. Neither serving table yet has the new durable
+provider-operation/identity-hash fields or account-generation authority. These
+counts do not prove external cleanup or identify currently affected people.
+Historical recovery must reconcile retained evidence; missing records cannot be
+converted into confirmed provider revocation. Both task-owned SQL proxies exited
+and their downloaded executable was removed after the read.
+
 ### Earlier local evidence (historical checkpoints)
 
 The preserved infrastructure branch now includes observed main `163ddb96a33e`

@@ -56,6 +56,14 @@ describe("@feature_drive_packets @trace_loop owner packet words", () => {
       updatedAt: "2026-10-24T10:00:00Z", errorCode: null };
     expect(ownerPacketStatus({ ...current, preview }).word).toBe("No matching files");
     expect(ownerStatusLine({ ...current, preview })).toContain("0 documents");
+    const unavailableSale = { ...emptyDiscovery, state: "ready" as const, freshness: "stale" as const,
+      preview: { ...preview, matched: 33 } };
+    expect(ownerPacketStatus(unavailableSale).word).toBe("Files found");
+    expect(ownerStatusLine(unavailableSale)).toContain("33 documents");
+    expect(unavailableSale.canList).toBe(false);
+    const financial = { ...unavailableSale, category: "financial" as const };
+    expect(buyerNotes(financial).join(" ")).toContain("400 text characters");
+    expect(buyerNotes(financial).join(" ")).not.toContain("contents were not read");
     expect(ownerPacketStatus({ ...emptyDiscovery, preview: { ...preview, matched: 12 } }).word).toBe("Files found");
     expect(ownerStatusLine({ ...current, preview: { ...preview, status: "partial", matched: 12, complete: false } }))
       .toContain("12 documents found so far");

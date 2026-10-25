@@ -141,6 +141,29 @@ async def preview_runtime(reusable, monkeypatch, *, historical=False, empty=Fals
     return service, head, planner, transport
 
 
+async def completed_preview(service, identity):
+    """Owner sees a first batch; the existing durable worker completes paging."""
+    preview = await service.prepare_preview(user_id="owner", packet_id=identity)
+    for _ in range(5):
+        if preview["complete"]:
+            return preview
+        # Advance only synthetic scheduling time, retaining actual persisted work.
+        with service.store.db.engine.begin() as connection:
+            connection.execute(
+                text("UPDATE drive_packet_heads SET next_at=clock_timestamp() WHERE packet_id=:id"),
+                {"id": identity},
+            )
+            connection.execute(
+                text(
+                    "UPDATE drive_owner_search_jobs SET next_at=clock_timestamp() WHERE period_packet_id=:id"
+                ),
+                {"id": identity},
+            )
+        await service.run_one(user_id="owner", packet_id=identity)
+        preview = await service.preview(user_id="owner", packet_id=identity)
+    pytest.fail("Packet background continuation did not complete")
+
+
 @pytest.mark.parametrize("historical", [False, True])
 async def test_owner_queries_open_and_historical_ranges_without_purchase(
     reusable, monkeypatch, historical
@@ -151,10 +174,7 @@ async def test_owner_queries_open_and_historical_ranges_without_purchase(
     identity = str(head["packet_id"])
     before = await service.preview(user_id="owner", packet_id=identity)
     assert before["matched"] is None and before["status"] == "not_started"
-    for _ in range(5):
-        preview = await service.prepare_preview(user_id="owner", packet_id=identity)
-        if preview["complete"]:
-            break
+    preview = await completed_preview(service, identity)
     assert preview["complete"] and preview["matched"] == 26
     assert len(preview["documents"]) == 25 and preview["nextCursor"]
     assert preview["documents"][0]["shareable"] is False
@@ -173,6 +193,7 @@ async def test_owner_queries_open_and_historical_ranges_without_purchase(
             .one()
         )
         assert current["current_version"] == (1 if historical else 0)
+        assert current["revision"] == head["revision"]
         assert (
             connection.execute(
                 text("SELECT count(*) FROM drive_request_payment_orders")
@@ -253,7 +274,11 @@ async def test_finalization_requeries_after_a_completed_open_period_preview(reus
                 "started": datetime.combine(head["period_start"], datetime.min.time(), UTC),
             },
         )
-    await service.store.save_build(job, {"plan": plan, "model_binding": binding})
+    from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
+
+    await service.store.save_build(
+        job, {"plan": plan, "model_binding": binding, "query_source": QUERY_SOURCE}
+    )
     preview = await service.prepare_preview(user_id="owner", packet_id=identity)
     assert preview["complete"] and preview["matched"] == 1
     with service.store.db.engine.connect() as connection:
@@ -264,7 +289,7 @@ async def test_finalization_requeries_after_a_completed_open_period_preview(reus
             ).scalar_one()
             == 0
         )
-    final = await service.prepare_preview(user_id="owner", packet_id=identity)
+    final = await completed_preview(service, identity)
     assert final["complete"] and final["revision"] == preview["revision"] + 1
     with service.store.db.engine.connect() as connection:
         assert (
@@ -307,6 +332,12 @@ async def test_noncompilable_model_plan_is_not_pinned_across_recovery(reusable, 
     from copy import deepcopy
 
     service, head, planner, _ = await preview_runtime(reusable, monkeypatch)
+    # Nonfinancial historical heads retain their model-authored contract.
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_packet_heads SET category='bank' WHERE packet_id=:id"),
+            {"id": head["packet_id"]},
+        )
     good = planner.return_value
     invalid = deepcopy(good)
     invalid["semantic_query"]["date_basis"] = "content"
@@ -329,3 +360,65 @@ async def test_noncompilable_model_plan_is_not_pinned_across_recovery(reusable, 
         if result["complete"]:
             break
     assert result["complete"] and result["matched"] == 26 and planner.await_count == 2
+
+
+async def test_owner_receives_first_saved_batch_before_a_slow_later_page(reusable, monkeypatch):
+    import asyncio
+
+    from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+
+    service, head, planner, transport = await preview_runtime(reusable, monkeypatch, interrupt=True)
+    first_read = transport.read_tool.side_effect
+    later_page = asyncio.Event()
+
+    async def read(**kwargs):
+        if kwargs["arguments"].get("pageToken"):
+            later_page.set()
+            await asyncio.sleep(30)
+        return await first_read(**kwargs)
+
+    transport.read_tool.side_effect = read
+    wake = AsyncMock(return_value=True)
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
+    identity = str(head["packet_id"])
+    preview = await asyncio.wait_for(
+        service.prepare_preview(user_id="owner", packet_id=identity), timeout=2
+    )
+    assert not later_page.is_set()
+    assert not preview["complete"] and preview["matched"] == 26 and preview["documents"]
+    assert preview["documents"][0]["viewUrl"].startswith("https://drive.google.com/")
+    wake.assert_awaited_once_with("suggestions")
+    with service.store.db.engine.begin() as connection:
+        job_id = service.store._build(
+            dict(
+                connection.execute(
+                    text("SELECT * FROM drive_packet_heads WHERE packet_id=:id"), {"id": identity}
+                )
+                .mappings()
+                .one()
+            )
+        )["search_job_id"]
+        saved = connection.execute(
+            text("SELECT status,error_code FROM drive_owner_search_jobs WHERE job_id=:id"),
+            {"id": job_id},
+        ).one()
+        assert saved == ("queued", None)
+        connection.execute(
+            text("UPDATE drive_packet_heads SET next_at=clock_timestamp() WHERE packet_id=:id"),
+            {"id": identity},
+        )
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET next_at=clock_timestamp() WHERE job_id=:id"),
+            {"id": job_id},
+        )
+
+    async def finish(**kwargs):
+        if kwargs["arguments"].get("pageToken"):
+            return ExternalMcpToolResult(False, {"files": [], "incompleteSearch": False}, False)
+        return await first_read(**kwargs)
+
+    transport.read_tool.side_effect = finish
+    assert await service.run_one(user_id="owner", packet_id=identity) == "completed"
+    final = await service.preview(user_id="owner", packet_id=identity)
+    assert final["complete"] and final["matched"] == 26
+    planner.assert_not_awaited()

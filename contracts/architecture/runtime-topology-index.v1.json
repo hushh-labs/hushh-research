@@ -1010,7 +1010,7 @@
       "id": "drive_continuous_document_evidence",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences."
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing; buyer routes expose only explicitly published current summaries. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing."
     },
     {
       "data_class": "personal_encrypted",
@@ -1098,7 +1098,7 @@
       "id": "drive_owner_search",
       "lifecycle_status": "customer0",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Owner-confirmed search create/status/results/stop; existing Drive worker claims bounded metadata-only page slices. Owner+client idempotency, one active job per owner, keyed result deduplication and lease CAS. No document indexing or sharing authority."
+      "primary_access_path": "Owner-confirmed search create/status/results/stop; existing Drive worker claims bounded metadata-only page slices. Owner+client idempotency, one active job per owner, keyed result deduplication and lease CAS. No document indexing or sharing authority. Period preparations also retain owner-only original results and separate advisory classifier tags in sealed metadata; neither grants buyer access."
     },
     {
       "data_class": "personal_encrypted",
@@ -1725,7 +1725,7 @@
       "id": "personal_agent_cloud_removal",
       "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Existing cloud-removal API/store and provider erasure executor; parked972 is the dev predecessor, with canonical418/419 in qualification. Owner/attempt lookups bind exact review, dispatch and recovery. Read-only discovery creates no removal operation."
+      "primary_access_path": "Existing cloud-removal API/store and provider erasure executor; parked972 is the dev predecessor, with canonical419/420 in qualification. Owner/attempt lookups bind exact review, dispatch and recovery. Read-only discovery creates no removal operation."
     },
     {
       "data_class": "workflow_state",
@@ -7049,7 +7049,7 @@
     "action_gateway": "5cbf2c42876c25839568b1a5ea1c9f6323a85f4c36ea5d89ebe86d365d1d09cf",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "8dbd3b9ea314314d2280430fa134ccfb7ed791249763e243b66402b601ed17e3",
-    "data_plane": "638287a4e7e0a849bf3e983d1ab413935e17058e63fd1da6e975fd770ff1e6ce",
+    "data_plane": "cf1733aef2f08ed8bae6ee2cc6c7d07de7d0ef83b3a6d68ce8d078856bb62889",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "0d7f59775e6ed1ea56fc27974f18612aebaa1eaefe1d8969de1637cebcd84647",

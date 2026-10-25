@@ -13,6 +13,9 @@ from pydantic import BaseModel, ConfigDict, model_validator
 PERIOD_PACKET_POLICY = "drive-period-provider-discovery-v1"
 PERIOD_PACKET_PRICE_CENTS = 500
 PERIOD_PACKET_KIND = "provider_discovery"
+TAGGING_WORKER_OUTCOMES = frozenset(
+    {"queued", "completed", "partial", "failed", "idle", "disabled", "deferred"}
+)
 Category = Literal["financial", "bank", "brokerage", "insurance"]
 CATEGORY_PURPOSES = {
     "financial": "All financial statements",

@@ -100,7 +100,7 @@ export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
     if (preview?.status === "queued") return { word: "Queued", tone: "waiting", order: 4, detail: "Your search is queued. You can leave this page." };
     if (preview?.status === "partial") return { word: "Results so far", tone: "waiting", order: 4, detail: "These results are incomplete. Search continues in the background." };
     if (preview?.complete && preview.matched === 0) return { word: "No matching files", tone: "paused", order: 3, detail: "Google Drive finished this search with no matching files for the selected dates." };
-    if (preview?.complete && packet.state !== "ready") return { word: "Files found", tone: "ready", order: 2, detail: "Your search results are available. The sale version is separate and isn’t ready to list." };
+    if (preview?.complete && (packet.state !== "ready" || packet.freshness !== "current")) return { word: "Files found", tone: "ready", order: 2, detail: "Your search results are available. The sale version is separate and isn’t ready to list." };
     if (packet.state === "building") return { word: "Not searched", tone: "waiting", order: 4, detail: "Open this packet to search your Drive for these dates." };
     if (packet.state === "empty") return { word: "No shareable files", tone: "paused", order: 3, detail: "No files from this search are currently available to share." };
     if (packet.state === "unable_to_verify") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Files couldn’t be confirmed." };
@@ -176,6 +176,9 @@ const PARTIAL_DRIVE = "this is not a complete inventory of matching records.";
 
 /** What a packet may leave out, in plain words, for its buyers and for its owner's "What buyers see". */
 export function buyerNotes(packet: DrivePacket): string[] {
+  if (packet.kind === "provider_discovery" && packet.category === "financial") return [
+    "To group Financial matches, Hussh reads a bounded prefix of supported files and gives the first 400 text characters to a classifier running on Hussh servers. Labels can be incomplete; every original stays in the owner's search results.",
+  ];
   if (packet.kind === "provider_discovery") return [packet.state === "ready"
     ? "Files matched a Drive search. Their contents were not read."
     : "Packets use Drive search results. File contents are not read."];

@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 419,
+  "expected_migration_version": 420,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -1179,6 +1179,7 @@
       "pages_scanned",
       "period_packet_id",
       "request_digest",
+      "retention_checked_at",
       "retry_count",
       "revision",
       "status",
@@ -1232,7 +1233,10 @@
       "period_end",
       "period_start",
       "period_timezone",
+      "predefined_query_version",
       "revision",
+      "tagging_next_at",
+      "tagging_pending",
       "updated_at",
       "user_id"
     ],
@@ -3705,6 +3709,7 @@
       "credential_iv",
       "credential_tag",
       "credential_version",
+      "drive_packet_inspected_at",
       "envelope_version",
       "last_error_code",
       "last_used_at",
@@ -3846,5 +3851,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 419
+  "expected_schema_head": 420
 }

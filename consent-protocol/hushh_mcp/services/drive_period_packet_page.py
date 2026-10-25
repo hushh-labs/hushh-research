@@ -78,7 +78,13 @@ def validate_buyer_checkpoint(manifest, private, claimed, frozen):
 
     if not isinstance(manifest, dict) or claimed.get("evidence_route") != "packet":
         raise DriveReadError("search_superseded")
+    if (
+        manifest["search"].get("query_source") is not None
+        and manifest.get("category") != "financial"
+    ):
+        raise DriveReadError("search_superseded")
     expected = {
+        "query_source": manifest["search"].get("query_source"),
         "semantic_plan": manifest["search"]["plan"],
         "semantic_plan_digest": semantic_plan_digest(manifest["search"]["plan"]),
         "semantic_model_binding": manifest["search"]["model_binding"],

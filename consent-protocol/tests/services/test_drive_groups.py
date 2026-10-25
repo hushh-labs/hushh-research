@@ -1336,3 +1336,30 @@ async def test_local_refresh_waiter_rechecks_revoked_authority():
         isinstance(result, DriveOAuthError) and str(result) == "reconnect_required"
         for result in results
     )
+
+
+async def test_candidate_classifier_matches_opt_in_index_without_enabling_whole_drive(monkeypatch):
+    from hushh_mcp.services.drive_groups.indexer import classify_candidates
+
+    class Heads:
+        async def head(self, row):
+            return "statement opening balance"
+
+    class Embedding:
+        async def embed(self, heads):
+            return [basis(0) for head in heads]
+
+    rows = [{"id": "report-alpha", "name": "statement", "mimeType": PDF}]
+    monkeypatch.setenv(FLAG, "false")
+    classified = await classify_candidates(
+        rows, heads=Heads(), embedder=Embedding(), bundle=tiny_bundle()
+    )
+    with pytest.raises(GroupIndexDisabled):
+        await index_files(
+            rows, heads=Heads(), embedder=Embedding(), bundle=tiny_bundle(), require_head=True
+        )
+    monkeypatch.setenv(FLAG, "true")
+    indexed = await index_files(
+        rows, heads=Heads(), embedder=Embedding(), bundle=tiny_bundle(), require_head=True
+    )
+    assert classified == indexed

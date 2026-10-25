@@ -389,7 +389,7 @@ def test_circle_constraint_preserves_valid_catalog_but_repairs_a_wrong_predicate
 
 
 @pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
-@pytest.mark.parametrize("rich_dev", [False, True], ids=["canonical-415", "accepted-dev-972"])
+@pytest.mark.parametrize("rich_dev", [False, True], ids=["canonical-416", "accepted-dev-972"])
 def test_private_agent_graduation_preserves_owners_and_refuses_drift(
     replay_pg, monkeypatch, rich_dev
 ):
@@ -417,7 +417,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
         migrate,
         "release_migration_files",
         lambda _environment: tuple(
-            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) <= 415
+            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) <= 416
         ),
     )
     for name, value in {
@@ -467,10 +467,10 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
                 with conn.cursor() as cur:
                     cur.execute((MIGRATIONS_DIR / "parked" / filename).read_text())
         for filename in (
-            "416_account_provider_cleanup_staging.sql",
-            "417_account_generations.sql",
-            "418_private_agent_lifecycle_foundation.sql",
-            "419_cloud_removal_recovery.sql",
+            "417_account_provider_cleanup_staging.sql",
+            "418_account_generations.sql",
+            "419_private_agent_lifecycle_foundation.sql",
+            "420_cloud_removal_recovery.sql",
         ):
             with conn.cursor() as cur:
                 cur.execute((MIGRATIONS_DIR / filename).read_text())
@@ -500,7 +500,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
         verify_contract("dev_minimum_schema")
         verify_retained_release_records(conn, cp)
         verify_contract("uat_integrated_schema")
-        foundation = (MIGRATIONS_DIR / "418_private_agent_lifecycle_foundation.sql").read_text()
+        foundation = (MIGRATIONS_DIR / "419_private_agent_lifecycle_foundation.sql").read_text()
         with conn.cursor() as cur:
             # Unrelated performance indexes remain valid; unreviewed effects do not.
             cur.execute("CREATE INDEX synthetic_performance ON personal_agent_registry(updated_at)")
@@ -564,10 +564,10 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
             )
         with conn.cursor() as cur:
             for stem in (
-                "416_account_provider_cleanup_staging",
-                "417_account_generations",
-                "418_private_agent_lifecycle_foundation",
-                "419_cloud_removal_recovery",
+                "417_account_provider_cleanup_staging",
+                "418_account_generations",
+                "419_private_agent_lifecycle_foundation",
+                "420_cloud_removal_recovery",
             ):
                 with pytest.raises(
                     psycopg2.errors.ObjectNotInPrerequisiteState, match="forward recovery"

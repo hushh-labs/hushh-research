@@ -362,3 +362,58 @@ charge again, or reinterpret the historical 79-file candidate set. New requests
 use v2 automatically for both existing and new UAT accounts. Rollback disables
 new semantic enrollment; already sealed policies retain their own validation.
 Production, voice, BYOK and content-analysis features are unchanged.
+
+
+## Fixed financial period packets
+
+Financial period preparation uses the product-authored `financial-records-v1`
+query template, not Azure planning. Custom requests and other existing category
+plans retain their own provider contracts. The exact literal OR template is in
+`drive_financial_packet_query.py`; its bounded descriptor, actual query digest,
+`query_source=predefined`, template version and `planner_executed=false` travel
+through encrypted search checkpoints and any new frozen sale manifest.
+
+For an eligible connected owner, preparation enrolls current-year two-month
+periods, current first. Missing background preference defaults on; explicit Off,
+revoked scopes and owner placement still fence all processing. Successful live
+Drive verification enrolls new connections; the bounded existing worker enrolls
+existing owners. The bounded enrollment scan advances an opaque-owner inspection
+timestamp for refused placements, without touching OAuth freshness or reading
+their files, so an ineligible prefix cannot pin eligible owners behind it.
+Reopening an open preview older than five minutes requests a
+refresh; completed open previews refresh daily. GET polling only reads saved
+state. Date placement remains title date, else creation date, else modification
+date; this is not proof of a statement's coverage period. There is no new index,
+Drive folder, shortcut, move, delete or per-file cloud relevance assessment.
+
+The search saves each page, deduplicates by Drive ID and immediately exposes all
+original links through owner paging. The owner prepare response returns after
+the first saved matched page; the same durable job continues the remaining pages.
+Its bounded scheduler wake runs concurrently within the request, never detached.
+Two owners can advance independently; a
+slice can promptly continue within its existing page/deadline budget. Ordinary
+requests retain priority. The same coordinator separately claims up to eight
+saved candidates for local organizing; discovery never awaits it. Prefix reads
+and the first 400 extracted characters use the existing Parth classifier and
+pinned E5 adapter without threshold changes. Exact-source compatible cached
+placements are reused, including owner corrections. Unsupported/unreadable
+prefixes remain Needs review, other groups remain Other matches, and originals
+are never discarded. A source version change cannot yield a current label.
+
+Migration 416 adds the candidate-work scheduling fields and an advisory query
+version for bounded legacy recovery. Unfrozen old-model preparations rotate only
+after their live lease ends, recording the migration and retaining the previous
+usable preview while the replacement starts. Completed sale versions and purchase
+history are not rewritten; their existing owner results can be organized without
+relabeling their historical query source. Expired unreferenced preview jobs are
+collected in bounded batches; the current source job and retained previous-preview
+job remain available beyond the temporary search TTL. Failed processing reports
+its state instead of implying an empty Drive response. Owner search status stays
+independent of sale readiness or availability.
+
+Tags live only in encrypted owner period-search metadata and bounded build
+progress. They grant no listing, consent, payment or sharing authority and never
+alter discovery proof or immutable purchase manifests. Code rollback retains the
+additive queue columns and saved results; disable period preparation and let
+owned leases drain before reverting the runtime. Synthetic loop timings prove
+the fixture execution, not real Google Drive latency or personal-account recall.

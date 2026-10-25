@@ -52,6 +52,12 @@ _ROW = "SELECT * FROM drive_owner_search_jobs WHERE job_id=:job AND user_id=:use
 
 def _semantic_binding_current(checkpoint):
     """The sealed provider is immutable; configuration changes never select a fallback."""
+    from hushh_mcp.services.drive_financial_packet_query import validate_predefined
+
+    try:
+        validate_predefined(checkpoint)
+    except (ValueError, TypeError, KeyError):
+        raise DriveReadError("search_superseded") from None
     binding = checkpoint.get("semantic_model_binding")
     if binding is None:
         return
@@ -293,13 +299,19 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             connection.execute(
                 text("""
                 WITH expired AS (SELECT job_id FROM drive_owner_search_jobs
-                  WHERE expires_at<=clock_timestamp() ORDER BY expires_at
+                  WHERE expires_at<=clock_timestamp() AND period_packet_id IS NULL ORDER BY expires_at
                   LIMIT 100 FOR UPDATE SKIP LOCKED)
                 DELETE FROM drive_owner_search_jobs j USING expired e WHERE j.job_id=e.job_id
             """)
             )
 
         await self._transaction(operation)
+        await self._purge_period_history()
+
+    async def _purge_period_history(self):
+        from hushh_mcp.services.drive_period_packet_retention import purge_period_history
+
+        await purge_period_history(self)
 
     async def create(
         self,
@@ -338,7 +350,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             admit_period_creation(self, connection, user_id, period_packet_id, checkpoint)
             connection.execute(
                 text(
-                    "DELETE FROM drive_owner_search_jobs WHERE user_id=:user AND expires_at<=clock_timestamp()"
+                    "DELETE FROM drive_owner_search_jobs WHERE user_id=:user AND expires_at<=clock_timestamp() AND period_packet_id IS NULL"
                 ),
                 {"user": user_id},
             )

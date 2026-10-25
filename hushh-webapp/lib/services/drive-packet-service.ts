@@ -39,12 +39,14 @@ export type DrivePacketPreview = {
   status: "not_started" | "queued" | "searching" | "partial" | "completed" | "failed";
   revision: number; matched: number | null; complete: boolean; stale: boolean; updatedAt: string | null; errorCode: string | null;
   documents?: DrivePacketDocument[]; nextCursor?: string | null; limited?: boolean;
+  tagging?: { status: "queued" | "running" | "completed" | "partial" | "failed";
+    counts: { financial: number; review: number; other: number; pending: number }; policyVersion: string };
 };
 export type DrivePacket = LegacyDrivePacket | DiscoveryDrivePacket;
 /** Calendar dates, "YYYY-MM-DD". */
 export type DrivePacketPeriod = { start: string; end: string };
 /** One of the owner's own files in a packet. Never shown to buyers. */
-export type DrivePacketDocument = { name: string; type: string | null; pages: number | null; period: DrivePacketPeriod | null; viewUrl?: string; shareable?: boolean };
+export type DrivePacketDocument = { name: string; type: string | null; pages: number | null; period: DrivePacketPeriod | null; viewUrl?: string; shareable?: boolean; packetTag?: { bucket: "financial" | "review" | "other"; reason: string } };
 /** The dates a packet covers and its first files (a packet lists at most 120). */
 export type DrivePacketContents = { period: DrivePacketPeriod | null; documents: DrivePacketDocument[] };
 export class DrivePacketError extends Error {
@@ -104,6 +106,23 @@ function period(value: unknown): DrivePacketPeriod | null {
   if (result.start > result.end) throw new DrivePacketError("invalid_response");
   return result;
 }
+/** Annotation failure never hides an otherwise valid original file. */
+function optionalPacketTag(value: unknown): DrivePacketDocument["packetTag"] {
+  try {
+    const item = record(value);
+    if (typeof item.bucket !== "string" || !["financial", "review", "other"].includes(item.bucket)) return undefined;
+    return { bucket: item.bucket as "financial" | "review" | "other", reason: label(item.reason, 500) };
+  } catch { return undefined; }
+}
+function optionalTagging(value: unknown): DrivePacketPreview["tagging"] {
+  try {
+    const item = record(value), counts = record(item.counts);
+    if (typeof item.status !== "string" || !["queued", "running", "completed", "partial", "failed"].includes(item.status)) return undefined;
+    return { status: item.status as NonNullable<DrivePacketPreview["tagging"]>["status"],
+      counts: { financial: count(counts.financial), review: count(counts.review), other: count(counts.other), pending: count(counts.pending) },
+      policyVersion: label(item.policyVersion, 128) };
+  } catch { return undefined; }
+}
 function contents(value: unknown): DrivePacketContents {
   const item = record(value);
   if (!Array.isArray(item.documents) || item.documents.length > 120) throw new DrivePacketError("invalid_response");
@@ -111,9 +130,11 @@ function contents(value: unknown): DrivePacketContents {
     period: period(item.period),
     documents: item.documents.map(entry => {
       const document = record(entry);
+      const packetTag = optionalPacketTag(document.packetTag);
       const pages = document.pages === null ? null : count(document.pages);
       if (pages === 0) throw new DrivePacketError("invalid_response");
       return { name: label(document.name, 255), type: document.type === null ? null : label(document.type, 255), pages, period: period(document.period),
+        ...(packetTag ? { packetTag } : {}),
         ...(document.shareable === undefined ? {} : { shareable: flag(document.shareable) }),
         ...(document.viewUrl === undefined ? {} : { viewUrl: viewUrl(document.viewUrl) }) };
     }),
@@ -122,7 +143,9 @@ function contents(value: unknown): DrivePacketContents {
 export function parsePacketPreview(value: unknown): DrivePacketPreview {
   const item = record(value);
   if (typeof item.status !== "string" || !["not_started", "queued", "searching", "partial", "completed", "failed"].includes(item.status)) throw new DrivePacketError("invalid_response");
+  const tagging = optionalTagging(item.tagging);
   const result: DrivePacketPreview = {
+    ...(tagging ? { tagging } : {}),
     status: item.status as DrivePacketPreview["status"], revision: count(item.revision), matched: item.matched === null ? null : count(item.matched),
     complete: flag(item.complete), stale: flag(item.stale), updatedAt: date(item.updatedAt),
     errorCode: item.errorCode === null ? null : label(item.errorCode, 80),

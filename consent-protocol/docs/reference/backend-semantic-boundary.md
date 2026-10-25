@@ -1152,3 +1152,25 @@ Provider-inexpressible content-period or account-relationship requests require
 clarification. Existing v1/package assessments and their byte-exact manifest
 policy hash remain unchanged. Permission, consent, date scope, payment and
 external-effect idempotency remain independently authoritative.
+
+
+### Declared: predefined financial packet retrieval and local organization
+
+Fixed financial packets explicitly retire model query planning in favor of the
+versioned product preset `financial-records-v1`. This is a changed owning contract,
+not a silent model failure fallback: `query_source` records `predefined`, version,
+and `planner_executed=false`; the exact template and compiled query are validated
+at search boundaries. The descriptor AST does not pretend to be model output.
+Custom user-authored search and the generic model grammar remain unchanged.
+
+Drive query membership and the existing metadata date precedence own retrieval.
+All unique originals are saved and visible before asynchronous organization.
+The unchanged local `drive_groups` classifier owns advisory grouping from its
+existing bounded-head/metadata/embedding evidence; host code only maps its closed
+financial/insurance groups, abstentions and other groups to presentation buckets.
+No semantic keyword classifier, cloud assessor, second router or new index is
+introduced. Compatible exact-source owner corrections retain precedence. Labels
+never become content verification, sharing permission or a purchase decision.
+
+See [the owning packet contract](./drive-continuous-packets.md)
+for enrollment, migration, recovery and privacy boundaries.

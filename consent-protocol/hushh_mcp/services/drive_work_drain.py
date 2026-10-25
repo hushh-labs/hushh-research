@@ -17,6 +17,7 @@ from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_group_index_job import DriveGroupIndexJob
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
+from hushh_mcp.services.drive_period_packet_contract import TAGGING_WORKER_OUTCOMES
 from hushh_mcp.services.drive_period_packet_service import DrivePeriodPacketService
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_request_bulk_removal_worker import DriveRequestBulkRemovalWorker
@@ -31,7 +32,7 @@ from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
 WORKER_JOB_LIMITS = {
-    "period_packets": 1,
+    "period_packets": 2,
     "groups": 1,
     "documents": 20,
     "suggestions": 1,
@@ -123,7 +124,8 @@ _WORKER_ALLOWED_OUTCOMES = {
             "paused",
             "not_claimed",
         }
-    ),
+    )
+    | frozenset(f"tagging_{status}" for status in TAGGING_WORKER_OUTCOMES),
     "groups": frozenset(
         {"queued", "indexed", "idle", "unavailable", "disabled", "deadline", "deferred"}
     ),

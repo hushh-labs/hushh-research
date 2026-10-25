@@ -6,6 +6,7 @@ from hushh_mcp.services.drive_request_discovery import discovery_delivery
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 SEMANTIC_COMMIT_KEYS = (
+    "query_source",
     "semantic_plan",
     "semantic_plan_digest",
     "semantic_assessment_policy",
@@ -23,6 +24,13 @@ SEMANTIC_COMMIT_KEYS = (
 
 
 def admit_creation(store, connection, user_id, period_packet_id, checkpoint):
+    connection.execute(
+        text("""UPDATE drive_owner_search_jobs SET status='stopped',revision=revision+1,
+        lease_id=NULL,lease_expires_at=NULL WHERE user_id=:user AND period_packet_id IS NOT NULL
+        AND status IN ('queued','running') AND expires_at<=clock_timestamp()
+        AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())"""),
+        {"user": user_id},
+    )
     if period_packet_id is not None:
         from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
 
@@ -60,6 +68,7 @@ def require_period_origin(store, connection, job, row):
         if str(row["period_packet_id"]) != period_origin["packet_id"] or any(
             frozen.get(key) != job["checkpoint"].get(key)
             for key in (
+                "query_source",
                 "period_packet_origin",
                 "semantic_plan",
                 "semantic_plan_digest",

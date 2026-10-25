@@ -352,10 +352,11 @@
     "413_pkm_recovery_erasure_index.sql",
     "414_pkm_recovery_erasure_index.sql",
     "415_validate_pkm_recovery_erasure_indexes.sql",
-    "416_account_provider_cleanup_staging.sql",
-    "417_account_generations.sql",
-    "418_private_agent_lifecycle_foundation.sql",
-    "419_cloud_removal_recovery.sql"
+    "416_financial_packet_tag_work.sql",
+    "417_account_provider_cleanup_staging.sql",
+    "418_account_generations.sql",
+    "419_private_agent_lifecycle_foundation.sql",
+    "420_cloud_removal_recovery.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -746,13 +747,14 @@
     "409_mcp_oauth_client_registration.sql": "rollback/409_mcp_oauth_client_registration.rollback.sql",
     "410_drive_group_index.sql": "rollback/410_drive_group_index.rollback.sql",
     "411_drive_period_packets.sql": "rollback/411_drive_period_packets.rollback.sql",
-    "416_account_provider_cleanup_staging.sql": "rollback/416_account_provider_cleanup_staging.rollback.sql",
-    "417_account_generations.sql": "rollback/417_account_generations.rollback.sql",
-    "418_private_agent_lifecycle_foundation.sql": "rollback/418_private_agent_lifecycle_foundation.rollback.sql",
-    "419_cloud_removal_recovery.sql": "rollback/419_cloud_removal_recovery.rollback.sql",
+    "417_account_provider_cleanup_staging.sql": "rollback/417_account_provider_cleanup_staging.rollback.sql",
+    "418_account_generations.sql": "rollback/418_account_generations.rollback.sql",
+    "419_private_agent_lifecycle_foundation.sql": "rollback/419_private_agent_lifecycle_foundation.rollback.sql",
+    "420_cloud_removal_recovery.sql": "rollback/420_cloud_removal_recovery.rollback.sql",
     "412_pkm_recovery_erasure_indexes.sql": "rollback/412_pkm_recovery_erasure_indexes.rollback.sql",
     "413_pkm_recovery_erasure_index.sql": "rollback/413_pkm_recovery_erasure_index.rollback.sql",
     "414_pkm_recovery_erasure_index.sql": "rollback/414_pkm_recovery_erasure_index.rollback.sql",
-    "415_validate_pkm_recovery_erasure_indexes.sql": "rollback/415_validate_pkm_recovery_erasure_indexes.rollback.sql"
+    "415_validate_pkm_recovery_erasure_indexes.sql": "rollback/415_validate_pkm_recovery_erasure_indexes.rollback.sql",
+    "416_financial_packet_tag_work.sql": "rollback/416_financial_packet_tag_work.rollback.sql"
   }
 }

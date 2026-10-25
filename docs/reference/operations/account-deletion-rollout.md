@@ -19,9 +19,9 @@ necessary, but it is not sufficient on its own: a full deletion that was
 already in flight before the DDL committed can finish without crossing either
 root trigger, and a legacy account can lack one of the two root rows.
 
-The current local follow-up adds draft migrations 416–419. Cleanup retains only
+The current local follow-up adds draft migrations 417–420. Cleanup retains only
 required existing encrypted custody; registration generations and cloud-removal
-recovery are not enabled by source tests. Migration 419 records exact destructive
+recovery are not enabled by source tests. Migration 420 records exact destructive
 admission before dispatch and permits only unapproved, inert-review cancellation.
 It retains cancelled history and blocks legacy restore/deprovision bypasses. Both
 application consumers and the qualified migration chain must be installed before
@@ -32,7 +32,7 @@ for source versus deployed evidence.
 
 Fresh main `217007c715` is integrated locally, retaining its immutable 412–415
 recovery-index migrations and bounded keyset erasure. Lifecycle authority now uses
-416–419. The HTTP regression follows real 202 preparation and a durable worker claim
+417–420. The HTTP regression follows real 202 preparation and a durable worker claim
 through finalization: 501 segments/300 revisions retain 700 ms statement limits,
 trace correlation, peer preservation and atomic rollback. A failed final erasure
 retains provider-cleanup authority; it does not delete Firebase identity or revoke
@@ -75,7 +75,7 @@ watches before revoking an associated grant. Provider failures remain repairable
 unsupported key revocation requires explicit local-erasure terms.
 
 Same-login registration remains unavailable until the environment-local account
-authority and its consumers are qualified. The local `417_account_generations`
+authority and its consumers are qualified. The local `418_account_generations`
 authority now preserves Firebase's UID and immutable retired-account tombstones,
 with an opaque owner for each replacement. Two complete erase/enroll cycles passed
 on disposable PostgreSQL, including concurrent enrollment, exact cleanup replay,
@@ -148,7 +148,7 @@ never change its shared session per call to work around that behavior.
 
 The retirement cutoff includes a 60-second issuer-clock lead margin, then requires
 independently fresh sign-in; refresh-token `iat` never supplies that proof.
-Migrations 416–419 are registered locally with matching contracts but remain unapplied. On 24 October, the latest
+Migrations 417–420 are registered locally with matching contracts but remain unapplied. On 24 October, the latest
 focused recovery checks passed 248 backend and 379 frontend cases, plus 41 native
 privacy cases. The real PostgreSQL rehearsal passed two erase/enroll cycles in
 127.87 seconds, including changed-proof replay, direct-INSERT refusal and a pending
