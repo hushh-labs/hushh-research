@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026, 22:58 UTC
+## Current decision — 25 October 2026, 23:23 UTC
 
 **Browser and Finance continuity repairs are on main; the application is accepted
 on Dev. A retained publication pin reused the older pod executable, so the Browser
@@ -49,6 +49,13 @@ nearest cases, TypeScript, lint and UI contracts pass. Private routing remains
 fail closed. Its deployed acceptance and the failed candidate's exact admission
 state remain unproven; do not silently change the fixture's placement. The exact
 candidate passed local core and hosted CI, then landed smoke and Dev deployment.
+
+Peer [PR #8463](https://github.com/hushh-labs/hushh-research/pull/8463)
+landed as `7266b4d2e9` while the local correction was being verified. Its reviewed
+bootstrap implementation is inherited; the duplicate local implementation is
+retired. The combined integration run found an obsolete duplicate vault mock in
+the Account recovery test; removing that duplicate preserves the real recovery
+assertions. All 38 owning bootstrap, analytics and recovery cases pass.
 
 The reviewer vault bootstrap could start before authentication settled and ignore
 a refused unlock callback, then falsely publish `vault_unlocked`. The vault itself
