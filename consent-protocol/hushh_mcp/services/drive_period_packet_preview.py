@@ -6,9 +6,10 @@ from uuid import UUID, uuid5
 from sqlalchemy import text
 
 from hushh_mcp.services.drive_document_facts_store import seal_evidence
+from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
 from hushh_mcp.services.drive_live_reader import _open_url
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
-from hushh_mcp.services.drive_period_packet_contract import PacketPeriod
+from hushh_mcp.services.drive_period_packet_contract import PacketPeriod, current_year_periods
 from hushh_mcp.services.drive_request_discovery import discovery_evidence_matches
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -36,8 +37,7 @@ def write_build(store, connection, row, build):
 
 
 def rotate_preview(store, connection, row, build):
-    # An unfrozen preview has no payment, grant or sharing effects to replay.
-    # Advance its provenance rather than reinterpreting the old completed job.
+    # Only owner discovery provenance advances. Frozen sale/version bindings stay put.
     row = {**row, "revision": row["revision"] + 1}
     connection.execute(
         text("""UPDATE drive_packet_heads SET revision=:revision
@@ -54,6 +54,75 @@ def rotate_preview(store, connection, row, build):
     return row, build
 
 
+def retain_frozen_preview(store, connection, row, build):
+    """Keep the immutable sale's bounded originals visible during a new owner scan."""
+    if build.get("preview"):
+        return
+    searches = DriveOwnerSearchStore(db=store.db)
+    search = store._row(
+        connection,
+        """SELECT * FROM drive_owner_search_jobs WHERE job_id=:job AND user_id=:user
+        AND period_packet_id=:packet AND connection_generation=:generation""",
+        {
+            "job": build.get("search_job_id"),
+            "user": row["user_id"],
+            "packet": row["packet_id"],
+            "generation": row["connection_generation"],
+        },
+    )
+    if search:
+        checkpoint = searches._checkpoint(search)
+        store.validate_origin(row, checkpoint)
+        files = connection.execute(
+            text("""SELECT position,metadata_envelope FROM drive_owner_search_results
+            WHERE job_id=:job AND user_id=:user ORDER BY position LIMIT 120"""),
+            {"job": search["job_id"], "user": row["user_id"]},
+        ).mappings()
+        build["preview"] = {
+            "job_id": str(search["job_id"]),
+            "matched": search["matched"],
+            "complete": search["status"] == "completed" and not search["incomplete_search"],
+            "updatedAt": search["updated_at"].isoformat(),
+            "errorCode": search["error_code"],
+            "documents": [
+                {
+                    "position": item["position"],
+                    **_source_document(
+                        searches,
+                        item,
+                        user_id=row["user_id"],
+                        search_id=search["job_id"],
+                        head=row,
+                        checkpoint=checkpoint,
+                    ),
+                }
+                for item in files
+            ],
+        }
+        return
+    version = store._row(
+        connection,
+        """SELECT version,manifest_envelope FROM drive_packet_versions
+        WHERE packet_id=:id AND user_id=:user AND version=:version""",
+        {"id": row["packet_id"], "user": row["user_id"], "version": row["current_version"]},
+    )
+    if not version:
+        raise DriveReadError("packet_integrity_invalid")
+    manifest = store._manifest({**row, **version})
+    sources = manifest.get("source_metadata", {})
+    build["preview"] = {
+        "job_id": manifest.get("search", {}).get("job_id") or str(row["packet_id"]),
+        "documents": [
+            {"position": index + 1, **document(source)}
+            for index, source in enumerate(sources.values())
+        ],
+        "matched": len(sources),
+        "complete": True,
+        "updatedAt": row["updated_at"].isoformat(),
+        "errorCode": None,
+    }
+
+
 async def request_preview(store, *, user_id, packet_id, refresh=False):
     def operation(connection):
         active = store._period_access(connection, owner=user_id)
@@ -65,12 +134,18 @@ async def request_preview(store, *, user_id, packet_id, refresh=False):
         )
         if not row or row["connection_generation"] != active["connection_generation"]:
             raise DriveReadError("packet_unavailable")
-        if row["current_version"]:
+        if row["current_version"] and row["category"] != "financial":
             return False
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+        if row["current_version"] and row["period_start"] not in {
+            period.start for period in current_year_periods(now, "UTC")
+        }:
+            return False
         if row["lease_expires_at"] and row["lease_expires_at"] > now:
             return False
         build = store._build(row)
+        if row["current_version"] and not refresh and build.get("query_source") == QUERY_SOURCE:
+            return False
         closed = PacketPeriod(
             start=row["period_start"], end=row["period_end"], timezone=row["period_timezone"]
         ).closed(now)
@@ -103,9 +178,27 @@ def document(source):
     }
 
 
+def legacy_frozen_preview(row, build):
+    return (
+        row.get("current_version", 0) > 0
+        and row["category"] == "financial"
+        and build.get("query_source") != QUERY_SOURCE
+    )
+
+
 def preview_summary(store, row):
     build = store._build(row)
     saved = build.get("preview", {})
+    if legacy_frozen_preview(row, build):
+        return {
+            "status": "queued" if row.get("dirty") else "not_started",
+            "matched": None,
+            "revision": row["revision"],
+            "complete": False,
+            "stale": True,
+            "updatedAt": saved.get("updatedAt"),
+            "errorCode": None,
+        }
     if not saved and row.get("current_version"):
         return {
             "status": "completed",
@@ -281,6 +374,8 @@ async def read_preview(store, *, user_id, packet_id, cursor=None):
         )
         if search and (
             not summary["stale"]
+            or legacy_frozen_preview(row, build)
+            and not build.get("refresh_pending")
             or not build.get("refresh_pending")
             and build.get("preview", {}).get("job_id") == str(search["job_id"])
         ):
@@ -332,7 +427,8 @@ def _saved_page(store, searches, row, build, summary, user_id, cursor):
             ],
             "matched": len(manifest.get("sources", [])),
         }
-        summary.update(status="completed", matched=saved["matched"], complete=True)
+        if not legacy_frozen_preview(row, build):
+            summary.update(status="completed", matched=saved["matched"], complete=True)
     identity = saved.get("job_id", str(row["packet_id"]))
     after = searches._after(user_id, identity, cursor)
     items = [file for file in saved.get("documents", []) if file["position"] > after]

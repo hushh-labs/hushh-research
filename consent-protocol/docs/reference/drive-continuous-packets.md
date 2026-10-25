@@ -411,6 +411,20 @@ job remain available beyond the temporary search TTL. Failed processing reports
 its state instead of implying an empty Drive response. Owner search status stays
 independent of sale readiness or availability.
 
+Frozen legacy financial periods in the current year also receive a separate
+`financial-records-v1` owner preview through the same bounded queue. Its encrypted
+preparation records the frozen version it accompanies and a fresh discovery
+revision; the old originals remain pageable while replacement work is pending.
+Completion saves owner results without freezing another sale version. Historical
+manifests, purchase membership, sale counts and prices, listings and explicit
+public-summary consent remain unchanged. Earlier years are not automatically
+requeried. A legacy result does not count as current preset coverage until the
+new preview's own provider search completes.
+Before that preparation starts, owner preview reads label retained legacy links
+as stale, with an unknown current match count and no completed preset scan;
+reading or paging those links does not initiate preparation. Public frozen sale
+counts continue to describe the immutable sale version.
+
 Tags live only in encrypted owner period-search metadata and bounded build
 progress. They grant no listing, consent, payment or sharing authority and never
 alter discovery proof or immutable purchase manifests. Code rollback retains the
