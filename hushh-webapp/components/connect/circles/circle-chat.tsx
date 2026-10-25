@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
@@ -25,6 +25,7 @@ import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadat
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import laneStyles from "./circle-chat-lane.module.css";
 import inlineStyles from "./circle-chat-inline.module.css";
+import { useCircleChatInlineViewport } from "./use-circle-chat-inline-viewport";
 import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { CircleMembershipEventPill, groupCircleMembershipEvents } from "./circle-chat-system-event";
@@ -56,19 +57,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
 }) {
   const [open, setOpen] = useState(initialOpen);
   const [started, setStarted] = useState(initialOpen);
-  const surface = useRef<HTMLElement>(null);
-  useLayoutEffect(() => {
-    const element = surface.current;
-    if (!element || chatLane || !open || !paneActive) return;
-    // CSS consumes the keyboard inset; only measure this card's starting edge.
-    const measure = () => element.style.setProperty("--circle-chat-top", `${Math.max(0, element.getBoundingClientRect().top)}px`);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    if (element.parentElement) observer.observe(element.parentElement);
-    window.addEventListener("resize", measure);
-    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
-  }, [chatLane, open, paneActive]);
+  const surface = useCircleChatInlineViewport(!chatLane && open && paneActive);
   useEffect(() => { if (initialOpen) { setOpen(true); setStarted(true); onOpenIntentConsumed?.(); } }, [initialOpen, onOpenIntentConsumed]);
   const [state, setState] = useState<CircleChatState | null>(null);
   const [error, setError] = useState<string | null>(null);
