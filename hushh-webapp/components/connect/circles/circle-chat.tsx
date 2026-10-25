@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
@@ -24,6 +24,7 @@ import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import laneStyles from "./circle-chat-lane.module.css";
+import inlineStyles from "./circle-chat-inline.module.css";
 import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { CircleMembershipEventPill, groupCircleMembershipEvents } from "./circle-chat-system-event";
@@ -55,6 +56,19 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
 }) {
   const [open, setOpen] = useState(initialOpen);
   const [started, setStarted] = useState(initialOpen);
+  const surface = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const element = surface.current;
+    if (!element || chatLane || !open || !paneActive) return;
+    // CSS consumes the keyboard inset; only measure this card's starting edge.
+    const measure = () => element.style.setProperty("--circle-chat-top", `${Math.max(0, element.getBoundingClientRect().top)}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    if (element.parentElement) observer.observe(element.parentElement);
+    window.addEventListener("resize", measure);
+    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, [chatLane, open, paneActive]);
   useEffect(() => { if (initialOpen) { setOpen(true); setStarted(true); onOpenIntentConsumed?.(); } }, [initialOpen, onOpenIntentConsumed]);
   const [state, setState] = useState<CircleChatState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -162,9 +176,9 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       document.removeEventListener("visibilitychange", refresh); };
   }, [session, revision]);
 
-  return <><section data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} data-messages-type-scale={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
+  return <><section ref={surface} data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} data-messages-type-scale={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
     ? "flex h-full min-h-0 flex-col overflow-visible bg-transparent"
-    : "overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card"}>
+    : `${inlineStyles.surface} overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card`}>
     {!chatLane ? <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
       {collapsible ? <Button variant="ghost" className="min-h-11" onClick={() => { setOpen(!open); setStarted(true); }} disabled={revoked || !state} aria-expanded={open}>
         <MessageCircle aria-hidden="true" className="size-4" /> Circle chat
@@ -183,7 +197,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
     {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" className={chatLane ? quietStyles.action : undefined} onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
-    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : undefined}><CircleChatThread key={threadScope.current.revision} circleName={circleName} session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
+    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : inlineStyles.thread}><CircleChatThread key={threadScope.current.revision} circleName={circleName} session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
   </section>
@@ -600,11 +614,11 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       }
     } finally { if (sendAttempt.current === attempt) sendAttempt.current = null; sendLock.current = false; if (active.current) setSending(false); }
   };
-  return <div className={`${file ? "[--chat-preview-height:5rem]" : "[--chat-preview-height:0px]"} ${chatLane ? "flex h-full min-h-0 flex-col" : ""}`}>
+  return <div className={`${file ? "[--chat-preview-height:5rem]" : "[--chat-preview-height:0px]"} ${chatLane ? "flex h-full min-h-0 flex-col" : inlineStyles.body}`}>
     <div ref={transcript} tabIndex={0} aria-label="Circle messages" style={chatLane ? { height: "auto", minHeight: 0, flex: "1 1 0", paddingBottom: "10rem" } : undefined}
       className={chatLane
         ? "overflow-y-auto overscroll-contain bg-transparent px-3 py-4 sm:px-6 sm:py-5"
-        : "h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5"}>
+        : `${inlineStyles.transcript} h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5`}>
       {hasOlder ? <Button variant="ghost" size="sm" className={`min-h-11 ${chatLane ? quietStyles.action : ""}`} disabled={loadingOlder || refreshing || jumping} onClick={async () => {
         if (!messages.length || loadingOlder || running.current) return;
         running.current = true;

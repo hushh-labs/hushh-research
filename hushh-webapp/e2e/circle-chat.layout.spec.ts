@@ -79,7 +79,9 @@ async function openMessageOptions(page: Page, message: Locator) {
   }
 }
 
-test("phone Circle actions open on hold and the keyboard adds no gap before members", async ({ page }) => {
+test("phone Circle actions open on hold and the composer follows the keyboard without a blank gap", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page, false, true);
   await expect(page.getByText("Only circle members can read these messages.", { exact: true })).toHaveCount(0);
@@ -95,12 +97,39 @@ test("phone Circle actions open on hold and the keyboard adds no gap before memb
   await expect(page.getByRole("dialog", { name: "Emoji picker" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Emoji picker" })).not.toBeVisible();
-  for (const inset of [0, 300]) {
-    await page.evaluate((inset) => { document.documentElement.style.setProperty("--kb-height", `${inset}px`); document.documentElement.classList.toggle("kb-open", inset > 0); }, inset);
-    const gap = await page.getByRole("button", { name: "View circle members" }).evaluate((node) => node.getBoundingClientRect().top - document.querySelector("[data-one-chat-surface]")!.getBoundingClientRect().bottom);
-    expect(gap).toBeGreaterThanOrEqual(0);
-    expect(gap).toBeLessThanOrEqual(16);
+  const members = page.getByRole("button", { name: "View circle members" });
+  const editor = page.getByRole("textbox", { name: "Message", exact: true });
+  await expect(members).toBeVisible();
+  await editor.fill("A draft that survives the keyboard opening");
+  for (const mode of ["native", "mobile-web", "resized"] as const) {
+    await page.setViewportSize({ width: 393, height: mode === "resized" ? 544 : 844 });
+    await page.evaluate(mode => {
+      const root = document.documentElement;
+      root.classList.add("kb-open");
+      root.classList.toggle("native-keyboard-inset", mode !== "mobile-web");
+      root.classList.toggle("kb-resizes", mode === "resized");
+      root.style.setProperty("--kb-height", mode === "resized" ? "0px" : "300px");
+      if (mode === "mobile-web") root.style.setProperty("--kb-visible-height", "544px");
+      else root.style.removeProperty("--kb-visible-height");
+    }, mode);
+    await expect(members).toBeHidden();
+    await expect(page.getByRole("tab", { name: "Members", exact: true })).toBeVisible();
+    await expect.poll(() => page.locator("[data-circle-chat-composer]").evaluate(node => 544 - node.getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(8);
+    await expect.poll(() => page.locator("[data-circle-chat-composer]").evaluate(node => 544 - node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(10);
+    await expect(editor).toHaveValue("A draft that survives the keyboard opening");
+    expect((await page.getByLabel("Circle messages", { exact: true }).boundingBox())!.height).toBeGreaterThan(40);
+    if (mode === "native") await page.screenshot({ path: test.info().outputPath("circle-keyboard-gap-fixed.png"), animations: "disabled", clip: { x: 0, y: 0, width: 393, height: 544 } });
   }
+  await page.evaluate(() => {
+    document.documentElement.classList.remove("kb-open", "native-keyboard-inset", "kb-resizes");
+    document.documentElement.style.removeProperty("--kb-height");
+  });
+  await page.setViewportSize({ width: 393, height: 844 });
+  await expect(members).toBeVisible();
+  const gap = await members.evaluate(node => node.getBoundingClientRect().top - document.querySelector("[data-one-chat-surface]")!.getBoundingClientRect().bottom);
+  expect(gap).toBeGreaterThanOrEqual(0);
+  expect(gap).toBeLessThanOrEqual(16);
+  expect(errors).toEqual([]);
 });
 
 for (const width of [320, 393, 768, 1440]) test(`short circle messages keep timestamps inline at ${width}px`, async ({ page }) => {

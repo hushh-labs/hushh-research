@@ -1,0 +1,37 @@
+/* Fit inline chat to the space above the keyboard, keeping the composer at
+   its lower edge. The keyboard bridge publishes only the unabsorbed inset. */
+@media (max-width: 767px), (max-width: 1023px) and (max-height: 499px) {
+  :global(html.kb-open) .surface:has(.thread:not([hidden])) {
+    display: flex;
+    flex-direction: column;
+    height: max(160px, calc(var(--kb-visible-height, calc(100dvh - var(--kb-height, 0px))) + var(--kb-visible-top, 0px) - var(--circle-chat-top, 0px) - 8px));
+    overflow-y: auto;
+  }
+
+  :global(html.kb-open) .surface > :not(.thread) {
+    flex-shrink: 0;
+  }
+
+  :global(html.kb-open) .thread:not([hidden]),
+  :global(html.kb-open) .body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  :global(html.kb-open) .body > :not(.transcript) {
+    flex-shrink: 0;
+  }
+
+  :global(html.kb-open) .surface .transcript {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  /* The Members tab remains available while typing. */
+  :global(html.kb-open [data-circle-chat-members-summary]) {
+    display: none;
+  }
+}

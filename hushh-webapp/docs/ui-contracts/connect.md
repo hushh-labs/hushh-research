@@ -452,6 +452,7 @@ Source: [chat](../../components/connect/circles/circle-chat.tsx),
 | **Reconnect** | Retries failed chat connection. Revoked access removes the controls rather than continuing conversation reads. |
 | **Load earlier messages / Go to latest messages** | Pages history or scrolls to the latest; reply quote can jump to an available original. |
 | Message field and **Send message** | Sends text or a validated attachment to this circle. Text maximum 4,000 characters; empty drafts cannot send. |
+| Phone keyboard opens | Inline chat fills the available space, with the composer 8px above the keyboard. History scrolls within the card. The member summary hides while typing; the Members tab stays available. Closing the keyboard restores the summary and normal card height without clearing the draft. Native overlay, resized viewport and mobile-web visual viewport consume the keyboard inset once. |
 | **Attach photo, video, or document** | Opens file picker: JPEG/PNG/WebP, MP4/WebM, PDF/DOCX/TXT; nonempty file at most 5 MB. |
 | **Remove attached image/file / Cancel reply** | Local draft changes; do not delete a sent message. Locked while sending or delivery is unresolved. |
 | **Retry message** | Retries the same sealed pending delivery; it does not allocate a fresh message or offer a separate pending-send discard action. |
@@ -756,7 +757,7 @@ not a live measurement of that account.
 | Contact results/invites | Fullwidth/max2xl,radius24,cap `min(88dvh,viewport−keyboard−safeTop−16)` | Header/search/footer fixed; list inner scroll; result rows64/action max244; invite rows56 and controls48; footer includes safe bottom. |
 | Chat bubbles | Incoming left/avatar32,own right; max76%/36rem;≤959 min(84%,100%−actionSpace,36rem);≤767/no-hover removes action space | Desktop reactions44 at right+4/options44 right+48; own mirrors left. Hover/focus/menu show controls. ≤767/no-hover use1s nonmouse hold, cancel move>8px; contextmenu also opens. |
 | Chat options | Portal top; own alignend/peerstart; collision12,min13rem; emoji grid264 | z10100. Edit/delete shared Dialog content801/scrim800. |
-| Chat transcript/composer | Transcript min(36rem,max(10rem,50dvh−keyboard−preview)); sm48dvh. Composer p12,sm px20/py16,border-top | Latest local absolute above composer,z10. Shared image viewer max3xl/image70dvh. |
+| Chat transcript/composer | Transcript min(36rem,max(10rem,50dvh−keyboard−preview)); sm48dvh. With a phone keyboard open, the card fills the visible viewport below its measured top, leaving 8px below the composer; transcript flexes. Composer p12,sm px20/py16,border-top | Latest local absolute above composer,z10. Shared image viewer max3xl/image70dvh. Member summary hides during typing; Members tab remains. |
 | Global overlays | Sheet scrim711/content712; Dialog800/801; menu10100 | Replace-code explicit nested scrim713/content714. Local header/close layers sit within own stacking context, not arbitrary global3D coordinates. |
 
 Source dimensions come from the linked components, [workspace](../../app/connect/page-client.tsx),
@@ -841,6 +842,12 @@ bottom pin when layout grows; a reader who has scrolled up keeps that position.
 Inline photos decode before display and reserve their bounded dimensions before
 paint, including in WebKit. Failed decoding remains retryable; retiring the
 conversation releases pending preview URLs immediately.
+
+Individual chats also accept MP4/WebM videos up to 5 MB. Open video loads the
+attachment on demand into native inline playback controls; Reload video replaces
+and releases the prior URL. Leaving the conversation or switching to Circles
+retires the player and pending loads. Attachment-only replies show **Attachment**
+in both the composer and sent quote; deleted quotes show the deletion notice.
 
 Finishing a validated voice recording sends it through the existing send owner
 without a second attachment-approval step. Cancel/background/retired capture
