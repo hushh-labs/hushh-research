@@ -6,7 +6,7 @@ import type { CommerceActivityItem, ScopeCommerceRequest, ScopeQuote } from "@/l
 const mocks = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "owner-token") } as { uid: string; getIdToken: () => Promise<string> } | null,
   readiness: vi.fn(), sandboxVerified: vi.fn(), tariff: vi.fn(), saveTariff: vi.fn(), account: vi.fn(), activity: vi.fn(), onboarding: vi.fn(), management: vi.fn(), hosted: vi.fn(), periodic: vi.fn(),
-  scopeRequest: vi.fn(), quote: vi.fn(), purchase: vi.fn(), exporter: vi.fn(),
+  scopeRequest: vi.fn(), quote: vi.fn(), purchase: vi.fn(), exporter: vi.fn(), checkout: vi.fn(),
   pathname: "/one/profile/payouts", search: "", vaultKey: "memory-key", openWindow: vi.fn(),
   answerGates: vi.fn(), answerAccount: vi.fn(), answerLink: vi.fn(), answerOnboarding: vi.fn(),
 }));
@@ -15,13 +15,17 @@ vi.mock("@/lib/services/answer-request-service", () => ({ AnswerRequestService: 
 } }));
 vi.mock("@/components/consent/document-hashcoins", () => ({ DocumentHashcoinPayouts: () => null }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
-vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search) }));
+vi.mock("next/navigation", () => ({ usePathname: () => mocks.pathname, useSearchParams: () => new URLSearchParams(mocks.search), useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("@/components/profile/use-native-payouts", () => ({ useNativePayouts: () => ({
+  pages: [{ id: "payouts", title: "Payments and earnings", sections: [] }], rows: new Map(), busy: false,
+  back: () => false, ancestor: () => false, reset: () => undefined, onPresented: () => undefined,
+}) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey, getVaultOwnerToken: () => "vault-owner-token" }) }));
 vi.mock("@/lib/consent/scope-commerce-export", () => ({ prepareAndStagePaidScopeExport: mocks.exporter }));
 vi.mock("@/lib/services/scope-commerce-service", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/scope-commerce-service")>(),
   ScopeCommerceService: { readiness: mocks.readiness, sandboxVerified: mocks.sandboxVerified, tariff: mocks.tariff, saveTariff: mocks.saveTariff, account: mocks.account, activity: mocks.activity, onboarding: mocks.onboarding, managePayoutAccount: mocks.management,
-    scopeRequest: mocks.scopeRequest, quote: mocks.quote, purchase: mocks.purchase },
+    scopeRequest: mocks.scopeRequest, quote: mocks.quote, purchase: mocks.purchase, checkout: mocks.checkout },
 }));
 vi.mock("@/lib/services/scope-commerce-browser", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/services/scope-commerce-browser")>(), openCommerceHostedUrl: mocks.hosted, openCommerceHostedWindow: mocks.openWindow,
@@ -39,6 +43,8 @@ import { ScopeCommerceOwnerReview } from "@/components/consent/scope-commerce-ow
 import { ScopeCommerceBuyerReview } from "@/components/consent/scope-commerce-buyer-review";
 import { ScopeCommerceActivity } from "@/components/consent/scope-commerce-activity";
 import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
+import { useNativePayments } from "@/components/profile/use-native-payments";
+import { validNativeDrawerProjection } from "@/lib/capacitor/native-drawers";
 import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -98,6 +104,37 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("commerce session and review authority", () => {
+  it("stages native funding edits without retiring an unchanged uncertain checkout and survives revalidation", async () => {
+    mocks.checkout.mockRejectedValue(new Error("Outcome unconfirmed"));
+    mocks.openWindow.mockReturnValue({ close: vi.fn() });
+    const { result, rerender } = renderHook(() => useNativePayments(true, true, "payments-owner"));
+    await waitFor(() => expect(result.current.commerce.account).not.toBeNull());
+    await act(async () => { await result.current.commerce.checkout(); });
+    const firstKey = mocks.checkout.mock.calls[0][2];
+    const command = (label: string) => {
+      const row = result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === label)!;
+      return result.current.rows.get(row.id)!;
+    };
+    const retiredOpen = command("Add funds");
+    await act(async () => { await retiredOpen(); });
+    await act(async () => { await command("Add to balance (USD)")(); });
+    let editor = result.current.editor("funding-visit", vi.fn())!;
+    act(() => { editor.props.model.changeDraft({ value: "" }); });
+    expect(result.current.commerce.amount).toBe("10.00");
+    expect(validNativeDrawerProjection({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1, family: "profile",
+      updateSequence: 1, privacyGeneration: 0, appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", title: "Profile", sections: [],
+      open: true, enabled: true, backEnabled: true, profileStack: result.current.pages, profileDestinationId: "funding-visit" })).toBe(true);
+    editor = result.current.editor("funding-visit", vi.fn())!;
+    expect(editor.props.model.canSave).toBe(false);
+    act(() => editor.props.onClose());
+    await act(async () => { await result.current.commerce.checkout(); });
+    expect(mocks.checkout.mock.calls[1][2]).toBe(firstKey);
+    act(() => { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner"); rerender(); });
+    await act(async () => retiredOpen());
+    expect(result.current.pages).toHaveLength(1);
+    await act(async () => { await command("Add funds")(); });
+    expect(result.current.pages.at(-1)?.id).toBe("commerce-funding");
+  });
   it("labels simulated funds only after owner-bound Sandbox verification", async () => {
     render(<ScopeCommerceAccountPanel />);
     await screen.findByText(/1 Hussh coin/);

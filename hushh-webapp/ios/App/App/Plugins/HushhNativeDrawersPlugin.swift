@@ -48,6 +48,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "HushhNativeDrawers"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyProfilePaymentsScene", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmProfilePaymentsAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleProfilePaymentsAction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireProfilePaymentsScene", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "apply", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPresentationState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
@@ -116,6 +120,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var runtimeScene: NativeProfileRuntimeScene? { form as? NativeProfileRuntimeScene }
     private var connectorScene: NativeProfileConnectorScene? { form as? NativeProfileConnectorScene }
     private var memoryScene: NativeProfileMemoryScene? { form as? NativeProfileMemoryScene }
+    private var paymentsScene: NativeProfilePaymentsScene? { form as? NativeProfilePaymentsScene }
     private var pricingScene: NativeProfilePricingScene? {
         get { form as? NativeProfilePricingScene }
         set { form = newValue }
@@ -224,6 +229,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 // Qualification-only candidate. Ordinary builds keep the
                 // established renderer through the single shell policy.
                 "profileConnectorPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileHostingPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profilePaymentsPages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profilePaymentsScene": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
+                "profileSoftwareUpdatePages": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "profileFinancePreferences": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "routeWorkspaces": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? ["referrals"] : [],
                 "agentProfileMenu": self?.supported == true,
@@ -726,11 +735,13 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         let connectorDestinations = ["connector-custom-server": "connector-custom", "connector-profile-link": "connector-detail", "connector-packet-price": "connector-packet"]
         let nativeMemory = scene == "memory-financial-context" && profile.open && profile.profileStack?.last?.id == "memory-domain" &&
             destinationId != nil && destinationId == profile.profileDestinationId
+        let nativePayments = ["payment-funding": "commerce-funding", "payment-country": "commerce-payouts"][scene] == profile.profileStack?.last?.id &&
+            ["payment-funding", "payment-country"].contains(scene) && profile.open && destinationId != nil && destinationId == profile.profileDestinationId
         let nativeConnector = connectorDestinations[scene] == profile.profileStack?.last?.id && connectorDestinations[scene] != nil && profile.open &&
             destinationId != nil && destinationId == profile.profileDestinationId
         return profile.documentId == identity.documentId && profile.ownerEpoch == identity.ownerEpoch &&
             profile.ownerGeneration == identity.ownerGeneration && profile.surfaceOpen == true &&
-            (!profile.open && destinationId == nil && scene == "account-name" || nativeAccount || nativeReferral || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime || nativeConnector || nativeMemory) && profile.enabled
+            (!profile.open && destinationId == nil && scene == "account-name" || nativeAccount || nativeReferral || nativePreferences || nativeSupport || nativeVault || nativePricing || nativeWorldModel || nativeRuntime || nativeConnector || nativeMemory || nativePayments) && profile.enabled
     }
     @objc func applyProfileRuntimeScene(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -984,6 +995,93 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
             }
             guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_CONNECTOR_STALE_RETIREMENT"); return }
+            // Main-actor admission creates the form before presentation starts.
+            // With neither an active nor retiring instance there is nothing to
+            // withdraw; an unadmitted revision cannot poison other form leases.
+            var receipt = self.retiredReceipt(identity, lease: NativeDrawerLease()); receipt["scene"] = sceneName; receipt["destinationId"] = destination
+            call.resolve(receipt)
+        }
+    }
+    @objc func applyProfilePaymentsScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let parent = self.bridge?.viewController,
+                  let options = call.options as? [String: Any], Set(options.keys).isSubset(of: NativePaymentsProjection.keys),
+                  let sceneName = call.getString("scene"), ["payment-funding", "payment-country"].contains(sceneName),
+                  let draft = options["draft"] as? [String: Any], Set(draft.keys) == Set(["value"]),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options), bytes.count <= 8192,
+                  let next = try? JSONDecoder().decode(NativePaymentsProjection.self, from: bytes), next.valid,
+                  self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId),
+                  self.retiringForms.isEmpty else { call.reject("NATIVE_PROFILE_PAYMENTS_UNAVAILABLE"); return }
+            if let scene = self.paymentsScene {
+                guard scene.identity == next.identity, scene.update(next) else { call.reject("NATIVE_PROFILE_PAYMENTS_STALE_STATE"); return }
+                call.resolve(next.receipt("active")); return
+            }
+            guard self.form == nil, self.profileParentPresentationIsReady else { call.reject("NATIVE_PROFILE_PRESENTATION_PENDING"); return }
+            let owner = self.profileFormOwnerKey(next.identity)
+            if self.formOwner != owner { self.formOwner = owner; self.formRevision = 0 }
+            guard next.revision > self.formRevision, next.acknowledgedEditRevision == 0 else { call.reject("NATIVE_PROFILE_PAYMENTS_RETIRED"); return }
+            let scene = NativeProfilePaymentsScene(next); self.form = scene; self.formRevision = next.revision
+            scene.coverage = { [weak self] in self?.reconcileIsolation() }
+            scene.model.finalEdit = { [weak self, weak scene] draft, revision in
+                guard let self, let scene, self.sessionFence.contains(scene.identity),
+                      self.paymentsScene === scene || self.retiringForms[ObjectIdentifier(scene)] === scene else { return }
+                let state = scene.model.projection
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = false; event["editRevision"] = revision
+                event["baseDraftRevision"] = state.draftRevision; event["acknowledgedEditRevision"] = state.acknowledgedEditRevision
+                self.notifyListeners("profilePaymentsFinalEdit", data: event, retainUntilConsumed: false)
+            }
+            scene.model.edit = { [weak self, weak scene] draft, composing, revision in
+                guard let self, let scene, self.paymentsScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["draft"] = draft.event; event["composing"] = composing; event["editRevision"] = revision
+                self.notifyListeners("profilePaymentsEdit", data: event, retainUntilConsumed: false); return true
+            }
+            scene.model.choose = { [weak self, weak scene] action in
+                guard let self, let scene, self.paymentsScene === scene else { return false }
+                let state = scene.model.projection
+                guard self.profileFormOwnerIsCurrent(state.identity, privacy: state.privacyGeneration, scene: state.scene, destinationId: state.destinationId) else { return false }
+                var event = state.receipt("active"); event.removeValue(forKey: "phase")
+                event["sequence"] = action.sequence; event["action"] = action.action; event["editRevision"] = action.editRevision
+                self.notifyListeners("profilePaymentsAction", data: event, retainUntilConsumed: false); return true
+            }
+            guard scene.present(from: parent, completion: { [weak self, weak scene] presented in
+                guard let self, let scene else { call.reject("NATIVE_PROFILE_PAYMENTS_RETIRED"); return }
+                guard presented, self.paymentsScene === scene,
+                      self.profileFormPresentationIsCurrent(next.identity, privacy: next.privacyGeneration, scene: next.scene, destinationId: next.destinationId) else {
+                    if self.paymentsScene === scene { self.retireProfileForm() }; call.reject("NATIVE_PROFILE_PAYMENTS_RETIRED"); return
+                }
+                call.resolve(next.receipt("active"))
+            }) else { self.retireProfileForm(); call.reject("NATIVE_PROFILE_PAYMENTS_PRESENTATION_REFUSED"); return }
+        }
+    }
+    @objc func confirmProfilePaymentsAction(_ call: CAPPluginCall) { paymentsAction(call, settlement: false) }
+    @objc func settleProfilePaymentsAction(_ call: CAPPluginCall) { paymentsAction(call, settlement: true) }
+    private func paymentsAction(_ call: CAPPluginCall, settlement: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let privacy = call.getInt("privacyGeneration"),
+                  let sceneName = call.getString("scene"), ["payment-funding", "payment-country"].contains(sceneName),
+                  self.profileFormOwnerIsCurrent(identity, privacy: privacy, scene: sceneName, destinationId: call.getString("destinationId")),
+                  let scene = self.paymentsScene, scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == call.getString("destinationId"),
+                  let action = self.nameAction(call, scene: sceneName) else { call.resolve(["valid": false]); return }
+            call.resolve(["valid": settlement ? scene.settle(action) : scene.model.confirm(action)])
+        }
+    }
+    @objc func retireProfilePaymentsScene(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, Set(call.options.keys).isSubset(of: ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "scene", "destinationId"]),
+                  let identity = self.identity(call), identity.family == "profile", let sceneName = call.getString("scene"), ["payment-funding", "payment-country"].contains(sceneName),
+                  let destination = call.getString("destinationId"), NativeDrawerIdentity.identifier(destination) else { call.reject("NATIVE_PROFILE_PAYMENTS_STALE_RETIREMENT"); return }
+            if let scene = self.retiringForms.values.first(where: { $0.identity == identity && $0.sceneName == sceneName && $0.receipt("retired")["destinationId"] as? String == destination }) {
+                scene.retire { call.resolve(scene.receipt("retired")) }; return
+            }
+            if let scene = self.paymentsScene {
+                guard scene.identity == identity, scene.sceneName == sceneName, scene.model.projection.destinationId == destination else { call.reject("NATIVE_PROFILE_PAYMENTS_STALE_RETIREMENT"); return }
+                self.retireProfileForm { call.resolve(scene.receipt("retired")) }; return
+            }
+            guard self.sessionFence.contains(identity) else { call.reject("NATIVE_PROFILE_PAYMENTS_STALE_RETIREMENT"); return }
             // Main-actor admission creates the form before presentation starts.
             // With neither an active nor retiring instance there is nothing to
             // withdraw; an unadmitted revision cannot poison other form leases.

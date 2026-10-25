@@ -16,10 +16,10 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
-### Root-worktree coverage and Calendar mapping — 2026-10-25
+### Root-worktree Profile completion candidate — 2026-10-25
 
 The root worktree supersedes the retired ADK checkout as the active source.
-The inspection baseline is `2737492a6a`; preserve subsequent peer changes.
+The integrated baseline is `c927b76281`; preserve subsequent peer changes.
 Profile and Chat are **partially native**, not completely qualified. The
 authored roster now contains 15 ordinary destinations, plus guarded Developer
 tools and Sign out. Older 13-destination runs cannot cover the expanded roster.
@@ -28,11 +28,20 @@ tools and Sign out. Older 13-destination runs cannot cover the expanded roster.
 | --- | --- | --- |
 | Chat shell, One/Puppy, dock and History | Existing retained native adapters; React owns separate drafts, routes and operations. Transcript and rich cards remain React. | Qualification-only custom shell; ordinary builds retain the established renderer. |
 | Account, Pricing, Memory, World Model, Preferences, Security, Devices, Invite friends, Help and Legal | Existing typed Profile pages/editors and shared feature callbacks; rich/unaccepted details use the complete React handoff. | Source mapping exists; exact-current-candidate transitions, accessibility, mutations and Release performance are not established by this scan. |
-| Hosting and Software updates | Complete React `AgentSettingsPanel` inside the owned content pane. | Deliberate retained renderer; do not add page IDs without mapping deployment/recovery and provider states. |
-| Payouts | Complete React Payments and earnings owner. | Keep the legacy native Hashcoin projection disabled: it omits newer funding, refunds and Answer-return operations. |
-| Connectors, including Chat/Drive setup | Complete React feature owners; Profile's native connector projection requires a retained presentation port that its current caller does not supply. | Do not enable the stale projection or duplicate private/shared connector readers. |
+| Hosting and Software updates | Native Profile pages consume the same retained controller as `AgentSettingsPanel`: status/inspection, recovery, updates/notes/verification and Browser review. | New additive capabilities; Azure sign-in/rebuild and cloud removal preserve their existing website-only restriction. Native operation feedback uses the shared result, not dispatch success. |
+| Payments and earnings | Complete native composition of information-access funding/refunds/history, source-bound Answer setup, and existing document payouts. Typed amount/country sheets keep edits private and staged until Done. | Requires `profilePaymentsPages` plus the complete editor handshake. Legacy `profilePayoutPages` alone cannot replace the newer composition. Financial owners, modes, preview tokens and retry keys remain separate. |
+| Profile Connectors | One retained sibling publishes both shared and private hosting models. Native pages reuse catalog, Google/Stripe, custom editor, Drive review and confirmation owners; fallback receives that same owner's web body. | No Profile remount at hosting resolution and no competing reader/editor. Unmapped phone handoff retains the complete authored web presentation. Chat's established owner is unchanged. |
 | Calendar workspace and setup | React content; existing `HushhAuth.connectCalendar` shared-runtime native authorization and ApiService transport. Private hosting retains the owner-pod connector flow. | Both routes now enter the native functional inventory. This is audit admission, not new SwiftUI/glass adoption or OAuth/device acceptance. |
 | Mail, Connect, Consent and Wallet swipe tabs | Existing React pager/query owners. | Keep their continuous motion and retained drafts; do not replace them with a second native selection authority. |
+
+This is a qualification candidate under the existing single custom-shell switch.
+Ordinary Release admission remains off. Source review found and repaired refused
+Back acknowledgments, auth-generation revalidation, stale Stripe callbacks,
+request-bound Google approval and funding retry/empty-field edge cases. The
+existing private-editor fence owns IME, final edits and actual sheet retirement;
+no provider token or financial operation handle enters a native form payload.
+Exact-candidate physical, visual, accessibility and Release performance results
+must be recorded separately; earlier device evidence does not qualify this batch.
 
 The native route inventory previously excluded Calendar and its setup page
 despite their existing native authorization path. The surface-map author also

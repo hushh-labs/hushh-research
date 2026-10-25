@@ -204,11 +204,14 @@ export function returnToOpener(): void {
 export function useAzureSetupStartedSignal(
   onStarted: (started: AzureSignInStarted) => void,
   only?: AzureSignInKind,
+  accepts: () => boolean = () => true,
 ): void {
   const latest = useRef(onStarted);
+  const admission = useRef(accepts);
   useEffect(() => {
     latest.current = onStarted;
-  }, [onStarted]);
+    admission.current = accepts;
+  }, [onStarted, accepts]);
   useEffect(() => {
     const channel = signInChannel();
     if (!channel) return;
@@ -221,6 +224,7 @@ export function useAzureSetupStartedSignal(
                 ? { operationId: event.data.operationId, releaseId: event.data.releaseId } : {}) }
           : { kind: "setup", jobId: null };
       if (only && started.kind !== only) return;
+      if (!admission.current()) return;
       // Acknowledge every repeat (the popup closes on the first it hears) but act once.
       channel.postMessage({ type: "azure-setup-ack" } satisfies AzureSignInMessage);
       latest.current(started);

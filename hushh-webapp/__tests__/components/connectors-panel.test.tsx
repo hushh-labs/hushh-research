@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HistoryConnectorsPage } from "@/components/agent/history-connectors-page";
 
@@ -21,6 +21,20 @@ describe('private Google transition owner review', () => {
     return <><button onClick={() => void confirmTransition(terms).then(result)}>Review Google</button>{transitionDialog}</>;
   }
   afterEach(cleanup);
+
+  it("cannot approve a replacement Google review through an earlier native callback", async () => {
+    const { result } = renderHook(() => useGoogleConnectorTransitionReview("owner-a", snapshotVaultSessionEpoch()));
+    const first = vi.fn(), second = vi.fn();
+    act(() => { void result.current.confirmTransition(terms).then(first); });
+    const oldApprove = result.current.approveTransition;
+    act(() => result.current.cancelReview());
+    await waitFor(() => expect(first).toHaveBeenCalledWith(false));
+    act(() => { void result.current.confirmTransition(terms).then(second); });
+    await act(async () => oldApprove());
+    expect(second).not.toHaveBeenCalled();
+    act(() => result.current.approveTransition());
+    await waitFor(() => expect(second).toHaveBeenCalledWith(true));
+  });
 
   it("keeps connector setup state while the access overview hides for details and returns on Back", () => {
     render(<HistoryConnectorsPage open native={false} owner="owner-a" context="chat"

@@ -4547,7 +4547,7 @@ final class AppUITests: XCTestCase {
             nativeAccountBack.exists && nativeAccountBack.isHittable
                 ? nativeAccountBack : app.buttons["Back in Profile"].firstMatch
         }
-        let destinations = ["account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
+        let destinations = ["hosting", "software-updates", "account", "payouts", "request-pricing", "my-data", "world-model", "preferences", "security", "devices", "connectors", "invite", "support", "privacy", "terms"]
         let requestedStart = ProcessInfo.processInfo.environment["HUSHH_PROFILE_BATCH_START"]
         if let requestedStart, !destinations.contains(requestedStart) {
             XCTFail("PROFILE_BATCH_START_UNADMITTED"); return
@@ -4672,6 +4672,19 @@ final class AppUITests: XCTestCase {
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             print("PROFILE_BATCH_STEP stage=destination_tap")
             destination.tap()
+            if ["hosting", "software-updates"].contains(id), ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                let check = app.buttons[id == "hosting" ? "native-profile-row-hosting-check" : "native-profile-row-updates-check"].firstMatch
+                guard waitForAdmittedControl(nativeAccountBack), waitForAdmittedControl(check), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_AGENT_SETTINGS_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0, "PROFILE_NATIVE_AGENT_SETTINGS_DUPLICATE_WEB_BODY")
+                nativeAccountBack.tap()
+                guard waitForAdmittedControl(destination), waitForAdmittedControl(close) else {
+                    XCTFail("PROFILE_NATIVE_AGENT_SETTINGS_RETURN_FAILED"); return
+                }
+                print("PROFILE_NATIVE_DESTINATION family=\(id) native=true returned=true mutated=false")
+                continue
+            }
             if ["privacy", "terms"].contains(id), app.scrollViews["native-legal-reader-\(id)"].firstMatch.waitForExistence(timeout: 5) {
                 print("PROFILE_LEGAL_STEP phase=reader_admitted")
                 let reader = app.scrollViews["native-legal-reader-\(id)"].firstMatch

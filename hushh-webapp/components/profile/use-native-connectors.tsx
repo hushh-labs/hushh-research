@@ -110,7 +110,9 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
   const detail = model?.detail;
   if (model?.selectedConnector && detail) {
     let detailRows: NativeDrawerRow[] = [];
-    if (detail.kind === "gmail") detailRows = [read("mail-account", detail.account, detail.status), ...action("mail-connect", detail.connect), ...action("mail-disconnect", detail.disconnect),
+    if (detail.kind === "private-google" || detail.kind === "private-stripe") detailRows = [read("private-status", detail.status), ...text("private-purpose", detail.purpose),
+      ...detail.notes.flatMap((note, index) => text(`private-note-${index}`, note)), ...detail.actions.flatMap((item, index) => action(`private-action-${index}`, item)), ...text("private-message", detail.message)];
+    else if (detail.kind === "gmail") detailRows = [read("mail-account", detail.account, detail.status), ...action("mail-connect", detail.connect), ...action("mail-disconnect", detail.disconnect),
       ...action("mail-retry", detail.retry), ...(detail.connected ? [read("mail-read", "Read mail", "Allowed"), read("mail-send", "Send mail", detail.sendAllowed ? "Allowed · review required" : "Not enabled"),
         ...(detail.draftsAllowed ? [read("mail-drafts", "Drafts", "Allowed · review required")] : action("mail-drafts", detail.enableDrafts))] : []), ...action("mail-cancel", detail.cancelSignIn), ...text("mail-message", detail.message)];
     else if (detail.kind === "calendar") detailRows = [...text("calendar-description", detail.description), read("calendar-status", detail.status), ...action("calendar-connection", detail.connection),
@@ -254,10 +256,11 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     bind("custom-confirm-cancel", "Cancel", custom.cancelRemove, { enabled: !custom.busy }),
     bind("custom-confirm-remove", "Remove connector", removeCustom, { enabled: !custom.busy, destructive: true }),
   ] }] });
-  const blocking = Boolean(custom?.busy || confirmation?.busy || drive?.busy || drive?.collection?.busy || drive?.groups?.saving || drive?.packet.busy || drive?.trust.busy);
+  const blocking = Boolean(custom?.busy || confirmation?.busy || (detail?.kind === "private-google" || detail?.kind === "private-stripe") && detail.busy && !confirmation || drive?.busy || drive?.collection?.busy || drive?.groups?.saving || drive?.packet.busy || drive?.trust.busy);
   const navigationBlocked = () => {
     const model = visit.model(), drive = model?.detail?.kind === "drive" ? model.detail : null;
-    return Boolean(model?.custom?.mutationPending() || model?.confirmation?.busy || drive?.mutationPending() || drive?.collection?.mutationPending() || drive?.groups?.mutationPending() || drive?.packet.mutationPending() || drive?.trust.mutationPending());
+    const privateBusy = (model?.detail?.kind === "private-google" || model?.detail?.kind === "private-stripe") && model.detail.busy && !model.confirmation;
+    return Boolean(privateBusy || model?.custom?.mutationPending() || model?.confirmation?.busy || drive?.mutationPending() || drive?.collection?.mutationPending() || drive?.groups?.mutationPending() || drive?.packet.mutationPending() || drive?.trust.mutationPending());
   };
   const back = () => {
     if (navigationBlocked()) return true;
@@ -274,6 +277,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     if (local.drive) { change(value => ({ ...value, drive: null })); return true; }
     if (current?.custom?.editing) { current.custom.nativeEditor.cancelEditor(); return true; }
     if (local.custom) { change(value => ({ ...value, custom: null })); return true; }
+    if (current?.selectedConnector) { current.catalog.show(); return true; }
     return false;
   };
   const ancestor = (choice: { rowId?: string }) => {
@@ -289,7 +293,7 @@ export function useNativeConnectors(model: ConnectorsPanelPresentation | undefin
     return true;
   };
   return { pages, rows, blocking, navigationBlocked, back, ancestor, nested: pages.length > 1,
-    mapped: Boolean(model),
+    mapped: Boolean(model) && model?.nativeComplete !== false,
     failed: local.failedEditor,
     formScene: custom?.editing ? "connector-custom-server" as const : detail?.kind === "social" && local.link?.network === detail.network
       ? "connector-profile-link" as const : drive?.packet.editingPrice ? "connector-packet-price" as const : null,

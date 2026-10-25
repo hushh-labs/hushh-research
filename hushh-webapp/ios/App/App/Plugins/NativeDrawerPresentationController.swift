@@ -62,7 +62,7 @@ final class NativeDrawerModel: ObservableObject {
         // UIKit owns presentation/pop motion. The authored React Back owner
         // commits the route; an arbitrary path cannot dispatch an operation.
         let deviceAncestor = [["security", "devices", "device-unlink"], ["security", "vault", "vault-method"], ["security", "vault", "vault-remove"]].contains(navigationPath) && path == ["security"]
-        let workspaceAncestor = (NativeDrawerProjection.validPayoutPath(navigationPath) || NativeDrawerProjection.validMemoryPath(navigationPath) || NativeDrawerProjection.validFinancePath(navigationPath) || NativeDrawerProjection.validWorldModelPath(navigationPath)) && !path.isEmpty && path.count + 1 < navigationPath.count
+        let workspaceAncestor = (NativeDrawerProjection.validAgentSettingsPath(navigationPath) || NativeDrawerProjection.validPayoutPath(navigationPath) || NativeDrawerProjection.validMemoryPath(navigationPath) || NativeDrawerProjection.validFinancePath(navigationPath) || NativeDrawerProjection.validWorldModelPath(navigationPath) || NativeDrawerProjection.validConnectorPath(navigationPath)) && !path.isEmpty && path.count + 1 < navigationPath.count
         guard interactionEnabled, projection.navigationLocked != true, !navigationTransitioning, !choicePending, !backPending, projection.identity == state.identity,
               projection.updateSequence == state.updateSequence, projection.privacyGeneration == state.privacyGeneration,
               projection.profileDestinationId == state.profileDestinationId,

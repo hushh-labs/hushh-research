@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, type ReactNode } from "react";
 
 import { ConnectorsPanel, type ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import type { ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
@@ -21,6 +21,22 @@ type RecoveryInput = {
   reason: "web_full_page" | "native_oauth" | "native_picker";
   customConnector?: { connectorId: string; revision: string };
 };
+
+function ConnectorPresentationPort({ value, publish }: { value: ConnectorsPanelPresentation; publish: (value: ConnectorsPanelPresentation | undefined) => void }) {
+  useLayoutEffect(() => { publish(value); }, [value, publish]);
+  useLayoutEffect(() => () => publish(undefined), [publish]);
+  return null;
+}
+
+/** The feature owner is a stable sibling of Profile presentation, never an
+ * ancestor whose loading/private/shared branch can remount the drawer. */
+export const RetainedProfileConnectors = memo(function RetainedProfileConnectors({ open, connectorId, onConnectorChange, publish }: {
+  open: boolean; connectorId: string | null; onConnectorChange: (id: string | null) => void;
+  publish: (value: ConnectorsPanelPresentation | undefined) => void;
+}) {
+  const render = useCallback((value: ConnectorsPanelPresentation) => <ConnectorPresentationPort value={value} publish={publish} />, [publish]);
+  return <div hidden><ProfileConnectorsSection open={open} connectorId={connectorId} onConnectorChange={onConnectorChange} render={render} /></div>;
+});
 
 /**
  * Connectors as a Profile section. Profile owns the open connector in its own
@@ -45,7 +61,7 @@ export function ProfileConnectorsSection({
   render?: (presentation: ConnectorsPanelPresentation) => ReactNode;
   showAccessDetails?: boolean;
 }) {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   // A sign-in that leaves the app must not lose what is underneath the pane.
   // Over a chat, the chat saves its unsent draft and the return reopens this
   // section over it. With no chat underneath, a built-in connector (Drive) has
@@ -61,14 +77,14 @@ export function ProfileConnectorsSection({
       if (
         input.reason !== "web_full_page" ||
         !user ||
-        owner?.userId !== user.uid ||
+        !userId || owner?.userId !== userId ||
         !isValidatedAuthSessionOwnerCurrent(owner)
       ) {
         return "unavailable" as const;
       }
       try {
         saveCustomConnectorSettingsHandoff({
-          ownerUserId: user.uid,
+          ownerUserId: userId,
           attemptId: input.attemptId,
           customConnector: input.customConnector,
         });
@@ -77,7 +93,7 @@ export function ProfileConnectorsSection({
         return "unavailable" as const;
       }
     },
-    [user],
+    [user, userId],
   );
   const clearSignInReturn = useCallback(async () => {
     await activeChatConnectorRecoveryHost()?.clear();

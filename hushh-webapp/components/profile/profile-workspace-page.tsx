@@ -29,7 +29,8 @@ import accountStyles from "@/components/profile/profile-your-account.module.css"
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
 import { toast } from "sonner";
-import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
+import { AgentSettingsPanel, useAgentSettingsController } from "@/components/profile/agent-settings-panel";
+import { useNativeAgentSettings } from "./use-native-agent-settings";
 import { NativeProfilePresentation } from "./native-profile-menu";
 import { AccountConfirmationPreparation } from "./account-confirmation-preparation";
 import { useNativeProfilePreferences } from "./use-native-profile-preferences";
@@ -44,7 +45,7 @@ import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
 import { useNativeVaultMethods } from "./use-native-vault-methods";
 import { NativeVaultPasswordEditor } from "./native-vault-password-editor";
 import { NativeRequestPricingEditor, projectNativeRequestPricing } from "./native-request-pricing";
-import { useNativePayouts } from "./use-native-payouts";
+import { useNativePayments } from "./use-native-payments";
 import { useNativeReferrals } from "./use-native-referrals";
 import { ReferralsPanelView } from "./referrals-panel";
 import { useNativeConnectors } from "./use-native-connectors";
@@ -97,7 +98,7 @@ import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtim
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
+import { buildProfileConnectorsStackEntry, RetainedProfileConnectors } from "@/components/profile/profile-connectors-section";
 import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import {
   buildProfileLegalStackEntries,
@@ -534,8 +535,8 @@ function ProfilePageContent({
   nativeControlsEligible = true,
   nativeMenuOpen = false,
   onNativeMenuClose,
-  retainedConnectors,
-}: ProfilePageProps & { retainedConnectors?: ConnectorsPanelPresentation }) {
+}: ProfilePageProps) {
+  const [retainedConnectors, setRetainedConnectors] = useState<ConnectorsPanelPresentation>();
   const isPanePresentation = presentation !== "route";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
@@ -983,10 +984,17 @@ function ProfilePageContent({
   const [nativeSecretsAvailable, setNativeSecretsAvailable] = useState(false);
   const [nativeWorldModelAvailable, setNativeWorldModelAvailable] = useState(false);
   const [nativeConnectorsAvailable, setNativeConnectorsAvailable] = useState(false);
+  const [nativePaymentsAvailable, setNativePaymentsAvailable] = useState(false);
+  const [nativePaymentsFailed, setNativePaymentsFailed] = useState(false);
+  const agentSettingsActive = (activePanel === "hosting" || activePanel === "software-updates") &&
+    (presentation !== "native-page" || nativeMenuOpen) && vaultAccess.canMutateSecureData;
+  const agentSettings = useAgentSettingsController({ kind: activePanel === "hosting" ? "hosting" : "software-updates",
+    userId: applicationOwnerId || null, enabled: agentSettingsActive });
+  const nativeAgentSettings = useNativeAgentSettings(agentSettings, agentSettingsActive, nativeDetailOwner);
   const nativeConnectorsWanted = presentation === "native-page" && nativeMenuOpen && nativeConnectorsAvailable &&
-    activePanel === "connectors" && vaultAccess.canMutateSecureData && retainedConnectors !== undefined;
+    activePanel === "connectors" && vaultAccess.canMutateSecureData;
   const nativeConnectors = useNativeConnectors(retainedConnectors, nativeDetailOwner, nativeConnectorsWanted);
-  const nativeConnectorsActive = nativeConnectorsWanted && nativeConnectors.mapped && !nativeConnectors.failed;
+  const nativeConnectorsActive = nativeConnectorsWanted && (!retainedConnectors || nativeConnectors.mapped) && !nativeConnectors.failed;
   useBackLayer(pathname, nativeConnectorsActive && nativeConnectors.nested ? 3 : 0, nativeConnectors.back, { profile_pane: "1" });
   const nativeWorldModelActive = presentation === "native-page" && nativeMenuOpen && nativeWorldModelAvailable &&
     activePanel === "world-model" && vaultAccess.canMutateSecureData;
@@ -1012,11 +1020,10 @@ function ProfilePageContent({
   const memorySecrets = useSecretsListModel({
     active: activePanel === "my-data" && isVaultUnlocked && (presentation !== "native-page" || nativeMenuOpen && (!nativeMemoryAvailable || nativeSecretsAvailable || nativeMemoryWebBody)),
     native: nativeMemoryActive && nativeSecretsAvailable && !nativeMemoryWebBody, current: contextVisit.current });
-  // PaymentsAndEarnings now includes information-access funding/refunds and
-  // source-bound Answer setup. The legacy native Hashcoin projection cannot
-  // replace that complete owner composition without losing those operations.
-  const nativePayoutActive = false;
-  const nativePayout = useNativePayouts(nativePayoutActive);
+  const paymentsEnabled = activePanel === "payouts" && vaultAccess.canMutateSecureData && (presentation !== "native-page" || nativeMenuOpen);
+  const nativePayoutActive = presentation === "native-page" && paymentsEnabled && nativePaymentsAvailable && !nativePaymentsFailed;
+  const nativePayout = useNativePayments(paymentsEnabled, nativePayoutActive, nativeDetailOwner);
+  useLayoutEffect(() => { if (!nativeMenuOpen || activePanel !== "payouts") setNativePaymentsFailed(false); }, [nativeMenuOpen, activePanel]);
   const nativeReferralActive = presentation === "native-page" && nativeMenuOpen &&
     activePanel === "referrals" && isVaultUnlocked;
   const nativeReferrals = useNativeReferrals(presentation === "native-page" && nativeMenuOpen && activePanel === "referrals", applicationOwnerId ?? null);
@@ -1257,6 +1264,7 @@ function ProfilePageContent({
   const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
     onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
     onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
+  const changeRetainedConnector = useCallback((id: string | null) => updateProfileView({ panel: "connectors", detail: id ? `connector:${id}` : null }, "push"), [updateProfileView]);
   useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
   const nativeMemory = useNativeMemory({
@@ -4244,7 +4252,7 @@ function ProfilePageContent({
         activePanel === "hosting"
           ? "Where your private agent runs."
           : "Your version and available updates.",
-      content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} />,
+      content: <AgentSettingsPanel kind={activePanel} userId={applicationOwnerId} controller={agentSettings} />,
     });
   } else if (!routeBlockedByVault && activePanel === "account") {
     profileStackEntries.push({
@@ -4317,7 +4325,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
-          <PaymentsAndEarnings key={applicationOwnerId} />
+          <PaymentsAndEarnings key={applicationOwnerId} commerce={nativePayout.commerce} answer={nativePayout.answer} />
         </div>
       ),
     });
@@ -4511,7 +4519,7 @@ function ProfilePageContent({
       buildProfileConnectorsStackEntry({
         detail: activeDetail,
         updateView: updateProfileView,
-        ...(retainedConnectors ? { content: retainedConnectors.webBody } : {}),
+        ...(presentation === "native-page" ? { content: retainedConnectors?.webBody ?? <p role="status">Loading connectors…</p> } : {}),
       }),
     );
   } else if (activePanel === "legal") {
@@ -5091,10 +5099,18 @@ function ProfilePageContent({
       { id: "account-confirmation-cancel", label: "Cancel", enabled: !isDeleting && !isResetting },
     ] }],
   } : undefined;
-  return <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
+  return <><RetainedProfileConnectors open={nativeMenuOpen && activePanel === "connectors" && vaultAccess.canMutateSecureData}
+    connectorId={activeDetail?.startsWith("connector:") ? activeDetail.slice("connector:".length) : null}
+    onConnectorChange={changeRetainedConnector} publish={setRetainedConnectors} />
+  <NativeProfilePresentation lifetime={nativeDetailOwner} detail={!!activePanel} onVoiceCapability={setNativeVoiceAvailable} onDevicesCapability={setNativeDevicesAvailable} onVaultCapability={setNativeVaultAvailable} onPricingCapability={setNativePricingAvailable} onPayoutCapability={setNativePaymentsAvailable} onMemoryCapability={setNativeMemoryAvailable} onSharedMemoryCapability={setNativeSharedMemoryAvailable} onSecretMemoryCapability={setNativeSecretsAvailable} onFinanceCapability={setNativeFinanceAvailable} onWorldModelCapability={setNativeWorldModelAvailable} onRuntimeCapability={setNativeRuntimeAvailable} onConnectorsCapability={setNativeConnectorsAvailable}
     referrals={{ active: nativeReferralActive, pages: nativeReferrals.pages, rows: nativeReferrals.rows, editor: nativeReferrals.editor, formScene: nativeReferrals.formScene,
       root: () => updateProfileView({ panel: null, detail: null }, "replace") }}
-    workspace={activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
+    workspace={activePanel === "hosting" || activePanel === "software-updates" ? { kind: activePanel,
+      active: agentSettingsActive && !showVaultUnlock, pages: nativeAgentSettings.pages, rows: nativeAgentSettings.rows,
+      back: () => { if (nativeAgentSettings.navigationBlocked()) return false; if (!nativeAgentSettings.back()) popProfileStack(); return true; },
+      ancestor: () => { if (nativeAgentSettings.root()) return true; return false; },
+      root: () => { if (!nativeAgentSettings.root()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; }
+    } : activePanel === "connectors" ? { kind: "connectors", active: nativeConnectorsActive && !showVaultUnlock,
       visitKey: activeDetail ?? "catalog", pages: nativeConnectors.pages, rows: nativeConnectors.rows, editor: nativeConnectors.editor, ancestor: nativeConnectors.ancestor, formScene: nativeConnectors.formScene,
       back: () => { if (nativeConnectors.navigationBlocked()) return false; if (!nativeConnectors.back()) popProfileStack(); return true; },
       root: () => {
@@ -5125,8 +5141,9 @@ function ProfilePageContent({
     } : activePanel === "payouts" ? { kind: "payouts", active: nativePayoutActive && !showVaultUnlock, pages: nativePayout.pages, rows: nativePayout.rows,
       onPresented: nativePayout.onPresented,
       ancestor: nativePayout.ancestor,
-      back: () => { if (!nativePayout.back()) popProfileStack(); },
-      root: () => updateProfileView({ panel: null, detail: null }, "replace") } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
+      formScene: nativePayout.formScene, editor: destinationId => nativePayout.editor(destinationId, () => setNativePaymentsFailed(true)),
+      back: () => { if (nativePayout.busy) return false; if (!nativePayout.back()) popProfileStack(); return true; },
+      root: () => { if (!nativePayout.reset()) return false; updateProfileView({ panel: null, detail: null }, "replace"); return true; } } : { kind: "request-pricing", active: nativePricingActive && !showVaultUnlock, pages: [nativePricing.page], rows: nativePricing.rows,
       root: () => updateProfileView({ panel: null, detail: null }, "replace"), formScene: nativePricingEditorOpen ? "request-price" : null,
       editor: destinationId => nativePricingEditorOpen ?
         <NativeRequestPricingEditor userId={applicationOwnerId} model={nativePricingModel} destinationId={destinationId}
@@ -5230,11 +5247,12 @@ function ProfilePageContent({
           onWebFallback={() => setNativeAccountException("name")}
           onSaved={() => setEditingDisplayName(false)} onCancel={() => setEditingDisplayName(false)} /> : null }}
     menu={{ owner: applicationOwnerId, ready: isVaultUnlocked, open: nativeMenuOpen, surfaceOpen: nativeMenuOpen,
-      ...(nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
+      ...(agentSettingsActive ? { navigationLocked: nativeAgentSettings.navigationBlocked() } : nativePayoutActive ? { navigationLocked: nativePayout.busy } : nativeConnectorsActive ? { navigationLocked: nativeConnectors.blocking } : nativeWorldModelActive ? { navigationLocked: nativeWorldModel.blocking } : nativeMemoryActive ? { navigationLocked: nativeMemory.busy } : nativeRuntimeActive ? { navigationLocked: runtimeSettings.isSaving || runtimeSettings.isRemoving || runtimeSettings.credentialValidation.status === "checking" } : {}),
       enabled: !isDeleting && !isResetting && !(devicesActive && devicesModel.busy) && !(nativeFinanceActive && nativeFinance.busy) &&
-        !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen) && !(nativePayoutActive && nativePayout.busy),
+        !(vaultNativeActive && switchingVaultMethod && !passphraseDialogOpen),
       name: user.displayName || "Your account", email: user.email, portrait: nativePortrait,
       onClose: () => {
+        if (agentSettingsActive && nativeAgentSettings.navigationBlocked() || nativePayoutActive && nativePayout.busy) return false;
         if (nativeConnectorsActive && nativeConnectors.navigationBlocked() || nativeWorldModelActive && nativeWorldModel.navigationBlocked() ||
             nativeMemoryActive && nativeMemory.navigationBlocked() || nativeRuntimeActive && runtimeSettings.operationPending()) return false;
         return closeNativeProfile();
@@ -5245,7 +5263,7 @@ function ProfilePageContent({
       owner: applicationOwnerId, context: JSON.stringify([applicationOwnerId, snapshotVaultSessionEpoch(), activePanel, activeDetail]),
       onClose: closeNativeProfile, onBack: () => backProfilePane(pathname, searchParams) }}>
     {page}
-  </NativeProfilePresentation>;
+  </NativeProfilePresentation></>;
 }
 
 export function ProfilePage(props: ProfilePageProps) {
