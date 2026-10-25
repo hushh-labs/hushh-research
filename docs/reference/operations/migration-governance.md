@@ -134,6 +134,44 @@ Referral filtering composes with the existing policy-successor verifier and reta
 the unresolved-genealogy refusal. Changed source, missing successor or changed
 function/trigger definitions refuse replay rather than restoring old authority.
 
+The checksum-pinned `db/private_agent_adoption.py` execution adapter preserves
+420's historical SQL and ledger checksum in replay and pending ledger execution;
+observe and already-applied ledger entries remain unchanged. Before 420's column
+inventory, it recognizes only the existing `byoc_setup_jobs.authorization_attempts`
+`jsonb` column with no default, nullable, and no identity or generated expression.
+This is the upgrade shape authored by 404's `ADD COLUMN IF NOT EXISTS`; 928's
+same clause does not tighten an already-present column. A missing column follows
+ordinary 420 DDL. Other shapes refuse adoption. Under the existing migration
+timeouts and table locks, SQL NULL becomes JSON literal `null`, never `{}`.
+The row's JSON representation remains unchanged and every non-null journal stays
+unchanged. Installed row guards remain authoritative: if they reject this update,
+adoption aborts rather than rewriting the table or disabling a guard.
+
+The adapter atomically sets the canonical empty-object default and `NOT NULL`,
+and installs the exact unvalidated `byoc_setup_authorization_history_object`
+check requiring an object on every future insert or update. Historical unknown
+journals remain unknown and retained. A retry cannot overwrite their job,
+project or stages; the canonical authorization guard also refuses deletion or
+replacement with an empty history. Replay verifies this check's exact definition,
+unvalidated state and column binding. A retained JSON-null journal without that
+check refuses adoption. The representation change and schema changes roll back
+if any later qualification fails; no authorization or cleanup receipt is created.
+
+The same preparation recognizes only the exact 906 deployment/credential checks,
+907 status check, and 904 receipt uniqueness/index predecessors. It qualifies
+their definitions, relation and column bindings, validation/deferral attributes,
+and supporting index definitions and validity before retiring them. The unchanged
+420 body then installs the 948/916/913 successors in the same transaction. Existing
+`anypoint` placements still refuse the deployment-target transition. Noncanonical
+constraints or indexes refuse; receipt rows and their hashes are never rewritten.
+Canonical successors are retained without replacing their objects.
+
+The same adapter retains the exact reviewed pair of legacy external
+consumer-memory consent triggers. Both must be present with their reviewed
+function definitions and catalog attributes, or both absent. Qualification takes
+a trigger-DDL-conflicting table lock before checking absence; it never creates,
+calls, replaces, disables or removes either guard and grants no consent.
+
 Qualification covers canonical-417 and rich-dev-972 upgrades, retained review,
 resource, consent, referral and encrypted credential records, backend/client roles,
 and unknown authority objects. SQL rollback of 418–421 deliberately refuses with
