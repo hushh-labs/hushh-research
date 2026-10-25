@@ -782,7 +782,7 @@ def test_the_service_refuses_too_when_called_without_the_route(monkeypatch) -> N
 
 
 @pytest.fixture
-def shared_owner_placement(monkeypatch):
+def shared_owner_placement(monkeypatch, active_account_lifecycle):
     """Exercise the real hub guard with an explicitly Shared route-test owner."""
     from hushh_mcp.services import owner_placement_guard
 

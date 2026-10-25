@@ -271,3 +271,29 @@ def test_history_failure_does_not_disclose_internal_information():
         assert response.status_code == 503
         assert "internal credential" not in response.text
         assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_replacement_owner_reauthentication_checks_external_identity_without_rebinding(monkeypatch):
+    from firebase_admin import auth
+
+    from api.routes.one import wallet_card_access as module
+
+    owner = "acct_" + "a" * 32
+    monkeypatch.setattr(
+        module,
+        "firebase_uid_for_owner_read",
+        lambda captured: "external-uid" if captured == owner else "other",
+    )
+    monkeypatch.setattr(module, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        auth,
+        "verify_id_token",
+        lambda *args, **kwargs: {
+            "uid": "external-uid",
+            "auth_time": 123,
+            "firebase": {"sign_in_provider": "google.com"},
+        },
+    )
+    assert module.verified_reauthentication_time("Bearer synthetic-proof", owner) == 123
+    with pytest.raises(module.HTTPException):
+        module.verified_reauthentication_time("Bearer synthetic-proof", "other-owner")

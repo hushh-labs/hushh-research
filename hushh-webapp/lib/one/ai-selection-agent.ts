@@ -43,6 +43,14 @@ export type AgentAiSelection = {
   model: string | null;
   checkedAtMs: number | null;
   lastFailure: string | null;
+  effectiveConnection?: {
+    provider: string | null;
+    model: string | null;
+    source: "owner_key" | "cloud_default" | null;
+    state: "configured" | "unavailable";
+    verification: "unverified" | "previously_verified" | "failed";
+    checkedAtMs: number | null;
+  };
 };
 
 export const AI_SELECTION_REFUSAL_CODES = [
@@ -152,7 +160,17 @@ export function parseAgentAiSelection(body: unknown): AgentAiSelection | null {
     failure && typeof failure === "object"
       ? textOrNull((failure as Record<string, unknown>).code)
       : textOrNull(failure);
+  const effective = value.effectiveConnection && typeof value.effectiveConnection === "object"
+    ? value.effectiveConnection as Record<string, unknown> : null;
   return {
+    ...(effective ? { effectiveConnection: {
+      provider: textOrNull(effective.provider), model: textOrNull(effective.model),
+      source: effective.source === "owner_key" || effective.source === "cloud_default" ? effective.source : null,
+      state: effective.state === "configured" ? "configured" as const : "unavailable" as const,
+      verification: effective.verification === "previously_verified" ? "previously_verified" as const
+        : effective.verification === "failed" ? "failed" as const : "unverified" as const,
+      checkedAtMs: finiteOrNull(effective.checkedAtMs),
+    } } : {}),
     configured: value.configured === true,
     provider: textOrNull(value.provider),
     model: textOrNull(value.model),

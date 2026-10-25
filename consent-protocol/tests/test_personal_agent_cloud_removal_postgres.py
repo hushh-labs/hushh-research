@@ -73,6 +73,9 @@ def _admit_cloud_removal(pg, owner, current):
         Path(__file__).resolve().parents[1]
         / "db/migrations/parked/972_personal_agent_cloud_removal.sql"
     )
+    pg.apply_file(
+        Path(__file__).resolve().parents[1] / "db/migrations/421_cloud_removal_recovery.sql"
+    )
     digest = _value(
         pg,
         "SELECT encode(sha256(convert_to((backend_metadata->'erasure'->'registrySnapshot')::text,'UTF8')),'hex') FROM personal_agent_registry WHERE user_id=%s",
@@ -276,6 +279,184 @@ def _verify_eventual_account_erasure(pg, owner):
     assert _value(pg, "SELECT count(*) FROM personal_agent_cloud_removals") == 0
 
 
+@pytest.mark.parametrize("cleanup_pg", ["unreserved"], indirect=True)
+def test_cloud_review_cancel_restores_only_an_undispatched_snapshot(cleanup_pg):
+    pg, owner, _, _ = cleanup_pg
+    root = Path(__file__).resolve().parents[1] / "db/migrations"
+    pg.apply_file(root / "parked/972_personal_agent_cloud_removal.sql")
+    pg.apply_file(root / "421_cloud_removal_recovery.sql")
+    original = _row(pg, owner)
+    snapshot_digest = _value(
+        pg,
+        "SELECT encode(sha256(convert_to(to_jsonb(p)::text,'UTF8')),'hex') FROM personal_agent_registry p WHERE user_id=%s",
+        owner,
+    )
+    reservation = _value(
+        pg, "SELECT reserve_personal_agent_cloud_removal(%s,%s)", owner, snapshot_digest
+    )
+    attempt = reservation["attemptId"]
+    assert _value(pg, "SELECT cloud_removal_cancel_ready(%s,%s)", owner, attempt) is True
+    columns = ",".join('"' + name.replace('"', '""') + '"' for name in original)
+    with pytest.raises(psycopg2.Error):
+        pg.execute(
+            "SELECT set_config('hussh.erasure_restore_attempt',%s,true); "
+            f"UPDATE personal_agent_registry SET ({columns})=(SELECT {columns} FROM jsonb_populate_record(NULL::personal_agent_registry,%s::jsonb)) WHERE user_id=%s",
+            (attempt, json.dumps(original), owner),
+        )
+    assert (
+        _value(pg, "SELECT cancel_personal_agent_cloud_removal(%s,%s)", owner, "wrong-attempt")
+        is False
+    )
+    assert _value(pg, "SELECT cancel_personal_agent_cloud_removal(%s,%s)", owner, attempt) is True
+    assert _row(pg, owner) == original
+    assert _value(pg, "SELECT cancel_personal_agent_cloud_removal(%s,%s)", owner, attempt) is True
+    assert (
+        _value(pg, "SELECT begin_personal_agent_cloud_removal(%s,%s,%s)", owner, attempt, "a" * 64)
+        is False
+    )
+    assert (
+        _value(
+            pg, "SELECT count(*) FROM personal_agent_cloud_removals WHERE cancelled_at IS NOT NULL"
+        )
+        == 1
+    )
+    # Re-reservation never revives the old attempt or its callback authority.
+    replacement = _value(
+        pg, "SELECT reserve_personal_agent_cloud_removal(%s,%s)", owner, snapshot_digest
+    )
+    assert replacement["attemptId"] != attempt
+    assert _value(pg, "SELECT cancel_personal_agent_cloud_removal(%s,%s)", owner, attempt) is False
+    assert (
+        _value(pg, "SELECT azure_cleanup_cloud_purpose_authorized(%s,%s)", owner, attempt) is False
+    )
+
+
+@pytest.mark.parametrize("cleanup_pg", ["unreserved"], indirect=True)
+def test_cloud_approval_and_cancel_serialize_under_owner_authority(cleanup_pg):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    pg, owner, _, _ = cleanup_pg
+    root = Path(__file__).resolve().parents[1] / "db/migrations"
+    pg.apply_file(root / "parked/972_personal_agent_cloud_removal.sql")
+    pg.apply_file(root / "421_cloud_removal_recovery.sql")
+    original = _row(pg, owner)
+    digest = _value(
+        pg,
+        "SELECT encode(sha256(convert_to(to_jsonb(p)::text,'UTF8')),'hex') FROM personal_agent_registry p WHERE user_id=%s",
+        owner,
+    )
+    reservation = _value(pg, "SELECT reserve_personal_agent_cloud_removal(%s,%s)", owner, digest)
+    attempt = reservation["attemptId"]
+    context = _value(pg, "SELECT azure_erasure_context(%s)", owner)
+    group = f"/subscriptions/{context['subscriptionId']}/resourceGroups/{context['resourceGroup']}"
+    plan = {
+        "version": 1,
+        "context": context,
+        "termsVersion": "azure-exact-parent-retention-v2",
+        "resources": {
+            group: {
+                "apiVersion": "2021-04-01",
+                "kind": "resource",
+                "expected": {},
+                "coveredBy": None,
+                "identity": {"id": group},
+                "deletionScope": "whole_group",
+            }
+        },
+    }
+    state = {
+        "plan": plan,
+        "approvals": [],
+        "resources": {},
+        "setupHistory": _value(pg, "SELECT azure_erasure_setup_history(%s)", owner),
+    }
+    assert (
+        _value(
+            pg,
+            "SELECT retain_azure_erasure_state(%s,%s,%s::jsonb,%s::jsonb)",
+            owner,
+            attempt,
+            json.dumps(reservation),
+            json.dumps(state),
+        )
+        is True
+    )
+    plan_digest = _value(
+        pg,
+        "SELECT encode(sha256(convert_to(personal_agent_cloud_removal_review(backend_metadata->'erasure')::text,'UTF8')),'hex') FROM personal_agent_registry WHERE user_id=%s",
+        owner,
+    )
+    assert _value(pg, "SELECT cloud_removal_cancel_ready(%s,%s)", owner, attempt) is True
+    # A historical GUC/adoption recovery may not bypass this explicit review.
+    snapshot = reservation["registrySnapshot"]
+    evidence = {
+        "project": snapshot.get("user_cloud_project")
+        or snapshot["backend_metadata"].get("project", "not-gcp"),
+        "service": snapshot.get("external_agent_id") or "not-gcp",
+        "url": "https://synthetic.invalid",
+        "observedAt": 0,
+    }
+    assert (
+        _value(
+            pg,
+            "SELECT restore_personal_agent_erasure_reservation(%s,%s,%s,%s::jsonb)",
+            owner,
+            attempt,
+            digest,
+            json.dumps(evidence),
+        )
+        is False
+    )
+    start = Barrier(2)
+
+    def cancel():
+        start.wait(timeout=5)
+        return _value(pg, "SELECT cancel_personal_agent_cloud_removal(%s,%s)", owner, attempt)
+
+    def approve():
+        start.wait(timeout=5)
+        return _value(
+            pg,
+            "SELECT approve_personal_agent_cloud_removal(%s,%s,%s,%s)",
+            owner,
+            attempt,
+            plan_digest,
+            group,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        cancelled, approved = pool.submit(cancel), pool.submit(approve)
+        outcomes = cancelled.result(timeout=10), approved.result(timeout=10)
+    assert outcomes in {(True, False), (False, True)}
+    if outcomes[0]:
+        assert _row(pg, owner) == original
+        assert (
+            _value(
+                pg,
+                "SELECT begin_personal_agent_cloud_removal(%s,%s,%s)",
+                owner,
+                attempt,
+                plan_digest,
+            )
+            is False
+        )
+    else:
+        assert (
+            _value(
+                pg,
+                "SELECT begin_personal_agent_cloud_removal(%s,%s,%s)",
+                owner,
+                attempt,
+                plan_digest,
+            )
+            is True
+        )
+        assert (
+            _value(pg, "SELECT cancel_personal_agent_cloud_removal(%s,%s)", owner, attempt) is False
+        )
+
+
 @pytest.mark.parametrize("settled_cleanup", [True], indirect=True)
 async def test_cloud_only_finalization_keeps_identity_and_refuses_stale_or_forged_proof(
     settled_cleanup,
@@ -283,9 +464,26 @@ async def test_cloud_only_finalization_keeps_identity_and_refuses_stale_or_forge
     pg, owner, current, _connection = settled_cleanup
     attempt, plan = _admit_cloud_removal(pg, owner, current)
     _refuse_stale_or_forged_proof(pg, owner, attempt, plan)
+    assert _value(pg, "SELECT cancel_personal_agent_cloud_removal(%s,%s)", owner, attempt) is False
+    assert (
+        _value(pg, "SELECT begin_personal_agent_cloud_removal(%s,%s,%s)", owner, attempt, "0" * 64)
+        is False
+    )
+    assert (
+        _value(
+            pg,
+            "SELECT execution_started_at FROM personal_agent_cloud_removals WHERE user_id=%s",
+            owner,
+        )
+        is None
+    )
     with _store(pg) as store:
         await store.require_completion_contract()
         await store.require_execution(owner, attempt, plan)
+        assert _value(pg, "SELECT cloud_removal_execution_admitted(%s,%s)", owner, attempt) is True
+        assert (
+            _value(pg, "SELECT cancel_personal_agent_cloud_removal(%s,%s)", owner, attempt) is False
+        )
         assert (await store.view(owner))["canFinalize"] is True
     after = _verify_atomic_finalization(pg, owner, attempt, plan)
     with _store(pg) as store:
@@ -347,6 +545,21 @@ def test_cloud_removal_uses_only_vault_owner_and_does_not_call_account_deletion(
     )
 
 
+def test_legacy_deprovision_refuses_bypassing_cloud_review(monkeypatch):
+    client, calls = _build(monkeypatch)
+    monkeypatch.setattr(
+        pa,
+        "PersonalAgentRegistryRepo",
+        lambda: SimpleNamespace(
+            get=AsyncMock(return_value={"deployment_target": "user_gcp"}),
+        ),
+    )
+    response = client.post("/api/one/personal-agent/deprovision")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "CLOUD_REMOVAL_REVIEW_REQUIRED"
+    assert "deprovision" not in calls
+
+
 def _bind_callback_store(monkeypatch, authorization, cloud_only, calls):
     context = {
         "ownerId": _UID,
@@ -371,6 +584,11 @@ def _bind_callback_store(monkeypatch, authorization, cloud_only, calls):
     async def metadata(self, sql, _params):
         if "azure_cleanup_cloud_purpose_authorized(:" in sql:
             return authorization != "cloud_unapproved"
+        if "jsonb_build_object('attempt',c.attempt_id" in sql:
+            return {"attempt": "attempt-1", "approved": "a" * 64}
+        if "begin_personal_agent_cloud_removal" in sql:
+            calls.append("execution_claim")
+            return authorization == "execute"
         if "to_regprocedure" in sql:
             return True
         return cloud_only
@@ -451,6 +669,12 @@ def test_cleanup_callback_binds_current_erasure_before_redeeming_and_never_appro
         assert calls == (
             ["binding", "redeem", "inspected"]
             if authorization == "inspect"
-            else ["binding", "redeem", "marked", "queued"]
+            else [
+                "binding",
+                "redeem",
+                *(["execution_claim"] if cloud_only else []),
+                "marked",
+                "queued",
+            ]
         )
     assert spawned == [], "cleanup cannot fall through into setup or upgrade"

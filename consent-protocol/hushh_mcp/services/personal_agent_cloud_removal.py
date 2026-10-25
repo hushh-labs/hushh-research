@@ -19,8 +19,13 @@ class CloudRemovalStore(AzureTeardownStore):
             "SELECT to_regprocedure('public.personal_agent_cloud_removal_ready()') IS NOT NULL AS value",
             {},
         )
+        recovery = await self._value(
+            "SELECT to_regprocedure('public.begin_personal_agent_cloud_removal(text,text,text)') IS NOT NULL AS value",
+            {},
+        )
         if (
-            exists is not True
+            recovery is not True
+            or exists is not True
             or await self._value("SELECT public.personal_agent_cloud_removal_ready() AS value", {})
             is not True
         ):
@@ -73,9 +78,10 @@ class CloudRemovalStore(AzureTeardownStore):
             "'approvalCurrent',c.approved_at>clock_timestamp()-interval '10 minutes',"
             "'review',public.personal_agent_cloud_removal_review(p.backend_metadata->'erasure'),"
             "'reviewDigest',encode(sha256(convert_to(public.personal_agent_cloud_removal_review(p.backend_metadata->'erasure')::text,'UTF8')),'hex'),"
+            "'executionStarted',c.execution_started_at IS NOT NULL,'canCancel',public.cloud_removal_cancel_ready(:owner,c.attempt_id),"
             "'complete',public.personal_agent_erasure_complete(:owner)) AS value "
             "FROM public.personal_agent_cloud_removals c JOIN public.personal_agent_registry p ON p.user_id=c.user_id "
-            "AND p.backend_metadata->'erasure'->>'attemptId'=c.attempt_id WHERE c.user_id=:owner AND c.completed_at IS NULL",
+            "AND p.backend_metadata->'erasure'->>'attemptId'=c.attempt_id WHERE c.user_id=:owner AND c.completed_at IS NULL AND c.cancelled_at IS NULL",
             {"owner": owner},
         )
         if isinstance(value, dict):
@@ -95,19 +101,25 @@ class CloudRemovalStore(AzureTeardownStore):
         return value
 
     async def require_execution(self, owner: str, attempt: str, digest: str) -> None:
-        operation = await self.operation(owner)
-        if (
-            operation.get("attempt") != attempt
-            or operation.get("approved") != digest
-            or operation.get("reviewDigest") != digest
-            or not operation.get("approvalCurrent")
-            or await self._value(
-                "SELECT public.personal_agent_cloud_removal_execute_ready(:owner,:attempt) AS value",
-                {"owner": owner, "attempt": attempt},
-            )
-            is not True
-        ):
+        admitted = await self._value(
+            "SELECT public.begin_personal_agent_cloud_removal(:owner,:attempt,:digest) AS value",
+            {"owner": owner, "attempt": attempt, "digest": digest},
+        )
+        if admitted is not True:
             raise AzureTeardownRefused("CLOUD_REMOVAL_APPROVAL_CHANGED")
+
+    async def cancel(self, owner: str, attempt: str) -> dict:
+        cancelled = await self._value(
+            "SELECT public.cancel_personal_agent_cloud_removal(:owner,:attempt) AS value",
+            {"owner": owner, "attempt": attempt},
+        )
+        if cancelled is not True:
+            raise AzureTeardownRefused("CLOUD_REMOVAL_CANNOT_CANCEL")
+        return {
+            "status": "cloud_removal_cancelled",
+            "operationId": attempt,
+            "accountRetained": True,
+        }
 
     async def view(self, owner: str) -> dict:
         operation = await self.operation(owner)
@@ -156,6 +168,8 @@ class CloudRemovalStore(AzureTeardownStore):
             "confirmation": confirmation,
             "keepAccount": True,
             "cleanupPurpose": "remove_cloud",
+            "executionStarted": operation.get("executionStarted") is True,
+            "canCancel": operation.get("canCancel") is True,
         }
 
     async def _gcp_view(self, operation: dict, review: dict) -> dict:
@@ -250,7 +264,10 @@ async def execute_gcp(store: CloudRemovalStore, owner: str, attempt: str, digest
 
     await store.require_execution(owner, attempt, digest)
     try:
-        await PersonalAgentProvisioningService(registry=store.registry).deprovision(user_id=owner)
+        await PersonalAgentProvisioningService(registry=store.registry).deprovision(
+            user_id=owner,
+            expected_erasure_attempt=attempt,
+        )
     except PersonalAgentDeprovisioningRequiredError:
         return {"status": "cleanup_status", **await store.view(owner), "workerOutcome": "failed"}
     return {"status": "cleanup_status", **await store.view(owner)}

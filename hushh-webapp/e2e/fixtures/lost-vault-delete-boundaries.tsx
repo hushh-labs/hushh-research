@@ -2,6 +2,7 @@
 // flow, session owner, AuthProvider and login notices execute unchanged.
 import React from "react";
 import {
+  ApiService as sessionPorts,
   AuthService as authPorts,
   CacheSyncService as cachePorts,
   UserLocalStateService as statePorts,
@@ -71,7 +72,7 @@ export const UserLocalStateService = {
     record("device-secrets-cleared"),
 };
 export const ApiService = {
-  getAccountSessionStatus: async () => Response.json({ active: true }),
+  getAccountSessionStatus: sessionPorts.getAccountSessionStatus,
   deleteSession: async () => record("cookie-cleared"),
   apiFetch: async (path: string, options: RequestInit = {}) => {
     if (path === "/api/account/delete-lost-vault/options")
@@ -112,11 +113,6 @@ export const ApiService = {
     throw new Error("Unexpected fixture request");
   },
 };
-export const prepareNativeSessionPrivacyValidation = async () => undefined;
-export const nativeProfilePreparationExpected = () => false;
-export const nativeProfilePreparationRevision = () => 0;
-export const nativeSessionPreparationRevision = () => 0;
-export const subscribeNativeProfilePreparation = () => () => undefined;
 export const getSessionItem = () => null;
 export const getLocalItem = () => null;
 export const setSessionItem = () => undefined;

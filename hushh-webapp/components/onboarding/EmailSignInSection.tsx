@@ -22,11 +22,14 @@ type Props = {
 };
 
 export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, onAuthenticated }: Props) {
-  const [view, setView] = useState<"closed" | "email" | "code">("closed");
+  const [view, setView] = useState<"closed" | "email" | "code" | "registration">("closed");
   const [available, setAvailable] = useState(false);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [challenge, setChallenge] = useState<EmailChallenge | null>(null);
+  const [registration, setRegistration] = useState<Extract<EmailVerification, { status: "registration_required" }> | null>(null);
+  const [accepted, setAccepted] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const now = useCoarseClock(1000);
@@ -55,7 +58,7 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
     generation.current += 1;
     binding.current = null;
     requestKey.current = null;
-    setCode(""); setChallenge(null); setNotice(""); setView("email");
+    setCode(""); setChallenge(null); setRegistration(null); setAccepted(false); setSubmitted(false); setNotice(""); setView("email");
   }
 
   async function operation(work: (epoch: number) => Promise<void>) {
@@ -81,7 +84,7 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
         email, browser_binding: binding.current, request_key: requestKey.current,
       });
       if (!mounted.current || epoch !== generation.current) return;
-      setChallenge(result); setCode(""); setView("code");
+      setChallenge(result); setCode(""); setRegistration(null); setAccepted(false); setSubmitted(false); setView("code");
     });
   }
 
@@ -94,7 +97,30 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
       });
       if (!mounted.current || epoch !== generation.current) return;
       setCode("");
+      if (result.status === "registration_required") {
+        setRegistration(result); setAccepted(false); setSubmitted(false); setView("registration");
+        return;
+      }
       await onAuthenticated(result.custom_token);
+    });
+  }
+
+  async function startFresh() {
+    if (!challenge || !binding.current || registration?.registration.state !== "ready"
+        || !registration.enrollment_ticket || !accepted || submitted) return;
+    const reviewed = registration;
+    await operation(async (epoch) => {
+      // One explicit attempt. If its response is lost, a new normal code will
+      // discover the activated account without replaying account creation.
+      setSubmitted(true);
+      const result = await ApiService.emailAuthRequest<EmailVerification>("enroll", {
+        challenge_id: challenge.challenge_id, browser_binding: binding.current!,
+        enrollment_ticket: reviewed.enrollment_ticket!,
+        accepted_review_digest: registration.registration.state === "ready" ? registration.registration.review.digest : "",
+        confirmed: true,
+      });
+      if (!mounted.current || epoch !== generation.current) return;
+      if (result.status === "authenticated") await onAuthenticated(result.custom_token);
     });
   }
 
@@ -134,6 +160,31 @@ export function EmailSignInSection({ disabled, onBusyChange, onExpandedChange, o
         {remaining > 0 ? `Resend in ${remaining}s` : "Send a new code"}
       </Button>
     </form> : null}
+    {view === "registration" && registration ? <div className={styles.emailForm}>
+      <h2 className={styles.emailLabel}>Start fresh</h2>
+      {registration.registration.state === "ready" ? <>
+        <p className={styles.emailHint}>Your previous account was deleted. Create a new account with this sign-in. Previous files, memory and connections will not return.</p>
+        <label className={cn(styles.emailHint, "flex items-start gap-3")}>
+          <input type="checkbox" checked={accepted} disabled={busy || disabled || submitted}
+            onChange={(event) => setAccepted(event.target.checked)} />
+          I want to create a new account.
+        </label>
+        <Button type="button" className={cn(styles.providerButton, styles.emailSubmit)}
+          disabled={!accepted || busy || disabled || submitted} onClick={() => void startFresh()}>
+          {busy ? "Creating account…" : "Create new account"}
+        </Button>
+        {submitted && !busy ? <p className={styles.emailHint}>Request a new code to reconnect and check the result.</p> : null}
+      </> : <p className={styles.emailHint}>
+        {registration.registration.state === "action_required"
+          ? "Previous account cleanup needs review before you can start fresh."
+          : "Account recovery is not ready yet. Wait a minute, then request a new code."}
+      </p>}
+      <Button type="button" variant="ghost" className={styles.emailQuietAction}
+        disabled={busy || disabled || remaining > 0}
+        onClick={() => { requestKey.current = null; void requestCode(); }}>
+        {remaining > 0 ? `Request a new code in ${remaining}s` : "Request a new code"}
+      </Button>
+    </div> : null}
     {notice ? <p role="alert" className="text-sm text-destructive">{notice}</p> : null}
     <Button type="button" variant="ghost" className={styles.emailQuietAction} disabled={busy || disabled}
       onClick={() => { reset(); setView("closed"); }}>Use another sign-in method</Button>

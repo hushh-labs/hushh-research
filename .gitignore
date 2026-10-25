@@ -223,3 +223,6 @@ gha-creds-*.json
 # Opt-in local diagnostics (for example KYC_DEBUG_LOGGING=true).
 /logs/
 *.log
+
+# Machine-local host settings stay outside the portable agent framework.
+/.agents/.local/

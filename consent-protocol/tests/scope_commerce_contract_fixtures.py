@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncIterator
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
@@ -43,6 +44,7 @@ CREATE FUNCTION clock_timestamp() RETURNS TIMESTAMPTZ LANGUAGE SQL VOLATILE AS $
  SELECT observed_at FROM contract_clock
 $$;
 CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY);
+CREATE TABLE account_deletion_tombstones(user_id_hash TEXT PRIMARY KEY, erasure_phase TEXT);
 CREATE FUNCTION update_updated_at_column() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at=now(); RETURN NEW; END $$;
 CREATE TABLE consent_audit(
@@ -150,6 +152,17 @@ def bind_authorities(
         "hushh_mcp.services.scope_commerce_requests.get_scope_generator", lambda: catalog
     )
     monkeypatch.setattr(ConsentDBService, "_get_db", lambda _self: database)
+
+    @contextmanager
+    def lifecycle_connection():
+        with database.engine.begin() as connection:
+            yield connection
+
+    # The real lifecycle lock/retirement query uses this same disposable schema.
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_deletion_lifecycle_service.get_db_connection",
+        lifecycle_connection,
+    )
 
     # Consent helpers construct the same canonical facade within caller-owned
     # transactions. Bind that facade's configured test instance too; never

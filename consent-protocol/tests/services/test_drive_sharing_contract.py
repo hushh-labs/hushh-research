@@ -51,6 +51,25 @@ def test_google_identity_does_not_require_a_drive_connection(cipher):
     assert "recipient" not in repr(recipient)
 
 
+def test_replacement_recipient_keeps_application_ownership_and_checks_external_proof(cipher):
+    owner = "acct_" + "a" * 32
+    recipient = recipient_from_verified_firebase_claims(
+        claims(), owner_user_id=owner, firebase_uid="recipient", google_provider=provider(), now=NOW
+    )
+    assert recipient.user_id == owner
+    with pytest.raises(DriveSharingError):
+        recipient_from_verified_firebase_claims(
+            claims(), owner_user_id=owner, firebase_uid="other", google_provider=provider(), now=NOW
+        )
+    record = SimpleNamespace(
+        uid="recipient", disabled=False, email="personal@example.invalid", email_verified=True
+    )
+    email_recipient = recipient_from_verified_firebase_email(
+        owner, record, firebase_uid="recipient", now=NOW
+    )
+    assert email_recipient.user_id == owner and email_recipient.subject == owner
+
+
 def test_verified_one_email_can_bind_an_owner_share_without_google_sign_in(cipher):
     user = SimpleNamespace(
         uid="recipient", disabled=False, email="personal@example.invalid", email_verified=True

@@ -18,6 +18,17 @@ from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.tools import hushh_tool
 
 
+@pytest.fixture
+def active_account(monkeypatch):
+    # These tool tests isolate grant revocation; account retirement is a separate
+    # authority, covered by the lifecycle/token suites rather than a local DB.
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
+
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _owner: False)
+
+
 class TestHushhAdkFoundation(unittest.TestCase):
     def setUp(self):
         # Mock token object
@@ -95,7 +106,7 @@ class TestHushhAdkFoundation(unittest.TestCase):
 
 
 @pytest.mark.asyncio
-async def test_async_hushh_tool_uses_db_backed_validation():
+async def test_async_hushh_tool_uses_db_backed_validation(active_account):
     """
     Async @hushh_tool decorated functions must use validate_token_with_db.
     This proves cross-instance revocation is enforced for async agent tools.
@@ -123,7 +134,7 @@ async def test_async_hushh_tool_uses_db_backed_validation():
 
 
 @pytest.mark.asyncio
-async def test_async_hushh_tool_rejects_db_revoked_token():
+async def test_async_hushh_tool_rejects_db_revoked_token(active_account):
     """
     Async @hushh_tool must reject a token that is revoked in DB
     but not in local memory — proving cross-instance revocation works.
@@ -147,9 +158,10 @@ async def test_async_hushh_tool_rejects_db_revoked_token():
             with HushhContext(user_id="user_adk_test2", consent_token=token_obj.token):
                 with pytest.raises(PermissionError):
                     await dummy_async_tool()
+    mock_service_instance.is_token_active.assert_awaited_once()
 
 
-def test_sync_hushh_tool_still_works():
+def test_sync_hushh_tool_still_works(active_account):
     """
     Sync @hushh_tool decorated functions must still work correctly.
     They now run the same DB-backed validation as async tools (driven to
@@ -177,7 +189,7 @@ def test_sync_hushh_tool_still_works():
     mock_service_instance.is_token_active.assert_awaited_once()
 
 
-def test_sync_hushh_tool_rejects_db_revoked_token():
+def test_sync_hushh_tool_rejects_db_revoked_token(active_account):
     """
     Sync @hushh_tool must reject a token revoked in DB but not in local
     memory - cross-instance revocation now holds for sync tools too.
@@ -201,6 +213,7 @@ def test_sync_hushh_tool_rejects_db_revoked_token():
             with HushhContext(user_id="user_sync_test2", consent_token=token_obj.token):
                 with pytest.raises(PermissionError):
                     dummy_sync_tool()
+    mock_service_instance.is_token_active.assert_awaited_once()
 
 
 if __name__ == "__main__":

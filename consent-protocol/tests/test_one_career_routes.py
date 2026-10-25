@@ -31,7 +31,7 @@ class _Parser:
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(monkeypatch, active_account_lifecycle):
     from unittest.mock import AsyncMock
 
     from hushh_mcp.services import owner_placement_guard as guard

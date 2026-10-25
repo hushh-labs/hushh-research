@@ -50,7 +50,7 @@ async def select(req, data):
 
 
 @pytest.fixture
-def no_secret_storage(monkeypatch):
+def no_secret_storage(monkeypatch, active_account_lifecycle):
     store = Mock(side_effect=AssertionError("intro must never store private context"))
     monkeypatch.setattr("hushh_mcp.one_adk.request_secrets.store_request_secret", store)
     return store
@@ -236,7 +236,9 @@ async def test_private_state_cannot_select_full_runner_directly():
     assert failure.value.status_code == 409
 
 
-def test_http_owner_turn_is_refused_before_session_or_provider(monkeypatch):
+def test_http_owner_turn_is_refused_before_session_or_provider(
+    monkeypatch, active_account_lifecycle
+):
     monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="byoc"))
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -312,7 +314,9 @@ def test_model_search_ingress_cannot_execute_on_shared_hub(
     assert len(matching) == 1
 
 
-async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(monkeypatch):
+async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(
+    monkeypatch, active_account_lifecycle
+):
     monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
     monkeypatch.setattr(
         agent_chat,
@@ -340,7 +344,9 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(monkeyp
     assert resolve_request_secret(data.state[STATE_PKM_CONTEXT]) == "synthetic-scoped-context"
 
 
-async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(monkeypatch):
+async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(
+    monkeypatch, active_account_lifecycle
+):
     monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
     monkeypatch.setattr(
         agent_chat,
@@ -375,7 +381,9 @@ async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(monke
     )
 
 
-async def test_selected_gmail_request_requires_owner_token_and_valid_id(monkeypatch):
+async def test_selected_gmail_request_requires_owner_token_and_valid_id(
+    monkeypatch, active_account_lifecycle
+):
     monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
     monkeypatch.setattr(
         agent_chat,

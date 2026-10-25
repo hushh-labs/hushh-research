@@ -1230,6 +1230,9 @@ class GoogleConnectionService:
         access_level: Literal["read", "manage"],
         account_id: str = "default",
     ) -> str:
+        from hushh_mcp.services.owner_placement_guard import admit_hub_content
+
+        await admit_hub_content(user_id, "google_access_token")
         if account_id != "default":
             if service != "calendar":
                 raise GoogleConnectionError(

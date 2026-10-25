@@ -5,6 +5,7 @@
  * menu and never a redirect back to the route (which proxy.ts sends back here).
  */
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const nav = vi.hoisted(() => ({
@@ -24,6 +25,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(nav.query),
 }));
 const auth = vi.hoisted(() => ({
+  userId: "owner-a",
   user: {
     uid: "owner-a",
     displayName: "",
@@ -52,6 +54,16 @@ const vault = vi.hoisted(() => ({
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));
 vi.mock("@/lib/persona/persona-context", () => ({
   usePersonaState: () => ({ personaState: null, refresh: async () => undefined }),
+}));
+// Keep the actual Profile entrypoint and hosting gate. Only replace the native
+// bridge leaf: a closed Connectors body must not prevent Profile from mounting.
+vi.mock("@/components/profile/native-profile-menu", () => ({
+  NativeProfilePresentation: ({ workspace, children, onPayoutCapability }: {
+    workspace?: { active: boolean }; children: ReactNode; onPayoutCapability?: (available: boolean) => void;
+  }) => {
+    useEffect(() => { onPayoutCapability?.(true); }, [onPayoutCapability]);
+    return <><div role="dialog" aria-label="Native Profile" />{workspace && !workspace.active ? children : null}</>;
+  },
 }));
 
 // The validated auth session and vault epoch are runtime singletons; here the
@@ -82,12 +94,12 @@ import { VaultService } from "@/lib/services/vault-service";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ReferralService } from "@/lib/services/referral-service";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  publishValidatedAuthSessionOwner(auth.user.uid);
+  publishValidatedAuthSessionPrincipal({ firebaseUid: auth.user.uid, ownerId: auth.userId, accountGeneration: 0 });
   nav.query = "profile_pane=1&profile_panel=world-model";
   // Profile's own background reads (identity, vault, discoverability) answer
   // "not found"; this test is about what the pane shows, not those reads.
@@ -103,7 +115,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionPrincipal(null);
   vi.restoreAllMocks();
 });
 
@@ -114,6 +126,21 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
+  it("keeps the complete information-access payment owner in the native Profile handoff", async () => {
+    nav.query = "profile_pane=1&profile_panel=payouts";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    render(<StepProgressProvider><ProfilePage presentation="native-page"
+      nativeMenuOpen paneLocation={{ panel: "payouts", detail: null }} /></StepProgressProvider>);
+    expect(await screen.findByText("Information access")).toBeInTheDocument();
+  });
+  it("mounts native Profile independently of the closed Connectors hosting gate", async () => {
+    nav.query = "profile_pane=1";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    render(<StepProgressProvider><ProfilePage presentation="native-page"
+      nativeMenuOpen paneLocation={{ panel: null, detail: null }} /></StepProgressProvider>);
+    expect(await screen.findByRole("dialog", { name: "Native Profile" })).toBeInTheDocument();
+  });
+
   it("opens Invite friends in the existing Profile stack without leaving the workspace", async () => {
     nav.query = "profile_pane=1";
     window.history.replaceState(null, "", `/one?${nav.query}`);

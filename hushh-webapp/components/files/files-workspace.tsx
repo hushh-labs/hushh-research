@@ -33,9 +33,9 @@ import {
 
 
 export function FilesWorkspace() {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const { hosting, connectionError } = useFilesConnection(user?.uid, vaultKey, vaultOwnerToken);
+  const { hosting, connectionError } = useFilesConnection(userId ?? undefined, vaultKey, vaultOwnerToken);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [folders, setFolders] = useState([{ id: "root", name: "Files" }]);
   const [cursor, setCursor] = useState("");
@@ -57,7 +57,7 @@ export function FilesWorkspace() {
   const actionPending = useRef(false);
   const parent = folders[folders.length - 1]?.id ?? "root";
   const available = Boolean(
-    user?.uid && vaultKey && vaultOwnerToken && hosting,
+    userId && vaultKey && vaultOwnerToken && hosting,
   );
   const visibleEntries = entries.filter((entry) =>
     entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
@@ -126,16 +126,16 @@ export function FilesWorkspace() {
           if (!signal.aborted) setLoading(false);
         });
     return () => work.current.abort();
-  }, [available, user?.uid, load, hosting]);
+  }, [available, userId, load, hosting]);
 
   useEffect(() => {
     setFolders([{ id: "root", name: "Files" }]);
     setTrash(false);
     setPanel(null);
-  }, [user?.uid, available]);
+  }, [userId, available]);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!userId) return;
     let cancelled = false;
     void ApiService.getPersonalAgentStatus()
       .then((status) => {
@@ -154,7 +154,7 @@ export function FilesWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid]);
+  }, [userId]);
 
   useBackLayer(
     ROUTES.ONE_FILES,
@@ -391,7 +391,7 @@ export function FilesWorkspace() {
                 ) : null}
                 {visibleEntries.map((entry) => (
                   <FilesEntryRow
-                    key={`${user?.uid}:${parent}:${entry.id}`}
+                    key={`${userId}:${parent}:${entry.id}`}
                     entry={entry}
                     busy={
                       busy ||
@@ -483,7 +483,7 @@ export function FilesWorkspace() {
         />
         <FilesDetailsDialog
           panel={available ? panel : null}
-          ownerId={user?.uid}
+          ownerId={userId ?? undefined}
           signal={work.current.signal}
           settings={settings}
           busy={busy || Boolean(edit)}

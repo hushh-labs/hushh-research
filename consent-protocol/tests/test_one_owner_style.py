@@ -155,7 +155,9 @@ def test_closed_schema_accepts_the_bounds_and_sanitizes_to_one_paragraph():
 
 
 @pytest.mark.parametrize("unlocked", [True, False])
-async def test_route_admits_style_as_an_opaque_turn_reference(monkeypatch, unlocked):
+async def test_route_admits_style_as_an_opaque_turn_reference(
+    monkeypatch, unlocked, active_account_lifecycle
+):
     from fastapi import HTTPException
     from starlette.requests import Request
 

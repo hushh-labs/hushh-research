@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: vaultMocks.user, loading: false }),
+  useAuth: () => ({ user: vaultMocks.user, userId: vaultMocks.user?.uid ?? null, loading: false }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

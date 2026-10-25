@@ -18,7 +18,7 @@ from hushh_mcp.services import world_model_source_review as sources
 @pytest.mark.parametrize("boundary", ["read", "dispatch"])
 @pytest.mark.parametrize("moves_private", [False, True])
 async def test_source_reviews_revalidate_placement_after_checkpoint_work(
-    monkeypatch, boundary, moves_private
+    monkeypatch, boundary, moves_private, shared_hub_owner
 ):
     import time
     from unittest.mock import Mock

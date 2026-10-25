@@ -33,7 +33,8 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
-    user: { uid: "user_1" },
+    user: { uid: "firebase-identity" },
+    userId: "user_1",
   }),
 }));
 

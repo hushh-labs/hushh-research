@@ -186,6 +186,7 @@ async def verify_cloud_default(*, gemini_default: str) -> dict[str, str | int]:
     from hushh_mcp.runtime_providers import azure_openai  # noqa: PLC0415
     from hushh_mcp.runtime_providers.factory import build_managed_runtime_client  # noqa: PLC0415
     from hushh_mcp.runtime_providers.owner_gemini import build_owner_gemini_client
+    from hushh_mcp.services.pod_ai_effective_connection import cloud_default_fingerprint
     from hushh_mcp.services.pod_ai_selection import AiSelectionRefused  # noqa: PLC0415
 
     azure = azure_openai.owner_azure_model()
@@ -212,6 +213,7 @@ async def verify_cloud_default(*, gemini_default: str) -> dict[str, str | int]:
             if pod_user_adc_enabled()
             else build_managed_runtime_client(provider)
         )
+    fingerprint = cloud_default_fingerprint(provider, model)
     response = await asyncio.wait_for(
         client.aio.models.generate_content(
             model=model,
@@ -222,8 +224,11 @@ async def verify_cloud_default(*, gemini_default: str) -> dict[str, str | int]:
     )
     if not isinstance(getattr(response, "text", None), str) or not response.text.strip():
         raise ValueError("PROVIDER_EMPTY_RESPONSE")
+    if cloud_default_fingerprint(provider, model) != fingerprint:
+        raise AiSelectionRefused("AI_DEFAULT_CONFIGURATION_CHANGED")
     return {
         "defaultProvider": provider,
         "defaultModel": model,
         "checkedAtMs": int(time.time() * 1000),
+        "connectionFingerprint": fingerprint,
     }

@@ -73,7 +73,7 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
   useLayoutEffect(() => { live.current = { model, mode, appearance, privacy, onCancel, onFallback, onDraft }; });
   type Presentation = NativeProfileScenePresentation<NativePhoneProjection, NativePhoneEdit, NativePhoneAction, undefined>;
   const replica = useRef<{ identity: NativePhoneIdentity; presentation: Presentation; sequence: number;
-    editRevision: number; composing: boolean; fingerprint: string | null } | null>(null);
+    editRevision: number; composing: boolean; fingerprint: string | null; backReleased: boolean } | null>(null);
   const actions = useCallback((): NativeProfileSceneActions<NativePhoneEdit, NativePhoneAction, undefined> => ({
     edit: event => {
       const current = replica.current, model = live.current.model;
@@ -97,11 +97,19 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
       return { kind: "retained" };
     },
     saved: () => undefined,
-    cancel: () => live.current.onCancel(),
+    cancel: () => {
+      // Scene cancellation is invoked only after confirmed native retirement.
+      // Release this mounted layer before the route owner unwinds Back, or
+      // it consumes its own cancellation and calls the same owner again.
+      const current = replica.current;
+      if (!current || current.backReleased) return;
+      current.backReleased = true;
+      live.current.onCancel();
+    },
   }), []);
   const publish = useCallback(() => {
     const current = replica.current, next = live.current;
-    if (!current || !next.model.current() || !next.appearance || !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId)) return;
+    if (!current || current.backReleased || !next.model.current() || !next.appearance || !next.privacy || !nativeProfileSceneCanPrepare(next.privacy, current.identity.scene, current.identity.destinationId)) return;
     const { model } = next;
     const state = { ...current.identity, ...next.appearance, privacyGeneration: next.privacy.generation,
       draftRevision: current.sequence + 1, acknowledgedEditRevision: current.editRevision,
@@ -133,17 +141,21 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
       if (!current) return;
       setPhase(next); if (next === "fallback") live.current.onFallback();
     }, false, state => ({ ...state, draft: { ...state.draft }, countries: state.countries.map(option => ({ ...option })) }), () => isCurrent() && nativeProfileActionsAllowed());
-    replica.current = { identity, presentation, sequence: 0, editRevision: 0, composing: false, fingerprint: null };
+    replica.current = { identity, presentation, sequence: 0, editRevision: 0, composing: false, fingerprint: null, backReleased: false };
     void presentation.listen().then(ready => { if (ready && isCurrent()) publish(); });
     return () => { current = false; if (replica.current?.identity === identity) replica.current = null; void presentation.retire(); };
   }, [destinationId, model.ready, epoch, generation, presentationBlocked, active, plugin, actions, publish]);
   useLayoutEffect(() => { publish(); });
   useBackLayer(pathname, 100, () => {
     const current = replica.current;
+    if (current?.backReleased) return false;
     if (!current || live.current.model.busy) return true;
     if (live.current.model.step === "code") { live.current.model.returnToPhoneNumber(); return true; }
     void current.presentation.retire().then(retired => {
-      if (retired && replica.current === current && nativeDrawerOwnerIsCurrent(current.identity)) live.current.onCancel();
+      if (retired && replica.current === current && !current.backReleased && nativeDrawerOwnerIsCurrent(current.identity)) {
+        current.backReleased = true;
+        live.current.onCancel();
+      }
     });
     return true;
   }, destinationId ? { profile_pane: "1" } : undefined);

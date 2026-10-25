@@ -1101,6 +1101,7 @@ def _reviewed_body(**changes):
 
 def test_a_reviewed_drive_write_needs_the_unlocked_owner_and_an_explicit_confirmation(
     monkeypatch,
+    shared_hub_owner,
 ):
     client, app, execute = _reviewed_drive_app(monkeypatch)
     path = "/api/one/drive/reviewed-actions/execute"

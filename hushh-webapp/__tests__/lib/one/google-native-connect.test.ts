@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 /**
  * Native Google connect: PKCE on Hussh's phone client, state checked, the code
  * sent only to the agent's own door, and a web visitor sent to their phone.
@@ -32,12 +33,23 @@ beforeEach(() => {
   ownerPodRequest.mockReset();
   ownerPodRequest.mockResolvedValue(new Response(JSON.stringify({ connectorId: 'gmail', status: 'connected' })));
   owner.uid = 'owner';
+  publishValidatedAuthSessionPrincipal({ firebaseUid: owner.uid, ownerId: owner.uid, accountGeneration: 0 });
   nativeOpen.mockReset();
   nativeOpen.mockRejectedValue(new Error('SIGN_IN_CANCELLED'));
   vi.stubEnv("NEXT_PUBLIC_GOOGLE_IOS_CONNECTOR_CLIENT_ID", IOS_CLIENT);
 });
 
 describe("google native connect", () => {
+  it("binds transition authority to the application owner and preserves Firebase proof identity", async () => {
+    const ownerId = "acct_" + "f".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: owner.uid, ownerId, accountGeneration: 1 });
+    await connectGoogleConnector("gmail", { platform: "ios", vaultOwnerCapability: CAPABILITY,
+      openAuthSession: async () => { throw new Error("SIGN_IN_CANCELLED"); } });
+    expect(apiFetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body).user_id).toBe(ownerId);
+    expect(owner.uid).toBe("owner");
+  });
+
   it('requires the mounted owner capability before admission or Google authorization', async () => {
     const openAuthSession = vi.fn();
     await expect(connectGoogleConnector('gmail', { platform: 'ios', openAuthSession })).resolves.toEqual({ ok: false, code: 'PRIVATE_AGENT_UNLOCK_REQUIRED' });

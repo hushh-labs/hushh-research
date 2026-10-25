@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { publishValidatedAuthSessionPrincipal } from "../../lib/auth/session-owner";
 import type { User } from "firebase/auth";
 
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -12,6 +13,9 @@ const user = {
   providerData: [{ providerId: "password" }],
   getIdToken: async () => "visual-fixture-token",
 } as User;
+
+// The real vault flow requires an admitted application owner, including in layout fixtures.
+publishValidatedAuthSessionPrincipal({ firebaseUid: "setup-v10-visual-fixture", ownerId: "setup-v10-visual-fixture", accountGeneration: 0 });
 
 createRoot(root).render(
   root.dataset.flow === "delete" ? <LostVaultDeletePanel user={user} onBack={() => undefined} /> :

@@ -1,51 +1,5 @@
 # Private-pod readiness: CTO decision memo
 
-## Current decision — 24 October 2026
-
-**The application correction is on main and accepted on dev and UAT.
-Installed-pod and desktop acceptance remain separate.**
-
-| Surface | Verified state |
-| --- | --- |
-| Main | [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as `ca83c0bf5a` through authorized Admin queue bypass; [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/40037466640) and [landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40040728656) passed |
-| Dev | [Run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106) accepted `ca83c0bf5a`, both services; schema, provenance and semantic checks passed. Accepted revisions: backend `00214-nn5`, frontend `00181-mpz`, both 100% |
-| UAT | [Run 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175) accepted `ca83c0bf5a`; schema, provenance, semantics and Drive-worker attestation passed. Corporate ADC confirms backend `02497-zic` / frontend `02054-lkq`, both 100% |
-| Pod image | Genuine Dev29 image `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by dev run `40041198106`; no eligible existing-owner upgrades or Browser qualification pins |
-| Current dev | Corporate ADC at 00:49 UTC confirms peer run `40043378889` advanced both services to `e4840d1915`, containing these fixes; backend `00216-ssx` / frontend `00183-tg9`, both 100% |
-| Desktop | [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23): approved CI review and passing Nix checks; broader Python failures prevent merge. Five introduced failures have a focused local correction; seven affected checks pass and the old keychain fixture fails four negative controls |
-
-The current release preserves earlier Hosting/AI/cleanup and provider-correct
-model routing. It fixes the Puppy picker’s 12-second presentation deadline versus
-the desktop’s 15-second activation poll: cached choices remain usable while one
-bounded foreground readiness request continues. Owner/view changes cancel stale
-observation; no inference, new grant or artificial keepalive is added.
-
-UAT’s earlier failed promotion returned HTTP 200 after 19.2 seconds, beyond the
-operator’s 15-second deadline. The merged repair permits two bounded 30-second
-read-only attempts; disabled or malformed capabilities still refuse promotion.
-A later peer rollout accepted the prior application; the original failure remains
-historical evidence. Workflow head, selected application and installed pod are
-separate identities. Peer main through `dcc4f611e3`, including Azure-search, public-source research
-and lost-vault changes, is inherited on the preserved branch. Those later changes
-are not claimed as part of UAT’s `ca83c0bf5a` acceptance. The active ADK tree remains
-preserved.
-
-The combined local core passed in 783 seconds: 25,018 backend tests, 143 skips,
-and frontend/security/governance/MCP/integration checks. Exact-head hosted
-Protocol completed in 28m15s. The accepted dev rollout took 20m20s, including
-497 seconds for backend/image construction and 114 seconds for frontend build.
-These are individual observations, not completion-time guarantees.
-
-Synthetic recovery from predecessor `8b846022…68ac07` to Dev29 passed on both
-clouds, preserving identity, records, Files and 15 encrypted objects. Disposable
-services/resource groups, vault and temporary images were removed and read back;
-GCP’s seven-day object soft-delete retention is reported separately. These are
-format-recovery receipts, not normal startup, active-work drain or Browser proof.
-Other predecessors remain unqualified. An approved offer and normal owner
-installation are still required. Installed Browser and full Puppy inference
-are not established by application deployment. Production, stable publication
-and automatic owner upgrades remain held.
-
 ## Visual Context
 
 Start with the [Founder/CTO diagram guide](../architecture/README.md#founder-and-cto-diagram-guide)
@@ -62,6 +16,334 @@ consent, placement and updates. Puppy runs inference on the granted machine
 through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
+
+## Current decision — 24 October 2026
+
+**The surgical correction remains on the preserved infrastructure branch; it is
+not the application currently serving dev or UAT. Installed Browser and Puppy
+acceptance remain separate.**
+
+[PR #8437](https://github.com/hushh-labs/hushh-research/pull/8437) carries this
+correction. Its first hosted run found stale application-owner test admission,
+a genuine unresolved-identity avatar crash, and missing pgvector in the native
+migration-test installation. The repair keeps generation admission explicit,
+guards the avatar read and provisions the matching PostgreSQL prerequisite;
+it does not skip migration 033 or weaken owner checks. The original crash fails
+the new regression when restored. All 21 affected web files have passing focused
+evidence across the repair runs; TypeScript and changed-source lint pass.
+Chromium and WebKit connector fixtures pass six cases each. The RCA command now
+observes existing hosted CI by default; exact-head/current-attempt clearance
+remains mandatory, and a local full suite requires explicit execution. Its 58
+focused tests pass. These repairs still require the finished candidate's hosted
+validation and deployment; no serving or installed-owner claim follows.
+
+Hosted run [40152110805](https://github.com/hushh-labs/hushh-research/actions/runs/40152110805)
+finished unsuccessfully after 33 minutes 29 seconds. Two serial browser packs
+reached their 30-minute job bound after unmet fixture admission; the runner did
+not spend that time provisioning an owner cloud. Corrected Connections tests
+completed 130 cases in 1.9 minutes; all eight keyboard cases subsequently passed
+after establishing keyboard modality explicitly in WebKit. The actual null-crash
+repair and generation fences remain unchanged. Eighteen Drive request/question
+cases pass across both engines. Current AI selection passes 16 responsive cases
+plus eight reduced-viewport checks; retired artwork and unavailable-provider
+assertions were replaced with the current provider selection/validation contract.
+These are synthetic interface checks, not cloud or native-keyboard acceptance.
+
+The follow-up run [40155958370](https://github.com/hushh-labs/hushh-research/actions/runs/40155958370)
+finished after **30 minutes 32 seconds**: 22 jobs passed, including backend,
+all three full frontend shards, Web Core, both native builds, security and
+governance. Its three failing browser shards contained 15 vault/deletion cases
+whose synthetic fixtures did not establish the current application principal.
+The real admission guard remains unchanged. Those fixtures now publish the exact
+synthetic generation-0 principal or consume the complete session response.
+Focused proof passes 28 vault cases, four additional recovery/provider-layout
+cases, 12 deletion outcomes and both-engine sign-out; two shared-port reuse cases
+also pass. These are synthetic provider outcomes, not live cloud cleanup.
+
+Backend passed 23,685 parallel cases in 686.13 seconds and 1,777 shared-database
+cases in 760.62 seconds, with the existing 143 skips. The serial phase preserves
+isolation against documented PostgreSQL catalog races. iOS completed in 24 minutes
+6 seconds, overlapping backend. The pending repaired candidate reuses unchanged application/core evidence and
+still requires its own hosted clearance before release. A measured scanner hot
+path now prefilters exact literals per file while retaining every regex, AST check
+and allowlist. On the same tracked checkout, it completed in 8.325 seconds versus
+81.864 seconds, with identical output and zero findings; all 32 nearest runtime
+settings cases pass, including ordered violations and boundary near-misses. This
+is local scanner evidence, not a claim that total hosted CI is ten times faster.
+Task-owned layout bundles were removed after verification; peer processes and
+user-level tool installations remain untouched.
+
+Run [40158496907](https://github.com/hushh-labs/hushh-research/actions/runs/40158496907)
+then passed all 24 non-backend jobs, including all four browser shards, before the
+backend step reached its 32-minute limit. Its parallel phase passed 23,685 cases
+in 967.16 seconds; no test failure was reported before the following serial phase
+timed out. The source correction runs these existing phases in separate jobs,
+each with its own PostgreSQL service, and requires both in the aggregate. Local
+standalone execution remains complete by default. All 99 nearest gate/path cases
+and four actual runner-fixture cases pass. This is source/focused evidence; the
+combined candidate still needs hosted clearance.
+
+Concurrent main [PR #8441](https://github.com/hushh-labs/hushh-research/pull/8441)
+is preserved through merge `361bef3229`: its phone-field alignment and shorter
+confirmation copy coexist with the lifecycle guards. The combined preview passed
+77 focused cases and four Chromium/WebKit phone/deletion cases. Canonical Back
+checks passed all 501 cases; combined Back/Search review receipts are regenerated.
+No broad source replacement or owner installation occurred.
+
+Main then advanced through [PR #8442](https://github.com/hushh-labs/hushh-research/pull/8442)
+to `ac37448c00` while the final push was running. Hosted run 40162104720
+correctly refused a stale combined Back receipt before expensive dependent
+suites. Merge `83ea60dc2b` preserves the incoming finance behavior and the
+shared API wrapper's lifecycle fences. The combined tree passes 168 frontend
+cases and 79 affected backend cases; no migration changed. All 501 Back cases pass and combined Back/Search receipts are regenerated.
+That candidate’s [run 40162519198](https://github.com/hushh-labs/hushh-research/actions/runs/40162519198)
+passed all 27 jobs. Its two backend phases overlapped and completed in 10m36s,
+with 25,468 passes and 143 skips. This does not establish the later combined candidate.
+
+The final Admin preflight then refused main drift: [PR #8440](https://github.com/hushh-labs/hushh-research/pull/8440)
+added immutable migration 417 and financial-summary behavior. The integration
+preserves it and moves only the unapplied lifecycle chain to 418–421. Both
+canonical 417 and retained dev 972 rehearsals, plus affected Drive PostgreSQL cases,
+pass 49 cases. Two replacement-generation packet regressions fail before the fix;
+proper Firebase/application-principal separation then passes 144 nearby frontend
+cases. All 501 Back cases pass. Combined generated contracts and fresh exact-head
+hosted validation are required before landing.
+
+Main `3895a3d902` is now preserved through merge `fd67dcd5c9`, including its approved
+PWM lead policy and privacy-safe probe diagnostics. Its 99 affected backend cases
+pass. The retained ADK branch is unchanged at `48140fcd70`. The task-owned HTTPS
+Browser fixture has been removed with verified Worker/subdomain absence; its
+earlier HTTP controls do not certify installed Browser execution.
+
+At 03:43 UTC on 25 October, read-only corporate ADC inspection found both dev
+and UAT backend/frontend services serving main `3895a3d902` at 100% traffic.
+That concurrent governed rollout is preserved; it does not contain this branch's
+surgical correction. The earlier 01:38 UTC configuration inspection found
+`PERSONAL_AGENT_ENABLED=true` in dev and absent in UAT. Twelve hours of bounded request logs contained five UAT
+`/byoc/authorize/begin` responses with HTTP 503, while setup-status and suggestion
+reads succeeded. No matching dev requests appeared in that bounded window; this
+does not establish dev onboarding success or the cause of a separate dev failure.
+
+The local repair consumes the existing status capability before offering cloud
+authorization, preserves assignments and pending work, keeps Shared selectable,
+and explains the known environment refusal without transient retry advice. It
+also fences attach/direct-ingress retries when the surface is paused. UAT needs
+explicit non-stable pod publication, owner-cloud identities, qualified custody
+and lifecycle configuration before BYOC can be enabled. Copying dev's simulation
+block or changing only the master flag is not an acceptable rollout.
+
+Main `b2ee968a59ab` is preserved through merge `c1861b4ae2`, including its parallel
+UAT frontend handoff and stronger SQL proof. The new SQL tests exposed admission
+resetting erasure's statement timeout; the repair restores the erasure budget
+before destructive batches. All five real PostgreSQL cases passed in 2.51 seconds.
+The preceding candidate passed web-core in 144.85 seconds and governance in 134.6
+seconds; changed-surface checks follow the additional repair. These are local
+results, not exact-candidate hosted or serving acceptance.
+
+`.agents` and root `AGENTS.md` are the single authored development framework.
+Repository vendor discovery directories, adapters, startup hooks and generated
+host fleets have been removed. User-level tool installations, the external shared
+handoff and peer edits remain preserved.
+
+Main’s later financial-packet change owns migration 416. The unapplied lifecycle
+chain is now 418–421, preserving main’s additional financial-summary migration 417;
+its canonical successor marker is `/420`. Historical
+measurements below retain their original numbering. Both canonical-416 and rich-dev-972 retained-state upgrades passed on the new
+chain in 94.68 seconds. Main’s affected backend cases passed86 tests and its
+packet interface passed35 tests; these do not replace hosted validation.
+
+Read-only live catalog inspection at 01:43 UTC found 22 dev and 413 UAT
+account-deletion records. Neither serving table yet has the new durable
+provider-operation/identity-hash fields or account-generation authority. These
+counts do not prove external cleanup or identify currently affected people.
+Historical recovery must reconcile retained evidence; missing records cannot be
+converted into confirmed provider revocation. Both task-owned SQL proxies exited
+and their downloaded executable was removed after the read.
+
+### Earlier local evidence (historical checkpoints)
+
+The preserved infrastructure branch now includes observed main `163ddb96a33e`
+through merge `912592cf7d`, without dropping main content or overwriting peer edits.
+The dependency-relevant native Profile/phone/device changes from local ADK are
+reconciled in `e95fd03b25`; the rest of that branch remains preserved. The former ADK checkout is no longer present; its local branch
+`feat/adk-orchestration-runtime` retains 20 unique commits at `48140fcd70`.
+Do not describe that checkout as active or assume the remote ADK ref contains its
+local work. Local changes add truthful
+pod connection metadata and replayable cloud-default verification, fence stale
+settings reads, bound AG-UI input before SDK validation, strengthen GCP adoption,
+refuse unconfirmed owner-token revocation checks and bind Admin preflight to an
+exact source attempt. Compatible mail/Python dependency patches are local too;
+the standalone mail deployment remains a separate target.
+
+Focused validation passed 363 backend cases, 90 frontend cases and TypeScript
+checking. Hermes's corrected aggregate passed 68 classifier/aggregate cases.
+These checks are not the final core mirror, hosted candidate validation or
+installed-owner acceptance. The subsequent collection-count refinement has its
+own affected verification; it does not dismiss the constrained Zod advisory.
+
+The cleanup worker, ordinary-use fences and atomic erasure consumer are now
+composed locally. Refresh intent and replacement custody survive cancellation
+and lease recovery; watch-before-revoke and uncertain-effect refusal remain
+enforced. Purpose-bound status and the privacy UI preserve identity during
+cleanup and require exact local-erasure terms. Latest affected checks passed
+**260 backend** and **167 frontend** cases, including real PostgreSQL and
+API/auth/UI continuity. The forward chain is registered locally but remains unapplied;
+replacement-account authority and combined installed acceptance remain on the
+critical path. Bounded Hermes source repairs
+also passed their affected suites; successful local Python checks do not replace
+exact-candidate hosted Python/Nix or an installed Puppy journey.
+
+The local generation authority now passed two real PostgreSQL erase/enroll cycles
+with clock-skew fencing, concurrent enrollment, immutable history and retired
+UPDATE refusal. Its deliberate missing-guard negative control fails. Firebase
+admission preserves the verified identity separately from the captured application
+owner; session status exposes both plus generation. The latest affected backend
+suite passed 262 cases. Frontend admission now separates the unchanged Firebase
+identity from the application owner across AuthProvider, vault custody, identity
+cache, pod transport, model selection and sign-in navigation. Focused checks cover
+same-UID replacement, late observers/token responses, scoped revocation and recovery;
+143 auth/identity/vault cases, 10 API cases, 7 sign-in cases and 34 pod-transport cases
+passed. The vault entry, Hosting/setup and mounted One runtime now use the admitted
+application owner too. Additional focused suites passed 148 vault-entry/auth,
+75 onboarding and 39 runtime/recovery cases; these overlap and are not an additive
+total. Pending identities without an application owner stay on recovery. TypeScript
+and changed-source lint passed. Enrollment stays disabled while remaining application callers and the combined
+candidate are qualified. Federated and purpose-bound email recovery are now
+implemented locally; they have not been deployed.
+Device/passkey mints now preserve external UID while carrying captured owner/lane;
+101 focused device/passkey/auth cases passed, including retired-owner refusal and
+unavailable-authority distinction. Email now captures its generation and explicit purpose before delivery;
+existing identities cannot be recreated if they disappear during code entry. The Hosting return-only
+Back/Finish regression passes 16 focused navigation cases. These are source checks,
+not installed or serving acceptance.
+
+The subsequent local deletion correction binds preparation, bank revocation,
+submission and recovery to one admitted principal/browser episode. Late results
+cannot invalidate another episode or change its onboarding cookies. The deletion
+transport leaves lifecycle settlement to that captured operation; the real API
+wrapper plus AuthProvider confirms a lost response without a false uncertain state.
+The affected frontend suite passed 304 cases; TypeScript and changed-source lint
+passed. Migration 417 now journals remote identity writes and blocks replacement
+activation while they remain unresolved. Two real PostgreSQL erase/enroll cycles
+passed with late settlement and forged-nonce refusal. The no-retry identity update
+transport passed 232 affected backend cases, including one physical POST under
+lost responses, errors and redirects. These remain local source/fixture results;
+no installed image or environment acceptance is inferred.
+
+The latest local registration slice binds explicit Start fresh approval to the
+retired generation, qualified cleanup and immutable authentication/review receipt.
+Google, Apple and Microsoft require independently fresh sign-in; unknown historical
+cleanup stays Action required. The real API/AuthProvider recovery withdraws stale
+application admission and reconciles an uncertain response without automatic replay.
+Full-account deletion retains Firebase's UID in every environment. The latest
+focused checks passed 248 backend, 379 frontend and 41 native privacy cases; these
+counts overlap earlier suites. A 127.87-second disposable PostgreSQL rehearsal
+passed two erase/enroll cycles, changed-proof replay refusal and pending-write
+recovery. TypeScript and changed-source lint passed. This is local source evidence;
+remaining owner consumers and installed acceptance still precede activation.
+Email enrollment now commits exact proof consumption and activation together,
+mints afterward, then rechecks policy, owner and expiry before releasing a token.
+The 46 email cases passed on disposable PostgreSQL. A 127.76-second full-schema
+two-cycle rehearsal passed concurrent email enrollment, old-code refusal, response
+loss and fresh-email registration; 112 frontend/API cases passed. These results
+remain local and overlap prior focused suites.
+
+The next local owner-consumer pass uses the admitted application owner throughout
+Profile/Memory, Files, Puppy placement, initial contacts, setup settlement, vault
+methods and notifications. Firebase User remains the external identity and token
+source. Same-UID replacement cases cover Memory, contacts, Files, Puppy and push
+registration/sign-out. The focused owner suites passed 142 cases, Files/Puppy 27,
+and notification/auth 259; these overlap other evidence and are not a combined
+acceptance total. Changed-source lint and TypeScript passed. Combined UI review
+receipts were regenerated after main/ADK reconciliation and UI contract verification
+passed. The four affected Profile/phone/native/device suites passed 280 cases across
+the corrected fixture retry; TypeScript and changed-source lint passed. Activation remains off.
+
+SDK reads now translate the exact captured application owner to Firebase identity
+without replacing owner keys in application records. The focused SDK-read suite
+passed 547 cases, with its remaining Drive case passing after an explicit test-only
+lifecycle fixture repair. Four directory cases include real PostgreSQL projection
+and warm-cache retirement refusal. Conditional WorkOS/HushhTech custom-auth paths
+now refuse generation-enabled execution explicitly; 133 affected cases passed.
+These are bounded source checks, not deployed registration acceptance.
+
+Cloud-only removal now has a draft forward recovery contract (419): approval,
+execution admission and unapproved cancellation serialize on the existing owner
+locks. Cancellation restores only the exact inert snapshot and retains history;
+the legacy restoration and deprovision paths cannot bypass the review. Azure
+checks dispatch before owner-access destruction and at SQL worker admission;
+GCP carries the captured attempt. The affected backend suite passed 212 cases,
+including real PostgreSQL cancellation/approval concurrency; the cleanup interface
+passed 14 cases. Forward migrations 416–419 are now registered locally with
+matching exact production/UAT and minimum-dev contracts; they remain unapplied.
+Canonical 418 adopts the final private-agent schema from the accepted dev lineage,
+without replaying historical Shared inference or destructive chat cutover. Recovery
+is 419; applied parked SQL and checksums remain unchanged. The nine-case PostgreSQL
+suite passed in 86.30 seconds, including canonical-411 and rich-dev-972 upgrades,
+retained credential/review/resource state, non-owner backend permissions, client
+refusal, unknown authority-object refusal and forward-only rollback. The 206-case
+migration/binding/dev-lane/data-model slice passed. These are local PostgreSQL 14.21
+results, not hosted PostgreSQL 16, provider removal or installed acceptance.
+The strengthened 82-case replay/authority suite passed in 92.34 seconds, including
+retained consent/referral records and the historical-replay negative controls.
+Actual release-contract catalog checks passed for production, dev and UAT against
+both disposable schema lineages. After fresh main claimed 412–415 for recovery
+indexes, this unapplied chain moved to 416–419; both cases passed again in 86.03
+seconds. Main integration and final combined qualification remain. Activation stays off.
+
+The native upstream autofix workflow separately failed to open its generated PR
+because Actions cannot create PRs in this repository. Main stayed unchanged.
+Its unreviewed `bot/js-autofix` branch is not part of the accepted native image;
+retain the patch for manual review. Do not broaden repository permissions. A
+canonical-repository guard with artifact-only output is the bounded follow-up.
+
+The remaining critical path is durable provider cleanup before local erasure,
+cancel-safe cloud removal, environment-local account generations, then installed
+Browser/Puppy acceptance and the governed main → dev → UAT sequence. Keep the
+Firebase identity stable; replacement-account authority must never be inferred
+from an email or by clearing a retired account's tombstone. The existing
+[deletion runbook](../operations/account-deletion-rollout.md) retains this boundary.
+
+| Surface | Verified state |
+| --- | --- |
+| Prior accepted release | [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as `ca83c0bf5a` through authorized Admin queue bypass; [exact-head CI](https://github.com/hushh-labs/hushh-research/actions/runs/40037466640) and [landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40040728656) passed |
+| Dev | [Run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106) accepted `ca83c0bf5a`, both services; schema, provenance and semantic checks passed. Accepted revisions: backend `00214-nn5`, frontend `00181-mpz`, both 100% |
+| UAT | [Run 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175) accepted `ca83c0bf5a`; schema, provenance, semantics and Drive-worker attestation passed. Corporate ADC confirms backend `02497-zic` / frontend `02054-lkq`, both 100% |
+| Pod image | Genuine Dev29 image `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by dev run `40041198106`; no eligible existing-owner upgrades or Browser qualification pins |
+| Last verified serving state | Corporate ADC at 12:41 UTC confirms peer rollouts serve `2732b301cc9e` on dev and UAT. Dev: backend `00222-scm` / frontend `00189-7jk`; UAT: backend `02519-jul` / frontend `02082-svf`; all 100%. Provenance identifies [dev run 40085364751](https://github.com/hushh-labs/hushh-research/actions/runs/40085364751) and [UAT run 40087949679](https://github.com/hushh-labs/hushh-research/actions/runs/40087949679). This is serving evidence, not acceptance of the local surgical follow-up |
+| Live lifecycle schema | Read-only corporate ADC/catalog inspection at 12:42 UTC confirms dev has 39 registry columns and the cloud-removal authorities; UAT has 31 registry columns and no cloud-removal table/functions. Neither has account generations. Both owned inspection proxies exited. This confirms the forward-graduation prerequisite; no live schema or owner records were changed |
+| Desktop | [Hermes PR #23](https://github.com/hushh-labs/hussh-one-hermes/pull/23) merged by the normal path at `d42ced4d5f70`. Exact-head [CI 40083504664](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40083504664) and [Nix](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40083504327) passed; Python completed in 26m23s with the full discovered suite. [Landed fresh-sync](https://github.com/hushh-labs/hussh-one-hermes/actions/runs/40085556487) passed in 3m28s, logged the exact landed checkout and passed 450 guard tests. The native checkout now tracks main with the identical file tree; the finished feature branch was deleted after ancestry proof. No runtime restart or installed Puppy acceptance is claimed |
+
+The accepted application preserves earlier Hosting/AI/cleanup and provider-correct
+model routing. It fixes the Puppy picker’s 12-second presentation deadline versus
+the desktop’s 15-second activation poll: cached choices remain usable while one
+bounded foreground readiness request continues. Owner/view changes cancel stale
+observation; no inference, new grant or artificial keepalive is added.
+
+UAT’s earlier failed promotion returned HTTP 200 after 19.2 seconds, beyond the
+operator’s 15-second deadline. The merged repair permits two bounded 30-second
+read-only attempts; disabled or malformed capabilities still refuse promotion.
+A later peer rollout accepted the prior application; the original failure remains
+historical evidence. Workflow head, selected application and installed pod are
+separate identities. Peer main through `dcc4f611e3`, including Azure-search, public-source research
+and lost-vault changes, is inherited on the preserved branch. Those later changes
+are not claimed as part of UAT’s `ca83c0bf5a` acceptance. The local ADK branch remains preserved; the former checkout is absent.
+
+The combined local core passed in 783 seconds: 25,018 backend tests, 143 skips,
+and frontend/security/governance/MCP/integration checks. Exact-head hosted
+Protocol completed in 28m15s. The accepted dev rollout took 20m20s, including
+497 seconds for backend/image construction and 114 seconds for frontend build.
+These are individual observations, not completion-time guarantees.
+
+Synthetic recovery from predecessor `8b846022…68ac07` to Dev29 passed on both
+clouds, preserving identity, records, Files and 15 encrypted objects. Disposable
+services/resource groups, vault and temporary images were removed and read back;
+GCP’s seven-day object soft-delete retention is reported separately. These are
+format-recovery receipts, not normal startup, active-work drain or Browser proof.
+Other predecessors remain unqualified. An approved offer and normal owner
+installation are still required. Installed Browser and full Puppy inference
+are not established by application deployment. Production, stable publication
+and automatic owner upgrades remain held.
 
 ### Current account-specific findings
 
@@ -150,7 +432,7 @@ keep the control unavailable. The historical account-deletion HTTP 500 was on ol
 source and its underlying exception was not captured. No personal cloud has been
 deleted to qualify this UI.
 
-Browser startup/viewport repair is in source, but the installed Dev28 owner journey
+Browser startup/viewport repair is in source, but the final installed owner journey
 remains unqualified. Research, preview, takeover, handback, reconnect and Stop must
 pass on each exact installed image. Login, remembered sessions, selected PKM and
 Files transfers retain separate acceptance. The 30-second cold target is an
@@ -163,20 +445,30 @@ explicit lifecycle before promising a fresh start.
 
 ## Security
 
-GitHub's refreshed inventory has **three open dependency alerts**: two
-OpenTelemetry records and Zod alert #507. Seven patched alerts are closed, with
-none manually dismissed. The pinned ADK cap excludes the
-fixed version. Incoming vendor `tracestate` is ignored at the public propagator
-boundary while preserving traceparent/outbound context. This is mitigation, not
-upstream remediation. The protected worker accepts verified pending concurrency
-states without weakening exact repository/workflow/run/attempt/SHA binding. Its
-receipt cannot replace successful PR validation. Repository-secret removal is
-verified; original-token revocation remains separately unverified.
+At 01:37 UTC on 25 October, GitHub reports **15 open dependency alerts**
+(4 high, 5 moderate and 6 low): four records in the standalone mail lock,
+five each in the Python lock and requirements export, and one frontend record.
+Compatible fixes remain on this branch, so they must not be counted as resolved
+on main or on the separately deployed mail service. The dated seven-day inventory
+ending 00:05 UTC records **165 fixed alert records**, representing 103 distinct
+advisories and 81 CVEs across the repository; this is not attribution to one agent.
+The exact-candidate secret scan finds no leaks and zero open secret-scanning
+alerts. These inventories are not substitutes for deployed acceptance.
+
+The remaining constrained OpenTelemetry and Zod findings retain explicit
+mitigations. The pinned ADK cap excludes the fixed telemetry version. Incoming
+vendor `tracestate` is ignored at the public propagator boundary while preserving
+traceparent/outbound context; this is mitigation, not upstream remediation. The
+protected worker preserves exact repository/workflow/run/attempt/SHA binding and
+cannot replace successful PR validation. Repository-secret removal was verified;
+original-token revocation remains separately unverified.
 
 AG-UI's nested Zod 3 remains affected even though root Zod 4 is patched. A forced
 major override is incompatible with the current SDK contracts. No compatible
-published dependency-only fix was found; pre-parser frame bounding remains a
-mitigation follow-up, not an implemented patch or a reason to dismiss the alert.
+published dependency-only fix was found. Local pre-parser byte/depth/collection
+and SSE-frame bounds passed their affected SDK-consumer checks; this is a
+mitigation awaiting candidate deployment, not an upstream fix or a reason to
+dismiss the alert.
 
 Earlier accepted application receipts remain historical evidence:
 [PR #8365](https://github.com/hushh-labs/hushh-research/pull/8365) and
@@ -347,11 +639,16 @@ paid work; spending thresholds warn without stopping service.
    clearance through the governed command. Keep current receipts on the canonical
    task; successful application suites remain retained during a gate-only retry.
    PR #8395 is on main and dev acceptance includes owner Back/Finish, removal
-   review and an actual One answer. Complete the corrected exact-application UAT
-   promotion, read back serving state, then reconcile board and Wiki evidence.
-2. **Security owner:** retain the two ADK-constrained OTEL records and Zod #507;
-   seven patched records are closed. Original-token revocation
-   remains separately unverified; the exposed repository secret is retired.
+   review and an actual One answer. The later dated serving receipt above covers
+   dev/UAT `e4840d1915`; complete the surgical follow-up's own candidate validation
+   and acceptance before replacing that evidence.
+2. **Security owner:** the refreshed research-repository inventory has 15 open
+   records at 12:07 UTC on 24 October (4 high, 5 medium, 6 low); local compatible
+   patches cover 12, with two ADK-constrained OTEL
+   records and nested Zod remaining tracked. Earlier closed alerts are historical
+   evidence, not clearance for this inventory. Original-token revocation remains
+   separately unverified; the exposed repository secret is retired. The native
+   Hermes fork's 314 records are a separate inventory.
 3. **Browser owner:** exact installed-image public research, review, preview,
    takeover, resume, reconnect and Stop remain separate acceptance on each cloud.
    Keep unqualified capabilities unavailable; no expanded feature work blocks this correction.
@@ -360,11 +657,11 @@ Reuse unchanged Puppy evidence: 320 Chromium/WebKit responsive cases, shared
 760 px ribbon/composer, 0 px edge discrepancy, 44 px controls and no overflow.
 Do not rerun it for backend/doc-only changes.
 
-Main integration and landed-SHA smoke are verified through `9af321d2a9`.
-The current application correction has healthy dev provenance/schema/semantic
-receipts and real owner Back/Finish acceptance. Exact-SHA UAT acceptance
-requires the corrected candidate after rollback; earlier receipts do not replace
-its successful terminal result. Production, stable publication,
+Earlier main integration and landed-SHA smoke were verified through `9af321d2a9`.
+The current serving application is `2732b301cc9e`, as dated above. The local
+surgical candidate has not landed or deployed; its own main/dev/UAT validation
+and installed-owner acceptance remain required. Earlier provenance, schema,
+semantic and owner Back/Finish receipts do not replace those checks. Production, stable publication,
 automatic owner upgrades, managed Hussh provisioning and unqualified hosting moves
 remain unavailable. Broader Files/connector/voice/update/erasure lifecycle evidence,
 general schedules and economic qualification stay tracked in the

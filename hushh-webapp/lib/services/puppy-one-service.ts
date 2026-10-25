@@ -18,6 +18,13 @@
  * owner's machine reported in", which is the fact a person actually wants.
  */
 
+import { boundAgentResponse } from "./agent-event-boundary";
+
+/** Local-host chat only; the server route retains the loopback credential. */
+export async function fetchPuppyChatStream(init?: RequestInit): Promise<Response> {
+  return boundAgentResponse(await fetch("/api/hermes/chat/stream", init));
+}
+
 export interface PuppyStatus {
   connected: boolean;
   reason?: string;

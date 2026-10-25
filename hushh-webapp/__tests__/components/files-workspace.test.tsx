@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { files, fileEntry } from "../fixtures/files-workspace";
+import { files, fileEntry, session } from "../fixtures/files-workspace";
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import type { FileEntry } from "@/lib/files/service";
 import { FilesLocalError } from "@/lib/files/local-error";
 import { toast } from "sonner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 
 describe("Files form submission", () => {
@@ -27,6 +28,14 @@ describe("Files form submission", () => {
       state: "active",
     });
   });
+  it("opens the replacement owner's library without using its Firebase UID as storage ownership", async () => {
+    session.ownerId = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: session.ownerId, accountGeneration: 1 });
+    render(<FilesWorkspace />);
+    await waitFor(() => expect(files.list).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "New folder", exact: true })).toBeEnabled();
+  });
+
   it("waits for the initial library read before enabling file actions", async () => {
     let completeRead!: (value: {
       entries: FileEntry[];

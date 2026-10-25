@@ -15,6 +15,7 @@ import {
   ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE,
   AccountDeletionOutcomeUncertainError,
   AccountDeletionInProgressError,
+  AccountDeletionPendingError,
 } from "@/lib/flows/delete-account";
 import type { AccountResetResult } from "@/lib/services/account-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
@@ -155,7 +156,7 @@ export type LifecycleOutcome =
 
 /** Classify what `executeVerifiedAccountDeletion` threw. */
 export function classifyDeletionError(error: unknown): "blocked_external" | "failed" | "unknown" | "in_progress" {
-  if (error instanceof AccountDeletionInProgressError) return "in_progress";
+  if (error instanceof AccountDeletionInProgressError || error instanceof AccountDeletionPendingError) return "in_progress";
   if (error instanceof AccountDeletionOutcomeUncertainError) return "unknown";
   if (
     error instanceof ApiError &&

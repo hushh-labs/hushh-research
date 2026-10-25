@@ -24,6 +24,7 @@ import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemin
 import { ApiService } from "@/lib/services/api-service";
 import {
   clearAgentAiSelectionFor,
+  readAgentAiSelection,
   sendAiSelectionToAgent,
   aiSelectionRefusalMessage,
   shareGeminiSelectionWithAgent,
@@ -131,6 +132,31 @@ export function useGeminiRuntimeSettingsModel({
   const { placement, refreshPlacement } = useAiPlacement(captureOwnerGuard, setCloudAiVerified);
   const privateCloud = placement === "gcp" || placement === "azure";
   const defaultLabel = privateCloud ? "Use existing cloud" : "Use Hussh AI";
+  const selectionRevisionRef = visit.selection;
+  const selectionPendingRef = visit.pending;
+  const validationPendingRef = visit.validating;
+  useEffect(() => {
+    if (!privateCloud) return;
+    let alive = true;
+    const ownerIsCurrent = captureOwnerGuard();
+    const selectionRevision = selectionRevisionRef.current;
+    const currentRead = () => alive && ownerIsCurrent()
+      && selectionRevisionRef.current === selectionRevision
+      && !selectionPendingRef.current && !validationPendingRef.current;
+    if (currentRead()) setCloudAiModel(null);
+    void readAgentAiSelection(currentRead).then((selection) => {
+      if (!currentRead()) return;
+      const effective = selection?.effectiveConnection;
+      if (effective?.source !== "cloud_default" || effective.state !== "configured") {
+        setCloudAiModel(null); setCloudAiVerified(false); return;
+      }
+      setCloudAiModel(effective.model);
+      setCloudAiVerified(effective.verification === "previously_verified");
+    }).catch(() => {
+      if (currentRead()) { setCloudAiModel(null); setCloudAiVerified(false); }
+    });
+    return () => { alive = false; };
+  }, [privateCloud, placement, captureOwnerGuard, setCloudAiModel, setCloudAiVerified, selectionRevisionRef, selectionPendingRef, validationPendingRef]);
   const [showAiAlternatives, setShowAiAlternatives] = useOwnerPresentationState(visit, false);
   const [pendingAiProviders, setPendingAiProviders] = useOwnerPresentationState<Record<string, boolean>>(visit, EMPTY_PENDING_AI_PROVIDERS);
   const externalAiPending = Object.values(pendingAiProviders).some(Boolean);
@@ -153,9 +179,6 @@ export function useGeminiRuntimeSettingsModel({
   const [credentialValidation, setCredentialValidation] =
     useOwnerPresentationState<CredentialValidationState>(visit, IDLE_VALIDATION);
   const credentialRevisionRef = visit.credential;
-  const selectionRevisionRef = visit.selection;
-  const selectionPendingRef = visit.pending;
-  const validationPendingRef = visit.validating;
   const [loadFailed, setLoadFailed] = useOwnerPresentationState(visit, false);
   const [hasExplicitSelection, setHasExplicitSelection] = useOwnerPresentationState(visit,
     !requiresExplicitSelection || initiallyConfigured,
@@ -900,7 +923,7 @@ export function GeminiRuntimeSettingsView({ model }: { model: GeminiRuntimeSetti
               hasExplicitSelection={hasExplicitSelection}
               otherProvider={Boolean(otherProvider)}
               cloudAiVerified={cloudAiVerified}
-              modelLabel={cloudAiVerified ? model.cloudAiModel : null}
+              modelLabel={model.cloudAiModel}
               onSelect={() => {
                 if (!requiresExplicitSelection ||
                   (selectedOption === "hushh_managed_vertex" &&

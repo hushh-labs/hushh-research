@@ -1,6 +1,37 @@
 # Private agent: normal release transition
 
-**Current delivery — 24 October 2026:**
+**Current surgical follow-up — 24 October 2026:** the preserved branch includes
+main `24545d1dc2`, preserving the earlier `44d8efecaf` and `b2ee968a59ab` integrations. Peer source and historical
+migration bytes remain intact. Canonical 418–421 carry the unapplied lifecycle
+correction; main’s financial migrations 416 and 417 remain byte-for-byte unchanged.
+`.agents` is the sole authored development framework. The combined
+correction is not merged or deployed. The [readiness memo](../../reference/quality/adk-orchestration-docs-audit.md)
+owns current serving readback and verification; older receipts below are history.
+
+**BYOC availability correction:** serving UAT omits the private-agent master flag
+and legitimately refuses cloud authorization; its frontend nevertheless offers
+setup and hides the typed refusal. The bounded repair consumes authoritative
+availability, prevents doomed retries and preserves Shared and pending choices.
+Dev has the flag enabled; its complete journey still needs acceptance.
+
+**UAT pod graduation precedes enablement:** extend the existing release authority
+with an explicit non-stable UAT channel and `deploy-uat` provenance, publish and
+preserve the exact qualified image in UAT's repository, and configure UAT-owned
+broker/invoker identities, OAuth returns and independent feed signing. Separate
+BYOC runtime flags from dev simulation. Never copy dev's master-key storage,
+shared pod identity, phone bypass, managed hosting or automatic signup creation.
+Canonical schema replay alone is insufficient. Dev archive reuse cannot silently
+be relabelled as a UAT publication. Browser's environment qualification and actual
+UAT owner custody/recovery require separate proof before offering that capability.
+
+The correction release follows exact-candidate hosted validation, Admin SOP,
+landed-SHA smoke, governed dev acceptance and UAT promotion. Replacement enrollment
+stays disabled until generation-aware consumers and live two-cycle acceptance
+pass. Historical incomplete cleanup remains repairable and must not be marked
+complete to bypass enrollment. No production, stable or automatic owner upgrade
+is authorized.
+
+**Prior accepted delivery:**
 [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as
 `ca83c0bf5a` after exact-head CI and authorized Admin preflight. Landed-SHA smoke
 passed. [Dev run 40041198106](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106)
@@ -28,7 +59,8 @@ corrects the strict managed-provider receipt consumer to match the actual build
 graph; live UAT capture passed. Duplicate PR #8399 was closed and its CI cancelled.
 Checkpoint `050687dac1` exactly preserved main's committed tree; subsequent
 PR #8401 corrections passed exact validation and landed through Admin SOP. Nine peer
-paths and the active ADK tree remain preserved. No production deployment, stable
+paths remain preserved. Local ADK branch `feat/adk-orchestration-runtime` retains
+20 unique commits at `48140fcd70`; its former checkout is absent. No production deployment, stable
 publication, owner installation or destructive cloud cleanup is implied.
 
 The current application correction includes Hosting return/Finish, explicit
@@ -44,19 +76,18 @@ boundary. No VM migration, separate Browser service or artificial keepalive.
 
 ## Current gate and execution order
 
-**Ship the safe foundation to main, then qualify it in UAT.** Main does not wait
-for advanced Browser information sharing, remembered logins, every cloud lifecycle
-rehearsal or a new capacity study. Preserve those designs and keep unqualified
-execution unavailable. This supersedes the broader acceptance gate below wherever
-it would delay the MVP. Production remains outside this authorization.
+**Finish the bounded surgical correction, then release through main → dev → UAT.**
+The previously accepted foundation does not certify this local follow-up. Complete
+generation-aware authority and interfaces, freeze a dependency-complete main/ADK
+integration, run one local core mirror and exact-head hosted validation, then use
+the authorized Admin release path. Dev acceptance includes disposable cleanup and
+registration, exact owner installations, signed-in Browser and one Puppy/Gemma 12B
+journey. Promote the accepted application revision to UAT with serving readback.
+Production and stable publication remain unauthorized.
 
-The current correction has completed local verification, exact-head validation,
-Admin landing, landed smoke and dev acceptance. The selected UAT promotion and corporate-ADC serving
-readback are complete. The earlier 15-second email-readiness
-refusal is historical; the bounded operator correction is merged and preserves
-strict capability admission. A workflow head alone is insufficient.
 The source recovery controller observes one exact execution; provider cancellation
 cannot qualify from a later worker receipt, and uncertain work is never replayed.
+No source-only result or green aggregate substitutes for installed acceptance.
 
 The protected security consumer runs immutable main code with exact-attempt
 binding. Initial requested events avoid repeated trigger starts; verified pending
@@ -68,13 +99,14 @@ production mail service. The
 [canonical task](https://github.com/hushh-labs/hushh-research/issues/5507) tracks
 current delivery without replacing the readiness memo's evidence.
 
-Same-login re-registration is staged separately. Non-production currently shares
-production Firebase identity authority, whose destructive mutation guard must
-remain enforced. Shared Firebase identifiers may remain; same-UID re-registration
-requires environment-scoped account generations across sessions, grants, jobs
-and database writes. Isolated identity projects remain an alternative. Qualify
-that lifecycle before advertising re-registration. Never reattach owners
-by email, clear full-account tombstones or use account reset to revive deletion.
+Same-login re-registration keeps the shared Firebase UID and uses environment-local
+application-owner generations. Retired tombstones remain immutable. Explicit
+Start fresh requires qualified prior cleanup and independently fresh identity
+proof; email uses its captured purpose-bound mailbox challenge. Activation stays
+off until generation-aware sessions, grants, devices, callbacks, jobs, vaults and
+writers qualify. Drain legacy consumers first. Never reattach ownership by email,
+clear full-account tombstones or use account reset to revive deletion. Full-account
+deletion retains the external Firebase identity in every environment.
 
 Azure installed Dev28; its startup/resize repair still needs a new qualified image
 and exact owner approval. GCP inventory, storage protection and domain access have
@@ -92,9 +124,12 @@ separate from this application correction.
 | Existing users | Preserve Shared, BYOC and pending choices; unchanged flags remain safe | UAT smoke of the affected cohorts |
 | Release | Generated contracts, core mirror and exact-head required CI; reviewed main integration | Landed-SHA smoke, dev receipt and governed UAT deployment |
 
-Advanced logins, remembered sessions, selected-PKM production, broader website
-coverage, general schedules, capacity comparisons and retained synthetic erasure
-qualification are follow-ups. Their incomplete paths remain fenced. Existing
+The signed-in Browser MVP requires public research, direct control, manual-login
+observation suppression, opt-in remembered-session recovery/Forget, exact reviewed
+actions, reconnect and joined Stop on each installed cloud image. Selected-PKM
+disclosure, Browser-to-Files downloads, broad website compatibility, general
+schedule expansion and new capacity studies remain separately gated. Their
+incomplete paths remain unavailable. Existing
 repairable deletion failures must never be reported as completed cleanup.
 Publishing a release does not install it; every owner installation still needs
 exact approval. Stable publication and production deployment remain unauthorized.

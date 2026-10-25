@@ -179,6 +179,25 @@ private Drive worker deployment/attestation (7). That worker reuses the pinned
 backend image; this is not a second image build. Frontend builds already overlap
 backend preparation in both environments. Step medians are not additive estimates.
 
+### Protocol partition correction — 25 October 2026
+
+[Run 40158496907](https://github.com/hushh-labs/hushh-research/actions/runs/40158496907)
+passed all 24 other jobs, including the four browser shards, but reached the
+32-minute backend step limit. Its 23,685 parallel cases passed in 967.16 seconds;
+the following serial database phase had not finished. The preceding run completed
+both phases in 686.13 and 760.62 seconds. No test failure was reported before the
+timeout. These are individual observations, not a new reliability percentile.
+
+The correction keeps one manifest/classifier and separates the existing phases:
+`Protocol (Python)` runs static/generated/security checks, parallel tests and
+whole-tree collection; `Protocol Database` runs the same serial database list on
+its own runner and PostgreSQL service. Both are mandatory for changed backend
+sources. Missing, skipped, cancelled, failed and timed-out selected work refuses
+clearance. The runner's explicit `PROTOCOL_TEST_PARTITION` is `parallel` or
+`database` in hosted CI; default `all` retains the complete local/upstream order.
+No tests or isolation checks were removed and no timeout was increased. Hosted
+latency remains to be measured on the combined candidate.
+
 ### Failure causes and next improvements
 
 - **PR preparation:** missing Live Memory impact declarations and an unauthorized
@@ -216,6 +235,13 @@ counts, cache observations and failure causes. Reuse existing run timestamps and
 release receipts; add no monitoring workflow or scheduled test loop for this review.
 
 ## Automatic native release cadence
+
+**Surgical lifecycle release hold (2026-10-24, source candidate):**
+`config/release-cadence.json` sets `enabled: false` so this dev/UAT correction
+cannot automatically publish production or native releases. Manual governed
+deployments remain available. Retain the accounting ledger, baseline run and
+monitor improvements; resuming automatic publication is a separate release decision.
+This source setting does not prove a running controller has adopted the hold.
 
 `UAT Release Cadence` observes completed `Deploy to UAT` runs in a separate
 workflow. UAT never waits for that observer, a native build, production deployment,
@@ -593,11 +619,18 @@ also runs the web dependency install, is bounded at 8 minutes and retries a
 failed browser install once, so a stalled apt mirror or browser download
 fails the shard early instead of holding a runner to the job limit.
 
-Failed final Wallet layout runs retain `wallet-layout-failures-<matrix-label>`
-for seven days: only the synthetic workspace fixture's trace, failure screenshot
-and error context are admitted. Protected reviewer journeys must never enter
-these artifacts. Earlier commands can clear their output; this does not prove
-retention for preceding packs or failures that pass on retry.
+Failed synthetic Wallet and connected Calendar layout runs retain
+`synthetic-layout-failures-<matrix-label>` for seven days: only those fixtures'
+traces, failure screenshots and error context are admitted. Protected reviewer
+journeys must never enter these artifacts. Earlier commands can clear their
+output; this does not prove retention for preceding packs or failures that pass
+on retry.
+
+Calendar's lock regression holds the next Schedule response while asserting that
+the prior private view is cleared, then releases distinct fresh information.
+This distinguishes stale private DOM from a new Firebase-authorized read, which
+Schedule supports while the vault is locked; it does not relax the whole-page
+privacy assertion.
 
 Fail-fast contract:
 
@@ -897,7 +930,7 @@ the workflow can then be deleted.
 | Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
 | Upstream Sync | Detect consent-protocol subtree drift against upstream | Advisory only; warnings are non-blocking |
 | Main Freshness Gate (job name `Base Freshness Gate`) | Keep a branch's base fresh enough that what CI tested is what lands | Pull requests into `main`: `MAIN_SYNC_MODE: bounded`, blocking when the merge-base is over 24 h old or, after the base its checks tested, `main` changed a file the PR changes ([details](#base-freshness-on-pull-requests)). Pull requests into `integration/pr-train` and every `merge_group`: `block`, failing any lag. Feeds `CI Status Gate` |
-| CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`), because GitHub reads a skipped required check as a pass. Fails if any job fails, is cancelled or times out. Every lane the path filters (or a dispatch scope) select must have **succeeded**: Web Core, Web Targeted Contracts, Web Full Suite (Vitest) and Integration for frontend; Protocol, MCP Package and Integration for backend; the iOS and Android native lanes; Web Editor Performance (macOS) for `editor`. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO must succeed on every run, and a pull request also needs PR Base Policy and, into `main` or `integration/pr-train`, Base Freshness Gate. Lanes the filters did not select may be skipped. A dispatch publishes the separate dev-only `Branch Validation Gate` and fails for partial or unknown scopes ([Dispatched runs](#dispatched-runs)). Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py`, which runs the gate's own script |
+| CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`), because GitHub reads a skipped required check as a pass. Fails if any job fails, is cancelled or times out. Every lane the path filters (or a dispatch scope) select must have **succeeded**: Web Core, Web Targeted Contracts, Web Full Suite (Vitest) and Integration for frontend; Protocol, MCP Package and Integration for backend, including Protocol Database; the iOS and Android native lanes; Web Editor Performance (macOS) for `editor`. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO must succeed on every run, and a pull request also needs PR Base Policy and, into `main` or `integration/pr-train`, Base Freshness Gate. Lanes the filters did not select may be skipped. A dispatch publishes the separate dev-only `Branch Validation Gate` and fails for partial or unknown scopes ([Dispatched runs](#dispatched-runs)). Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py`, which runs the gate's own script |
 
 Operational note:
 

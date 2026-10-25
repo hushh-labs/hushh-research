@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, verify_user_id_match
 from api.utils.firebase_admin import get_firebase_auth_app
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
 from hushh_mcp.services.support_email_service import (
     SupportEmailDeliveryUncertainError,
     SupportEmailNotConfiguredError,
@@ -53,7 +54,8 @@ async def send_support_message(
             raise HTTPException(status_code=503, detail={"code": "ACCOUNT_LOOKUP_UNAVAILABLE"})
         from firebase_admin import auth as firebase_auth
 
-        account = await run_in_threadpool(firebase_auth.get_user, firebase_uid, app=app)
+        identity_uid = await run_in_threadpool(firebase_uid_for_owner_read, firebase_uid)
+        account = await run_in_threadpool(firebase_auth.get_user, identity_uid, app=app)
         verified_email = (
             str(account.email).strip()
             if getattr(account, "email_verified", False) and getattr(account, "email", None)

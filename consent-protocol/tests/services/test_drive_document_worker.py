@@ -223,6 +223,7 @@ async def test_unsupported_live_file_does_not_block_next_file_for_same_owner(mon
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    monkeypatch.setenv("DRIVE_EXTRACTION_OWNER_SLOTS", "1")
     service = SimpleNamespace(
         run_one=AsyncMock(
             side_effect=[

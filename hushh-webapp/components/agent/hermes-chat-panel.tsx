@@ -30,6 +30,7 @@ import {
 import {
   PUPPY_ONE_INSTALL_URL,
   fetchPuppyStatus,
+  fetchPuppyChatStream,
   type PuppyLink,
   type PuppyStatus,
 } from "@/lib/services/puppy-one-service";
@@ -305,6 +306,7 @@ export function HermesChatPanel({
     try {
       const agent = new HttpAgent({
         url: "/api/hermes/chat/stream",
+        fetch: async (_url, init) => fetchPuppyChatStream(init),
         initialMessages: [
           { id: crypto.randomUUID(), role: "user", content: message },
         ],

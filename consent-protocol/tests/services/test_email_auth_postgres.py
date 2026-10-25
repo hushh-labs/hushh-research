@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -581,6 +582,90 @@ def test_firebase_otp_issue_rechecks_canonical_identity_before_mint(monkeypatch,
         with pytest.raises(EmailAuthError):
             FirebaseEmailIdentity().issue(user.uid, "person@example.com")
         assert minted == []
+
+
+@pytest.mark.asyncio
+async def test_captured_existing_identity_is_never_recreated_after_external_deletion(
+    config, monkeypatch
+):
+    from unittest.mock import AsyncMock, Mock
+
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    store = SimpleNamespace(
+        verification_budget=AsyncMock(), challenge=AsyncMock(), consume=AsyncMock()
+    )
+    identity = SimpleNamespace(
+        verify_mailbox=Mock(
+            side_effect=EmailAuthError("account_unavailable", "Sign in again.", 409)
+        ),
+        provision=Mock(),
+        find=Mock(side_effect=AssertionError("must use captured UID")),
+    )
+    service = EmailAuthService(config, store, Evaluator(), identity)
+    service.approve_domain = AsyncMock()
+    row = {
+        "challenge_id": "captured-proof",
+        "domain": "example.com",
+        "destination_hash": "opaque-destination",
+        "expires_at": datetime.now(UTC),
+        "expected_uid": "captured-existing-uid",
+        "user_id": "captured-existing-uid",
+        "account_generation": 0,
+        "purpose": "login",
+        "identity_lane": "development",
+        "identity_reserved": False,
+        "destination_ciphertext": service.cipher.seal(
+            "person@example.com", "destination:captured-proof"
+        ),
+    }
+    store.challenge.return_value = row
+    store.consume.return_value = row
+    with pytest.raises(EmailAuthError):
+        await service.verify(row["challenge_id"], "001234", secrets.token_urlsafe(32))
+    identity.verify_mailbox.assert_called_once_with("captured-existing-uid", "person@example.com")
+    identity.provision.assert_not_called()
+    identity.find.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_enrollment_does_not_release_a_token_when_post_mint_policy_check_fails(
+    config, monkeypatch
+):
+    from unittest.mock import AsyncMock, Mock
+
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    store = SimpleNamespace(
+        verification_budget=AsyncMock(),
+        challenge=AsyncMock(),
+        confirm_registration=AsyncMock(
+            return_value={"owner_id": "new-captured-owner", "generation": 1}
+        ),
+        release_registration_token=AsyncMock(
+            side_effect=EmailAuthError("domain_not_approved", "Domain approval is required.", 403)
+        ),
+    )
+    identity = SimpleNamespace(
+        verify_mailbox=Mock(), issue=Mock(return_value="must-not-be-released")
+    )
+    service = EmailAuthService(config, store, Evaluator(), identity)
+    store.challenge.return_value = {
+        "expected_uid": "same-external-uid",
+        "destination_ciphertext": service.cipher.seal(
+            "person@example.com", "destination:enrollment-proof"
+        ),
+    }
+    with pytest.raises(EmailAuthError, match="approval"):
+        await service.complete_registration(
+            "enrollment-proof",
+            secrets.token_urlsafe(32),
+            secrets.token_urlsafe(32),
+            "a" * 64,
+            "fixture",
+        )
+    store.confirm_registration.assert_awaited_once()
+    identity.issue.assert_called_once_with("new-captured-owner", "person@example.com")
+    store.release_registration_token.assert_awaited_once()
 
 
 @pytest.mark.asyncio

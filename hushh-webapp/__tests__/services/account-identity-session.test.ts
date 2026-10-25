@@ -11,12 +11,16 @@ vi.mock("@/lib/services/api-client", async (importOriginal) => ({
 }));
 
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+
+function publishValidatedAuthSessionOwner(owner: string | null) {
+  publishValidatedAuthSessionPrincipal(owner ? { firebaseUid: owner, ownerId: owner, accountGeneration: 0 } : null);
+}
 
 // Exercise the actual response/cache boundary used by post-Google admission.
 describe("account identity session admission", () => {
   beforeEach(() => {
-    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("owner-a");
     refreshShadow.mockReset();
     writeIdentity.mockReset();
     claimPhone.mockReset();

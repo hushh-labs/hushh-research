@@ -42,7 +42,7 @@ function readableMethod(method: VaultMethod): string {
 
 export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
   const pathname = usePathname();
-  const { user, loading } = useAuth();
+  const { user, userId, loading } = useAuth();
   const { vaultKey, isVaultUnlocked } = useVault();
 
   const [open, setOpen] = useState(false);
@@ -58,13 +58,13 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
     [hostname]
   );
 
-  const canEvaluate = enabled && !loading && !!user?.uid && isVaultUnlocked && !!vaultKey;
+  const canEvaluate = enabled && !loading && !!userId && isVaultUnlocked && !!vaultKey;
 
   useEffect(() => {
     let cancelled = false;
 
     async function evaluatePrompt() {
-      if (!canEvaluate || !user?.uid) {
+      if (!canEvaluate || !userId) {
         if (!cancelled) {
           setOpen(false);
           setTargetMethod(null);
@@ -75,7 +75,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
       try {
         // Avoid stacking prompts on top of the first-time Kai nav tour.
         if (pathname === KAI_MARKET_PATH || pathname === ROUTES.LEGACY_KAI_HOME) {
-          const navTourState = await KaiNavTourLocalService.load(user.uid);
+          const navTourState = await KaiNavTourLocalService.load(userId);
           if (
             !navTourState?.completed_at &&
             !navTourState?.skipped_at
@@ -87,9 +87,9 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
         }
 
         const [vaultState, capability, localState] = await Promise.all([
-          VaultService.getVaultState(user.uid),
+          VaultService.getVaultState(userId),
           VaultMethodService.getCapabilityMatrix(),
-          VaultMethodPromptLocalService.load(user.uid),
+          VaultMethodPromptLocalService.load(userId),
         ]);
 
         if (cancelled) return;
@@ -110,7 +110,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
           VaultService.getWrapperByMethod(vaultState, capability.recommendedMethod) !== null;
         if (hasRecommendedWrapper) {
           await VaultMethodPromptLocalService.dismiss(
-            user.uid,
+            userId,
             capability.recommendedMethod,
             currentRpId
           );
@@ -140,7 +140,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
     return () => {
       cancelled = true;
     };
-  }, [canEvaluate, currentRpId, pathname, user?.uid]);
+  }, [canEvaluate, currentRpId, pathname, userId]);
 
   const title = useMemo(() => {
     if (!targetMethod) return "Enable faster unlock";
@@ -159,28 +159,28 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
   }, [targetMethod]);
 
   async function handleNotNow() {
-    if (!user?.uid || !targetMethod) {
+    if (!userId || !targetMethod) {
       setOpen(false);
       return;
     }
 
-    await VaultMethodPromptLocalService.dismiss(user.uid, targetMethod, currentRpId);
+    await VaultMethodPromptLocalService.dismiss(userId, targetMethod, currentRpId);
     setOpen(false);
   }
 
   async function handleEnable() {
-    if (!user?.uid || !vaultKey || !targetMethod) return;
+    if (!user || !userId || !vaultKey || !targetMethod) return;
 
     setBusy(true);
     try {
       const result = await VaultMethodService.switchMethod({
-        userId: user.uid,
+        userId: userId,
         currentVaultKey: vaultKey,
         displayName: user.displayName || user.email || "Hussh User",
         targetMethod,
       });
       await VaultMethodPromptLocalService.dismiss(
-        user.uid,
+        userId,
         result.method,
         currentRpId
       );

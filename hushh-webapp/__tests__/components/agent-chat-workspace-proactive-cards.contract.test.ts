@@ -43,7 +43,7 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(source).not.toContain("ProfileResearchCard");
     expect(source).not.toContain("backgroundCardsEnabled");
     expect(source).not.toContain("backgroundCardTurnAnchor");
-    expect(source).toContain("startSignal: Boolean(user?.uid && pendingEntryWelcome?.userId === user.uid) || Boolean(postSetupWelcomeContext)");
+    expect(source).toContain("startSignal: Boolean(applicationOwnerId && pendingEntryWelcome?.userId === applicationOwnerId) || Boolean(postSetupWelcomeContext)");
   });
 
   it("refreshes recent Drive sharing during history or explicitly opened native activity", () => {
@@ -55,7 +55,7 @@ describe("Agent One chat workspace wiring contract", () => {
     const nativeActivity = source.slice(start, start + 1000);
     expect(nativeActivity).toContain("active={isHistoryDrawerOpen || driveActivityPageOpen}");
     expect(nativeActivity).toContain("open: driveActivityPageOpen");
-    expect(source).toContain("driveActivityPage.open && driveActivityPage.owner === user?.uid &&");
+    expect(source).toContain("driveActivityPage.open && driveActivityPage.owner === applicationOwnerId &&");
     expect(source).toContain("driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface");
     expect(source).toMatch(/<NativeHistoryOpener\b[^>]*pendingAttention=\{driveReviewsPending\}/);
   });
@@ -237,7 +237,7 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
     );
     const block = normalized.slice(proposalIndex, proposalIndex + 900);
     expect(block).toContain(
-      "enqueueCalendarDirective(directive, token, user.uid);",
+      "enqueueCalendarDirective(directive, token, applicationOwnerId);",
     );
   });
 });

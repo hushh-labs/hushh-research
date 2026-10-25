@@ -78,7 +78,7 @@ describe("profile security deletion contract", () => {
     expect(deleteFlowSource).toContain("account_deletion_uncertain");
     expect(deleteFlowSource).toContain("account_delete_uncertain_unverified");
     expect(deleteFlowSource).toContain("account_delete_confirmed");
-    expect(deleteFlowSource).toContain("getAccountSessionStatus");
+    expect(deleteFlowSource).toContain("getAccountDeletionStatus");
     expect(deleteFlowSource).toContain("result?.success !== true");
     expect(deleteFlowSource).toContain("result.account_deleted !== true");
     expect(deleteFlowSource).toContain("CacheSyncService.onAccountDeleted");
@@ -199,7 +199,7 @@ describe("profile lifecycle voice settlement contract", () => {
       profilePageSource.indexOf("const handleResetClick = async ()"),
     );
     expect(resetBody.indexOf("resolveResetOutcome(result)")).toBeLessThan(
-      resetBody.indexOf("CacheSyncService.onAccountDeleted(user.uid)"),
+      resetBody.indexOf("CacheSyncService.onAccountDeleted(owner.ownerId)"),
     );
     expect(resetBody).toContain("error: (error: unknown) => resetErrorMessage(error)");
     expect(resetBody).not.toContain('error: "Failed to reset account. Please try again."');

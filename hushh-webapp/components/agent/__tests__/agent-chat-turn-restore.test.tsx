@@ -12,7 +12,7 @@ vi.mock("sonner", async (importOriginal) => {
   const actual = await importOriginal<typeof import("sonner")>();
   return { ...actual, toast: Object.assign(shell.toast, actual.toast) };
 });
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner-1" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "owner-1" }, userId: "owner-1" }) }));
 vi.mock("@/lib/vault/vault-context", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/vault/vault-context")>()),
   // Locked: the notice must still work and must reveal nothing.

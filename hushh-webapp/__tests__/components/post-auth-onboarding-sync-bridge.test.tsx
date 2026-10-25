@@ -32,7 +32,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => authState.current,
+  useAuth: () => ({ ...authState.current, userId: authState.current.user?.uid ?? null }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

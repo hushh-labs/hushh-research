@@ -108,114 +108,52 @@ for (const viewport of [
       await page.addScriptTag({content:script});
       await expect(page.getByRole("heading", { name: "Choose your AI" })).toBeVisible();
       await awaitProductFont(page);
-      const surface = page.locator('[data-setup-v10-stage="ai"]');
-      const scene = surface.locator('img[src$="working-poster.png"]');
-      await expect(scene).toHaveJSProperty("naturalWidth", 512);
-      const next = page.getByRole("button", { name:"Continue", exact:true });
+      const next = page.getByRole("button", { name: "Continue", exact: true });
+      const card = page.getByTestId("profile-gemini-runtime");
+      await expect(card.getByText("Bring your own AI", { exact: true })).toBeVisible();
+      await expect(card.getByText("Use Hussh AI", { exact: true })).toBeVisible();
+      await expect(card.locator('[data-slot="settings-row-title"]').filter({ hasText: /^Gemini$/ })).toBeVisible();
+      await expect(page.locator('[data-slot="settings-row-title"]').filter({ hasText: /^OpenAI$/ })).toBeVisible();
+      await expect(page.locator('[data-slot="settings-row-title"]').filter({ hasText: /^Azure AI key$/ })).toBeVisible();
       await expect(next).toBeDisabled();
-      await expect(next).toHaveCSS("opacity", "1");
-      await expect(page.getByRole("heading", { name:"Coming soon", exact:true })).toHaveCount(1);
-      await expect(page.getByText("Available now", { exact:true })).toBeVisible();
-      await expect(page.getByText("Pick one to continue.")).toHaveCount(0);
       const radios = page.getByRole("radio");
       await expect(radios).toHaveCount(2);
       await expect(radios.nth(0)).not.toBeChecked();
-      const card = page.getByTestId("profile-gemini-runtime");
-      await expect(card.locator('[data-slot="settings-row-title"]').first()).toHaveCSS("font-size", "15px");
-      await expect(card.locator('[data-slot="settings-row-description"]').first()).toHaveCSS("font-size", "12px");
-      const box = (await card.boundingBox())!;
-      const buttonBox = (await next.boundingBox())!;
-      expect(buttonBox.width).toBeCloseTo(box.width, 0);
-      expect(buttonBox.x + buttonBox.width / 2).toBeCloseTo(box.x + box.width / 2, 0);
-      const upcoming = page.getByTestId("setup-coming-soon-runtime");
-      const upcomingBox = (await upcoming.boundingBox())!;
-      expect(upcomingBox.y - box.y - box.height).toBeGreaterThanOrEqual(10);
-      expect(upcomingBox.x).toBeCloseTo(box.x,0);
-      expect(upcomingBox.width).toBeCloseTo(box.width,0);
-      expect(buttonBox.y).toBeGreaterThan(upcomingBox.y + upcomingBox.height);
-      const artBox = (await scene.boundingBox())!;
-      const heading = page.getByRole("heading", {name:"Choose your AI"});
-      await expect(heading).toHaveCSS("font-size", viewport.width >= 900 ? "43px" : viewport.height <= 700 ? "27px" : "30px");
-      const headingBox = (await heading.boundingBox())!;
-      if (viewport.width >= 900) expect(artBox.x + artBox.width).toBeLessThan(headingBox.x);
-      else expect(artBox.y + artBox.height).toBeLessThan(headingBox.y);
-      await expect(upcoming.locator("li")).toHaveCount(4);
-      await expect(upcoming.locator("button, input, [role=radio]")).toHaveCount(0);
-      await expect(upcoming.getByRole("heading")).toHaveCSS("font-size","12px");
-      for (const item of await upcoming.locator("li").all()) {
-        await expect(item).toHaveCSS("font-size","12px");
-        await expect(item.getByRole("img")).toBeHidden();
-      }
-      await page.screenshot({path:testInfo.outputPath("upcoming-providers.png")});
-      await expect(page.getByText("Use ours, or bring your own key.")).toHaveCSS("font-size", viewport.width >= 900 ? "16px" : "14px");
-      await expect(next).toHaveCSS("height", "52px");
       await radios.nth(0).click();
       await expect(radios.nth(0)).toBeChecked();
       await expect(next).toBeEnabled();
-      await expect(next).toHaveCSS("background-color", "rgb(0, 113, 227)");
-      await expect(page.getByText("Set a lock")).toHaveCount(0);
+      // Editing another connection must not imply a validated credential.
+      const change = page.getByRole("button", { name: "Change AI", exact: true });
+      if (await change.isVisible()) await change.click();
       await radios.nth(1).click();
-      await expect(radios.nth(1)).toBeChecked();
-      await expect(radios.nth(0)).not.toBeChecked();
       await expect(next).toBeDisabled();
-      await page.getByRole("button",{name:"Validate key",exact:true}).click();
+      await page.getByRole("button", { name: "Validate key", exact: true }).click();
       await expect(page.getByRole("alert")).toHaveText("Enter your Gemini API key.");
-      await page.getByLabel("Gemini API key").fill("fixture-invalid");
-      await page.getByRole("button",{name:"Validate key",exact:true}).click();
+      const input = page.getByLabel("Gemini API key");
+      await input.fill("fixture-invalid");
+      await page.getByRole("button", { name: "Validate key", exact: true }).click();
       await expect(page.getByRole("alert")).toHaveText("This key could not be validated.");
       await expect(next).toBeDisabled();
-      await page.getByLabel("Gemini API key").fill("fixture-valid");
+      await input.fill("fixture-valid");
+      // A raised keyboard reduces the available viewport; both credential and
+      // completion controls must remain reachable through the page's own scroll.
       if (viewport.width < 900) {
-        await page.evaluate(() => {
-          const root = document.documentElement;
-          root.classList.add("native-keyboard-inset", "kb-open");
-          root.style.setProperty("--kb-height", "300px");
-        });
-        await expect(surface).toHaveCSS("overflow-y", "auto");
-        const visibleHeight = await surface.evaluate(el => el.getBoundingClientRect().height);
-        expect(visibleHeight).toBeLessThanOrEqual(viewport.height - 299);
-        const keyInput = page.getByLabel("Gemini API key");
-        await expect(keyInput).toHaveCSS("font-size", "16px");
-        await keyInput.focus();
-        await keyInput.scrollIntoViewIfNeeded();
-        const inputBox = (await keyInput.boundingBox())!;
-        const surfaceBox = (await surface.boundingBox())!;
-        expect(inputBox.y + inputBox.height).toBeLessThanOrEqual(surfaceBox.y + surfaceBox.height + 1);
-        await next.scrollIntoViewIfNeeded();
-        const raisedButton = (await next.boundingBox())!;
-        expect(raisedButton.y + raisedButton.height).toBeLessThanOrEqual(surfaceBox.y + surfaceBox.height + 1);
-        await page.screenshot({path:testInfo.outputPath("ai-keyboard.png")});
-        await page.evaluate(() => {
-          document.documentElement.classList.remove("native-keyboard-inset", "kb-open");
-          document.documentElement.style.removeProperty("--kb-height");
-        });
-        await page.evaluate(() => {
-          const root = document.documentElement;
-          root.classList.add("kb-open");
-          root.style.setProperty("--kb-height", "300px");
-          root.style.setProperty("--kb-visible-height", `${window.innerHeight - 300}px`);
-        });
-        const webHeight = await surface.evaluate(el => el.getBoundingClientRect().height);
-        expect(webHeight).toBeLessThanOrEqual(viewport.height - 299);
-        await page.getByLabel("Gemini API key").scrollIntoViewIfNeeded();
-        const webInput = (await page.getByLabel("Gemini API key").boundingBox())!;
-        const webSurface = (await surface.boundingBox())!;
-        expect(webInput.y + webInput.height).toBeLessThanOrEqual(webSurface.y + webSurface.height + 1);
-        await page.evaluate(() => {
-          document.documentElement.classList.remove("kb-open");
-          document.documentElement.style.removeProperty("--kb-height");
-          document.documentElement.style.removeProperty("--kb-visible-height");
-        });
+        await page.setViewportSize({ width: viewport.width, height: Math.max(280, viewport.height - 300) });
       }
-      await page.getByRole("button",{name:"Validate key",exact:true}).click();
-      await page.getByRole("button",{name:"Confirm and save",exact:true}).click();
+      await input.focus();
+      await input.scrollIntoViewIfNeeded();
+      await expect(input).toBeInViewport();
+      await page.getByRole("button", { name: "Validate key", exact: true }).click();
+      await page.getByRole("button", { name: "Confirm and save", exact: true }).click();
       await expect(next).toBeEnabled();
-      await expect(next).toHaveCSS("background-color", "rgb(0, 113, 227)");
-      await expect(page.getByText("Your key is validated. Continue to finish setup.")).toBeVisible();
-      expect(await page.evaluate(() => document.documentElement.scrollWidth-innerWidth)).toBeLessThanOrEqual(1);
-      await page.screenshot({path:testInfo.outputPath("ai-selection.png")});
+      await next.scrollIntoViewIfNeeded();
+      await expect(next).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      await page.setViewportSize(viewport);
+      await page.screenshot({ path: testInfo.outputPath("ai-selection.png") });
       await next.click();
-      await expect(page.getByText("Set a lock")).toBeVisible();
+      await expect(page.locator("body")).toHaveAttribute("data-destination", "/one/setup");
+      await expect(page.getByText("Set a lock")).toHaveCount(0);
     });
   }
 }

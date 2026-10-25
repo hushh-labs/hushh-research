@@ -61,7 +61,7 @@ describe("Profile account lifecycle voice bridge contract", () => {
   });
 
   it("binds the same lifecycle flows the Profile screen uses, and nothing else", () => {
-    expect(bridge).toContain("resolveAuth: resolveDeleteAccountAuth,");
+    expect(bridge).toContain("resolveDeleteAccountAuth({ ...params, owner: owner ?? undefined })");
     expect(bridge).toContain("AccountService.resetAccount(token)");
     expect(bridge).toContain("executeVerifiedAccountDeletion({");
     expect(bridge).toContain('useVault()');

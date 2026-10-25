@@ -27,7 +27,18 @@ async def adopt_personal_agent(
     because reconnecting preserves the agent's identity and memory.
     """
     owner._require_enabled()
-    result = await owner._service().adopt_orphan(user_id=user_id)
+    from hushh_mcp.services.pod_adoption import PodAdoptionRefused
+
+    try:
+        result = await owner._service().adopt_orphan(user_id=user_id)
+    except PodAdoptionRefused:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "POD_ADOPTION_REVIEW_REQUIRED",
+                "message": "Review your hosting connection. Your existing resources have been retained.",
+            },
+        ) from None
     if not result:
         return {"adopted": False}
     return {"adopted": True, **result}
@@ -93,6 +104,17 @@ async def deprovision_personal_agent(
     """Tear down the caller's own agent. Requires the owner's VAULT_OWNER token."""
     owner._require_enabled()
     user_id = token_data["user_id"]
+    # Cloud removal requires its purpose-bound review and exact operation.
+    # The account erasure worker retains its separate qualified entrypoint.
+    row = await owner.PersonalAgentRegistryRepo().get(user_id)
+    if row and row.get("deployment_target") in {"user_gcp", "user_azure"}:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CLOUD_REMOVAL_REVIEW_REQUIRED",
+                "message": "Review cloud removal in Hosting before removing your private agent.",
+            },
+        )
     try:
         result = await owner._service().deprovision(user_id=user_id)
     except PersonalAgentDeprovisioningRequiredError as exc:

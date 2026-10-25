@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hushh_mcp.constants import ConsentScope
 from hushh_mcp.types import HushhConsentToken
 
 logger = logging.getLogger("hushh_mcp.consent.token")
@@ -31,6 +30,25 @@ async def validate_database_admission(
     # This catches tokens revoked on other Cloud Run instances
     try:
         if token_obj:
+            from hushh_mcp.runtime_settings import pod_mode
+            from hushh_mcp.services.account_deletion_lifecycle_service import (
+                AccountDeletionInProgressError,
+                AccountDeletionLifecycleService,
+                settle_cleanup_database_call,
+            )
+
+            # The hub must not admit a retained grant after deletion begins.
+            # Pods keep their existing local admission/erasure authority; this
+            # check must never introduce hub SQL access into an owner pod.
+            if not pod_mode():
+                try:
+                    deleted = await settle_cleanup_database_call(
+                        AccountDeletionLifecycleService.is_tombstoned, str(token_obj.user_id)
+                    )
+                except AccountDeletionInProgressError:
+                    return False, "ACCOUNT_DELETION_IN_PROGRESS", None
+                if deleted:
+                    return False, "ACCOUNT_DELETED", None
             from hushh_mcp.services.consent_db import ConsentDBService
 
             service = ConsentDBService()
@@ -77,35 +95,22 @@ def _database_unavailable_verdict(
     verdict: tuple[bool, str | None, HushhConsentToken | None],
     error: Exception,
 ) -> tuple[bool, str | None, HushhConsentToken | None]:
-    valid, reason, token_obj = verdict
-    # DB is unreachable — apply fail-closed policy based on token scope.
-    # VAULT_OWNER tokens get a short grace period to avoid locking users
-    # out of their own vault during brief DB hiccups.
-    # All other scoped tokens fail closed immediately — when revocation
-    # status cannot be confirmed, access to third-party data is denied.
-    is_vault_owner = token_obj is not None and (
-        token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
-    )
+    # A signature cannot establish current revocation or account-lifecycle
+    # authority. The former owner fallback had no deadline or prior successful
+    # observation and could keep retired credentials usable indefinitely.
     if is_device_bound_token:
         logger.error(
             "Device-bound owner revocation status could not be confirmed; failing closed: %s",
-            error,
+            type(error).__name__,
         )
         return (
             False,
             "TRUSTED_DEVICE_STATUS_UNCONFIRMED",
             None,
         )
-    if is_vault_owner:
-        logger.warning(
-            "DB revocation check failed for VAULT_OWNER token, applying grace period fallback: %s",
-            error,
-        )
-        return valid, reason, token_obj
-
     logger.error(
         "DB revocation check failed for scoped token, "
         "failing closed to protect consent integrity: %s",
-        error,
+        type(error).__name__,
     )
     return False, "Token revocation status could not be confirmed (DB unavailable)", None

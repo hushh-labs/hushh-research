@@ -56,7 +56,7 @@ vi.mock("@/lib/flows/delete-account", () => ({
 
 import { LostVaultDeletePanel } from "@/components/vault/lost-vault-delete-panel";
 import { ApiError } from "@/lib/services/api-client";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const PHONE = "+16505550100";
 const user = {
@@ -117,7 +117,7 @@ describe("lost vault deletion", () => {
     vi.resetAllMocks();
     mocks.native = false;
     publishValidatedAuthSessionOwner(null);
-    publishValidatedAuthSessionOwner(user.uid);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 });
     mocks.options.mockResolvedValue(phoneOptions);
     mocks.resolvePhone.mockResolvedValue(null);
     mocks.reauthenticate.mockResolvedValue("fresh-provider-token");
@@ -159,6 +159,7 @@ describe("lost vault deletion", () => {
       sessionUser: user,
       firebaseIdToken: "fresh-provider-token",
       phoneIdToken: undefined,
+      owner: expect.objectContaining({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 }),
       isCurrent: expect.any(Function),
     });
     expect(mocks.validatePhone).not.toHaveBeenCalled();
@@ -347,7 +348,7 @@ describe("lost vault deletion", () => {
       else {
         publishValidatedAuthSessionOwner(null);
         const next = action === "switch" ? { ...user, uid: "owner-2" } : user;
-        publishValidatedAuthSessionOwner(next.uid);
+        publishValidatedAuthSessionPrincipal({ firebaseUid: next.uid, ownerId: action === "same_uid_new_generation" ? "acct_" + "1".repeat(32) : next.uid, accountGeneration: action === "same_uid_new_generation" ? 1 : 0 });
         view.rerender(<LostVaultDeletePanel user={next} onBack={vi.fn()} />);
       }
       await act(async () => late.resolve("stale-phone-proof"));

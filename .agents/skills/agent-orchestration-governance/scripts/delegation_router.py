@@ -328,7 +328,7 @@ LANE_RULES: tuple[dict[str, Any], ...] = (
             "governance",
         ),
         "path_prefixes": (
-            ".codex/",
+            ".agents/",
             "tests/",
             "hushh-webapp/__tests__/",
             "consent-protocol/tests/",

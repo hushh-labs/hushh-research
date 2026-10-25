@@ -12,7 +12,7 @@ window.addEventListener("fixture:ai-choice-saved", () => {
 });
 export const useRouter = () => router;
 export const useSearchParams = () => params;
-const authSnapshot = { user: { uid: "fixture" }, signOut: noop };
+const authSnapshot = { user: { uid: "fixture" }, userId: "fixture", signOut: noop };
 export const useAuth = () => authSnapshot;
 export const useVault = () => ({isVaultUnlocked:false});
 export const useInitialContacts = () => ({ownerId:null,status:"idle",source:null,result:null});

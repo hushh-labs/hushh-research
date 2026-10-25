@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 // Only inherit the target branch when this PR changes none of this owner's
 // inputs. A missing receipt on main's combined merge must not block asset/docs PRs.
 export function unchangedFromReviewBase(root, inputs) {
-  if (!inputs) return false;
+  if (!inputs?.length) return false;
   try {
     let base = process.env.UI_CONTRACT_BASE_SHA;
     if (!base && process.env.CI === 'true') {
@@ -22,10 +22,15 @@ export function unchangedFromReviewBase(root, inputs) {
     const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: 'pipe', maxBuffer: 16 * 1024 * 1024 });
     git('merge-base', '--is-ancestor', base, 'HEAD');
     const prefix = git('rev-parse', '--show-prefix').trim();
+    const relative = file => file.startsWith(prefix) ? file.slice(prefix.length) : file;
+    const tracked = new Set(git('ls-files', '--full-name', '-z', '--', '.').split('\0').filter(Boolean).map(relative));
+    // Ignored fixture/workspace trees inherit the parent Git repository but
+    // have no reviewed inputs. Absence from Git's diff is not review evidence.
+    if (inputs.some(file => !tracked.has(file))) return false;
     const changed = [
       ...git('diff', '--name-only', '-z', '--no-renames', base, '--', '.').split('\0'),
       ...git('ls-files', '--others', '--exclude-standard', '-z', '--', '.').split('\0'),
-    ].filter(Boolean).map(file => file.startsWith(prefix) ? file.slice(prefix.length) : file);
+    ].filter(Boolean).map(relative);
     const owned = new Set(inputs);
     return !changed.some(file => owned.has(file)
       || file === 'lib/navigation/app-route-layout.contract.json'

@@ -67,7 +67,7 @@ describe("profile workspace duplication contract", () => {
     );
     expect(profilePageSource).toContain('return panel === "my-data";');
     expect(profilePageSource).toContain(
-      'enabled: Boolean(user?.uid) && !authLoading && activePanel === "gmail"',
+      'enabled: Boolean(applicationOwnerId) && !authLoading && activePanel === "gmail"',
     );
   });
 
@@ -88,11 +88,11 @@ describe("profile workspace duplication contract", () => {
     expect(memory).not.toContain("DocumentHashcoinPayouts");
     expect(profilePageSource).toContain('activePanel === "payouts"');
     expect(profilePageSource).toContain('activePanel === "request-pricing"');
-    expect(profilePageSource).toContain("<PaymentsAndEarnings key={user?.uid} />");
+    expect(profilePageSource).toContain("<PaymentsAndEarnings key={applicationOwnerId} />");
     // One bank control on Payouts: the bank rows in "Your money", the only
     // control that takes Stripe's return. A second would start setup again.
     const payoutsPanel = profilePageSource.split('activePanel === "payouts") {')[1]?.split("} else if (")[0] ?? "";
-    expect(payoutsPanel).toContain("<PaymentsAndEarnings key={user?.uid} />");
+    expect(payoutsPanel).toContain("<PaymentsAndEarnings key={applicationOwnerId} />");
     expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
     expect(paymentsSource).toContain("<ScopeCommerceAccountPanel />");
     expect(paymentsSource.match(/<DocumentHashcoinPayouts\b/g)).toEqual(["<DocumentHashcoinPayouts"]);

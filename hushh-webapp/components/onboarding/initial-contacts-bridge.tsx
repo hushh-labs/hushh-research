@@ -15,14 +15,14 @@ export function useInitialContacts() {
 
 /** Above route Suspense: accepted signup reads survive phone/setup remounts. */
 export function InitialContactsBridge() {
-  const { user, loading, sessionVerificationRequired } = useAuth();
+  const { user, userId, loading, sessionVerificationRequired } = useAuth();
   const { vaultOwnerToken } = useVault();
   const pathname = usePathname();
   const state = useInitialContacts();
   useLayoutEffect(() => {
     InitialContacts.invalidateStale();
     if (sessionVerificationRequired) InitialContacts.reset();
-  }, [user?.uid, loading, sessionVerificationRequired, state.ownerId]);
+  }, [userId, loading, sessionVerificationRequired, state.ownerId]);
   useEffect(() => {
     if (state.source === "google" && !Capacitor.isNativePlatform()) {
       void preloadGoogleContactsAuth().catch(() => undefined);
@@ -30,23 +30,23 @@ export function InitialContactsBridge() {
   }, [state.source]);
   useEffect(() => {
     if (loading || sessionVerificationRequired) return;
-    if (!user) return;
+    if (!user || !userId) return;
     let active = true;
-    void PreVaultUserStateService.bootstrapState(user.uid).then((bootstrap) => {
-      if (active && !InitialContacts.wasDismissed(user.uid)) void InitialContacts.restore(user, bootstrap).catch(() => undefined);
+    void PreVaultUserStateService.bootstrapState(userId).then((bootstrap) => {
+      if (active && !InitialContacts.wasDismissed(userId)) void InitialContacts.restore(user, bootstrap).catch(() => undefined);
     }).catch(() => undefined);
     return () => { active = false; };
-  }, [user, loading, sessionVerificationRequired, pathname, state.ownerId]);
+  }, [user, userId, loading, sessionVerificationRequired, pathname, state.ownerId]);
 
   useEffect(() => {
-    if (!user || sessionVerificationRequired || state.ownerId !== user.uid) return;
+    if (!user || !userId || sessionVerificationRequired || state.ownerId !== userId) return;
     if (["reading", "waiting_for_phone"].includes(state.status)) {
       void InitialContacts.matchWhenVerified().catch(() => undefined);
     }
-    const bootstrap = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    const bootstrap = PreVaultUserStateService.getCachedBootstrapState(userId);
     if (vaultOwnerToken && bootstrap?.setupCompleted === true && bootstrap.initialContactsWelcomeAcknowledged === false) {
       void InitialContacts.prepareCircle(vaultOwnerToken);
     }
-  }, [user, pathname, sessionVerificationRequired, vaultOwnerToken, state.ownerId, state.status, state.result]);
+  }, [user, userId, pathname, sessionVerificationRequired, vaultOwnerToken, state.ownerId, state.status, state.result]);
   return null;
 }

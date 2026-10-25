@@ -448,6 +448,21 @@ async def _sign_in(world):
     return await world.service.exchange(code="good-code", state=sign_state(API_KEY, "org_01"))
 
 
+async def test_unqualified_workos_cannot_mutate_a_generation_aware_identity(world, monkeypatch):
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
+    for operation in (
+        _sign_in(world),
+        world.service.handle_webhook(body=b"{}", signature=None),
+    ):
+        with pytest.raises(EnterpriseSsoError) as refused:
+            await operation
+        assert refused.value.code == "sso_generation_unavailable"
+    assert not world.firebase.users
+    assert not world.firebase.minted
+    assert not world.firebase.quarantined
+    assert not world.firebase.sessions_revoked
+
+
 def _event(event_type, data, event_id="event_1"):
     return json.dumps({"id": event_id, "event": event_type, "data": data}).encode()
 

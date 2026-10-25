@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 /**
  * Live 2026-10-06 04:05 UTC: the hub re-published the owner's Azure agent at
  * endpoint version 2 (same address, same key) while the browser held version 1.
@@ -108,3 +109,6 @@ describe("a waking agent during admission", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+// Fixtures represent an admitted application owner, not merely an SDK identity.
+beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 }));

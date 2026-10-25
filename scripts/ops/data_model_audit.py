@@ -22,10 +22,13 @@ RUNTIME_SCAN_ROOTS = [
     REPO_ROOT / "hushh-webapp/app",
     REPO_ROOT / "hushh-webapp/lib",
 ]
+_SQL_IDENTIFIER = r'(?:"(?:[^"]|"")+"|[a-zA-Z_][\w$]*)'
 TABLE_EVENT_RE = re.compile(
-    r"\b(?:(?:CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"
-    r"(?P<create>[a-zA-Z_][\w]*))|(?:DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"
-    r"(?:public\.)?(?P<drop>[a-zA-Z_][\w]*)))",
+    rf"\b(?:(?:CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"
+    rf"(?:(?P<create_schema>{_SQL_IDENTIFIER})\s*\.\s*)?(?P<create>{_SQL_IDENTIFIER}))"
+    rf"|(?:DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?"
+    rf"(?:(?P<drop_schema>{_SQL_IDENTIFIER})\s*\.\s*)?(?P<drop>{_SQL_IDENTIFIER})))"
+    r"(?=\s|\(|;|$)",
     re.IGNORECASE,
 )
 DOLLAR_QUOTE_RE = re.compile(r"\$(?:[a-zA-Z_][\w]*)?\$")
@@ -329,6 +332,10 @@ def _strip_sql_comments_and_literals(sql: str, *, preserve_dynamic_sql: bool = T
     return "".join(output)
 
 
+def _sql_identifier(value: str) -> str:
+    return value[1:-1].replace('""', '"') if value.startswith('"') else value.lower()
+
+
 def _migration_tables() -> OrderedDict[str, list[str]]:
     """Return the NET set of tables defined by the migration chain.
 
@@ -347,10 +354,13 @@ def _migration_tables() -> OrderedDict[str, list[str]]:
         for match in TABLE_EVENT_RE.finditer(text):
             created = match.group("create")
             dropped = match.group("drop")
+            schema = match.group("create_schema") or match.group("drop_schema")
+            if schema and _sql_identifier(schema) != "public":
+                continue
             if created:
-                tables.setdefault(created, []).append(migration.name)
+                tables.setdefault(_sql_identifier(created), []).append(migration.name)
             elif dropped:
-                tables.pop(dropped, None)
+                tables.pop(_sql_identifier(dropped), None)
     return tables
 
 

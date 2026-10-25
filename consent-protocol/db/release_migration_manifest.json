@@ -354,6 +354,10 @@
     "415_validate_pkm_recovery_erasure_indexes.sql",
     "416_financial_packet_tag_work.sql",
     "417_drive_packet_public_summary.sql",
+    "418_account_provider_cleanup_staging.sql",
+    "419_account_generations.sql",
+    "420_private_agent_lifecycle_foundation.sql",
+    "421_cloud_removal_recovery.sql",
     "422_financial_packet_discovery_capacity.sql"
   ],
   "environment_overlays": {
@@ -745,6 +749,10 @@
     "409_mcp_oauth_client_registration.sql": "rollback/409_mcp_oauth_client_registration.rollback.sql",
     "410_drive_group_index.sql": "rollback/410_drive_group_index.rollback.sql",
     "411_drive_period_packets.sql": "rollback/411_drive_period_packets.rollback.sql",
+    "418_account_provider_cleanup_staging.sql": "rollback/418_account_provider_cleanup_staging.rollback.sql",
+    "419_account_generations.sql": "rollback/419_account_generations.rollback.sql",
+    "420_private_agent_lifecycle_foundation.sql": "rollback/420_private_agent_lifecycle_foundation.rollback.sql",
+    "421_cloud_removal_recovery.sql": "rollback/421_cloud_removal_recovery.rollback.sql",
     "412_pkm_recovery_erasure_indexes.sql": "rollback/412_pkm_recovery_erasure_indexes.rollback.sql",
     "413_pkm_recovery_erasure_index.sql": "rollback/413_pkm_recovery_erasure_index.rollback.sql",
     "414_pkm_recovery_erasure_index.sql": "rollback/414_pkm_recovery_erasure_index.rollback.sql",

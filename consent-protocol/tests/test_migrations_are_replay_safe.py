@@ -386,3 +386,199 @@ def test_circle_constraint_preserves_valid_catalog_but_repairs_a_wrong_predicate
         "INSERT INTO one_location_circles(id,system_kind) "
         "VALUES ('00000000-0000-0000-0000-000000000001','trusted')"
     )
+
+
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+@pytest.mark.parametrize("rich_dev", [False, True], ids=["canonical-417", "accepted-dev-972"])
+def test_private_agent_graduation_preserves_owners_and_refuses_drift(
+    replay_pg, monkeypatch, rich_dev
+):
+    """Actual canonical startup plus the accepted dev lineage; never a cloud DB."""
+    import asyncio
+    import json
+    from contextlib import closing
+
+    import asyncpg
+    import psycopg2
+
+    from db import migrate
+    from db.account_cleanup_replay import SOURCES
+    from db.migration_authority import MigrationAuthorityError, _replay_sql, build_manifest_entries
+    from tests.private_agent_release_postgres_support import verify_retained_release_records
+
+    cp = MIGRATIONS_DIR.parent.parent
+    server = replay_pg
+    database = "synthetic_private_agent_release"
+    server.execute("CREATE DATABASE " + database)
+    server.execute(
+        "CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN"
+    )
+    monkeypatch.setattr(
+        migrate,
+        "release_migration_files",
+        lambda _environment: tuple(
+            name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) <= 417
+        ),
+    )
+    for name, value in {
+        "DB_USER": "hushh",
+        "DB_PASSWORD": "synthetic",
+        "DB_HOST": "127.0.0.1",
+        "DB_PORT": str(server.port),
+        "DB_NAME": database,
+        "DB_UNIX_SOCKET": server.dir,
+        "GCP_PROJECT_ID": "local-schema-qualification",
+        "ENVIRONMENT": "test",
+        "HUSHH_RELEASE_ENVIRONMENT": "production",
+        "HUSHH_MIGRATION_MODE": "replay",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    with closing(
+        psycopg2.connect(host=server.dir, port=server.port, user="hushh", dbname=database)
+    ) as conn:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute((cp / "db/legacy/init_legacy_schema.sql").read_text())
+            if rich_dev:
+                cur.execute((MIGRATIONS_DIR / "parked/900_personal_agent_registry.sql").read_text())
+
+        async def initialize():
+            pool = await asyncpg.create_pool(
+                host=server.dir,
+                port=server.port,
+                user="hushh",
+                database=database,
+                min_size=1,
+                max_size=2,
+                command_timeout=60,
+            )
+            try:
+                await migrate.run_init_migration(pool)
+            finally:
+                await pool.close()
+
+        asyncio.run(initialize())
+        if rich_dev:
+            manifest = json.loads((cp / "db/dev_migration_manifest.json").read_text())
+            for filename in manifest["ordered_migrations"]:
+                if int(filename[:3]) in {900, 944, 955, 958, 965}:
+                    continue
+                with conn.cursor() as cur:
+                    cur.execute((MIGRATIONS_DIR / "parked" / filename).read_text())
+        for filename in (
+            "418_account_provider_cleanup_staging.sql",
+            "419_account_generations.sql",
+            "420_private_agent_lifecycle_foundation.sql",
+            "421_cloud_removal_recovery.sql",
+        ):
+            with conn.cursor() as cur:
+                cur.execute((MIGRATIONS_DIR / filename).read_text())
+        # Run the release guard's actual catalog reader against this disposable DB.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "synthetic_release_db_guard", cp.parent / "scripts/ops/db_migration_release_guard.py"
+        )
+        guard = importlib.util.module_from_spec(spec)
+        import sys
+
+        monkeypatch.setitem(sys.modules, spec.name, guard)
+        spec.loader.exec_module(guard)
+        monkeypatch.setattr(
+            guard,
+            "_build_database_url_from_env",
+            lambda: f"postgresql://hushh@/{database}?host={server.dir}&port={server.port}",
+        )
+
+        def verify_contract(name):
+            contract = json.loads((cp / "db/contracts" / (name + ".json")).read_text())
+            _report, violations = asyncio.run(guard._run_db_contract_check(contract))
+            assert not violations, violations
+
+        verify_contract("prod_core_schema")
+        verify_contract("dev_minimum_schema")
+        verify_retained_release_records(conn, cp)
+        verify_contract("uat_integrated_schema")
+        foundation = (MIGRATIONS_DIR / "420_private_agent_lifecycle_foundation.sql").read_text()
+        with conn.cursor() as cur:
+            # Unrelated performance indexes remain valid; unreviewed effects do not.
+            cur.execute("CREATE INDEX synthetic_performance ON personal_agent_registry(updated_at)")
+            # Existing client/default grants must not survive adoption.
+            cur.execute(
+                "GRANT ALL ON personal_agent_cloud_removals TO anon,authenticated; GRANT ALL ON SEQUENCE personal_agent_deletion_tombstones_id_seq TO anon,authenticated; GRANT EXECUTE ON FUNCTION personal_agent_cloud_removal_ready() TO anon,authenticated"
+            )
+            cur.execute(foundation)
+            for role in ("anon", "authenticated"):
+                cur.execute(
+                    "SELECT has_table_privilege(%s,'personal_agent_cloud_removals','SELECT'), has_sequence_privilege(%s,'personal_agent_deletion_tombstones_id_seq','USAGE'), has_function_privilege(%s,'personal_agent_cloud_removal_ready()','EXECUTE')",
+                    (role, role, role),
+                )
+                assert cur.fetchone() == (False, False, False)
+            cur.execute("SET ROLE service_role")
+            try:
+                cur.execute("SELECT personal_agent_cloud_removal_ready()")
+                assert cur.fetchone() == (True,)
+                cur.execute("SELECT count(*) FROM personal_agent_cloud_removals")
+                assert cur.fetchone() == (1,)
+                cur.execute(
+                    "INSERT INTO personal_agent_deletion_tombstones(hushh_id) VALUES('synthetic-service-role-proof') RETURNING id"
+                )
+                assert cur.fetchone()[0] > 0
+            finally:
+                cur.execute("RESET ROLE")
+            for ddl, cleanup, expected in (
+                (
+                    "CREATE UNIQUE INDEX synthetic_new_authority ON personal_agent_registry(space_id)",
+                    "DROP INDEX synthetic_new_authority",
+                    "indexes",
+                ),
+                (
+                    "CREATE FUNCTION synthetic_bad_trigger() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$; CREATE TRIGGER synthetic_bad BEFORE UPDATE ON personal_agent_registry FOR EACH ROW EXECUTE FUNCTION synthetic_bad_trigger()",
+                    "DROP TRIGGER synthetic_bad ON personal_agent_registry; DROP FUNCTION synthetic_bad_trigger()",
+                    "triggers",
+                ),
+                (
+                    "CREATE FUNCTION personal_agent_cloud_removal_ready(integer) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$",
+                    "DROP FUNCTION personal_agent_cloud_removal_ready(integer)",
+                    "function overload",
+                ),
+            ):
+                cur.execute(ddl)
+                with pytest.raises(psycopg2.errors.RaiseException, match=expected):
+                    cur.execute(foundation)
+                cur.execute("ROLLBACK")
+                cur.execute(cleanup)
+            # A missing forward helper must never restore a pre-cleanup function.
+            cur.execute(
+                "ALTER FUNCTION account_provider_cleanup_pending(text) RENAME TO synthetic_pending"
+            )
+            entry = build_manifest_entries(MIGRATIONS_DIR, ["201_account_deletion_tombstones.sql"])[
+                0
+            ]
+            with pytest.raises(psycopg2.errors.RaiseException, match="successor missing"):
+                cur.execute(_replay_sql(entry))
+            cur.execute("ROLLBACK")
+            cur.execute(
+                "ALTER FUNCTION synthetic_pending(text) RENAME TO account_provider_cleanup_pending"
+            )
+        with conn.cursor() as cur:
+            for stem in (
+                "418_account_provider_cleanup_staging",
+                "419_account_generations",
+                "420_private_agent_lifecycle_foundation",
+                "421_cloud_removal_recovery",
+            ):
+                with pytest.raises(
+                    psycopg2.errors.ObjectNotInPrerequisiteState, match="forward recovery"
+                ):
+                    cur.execute(
+                        (MIGRATIONS_DIR / "rollback" / (stem + ".rollback.sql")).read_text()
+                    )
+                cur.execute("ROLLBACK")
+        from dataclasses import replace
+
+        for _version, filename in SOURCES:
+            entry = build_manifest_entries(MIGRATIONS_DIR, [filename])[0]
+            with pytest.raises(MigrationAuthorityError, match="checksum changed"):
+                _replay_sql(replace(entry, sql=entry.sql + "\n-- unqualified source"))

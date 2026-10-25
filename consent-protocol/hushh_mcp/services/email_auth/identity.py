@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.services.email_auth.contracts import EmailAuthError, normalize_email
 
@@ -32,14 +34,14 @@ class FirebaseEmailIdentity:
         return auth, app
 
     @staticmethod
-    def _active(user) -> None:
+    def _active(user, owner_id: str | None = None) -> None:
         from hushh_mcp.services.account_deletion_lifecycle_service import (
             AccountDeletionLifecycleService,
         )
 
         if user.disabled or enterprise_account_deprovisioned(user.custom_claims or {}):
             raise EmailAuthError("account_unavailable", "Use your existing sign-in method.", 403)
-        if AccountDeletionLifecycleService.is_tombstoned(user.uid):
+        if AccountDeletionLifecycleService.is_tombstoned(owner_id or user.uid):
             raise EmailAuthError("account_unavailable", "This account is unavailable.", 403)
 
     def find(self, email: str):
@@ -70,11 +72,35 @@ class FirebaseEmailIdentity:
         self._active(user)
         return user
 
-    def issue(self, uid: str, email: str) -> str:
+    def verify_mailbox(self, uid: str, email: str):
+        """Read the pinned identity, including retired accounts for enrollment.
+
+        This proves no application access and deliberately does not resolve by
+        email. Enrollment's cleanup and fresh-proof policy is separate.
+        """
         auth, app = self._context()
         user = auth.get_user(uid, app=app)
-        self._active(user)
-        if not user.email_verified or normalize_email(user.email or "")[0] != email:
+        if (
+            user.disabled
+            or enterprise_account_deprovisioned(user.custom_claims or {})
+            or not user.email_verified
+            or normalize_email(user.email or "")[0] != email
+        ):
             raise EmailAuthError("account_conflict", "Use your existing sign-in method.", 409)
-        token = auth.create_custom_token(uid, {"emailAuthMethod": "otp"}, app=app)
+        return user
+
+    def issue(self, owner_id: str, email: str) -> str:
+        auth, app = self._context()
+        uid, claims = owner_id, {"emailAuthMethod": "otp"}
+        if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
+            from api.utils.firebase_auth import current_auth_lane
+            from hushh_mcp.services.account_generation_service import AccountGenerationService
+
+            uid, binding = AccountGenerationService.custom_session_binding(
+                owner_id, lane=current_auth_lane()
+            )
+            claims.update(binding)
+        user = self.verify_mailbox(uid, email)
+        self._active(user, owner_id)
+        token = auth.create_custom_token(uid, claims, app=app)
         return token.decode() if isinstance(token, bytes) else str(token)

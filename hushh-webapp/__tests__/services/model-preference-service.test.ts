@@ -45,6 +45,14 @@ describe("model preference follows chat placement", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("shows an admitted Azure cloud default without inventing a selectable catalog", async () => {
+    mocks.privateAgent.mockResolvedValue(true);
+    mocks.selection.mockResolvedValue({ configured: false, provider: null, model: null, lastFailure: null,
+      effectiveConnection: { provider: "azure_openai", model: "owner-deployment", source: "cloud_default", state: "configured", verification: "unverified" } });
+    expect(await ModelPreferenceService.get("id-token")).toMatchObject({ effective_provider: "azure_openai", effective_model: "owner-deployment", verification: "unverified", source: "owner_pod", choices: [] });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("refuses private writes and unavailable placement without a hub fallback", async () => {
     mocks.privateAgent.mockResolvedValue(true);
     await expect(ModelPreferenceService.set("id-token", "shared-model")).rejects.toThrow("OWNER_POD_MODEL_SELECTION_SETTINGS");

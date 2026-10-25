@@ -9,6 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth_read_only
 from hushh_mcp.services.user_identifier_service import normalize_phone_identifier
@@ -40,7 +41,9 @@ async def validate_lost_vault_deletion_phone(
     from api.routes import account
 
     try:
-        claims = account._recent_federated_claims(authorization, firebase_uid)
+        claims = await run_in_threadpool(
+            account._recent_federated_claims, authorization, firebase_uid
+        )
         phone, providers = await account._lost_vault_deletion_options(firebase_uid)
         provider = str((claims.get("firebase") or {}).get("sign_in_provider") or "")
         if provider not in providers:

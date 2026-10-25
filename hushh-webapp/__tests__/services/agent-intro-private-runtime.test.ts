@@ -8,7 +8,8 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const state = vi.hoisted(() => ({
   uid: null as string | null,
@@ -46,6 +47,7 @@ import { introMayReachHub } from "@/lib/services/pod-app-access";
 import { PRIVATE_AGENT_INTRO_REPLY, streamAgentIntro } from "@/lib/services/agent-chat-client";
 
 beforeEach(() => {
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   state.uid = "owner";
   state.pinned = null;
   state.agents = [];
@@ -53,7 +55,17 @@ beforeEach(() => {
   state.streamFetch.mockReset();
 });
 
+afterEach(() => publishValidatedAuthSessionPrincipal(null));
+
 describe("introMayReachHub", () => {
+  it("does not send a signed-in identity to Shared without an admitted application principal", async () => {
+    publishValidatedAuthSessionOwner("owner");
+    state.hosting.mockResolvedValue({ hostingMode: "shared" });
+    await expect(introMayReachHub(state.hosting)).resolves.toBe(false);
+    await expect(streamAgentIntro({ message: "Private before admission" })).resolves.toMatchObject({ text: PRIVATE_AGENT_INTRO_REPLY });
+    expect(state.agents).toEqual([]);
+    expect(state.hosting).not.toHaveBeenCalled();
+  });
   it("lets an anonymous visitor use the public tier without reading hosting", async () => {
     state.uid = null;
     await expect(introMayReachHub(state.hosting)).resolves.toBe(true);

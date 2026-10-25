@@ -38,6 +38,7 @@ from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadError
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
@@ -111,12 +112,16 @@ async def _recipient(
         claims = firebase_auth.verify_id_token(
             authorization.removeprefix("Bearer ").strip(), app=app, check_revoked=False
         )
-        user = firebase_auth.get_user(owner.user_id, app=app)
+        identity_uid = firebase_uid_for_owner_read(owner.user_id)
+        user = firebase_auth.get_user(identity_uid, app=app)
         providers = [item for item in user.provider_data if item.provider_id == "google.com"]
         if user.disabled or len(providers) != 1:
             raise DriveSharingError("verify_google_identity_required")
         return recipient_from_verified_firebase_claims(
-            claims, owner_user_id=owner.user_id, google_provider=providers[0]
+            claims,
+            owner_user_id=owner.user_id,
+            google_provider=providers[0],
+            firebase_uid=identity_uid,
         )
 
     try:

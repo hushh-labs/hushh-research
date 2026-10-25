@@ -19,6 +19,7 @@ from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import refuse_foreign_review_mint
 from hushh_mcp.services.direct_messages_service import DirectMessagesError
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
 from hushh_mcp.services.wallet_card_access_service import (
     WalletCardAccessError,
     WalletCardAccessService,
@@ -430,6 +431,7 @@ def verified_reauthentication_time(authorization: str | None, uid: str):
     if not authorization or not authorization.startswith("Bearer ") or len(authorization) > 20000:
         raise HTTPException(401, {"code": "WALLET_CARD_VERIFICATION_REQUIRED"})
     try:
+        identity_uid = firebase_uid_for_owner_read(uid)
         claims = auth.verify_id_token(
             authorization[7:].strip(), app=get_firebase_auth_app(), check_revoked=True
         )
@@ -438,7 +440,7 @@ def verified_reauthentication_time(authorization: str | None, uid: str):
     provider = (claims.get("firebase") or {}).get("sign_in_provider")
     if (
         refuse_foreign_review_mint(claims)
-        or str(claims.get("uid") or claims.get("sub") or "") != uid
+        or str(claims.get("uid") or claims.get("sub") or "") != identity_uid
         or provider not in {"google.com", "apple.com"}
     ):
         raise HTTPException(401, {"code": "WALLET_CARD_VERIFICATION_REQUIRED"})

@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
@@ -28,7 +29,7 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
   requestInternalAppNavigation: () => false,
 }));
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: state.user, loading: false }),
+  useAuth: () => ({ user: state.user, userId: state.user.uid, loading: false }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
@@ -206,3 +207,5 @@ describe("AI-choice setup invitation continuation", () => {
     expect(route.searchParams.has("return_to")).toBe(false);
   });
 });
+
+beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: state.user.uid, ownerId: state.user.uid, accountGeneration: 0 }));

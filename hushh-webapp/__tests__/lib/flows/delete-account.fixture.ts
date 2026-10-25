@@ -55,11 +55,15 @@ export {
   mockRequireVerification,
 };
 
-vi.mock("@/lib/auth/session-owner", () => ({
+vi.mock("@/lib/auth/session-owner", async (importOriginal) => {
+ const actual = await importOriginal<typeof import("@/lib/auth/session-owner")>();
+ return {
+  ...actual,
   snapshotValidatedAuthSessionOwner: mockSnapshotOwner,
-  isValidatedAuthSessionOwnerCurrent: mockOwnerIsCurrent,
+  isValidatedAuthSessionOwnerCurrent: (owner: Parameters<typeof actual.isValidatedAuthSessionOwnerCurrent>[0]) => mockOwnerIsCurrent(owner) !== false && actual.isValidatedAuthSessionOwnerCurrent(owner),
   dispatchAuthSessionVerificationRequired: mockRequireVerification,
-}));
+ };
+});
 
 vi.mock("@/lib/kai/plaid-vault/vault-sync", () => ({
   revokeAllVaultPlaidAtPlaid: mockRevokeAllVaultPlaid,
@@ -84,7 +88,7 @@ vi.mock("@/lib/services/account-service", () => ({
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { getAccountSessionStatus: mockGetAccountSessionStatus },
+  ApiService: { getAccountSessionStatus: mockGetAccountSessionStatus, getAccountDeletionStatus: mockGetAccountSessionStatus },
 }));
 
 vi.mock("@/lib/cache/cache-sync-service", () => ({

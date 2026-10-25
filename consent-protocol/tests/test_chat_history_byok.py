@@ -389,7 +389,9 @@ def test_every_history_route_requires_the_chat_key_and_delete_does_not() -> None
     )
 
 
-async def test_agent_turn_is_refused_before_streaming_without_a_key(monkeypatch) -> None:
+async def test_agent_turn_is_refused_before_streaming_without_a_key(
+    monkeypatch, active_account_lifecycle
+) -> None:
     from fastapi import HTTPException
     from starlette.requests import Request
 

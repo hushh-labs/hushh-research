@@ -3,6 +3,8 @@
 import { useSyncExternalStore } from "react";
 import type { AnchorHTMLAttributes } from "react";
 import { advanceVaultSessionEpoch } from "../../lib/vault/session-epoch";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
 let unlocked = true;
 const listeners = new Set<() => void>();
 const getToken = () => (unlocked ? "synthetic-vault-owner" : null);
@@ -12,7 +14,7 @@ export function setFixtureLocked(locked: boolean) {
   for (const listener of listeners) listener();
 }
 export function useAuth() {
-  return { user: { uid: "synthetic-owner" } };
+  return { user: { uid: "synthetic-owner" }, userId: "synthetic-owner" };
 }
 export function useVault() {
   const isVaultUnlocked = useSyncExternalStore(

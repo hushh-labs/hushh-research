@@ -344,21 +344,21 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
 
 
 def validate_platform_agent_sources(root: Path, errors: list[str]) -> None:
-    for host in (".codex", ".claude"):
-        directory = root / host / "agents"
-        if host == ".codex" and directory.is_symlink() and directory.resolve() == (root / AGENTS_RELATIVE_PATH).resolve():
-            continue  # Native discovery of the same authored fleet, not a copy.
-        for path in sorted(directory.glob("*.toml")):
-            errors.append(f"{path}: authored agents belong in .agents/subagents/; host mirrors must be generated")
-
-
-def validate_host_adapters(root: Path, errors: list[str]) -> None:
     import runpy
-    generator = root / ".agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py"
-    if not generator.is_file():
-        errors.append("Canonical host adapter generator is missing")
-        return
-    errors.extend(runpy.run_path(str(generator))["findings"](root))
+    boundary = runpy.run_path(str(Path(__file__).with_name("framework_source_boundary.py")))
+    boundary["validate_platform_agent_sources"](root, errors)
+
+
+def validate_canonical_framework(root: Path, errors: list[str]) -> None:
+    import runpy
+    boundary = runpy.run_path(str(Path(__file__).with_name("framework_source_boundary.py")))
+    boundary["validate_canonical_framework"](root, errors)
+
+
+def validate_source_confinement(root: Path, errors: list[str]) -> None:
+    import runpy
+    boundary = runpy.run_path(str(Path(__file__).with_name("framework_source_boundary.py")))
+    boundary["validate_source_confinement"](root, errors)
 
 
 def validate_agents(root: Path, errors: list[str]) -> None:
@@ -470,7 +470,7 @@ def run_self_test() -> list[str]:
         errors: list[str] = []
         validate_platform_agent_sources(root, errors)
         if len(errors) != 2:
-            failures.append("authored host-agent duplicates must be rejected")
+            failures.append("vendor roots must be rejected even when they contain only discovery entries")
     agent_markers = [PRINCIPAL_CRAFT_RULE, BACTERIAL_ARCHITECTURE_RULE]
     complete_agent = "; ".join(agent_markers)
     if missing_markers(complete_agent, agent_markers):
@@ -518,8 +518,6 @@ def run_self_test() -> list[str]:
             pass
         else:
             failures.append("a root entrypoint bypass must be rejected")
-    adapter = runpy.run_path(str(DEFAULT_ROOT / ".agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py"))
-    failures.extend(adapter["self_test"]())
     return failures
 
 
@@ -622,13 +620,18 @@ def main() -> int:
         return 0
     root = args.root.resolve()
     errors: list[str] = []
+    validate_source_confinement(root, errors)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 1
     validate_config(root, errors)
     validate_delegation_router(root, errors)
     validate_delegation_contract(root, errors)
     validate_subagent_budget_policy(root, errors)
     validate_bacterial_architecture_contract(root, errors)
     validate_agents(root, errors)
-    validate_host_adapters(root, errors)
+    validate_canonical_framework(root, errors)
     validate_delegation_policies(root, errors)
 
     if errors:

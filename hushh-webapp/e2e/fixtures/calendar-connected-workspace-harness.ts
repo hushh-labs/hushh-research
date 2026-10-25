@@ -152,6 +152,8 @@ export async function openFixture(page: Page, width: number, locked = false, var
   await page.route("https://calendar-fixture.test/calendar-connected-fixture**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connected Calendar QA</title><style>${css}</style><style>:root{--app-bottom-content-clearance:164px}body{margin:0}</style></head><body><div id="root"></div><script src="/calendar-fixture.js"></script></body></html>` }));
   let failAvailability = false;
   let mailFailure = false;
+  let scheduleVariant = variant;
+  let scheduleGate: Promise<void> | null = null;
   const invitationResponses = new Map<string, string>();
   const attendanceReviews = new Map<string, Record<string, unknown>>();
   const calls: Array<{ path: string; body: Record<string, unknown>; authorization: string | undefined; response?: ReturnType<typeof freeWindows> }> = [];
@@ -222,7 +224,10 @@ export async function openFixture(page: Page, width: number, locked = false, var
       const response = replay === "today" ? bundle.today[String(body.duration_minutes)] : bundle.days[String(body.date)][String(body.duration_minutes)];
       return route.fulfill({ json: response });
     }
-    if (routePath.endsWith("/schedule/today")) return route.fulfill({ json: { events: fixtureEvents(String(body.date), variant), date: body.date, time_zone: body.time_zone, calendars: sources, unreadable_calendars: [] } });
+    if (routePath.endsWith("/schedule/today")) {
+      if (scheduleGate) await scheduleGate;
+      return route.fulfill({ json: { events: fixtureEvents(String(body.date), scheduleVariant), date: body.date, time_zone: body.time_zone, calendars: sources, unreadable_calendars: [] } });
+    }
     if (routePath.endsWith("/schedule/availability")) {
       const response = freeWindows(body); call.response = response;
       return failAvailability
@@ -238,7 +243,13 @@ export async function openFixture(page: Page, width: number, locked = false, var
   await awaitProductFont(page);
   await expect(page.getByRole("heading", { name: "Calendar", exact: true, hidden: true }), `Calendar fixture render errors: ${errors.join("; ")}`).toHaveClass(/sr-only/);
   if (!locked && variant !== "empty") await expect(page.getByRole("button", { name: boardMode ? /^Open QA Design Review/ : /^QA Product Sync/ }).first()).toBeVisible();
-  return { errors, unexpectedRequests, calls, failMail: () => { mailFailure = true; }, failAvailability: (failed = true) => { failAvailability = failed; } };
+  return { errors, unexpectedRequests, calls, failMail: () => { mailFailure = true; }, failAvailability: (failed = true) => { failAvailability = failed; },
+    holdSchedule: () => {
+      if (scheduleGate) throw new Error("Schedule response already held");
+      let release!: () => void;
+      scheduleGate = new Promise<void>(resolve => { release = resolve; });
+      return (nextVariant: typeof variant) => { scheduleVariant = nextVariant; scheduleGate = null; release(); };
+    } };
 }
 export async function assertActionsClearChrome(page: Page, width: number, suffix: string) {
   await page.getByTestId("calendar-scroll-root").evaluate(element => { element.scrollTop = element.scrollHeight; });

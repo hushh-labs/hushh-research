@@ -939,7 +939,16 @@ def test_creation_evidence_never_qualifies_unpinned_or_unobserved_image(invalid)
 
 
 @pytest.mark.parametrize(
-    "invalid", [None, "redirect", "foreign_revision", "mutable", "replacement"]
+    "invalid",
+    [
+        None,
+        "redirect",
+        "foreign_revision",
+        "mutable",
+        "replacement",
+        "identity",
+        "duplicate_identity",
+    ],
 )
 def test_erasure_runtime_observation_binds_revision_digest_and_stable_generation(
     monkeypatch, invalid
@@ -982,17 +991,42 @@ def test_erasure_runtime_observation_binds_revision_digest_and_stable_generation
                     "labels": {"serving.knative.dev/service": "pod-one"},
                 },
                 "status": {"imageDigest": "pod:latest" if invalid == "mutable" else image},
+                "spec": {
+                    "serviceAccountName": "owner@example.iam.gserviceaccount.com",
+                    "containers": [
+                        {
+                            "env": [
+                                {"name": "HUSSH_ID", "value": "ha-one"},
+                                {"name": "HUSHH_DEPLOY_ENV", "value": "dev"},
+                                {"name": "PRIVATE_SECRET", "value": "never-export"},
+                            ]
+                            + (
+                                [{"name": "HUSSH_ID", "value": "duplicate"}]
+                                if invalid == "duplicate_identity"
+                                else []
+                            ),
+                        }
+                    ],
+                }
+                if invalid != "identity"
+                else {},
             },
         )
 
     monkeypatch.setattr(requests, "get", get)
     if invalid:
         with pytest.raises(RuntimeError):
-            client.observe_erasure_runtime(name="pod-one", expected_uid="uid-one")
+            client.observe_erasure_runtime(
+                name="pod-one", expected_uid="uid-one", include_identity=True
+            )
     else:
-        result = client.observe_erasure_runtime(name="pod-one", expected_uid="uid-one")
+        result = client.observe_erasure_runtime(
+            name="pod-one", expected_uid="uid-one", include_identity=True
+        )
         assert result["generation"] == 1 and result["image"] == image
         assert result["serviceUid"] == "uid-one"
+        assert result["ownerIdentity"] == {"HUSSH_ID": "ha-one", "HUSHH_DEPLOY_ENV": "dev"}
+        assert "never-export" not in str(result)
 
 
 @pytest.mark.parametrize("resume", [False, True])

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 
@@ -54,8 +54,8 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 describe("BYOC setup recovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    publishValidatedAuthSessionOwner("owner");
-    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ hostingMode: "shared" });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
+    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ featureEnabled: true, hostingMode: "shared" });
     vi.mocked(ApiService.suggestByocProject).mockResolvedValue({
       projectId: "owner-project", displayName: "Owner", editable: true,
       rationale: "", creationModes: [], filesAvailable: true,
@@ -91,5 +91,17 @@ describe("BYOC setup recovery", () => {
     fireEvent.click(await screen.findByText("Deploy to your cloud"));
     await screen.findByTestId("byoc-cloud-error");
     expect(screen.queryByTestId("byoc-authorize-script")).toBeNull();
+  });
+
+  it("keeps failed setup evidence but disables retry when the environment pauses setup", async () => {
+    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ hostingMode: "pending", featureEnabled: false });
+    vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({
+      status: "failed", stage: "linking_billing", stages: [], projectId: "owner-project",
+      errorCode: "NEEDS_BILLING", errorMessage: "No open billing account", stale: false, updatedAt: null,
+    });
+    render(<ByocCloudSetupPage />);
+    expect(await screen.findByTestId("byoc-setup-retry")).toBeDisabled();
+    expect(screen.getByTestId("byoc-setup-failed")).toHaveTextContent("No open billing account");
+    expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
   });
 });

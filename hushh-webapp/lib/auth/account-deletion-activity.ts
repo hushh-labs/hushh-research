@@ -4,9 +4,9 @@
  * Background vault work (memory writes, connector setup) can still be in flight
  * while the erasure transaction locks or removes that account's rows. Those
  * failures are an expected consequence of the deletion, not application errors,
- * so callers use this to report them quietly. A deleted UID never signs in
- * again, so a mark only needs clearing when the deletion definitely did not
- * happen.
+ * so callers use this to report them quietly. Marks name immutable application
+ * owners, not Firebase UIDs; a replacement generation has a different owner.
+ * Clear a mark only when deletion definitely did not happen.
  */
 const deletingUserIds = new Set<string>();
 

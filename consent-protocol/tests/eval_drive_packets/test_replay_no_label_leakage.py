@@ -95,7 +95,14 @@ async def test_budget_cap_records_budget_exhausted_and_stops():
     assert result.usage == []
 
 
-async def test_replay_builds_packets_through_the_production_worker():
+async def test_replay_builds_packets_through_the_production_worker(monkeypatch):
+    def refuse_runtime_sql(_owner):
+        raise AssertionError("Offline replay touched runtime lifecycle SQL")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_deletion_lifecycle_service.AccountDeletionLifecycleService.is_tombstoned",
+        refuse_runtime_sql,
+    )
     runner = ReplayRunner(
         interpret=replay.FakeInterpret(), model="fixture-interpret", budget=Budget(max_usd=50)
     )

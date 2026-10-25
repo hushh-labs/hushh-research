@@ -1,4 +1,4 @@
-"""Preserve the qualified dev successor without changing historical SQL hashes."""
+"""Preserve qualified private-action successors without changing historical SQL."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ _EXPECTED = {
     _CONTEXT: "CHECK((((channel='typed_chat'::text)AND(conversation_idISNOTNULL)AND(session_idISNULL))OR((channel=ANY(ARRAY['voice'::text,'command'::text,'adk_chat'::text,'pod_chat'::text]))AND(session_idISNOTNULL)AND(conversation_idISNULL))OR((channel='document_review'::text)AND(conversation_idISNULL)AND(session_idISNULL))))",
     "pod_chat_action_identity": "CHECK(((channel<>'pod_chat'::text)OR((adk_app_nameISNULL)AND(action_id=ANY(ARRAY['connector.mcp.invoke'::text,'browser.model_process'::text,'browser.disclose'::text,'browser.session_remember'::text,'browser.session_restore'::text,'browser.provider_safety'::text]))ANDrequires_confirmationANDtrusted_activation_requiredAND(resource_binding_hmacISNOTNULL))))",
 }
-_MARKER = "private-action-channel.v1/971"
+_MARKERS = ("private-action-channel.v1/971", "private-action-channel.v1/420")
 
 
 def _literal(value: str) -> str:
@@ -39,25 +39,26 @@ def _literal(value: str) -> str:
 
 def _guard(clauses: list[str]) -> str:
     expected = ",".join(f"({_literal(name)},{_literal(rule)})" for name, rule in _EXPECTED.items())
+    markers = "ARRAY[" + ",".join(_literal(value) for value in _MARKERS) + "]"
     return f"""DO $private_channel$
 BEGIN
  LOCK TABLE one_action_directive_ledger IN ACCESS EXCLUSIVE MODE;
  IF EXISTS (SELECT 1 FROM pg_constraint
    WHERE conrelid='one_action_directive_ledger'::regclass
-    AND obj_description(oid,'pg_constraint')={_literal(_MARKER)}) THEN
+    AND obj_description(oid,'pg_constraint')=ANY({markers})) THEN
   IF (SELECT count(*) FROM pg_constraint c
     JOIN (VALUES {expected}) AS expected(name,definition) ON c.conname=expected.name
     WHERE c.conrelid='one_action_directive_ledger'::regclass
      AND c.contype='c' AND c.convalidated
      AND regexp_replace(pg_get_constraintdef(c.oid),'[[:space:]]','','g')=expected.definition
      AND (c.conname='pod_chat_action_identity'
-       OR obj_description(c.oid,'pg_constraint')={_literal(_MARKER)})) <> 3 THEN
+       OR obj_description(c.oid,'pg_constraint')=ANY({markers}))) <> 3 THEN
    RAISE EXCEPTION 'Private action successor constraints changed; refusing historical replay';
   END IF;
  ELSE
   IF to_regclass('schema_migrations') IS NOT NULL THEN
    IF EXISTS (SELECT 1 FROM schema_migrations
-      WHERE migration_id='971' AND status='applied') THEN
+      WHERE migration_id IN ('971','420') AND status='applied') THEN
     RAISE EXCEPTION 'Private action successor marker missing; refusing historical replay';
    END IF;
   END IF;

@@ -300,7 +300,7 @@ async def test_model_budget_exhaustion_never_dispatches(monkeypatch):
 
 
 @pytest.fixture
-def shared_pwm_owner(monkeypatch):
+def shared_pwm_owner(monkeypatch, active_account_lifecycle):
     from hushh_mcp.services import world_model_service as service
 
     monkeypatch.setenv("HUSSH_POD_MODE", "0")
@@ -864,7 +864,9 @@ class ProgressStore:
 
 
 @pytest.mark.asyncio
-async def test_status_attaches_progress_only_while_research_is_live(monkeypatch):
+async def test_status_attaches_progress_only_while_research_is_live(
+    monkeypatch, active_account_lifecycle
+):
     from hushh_mcp.services import profile_research_jobs as jobs
     from hushh_mcp.services import world_model_service as service
 
@@ -917,7 +919,9 @@ async def test_status_attaches_progress_only_while_research_is_live(monkeypatch)
 
 
 @pytest.mark.parametrize("retirement", ["consent", "binding", "owner"])
-async def test_live_progress_cannot_release_retired_checkpoint_evidence(monkeypatch, retirement):
+async def test_live_progress_cannot_release_retired_checkpoint_evidence(
+    monkeypatch, retirement, active_account_lifecycle
+):
     from hushh_mcp.services import profile_research_jobs as jobs
     from hushh_mcp.services import world_model_service as service
 
@@ -1016,7 +1020,7 @@ async def test_progress_stream_emits_changes_pings_then_result_and_closes():
     assert [frame async for frame in gone] == []
 
 
-def test_progress_stream_route_is_owner_only_and_private(monkeypatch):
+def test_progress_stream_route_is_owner_only_and_private(monkeypatch, active_account_lifecycle):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -1058,7 +1062,7 @@ def test_progress_stream_route_is_owner_only_and_private(monkeypatch):
         assert routes.open_streams == {}
 
 
-def test_progress_stream_caps_open_streams_per_owner(monkeypatch):
+def test_progress_stream_caps_open_streams_per_owner(monkeypatch, active_account_lifecycle):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 

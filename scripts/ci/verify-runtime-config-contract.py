@@ -208,8 +208,14 @@ def main() -> int:
                 violations.append(
                     f"{relative}:{line_no}: managed AI settings must use runtime_settings"
                 )
+        # Every match requires this exact literal; retain the original regexes,
+        # boundaries and diagnostic order while avoiding absent keys per line.
+        file_patterns = {name: pattern for name, pattern in patterns.items() if name in text}
+        file_canonical_patterns = {
+            name: pattern for name, pattern in canonical_patterns.items() if name in text
+        }
         for line_no, line in enumerate(text.splitlines(), start=1):
-            for name, pattern in patterns.items():
+            for name, pattern in file_patterns.items():
                 if pattern.search(line):
                     violations.append(
                         f"{relative}:{line_no}: legacy runtime key '{name}'"
@@ -219,7 +225,7 @@ def main() -> int:
                 and relative not in ALLOWED_CANONICAL_RUNTIME_READ_PATHS
                 and _has_direct_env_read(line)
             ):
-                for name, pattern in canonical_patterns.items():
+                for name, pattern in file_canonical_patterns.items():
                     if pattern.search(line):
                         violations.append(
                             f"{relative}:{line_no}: direct runtime env read for canonical key '{name}'"

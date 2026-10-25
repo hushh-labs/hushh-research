@@ -2,6 +2,7 @@
 
 import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-chat';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { Capacitor } from "@capacitor/core";
 import { OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
 
@@ -86,6 +87,13 @@ export type ConnectControls = {
   confirmLegacyTransition?: GoogleConnectorConnectOptions['confirmLegacyTransition'];
 };
 
+function bindConnectOwner<T extends ConnectControls & { owner: InPlaceConnectOwner }>(request: T) {
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  if (!principal || principal.firebaseUid !== request.owner.uid) return null;
+  return { ...request, applicationOwnerId: principal.ownerId,
+    isCurrent: () => isValidatedAuthSessionOwnerCurrent(principal) && (request.isCurrent?.() ?? true) };
+}
+
 const WINDOW_WAIT_LIMIT_MS = 10 * 60_000;
 
 function isGoogleAuthorizeUrl(value: string): boolean {
@@ -124,6 +132,7 @@ async function fenced(
 ): Promise<InPlaceConnectOutcome> {
   const current = () =>
     !controls.signal?.aborted && (controls.isCurrent?.() ?? true);
+  if (!current()) { close(); return "stale"; }
   controls.signal?.addEventListener("abort", close, { once: true });
   try {
     const outcome = await body(current);
@@ -158,11 +167,13 @@ async function connectPrivate(connector: 'gmail' | 'calendar', current: () => bo
  * public-client PKCE and request management access for drafts and sending.
  */
 export function connectGmailInPlace(
-  input: ConnectControls & {
+  request: ConnectControls & {
     owner: InPlaceConnectOwner;
     purpose: "send" | "modify";
   },
 ): InPlaceConnectStart {
+  const input = bindConnectOwner(request);
+  if (!input) return started("unsupported", async () => "stale");
   const { owner, purpose } = input;
   const granted = (status: {
     connected?: boolean;
@@ -184,7 +195,7 @@ export function connectGmailInPlace(
           if (typeof connection === 'string') return connection;
           if (!connection) return 'not_connected';
           if (!current()) return 'stale';
-          const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: owner.uid, force: true });
+          const status = await GmailReceiptsService.getStatus({ idToken: await owner.getIdToken(), userId: input.applicationOwnerId, force: true });
           return granted(status) ? 'connected' : 'not_connected';
         }
         if (purpose === 'modify') return 'not_connected';
@@ -192,13 +203,13 @@ export function connectGmailInPlace(
         if (!current()) return "stale";
         const before = await GmailReceiptsService.getStatus({
           idToken,
-          userId: owner.uid,
+          userId: input.applicationOwnerId,
           force: true,
         }).catch(() => null);
         if (!current()) return "stale";
         const start = await GmailReceiptsService.startNativeConnect({
           idToken,
-          userId: owner.uid,
+          userId: input.applicationOwnerId,
           purpose: "send",
         });
         if (!current()) return "stale";
@@ -211,14 +222,14 @@ export function connectGmailInPlace(
             preserveModify: before?.modify_permission_granted === true,
           });
         } catch (error) {
-          GmailReceiptsService.recordConsentFailure(error, owner.uid);
+          GmailReceiptsService.recordConsentFailure(error, input.applicationOwnerId);
           throw error;
         }
         if (!current()) return "stale";
         if (!result.serverAuthCode?.trim()) return "not_connected";
         const status = await GmailReceiptsService.completeNativeConnect({
           idToken,
-          userId: owner.uid,
+          userId: input.applicationOwnerId,
           serverAuthCode: result.serverAuthCode,
         });
         return granted(status) ? "connected" : "not_connected";
@@ -229,7 +240,7 @@ export function connectGmailInPlace(
   // The return page only verifies `send` itself; for `modify` it records a
   // plain connection and the status read below checks the modify grant.
   const attempt = createGmailOAuthPopupAttempt(
-    owner.uid,
+    input.applicationOwnerId,
     purpose === "send" ? "send" : "read",
   );
   const popup = openGmailOAuthPopup(attempt);
@@ -254,7 +265,7 @@ export function connectGmailInPlace(
           : null;
         const start = await GmailReceiptsService.startConnect({
           idToken,
-          userId: owner.uid,
+          userId: input.applicationOwnerId,
           loginHint,
           includeGrantedScopes: true,
           purpose,
@@ -280,7 +291,7 @@ export function connectGmailInPlace(
         if (input.cancelSignal?.aborted) return "not_connected";
         const status = await GmailReceiptsService.getStatus({
           idToken: await owner.getIdToken(),
-          userId: owner.uid,
+          userId: input.applicationOwnerId,
           force: true,
         });
         return granted(status) ? "connected" : "not_connected";
@@ -293,12 +304,14 @@ export function connectGmailInPlace(
 
 /** Calendar read or scheduling (`manage`) access. */
 export function connectCalendarInPlace(
-  input: ConnectControls & {
+  request: ConnectControls & {
     owner: InPlaceConnectOwner;
     accessLevel: "read" | "manage";
     includeCalendarList?: boolean;
   },
 ): InPlaceConnectStart {
+  const input = bindConnectOwner(request);
+  if (!input) return started("unsupported", async () => "stale");
   const { owner, accessLevel, includeCalendarList } = input;
   const granted = (status: {
     connected?: boolean;
@@ -321,7 +334,7 @@ export function connectCalendarInPlace(
           if (typeof connection === 'string') return connection;
           if (!connection) return 'not_connected';
           if (!current()) return 'stale';
-          return granted(await GoogleCalendarService.status(await owner.getIdToken(), owner.uid)) ? 'connected' : 'not_connected';
+          return granted(await GoogleCalendarService.status(await owner.getIdToken(), input.applicationOwnerId)) ? 'connected' : 'not_connected';
         }
         const idToken = await owner.getIdToken();
         if (!current()) return "stale";
@@ -339,7 +352,7 @@ export function connectCalendarInPlace(
         if (!current()) return "stale";
         const status = await GoogleCalendarService.completeNativeConnect({
           idToken,
-          userId: owner.uid,
+          userId: input.applicationOwnerId,
           accessLevel,
           serverAuthCode: result.serverAuthCode,
           state: start.state,
@@ -350,7 +363,7 @@ export function connectCalendarInPlace(
   }
 
   const attempt = createGoogleOAuthPopupAttempt("calendar", {
-    ownerId: owner.uid,
+    ownerId: input.applicationOwnerId,
     accessLevel,
   });
   const popup = openGoogleOAuthPopup(attempt);
@@ -373,7 +386,7 @@ export function connectCalendarInPlace(
         if (!current()) return "stale";
         const start = await GoogleCalendarService.startConnect({
           idToken,
-          userId: owner.uid,
+          userId: input.applicationOwnerId,
           accessLevel,
         });
         if (!current()) return "stale";
@@ -397,7 +410,7 @@ export function connectCalendarInPlace(
         if (input.cancelSignal?.aborted) return "not_connected";
         const status = await GoogleCalendarService.status(
           await owner.getIdToken(),
-          owner.uid,
+          input.applicationOwnerId,
         );
         return granted(status) ? "connected" : "not_connected";
       } finally {

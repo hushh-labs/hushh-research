@@ -53,12 +53,16 @@ export async function DELETE(request: NextRequest) {
       const errorPayload = parseJsonObject(responseText) ?? {
         error: responseText || "Failed to delete account",
       };
-      return withRequestIdJson(requestId, errorPayload, { status: response.status });
+      return withRequestIdJson(requestId, errorPayload, { status: response.status, headers: { "Cache-Control": "private, no-store", ...(response.headers.get("Retry-After") ? { "Retry-After": response.headers.get("Retry-After")! } : {}) } });
     }
 
     try {
       const data = JSON.parse(responseText);
-      return withRequestIdJson(requestId, data);
+      const retryAfter = response.headers.get("Retry-After");
+      return withRequestIdJson(requestId, data, {
+        status: response.status,
+        headers: { "Cache-Control": "private, no-store", ...(retryAfter ? { "Retry-After": retryAfter } : {}) },
+      });
     } catch {
       return withRequestIdJson(requestId, { success: true, raw: responseText });
     }

@@ -139,7 +139,7 @@ export function usePkmNaturalModel({
   locationMemoryId = null,
 }: PkmNaturalModelOptions = {}) {
   const router = useRouter();
-  const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
+  const { user, userId: applicationOwnerId, loading: authLoading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt } =
     useVault();
   const locationView = view === "location" || view === "location-detail";
@@ -147,11 +147,11 @@ export function usePkmNaturalModel({
   const memoryReadSession = useMemo(
     () =>
       Symbol(
-        user?.uid && vaultKey && vaultOwnerToken && isVaultUnlocked
+        applicationOwnerId && vaultKey && vaultOwnerToken && isVaultUnlocked
           ? "authorized-memory-session"
           : "unavailable-memory-session",
       ),
-    [user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked],
+    [applicationOwnerId, vaultKey, vaultOwnerToken, isVaultUnlocked],
   );
   const memoryReadSessionRef = useRef<MemoryReadSession | null>(
     memoryReadSession,
@@ -169,11 +169,11 @@ export function usePkmNaturalModel({
   const presentationOwner = useMemo(
     () =>
       Symbol(
-        user?.uid && vaultKey && isVaultUnlocked
+        applicationOwnerId && vaultKey && isVaultUnlocked
           ? "unlocked-memory-presentation"
           : "unavailable-memory-presentation",
       ),
-    [user?.uid, vaultKey, isVaultUnlocked],
+    [applicationOwnerId, vaultKey, isVaultUnlocked],
   );
   const presentationOwnerRef = useRef(presentationOwner);
   presentationOwnerRef.current = presentationOwner;
@@ -232,7 +232,7 @@ export function usePkmNaturalModel({
     data: Record<string, unknown>;
   } | null>(null);
   useReviewerPkmProof({
-    userId: user?.uid ?? null,
+    userId: applicationOwnerId ?? null,
     authLoading,
     sessionVerificationRequired,
     isVaultUnlocked,
@@ -264,7 +264,7 @@ export function usePkmNaturalModel({
     if (!operationIsCurrent())
       throw new DOMException("The Memory request expired.", "AbortError");
   };
-  const renderedMemoryOwnerId = user?.uid ?? null;
+  const renderedMemoryOwnerId = applicationOwnerId ?? null;
   const memoryOwnerIdRef = useRef<string | null>(renderedMemoryOwnerId);
   memoryOwnerIdRef.current = renderedMemoryOwnerId;
   useEffect(() => {
@@ -292,7 +292,7 @@ export function usePkmNaturalModel({
     },
     [],
   );
-  const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
+  const pkmChangeRevision = usePkmDomainChangeRevision(applicationOwnerId);
 
   const [metadataState, setMetadataState] = useState<{
     session: MemoryReadSession;
@@ -385,7 +385,7 @@ export function usePkmNaturalModel({
   ]);
   useBackLayer(
     view === "recent" ? ROUTES.PKM_RECENT : ROUTES.PKM,
-    locationView || !isVaultUnlocked || !user
+    locationView || !isVaultUnlocked || !applicationOwnerId
       ? 0
       : (localDomainKey ? 1 : 0) +
           pathStack.length +
@@ -463,8 +463,8 @@ export function usePkmNaturalModel({
    * this browser, because the backend holds ciphertext and no key.
    */
   const handleExportMemory = useCallback(async () => {
-    if (!user?.uid || !vaultKey || !vaultOwnerToken || exportBusy) return;
-    const operationOwnerId = user.uid;
+    if (!applicationOwnerId || !vaultKey || !vaultOwnerToken || exportBusy) return;
+    const operationOwnerId = applicationOwnerId;
     const isEffectCurrent = () =>
       memoryReadSessionRef.current === memoryReadSession &&
       isAgentPkmProcessingReady(captureReadinessRef.current, vaultOwnerToken);
@@ -477,7 +477,7 @@ export function usePkmNaturalModel({
     });
     try {
       const result = await PkmExportService.downloadMemoryExport({
-        userId: user.uid,
+        userId: applicationOwnerId,
         vaultKey,
         vaultOwnerToken,
         isEffectCurrent,
@@ -523,7 +523,7 @@ export function usePkmNaturalModel({
     exportBusy,
     memoryReadSession,
     trackMemoryOutcome,
-    user?.uid,
+    applicationOwnerId,
     vaultKey,
     vaultOwnerToken,
   ]);
@@ -577,7 +577,7 @@ export function usePkmNaturalModel({
   }, [captureAuthReady]);
   const [captureLoading, setCaptureLoading] = useState(false);
   const [captureSaving, setCaptureSaving] = useState(() =>
-    Boolean(user?.uid && pkmCaptureSaveInFlight.has(user.uid)),
+    Boolean(applicationOwnerId && pkmCaptureSaveInFlight.has(applicationOwnerId)),
   );
   const [captureMessage, setCaptureMessage] = useState<string | null>(null);
   useEffect(() => {
@@ -593,12 +593,12 @@ export function usePkmNaturalModel({
     setCaptureMessage(null);
     setCaptureLoading(false);
     setCaptureSaving(
-      Boolean(user?.uid && pkmCaptureSaveInFlight.has(user.uid)),
+      Boolean(applicationOwnerId && pkmCaptureSaveInFlight.has(applicationOwnerId)),
     );
     return () => {
       captureRevision.current += 1;
     };
-  }, [user?.uid, isVaultUnlocked, presentationOwner]);
+  }, [applicationOwnerId, isVaultUnlocked, presentationOwner]);
 
   // A request can be accepted while verification is temporarily unavailable.
   // Its result is deliberately not published through the stale guard; once
@@ -606,7 +606,7 @@ export function usePkmNaturalModel({
   // the visible Memory projection catches up without reviving the old result.
   useEffect(() => {
     if (
-      !user?.uid ||
+      !applicationOwnerId ||
       !isVaultUnlocked ||
       !vaultOwnerToken ||
       !isCaptureReady(vaultOwnerToken)
@@ -614,19 +614,19 @@ export function usePkmNaturalModel({
       return;
     }
     if (
-      pkmCaptureSaveInFlight.has(user.uid) ||
-      !pkmCaptureReconciliationNeeded.has(user.uid)
+      pkmCaptureSaveInFlight.has(applicationOwnerId) ||
+      !pkmCaptureReconciliationNeeded.has(applicationOwnerId)
     ) {
       return;
     }
-    pkmCaptureReconciliationNeeded.delete(user.uid);
+    pkmCaptureReconciliationNeeded.delete(applicationOwnerId);
     setRefreshNonce((value) => value + 1);
   }, [
     authLoading,
     isVaultUnlocked,
     sessionVerificationRequired,
     tokenExpiresAt,
-    user?.uid,
+    applicationOwnerId,
     vaultOwnerToken,
   ]);
   const [sharingManifestState, setSharingManifestState] = useState<{
@@ -730,7 +730,7 @@ export function usePkmNaturalModel({
 
     async function loadCategories() {
       if (authLoading) return;
-      if (!user || !isVaultUnlocked || !vaultOwnerToken) {
+      if (!user || !applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken) {
         if (!cancelled) {
           setMetadata(null);
           setActiveGrants([]);
@@ -747,7 +747,7 @@ export function usePkmNaturalModel({
       const force =
         refreshNonce > 0 || refreshToken > 0 || pkmChangeRevision > 0;
       const metadataTask = PersonalKnowledgeModelService.getMetadata(
-        user.uid,
+        applicationOwnerId,
         force,
         vaultOwnerToken,
       )
@@ -765,7 +765,7 @@ export function usePkmNaturalModel({
         .then((idToken) =>
           ConsentCenterService.getCenter({
             idToken,
-            userId: user.uid,
+            userId: applicationOwnerId,
             actor: "investor",
             view: "active",
             force,
@@ -797,6 +797,7 @@ export function usePkmNaturalModel({
     refreshNonce,
     refreshToken,
     user,
+    applicationOwnerId,
     vaultOwnerToken,
   ]);
 
@@ -888,7 +889,7 @@ export function usePkmNaturalModel({
       ? "loading"
       : bootstrapError || domainDetail.error
         ? "error"
-        : !user || !isVaultUnlocked || !vaultOwnerToken || !vaultKey
+        : !applicationOwnerId || !isVaultUnlocked || !vaultOwnerToken || !vaultKey
           ? "unavailable-valid"
           : metadata === null
             ? "loading"
@@ -905,7 +906,7 @@ export function usePkmNaturalModel({
 
     async function loadMutationImpacts() {
       if (
-        !user ||
+        !applicationOwnerId ||
         !vaultOwnerToken ||
         !selectedMetadataDomain ||
         domainMemoryCards.length === 0
@@ -929,7 +930,7 @@ export function usePkmNaturalModel({
               [
                 impactKey,
                 await PersonalKnowledgeModelService.getMutationSharingImpact({
-                  userId: user.uid,
+                  userId: applicationOwnerId,
                   domain: selectedMetadataDomain.key,
                   scopePath,
                   vaultOwnerToken,
@@ -961,7 +962,7 @@ export function usePkmNaturalModel({
     setSharingImpacts,
     selectedMetadataDomain,
     sharingImpactRefreshNonce,
-    user,
+    applicationOwnerId,
     vaultOwnerToken,
   ]);
 
@@ -971,7 +972,7 @@ export function usePkmNaturalModel({
     async function loadSelectedDomain() {
       if (
         !selectedMetadataDomain ||
-        !user ||
+        !applicationOwnerId ||
         !isVaultUnlocked ||
         !vaultKey ||
         !vaultOwnerToken
@@ -984,12 +985,12 @@ export function usePkmNaturalModel({
       try {
         const [manifest, domainData] = await Promise.all([
           PersonalKnowledgeModelService.getDomainManifest(
-            user.uid,
+            applicationOwnerId,
             selectedMetadataDomain.key,
             vaultOwnerToken,
           ).catch(() => null),
           PersonalKnowledgeModelService.loadDomainData({
-            userId: user.uid,
+            userId: applicationOwnerId,
             domain: selectedMetadataDomain.key,
             vaultKey,
             vaultOwnerToken,
@@ -1025,7 +1026,7 @@ export function usePkmNaturalModel({
     memoryCardsNonce,
     pkmChangeRevision,
     selectedMetadataDomain,
-    user,
+    applicationOwnerId,
     vaultKey,
     vaultOwnerToken,
   ]);
@@ -1034,7 +1035,7 @@ export function usePkmNaturalModel({
     let cancelled = false;
     if (
       (workspaceTab !== "browse" && workspaceTab !== "sharing") ||
-      !user ||
+      !applicationOwnerId ||
       !vaultOwnerToken ||
       visibleMetadataDomains.length === 0
     ) {
@@ -1047,7 +1048,7 @@ export function usePkmNaturalModel({
           [
             domain.key,
             await PersonalKnowledgeModelService.getDomainManifest(
-              user.uid,
+              applicationOwnerId,
               domain.key,
               vaultOwnerToken,
             ).catch(() => null),
@@ -1067,7 +1068,7 @@ export function usePkmNaturalModel({
     refreshNonce,
     pkmChangeRevision,
     setSharingManifests,
-    user,
+    applicationOwnerId,
     vaultOwnerToken,
     visibleMetadataDomains,
     workspaceTab,
@@ -1078,7 +1079,7 @@ export function usePkmNaturalModel({
     if (
       locationView ||
       workspaceTab !== "browse" ||
-      !user ||
+      !applicationOwnerId ||
       !isVaultUnlocked ||
       !vaultKey ||
       !vaultOwnerToken
@@ -1106,7 +1107,7 @@ export function usePkmNaturalModel({
       setMemoryCards(sorted);
     };
     void PkmDomainResourceService.getManyStaleFirst({
-      userId: user.uid,
+      userId: applicationOwnerId,
       domains: visibleMetadataDomains.map((domain) => domain.key),
       vaultKey,
       vaultOwnerToken,
@@ -1142,7 +1143,7 @@ export function usePkmNaturalModel({
     metadata,
     pkmChangeRevision,
     refreshNonce,
-    user,
+    applicationOwnerId,
     vaultKey,
     vaultOwnerToken,
     visibleMetadataDomains,
@@ -1155,11 +1156,11 @@ export function usePkmNaturalModel({
     const key = cardImpactKey(card);
     const cached = sharingImpacts[key];
     if (cached) return cached;
-    if (!user || !vaultOwnerToken) return null;
+    if (!applicationOwnerId || !vaultOwnerToken) return null;
     try {
       const impact =
         await PersonalKnowledgeModelService.getMutationSharingImpact({
-          userId: user.uid,
+          userId: applicationOwnerId,
           domain: card.domain,
           scopePath: cardScopePath(card),
           vaultOwnerToken,
@@ -1190,12 +1191,12 @@ export function usePkmNaturalModel({
   // and the manifest version the backend checks — is loaded here on demand.
   useEffect(() => {
     let cancelled = false;
-    if (!selectedCard || !user || !vaultOwnerToken) {
+    if (!selectedCard || !applicationOwnerId || !vaultOwnerToken) {
       setSelectedCardManifest(null);
       return undefined;
     }
     void PersonalKnowledgeModelService.getDomainManifest(
-      user.uid,
+      applicationOwnerId,
       selectedCard.domain,
       vaultOwnerToken,
     )
@@ -1213,7 +1214,7 @@ export function usePkmNaturalModel({
     refreshNonce,
     selectedCard,
     setSelectedCardManifest,
-    user,
+    applicationOwnerId,
     vaultOwnerToken,
   ]);
 
@@ -1222,8 +1223,8 @@ export function usePkmNaturalModel({
     action: "edited" | "deleted";
     nextValue?: string;
   }) {
-    if (!operationIsCurrent() || !user || !vaultKey || !vaultOwnerToken) return;
-    const operationOwnerId = user.uid;
+    if (!operationIsCurrent() || !applicationOwnerId || !vaultKey || !vaultOwnerToken) return;
+    const operationOwnerId = applicationOwnerId;
     const sharingImpact = sharingImpacts[cardImpactKey(params.card)];
     if (!sharingImpact) {
       setMemoryActionError(
@@ -1237,7 +1238,7 @@ export function usePkmNaturalModel({
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
         beforeEffect: assertOperationCurrent,
-        userId: user.uid,
+        userId: applicationOwnerId,
         domain: params.card.domain,
         vaultKey,
         vaultOwnerToken,
@@ -1319,12 +1320,12 @@ export function usePkmNaturalModel({
         params.action === "edited" ? "detail_edited" : "detail_deleted",
         "success",
       );
-      clearAgentPkmContext(user.uid);
+      clearAgentPkmContext(applicationOwnerId);
       let metadataRefreshFailed = false;
       try {
         const refreshedMetadata =
           await PersonalKnowledgeModelService.getMetadata(
-            user.uid,
+            applicationOwnerId,
             true,
             vaultOwnerToken,
           );
@@ -1374,17 +1375,17 @@ export function usePkmNaturalModel({
 
   async function previewMemoryCapture() {
     if (
-      !user ||
+      !applicationOwnerId ||
       !isVaultUnlocked ||
       !vaultOwnerToken ||
       !captureText.trim() ||
       captureSaving
     )
       return;
-    const operationOwnerId = user.uid;
+    const operationOwnerId = applicationOwnerId;
     const revision = ++captureRevision.current;
     const guard = createAgentPkmCaptureGuard({
-      userId: user.uid,
+      userId: applicationOwnerId,
       signal: new AbortController().signal,
       isEnabled: () =>
         revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
@@ -1398,7 +1399,7 @@ export function usePkmNaturalModel({
     setCaptureMessage(null);
     try {
       const localDuplicate = AgentPkmContextStore.findLocalDuplicate({
-        userId: user.uid,
+        userId: applicationOwnerId,
         candidate: captureText.trim(),
       });
       if (localDuplicate?.kind === "exact") {
@@ -1415,7 +1416,7 @@ export function usePkmNaturalModel({
       }
       const sourceSnapshot = captureText.trim();
       const prepared = await prepareNaturalLanguagePkm({
-        userId: user.uid,
+        userId: applicationOwnerId,
         message: sourceSnapshot,
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
@@ -1425,7 +1426,7 @@ export function usePkmNaturalModel({
         isEffectCurrent: guard.isCurrent,
         findDuplicate: (candidate) =>
           AgentPkmContextStore.findLocalDuplicate({
-            userId: user.uid,
+            userId: applicationOwnerId,
             candidate,
           }),
         beforeEffect: guard.assertCurrent,
@@ -1490,7 +1491,7 @@ export function usePkmNaturalModel({
   async function retryCaptureSection(block: PkmNaturalLanguageSourceCoverage) {
     const sourceSnapshot = captureSourceSnapshot;
     if (
-      !user ||
+      !applicationOwnerId ||
       !isVaultUnlocked ||
       !vaultOwnerToken ||
       !block.sourceRange ||
@@ -1501,11 +1502,11 @@ export function usePkmNaturalModel({
       sourceSnapshot !== captureText.trim()
     )
       return;
-    const operationOwnerId = user.uid;
+    const operationOwnerId = applicationOwnerId;
     const revision = captureRevision.current;
     const sectionKey = pkmCaptureSectionKey(block);
     const guard = createAgentPkmCaptureGuard({
-      userId: user.uid,
+      userId: applicationOwnerId,
       signal: new AbortController().signal,
       isEnabled: () =>
         revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
@@ -1514,7 +1515,7 @@ export function usePkmNaturalModel({
     setCaptureRetryingSectionKey(sectionKey);
     try {
       const prepared = await prepareNaturalLanguagePkm({
-        userId: user.uid,
+        userId: applicationOwnerId,
         message: sourceSnapshot,
         sourceSelection: {
           range: block.sourceRange,
@@ -1528,7 +1529,7 @@ export function usePkmNaturalModel({
         isEffectCurrent: guard.isCurrent,
         findDuplicate: (candidate) =>
           AgentPkmContextStore.findLocalDuplicate({
-            userId: user.uid,
+            userId: applicationOwnerId,
             candidate,
           }),
         beforeEffect: guard.assertCurrent,
@@ -1585,28 +1586,28 @@ export function usePkmNaturalModel({
 
   async function saveMemoryCapture() {
     if (
-      !user ||
+      !applicationOwnerId ||
       !isVaultUnlocked ||
       !vaultKey ||
       !vaultOwnerToken ||
       captureSaveableCards.length === 0 ||
       captureRetryingSectionKey !== null ||
       (captureHasSharedRecipients && !captureSharingImpactAcknowledged) ||
-      pkmCaptureSaveInFlight.has(user.uid)
+      pkmCaptureSaveInFlight.has(applicationOwnerId)
     )
       return;
     const operationId = Symbol("memory-save");
-    const operationOwnerId = user.uid;
+    const operationOwnerId = applicationOwnerId;
     pkmCaptureSaveInFlight.set(operationOwnerId, operationId);
     const revision = ++captureRevision.current;
     const receiptGuard = createAgentPkmCaptureGuard({
-      userId: user.uid,
+      userId: applicationOwnerId,
       signal: new AbortController().signal,
       isEnabled: () =>
         pkmCaptureSaveInFlight.get(operationOwnerId) === operationId,
     });
     const guard = createAgentPkmCaptureGuard({
-      userId: user.uid,
+      userId: applicationOwnerId,
       signal: new AbortController().signal,
       isEnabled: () =>
         revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
@@ -1620,7 +1621,7 @@ export function usePkmNaturalModel({
     setCaptureSaving(true);
     try {
       const operation = addToPKM({
-        userId: user.uid,
+        userId: applicationOwnerId,
         cards: captureSaveableCards,
         sourceMessage: captureText.trim(),
         vaultKey,
@@ -1682,7 +1683,7 @@ export function usePkmNaturalModel({
         }
         return;
       }
-      clearAgentPkmContext(user.uid);
+      clearAgentPkmContext(applicationOwnerId);
       const remainingSections = captureUnresolvedSections.length;
       setCaptureMessage(
         result.saved > 0
@@ -1746,7 +1747,7 @@ export function usePkmNaturalModel({
   }) {
     if (
       !operationIsCurrent() ||
-      !user ||
+      !applicationOwnerId ||
       !vaultOwnerToken ||
       params.scopeHandles.length === 0
     )
@@ -1757,7 +1758,7 @@ export function usePkmNaturalModel({
       const operation = PersonalKnowledgeModelService.updateScopeExposure({
         beforeEffect: assertOperationCurrent,
         mayPublish: operationIsCurrent,
-        userId: user.uid,
+        userId: applicationOwnerId,
         domain: params.domain,
         expectedManifestVersion: params.manifest.manifest_version,
         vaultOwnerToken,
@@ -1822,7 +1823,7 @@ export function usePkmNaturalModel({
     card: PkmMemoryCard,
     nextPosture: "private" | "consent_required",
   ) {
-    if (!operationIsCurrent() || !user || !vaultOwnerToken) return;
+    if (!operationIsCurrent() || !applicationOwnerId || !vaultOwnerToken) return;
     const manifest = selectedCardManifest;
     const bundle = memoryScopeShareBundle(card);
     if (!manifest || !bundle?.scopeHandle) {
@@ -1837,7 +1838,7 @@ export function usePkmNaturalModel({
       const operation = PersonalKnowledgeModelService.updateScopeExposure({
         beforeEffect: assertOperationCurrent,
         mayPublish: operationIsCurrent,
-        userId: user.uid,
+        userId: applicationOwnerId,
         domain: card.domain,
         expectedManifestVersion: manifest.manifest_version,
         vaultOwnerToken,
@@ -1862,7 +1863,7 @@ export function usePkmNaturalModel({
       try {
         const impact =
           await PersonalKnowledgeModelService.getMutationSharingImpact({
-            userId: user.uid,
+            userId: applicationOwnerId,
             domain: card.domain,
             scopePath: cardScopePath(card),
             vaultOwnerToken,
@@ -1927,9 +1928,9 @@ export function usePkmNaturalModel({
   }
 
   const canOpen = Boolean(
-    user && isVaultUnlocked && vaultKey && vaultOwnerToken,
+    applicationOwnerId && isVaultUnlocked && vaultKey && vaultOwnerToken,
   );
-  const signedIn = Boolean(user);
+  const signedIn = Boolean(applicationOwnerId);
   const locationLoading =
     bootstrapLoading ||
     (!metadata && !bootstrapError) ||
@@ -1937,7 +1938,7 @@ export function usePkmNaturalModel({
     (Boolean(selectedMetadataDomain) &&
       domainDetail.session !== memoryReadSession);
   const soul = useSoulMemoryModel({
-    userId: user?.uid ?? "",
+    userId: applicationOwnerId ?? "",
     vaultKey: vaultKey ?? "",
     vaultOwnerToken: vaultOwnerToken ?? "",
     tokenExpiresAt,
@@ -1972,7 +1973,7 @@ export function usePkmNaturalModel({
     setCaptureMessage(null);
   };
   return {
-    ownerId: user?.uid ?? "",
+    ownerId: applicationOwnerId ?? "",
     identifierProcessingApproved,
     setIdentifierProcessingApproval,
     memoryScopeShareBundle,

@@ -189,12 +189,17 @@ async def run_ai_selection_delete(
             consent_token, verifier=verifier, session=session, scope=SCOPE_POD_CONFIG
         )
     try:
-        await store.clear_ai_selection(log, hushh_id=owner_id, expected_floor=floor)
+        await store.clear_ai_selection(
+            log, hushh_id=owner_id, expected_floor=floor, verified_default=verified or None
+        )
     except store.AiSelectionRefused:
         raise HTTPException(status_code=409, detail={"code": "STALE_SELECTION"}) from None
     store.note_ai_selection_failure(None)
     logger.info("pod_ai_selection.cleared")
-    return {"status": "cleared", **verified}
+    return {
+        "status": "cleared",
+        **{k: v for k, v in verified.items() if k != "connectionFingerprint"},
+    }
 
 
 async def run_ai_selection_get(
@@ -216,9 +221,12 @@ async def run_ai_selection_get(
         await store.load_active_ai_selection(log)
     if store.ai_selection_load_failed():
         raise HTTPException(status_code=503, detail={"code": "OWNER_AI_SELECTION_UNAVAILABLE"})
+    from hushh_mcp.services.pod_ai_effective_connection import effective_connection
+
     return {
         **store.public_selection(store.current_ai_selection()),
         "lastFailure": store.last_ai_selection_failure(),
+        "effectiveConnection": effective_connection(),
     }
 
 

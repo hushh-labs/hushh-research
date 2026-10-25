@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const state = vi.hoisted(() => ({ uid: "viewer", unlocked: false, list: vi.fn(), publish: vi.fn(), packets: vi.fn(), request: vi.fn(), identity: vi.fn(), getIdToken: vi.fn(), checkout: vi.fn() }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid, getIdToken: state.getIdToken } }) }));
+const state = vi.hoisted(() => ({ uid: "viewer", ownerId: "viewer", unlocked: false, list: vi.fn(), publish: vi.fn(), packets: vi.fn(), request: vi.fn(), identity: vi.fn(), getIdToken: vi.fn(), checkout: vi.fn() }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid, getIdToken: state.getIdToken }, userId: state.ownerId }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: "private-token", isVaultUnlocked: state.unlocked }) }));
 vi.mock("@/lib/services/financial-packet-summary-service", () => ({ FinancialPacketSummaryService: state }));
 vi.mock("@/lib/services/drive-packet-service", () => ({ DrivePacketService: state }));
@@ -11,7 +11,7 @@ import { usePersonProfilePackets } from "@/components/connections/person-profile
 import { hasMountedLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { FinancialPacketSummaries } from "@/components/consent/packets/financial-packet-summaries";
 import { usePacketPublicSummary } from "@/components/consent/packets/packet-public-summary-control";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import type { DrivePacket } from "@/lib/services/drive-packet-service";
 const person = "11111111-1111-4111-8111-111111111111", packetId = "22222222-2222-4222-8222-222222222222";
 const summary = { packetId, version: 1, category: "financial", title: "Financial documents", periodStart: "2026-07-01", periodEnd: "2026-08-31",
@@ -21,7 +21,7 @@ const packet = { ...summary, kind: "provider_discovery", description: "Drive sea
   listingRevision: 2, coverageSummary: "Search period", canList: false, canRequest: true, documentCount: 2,
   requestId: null, purchaseState: "none" } as unknown as DrivePacket;
 beforeEach(() => {
-  vi.clearAllMocks(); state.uid = "viewer"; state.unlocked = false; publishValidatedAuthSessionOwner("viewer");
+  vi.clearAllMocks(); state.uid = "viewer"; state.ownerId = "viewer"; state.unlocked = false; publishValidatedAuthSessionPrincipal({ firebaseUid: "viewer", ownerId: "viewer", accountGeneration: 0 });
   state.getIdToken.mockResolvedValue("firebase-token"); state.identity.mockResolvedValue("firebase-token");
   state.list.mockResolvedValue({ packets: [summary], nextCursor: null }); state.packets.mockResolvedValue({ packets: [packet], nextCursor: null });
 });
@@ -35,6 +35,24 @@ describe("@feature_drive_packets @trace_loop public summaries and private reques
     expect(hasMountedLocalOnboardingHandler("people.profile.browse_packets")).toBe(false);
     rerender({ privateCatalog: true });
     expect(hasMountedLocalOnboardingHandler("people.profile.browse_packets")).toBe(true);
+  });
+  it("reads a new account generation and rejects a retired same-Firebase response", async () => {
+    state.ownerId = `acct_${"1".repeat(32)}`;
+    publishValidatedAuthSessionPrincipal({ firebaseUid: state.uid, ownerId: state.ownerId, accountGeneration: 1 });
+    const props = { personRef: person, ownerName: "Avery", onConnect: vi.fn(), onUnlock: vi.fn() };
+    const view = render(<FinancialPacketSummaries {...props} />);
+    await screen.findByRole("button", { name: /Jul–Aug 2026/ });
+    let release!: (value: unknown) => void;
+    state.list.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    view.rerender(<FinancialPacketSummaries {...props} refreshKey="refresh" />);
+    await waitFor(() => expect(state.list).toHaveBeenCalledTimes(2));
+    state.ownerId = `acct_${"2".repeat(32)}`;
+    publishValidatedAuthSessionPrincipal({ firebaseUid: state.uid, ownerId: state.ownerId, accountGeneration: 2 });
+    state.list.mockResolvedValue({ packets: [], nextCursor: null });
+    view.rerender(<FinancialPacketSummaries {...props} refreshKey="refresh" />);
+    await screen.findByText("No public packets");
+    await act(async () => release({ packets: [summary], nextCursor: null }));
+    expect(screen.queryByRole("button", { name: /Jul–Aug 2026/ })).not.toBeInTheDocument();
   });
   it("shows unknown counts without unlock, connects once, and makes pending read-only", async () => {
     const connect = vi.fn(), unlock = vi.fn();
@@ -102,7 +120,7 @@ describe("@feature_drive_packets @trace_loop public summaries and private reques
     const props = { personRef: person, ownerName: "Avery", onConnect: vi.fn(), onUnlock: vi.fn() };
     const view = render(<FinancialPacketSummaries {...props} />);
     await waitFor(() => expect(state.list).toHaveBeenCalledTimes(1));
-    state.uid = "other"; publishValidatedAuthSessionOwner("other"); state.list.mockResolvedValue({ packets: [], nextCursor: null });
+    state.uid = "other"; state.ownerId = "other"; publishValidatedAuthSessionPrincipal({ firebaseUid: "other", ownerId: "other", accountGeneration: 0 }); state.list.mockResolvedValue({ packets: [], nextCursor: null });
     view.rerender(<FinancialPacketSummaries {...props} />); await screen.findByText("No public packets");
     await act(async () => release({ packets: [summary], nextCursor: null }));
     expect(screen.queryByRole("button", { name: /Jul–Aug/ })).not.toBeInTheDocument();

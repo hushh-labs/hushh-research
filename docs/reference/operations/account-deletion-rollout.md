@@ -19,6 +19,158 @@ necessary, but it is not sufficient on its own: a full deletion that was
 already in flight before the DDL committed can finish without crossing either
 root trigger, and a legacy account can lack one of the two root rows.
 
+The current local follow-up adds draft migrations 418–421. Cleanup retains only
+required existing encrypted custody; registration generations and cloud-removal
+recovery are not enabled by source tests. Migration 421 records exact destructive
+admission before dispatch and permits only unapproved, inert-review cancellation.
+It retains cancelled history and blocks legacy restore/deprovision bypasses. Both
+application consumers and the qualified migration chain must be installed before
+these controls can be offered. See the [readiness decision](../quality/adk-orchestration-docs-audit.md)
+for source versus deployed evidence.
+
+## Surgical follow-up boundary — 24 October 2026
+
+Fresh main `217007c715` is integrated locally, retaining its immutable 412–415
+recovery-index migrations and bounded keyset erasure. Lifecycle authority now uses
+418–421. The HTTP regression follows real 202 preparation and a durable worker claim
+through finalization: 501 segments/300 revisions retain 700 ms statement limits,
+trace correlation, peer preservation and atomic rollback. A failed final erasure
+retains provider-cleanup authority; it does not delete Firebase identity or revoke
+providers after the keys are gone. Source qualification does not enable enrollment
+or certify a deployed environment.
+
+The last verified serving account erasure removes local credentials before best-effort
+provider release. A successful local deletion therefore cannot establish
+project/account-wide OAuth revocation or recover a failed release after keys are
+gone. The local follow-up now distinguishes confirmed Google revocation,
+absence of only the submitted token and unconfirmed failures; durable staged
+cleanup remains required before deployed acceptance is complete.
+
+Local source now composes preparation, the existing cleanup worker, ordinary-use
+fences, and the atomic erasure consumer. The forward migration retains original
+encrypted custody through failure and replay. Refresh dispatch is journaled;
+replacement authority is sealed into the same row before identity verification.
+Late capture preserves custody without renewing a stale worker's authority.
+Drive picker information survives cleanup-only rotation. Lost or uncertain
+provider effects are retained for reconciliation, not replayed.
+
+The API returns accepted cleanup separately from completed deletion. A
+purpose-bound Firebase-verified status read survives refresh and terminal raw-ID
+scrubbing; it grants no account or vault access. The privacy gate shows durable
+progress without sign-out. Unsupported external-key revocation requires explicit
+confirmation bound to the inventory digest, and cannot excuse uncertain OAuth
+revocation. The UAT-only local reset now requires database attestation and empty
+provider custody before following the same staged SQL path.
+
+The latest focused checks passed **260 backend** and **167 frontend** cases,
+including real disposable PostgreSQL, API/auth integration and the progress UI.
+These are local contract results. The forward lifecycle migrations **418–421**
+require replacement-account compatibility, combined-candidate qualification and
+governed deployment. Main's migration 416 retains its separate owning contract. This is not deployed deletion or same-login registration evidence.
+
+The agreed correction retains credentials only in their existing encrypted
+custody, fences ordinary use, commits cleanup intent before provider calls and
+persists exact outcomes before final erasure. Preparing a tombstone must also
+phase-gate the existing push and marketing deletion triggers. Stop all affected
+watches before revoking an associated grant. Provider failures remain repairable;
+unsupported key revocation requires explicit local-erasure terms.
+
+Same-login registration remains unavailable until the environment-local account
+authority and its consumers are qualified. The local `419_account_generations`
+authority now preserves Firebase's UID and immutable retired-account tombstones,
+with an opaque owner for each replacement. Two complete erase/enroll cycles passed
+on disposable PostgreSQL, including concurrent enrollment, exact cleanup replay,
+old custom-token refusal and unchanged-owner write fencing. Removing the retired
+UPDATE guard caused the same regression to fail. Anonymous/authenticated SQL
+roles cannot call enrollment or read its ledger; future identity-table DDL inherits
+the guard through migration 201's existing discovery.
+
+The verifier and session-status response distinguish verified Firebase identity,
+application owner and generation. `ACCOUNT_GENERATION_ADMISSION_ENABLED` defaults
+off. Do not enable it or publish registration until remaining application callers
+qualify. Federated and purpose-bound email recovery are implemented locally;
+neither has been accepted on a deployed environment.
+Conditional WorkOS and HushhTech custom-auth integrations remain incompatible
+with generation-enabled admission. Their entrypoints now return explicit
+unavailable outcomes before provider mutation or exchange; they never bind an
+old callback to the latest owner. Do not enable generations beside active WorkOS
+sign-in or offboarding until that integration's captured-generation mutation
+authority qualifies. Startup refuses the conflicting configuration, preserving
+the prior running service rather than silently withdrawing offboarding. The
+existing generation-off behavior remains supported.
+
+An owner-to-Firebase mapping is suitable for reads; it cannot authorize a deferred
+Firebase mutation across retirement. Device and passkey mints now map the exact
+captured application owner to its external UID and stamp owner/lane claims in the
+custom token. They never change global Firebase claims. Browser device approval
+returns that same application owner and distinguishes unavailable authority from
+invalid proof. The 101 focused device/passkey/auth cases pass. Email now captures external UID,
+application owner, environment, purpose and reservation provenance before delivery.
+A code for an existing identity can never recreate a missing Firebase user.
+Enrollment uses its consumed database proof, not custom-token authentication time.
+Proof consumption and exact generation activation commit together under identity
+lock 199; token minting follows outside that transaction. A final owner/policy/
+expiry check controls token release. Lost enrollment responses recover through a
+new ordinary code, without replaying activation. Historical unknown cleanup stays
+Action required. Codes and enrollment tickets remain memory-only; the existing
+challenge store holds encrypted destinations and keyed proof digests.
+
+The local federated recovery path accepts independently fresh Google, Apple or
+Microsoft identity proof only for explicit registration review. It does not admit
+a retired account to private information. The owner confirms the exact prior
+generation, cleanup operation and enrollment receipt. SQL stores the authentication
+time and review digest, refusing changed proof on replay, expired proof and missing
+receipt fields. Historical cleanup without qualified evidence stays **Action
+required**. Unknown submission responses require status reconciliation, never an
+automatic second enrollment. Normal session admission follows a confirmed result.
+The frontend withdraws an old application principal before showing this recovery.
+
+Full-account deletion now retains the external Firebase identity in every
+environment. The existing `firebase_shared_identity_retained` classification is
+kept for compatibility; it no longer implies a development-only policy. Only
+verified provisional phone-orphan cleanup or a separately authorized enterprise
+quarantine may use their narrower identity operations. Drain legacy deletion
+workers before enabling replacement accounts: this change cannot undo an already
+dispatched identity deletion.
+
+Migration 419 records remote identity-write dispatch before provider calls,
+using the existing owner 171→198 barriers and the enrollment identity-199 lock.
+Its minimal receipts contain hashes, purpose, project, operation and settlement;
+no names, credentials or SDK payloads. Dispatched or uncertain writes block both
+enrollment and direct replacement INSERTs. Local erasure may still finish; only
+an exact late settlement can release that enrollment barrier. There is no expiry
+or automatic replay. Display-name and welcome-marker writes use an owned,
+no-retry/no-redirect session with Google's documented
+[Identity Platform update API](https://docs.cloud.google.com/identity-platform/docs/reference/rest/v1/projects.accounts/update).
+Restoring the pinned SDK retry policy made the same transport regression fail
+with five POSTs instead of one. The pinned Firebase SDK otherwise retries mutation
+POSTs after read/status errors;
+never change its shared session per call to work around that behavior.
+
+The retirement cutoff includes a 60-second issuer-clock lead margin, then requires
+independently fresh sign-in; refresh-token `iat` never supplies that proof.
+Migrations 418–421 are registered locally with matching contracts but remain unapplied. On 24 October, the latest
+focused recovery checks passed 248 backend and 379 frontend cases, plus 41 native
+privacy cases. The real PostgreSQL rehearsal passed two erase/enroll cycles in
+127.87 seconds, including changed-proof replay, direct-INSERT refusal and a pending
+current-generation identity write. TypeScript and changed-source lint passed.
+These focused results overlap prior suites; they are not the final combined mirror
+or live acceptance. The subsequent email checks passed all 46 existing and new
+cases against disposable PostgreSQL. The full-schema two-cycle rehearsal passed
+in 127.76 seconds, including concurrent email enrollment, immutable capture,
+stale-code refusal, response-loss recovery and fresh email registration. The
+email frontend/API checks passed 112 cases. Remaining generation consumers and
+combined acceptance still precede activation.
+
+The reviewed implementation direction separates that
+external identity from an immutable application owner per account generation:
+generation 0 retains its existing owner key; a replacement uses a new opaque key.
+Resolve this binding only during fresh authenticated admission, never inside an
+old job, callback or grant. Vault, device, native, provider and pod contracts must
+carry the explicit application owner before replacement enrollment is enabled.
+No global Firebase claims, identity deletion, email-based relinking or transparent
+SQL parameter rewriting can substitute for this boundary.
+
 ## Database erasure runtime boundary
 
 Full account erasure runs its complete synchronous SQL transaction on one worker
@@ -31,7 +183,9 @@ They bound individual statements, rather than the total erasure duration.
 
 A failed statement rolls back the tombstone and erasure together and releases
 the account barriers before returning the existing `ACCOUNT_DELETION_FAILED`
-response. Provider grant release and Firebase cleanup remain post-commit only.
+response. In the serving legacy path, provider release and Firebase cleanup are
+post-commit only; the staged replacement above moves provider settlement before
+local erasure and preserves the person's shared Firebase identity.
 Clients must still confirm active status before retaining the session after a
 reported rollback; an untyped transport failure remains an uncertain outcome.
 Failed optional-table deletes log only the table name and elapsed time for

@@ -66,6 +66,8 @@ import {
   type AuthSessionOwnerSnapshot,
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
+  snapshotValidatedAuthSessionPrincipal,
+  snapshotAuthSessionGeneration,
   dispatchAuthSessionVerificationRequired,
 } from "@/lib/auth/session-owner";
 import { ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS } from "@/lib/auth/account-session-policy";
@@ -554,6 +556,8 @@ export async function fetchWithWebTimeout(
 
 export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
+  /** Lifecycle orchestration settles its own response before changing authentication. */
+  accountLifecycleOwnsAuthOutcome?: boolean;
   /** Native HTTP returns binary bodies as base64; decode them before blob(). */
   responseType?: "arraybuffer";
   /** Revalidate effect authority after async transport setup, including retries. */
@@ -587,7 +591,11 @@ async function apiFetch(
   options: ApiFetchOptions = {},
   streaming = false,
 ): Promise<Response> {
-  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, ...fetchOptions } = options;
+  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, accountLifecycleOwnsAuthOutcome, ...fetchOptions } = options;
+  if (accountLifecycleOwnsAuthOutcome && ![
+    "/api/account/session-status", "/api/account/delete", "/api/account/delete-lost-vault",
+    "/api/account/deletion-cleanup", "/api/account/registration-status", "/api/account/start-fresh",
+  ].includes(path)) throw new Error("Unsupported account lifecycle transport.");
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -598,7 +606,7 @@ async function apiFetch(
   // refresh to the central validated owner generation, not an absent JS user.
   const initiatingNativeOwner =
     !initiatingAuthUser && Capacitor.isNativePlatform()
-      ? snapshotValidatedAuthSessionOwner()
+      ? snapshotValidatedAuthSessionPrincipal()
       : null;
   const apiBase = getApiBaseUrl();
   // An absolute path is already fully resolved. Native builds use this to reach
@@ -650,15 +658,20 @@ async function apiFetch(
   // this request. A delayed response from account A must never invalidate or
   // replay its request under a newly authenticated account B.
   const requestAuthorizationBearer = getAuthorizationBearer();
+  const requestEpisode = snapshotAuthSessionGeneration();
+  const requestPrincipal = snapshotValidatedAuthSessionPrincipal();
+  const requestFirebaseUid = decodeFirebaseTokenSubject(requestAuthorizationBearer);
   const requestVaultEpoch = snapshotVaultSessionEpoch();
   const isVaultOwnerRequest = requestAuthorizationBearer.startsWith("HCT:");
   const requestSessionOwner = isVaultOwnerRequest
     ? snapshotValidatedAuthSessionOwner()
-    : null;
+    : requestPrincipal?.firebaseUid === requestFirebaseUid ? requestPrincipal : null;
   const requestAuthUserId =
-    decodeFirebaseTokenSubject(requestAuthorizationBearer) ??
     requestSessionOwner?.userId ??
+    requestFirebaseUid ??
     null;
+
+  const requestEpisodeIsCurrent = () => !requestEpisode || isValidatedAuthSessionOwnerCurrent(requestEpisode);
 
   const vaultOwnerRequestStillBelongsToSession = () =>
     !requestSessionOwner ||
@@ -683,14 +696,14 @@ async function apiFetch(
 
   const dispatchTerminalAuthCodeFromResponse = async (response: Response) => {
     const code = await terminalAuthCodeFromResponse(response);
-    if (!code || !requestAuthUserId) return false;
+    if (!code || !requestAuthUserId || !requestEpisodeIsCurrent()) return false;
     if (
       isVaultOwnerRequest &&
       (!requestSessionOwner || !vaultOwnerRequestStillBelongsToSession())
     ) {
       return false;
     }
-    dispatchAuthSessionInvalidated({ code, path, userId: requestAuthUserId });
+    dispatchAuthSessionInvalidated({ code, path, userId: requestAuthUserId, generation: requestEpisode?.generation });
     return true;
   };
 
@@ -729,6 +742,7 @@ async function apiFetch(
     const initiatingBearer = getAuthorizationBearer();
     const initiatingSubject = decodeFirebaseTokenSubject(initiatingBearer);
     const initiatingSessionIsCurrent = () => {
+      if (!requestEpisodeIsCurrent()) return false;
       if (initiatingAuthUser?.uid) {
         return (
           initiatingSubject === initiatingAuthUser.uid &&
@@ -737,7 +751,7 @@ async function apiFetch(
       }
       return Boolean(
         initiatingNativeOwner &&
-        initiatingSubject === initiatingNativeOwner.userId &&
+        initiatingSubject === initiatingNativeOwner.firebaseUid &&
         !AuthService.getCurrentUser() &&
         isValidatedAuthSessionOwnerCurrent(initiatingNativeOwner),
       );
@@ -747,7 +761,7 @@ async function apiFetch(
       Boolean(
         initiatingNativeOwner &&
         initiatingSessionIsCurrent() &&
-        decodeFirebaseTokenSubject(token) === initiatingNativeOwner.userId,
+        decodeFirebaseTokenSubject(token) === initiatingNativeOwner.firebaseUid,
       );
     // A previous account's request can receive its 401 after a replacement
     // session signs in. Do not refresh or invalidate that replacement session.
@@ -766,6 +780,7 @@ async function apiFetch(
               code: "session_invalid",
               path,
               userId: requestAuthUserId,
+              generation: requestEpisode?.generation,
             });
           }
         }
@@ -803,6 +818,7 @@ async function apiFetch(
           code,
           path,
           userId: requestAuthUserId,
+          generation: requestEpisode?.generation,
         });
       }
       return null;
@@ -850,6 +866,10 @@ async function apiFetch(
   const settleAuthenticatedResponse = async (
     response: Response,
   ): Promise<Response> => {
+    if (accountLifecycleOwnsAuthOutcome) {
+      recordApiRequestMetric(response.status);
+      return response;
+    }
     await handleVaultOwnerAuthFailure(response);
     if (await dispatchTerminalAuthCodeFromResponse(response)) {
       recordApiRequestMetric(response.status);
@@ -1642,6 +1662,9 @@ export class ApiService {
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       const detail = payload?.detail;
+      if (detail?.code === "BYOC_UNAVAILABLE") {
+        throw new Error("Cloud setup is unavailable in this environment. Your existing setup is unchanged.");
+      }
       if (["FILES_SETUP_UNAVAILABLE", "FILES_RECOVERY_CONTRACT_UNAVAILABLE", "POD_ASSIGNMENT_PRESERVED", "INVALID_PROJECT_ID"].includes(detail?.code)) {
         const reason = detail.message ?? detail.reason;
         if (typeof reason === "string" && reason.length <= 240) throw new Error(reason);
@@ -2171,8 +2194,8 @@ export class ApiService {
   // ==================== Auth ====================
 
   /** Email login is web-only until native transport/return paths are accepted. */
-  static async emailAuthRequest<T>(action: "capabilities" | "request" | "verify",
-    body?: Record<string, string>): Promise<T> {
+  static async emailAuthRequest<T>(action: "capabilities" | "request" | "verify" | "enroll",
+    body?: Record<string, string | boolean>): Promise<T> {
     if (Capacitor.isNativePlatform()) {
       throw new Error("Email sign-in is currently available in the web app.");
     }
@@ -2192,6 +2215,9 @@ export class ApiService {
       );
     }
     const opaque = (value: unknown) => typeof value === "string" && value.length >= 20 && value.length <= 4096;
+    const { parseAccountRegistrationRecovery } = await import("@/lib/auth/account-registration");
+    const recovery = action === "verify" && payload.status === "registration_required"
+      ? parseAccountRegistrationRecovery(payload.registration) : null;
     const valid = action === "capabilities"
       ? typeof payload.enabled === "boolean" && typeof payload.microsoft === "boolean"
       : action === "request"
@@ -2199,7 +2225,10 @@ export class ApiService {
           && typeof payload.destination === "string" && payload.destination.length <= 254
           && typeof payload.expires_at === "string" && Number.isFinite(Date.parse(payload.expires_at))
           && typeof payload.resend_at === "number" && Number.isFinite(payload.resend_at)
-        : payload.status === "authenticated" && opaque(payload.custom_token);
+        : (payload.status === "authenticated" && opaque(payload.custom_token))
+          || (action === "verify" && recovery !== null &&
+            (recovery.state !== "ready" || (typeof payload.enrollment_ticket === "string"
+              && /^[A-Za-z0-9_-]{43,128}$/.test(payload.enrollment_ticket))));
     if (!valid) {
       const { EmailAuthRequestError } = await import("@/lib/auth/email-auth-contracts");
       throw new EmailAuthRequestError("invalid_auth_response", "Restart email sign-in and try again.", 502);
@@ -2547,6 +2576,56 @@ export class ApiService {
    * backend can return the explicit `AUTH_ACCOUNT_NOT_FOUND` lifecycle code.
    */
   static async getAccountSessionStatus(idToken: string): Promise<Response> {
+    return ApiService.getAccountLifecycleStatus("/api/account/session-status", idToken);
+  }
+
+  /** Side-effect-free outcome read; the captured deletion attempt owns settlement. */
+  static async getAccountDeletionStatus(idToken: string): Promise<Response> {
+    return ApiService.getAccountLifecycleStatus("/api/account/session-status", idToken, true);
+  }
+
+  static async getAccountRegistrationStatus(idToken: string): Promise<Response> {
+    return ApiService.getAccountLifecycleStatus("/api/account/registration-status", idToken);
+  }
+
+  static async startFreshAccount(
+    idToken: string,
+    review: import("@/lib/auth/account-registration").AccountRegistrationReview,
+    isCurrent: () => boolean,
+  ): Promise<Response> {
+    return apiFetch("/api/account/start-fresh", {
+      method: "POST", timeoutMs: ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS,
+      cache: "no-store", isEffectCurrent: isCurrent, accountLifecycleOwnsAuthOutcome: true,
+      headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json", [AUTH_REFRESH_RETRY_HEADER]: "1" },
+      body: JSON.stringify({ previous_generation: review.previous_generation,
+        cleanup_operation: review.cleanup_operation, enrollment_operation: review.enrollment_operation,
+        accepted_review_digest: review.digest, confirmed: true }),
+    });
+  }
+
+  static async getAccountCleanupStatus(idToken: string): Promise<Response> {
+    return ApiService.getAccountLifecycleStatus("/api/account/deletion-cleanup", idToken);
+  }
+
+  static async continueAccountCleanup(
+    idToken: string,
+    operation: { id: string; inventory_sha256: string },
+    acceptLocalErasure: boolean,
+    isCurrent: () => boolean,
+  ): Promise<Response> {
+    return apiFetch("/api/account/deletion-cleanup/continue", {
+      method: "POST", timeoutMs: ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS,
+      cache: "no-store", isEffectCurrent: isCurrent,
+      headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json", [AUTH_REFRESH_RETRY_HEADER]: "1" },
+      body: JSON.stringify({ operation_id: operation.id, inventory_sha256: operation.inventory_sha256, accept_local_erasure: acceptLocalErasure }),
+    });
+  }
+
+  private static async getAccountLifecycleStatus(
+    path: "/api/account/session-status" | "/api/account/deletion-cleanup" | "/api/account/registration-status",
+    idToken: string,
+    accountLifecycleOwnsAuthOutcome = true,
+  ): Promise<Response> {
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => {
       controller.abort(
@@ -2558,8 +2637,9 @@ export class ApiService {
     }, ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS);
 
     try {
-      return await apiFetch("/api/account/session-status", {
+      return await apiFetch(path, {
         method: "GET",
+        accountLifecycleOwnsAuthOutcome,
         cache: "no-store",
         signal: controller.signal,
         headers: {
@@ -4050,7 +4130,7 @@ export class ApiService {
     isCurrentOwner: () => boolean = () => true,
     expectedOwnerId?: string,
   ): Promise<{ enabled: boolean; revocationPending: boolean }> {
-    const uid = expectedOwnerId ?? AuthService.getCurrentUser()?.uid;
+    const uid = expectedOwnerId ?? snapshotValidatedAuthSessionPrincipal()?.ownerId;
     if (!isCurrentOwner() || !uid || !vaultOwnerToken) throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
     const ownerPod = await import("./owner-pod-endpoint");
     const transport = await ApiService.ownerPodTransport();
@@ -4137,7 +4217,7 @@ export class ApiService {
       | { delivered: false; pending: null; unpinned: true };
   }> {
     const ownerPod = await import("./owner-pod-endpoint");
-    const uid = expectedOwnerId ?? AuthService.getCurrentUser()?.uid;
+    const uid = expectedOwnerId ?? snapshotValidatedAuthSessionPrincipal()?.ownerId;
     let pod:
       | { delivered: true; pending: null }
       | { delivered: false; pending: unknown }
@@ -4182,42 +4262,53 @@ export class ApiService {
   private static async ownerPodTransport(): Promise<
     import("./owner-pod-endpoint").OwnerPodTransport
   > {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const current = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal)
+      && AuthService.getCurrentUser()?.uid === principal.firebaseUid);
+    if (!current()) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
     const firebaseIdToken = await ApiService.getFirebaseToken();
+    if (!current()) throw new Error("POD_OWNER_CHANGED");
     return {
       hub: (path, init) =>
         apiFetch(path, {
           ...init,
+          isEffectCurrent: current,
           headers: {
             ...((init.headers as Record<string, string> | undefined) ?? {}),
             ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
           },
         }),
       // Pods authenticate signed sessions, never hub/browser cookies.
-      direct: (url, init) => apiFetch(url, { ...init, credentials: "omit" }),
+      direct: (url, init) => apiFetch(url, { ...init, credentials: "omit", isEffectCurrent: current }),
     };
   }
 
   /** Exact app routes only; content never falls back to the shared hub. */
   static async ownerPodRequest(path: string, init: RequestInit = {}, streaming = false,
     onChatAdmission?: (hushhId: string) => void, expectedHushhId?: string, isCurrent?: () => boolean): Promise<Response> {
-    const uid = AuthService.getCurrentUser()?.uid;
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const uid = principal?.ownerId;
+    const current = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal)
+      && AuthService.getCurrentUser()?.uid === principal.firebaseUid && (isCurrent?.() ?? true));
     const vaultEpoch = snapshotVaultSessionEpoch();
-    if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
+    if (!uid || !current()) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
     const access = await import("./pod-app-access");
     const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch
-      : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, isCurrent));
-    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission, isCurrent }, expectedHushhId, uid, vaultEpoch);
+      : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, current));
+    if (!current()) throw new Error("POD_OWNER_CHANGED");
+    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission, isCurrent: current }, expectedHushhId, uid, vaultEpoch);
   }
 
   /** Public identity only, after signed endpoint verification and app admission. */
   static async getComputerUseAdmission(signal?: AbortSignal): Promise<{
     ownerId: string; podId: string; environment: string;
   } | null> {
-    const uid = AuthService.getCurrentUser()?.uid;
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const uid = principal?.ownerId;
     const vaultEpoch = snapshotVaultSessionEpoch();
     if (!uid || signal?.aborted) throw new Error("BROWSER_OWNER_UNAVAILABLE");
     const current = () => {
-      if (signal?.aborted || AuthService.getCurrentUser()?.uid !== uid || !isVaultSessionEpochCurrent(vaultEpoch)) {
+      if (signal?.aborted || !principal || !isValidatedAuthSessionOwnerCurrent(principal) || AuthService.getCurrentUser()?.uid !== principal.firebaseUid || !isVaultSessionEpochCurrent(vaultEpoch)) {
         throw new Error("BROWSER_OWNER_CHANGED");
       }
     };
@@ -4326,9 +4417,12 @@ export class ApiService {
     requestId?: string,
     onDispatch?: () => void,
   ): Promise<Response | null> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const uid = principal?.ownerId;
+    const ownerIsCurrent = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal)
+      && AuthService.getCurrentUser()?.uid === principal.firebaseUid);
+    if (!uid || !ownerIsCurrent()) return null;
     const ownerPod = await import("./owner-pod-endpoint");
-    const uid = AuthService.getCurrentUser()?.uid;
-    if (!uid) return null;
     let pin = await ownerPod.loadPinnedEndpoint(uid);
     if (!pin) {
       const hosting = await ApiService.getPersonalAgentStatus();
@@ -4353,7 +4447,7 @@ export class ApiService {
     let session: import("./owner-pod-endpoint").PodSessionRecord;
     try {
       const connection = await ownerPod.currentPodConnection(uid, await ApiService.ownerPodTransport());
-      if (connection.endpoint.hushhId !== hushhId || AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
+      if (connection.endpoint.hushhId !== hushhId || !ownerIsCurrent()) throw new Error("POD_OWNER_CHANGED");
       pin = connection.endpoint;
       session = connection.session;
       if (stream) globalThis.performance?.mark?.("puppy.turn.session-admitted");
@@ -4364,7 +4458,7 @@ export class ApiService {
     if (puppy) {
       const result = await activation;
       if (result) throw result.error;
-      if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
+      if (!ownerIsCurrent()) throw new Error("POD_OWNER_CHANGED");
       if (stream) globalThis.performance?.mark?.("puppy.turn.activation-sent");
     }
     const url = `${pin.url}/api/one/pod/turn${stream ? "/stream" : ""}`;
@@ -4389,10 +4483,15 @@ export class ApiService {
     // listener at that point, so use the browser fetch directly for this one
     // admitted stream. The Puppy stream consumer owns the full-body deadline.
     if (signal?.aborted) throw signal.reason;
+    if (!ownerIsCurrent()) throw new Error("POD_OWNER_CHANGED");
     onDispatch?.();
     const response = stream
       ? await fetchDirectPuppyStream(url, init)
-      : await apiFetch(url, { ...init, timeoutMs: POD_TURN_FETCH_TIMEOUT_MS });
+      : await apiFetch(url, { ...init, timeoutMs: POD_TURN_FETCH_TIMEOUT_MS, isEffectCurrent: ownerIsCurrent });
+    if (!ownerIsCurrent()) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("POD_OWNER_CHANGED");
+    }
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as {
         detail?: { code?: string; reason?: string } | string;
@@ -4436,16 +4535,20 @@ export class ApiService {
     inference_ready: boolean;
     execution_target: "puppy" | "unavailable";
   } | null> {
+    const principal = snapshotValidatedAuthSessionPrincipal();
+    const uid = principal?.ownerId;
+    const ownerIsCurrent = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal)
+      && AuthService.getCurrentUser()?.uid === principal.firebaseUid);
+    if (!uid || !ownerIsCurrent()) return null;
     const ownerPod = await import("./owner-pod-endpoint");
-    const uid = AuthService.getCurrentUser()?.uid;
-    if (!uid) return null;
     if (!(await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) return null;
     const { endpoint: pin, session } = await ownerPod.currentPodConnection(
       uid, await ApiService.ownerPodTransport(),
     );
-    if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
+    if (!ownerIsCurrent()) throw new Error("POD_OWNER_CHANGED");
     const response = await apiFetch(`${pin.url}/api/one/pod/status`, {
       method: "GET",
+      isEffectCurrent: ownerIsCurrent,
       credentials: "omit",
       headers: { Authorization: `Bearer ${session.session}` },
       cache: "no-store",

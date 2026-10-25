@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import {
   act,
   cleanup,
@@ -44,6 +45,7 @@ vi.mock("@capacitor/core", async (importOriginal) => {
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: { uid: state.uid, getIdToken: async () => "firebase" },
+    userId: state.uid,
   }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -140,6 +142,7 @@ function runAnimationFramesImmediately() {
 
 describe("Connectors owner and mutation fences", () => {
   beforeEach(() => {
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-a", ownerId: "owner-a", accountGeneration: 0 });
     vi.resetAllMocks();
     state.uid = "owner-a";
     state.token = "vault-a";
@@ -186,7 +189,8 @@ describe("Connectors owner and mutation fences", () => {
       "https://api.example.invalid/api/connectors/google_drive/picker/native/callback",
     );
   });
-  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null); cleanup(); vi.restoreAllMocks(); });
 
   it.each([false, true])("recovers an authorized live Drive grant without another Google sign-in (native=%s)", async (native) => {
     state.native = native;
@@ -360,6 +364,7 @@ describe("Connectors owner and mutation fences", () => {
     // Placement must admit owner A before its pending result can be retired.
     await waitFor(() => expect(state.overview).toHaveBeenCalledExactlyOnceWith("vault-a"));
     state.uid = "owner-b";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-b", ownerId: "owner-b", accountGeneration: 0 });
     state.token = "vault-b";
     state.overview.mockResolvedValue(overview("new-owner@example.invalid"));
     view.rerender(<ConnectorsPanel {...p} />);
@@ -402,6 +407,7 @@ describe("Connectors owner and mutation fences", () => {
     );
     await waitFor(() => expect(oldPicker).toBeTypeOf("function"));
     state.uid = "owner-b";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-b", ownerId: "owner-b", accountGeneration: 0 });
     state.token = "vault-b";
     view.rerender(<ConnectorsPanel {...p} />);
     await openDriveDetail();

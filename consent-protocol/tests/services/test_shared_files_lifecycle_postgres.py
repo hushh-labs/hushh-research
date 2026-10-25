@@ -412,7 +412,11 @@ async def test_account_cleanup_database_failure_preserves_keys_and_returns_refus
     else:
         result = await service._delete_full_account("alice", requested_target="both")
     assert result["success"] is False
-    assert result["error_code"] == "SHARED_FILES_CLEANUP_UNCONFIRMED"
+    assert result["error_code"] == (
+        "SHARED_FILES_CLEANUP_UNCONFIRMED"
+        if operation == "reset"
+        else "ACCOUNT_DELETION_CLEANUP_UNAVAILABLE"
+    )
     transaction.assert_not_awaited()
     clear.assert_not_called()
     assert database.call_count == 1
@@ -428,6 +432,7 @@ async def test_account_cleanup_keeps_keys_until_present_library_is_erased(
 
     from hushh_mcp.services import account_service
     from hushh_mcp.services.shared_files import erasure
+    from tests.services.test_account_service_cleanup_tables import _finalize_recorded_cleanup
 
     await registry.resource(
         "alice",
@@ -459,7 +464,7 @@ async def test_account_cleanup_keeps_keys_until_present_library_is_erased(
         result = (
             await service.reset_account("alice")
             if operation == "reset"
-            else await service._delete_full_account("alice", requested_target="both")
+            else await _finalize_recorded_cleanup(service, monkeypatch, "alice")
         )
         assert result["error_code"] == code
         assert ("Access is fenced" in result["message"]) is (code == "FILES_ERASURE_IN_PROGRESS")

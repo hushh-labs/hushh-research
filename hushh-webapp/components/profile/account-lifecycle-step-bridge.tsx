@@ -13,6 +13,7 @@
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
 
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { useAuth } from "@/hooks/use-auth";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -48,36 +49,44 @@ export function AccountLifecycleStepBridge() {
       handledRef.current.add(step.stepId);
 
       const sessionUser = user;
+      const owner = snapshotValidatedAuthSessionPrincipal();
+      const isCurrent = () => !!owner && owner.firebaseUid === sessionUser?.uid && isValidatedAuthSessionOwnerCurrent(owner);
       void runAccountLifecycleStep(step, {
-        currentUid: sessionUser?.uid ?? null,
+        currentUid: isCurrent() ? owner!.ownerId : null,
         existingVaultOwnerToken: vaultOwnerToken ?? null,
-        resolveAuth: resolveDeleteAccountAuth,
+        resolveAuth: (params) => resolveDeleteAccountAuth({ ...params, owner: owner ?? undefined }),
         resetAccount: async (token) => {
-          if (!sessionUser) throw new Error("Signed out before reset could run.");
+          if (!sessionUser || !owner || !isCurrent()) throw new Error("Signed out before reset could run.");
           await revokeVaultBanksBeforeErasure({
-            userId: sessionUser.uid,
+            userId: owner.ownerId,
+            isCurrent,
             vaultKey,
             vaultOwnerToken: token,
           });
+          if (!isCurrent()) throw new Error("Account changed before reset.");
           return AccountService.resetAccount(token);
         },
         afterReset: async (uid) => {
           CacheSyncService.onAccountDeleted(uid);
           await UserLocalStateService.clearForUser(uid, { deleteDurableReceipts: true });
+          if (!isCurrent()) return;
           setOnboardingRequiredCookie(true);
           setOnboardingFlowActiveCookie(true);
           router.replace(ROUTES.ONE_SETUP);
         },
         executeDeletion: ({ userId, vaultOwnerToken: token }) => {
-          if (!sessionUser) throw new Error("Signed out before deletion could run.");
+          if (!sessionUser || !owner || !isCurrent()) throw new Error("Signed out before deletion could run.");
           return executeVerifiedAccountDeletion({
             userId,
             vaultOwnerToken: token,
             sessionUser,
             vaultKey,
+            owner,
+            isCurrent,
           });
         },
         afterDelete: async (uid) => {
+          if (!isCurrent()) return;
           await signOut({
             redirectTo: buildLoginRouteWithAuthSessionNotice("account_deleted"),
             expectedUserId: uid,

@@ -1289,7 +1289,10 @@ class TestGmailEmailDraftDirective:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("unlocked", [True, False])
     async def test_route_admits_the_pending_draft_only_for_an_unlocked_owner_turn(
-        self, monkeypatch, unlocked
+        self,
+        monkeypatch,
+        unlocked,
+        active_account_lifecycle,
     ):
         from starlette.requests import Request
 
@@ -1334,7 +1337,10 @@ class TestGmailEmailDraftDirective:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("unlocked", [True, False])
     async def test_route_admits_consented_memory_only_for_an_unlocked_owner_turn(
-        self, monkeypatch, unlocked
+        self,
+        monkeypatch,
+        unlocked,
+        active_account_lifecycle,
     ):
         from fastapi import HTTPException
         from starlette.requests import Request
@@ -6267,7 +6273,9 @@ _RECEIPT_INDEX = {
 @pytest.mark.asyncio
 @pytest.mark.parametrize("unlocked", [True, False])
 async def test_route_admits_the_receipt_memory_only_for_an_unlocked_owner_turn(
-    monkeypatch, unlocked
+    monkeypatch,
+    unlocked,
+    active_account_lifecycle,
 ):
     from fastapi import HTTPException
     from starlette.requests import Request
