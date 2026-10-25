@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
 import { PacketPage, type PacketPageAction, type PacketPageRow, type PacketPageSection } from "@/components/consent/packets/packet-page";
+import { PacketPublicSummaryControl, usePacketPublicSummary } from "@/components/consent/packets/packet-public-summary-control";
 import { PacketRows } from "@/components/consent/packets/packet-rows";
 import { CategoryPacketRows } from "@/components/consent/packets/category-packets";
 import { BuyerPacketPage, BuyerPacketRows, useBuyerPacketRequests } from "@/components/consent/packets/buyer-packets";
@@ -269,6 +270,7 @@ type OwnerPacketValue = { price: string; editingPrice: boolean; busy: boolean; m
 /** One listing writer and transient price draft, shared by web/native bodies.
  * Editing a price never lists a packet; only the explicit listing command does. */
 export function useOwnerPacketPageModel({ packet, token, guard, onChanged, onPreview, onMorePreview, previewBusy, previewError }: OwnerPacketOptions) {
+  const publication = usePacketPublicSummary(packet, token, guard, onChanged);
   const saved = packet ? (packet.priceCents / 100).toFixed(2) : "";
   const revision = packet ? `${packet.packetId}:${packet.version}:${packet.listingRevision}:${packet.priceCents}` : "";
   const lease = useMemo(() => ({ live: false, lock: false, token, guard, revision, saved, input: { price: saved, revision: 0 }, baseline: saved, editor: null as object | null }), [token, guard, revision, saved]);
@@ -317,8 +319,8 @@ export function useOwnerPacketPageModel({ packet, token, guard, onChanged, onPre
     if (!lease.lock && isCurrent()) { lease.baseline = lease.input.price; lease.editor = editingPrice ? null : {}; change(value => ({ ...value, editingPrice: !value.editingPrice })); }
   },
     emphasis: "plain", disabled: busy, expanded: editingPrice });
-  return { packet, price, amount, editingPrice, busy, message: previewError ? "Couldn’t load the latest search. Saved files are still shown. Retry with Refresh files." : message,
-    actions, current: isCurrent, editorCurrent, inputRevision: () => lease.input.revision, mutationPending: () => lease.lock,
+  return { packet, price, amount, editingPrice, publication, busy: busy || publication.busy, message: previewError ? "Couldn’t load the latest search. Saved files are still shown. Retry with Refresh files." : message,
+    actions, current: isCurrent, editorCurrent, inputRevision: () => lease.input.revision, mutationPending: () => lease.lock || publication.mutationPending(),
     changePrice: (price: string, expectedRevision = lease.input.revision) => {
       if (lease.lock || !isCurrent() || expectedRevision !== lease.input.revision) return false;
       lease.input.price = price; lease.input.revision += 1;
@@ -398,5 +400,5 @@ export function OwnerPacketPageView({ model, onClose }: { model: OwnerPacketPage
       {amount === null && <HelperText id={hintId}>Enter $0.50–$500, up to two decimal places.</HelperText>}
     </div> }));
   return <PacketPage open onOpenChange={next => { if (!next) onClose(); }} title={ownerPacketTitle(packet)}
-    description={ownerStatusLine(packet)} sections={sections} actions={actions} message={message || undefined} />;
+    description={ownerStatusLine(packet)} sections={[...sections, ...model.publication.visible ? [{ id: "public-summary", title: "Public summary", children: <PacketPublicSummaryControl model={model.publication} /> }] : []]} actions={actions} message={message || undefined} />;
 }

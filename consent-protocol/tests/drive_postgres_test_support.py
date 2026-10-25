@@ -16,8 +16,13 @@ def apply_drive_fixture_migration(connection: Connection, filename: str) -> None
             "ALTER TABLE drive_owner_search_jobs ADD COLUMN IF NOT EXISTS period_packet_id UUID, ADD COLUMN IF NOT EXISTS retention_checked_at TIMESTAMPTZ"
         )
     elif filename == "334_drive_reusable_packets.sql":
+        # Compact fixtures retain the canonical migration201 digest admission contract.
+        connection.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS account_deletion_tombstones(user_id_hash TEXT PRIMARY KEY CHECK (user_id_hash ~ '^sha256:[0-9a-f]{64}$'))"
+        )
         apply_drive_fixture_migration(connection, "411_drive_period_packets.sql")
         apply_drive_fixture_migration(connection, "416_financial_packet_tag_work.sql")
+        apply_drive_fixture_migration(connection, "417_drive_packet_public_summary.sql")
 
 
 def apply_bulk_search_fixture_migrations(connection: Connection) -> None:

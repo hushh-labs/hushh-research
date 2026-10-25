@@ -3,6 +3,9 @@
 # ruff: noqa: F401,F811 -- shared disposable PostgreSQL fixture dependencies
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -23,6 +26,12 @@ from tests.services.test_drive_period_packet_previews_postgres import (
     preview_runtime,
     reusable,
     sharing,
+)
+from tests.services.test_drive_period_packets import (
+    advance_scheduled_calendar,
+    scheduled_drive,
+    scheduled_snapshot,
+    seed_scheduled_owners,
 )
 
 pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
@@ -342,61 +351,141 @@ async def test_retention_advances_past_pinned_current_and_previous_previews(reus
         )
 
 
-async def test_enrollment_advances_past_a_refused_prefix_without_accessing_it(
-    reusable, monkeypatch
-):
+def scheduled_population(base, monkeypatch):
     from hushh_mcp.services import drive_period_packet_enrollment as enrollment
+    from hushh_mcp.services.drive_period_packet_contract import current_year_periods
 
-    service, _, planner, transport = await preview_runtime(reusable, monkeypatch)
-    refused = [f"deferred-owner-{i}" for i in range(4)]
-    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", ",".join([*refused, "owner"]))
+    eligible, refused = (
+        ["owner", "ready-1", "ready-2", "ready-3"],
+        [f"refused-{i}" for i in range(4)],
+    )
+    seed_scheduled_owners(
+        base.store, [*refused, *eligible[1:], "outside-cohort", "revoked", "paused"]
+    )
+    periods = current_year_periods(datetime.now(UTC), "UTC")[-2:]
+    monkeypatch.setattr(enrollment, "current_year_periods", lambda *_: periods)
     monkeypatch.setattr(enrollment, "ENROLLMENT_SCAN_LIMIT", 2)
+    monkeypatch.setenv(
+        "CONNECTOR_INTERNAL_OWNER_COHORT", ",".join([*refused, *eligible, "revoked", "paused"])
+    )
 
     async def placement(user):
-        return "shared" if user == "owner" else "byoc" if user.endswith(("0", "2")) else "unknown"
+        return "unknown" if user in refused[::2] else "byoc" if user in refused else "shared"
 
     monkeypatch.setattr(
         "hushh_mcp.services.owner_placement_guard.get_owner_hosting_mode", placement
     )
-    with service.store.db.engine.begin() as connection:
-        connection.execute(text("DELETE FROM drive_packet_heads WHERE user_id='owner'"))
-        for user in refused:
-            connection.execute(
-                text("""INSERT INTO user_external_connector_connections
-              SELECT (jsonb_populate_record(NULL::user_external_connector_connections,
-                to_jsonb(c)||jsonb_build_object('user_id',:user,'updated_at','2000-01-01T00:00:00Z',
-                  'drive_packet_inspected_at',NULL,'credential_ciphertext',NULL,
-                  'credential_iv',NULL,'credential_tag',NULL))).*
-              FROM user_external_connector_connections c WHERE c.user_id='owner' AND c.connector_id='google_drive'"""),
-                {"user": user},
+    with base.store.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_live_preferences(user_id,connection_generation,background_enabled,disclosure_version)
+          VALUES('paused',1,FALSE,'live-drive-background-v1')""")
+        )
+        connection.execute(
+            text(
+                "UPDATE user_external_connector_connections SET status='revoked' WHERE user_id='revoked'"
             )
-    selected = []
-    for _ in range(3):
-        selected = await service.store.due_owners(limit=1)
-        if selected:
-            assert selected == ["owner"]
-            await service.ensure_owner(user_id="owner")
+        )
+    return eligible, periods
+
+
+async def test_scheduled_packets_sweep_all_owners_after_missed_wakes_without_preview(
+    reusable, monkeypatch, caplog
+):
+    from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+    from hushh_mcp.services.drive_period_packet_service import DrivePeriodPacketService
+    from tests.services.test_drive_work_drain import _drain, _worker
+
+    caplog.set_level("INFO", logger="drive_period_packets")
+    base, _, planner, _ = await preview_runtime(reusable, monkeypatch)
+    eligible, periods = scheduled_population(base, monkeypatch)
+    wake = AsyncMock(return_value=False)
+    monkeypatch.setattr("hushh_mcp.services.drive_work_wake.wake_drive_work", wake)
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_financial_packet_tagging.FinancialPacketTagger.run_one",
+        AsyncMock(return_value="idle"),
+    )
+    planner.side_effect = AssertionError("financial discovery called Azure")
+    calls, expected = [], {(owner, period.start) for owner in eligible for period in periods}
+    assert scheduled_snapshot(base.store) == {}
+    for _ in range(16):
+        # Fresh orchestrators simulate worker restart; only PostgreSQL retains progress.
+        search = DriveOwnerSearchService(
+            store=base.search.store, transport=scheduled_drive(eligible, periods, calls)
+        )
+        service = DrivePeriodPacketService(store=base.store, search=search, planner=planner)
+        drain = _drain([_worker({"outcomes": {}}) for _ in range(4)], period_packet_worker=service)
+        await drain.run(stage="suggestions", max_jobs_per_worker=2)
+        saved = scheduled_snapshot(base.store)
+        if set(saved) == expected and all(value[2].get("complete") for value in saved.values()):
             break
-    assert selected == ["owner"]
-    with service.store.db.engine.connect() as connection:
-        assert connection.execute(
-            text("SELECT DISTINCT user_id FROM drive_packet_heads")
-        ).scalars().all() == ["owner"]
-        assert (
-            connection.execute(
-                text(
-                    "SELECT count(*) FROM user_external_connector_connections WHERE user_id=ANY(:owners) AND drive_packet_inspected_at IS NOT NULL AND updated_at='2000-01-01T00:00:00Z'"
-                ),
-                {"owners": refused},
-            ).scalar_one()
-            == 4
+    assert set(saved) == expected and all(value[2].get("complete") for value in saved.values())
+    assert all(value[2]["matched"] == 3 for value in saved.values())
+    assert all(value[2]["documents"][0]["shareable"] is False for value in saved.values())
+    assert all(
+        version == int(period < periods[-1].start) for (_, period), (version, _, _) in saved.items()
+    )
+    # An ordinary next scheduler tick is a duplicate trigger, not an explicit refresh.
+    await drain.run(stage="suggestions", max_jobs_per_worker=2)
+    assert scheduled_snapshot(base.store) == saved
+    with base.store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_packet_heads SET next_at=clock_timestamp()
+          WHERE user_id='owner' AND current_version=0""")
         )
-        assert (
-            connection.execute(
-                text("SELECT count(*) FROM drive_live_preferences WHERE user_id=ANY(:owners)"),
-                {"owners": refused},
-            ).scalar_one()
-            == 0
-        )
+    key = ("owner", periods[-1].start)
+    for _ in range(4):
+        await drain.run(stage="suggestions", max_jobs_per_worker=2)
+        refreshed = scheduled_snapshot(base.store)
+        if refreshed[key][1] > saved[key][1]:
+            break
+    assert refreshed[key][1] == saved[key][1] + 1 and refreshed[key][2]["complete"]
+    assert {key: value for key, value in refreshed.items() if key[0] != "owner"} == {
+        key: value for key, value in saved.items() if key[0] != "owner"
+    }
+    # Rollover is discovered by the next scheduled sweep, without an owner visit.
+    advance_scheduled_calendar(periods)
+    rolled_keys = expected | {(owner, periods[-1].start) for owner in eligible}
+    for _ in range(12):
+        await drain.run(stage="suggestions", max_jobs_per_worker=2)
+        rolled = scheduled_snapshot(base.store)
+        if set(rolled) == rolled_keys and all(
+            value[2].get("complete") for value in rolled.values()
+        ):
+            break
+    assert set(rolled) == rolled_keys and all(value[2].get("complete") for value in rolled.values())
+    assert all(rolled[key] == value for key, value in refreshed.items())
+    assert all(value[2]["matched"] == 3 for value in rolled.values())
     planner.assert_not_awaited()
-    transport.read_tool.assert_not_awaited()
+    assert {owner for owner, _ in calls} == set(eligible)
+    assert "period_packet.query source=predefined" in caplog.text
+
+
+async def test_classifier_failure_preserves_discovery_while_provider_page_is_blocked(
+    reusable, monkeypatch, caplog
+):
+    from hushh_mcp.services.drive_financial_packet_tagging import FinancialPacketTagger
+
+    service, head, planner, transport = await preview_runtime(reusable, monkeypatch)
+    entered, failed = asyncio.Event(), asyncio.Event()
+    read = transport.read_tool.side_effect
+
+    async def blocked_page(**kwargs):
+        entered.set()
+        await failed.wait()
+        return await read(**kwargs)
+
+    async def broken_classifier(*args, **kwargs):
+        await entered.wait()
+        failed.set()
+        raise OSError("private local classifier path")
+
+    transport.read_tool.side_effect = blocked_page
+    monkeypatch.setattr(FinancialPacketTagger, "run_one", broken_classifier)
+    result = await service.run(max_jobs=1, deadline_seconds=10)
+    assert result["outcomes"]["completed"] == result["outcomes"]["tagging_deferred"] == 1
+    saved = scheduled_snapshot(service.store)[("owner", head["period_start"])]
+    assert saved[2]["complete"] and saved[2]["matched"] == 26
+    assert len(saved[2]["documents"]) == 26
+    planner.assert_not_awaited()
+    assert "local_classifier_failure" in caplog.text and "OSError" in caplog.text
+    assert "private local classifier path" not in caplog.text

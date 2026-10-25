@@ -505,7 +505,7 @@ describe("PersonProfilePage native profile route", () => {
         (button) =>
           button.getAttribute("aria-label") || button.textContent?.trim(),
       ),
-    ).toEqual(["Request", "Share profile", "Ask about files", "Request a card", "Manage access"]);
+    ).toEqual(["Request", "Share profile", "Ask about files", "Request a card", "Financial documents", "Manage access"]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
@@ -527,7 +527,7 @@ describe("PersonProfilePage native profile route", () => {
     const cards = labels.map((name) => within(actions).getByRole("button", { name, exact: true }));
     expect(cards.every((card) => card.parentElement === cards[0].parentElement)).toBe(true);
     expect(Array.from(actions.querySelectorAll("button"), (button) => button.getAttribute("aria-label") || button.textContent?.trim()))
-      .toEqual(["Request", "Share profile", ...labels, "Manage access"]);
+      .toEqual(["Request", "Share profile", ...labels, "Financial documents", "Manage access"]);
     fireEvent.click(cards[0]);
     expect(await screen.findByRole("dialog", { name: "Request files", exact: true })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));

@@ -184,3 +184,53 @@ describe("@feature_drive_packets @trace_loop what is inside a packet", () => {
     }
   });
 });
+
+describe("@feature_drive_packets @trace_loop public financial summary boundary", () => {
+  const summary = { packetId: id, version: 0, category: "financial", title: "Financial documents",
+    periodStart: "2026-09-01", periodEnd: "2026-10-31", timezone: "Asia/Kolkata", documentCount: null,
+    countBasis: "discovery_matches", complete: false, updatedAt: null, priceCents: 500, currency: "USD",
+    availability: "preparing", viewerAction: "connect" };
+  it("reads Firebase-only summaries without vault authority and discards all private additions", async () => {
+    const { FinancialPacketSummaryService } = await import("@/lib/services/financial-packet-summary-service");
+    api.fetch.mockResolvedValue(new Response(JSON.stringify({ packets: [{ ...summary, requestId: id,
+      contents: { documents: [{ name: "Private file.pdf", viewUrl: "https://drive.google.com/private" }] }, preview: { matched: 12 } }], nextCursor: null })));
+    const result = await FinancialPacketSummaryService.list(id, "firebase-only", () => {});
+    expect(result.packets).toEqual([summary]);
+    expect(api.fetch).toHaveBeenCalledWith(`/api/one/people/${id}/financial-packets`, expect.objectContaining({ cache: "no-store", headers: { Authorization: "Bearer firebase-only" } }));
+    expect(result.packets[0].documentCount).toBeNull();
+  });
+  it("rejects malformed summary authority, truncated JSON, and a retired viewer after bytes arrive", async () => {
+    const { FinancialPacketSummaryService, parseFinancialPacketSummary } = await import("@/lib/services/financial-packet-summary-service");
+    for (const change of [{ priceCents: 501 }, { viewerAction: ["request"] }, { documentCount: -1 }, { complete: "true" }, { periodEnd: "2026-09-31" }, { timezone: "invalid" }])
+      expect(() => parseFinancialPacketSummary({ ...summary, ...change })).toThrow();
+    api.fetch.mockResolvedValue(new Response('{"packets":['));
+    await expect(FinancialPacketSummaryService.list(id, "firebase", () => {})).rejects.toThrow();
+    let retired = false;
+    api.fetch.mockResolvedValue({ ok: true, text: async () => { retired = true; return JSON.stringify({ packets: [summary], nextCursor: null }); } });
+    await expect(FinancialPacketSummaryService.list(id, "firebase", () => { if (retired) throw new Error("retired"); })).rejects.toThrow("retired");
+  });
+  it("binds explicit public publication to its own version/revision and keeps the owner projection out of buyer packets", async () => {
+    const { FinancialPacketSummaryService, PUBLIC_PACKET_DISCLOSURE } = await import("@/lib/services/financial-packet-summary-service");
+    const expected = { enabled: false, revision: 7, version: 0, disclosure: PUBLIC_PACKET_DISCLOSURE };
+    api.fetch.mockResolvedValue(new Response(JSON.stringify({ ...expected, enabled: true, revision: 8 })));
+    await FinancialPacketSummaryService.publish("owner-token", id, expected, true, () => {});
+    expect(JSON.parse(api.fetch.mock.calls[0][1].body)).toEqual({ enabled: true, version: 0, expectedRevision: 7, disclosure: PUBLIC_PACKET_DISCLOSURE });
+    expect(api.fetch.mock.calls[0][1].method).toBe("PUT");
+    api.fetch.mockResolvedValue(new Response(JSON.stringify({ ...expected, enabled: false, revision: 9 })));
+    await expect(FinancialPacketSummaryService.publish("owner-token", id, { ...expected, version: 1 }, false, () => {})).resolves.toMatchObject({ enabled: false, version: 0 });
+    expect(() => parseDrivePacket({ ...packet, publicSummary: expected })).not.toThrow();
+  });
+});
+
+describe("@feature_drive_packets @trace_loop scalar publication receipts", () => {
+  it("uses owner no-store metadata without OAuth and strips private additions", async () => {
+    const { FinancialPacketSummaryService, PUBLIC_PACKET_DISCLOSURE } = await import("@/lib/services/financial-packet-summary-service");
+    const receipt = { packetId: id, currentVersion: 1, title: "Financial documents", periodStart: "2026-07-01", periodEnd: "2026-08-31", timezone: "UTC",
+      publicSummary: { enabled: true, revision: 9, version: 0, disclosure: PUBLIC_PACKET_DISCLOSURE } };
+    api.fetch.mockResolvedValue(new Response(JSON.stringify({ packets: [{ ...receipt, contents: { documents: [{ name: "Private.pdf" }] }, userId: "hidden" }], nextCursor: null })));
+    expect((await FinancialPacketSummaryService.publications("owner-token", () => {})).packets).toEqual([receipt]);
+    expect(api.fetch).toHaveBeenCalledWith("/api/connectors/google_drive/sharing/packet-publications", expect.objectContaining({ method: "GET", cache: "no-store", headers: { Authorization: "Bearer owner-token" } }));
+    api.fetch.mockResolvedValue(new Response(JSON.stringify({ packets: [{ ...receipt, publicSummary: { ...receipt.publicSummary, revision: "9" } }], nextCursor: null })));
+    await expect(FinancialPacketSummaryService.publications("owner-token", () => {})).rejects.toThrow();
+  });
+});

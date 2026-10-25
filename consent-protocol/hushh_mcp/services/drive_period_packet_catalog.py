@@ -30,12 +30,6 @@ async def catalog_packets(
     from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
 
     period_store = DrivePeriodPacketStore(db=store.db)
-    if owner_user_id is None or owner_user_id == user_id:
-        try:
-            await period_store.ensure_owner(user_id=user_id)
-        except DriveReadError as error:
-            if str(error) != "background_preparation_required":
-                raise
     try:
         periods = await list_packets(
             period_store,

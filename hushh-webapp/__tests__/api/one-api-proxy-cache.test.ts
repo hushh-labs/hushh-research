@@ -5,7 +5,7 @@ vi.mock("@/app/api/_utils/backend", () => ({
   getPythonApiUrl: () => "https://backend.example",
 }));
 
-import { POST } from "@/app/api/one/[...path]/route";
+import { GET, POST } from "@/app/api/one/[...path]/route";
 
 describe("One API proxy cache policy", () => {
   afterEach(() => {
@@ -27,6 +27,17 @@ describe("One API proxy cache policy", () => {
     expect(forwarded.body).toBe(body);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({ saved: true });
+  });
+
+  it("keeps the authenticated Financial summary uncached on both proxy hops", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ packets: [], nextCursor: null })));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await GET(new NextRequest("http://localhost/api/one/people/person-ref/financial-packets?cursor=next", {
+      headers: { Authorization: "Bearer firebase-token" },
+    }), { params: Promise.resolve({ path: ["people", "person-ref", "financial-packets"] }) });
+    expect(fetchMock).toHaveBeenCalledWith("https://backend.example/api/one/people/person-ref/financial-packets?cursor=next", expect.objectContaining({ cache: "no-store" }));
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get("authorization")).toBe("Bearer firebase-token");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("enforces private no-store even when an upstream response is cacheable", async () => {

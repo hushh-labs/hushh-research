@@ -75,6 +75,7 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [one-calendar-knowledge-graph.md](./one-calendar-knowledge-graph.md): evidence-backed Calendar read paths, OAuth and account boundaries, Live Voice gap, and failure states.
 - [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, and latency investigation anchors.
 - [drive-four-group-index.md](./drive-four-group-index.md): the dark four-group Drive organizing aid (three signals fused into one precision-first shelf), its held-out synthetic evidence and limits, and the storage and page plan for slice 3.
+- [drive-public-financial-summary.md](./drive-public-financial-summary.md): explicit owner publication of financial packet summaries, exact-version counts, and separate connection, purchase and document-access authority.
 - [curated-mcp-connectors.md](./curated-mcp-connectors.md): how an operator-registered OAuth MCP provider (HubSpot, Notion and Attio) is described by one reviewed manifest, provisioned, deployed and shown in Connectors, and how to add another.
 
 - [Personal World Model KT, endpoint, prompt, and graph plan](./personal-world-model.md): default-on background research after setup and vault unlock, the dedicated `/one/profile/world-model` page, and per-fact Yes / No / Edit / Remove saved to the owner's encrypted Soul.md memory.

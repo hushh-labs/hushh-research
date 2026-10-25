@@ -14,7 +14,7 @@ from hushh_mcp.services.drive_document_prefix import PREFIX_POLICY
 from hushh_mcp.services.drive_groups.adapters import IsolatedHeadEmbedder, TransportHeadSource
 from hushh_mcp.services.drive_groups.indexer import classify_candidates
 from hushh_mcp.services.drive_groups.models import load_bundle
-from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
+from hushh_mcp.services.drive_telemetry import correlation_tag, drive_logger, drive_stage
 from hushh_mcp.services.google_drive_adapter import RAW_PREFIX_LIMIT, DriveReadError
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 from hushh_mcp.services.owner_placement_guard import admit_hub_content
@@ -159,9 +159,10 @@ class FinancialPacketTagger:
         if job is None:
             return "idle"
         logger.info(
-            "period_packet.tagging_claim queue_wait_ms=%.1f files=%d",
+            "period_packet.tagging_claim queue_wait_ms=%.1f files=%d packet_tag=%s",
             max(0, (datetime.now(UTC) - job["tagging_next_at"]).total_seconds() * 1000),
             len(job["items"]),
+            correlation_tag(str(job["packet_id"])),
         )
         try:
             await self.current(job)
@@ -169,10 +170,11 @@ class FinancialPacketTagger:
             await self.current(job)
             outcome = await tags.commit(self.store, job, result)
             logger.info(
-                "period_packet.tagging outcome=%s files=%d cache_hits=%d",
+                "period_packet.tagging outcome=%s files=%d cache_hits=%d packet_tag=%s",
                 outcome,
                 len(result),
                 len(cached),
+                correlation_tag(str(job["packet_id"])),
             )
             return outcome
         except (
