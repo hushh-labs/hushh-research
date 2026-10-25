@@ -1,5 +1,11 @@
 # Private agent: normal release transition
 
+## Visual Context
+
+Use the [CI delivery map](../../reference/operations/ci.md) for the existing
+validation and deployment owners. This proposal changes their composition while
+preserving environment authority and the separate owner-pod installation flow.
+
 **Current surgical follow-up — 25 October 2026:**
 [PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447) landed as
 `c927b76281`; exact-head CI and landed smoke pass. Main's financial Files,
@@ -155,12 +161,6 @@ The existing automatic release cadence is held with
 Manual governed deployments and recorded cadence history remain available.
 Re-enabling automatic TestFlight/App Store/production dispatch requires a separate
 release decision; a successful UAT run must not silently promote this candidate.
-
-## Visual Context
-
-Use the [CI delivery map](../../reference/operations/ci.md) for the existing
-validation and deployment owners. This proposal changes their composition while
-preserving environment authority and the separate owner-pod installation flow.
 
 ## Decision
 
