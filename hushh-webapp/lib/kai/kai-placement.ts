@@ -12,6 +12,8 @@
  */
 import { useEffect, useState } from "react";
 
+import type { AccountPrincipalBinding } from "@/lib/auth/session-owner";
+
 import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 
 export type KaiPlacement = "checking" | "shared" | "private" | "unverified";
@@ -26,15 +28,17 @@ export async function readKaiPlacement(): Promise<Exclude<KaiPlacement, "checkin
   }
 }
 
-/** Placement for the signed-in owner, re-read when the owner or `attempt` changes. */
-export function useKaiPlacement(userId: string | null | undefined, attempt = 0): KaiPlacement {
+/** Re-read after validated ownership settles, including same-UID replacement. */
+export function useKaiPlacement(principal: AccountPrincipalBinding | null, attempt = 0): KaiPlacement {
   const [state, setState] = useState<{ key: string; placement: KaiPlacement }>({
     key: "",
     placement: "checking",
   });
-  const key = `${userId ?? ""}:${attempt}`;
+  const key = principal
+    ? JSON.stringify([principal.firebaseUid, principal.ownerId, principal.accountGeneration, attempt])
+    : "";
   useEffect(() => {
-    if (!userId) return;
+    if (!key) return;
     let cancelled = false;
     void readKaiPlacement().then((placement) => {
       if (!cancelled) setState({ key, placement });
@@ -42,6 +46,6 @@ export function useKaiPlacement(userId: string | null | undefined, attempt = 0):
     return () => {
       cancelled = true;
     };
-  }, [key, userId]);
+  }, [key]);
   return state.key === key ? state.placement : "checking";
 }

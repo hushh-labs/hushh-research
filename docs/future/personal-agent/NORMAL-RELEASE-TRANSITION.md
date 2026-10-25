@@ -6,18 +6,23 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-**Current surgical follow-up — 25 October 2026, 20:23 UTC:**
+**Current surgical follow-up — 25 October 2026, 21:02 UTC:**
 [Continuity corrections #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
 landed as `2a74d28cd0` after exact CI and landed smoke. Dev run `40224453087`,
 attempt 2, accepted application `5ad9ef542d`: worker invocation returned HTTP 200,
 98 legacy shared-backend revisions were retired and deletion fence removal passed.
 Corporate ADC confirms backend `00244-bg2` and frontend `00210-s8c` at 100%.
-Newer continuity and Browser corrections remain separate release candidates.
+Browser settlement [#8462](https://github.com/hushh-labs/hushh-research/pull/8462)
+landed as `eb855fbb57` after exact-head CI (19m35s) and landed smoke. Its installed
+image acceptance remains separate. The local Finance continuity correction waits
+for its own exact-candidate release.
 
-UAT run `40228618750` is promoting that exact Dev-accepted application; its
-workflow revision `e0cddfa231` does not change the application target. UAT still
-serves `24545d1dc2` until actual promotion/readback. Verify terminal analytics and
-lifecycle acceptance. Peer Files-expiry repair #8461 is integrated normally;
+UAT run `40228618750` rolled back that exact Dev-accepted application at Finance
+analytics; its workflow revision `e0cddfa231` did not change the application target.
+Both services retain `24545d1dc2`. The reviewer has a recorded Shared choice and
+no pod or pending setup. A same-account authentication/placement continuity defect
+has an original-source negative control and 34 passing nearest cases; its live
+candidate admission and UAT acceptance still require verification. Peer Files-expiry repair #8461 is integrated normally;
 its exact-session/provider-custody proof replaces the earlier unresolved fixture
 hypothesis without weakening generic missing-status recovery.
 
@@ -26,7 +31,7 @@ Azure's approved update and one Puppy/Gemma 12B response pass. GCP's approved Fi
 operation still has an unconfirmed image handoff; preserve its held operation and
 never replay the exhausted queue continuation. Installed Browser takeover became
 uncertain without credential entry. The post-result settlement correction has
-focused proof, not an installed image receipt; earlier executor and owner journeys
+source and hosted proof, not an installed image receipt; earlier executor and owner journeys
 remain open. The temporary fixture is deleted. Capacity samples do not justify an
 upgrade. Existing fixed-term sharing is the confirmed scope, without recurring
 billing or changing the paid test cohort.

@@ -17,10 +17,10 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026, 20:23 UTC
+## Current decision — 25 October 2026, 20:55 UTC
 
-**The continuity fixes are on main. Dev/UAT and installed Browser acceptance
-remain incomplete.** [PR #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
+**Browser settlement and prior continuity repairs are on main. The next Finance
+continuity correction is local; Dev/UAT and installed Browser acceptance remain incomplete.** [PR #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
 landed as `2a74d28cd0`: exact CI passed in 22m41s and landed smoke in 3m19s.
 Its local core mirror passed in 23m20s. It preserves the peer analytics repair.
 No source-only result is an installed-owner or deployment receipt.
@@ -30,12 +30,27 @@ No source-only result is an installed-owner or deployment receipt.
 | Azure owner | Approved Dev 30/image `6e57f251…eeac423`; one complete Puppy/Gemma 12B response, then observed zero replicas | Browser takeover, login, reconnect and cloud session custody |
 | GCP owner | Approved Files queue, identity and IAM checkpoints | Held image handoff remains unconfirmed; preserve the operation and do not replay its exhausted queue continuation |
 | Browser components | Both clouds pass controlled research, responsive controls, suppressed login, remember/restore, logout, Forget, reviewed save and Stop | Actual owner HTTP journey; broad websites and GitHub remain unqualified |
-| Browser correction | Post-result takeover race corrected; 103 nearest checks and original-source negative control pass | Exact-image qualification and installation; earlier connected-executor window remains open |
+| Browser correction | [PR #8462](https://github.com/hushh-labs/hushh-research/pull/8462) landed as `eb855fbb57` through authorized Admin landing after exact-head CI and landed smoke; local core and 203 combined Browser/Files cases pass | Exact-image qualification and installation; earlier connected-executor window remains open |
 | Recovery | Predecessors preserve identity, six encrypted records, consent, revocation and 245,763 exact file bytes | Installed active-work drain/recovery |
 | Account generations | Isolated real-mail two-cycle proof with unchanged Firebase UID and retired-session refusal | Federated recovery is independent of email; public admission remains disabled pending deployment qualification. UAT retains an unqualified WorkOS offboarding consumer |
 | Information sharing | Existing fixed-term access; no recurring billing. Normal owner readiness rechecked | Two-owner request/review/access/revocation; paid Sandbox cohort unchanged |
 | Dev application | Run `40224453087`, attempt 2 accepted `5ad9ef542d`; corporate ADC confirms backend `00244-bg2` and frontend `00210-s8c` at 100% | Newer continuity and Browser corrections need their own accepted release |
-| UAT | Both services retain `24545d1dc2`; run `40228618750` is promoting Dev-accepted `5ad9ef542d` | Verify terminal analytics, schema, traffic and lifecycle evidence; workflow revision is distinct from the application |
+| UAT | Run `40228618750` rolled back `5ad9ef542d`; both services retain `24545d1dc2`. Finance did not mount before the analytics deadline | Qualify the corrected application; no timeout increase or fixture reset |
+
+The canonical UAT reviewer has an explicit Shared choice, no pod registry row and
+no pending cloud job. Metadata-only headless verification of the older serving
+application unlocked and rendered Finance; it does not qualify the failed candidate.
+A deterministic same-account pending-to-validated regression fails on current source:
+Finance placement can retain an early refusal after authentication recovers. The
+local correction rechecks the validated UID, owner and account generation; all 34
+nearest cases, TypeScript, lint and UI contracts pass. Private routing remains
+fail closed. Its deployed acceptance and the failed candidate's exact admission
+state remain unproven; do not silently change the fixture's placement.
+
+A new read-only GCP observation confirms the original service UID, old image,
+generation 21, Ready state and 100% old-revision traffic without the approved
+attempt nonce. The temporary observer exited and was deleted. This does not prove
+where the original generic exception occurred or authorize replay of its held operation.
 
 Audit logs identified missing read/act-as access on the existing cleanup identity.
 The scoped repair and separate Scheduler/log-read permissions allowed activation:
