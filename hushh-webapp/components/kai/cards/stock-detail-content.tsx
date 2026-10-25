@@ -1,17 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { PriceHistoryChart } from "@/components/kai/charts/price-history-chart";
+import { StockHistoryPanel, type StockHistoryLoader } from "@/components/kai/charts/stock-history-panel";
 import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
 import type { KaiHomeNewsItem, KaiHomeRenaissanceItem, KaiMarketCompanyFacts } from "@/lib/services/api-service";
-import type { StockPriceHistory } from "@/lib/kai/price-history";
 import { cn } from "@/lib/utils";
 import { OneMarketNewsCover } from "@/components/kai/cards/market-news-briefing";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { SectionLabel } from "@/components/app-ui/typography";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
 
-export type StockHistoryLoader = (symbol: string, signal: AbortSignal) => Promise<StockPriceHistory>;
+export type { StockHistoryLoader } from "@/components/kai/charts/stock-history-panel";
 const money = (value: number | null | undefined, compact = false) => typeof value === "number" && Number.isFinite(value)
   ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: compact ? "compact" : "standard", maximumFractionDigits: 2 }).format(value) : "Unavailable";
 const ratio = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}×` : "Unavailable";
@@ -23,19 +21,6 @@ export function StockDetailContent({ row, facts, loadHistory, news = [] }: {
   row: KaiHomeRenaissanceItem; facts?: KaiMarketCompanyFacts; loadHistory?: StockHistoryLoader; news?: KaiHomeNewsItem[];
 }) {
   const symbol = row.quote_symbol || row.symbol;
-  const [history, setHistory] = useState<StockPriceHistory | null>(null);
-  const [loading, setLoading] = useState(Boolean(loadHistory));
-  useEffect(() => {
-    const controller = new AbortController();
-    setHistory(null);
-    setLoading(Boolean(loadHistory));
-    if (loadHistory) void loadHistory(symbol, controller.signal).then(points => {
-      if (!controller.signal.aborted) setHistory(points);
-    }).catch(() => { /* The quote and company facts remain available. */ }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [symbol, loadHistory]);
   const companyNews = news.filter(item => [row.symbol, row.quote_symbol].some(ticker => ticker && ticker.toUpperCase() === item.symbol.trim().toUpperCase()) && /^https?:\/\//i.test(item.url)).slice(0, 4);
   const change = row.change_pct;
   const financialFacts = [
@@ -55,9 +40,7 @@ export function StockDetailContent({ row, facts, loadHistory, news = [] }: {
       </div>
       <p className="mt-2 text-xs leading-[18px] text-muted-foreground">USD · {row.quote_status === "unsupported" ? "Unsupported quote" : `Quoted ${asOf(row.as_of)}`}{row.degraded ? " · Delayed" : ""}</p>
     </div>
-    {loading ? <div role="status" className="flex h-64 items-center justify-center text-sm text-muted-foreground">Loading price history…</div>
-      : <div className="space-y-2"><PriceHistoryChart key={symbol} data={history?.points ?? []} label="Price history" />
-          {history?.points.length ? <p className="text-xs leading-[18px] text-muted-foreground">{history.stale ? "Cached history" : "Daily observations"}{history.retrievedAt ? ` · Retrieved ${asOf(history.retrievedAt)}` : ""}</p> : null}</div>}
+    <StockHistoryPanel symbol={symbol} loadHistory={loadHistory} />
     <section aria-label="Company facts">
       <SectionLabel role="heading" aria-level={3}>Company facts</SectionLabel>
       <dl className={styles.facts}>{financialFacts.map(([label, value]) => <div key={label} className={styles.fact}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>

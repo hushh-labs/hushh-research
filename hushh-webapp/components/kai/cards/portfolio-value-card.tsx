@@ -21,12 +21,12 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
       </div>
       <div>
         <p className={styles.value}>{money(value)}</p>
-        <p className={cn("mt-2 text-sm font-medium tabular-nums", change !== null && change > 0 ? "text-[var(--finance-positive)]" : change !== null && change < 0 ? "text-[var(--finance-negative)]" : "text-muted-foreground")}>
-          {change === null ? "Period balance change unavailable" : <>{change > 0 ? "+" : change < 0 ? "−" : ""}{money(Math.abs(change))}{changePct !== null ? ` · ${changePct > 0 ? "+" : ""}${changePct.toFixed(2)}%` : ""}</>}
-        </p>
+        {change !== null ? <p className={cn("mt-2 text-sm font-medium tabular-nums", change > 0 ? "text-[var(--finance-positive)]" : change < 0 ? "text-[var(--finance-negative)]" : "text-muted-foreground")}>
+          {change > 0 ? "+" : change < 0 ? "−" : ""}{money(Math.abs(change))}{changePct !== null ? ` · ${changePct > 0 ? "+" : ""}${changePct.toFixed(2)}%` : ""}
+        </p> : null}
         {change !== null ? <p className={cn(styles.description, "mt-1")}>Period balance change · includes cash flows</p> : null}
       </div>
-      {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : <p className={styles.description}>Value history isn’t available for this source yet.</p>}
+      {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : <p className={styles.description}>Balance snapshot · This source hasn’t supplied dated balance history.</p>}
       {invested !== undefined || cash !== undefined ? <dl className={styles.summaryFacts}>
         <div><dt>Invested</dt><dd>{money(invested ?? null)}</dd></div>
         <div><dt>Cash</dt><dd>{money(cash ?? null)}</dd></div>

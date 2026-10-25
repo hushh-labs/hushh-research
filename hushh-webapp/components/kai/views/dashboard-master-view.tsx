@@ -35,6 +35,8 @@ import { StatementCashflowChart } from "@/components/kai/charts/statement-cashfl
 import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
 import { HoldingDetailsDrawer } from "@/components/kai/holdings/holding-details-drawer";
 import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
+import { holdingTableColumns } from "@/components/kai/holdings/holding-table-columns";
+import { ApiService } from "@/lib/services/api-service";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import type {
@@ -170,9 +172,7 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
-function formatSignedCurrency(value: number): string {
-  return `${value >= 0 ? "+" : "-"}${formatCurrency(Math.abs(value))}`;
-}
+
 
 function compareHoldingsByNameAsc<T extends { name?: string; symbol?: string }>(
   left: T,
@@ -1545,174 +1545,17 @@ export function DashboardMasterView({
 
   const selectedHolding = useMemo(() => {
     const holding = sourceHoldingRows.find((row) => row.client_id === selectedHoldingId);
-    return holding ? toHoldingViewModel(holding, holdingsTableDenominator) : null;
-  }, [sourceHoldingRows, selectedHoldingId, holdingsTableDenominator]);
+    return holding ? toHoldingViewModel(holding, holdingsTableDenominator, {
+      source: activeSource === "statement" ? "Statement" : "Linked account",
+      valuationKind: activeSource === "statement" ? "statement" : "linked",
+      statementAsOf: activeSource === "statement" ? displayedPortfolio?.account_info?.statement_period_end : null,
+    }) : null;
+  }, [sourceHoldingRows, selectedHoldingId, holdingsTableDenominator, activeSource, displayedPortfolio]);
+  const loadHoldingHistory = useCallback((symbol: string, signal: AbortSignal) =>
+    ApiService.getKaiStockPriceHistory(userId, symbol, signal), [userId]);
 
   const holdingsTableColumns = useMemo<ColumnDef<ManagedHolding>[]>(() => {
-    const columns: ColumnDef<ManagedHolding>[] = [
-      {
-        accessorKey: "symbol",
-        header: "Holding",
-        cell: ({ row }) => {
-          const holding = row.original;
-          const isCash = holding.is_cash_equivalent === true;
-          const isDeleted = Boolean(holding.pending_delete);
-          return (
-            <div
-              className={cn(
-                "flex min-w-[220px] items-center gap-3",
-                isDeleted && "opacity-60",
-              )}
-            >
-              <SymbolAvatar
-                symbol={holding.symbol}
-                name={holding.name}
-                isCash={isCash}
-                size="sm"
-              />
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "font-semibold text-foreground",
-                      isDeleted && "line-through",
-                    )}
-                  >
-                    {holding.symbol || "—"}
-                  </span>
-                  {isCash ? (
-                    <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                      Cash
-                    </span>
-                  ) : null}
-                  {isDeleted ? (
-                    <span className="rounded-full border border-rose-500/25 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-400">
-                      Pending delete
-                    </span>
-                  ) : null}
-                </div>
-                <div
-                  className={cn(
-                    "truncate text-xs text-muted-foreground",
-                    isDeleted && "line-through",
-                  )}
-                >
-                  {holding.name || "Unnamed security"}
-                </div>
-              </div>
-            </div>
-          );
-        },
-      },
-      {
-        id: "shares",
-        header: "Shares",
-        cell: ({ row }) => {
-          const holding = row.original;
-          return (
-            <span
-              className={cn(
-                "text-sm text-foreground",
-                holding.pending_delete && "line-through text-muted-foreground",
-              )}
-            >
-              {Number(holding.quantity || 0).toLocaleString()}
-            </span>
-          );
-        },
-      },
-      {
-        accessorKey: "price",
-        header: "Price",
-        cell: ({ row }) => {
-          const holding = row.original;
-          return (
-            <span
-              className={cn(
-                "text-sm text-foreground",
-                holding.pending_delete && "line-through text-muted-foreground",
-              )}
-            >
-              {formatCurrency(Number(holding.price || 0))}
-            </span>
-          );
-        },
-      },
-      {
-        accessorKey: "market_value",
-        header: "Market Value",
-        cell: ({ row }) => {
-          const holding = row.original;
-          return (
-            <span
-              className={cn(
-                "font-semibold text-foreground",
-                holding.pending_delete && "line-through text-muted-foreground",
-              )}
-            >
-              {formatCurrency(Number(holding.market_value || 0))}
-            </span>
-          );
-        },
-      },
-      {
-        id: "weight",
-        header: "Weight",
-        cell: ({ row }) => {
-          const holding = row.original;
-          const marketValue = Number(holding.market_value || 0);
-          const weightPct =
-            holdingsTableDenominator > 0
-              ? (marketValue / holdingsTableDenominator) * 100
-              : 0;
-          return (
-            <span
-              className={cn(
-                "text-sm text-muted-foreground",
-                holding.pending_delete && "line-through",
-              )}
-            >
-              {formatPercent(weightPct)}
-            </span>
-          );
-        },
-      },
-      {
-        id: "gain_loss",
-        header: "Gain / Loss",
-        cell: ({ row }) => {
-          const holding = row.original;
-          const explicitGain = Number.isFinite(
-            Number(holding.unrealized_gain_loss),
-          )
-            ? Number(holding.unrealized_gain_loss)
-            : null;
-          const derivedGain =
-            Number.isFinite(Number(holding.market_value)) &&
-            Number.isFinite(Number(holding.cost_basis))
-              ? Number(holding.market_value) - Number(holding.cost_basis)
-              : null;
-          const gain = explicitGain ?? derivedGain;
-          if (gain === null) {
-            return <span className="text-sm text-muted-foreground">—</span>;
-          }
-          return (
-            <span
-              className={cn(
-                "font-medium",
-                holding.pending_delete
-                  ? "line-through text-muted-foreground"
-                  : gain >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-rose-600 dark:text-rose-400",
-              )}
-            >
-              {formatSignedCurrency(gain)}
-            </span>
-          );
-        },
-      },
-    ];
+    const columns: ColumnDef<ManagedHolding>[] = holdingTableColumns(holdingsTableDenominator);
 
     if (canEditStatement && isHoldingsEditing) {
       columns.unshift({
@@ -2194,7 +2037,6 @@ export function DashboardMasterView({
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
-          description="Value, holdings, and portfolio context."
         />
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
           <PortfolioOverview model={model} portfolio={displayedPortfolio} source={sourceDisplayLabel}
@@ -2228,7 +2070,7 @@ export function DashboardMasterView({
             : section === "allocation"
               ? "How your portfolio value is distributed."
               : section === "performance"
-                ? "Value and change from real portfolio history."
+                ? (model.quality.historyReady ? "Value and change from dated portfolio balances." : undefined)
                 : "Where your holdings come from."
         }
         actions={<PortfolioReportAction model={model} source={sourceDisplayLabel} period={model.hero.statementPeriod || "Current portfolio snapshot"}
@@ -2493,6 +2335,7 @@ export function DashboardMasterView({
                 open={Boolean(selectedHolding)}
                 holding={selectedHolding}
                 canManageHoldings={false}
+                loadHistory={loadHoldingHistory}
                 onOpenChange={(open) => {
                   if (!open) setSelectedHoldingId(null);
                 }}
@@ -2501,6 +2344,7 @@ export function DashboardMasterView({
               <div className="hidden min-w-0 md:block">
                 <DataTable
                   columns={holdingsTableColumns}
+                  tableClassName="w-full [&_th]:px-2 [&_td]:px-2 [&_td]:align-middle"
                   data={allocationFilteredHoldingRows}
                   onRowClick={
                     isHoldingsEditing
@@ -2515,7 +2359,7 @@ export function DashboardMasterView({
                   rowClassName={(holding) =>
                     cn(
                       "transition-colors",
-                      holding.pending_delete && "bg-rose-500/5",
+                      holding.pending_delete && "bg-rose-500/5 [&_td:not(:first-child)]:line-through",
                     )
                   }
                 />

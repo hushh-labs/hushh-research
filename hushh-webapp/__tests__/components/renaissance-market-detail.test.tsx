@@ -63,7 +63,7 @@ describe("RiaPicksList detail", () => {
     expect(detail.getByText("9.20×")).toBeTruthy();
     expect(detail.getByText("0.42×")).toBeTruthy();
     expect(detail.getByText("P/E (TTM)")).toBeTruthy();
-    expect(detail.getByText("Nvidia designs graphics processors.")).toBeTruthy();
+    expect(detail.getByRole("listitem").textContent).toBe("Nvidia designs graphics processors.");
     expect(selection).toHaveBeenLastCalledWith("NVDA");
     expect(analyze).not.toHaveBeenCalled();
     fireEvent.click(detail.getByRole("button", { name: "Analyze NVDA" }));
@@ -84,8 +84,13 @@ describe("RiaPicksList detail", () => {
     await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(1));
     const signal = loadHistory.mock.calls[0][1];
     expect(loadHistory.mock.calls[0][0]).toBe("NVDA");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Retry price history" })).toBeTruthy());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Retry price history" }));
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledTimes(2));
+    expect(signal.aborted).toBe(true);
+    const retrySignal = loadHistory.mock.calls[1][1];
     fireEvent.click(within(dialog).getByRole("button", { name: "Close detail panel" }));
-    await waitFor(() => expect(signal.aborted).toBe(true));
+    await waitFor(() => expect(retrySignal.aborted).toBe(true));
   });
 
   it("hides a source control that has no alternative and keeps empty-source recovery available", () => {

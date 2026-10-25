@@ -28,7 +28,7 @@ export function PortfolioOverview({ model, portfolio, source, period, action, on
   return <div className={styles.overviewGrid} data-testid="portfolio-overview">
     <SectionLabel role="heading" aria-level={2} className="col-span-full">Your portfolio</SectionLabel>
     <PortfolioValueCard source={source} value={model.hero.totalValue} {...facts} period={period} history={model.quality.historyReady ? model.history : []} action={action} />
-    <SettingsGroup embedded separatorInset testId="portfolio-overview-options">
+    <SettingsGroup embedded separatorInset rowSizing="uniform" className="h-full" shellClassName="h-full" contentClassName="h-full" testId="portfolio-overview-options">
       {rows.map(row => <SettingsRow key={row.section} icon={row.icon} iconTone="gray" title={row.title} description={row.description}
         trailing={<span className="max-w-32 text-right text-xs leading-[18px] tabular-nums text-muted-foreground">{row.value}</span>}
         onClick={() => onOpenSection(row.section)} chevron testId={`portfolio-open-${row.section}`} />)}

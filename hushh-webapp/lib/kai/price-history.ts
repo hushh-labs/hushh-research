@@ -4,6 +4,9 @@ export interface StockPriceHistory {
   points: PriceHistoryPoint[];
   stale: boolean;
   retrievedAt: string | null;
+  source?: string | null;
+  cached?: boolean;
+  unavailableReason?: "provider_unavailable" | "unsupported_symbol" | "insufficient_observations" | "request_failed" | null;
 }
 export type PriceRange = "1w" | "1m" | "3m" | "1y" | "all";
 export const PRICE_RANGE_LABELS: Record<PriceRange, string> = {
