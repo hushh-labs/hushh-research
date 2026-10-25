@@ -49,9 +49,9 @@ function formatTimestamp(value: string | null | undefined): string {
 }
 
 export function PkmExplorerPanel() {
-  const { user, loading } = useAuth();
+  const { userId: applicationOwnerId, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
-  const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
+  const pkmChangeRevision = usePkmDomainChangeRevision(applicationOwnerId);
 
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export function PkmExplorerPanel() {
 
     async function loadBootstrap(forceRefresh = false) {
       if (loading) return;
-      if (!user) {
+      if (!applicationOwnerId) {
         if (!cancelled) {
           setMetadata(null);
           setSelectedDomain(null);
@@ -91,7 +91,7 @@ export function PkmExplorerPanel() {
       setBootstrapError(null);
       try {
         const nextMetadata = await PersonalKnowledgeModelService.getMetadata(
-          user.uid,
+          applicationOwnerId,
           forceRefresh,
           vaultOwnerToken
         );
@@ -121,13 +121,13 @@ export function PkmExplorerPanel() {
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, loading, pkmChangeRevision, user, vaultOwnerToken]);
+  }, [isVaultUnlocked, loading, pkmChangeRevision, applicationOwnerId, vaultOwnerToken]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadDomainState() {
-      if (!user || !selectedDomain || !vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
+      if (!applicationOwnerId || !selectedDomain || !vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
         if (!cancelled) {
           setDomainState({
             manifest: null,
@@ -144,13 +144,13 @@ export function PkmExplorerPanel() {
       try {
         const [manifest, encrypted, decrypted] = await Promise.all([
           PersonalKnowledgeModelService.getDomainManifest(
-            user.uid,
+            applicationOwnerId,
             selectedDomain,
             vaultOwnerToken
           ),
-          PersonalKnowledgeModelService.getDomainData(user.uid, selectedDomain, vaultOwnerToken),
+          PersonalKnowledgeModelService.getDomainData(applicationOwnerId, selectedDomain, vaultOwnerToken),
           PersonalKnowledgeModelService.loadDomainData({
-            userId: user.uid,
+            userId: applicationOwnerId,
             domain: selectedDomain,
             vaultKey,
             vaultOwnerToken,
@@ -186,7 +186,7 @@ export function PkmExplorerPanel() {
     isVaultUnlocked,
     pkmChangeRevision,
     selectedDomain,
-    user,
+    applicationOwnerId,
     vaultKey,
     vaultOwnerToken,
   ]);
@@ -209,13 +209,13 @@ export function PkmExplorerPanel() {
   const selectedPaths = useMemo(() => domainState.manifest?.paths || [], [domainState.manifest]);
 
   async function handleRefresh() {
-    if (!user || !vaultOwnerToken || !isVaultUnlocked) return;
+    if (!applicationOwnerId || !vaultOwnerToken || !isVaultUnlocked) return;
 
     setBootstrapLoading(true);
     setBootstrapError(null);
     try {
       const nextMetadata = await PersonalKnowledgeModelService.getMetadata(
-        user.uid,
+        applicationOwnerId,
         true,
         vaultOwnerToken
       );
@@ -253,7 +253,7 @@ export function PkmExplorerPanel() {
             variant="none"
             effect="fade"
             onClick={() => void handleRefresh()}
-            disabled={!user || !isVaultUnlocked || bootstrapLoading}
+            disabled={!applicationOwnerId || !isVaultUnlocked || bootstrapLoading}
             className="w-full sm:w-auto"
           >
             {bootstrapLoading ? (
@@ -275,13 +275,13 @@ export function PkmExplorerPanel() {
           ) : null}
         </div>
 
-        {!user ? (
+        {!applicationOwnerId ? (
           <div className="flex items-center gap-2 text-sm text-amber-700">
             <ShieldAlert className="h-4 w-4" />
             Sign in first to inspect saved PKM information.
           </div>
         ) : null}
-        {user && !isVaultUnlocked ? (
+        {applicationOwnerId && !isVaultUnlocked ? (
           <div className="flex items-center gap-2 text-sm text-amber-700">
             <Vault className="h-4 w-4" />
             Unlock your vault above to load saved PKM information.

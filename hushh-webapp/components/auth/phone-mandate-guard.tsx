@@ -57,8 +57,8 @@ export function PhoneMandateGuard(props: {
   children: React.ReactNode;
   exemptVaultUsers?: boolean;
 }) {
-  const { user } = useAuth();
-  return <AccountPhoneMandateGuard key={user?.uid ?? "signed-out"} {...props} />;
+  const { userId: applicationOwnerId } = useAuth();
+  return <AccountPhoneMandateGuard key={applicationOwnerId ?? "signed-out"} {...props} />;
 }
 
 function AccountPhoneMandateGuard({
@@ -73,6 +73,7 @@ function AccountPhoneMandateGuard({
   const searchParams = useSearchParams();
   const {
     user,
+    userId: applicationOwnerId,
     loading,
     phoneNumber,
     retrySessionVerification,
@@ -92,19 +93,19 @@ function AccountPhoneMandateGuard({
   // continue safely. The effects below still own cold reads and revalidation.
   const [hasVault, setHasVault] = useState<boolean | null>(() =>
     resolveInitialVaultPresence({
-      userId: user?.uid,
+      userId: applicationOwnerId,
     }),
   );
   const [backendPhoneVerified, setBackendPhoneVerified] = useState<
     boolean | null
   >(() =>
     resolveInitialBackendPhoneVerified({
-      userId: user?.uid,
+      userId: applicationOwnerId,
       firebasePhoneVerified,
     }),
   );
   const [setupResolved, setSetupResolved] = useState(() =>
-    !!user?.uid && PreVaultUserStateService.getCachedBootstrapState(user.uid)?.setupCompleted === true,
+    !!applicationOwnerId && PreVaultUserStateService.getCachedBootstrapState(applicationOwnerId)?.setupCompleted === true,
   );
   const [admissionError, setAdmissionError] = useState(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
@@ -113,14 +114,14 @@ function AccountPhoneMandateGuard({
   useEffect(() => {
     if (
       sessionVerificationRequired ||
-      !user?.uid ||
+      !applicationOwnerId ||
       !hostnameResolved ||
       localPhoneMandateBypassed
     ) {
       return;
     }
 
-    const userId = user.uid;
+    const userId = applicationOwnerId;
     const watchedKeys = new Set([
       CACHE_KEYS.VAULT_CHECK(userId),
       CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
@@ -158,11 +159,11 @@ function AccountPhoneMandateGuard({
     hostnameResolved,
     localPhoneMandateBypassed,
     sessionVerificationRequired,
-    user?.uid,
+    applicationOwnerId,
   ]);
 
   useEffect(() => {
-    const userId = user?.uid;
+    const userId = applicationOwnerId;
     if (sessionVerificationRequired) return;
     if (!userId) {
       setHasVault(null);
@@ -286,7 +287,7 @@ function AccountPhoneMandateGuard({
     hostnameResolved,
     localPhoneMandateBypassed,
     sessionVerificationRequired,
-    user?.uid,
+    applicationOwnerId,
   ]);
 
   const currentRoute = useMemo(() => {
@@ -330,7 +331,7 @@ function AccountPhoneMandateGuard({
     return <HushhLoader stage="session" label="Checking session..." />;
   }
 
-  if (sessionVerificationRequired) {
+  if (sessionVerificationRequired || (user && !applicationOwnerId)) {
     return (
       <SessionVerificationRecovery
         onRetry={() => void retrySessionVerification()}

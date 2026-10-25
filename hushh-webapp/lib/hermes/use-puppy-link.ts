@@ -18,9 +18,9 @@ import {
  * machine. Null until the first read lands; "unavailable" after a failed one.
  */
 export function usePuppyLink(): PuppyLink | null {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   // Re-subscribe after account changes so the new owner never waits for the old poll.
-  const subscribe = useCallback((listener: () => void) => user ? subscribePuppyLink(listener) : () => {}, [user]);
+  const subscribe = useCallback((listener: () => void) => userId ? subscribePuppyLink(listener) : () => {}, [userId]);
   return useSyncExternalStore(
     subscribe,
     getPuppyLinkSnapshot,

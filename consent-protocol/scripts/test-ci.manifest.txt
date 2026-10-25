@@ -1,6 +1,10 @@
 # Fundamental blocking backend tests for CI.
 # Keep this list small and stable. Full historical suites remain manual.
 
+# Runtime startup must refuse incompatible identity and account-generation authority.
+tests/test_runtime_readiness.py
+tests/test_server_startup_guards.py
+
 # PLG exports are signed, production-only and limited to enrolled task metadata.
 tests/services/test_plg_evidence.py
 tests/services/test_product_activity_postgres.py
@@ -188,6 +192,9 @@ tests/test_scope_commerce_delivery_contracts_postgres.py
 tests/test_scope_commerce_lineage_contracts_postgres.py
 tests/test_scope_commerce_receipt_contracts_postgres.py
 tests/test_scope_commerce_work.py
+# Canonical discovery/approval parity and private-scope refusal (no provider calls).
+tests/test_scope_generator_available_entries.py
+tests/test_scope_catalog_self_corrects_stale_rows.py
 tests/test_marketplace_consent_delivery.py
 tests/test_marketplace_earnings_accrual.py
 tests/test_encrypted_blob_bounds.py
@@ -383,6 +390,7 @@ tests/services/test_people_search_sql.py
 tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
+tests/test_private_agent_adoption_postgres.py
 tests/services/test_account_service_cleanup_tables.py
 # Inventory all user-keyed migration tables against executed deletes, checked
 # FK cascades, specialized Drive erasure, or an explicit retention contract.
@@ -1075,6 +1083,7 @@ tests/test_no_orphaned_agents.py
 tests/test_pod_boots_off_google_cloud.py
 tests/test_pod_key_vault_custody.py
 tests/test_pod_object_store_contract.py
+tests/test_shared_files_upload_sessions.py
 tests/test_pod_platform_incarnation.py
 tests/test_pod_workload_identity.py
 # Azure lane identity (2026-10-02): cloud-neutral pod-to-hub request signing.
@@ -1394,6 +1403,7 @@ tests/services/test_drive_period_packets.py
 tests/services/test_drive_period_packets_postgres.py
 tests/services/test_drive_period_packet_previews_postgres.py
 tests/services/test_drive_financial_packet_recovery_postgres.py
+tests/services/test_drive_financial_packet_large_recovery_postgres.py
 tests/services/test_drive_financial_packet_rollout_postgres.py
 tests/services/test_drive_period_packet_loop_postgres.py
 
@@ -1461,5 +1471,7 @@ tests/test_pwm_runtime_probe.py
 
 tests/services/test_drive_packet_public_summary_postgres.py
 tests/test_drive_packet_public_summary_routes.py
+
+tests/test_consumer_consent_replay_postgres.py
 tests/routes/test_area_discovery.py
 tests/services/test_area_discovery_postgres.py

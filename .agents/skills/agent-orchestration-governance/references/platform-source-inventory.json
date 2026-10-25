@@ -1,12 +1,8 @@
 {
   "schema_version": 1,
-  "reviewed_on": "2026-10-22",
-  "note": "Authored development sources live under .agents. Host adapters are generated or thin pointers. Pinned imports remain separately classified and are not approved or activated by relocation. Retired redundant host aliases and unapproved KG procedure in the canonical consolidation. Historical KG source: ac3dea21efde66f3b05014731bdc637c3ac12b3d; SKILL blob2372a472bac7928833d1d79a11c37388d648a625, PROMPT blob317de1ab9d89ec7370c5f34790ec2a4d1d590e1c. Relocation never activates imported writers.",
+  "reviewed_on": "2026-10-24",
+  "note": "Authored development sources live under .agents. Root AGENTS.md loads the one portable framework; repository vendor directories, startup hooks and per-host discovery adapters are retired. Pinned imports remain separately classified and are not approved or activated by relocation. Retired redundant host aliases and unapproved KG procedure in the canonical consolidation. Historical KG source: ac3dea21efde66f3b05014731bdc637c3ac12b3d; SKILL blob2372a472bac7928833d1d79a11c37388d648a625, PROMPT blob317de1ab9d89ec7370c5f34790ec2a4d1d590e1c. Relocation never activates imported writers.",
   "sources": {
-    ".agents/routing/SKILL.md": {
-      "classification": "host_adapter",
-      "sha256": "8795d5acf6eb22f69d198e82dd889a18d88fe50f107d4988b4915a408f34e1ab"
-    },
     ".agents/imports/impeccable/SKILL.md": {
       "classification": "imported_dependency_pending_review",
       "sha256": "a1ea82ce80f4db6f53757a84fc37b639fdc2354ca25e54a30ab6d45dcf944628"
@@ -154,22 +150,5 @@
     ".agents/skills/wire-voice-action/SKILL.md": {
       "classification": "portable_practice"
     }
-  },
-  "host_adapters": {
-    "codex-bridge": {
-      "source": ".agents/routing/SKILL.md",
-      "target": ".claude/skills/codex-bridge/SKILL.md",
-      "classification": "host_adapter"
-    }
-  },
-  "compatibility_commands": [
-    {
-      "source": ".agents/skills/client-env-parity/check.sh",
-      "target": ".claude/skills/client-env-parity/check.sh"
-    },
-    {
-      "source": ".agents/skills/client-env-parity/check-key-origins.sh",
-      "target": ".claude/skills/client-env-parity/check-key-origins.sh"
-    }
-  ]
+  }
 }

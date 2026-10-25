@@ -93,3 +93,62 @@ def test_authenticate_verify_no_session_without_user_verification(monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["session"] == "user_verification_required"
     assert minted == []  # an unverified assertion never mints a login session
+
+
+def test_passkey_mint_keeps_external_identity_and_captured_generation_separate(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    owner = "acct_" + "b" * 32
+    mapped, minted = [], []
+    monkeypatch.setattr(wa, "ensure_firebase_auth_admin", lambda: (True, "test-project"))
+    monkeypatch.setattr(wa, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(wa, "current_auth_lane", lambda: "uat")
+    monkeypatch.setattr(
+        wa.AccountGenerationService,
+        "firebase_identity_for_owner",
+        lambda value: mapped.append(value) or "external-firebase-uid",
+    )
+    monkeypatch.setattr(
+        firebase_auth,
+        "create_custom_token",
+        lambda uid, claims, **_: minted.append((uid, claims)) or b"synthetic-custom-token",
+    )
+    assert (
+        wa._mint_session(user_id=owner, aal="AAL2", credential_id="credential-1")
+        == "synthetic-custom-token"
+    )
+    assert mapped == [owner]
+    assert minted == [
+        (
+            "external-firebase-uid",
+            {
+                "hussh_account_owner": owner,
+                "hussh_account_lane": "uat",
+                "amr": ["webauthn"],
+                "aal": "AAL2",
+                "credId": "credential-1",
+            },
+        )
+    ]
+
+
+def test_passkey_mint_never_upgrades_a_retired_owner(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    from hushh_mcp.services.account_generation_service import AccountGenerationRefused
+
+    owner = "acct_" + "b" * 32
+    minted = []
+    monkeypatch.setattr(wa, "ensure_firebase_auth_admin", lambda: (True, "test-project"))
+    monkeypatch.setattr(wa, "get_firebase_auth_app", lambda: object())
+
+    def retired(captured_owner):
+        assert captured_owner == owner
+        raise AccountGenerationRefused("account_retired")
+
+    monkeypatch.setattr(wa.AccountGenerationService, "firebase_identity_for_owner", retired)
+    monkeypatch.setattr(
+        firebase_auth, "create_custom_token", lambda *args, **_: minted.append(args)
+    )
+    assert wa._mint_session(user_id=owner, aal="AAL2", credential_id="credential-1") is None
+    assert minted == []

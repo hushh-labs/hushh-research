@@ -37,9 +37,9 @@ export function CloudAiChoice({ placement, title, disabled, requiresExplicitSele
               disabled={disabled}
               description={
                 placement === "azure"
-                  ? `Azure AI · ${cloudAiVerified ? modelLabel || "Verified" : "Check connection"}`
+                  ? `Azure AI · ${cloudAiVerified ? modelLabel || "Verified" : modelLabel ? `${modelLabel} · Check connection` : "Check connection"}`
                   : placement === "gcp"
-                    ? `Vertex AI · ${cloudAiVerified ? modelLabel || "Verified" : "Check connection"}`
+                    ? `Vertex AI · ${cloudAiVerified ? modelLabel || "Verified" : modelLabel ? `${modelLabel} · Check connection` : "Check connection"}`
                     : placement === "shared"
                       ? "Managed for you. No key needed."
                       : placement === "pending"

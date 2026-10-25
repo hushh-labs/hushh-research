@@ -52,17 +52,30 @@ def shared_pending_store(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def shared_hub_owner(monkeypatch: pytest.MonkeyPatch):
-    """Explicit Shared placement for isolated connector execution fixtures.
+def active_account_lifecycle(monkeypatch: pytest.MonkeyPatch):
+    """Explicit live-owner oracle; keep real admission and per-test retirements."""
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
 
-    Keep the real admission guard. Boundary tests can change this resolver to
-    private/unknown; unrelated fake stores must not accidentally hit a real DB.
-    """
+    retired_owners: set[str] = set()
+    monkeypatch.setattr(
+        AccountDeletionLifecycleService,
+        "is_tombstoned",
+        staticmethod(lambda owner: owner in retired_owners),
+    )
+    return retired_owners
+
+
+@pytest.fixture
+def shared_hub_owner(monkeypatch: pytest.MonkeyPatch, active_account_lifecycle):
+    """Explicit Shared placement; preserve admission and mutable retirement evidence."""
     from unittest.mock import AsyncMock
 
     from hushh_mcp.services import owner_placement_guard
 
     resolver = AsyncMock(return_value="shared")
+    resolver.retired_owners = active_account_lifecycle
     monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolver)
     monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
     return resolver

@@ -4429,6 +4429,49 @@ def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
         directory.active_directory_user_ids(["enabled"])
 
 
+def test_directory_replacement_owner_projection_never_uses_external_uid_as_application_key(
+    monkeypatch,
+):
+    from hushh_mcp.services import directory_identity_service as directory
+
+    owner = "acct_" + "a" * 32
+    retired = "retired-owner"
+    mapping = {owner: "external-uid"}
+    monkeypatch.setattr(
+        directory,
+        "firebase_uids_for_owner_reads",
+        lambda owners: {key: value for key, value in mapping.items() if key in owners},
+    )
+    monkeypatch.setattr(
+        directory,
+        "get_firebase_auth_app",
+        lambda: SimpleNamespace(project_id="synthetic", name="replacement"),
+    )
+    record = SimpleNamespace(
+        uid="external-uid",
+        disabled=False,
+        display_name="Person",
+        photo_url="photo",
+        provider_data=[],
+    )
+    calls = []
+
+    def lookup(identifiers, **kwargs):
+        calls.append([entry.uid for entry in identifiers])
+        return SimpleNamespace(users=[record])
+
+    monkeypatch.setattr(directory.auth, "get_users", lookup)
+    assert directory.active_directory_user_ids([owner, retired]) == {owner}
+    assert directory.directory_auth_profiles([owner, retired]) == {
+        owner: {"display_name": "Person", "photo_url": "photo"}
+    }
+    assert calls == [["external-uid"], ["external-uid"]]
+    mapping.clear()
+    assert (
+        directory.active_directory_user_ids([owner]) == set()
+    )  # retirement overrides a warm provider cache
+
+
 def test_directory_auth_public_fallback_keeps_name_and_photo_on_same_uid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -139,7 +139,7 @@ def app() -> FastAPI:
 
 
 @pytest.fixture
-def authed_client(app: FastAPI, monkeypatch: pytest.MonkeyPatch):
+def authed_client(app: FastAPI, monkeypatch: pytest.MonkeyPatch, active_account_lifecycle):
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner-123"}
 
     async def shared_owner(user_id: str) -> str:

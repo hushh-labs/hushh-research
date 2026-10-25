@@ -67,7 +67,7 @@ class Grant:
 
 
 @pytest.fixture
-def journey(monkeypatch, tmp_path):
+def journey(monkeypatch, tmp_path, active_account_lifecycle):
     grant = Grant()
     inventory = copy.deepcopy(HOLIDAY["inventory"])
     state = {"error": None, "new_conflict": False, "requests": [], "mutations": []}

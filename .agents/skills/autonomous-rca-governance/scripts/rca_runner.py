@@ -137,6 +137,7 @@ def _run(
     env: dict[str, str] | None = None,
     cwd: Path = REPO_ROOT,
     timeout: int = DEFAULT_CHECK_TIMEOUT_SECONDS,
+    stdout_limit: int = 4000,
 ) -> dict[str, Any]:
     try:
         result = subprocess.run(
@@ -180,7 +181,7 @@ def _run(
     return {
         "cmd": cmd,
         "returncode": result.returncode,
-        "stdout": result.stdout[-4000:],
+        "stdout": result.stdout[-stdout_limit:],
         "stderr": stderr,
         "ok": result.returncode == 0,
         "outcome": _classify_outcome(result.returncode, stderr),
@@ -381,7 +382,7 @@ def _build_next_actions(
     if "runtime_contract_drift" in blocking:
         actions.append("Fix the canonical runtime settings contract before relying on CI or deploy verification.")
     if "core_ci_failed" in blocking:
-        actions.append("Fix the failing core CI lane and rerun the authoritative checks twice before pushing the branch.")
+        actions.append("Fix the failing CI lane, verify the affected contract and reuse unchanged evidence before one finished push.")
     return actions
 
 
@@ -723,9 +724,54 @@ def _surface_runtime(_: argparse.Namespace, scratch_dir: Path) -> dict[str, Any]
     }
 
 
-def _surface_ci(_: argparse.Namespace, scratch_dir: Path) -> dict[str, Any]:
+def _ci_unverified(result: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {**result, "ok": False, "outcome": OUTCOME_UNEVALUABLE, "stderr": reason}
+
+
+def _observe_hosted_ci(args: argparse.Namespace) -> dict[str, Any]:
+    """Observe existing authority; a diagnostic must not start another full suite."""
+    command = ["./bin/hushh", "codex", "ci-status", "--json"]
+    requested_pr = getattr(args, "ci_pr", None)
+    if requested_pr is not None:
+        command += ["--pr", str(requested_pr)]
+    observed = _run(command, cwd=REPO_ROOT, stdout_limit=131072)
+    if observed["outcome"] == OUTCOME_UNEVALUABLE:
+        return observed
+    try:
+        payload = json.loads(observed["stdout"])
+        number = payload["pr"]["number"]
+        if type(number) is not int or number <= 0 or (requested_pr is not None and number != requested_pr):
+            raise ValueError("CI observation names another PR")
+        status = payload["overall_status"]
+        if status == "failing" and payload.get("failing_checks"):
+            return {**observed, "ok": False, "outcome": OUTCOME_FAILURE}
+        if status != "passing":
+            return _ci_unverified(observed, "Hosted CI is active or lacks complete clearance")
+        expected_sha = getattr(args, "ci_sha", None)
+        if expected_sha is None:
+            head = _run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT)
+            if not head["ok"]:
+                return _ci_unverified(head, "Expected source revision is unavailable")
+            expected_sha = head["stdout"].strip()
+        strict = _run([
+            "./bin/hushh", "codex", "ci-status", "--pr", str(number),
+            "--require-success", "--expected-sha", expected_sha, "--json",
+        ], cwd=REPO_ROOT)
+        if strict["ok"]:
+            clearance = json.loads(strict["stdout"])
+            if clearance.get("status") == "verified" and clearance.get("head") == expected_sha and clearance.get("pr") == number:
+                return strict
+        return _ci_unverified(strict, "Exact-head/attempt CI clearance was refused")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return _ci_unverified(observed, "Hosted CI returned malformed or unbound evidence")
+
+
+def _surface_ci(args: argparse.Namespace, scratch_dir: Path) -> dict[str, Any]:
     python_cmd, python_source = _project_python()
-    ci_result = _run(["./bin/hushh", "ci"], cwd=REPO_ROOT)
+    ci_result = (
+        _run(["./bin/hushh", "ci"], cwd=REPO_ROOT)
+        if getattr(args, "run_local_ci", False) else _observe_hosted_ci(args)
+    )
     audit_report_path = scratch_dir / "codex-audit.json"
     audit_result = _run([*python_cmd, str(REPO_SCAN), "audit", "--json"])
     audit_payload = None
@@ -783,6 +829,9 @@ def main() -> int:
     parser.add_argument("--semantic-report-path")
     parser.add_argument("--db-report-path")
     parser.add_argument("--report-path")
+    parser.add_argument("--ci-pr", type=int, help="observe this existing PR; never starts CI")
+    parser.add_argument("--ci-sha", help="exact expected source revision paired with --ci-pr")
+    parser.add_argument("--run-local-ci", action="store_true", help="explicitly run the local suite instead of observing hosted CI")
     parser.add_argument(
         "--scratch-dir",
         help="where sub-reports are written; defaults to tmp/rca/<surface>/ so a "
@@ -791,6 +840,12 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--text", action="store_true")
     args = parser.parse_args()
+    if (args.ci_pr is not None) != (args.ci_sha is not None) or (args.run_local_ci and args.ci_pr is not None):
+        parser.error("--ci-pr and --ci-sha must be paired; local execution cannot also observe a PR")
+    if args.ci_pr is not None and args.ci_pr <= 0:
+        parser.error("--ci-pr must be positive")
+    if args.surface != "ci" and (args.ci_pr is not None or args.run_local_ci):
+        parser.error("CI observation/execution options require --surface ci")
 
     # DURABLE BY DEFAULT. This used to be a TemporaryDirectory, so every
     # sub-report the runner printed a path to was deleted the instant it exited:

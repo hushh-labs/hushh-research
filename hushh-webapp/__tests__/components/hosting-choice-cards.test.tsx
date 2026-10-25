@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({ user: { uid: "uid-first-run" }, loading: false }),
@@ -65,7 +65,7 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 }));
 
 async function renderSharedDefault() {
-  vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ hostingMode: "shared" } as never);
+  vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ featureEnabled: true, hostingMode: "shared" } as never);
   vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({ status: "none" } as never);
   render(<ByocCloudSetupPage />);
   return screen.findByRole("radiogroup", { name: "Where your agent runs" });
@@ -75,7 +75,7 @@ describe("Hosting choice cards on the cloud step", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
-    publishValidatedAuthSessionOwner("uid-first-run");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "uid-first-run", ownerId: "uid-first-run", accountGeneration: 0 });
   });
   afterEach(() => {
     publishValidatedAuthSessionOwner(null);
@@ -123,7 +123,7 @@ describe("Hosting choice cards on the cloud step", () => {
   });
 
   it("commits Shared only from the button under the cards", async () => {
-    vi.mocked(ApiService.selectSharedHosting).mockResolvedValue({ hostingMode: "shared" } as never);
+    vi.mocked(ApiService.selectSharedHosting).mockResolvedValue({ featureEnabled: true, hostingMode: "shared" } as never);
     await renderSharedDefault();
 
     await act(async () => {

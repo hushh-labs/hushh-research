@@ -4672,7 +4672,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": "AccountDeletionLifecycleService",
-      "value": 979
+      "value": 1202
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4681,7 +4681,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2952
+      "value": 2973
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4699,7 +4699,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/actor_identity_service.py",
       "symbol": "ActorIdentityService",
-      "value": 1930
+      "value": 1942
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5149,7 +5149,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gcp_run_client.py",
       "symbol": "GcpRunClient",
-      "value": 907
+      "value": 930
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5194,7 +5194,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": "GmailReceiptsService",
-      "value": 4685
+      "value": 4729
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5293,7 +5293,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/hushh_tech_client_service.py",
       "symbol": "HushhTechClientService",
-      "value": 327
+      "value": 328
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5671,7 +5671,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_browser/task_runtime.py",
       "symbol": "BrowserTaskRuntime",
-      "value": 551
+      "value": 555
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -5905,7 +5905,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "UserGcpBackend",
-      "value": 1990
+      "value": 2035
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -6224,11 +6224,11 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/routing/scripts/route.py|_route_hook|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/route.py|_route_automatic|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": ".agents/routing/scripts/route.py",
-      "symbol": "_route_hook",
+      "symbol": "_route_automatic",
       "value": 87
     },
     {
@@ -6260,10 +6260,10 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|.agents/routing/scripts/test_route_hook.py|main|function exceeds the advisory gene budget",
+      "key": "function_size|.agents/routing/scripts/test_route_requests.py|main|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": ".agents/routing/scripts/test_route_hook.py",
+      "path": ".agents/routing/scripts/test_route_requests.py",
       "symbol": "main",
       "value": 135
     },
@@ -7129,7 +7129,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/kai/support.py",
       "symbol": "send_support_message",
-      "value": 81
+      "value": 82
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8668,7 +8668,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": "_delete_or_quarantine_firebase_identity",
-      "value": 92
+      "value": 94
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8722,7 +8722,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 571
+      "value": 595
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10990,7 +10990,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": "access_token",
-      "value": 121
+      "value": 124
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12232,7 +12232,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "adopt_orphan",
-      "value": 156
+      "value": 161
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12250,7 +12250,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "deprovision",
-      "value": 83
+      "value": 105
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15004,7 +15004,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": "test_full_account_deletion_covers_account_owned_tables",
-      "value": 315
+      "value": 319
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -17326,7 +17326,7 @@
       "limit": null,
       "path": "consent-protocol/api/routes/db_proxy.py",
       "symbol": "getenv",
-      "value": 40
+      "value": 41
     },
     {
       "detail": "top-level runtime initialization weakens import safety",
@@ -17875,7 +17875,7 @@
       "limit": 500,
       "path": ".agents/skills/autonomous-rca-governance/scripts/rca_runner.py",
       "symbol": null,
-      "value": 832
+      "value": 887
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18001,7 +18001,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/account.py",
       "symbol": null,
-      "value": 2287
+      "value": 2449
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18028,7 +18028,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/db_proxy.py",
       "symbol": null,
-      "value": 1028
+      "value": 1030
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18046,7 +18046,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/drive_sharing.py",
       "symbol": null,
-      "value": 1440
+      "value": 1441
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18379,7 +18379,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
-      "value": 1193
+      "value": 1203
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18730,7 +18730,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": null,
-      "value": 1219
+      "value": 1476
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18739,7 +18739,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 3036
+      "value": 3074
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18757,7 +18757,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/actor_identity_service.py",
       "symbol": null,
-      "value": 2042
+      "value": 2056
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19207,7 +19207,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gcp_run_client.py",
       "symbol": null,
-      "value": 1024
+      "value": 1047
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19261,7 +19261,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/gmail_receipts_service.py",
       "symbol": null,
-      "value": 5049
+      "value": 5093
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19369,7 +19369,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/hushh_tech_client_service.py",
       "symbol": null,
-      "value": 884
+      "value": 897
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19891,7 +19891,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": null,
-      "value": 2261
+      "value": 2308
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20215,7 +20215,7 @@
       "limit": 500,
       "path": "consent-protocol/server.py",
       "symbol": null,
-      "value": 1634
+      "value": 1639
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20422,7 +20422,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_tools_profile.py",
       "symbol": null,
-      "value": 567
+      "value": 583
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20521,7 +20521,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_deletion_lifecycle_service.py",
       "symbol": null,
-      "value": 802
+      "value": 808
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20539,7 +20539,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1855
+      "value": 1890
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20557,7 +20557,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_actor_identity_service.py",
       "symbol": null,
-      "value": 1593
+      "value": 1653
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20881,7 +20881,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_calendar_service.py",
       "symbol": null,
-      "value": 1746
+      "value": 1748
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20989,7 +20989,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
       "symbol": null,
-      "value": 9448
+      "value": 9491
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21151,7 +21151,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_deletion_release_workflow.py",
       "symbol": null,
-      "value": 1076
+      "value": 1260
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21169,7 +21169,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_routes.py",
       "symbol": null,
-      "value": 2160
+      "value": 2293
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21241,7 +21241,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_chat_history_byok.py",
       "symbol": null,
-      "value": 775
+      "value": 777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21421,7 +21421,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_sharing_routes.py",
       "symbol": null,
-      "value": 1258
+      "value": 1259
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21493,7 +21493,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_firebase_auth_split.py",
       "symbol": null,
-      "value": 799
+      "value": 1103
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21520,7 +21520,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_gcp_run_client.py",
       "symbol": null,
-      "value": 1189
+      "value": 1223
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21574,7 +21574,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_hushh_tech_client_service.py",
       "symbol": null,
-      "value": 615
+      "value": 635
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21673,7 +21673,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_mcp_resume_receipt.py",
       "symbol": null,
-      "value": 580
+      "value": 588
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21727,7 +21727,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6518
+      "value": 6526
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21844,7 +21844,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_provisioning_service.py",
       "symbol": null,
-      "value": 1833
+      "value": 1862
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21880,7 +21880,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_routes.py",
       "symbol": null,
-      "value": 659
+      "value": 667
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22177,7 +22177,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_rca_runner_can_say_it_did_not_look.py",
       "symbol": null,
-      "value": 511
+      "value": 620
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22303,7 +22303,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_specialist_turn_parity.py",
       "symbol": null,
-      "value": 754
+      "value": 756
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22330,7 +22330,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_trusted_device_routes.py",
       "symbol": null,
-      "value": 763
+      "value": 823
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22357,7 +22357,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_user_gcp_backend.py",
       "symbol": null,
-      "value": 646
+      "value": 716
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22492,7 +22492,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/calendar-agent-page.test.tsx",
       "symbol": null,
-      "value": 821
+      "value": 826
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22510,7 +22510,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/connections-panel.test.tsx",
       "symbol": null,
-      "value": 747
+      "value": 753
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22609,7 +22609,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx",
       "symbol": null,
-      "value": 1143
+      "value": 1149
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22645,7 +22645,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/location-command-workflow.test.tsx",
       "symbol": null,
-      "value": 836
+      "value": 838
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22663,7 +22663,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx",
       "symbol": null,
-      "value": 749
+      "value": 762
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22726,7 +22726,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx",
       "symbol": null,
-      "value": 1511
+      "value": 1522
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22816,7 +22816,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/vault-flow-create-validation.test.tsx",
       "symbol": null,
-      "value": 1027
+      "value": 1054
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22834,7 +22834,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/consent-notification-provider-connections.test.tsx",
       "symbol": null,
-      "value": 794
+      "value": 804
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22897,7 +22897,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/firebase/auth-context-native-privacy-generation.test.tsx",
       "symbol": null,
-      "value": 773
+      "value": 777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22906,7 +22906,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx",
       "symbol": null,
-      "value": 1687
+      "value": 1985
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22915,7 +22915,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/flows/delete-account.test.ts",
       "symbol": null,
-      "value": 762
+      "value": 841
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22960,7 +22960,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/plaid-vault/vault-sync.test.ts",
       "symbol": null,
-      "value": 714
+      "value": 723
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22987,7 +22987,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/vault/vault-context-resume.test.tsx",
       "symbol": null,
-      "value": 778
+      "value": 799
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23077,7 +23077,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
       "symbol": null,
-      "value": 1795
+      "value": 1797
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23086,7 +23086,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/api-service-fetch.test.ts",
       "symbol": null,
-      "value": 1722
+      "value": 1757
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -23698,7 +23698,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
       "symbol": null,
-      "value": 811
+      "value": 824
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24688,7 +24688,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2737
+      "value": 2740
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24958,7 +24958,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/firebase/auth-context.tsx",
       "symbol": null,
-      "value": 2323
+      "value": 2342
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24967,7 +24967,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/flows/delete-account.ts",
       "symbol": null,
-      "value": 503
+      "value": 556
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25057,7 +25057,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/kai/plaid-vault/vault-sync.ts",
       "symbol": null,
-      "value": 806
+      "value": 814
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25165,7 +25165,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/notifications/fcm-service.ts",
       "symbol": null,
-      "value": 1623
+      "value": 1626
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25489,7 +25489,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 6139
+      "value": 6232
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25804,7 +25804,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/vault/vault-context.tsx",
       "symbol": null,
-      "value": 1090
+      "value": 1096
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25876,7 +25876,7 @@
       "limit": 500,
       "path": "hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs",
       "symbol": null,
-      "value": 801
+      "value": 803
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -26083,7 +26083,7 @@
       "limit": 500,
       "path": "scripts/ops/data_model_audit.py",
       "symbol": null,
-      "value": 731
+      "value": 741
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27335,7 +27335,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_packet_one",
-      "value": 150
+      "value": 153
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27551,7 +27551,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_reusable_packets_postgres.py",
       "symbol": null,
-      "value": 2118
+      "value": 2119
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27761,7 +27761,7 @@
       "path": "hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx",
       "ratchet_reason": "new finding",
       "symbol": null,
-      "value": 694
+      "value": 697
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27799,7 +27799,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_ai_selection_doors.py",
       "symbol": null,
-      "value": 507
+      "value": 565
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -27880,7 +27880,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_workos_enterprise_sso_flow.py",
       "symbol": null,
-      "value": 999
+      "value": 1014
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -27943,7 +27943,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "DrivePacketWorker",
-      "value": 385
+      "value": 400
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28051,7 +28051,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": "run_facts_one",
-      "value": 95
+      "value": 98
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28528,7 +28528,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestGmailEmailDraftDirective",
-      "value": 321
+      "value": 327
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -28816,7 +28816,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_eval/drive_packets/replay.py",
       "symbol": null,
-      "value": 851
+      "value": 859
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28825,7 +28825,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/profile_research_jobs.py",
       "symbol": null,
-      "value": 819
+      "value": 823
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28960,7 +28960,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_world_model.py",
       "symbol": null,
-      "value": 1141
+      "value": 1145
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29096,7 +29096,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_packet_worker.py",
       "symbol": null,
-      "value": 508
+      "value": 527
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29744,7 +29744,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/email_auth/store.py",
       "symbol": "PostgresEmailAuthStore",
-      "value": 524
+      "value": 809
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -29870,7 +29870,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/email_auth/store.py",
       "symbol": "finalize_login",
-      "value": 92
+      "value": 95
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -29951,7 +29951,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_email_auth_postgres.py",
       "symbol": null,
-      "value": 845
+      "value": 914
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29987,7 +29987,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/email_auth/store.py",
       "symbol": null,
-      "value": 542
+      "value": 828
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30644,7 +30644,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/use-pkm-natural-model.ts",
       "symbol": null,
-      "value": 2080
+      "value": 2081
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -30860,7 +30860,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/api-service-pod-turn-direct.test.ts",
       "symbol": null,
-      "value": 504
+      "value": 507
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31604,7 +31604,7 @@
       "kind": "module_size",
       "path": "hushh-webapp/lib/services/account-identity-service.ts",
       "detail": "module exceeds the advisory operon budget",
-      "value": 510,
+      "value": 529,
       "limit": 500,
       "symbol": null,
       "key": "module_size|hushh-webapp/lib/services/account-identity-service.ts||module exceeds the advisory operon budget"
@@ -32121,6 +32121,303 @@
       "limit": 500,
       "symbol": null,
       "key": "module_size|consent-protocol/tests/services/test_drive_work_drain.py||module exceeds the advisory operon budget"
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/azure_teardown_store.py|AzureTeardownStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/azure_teardown_store.py",
+      "symbol": "AzureTeardownStore",
+      "value": 269
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/account_generation_service.py|AccountGenerationService|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/account_generation_service.py",
+      "symbol": "AccountGenerationService",
+      "value": 268
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|test_provider_cleanup_retains_custody_through_failure_and_migration_replay|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
+      "symbol": "test_provider_cleanup_retains_custody_through_failure_and_migration_replay",
+      "value": 702
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|_assert_account_generation_cycles|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
+      "symbol": "_assert_account_generation_cycles",
+      "value": 525
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_migrations_are_replay_safe.py|test_private_agent_graduation_preserves_owners_and_refuses_drift|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_migrations_are_replay_safe.py",
+      "symbol": "test_private_agent_graduation_preserves_owners_and_refuses_drift",
+      "value": 192
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/api/utils/firebase_auth.py|_verify_firebase_bearer|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/api/utils/firebase_auth.py",
+      "symbol": "_verify_firebase_bearer",
+      "value": 180
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/private_agent_release_postgres_support.py|verify_retained_release_records|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/private_agent_release_postgres_support.py",
+      "symbol": "verify_retained_release_records",
+      "value": 176
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/db/account_cleanup_replay.py|_bootstrap|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/db/account_cleanup_replay.py",
+      "symbol": "_bootstrap",
+      "value": 137
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|prepare_provider_cleanup_in_transaction|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
+      "symbol": "prepare_provider_cleanup_in_transaction",
+      "value": 153
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_personal_agent_cloud_removal_postgres.py|test_cloud_approval_and_cancel_serialize_under_owner_authority|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_personal_agent_cloud_removal_postgres.py",
+      "symbol": "test_cloud_approval_and_cancel_serialize_under_owner_authority",
+      "value": 123
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py|_open_grant|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py",
+      "symbol": "_open_grant",
+      "value": 120
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|record_backend_only_erasure_in_transaction|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
+      "symbol": "record_backend_only_erasure_in_transaction",
+      "value": 100
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/email_auth/store.py|create_challenge|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/email_auth/store.py",
+      "symbol": "create_challenge",
+      "value": 96
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_ci_status_gate_fails_closed.py|test_operator_preflight_binds_gate_to_current_canonical_attempt|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
+      "symbol": "test_operator_preflight_binds_gate_to_current_canonical_attempt",
+      "value": 91
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/email_auth/service.py|verify|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/email_auth/service.py",
+      "symbol": "verify",
+      "value": 84
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_provider_worker.py|run_claim|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_worker.py",
+      "symbol": "run_claim",
+      "value": 83
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py|test_cleanup_google_binding_requires_real_owner_aad_client_and_provider_subject|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_account_deletion_provider_cleanup.py",
+      "symbol": "test_cleanup_google_binding_requires_real_owner_aad_client_and_provider_subject",
+      "value": 83
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py|capture_refresh|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py",
+      "symbol": "capture_refresh",
+      "value": 81
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
+      "symbol": null,
+      "value": 2205
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_account_deletion_provider_cleanup.py",
+      "symbol": null,
+      "value": 943
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_personal_agent_cloud_removal_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_personal_agent_cloud_removal_postgres.py",
+      "symbol": null,
+      "value": 680
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/utils/firebase_auth.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/utils/firebase_auth.py",
+      "symbol": null,
+      "value": 596
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_migrations_are_replay_safe.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_migrations_are_replay_safe.py",
+      "symbol": null,
+      "value": 584
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py",
+      "symbol": null,
+      "value": 607
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py",
+      "symbol": null,
+      "value": 579
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_hub_content_routes_guarded.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_hub_content_routes_guarded.py",
+      "symbol": null,
+      "value": 511
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|.agents/skills/repo-operations/scripts/ci_monitor.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": ".agents/skills/repo-operations/scripts/ci_monitor.py",
+      "symbol": null,
+      "value": 510
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/conftest.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/conftest.py",
+      "symbol": null,
+      "value": 505
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|test_shared_provider_sql_requires_exact_local_approval_and_no_dispatched_effects|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
+      "symbol": "test_shared_provider_sql_requires_exact_local_approval_and_no_dispatched_effects",
+      "value": 87
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|_request_full_erasure|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
+      "symbol": "_request_full_erasure",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py|test_staged_worker_stops_all_watches_then_revokes_a_project_account_once|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_account_deletion_provider_cleanup.py",
+      "symbol": "test_staged_worker_stops_all_watches_then_revokes_a_project_account_once",
+      "value": 83
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_shared_files_lifecycle_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_shared_files_lifecycle_postgres.py",
+      "symbol": null,
+      "value": 542
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_private_agent_adoption_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_private_agent_adoption_postgres.py",
+      "symbol": null,
+      "value": 508
     }
   ],
   "inspected_files": 6625,
@@ -73601,7 +73898,7 @@
       ],
       [
         ".claude/skills/codex-bridge/scripts/test_route_hook.py",
-        ".agents/routing/scripts/test_route_hook.py"
+        ".agents/routing/scripts/test_route_requests.py"
       ],
       [
         ".codex/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py",
@@ -85125,6 +85422,1128 @@
         "after": 1582,
         "source_sha256": "6f5ac592861a3ec0a8a4a14230b797ec2d5ecd4db40ce2c52ec5c65ac07d6ab6",
         "review": "Independent read-only backend/frontend evidence lanes approved this bounded compatibility projection and nearest incident/privacy regressions. No grant, payment, provider or routing authority added; pure outcome semantics live in a small shared gene. Preserve every unrelated ceiling and the global budgets."
+      }
+    ]
+  },
+  "surgical_lifecycle_review_20261024": {
+    "source_revision": "bfb00e7d97f9bddbf56ded2199e3a10ddcd39900",
+    "integrated_main": "a0c594353997b83924b05bbacf9bacd09374d6aa",
+    "review": "Independent backend and frontend reviewers admit exactly 72 backend/test entries and 21 frontend module ceilings. Parent reviews three existing CI/data-model consumer entries: exact-attempt refusal coverage and quoted SQL identifier parsing. The one import-initialization observation is the existing db_proxy getenv call relocated40\u219241 with unchanged call/arguments, not a new initializer. This records bounded measured debt; global budgets, scanner, exclusions, unrelated keys, multiplicity and future-growth enforcement stay unchanged. It is not core, deployed or installed-owner acceptance.",
+    "evidence": [
+      "pod-canonical-release-tests.log:82 passed",
+      "main-combined-schema-tests.log:2 passed",
+      "main-cleanup-replay-consumer-test.log:1 passed",
+      "main-recovery-erasure-tests.log:3 passed",
+      "main-auth-final-tests.log:144 passed",
+      "main-ui-contract-verify.log:passed"
+    ],
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py|GmailReceiptsService|class exceeds the advisory operon budget",
+        "before": 4685,
+        "after": 4729,
+        "source_sha256": "aff1e0ded09ed4062491089ee2f61d696f0c84b984fddb73e9af26ac70c4dce0"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "before": 2952,
+        "after": 2958,
+        "source_sha256": "42cef86ba54cef38da546616c3a90b33a867a52928be270e7a5965939a0e4efd"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py|UserGcpBackend|class exceeds the advisory operon budget",
+        "before": 1990,
+        "after": 2035,
+        "source_sha256": "09e4c894774b247ab4e0f2f755fcba2b2657ce22dd2687afa22cdecceb915bd7"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|ActorIdentityService|class exceeds the advisory operon budget",
+        "before": 1930,
+        "after": 1942,
+        "source_sha256": "5bc7894d7962e60a2e5e24cf8941ac518fa608a6b4362673fc6a4e53bcd43255"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|AccountDeletionLifecycleService|class exceeds the advisory operon budget",
+        "before": 979,
+        "after": 1185,
+        "source_sha256": "9cbfe890bab0a18559305cde02f50b875d02c8f9d5b891197b4d6e854335050b"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/gcp_run_client.py|GcpRunClient|class exceeds the advisory operon budget",
+        "before": 907,
+        "after": 930,
+        "source_sha256": "18b14253436daf69b48be8728246952c49282750f84b24aaf690aede361c070a"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/email_auth/store.py|PostgresEmailAuthStore|class exceeds the advisory operon budget",
+        "before": 524,
+        "after": 809,
+        "source_sha256": "eae9fafbbb9721da3c8cd40f43d4f31344c3c46fefe7cfbc7d3f623d7927724c"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/pod_browser/task_runtime.py|BrowserTaskRuntime|class exceeds the advisory operon budget",
+        "before": 551,
+        "after": 555,
+        "source_sha256": "d06bec071ede8d52bfea6c78b636e231fddce24c9a85f1e8aeb96af60dd94338"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/hushh_tech_client_service.py|HushhTechClientService|class exceeds the advisory operon budget",
+        "before": 327,
+        "after": 328,
+        "source_sha256": "f81a62c5bc95ebd1386743cc2119407bf3cd7f4d98a5f1ebde8757ee595b7dc3"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/azure_teardown_store.py|AzureTeardownStore|class exceeds the advisory operon budget",
+        "before": null,
+        "after": 269,
+        "source_sha256": "a7066b8259fd406787563444fda1b0b58c0fa70872ebc27170303561c246a826"
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_generation_service.py|AccountGenerationService|class exceeds the advisory operon budget",
+        "before": null,
+        "after": 268,
+        "source_sha256": "86e450102516d3d2a2d5b73082c91d35004bd7c820cd1064a5e03a5669cb82a6"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|test_provider_cleanup_retains_custody_through_failure_and_migration_replay|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 682,
+        "source_sha256": "230f03e0a7aa496d7c4b6c9067ab45c0bee2e62774fdbf78c6711f19afc73f40"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "before": 571,
+        "after": 587,
+        "source_sha256": "42cef86ba54cef38da546616c3a90b33a867a52928be270e7a5965939a0e4efd"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|_assert_account_generation_cycles|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 525,
+        "source_sha256": "230f03e0a7aa496d7c4b6c9067ab45c0bee2e62774fdbf78c6711f19afc73f40"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_migrations_are_replay_safe.py|test_private_agent_graduation_preserves_owners_and_refuses_drift|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 192,
+        "source_sha256": "8903196d657cf13d45dd528d8705c8d7e3b739a8c18e23fe28d1dee3413cac6f"
+      },
+      {
+        "key": "function_size|consent-protocol/api/utils/firebase_auth.py|_verify_firebase_bearer|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 180,
+        "source_sha256": "d6fe4b8c1ecaa3fbb34b26214dae90828ec5131348fe2330360a767a1efdb9ba"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/private_agent_release_postgres_support.py|verify_retained_release_records|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 176,
+        "source_sha256": "56ca881f702a95d9d18459e03424aa92412a459d9860ae9c4c84cfe58684b498"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|adopt_orphan|function exceeds the advisory gene budget",
+        "before": 156,
+        "after": 161,
+        "source_sha256": "eccb955067a44a52b7f4647370d001d2fc5cd0686c4be420bb85d5ec925b8d96"
+      },
+      {
+        "key": "function_size|consent-protocol/db/account_cleanup_replay.py|_bootstrap|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 137,
+        "source_sha256": "ef2befb76aff6f8a866b51fc1c83beb1b9a1889c78eb7ea46c59ed10e4f3e74f"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|prepare_provider_cleanup_in_transaction|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 136,
+        "source_sha256": "9cbfe890bab0a18559305cde02f50b875d02c8f9d5b891197b4d6e854335050b"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|access_token|function exceeds the advisory gene budget",
+        "before": 121,
+        "after": 124,
+        "source_sha256": "05b06cf4da4dc8446b412174cbe50876bc549d6ae6caf0892d4cf59fdcabc244"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_personal_agent_cloud_removal_postgres.py|test_cloud_approval_and_cancel_serialize_under_owner_authority|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 123,
+        "source_sha256": "ebf9b0d9af8278c72284da6baf55e3f07c91c4d11a76921a3a41075051c3709d"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py|_open_grant|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 112,
+        "source_sha256": "d16a804a2d043f2da405a0abe93a13b1ae93ef6072306a3197b5e621c4961846"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|record_backend_only_erasure_in_transaction|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 100,
+        "source_sha256": "9cbfe890bab0a18559305cde02f50b875d02c8f9d5b891197b4d6e854335050b"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/email_auth/store.py|create_challenge|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 96,
+        "source_sha256": "eae9fafbbb9721da3c8cd40f43d4f31344c3c46fefe7cfbc7d3f623d7927724c"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/email_auth/store.py|finalize_login|function exceeds the advisory gene budget",
+        "before": 92,
+        "after": 95,
+        "source_sha256": "eae9fafbbb9721da3c8cd40f43d4f31344c3c46fefe7cfbc7d3f623d7927724c"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|deprovision|function exceeds the advisory gene budget",
+        "before": 83,
+        "after": 95,
+        "source_sha256": "eccb955067a44a52b7f4647370d001d2fc5cd0686c4be420bb85d5ec925b8d96"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|_delete_or_quarantine_firebase_identity|function exceeds the advisory gene budget",
+        "before": 92,
+        "after": 94,
+        "source_sha256": "9cbfe890bab0a18559305cde02f50b875d02c8f9d5b891197b4d6e854335050b"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_ci_status_gate_fails_closed.py|test_operator_preflight_binds_gate_to_current_canonical_attempt|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 91,
+        "source_sha256": "343dbb88025c6f74ac85e3d5f8692c30e4a4e55742dd6e24a648968fd4dc580a"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/email_auth/service.py|verify|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 84,
+        "source_sha256": "701221ac51adb0f53d02df2d180c4ff0cf9d70999b0cc8ebd008ee8e382936ee"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_provider_worker.py|run_claim|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 83,
+        "source_sha256": "bcb5d01e4c9ee4eec27f354a6931fadce125676a20d639164414854f446569c8"
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py|test_cleanup_google_binding_requires_real_owner_aad_client_and_provider_subject|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 83,
+        "source_sha256": "0a9712743767070b718a3b6da33e537a3bc0b4aa8c4913a04424ab2c0d560b2f"
+      },
+      {
+        "key": "function_size|consent-protocol/api/routes/kai/support.py|send_support_message|function exceeds the advisory gene budget",
+        "before": 81,
+        "after": 82,
+        "source_sha256": "325ff7da685ff1415525c2e0a77bbd39b44db78aa48d3ad36a11c47637e9924c"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py|capture_refresh|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 81,
+        "source_sha256": "c08954bee43bc71f015c9aa1879de8f8292992e599ff96fef543d441f0ceb1c0"
+      },
+      {
+        "key": "import_initialization|consent-protocol/api/routes/db_proxy.py|getenv|top-level runtime initialization weakens import safety",
+        "before": 40,
+        "after": 41,
+        "source_sha256": "2069ff3813886b2fd33ea5fa4d4ca7e9bb9b139498064e7848ce5b922eac6bf1"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_one_location_agent_service.py||module exceeds the advisory operon budget",
+        "before": 9448,
+        "after": 9491,
+        "source_sha256": "f6365f3c99cb4541cc99b770026d51496a6207cd7b876045f90ae3800154c1fa"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+        "before": 6139,
+        "after": 6229,
+        "source_sha256": "d77942848c3a6038626e5738b099dde4da6665cca41c267d1f38edd21bd85ced"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/gmail_receipts_service.py||module exceeds the advisory operon budget",
+        "before": 5049,
+        "after": 5093,
+        "source_sha256": "aff1e0ded09ed4062491089ee2f61d696f0c84b984fddb73e9af26ac70c4dce0"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "before": 3036,
+        "after": 3059,
+        "source_sha256": "42cef86ba54cef38da546616c3a90b33a867a52928be270e7a5965939a0e4efd"
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/account.py||module exceeds the advisory operon budget",
+        "before": 2287,
+        "after": 2446,
+        "source_sha256": "bec40c41ba5a614388fc98b5f582c18d5799e42a5b9befe46a5884082b420979"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/firebase/auth-context.tsx||module exceeds the advisory operon budget",
+        "before": 2323,
+        "after": 2341,
+        "source_sha256": "44c0ef4d0eb020075f15c7ed3839834018e673eed607b53e04bf7e7b708e9d5d"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/user_gcp_backend.py||module exceeds the advisory operon budget",
+        "before": 2261,
+        "after": 2308,
+        "source_sha256": "09e4c894774b247ab4e0f2f755fcba2b2657ce22dd2687afa22cdecceb915bd7"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_routes.py||module exceeds the advisory operon budget",
+        "before": 2160,
+        "after": 2293,
+        "source_sha256": "f99fe059c59b3e2b31b53b80a98385a367dd3e753d572c5e546a5eab0deb2fbc"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/profile/use-pkm-natural-model.ts||module exceeds the advisory operon budget",
+        "before": 2080,
+        "after": 2081,
+        "source_sha256": "f642a92fbf09a3c5badf166b72389ea056fa5d5f3cc0777e721d6d96e722afa8"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/actor_identity_service.py||module exceeds the advisory operon budget",
+        "before": 2042,
+        "after": 2056,
+        "source_sha256": "5bc7894d7962e60a2e5e24cf8941ac518fa608a6b4362673fc6a4e53bcd43255"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx||module exceeds the advisory operon budget",
+        "before": 1687,
+        "after": 1962,
+        "source_sha256": "2a57c59f8cc380041ff310de91e19a1531e74d4148a78003ec9c81c6ab3538c7"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "before": 1855,
+        "after": 1883,
+        "source_sha256": "5619e56135bf7757ec538c5d941dc31c552b6120395eece07cec73fd8c322a31"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/api-service-fetch.test.ts||module exceeds the advisory operon budget",
+        "before": 1722,
+        "after": 1747,
+        "source_sha256": "5d78c2cf524857d3489a6d03ec204786920e56a63fdc4e1f9fb26f807e9cc618"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 1669,
+        "source_sha256": "230f03e0a7aa496d7c4b6c9067ab45c0bee2e62774fdbf78c6711f19afc73f40"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_actor_identity_service.py||module exceeds the advisory operon budget",
+        "before": 1593,
+        "after": 1653,
+        "source_sha256": "e86d8cdfce8a38b799d6d9450ec55fedd2e213a0b9a5e8e3a5d73f7be66789ec"
+      },
+      {
+        "key": "module_size|consent-protocol/server.py||module exceeds the advisory operon budget",
+        "before": 1634,
+        "after": 1639,
+        "source_sha256": "419e523ad08fd6dd551de8f67ecc3772837341c7414b8b48e5b9d857c2a27c5d"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/notifications/fcm-service.ts||module exceeds the advisory operon budget",
+        "before": 1623,
+        "after": 1626,
+        "source_sha256": "ccb4d345bfa3a7eb7c8f21a90ad89c815ed83dc5e36e172fc538d5dc37b959e9"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx||module exceeds the advisory operon budget",
+        "before": 1511,
+        "after": 1522,
+        "source_sha256": "f48bbefbe941c84b8aba1dae9af54727fa63185f4a46c1380cbc691dcd4566f1"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py||module exceeds the advisory operon budget",
+        "before": 1219,
+        "after": 1459,
+        "source_sha256": "9cbfe890bab0a18559305cde02f50b875d02c8f9d5b891197b4d6e854335050b"
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/drive_sharing.py||module exceeds the advisory operon budget",
+        "before": 1440,
+        "after": 1441,
+        "source_sha256": "1c50b0e1135d35bfe5d9138c0f677aff288e46bdf68c0bac6214f94005880b45"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_drive_sharing_routes.py||module exceeds the advisory operon budget",
+        "before": 1258,
+        "after": 1259,
+        "source_sha256": "7372fc2fcc7db9522bebf4dd97a9a70c9d13a3d86c2c0c4ac43db1813310e77a"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_gcp_run_client.py||module exceeds the advisory operon budget",
+        "before": 1189,
+        "after": 1223,
+        "source_sha256": "a232610d0b109fc35393c5a389bd3113c8a2427a0f5aa4698256eb8f4fb41dd0"
+      },
+      {
+        "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+        "before": 1193,
+        "after": 1203,
+        "source_sha256": "9a09df567ef3a1fe7ed1a6418ab368c81550f68bd80622274a04a86d2cca8c14"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/gemini-runtime-settings-card.test.tsx||module exceeds the advisory operon budget",
+        "before": 1143,
+        "after": 1149,
+        "source_sha256": "858aed8a1c4273e5d18f089ea8138928f9b91cf5940d86c6a89b6a61999824ef"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_firebase_auth_split.py||module exceeds the advisory operon budget",
+        "before": 799,
+        "after": 1103,
+        "source_sha256": "57e70ed6cfd80e0aa12d809a237a59150a58ae7fcc33259b3fb5480cbde78a40"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/vault/vault-context.tsx||module exceeds the advisory operon budget",
+        "before": 1090,
+        "after": 1096,
+        "source_sha256": "7252626c25e54aa48d294b61303b7dec9e05887f25ae06ecd2fda2b1f5a67cd9"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/vault-flow-create-validation.test.tsx||module exceeds the advisory operon budget",
+        "before": 1027,
+        "after": 1054,
+        "source_sha256": "a63d36e5699c954e775157dee4cccc2dd42fe435883ee4326c3e020b8a026694"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/gcp_run_client.py||module exceeds the advisory operon budget",
+        "before": 1024,
+        "after": 1047,
+        "source_sha256": "18b14253436daf69b48be8728246952c49282750f84b24aaf690aede361c070a"
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/db_proxy.py||module exceeds the advisory operon budget",
+        "before": 1028,
+        "after": 1030,
+        "source_sha256": "2069ff3813886b2fd33ea5fa4d4ca7e9bb9b139498064e7848ce5b922eac6bf1"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_workos_enterprise_sso_flow.py||module exceeds the advisory operon budget",
+        "before": 999,
+        "after": 1014,
+        "source_sha256": "61639e7ca1960d8a5e0363eac3f2e3f4ebce61a83df6ac004a565192666f00b4"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_email_auth_postgres.py||module exceeds the advisory operon budget",
+        "before": 845,
+        "after": 914,
+        "source_sha256": "7f618575c0468328d77fddd2b8fc17b0cc57ef9b4647b4ab8a460252ea2ce2e8"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/hushh_tech_client_service.py||module exceeds the advisory operon budget",
+        "before": 884,
+        "after": 897,
+        "source_sha256": "f81a62c5bc95ebd1386743cc2119407bf3cd7f4d98a5f1ebde8757ee595b7dc3"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/email_auth/store.py||module exceeds the advisory operon budget",
+        "before": 542,
+        "after": 828,
+        "source_sha256": "eae9fafbbb9721da3c8cd40f43d4f31344c3c46fefe7cfbc7d3f623d7927724c"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/profile_research_jobs.py||module exceeds the advisory operon budget",
+        "before": 819,
+        "after": 823,
+        "source_sha256": "2bfcb33bc0ab33151557fe2729b6a7ce2d7c42131530def1ec6511902254d346"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_trusted_device_routes.py||module exceeds the advisory operon budget",
+        "before": 763,
+        "after": 823,
+        "source_sha256": "81f7a44abcf8b0be9f68eb5f595e54af2cbc8725ce790d4acb4b8ef466fc4a51"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/flows/delete-account.test.ts||module exceeds the advisory operon budget",
+        "before": 762,
+        "after": 816,
+        "source_sha256": "3c4a370112e5cfac66194f1d205f15eba2d56994945fd618b6c1dfb7c1a6000f"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/kai/plaid-vault/vault-sync.ts||module exceeds the advisory operon budget",
+        "before": 806,
+        "after": 814,
+        "source_sha256": "53be2c583e7f567532a79b1f498b203ca5e109731d62f1241cf418eacd51b068"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_deletion_lifecycle_service.py||module exceeds the advisory operon budget",
+        "before": 802,
+        "after": 808,
+        "source_sha256": "4052d8d5e6e03585196411aeba12fb8991fec2628f835820c805e6a16518abf9"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/consent-notification-provider-connections.test.tsx||module exceeds the advisory operon budget",
+        "before": 794,
+        "after": 804,
+        "source_sha256": "48074b1711f10e08a35578e3a2cef51ae44f89e9414ae3792146d43629aa660e"
+      },
+      {
+        "key": "module_size|hushh-webapp/scripts/design/generate-hushh-brand-assets.mjs||module exceeds the advisory operon budget",
+        "before": 801,
+        "after": 803,
+        "source_sha256": "c808975ef81980f970654e3381d6a6826a0e4b359b530debb331acb5ce20398e"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/vault/vault-context-resume.test.tsx||module exceeds the advisory operon budget",
+        "before": 778,
+        "after": 799,
+        "source_sha256": "e2927940c3a6583a60c6de58c4dc857dbed50c33c3957bb072734f6dbb2017de"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 784,
+        "source_sha256": "0a9712743767070b718a3b6da33e537a3bc0b4aa8c4913a04424ab2c0d560b2f"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-native-privacy-generation.test.tsx||module exceeds the advisory operon budget",
+        "before": 773,
+        "after": 777,
+        "source_sha256": "09868d6af51895d355c708d0a98b28c28d5f61993eca86d5bdf7c3da3ddc769f"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx||module exceeds the advisory operon budget",
+        "before": 749,
+        "after": 762,
+        "source_sha256": "11c438104732023c462677145cc6417ed8d0deac0260ed3b815f14f35c40ee52"
+      },
+      {
+        "key": "module_size|scripts/ops/data_model_audit.py||module exceeds the advisory operon budget",
+        "before": 731,
+        "after": 741,
+        "source_sha256": "07ade183a3ae3883ec0c4b7b10cb0c2e6091b312a831f230db1dcead6e8937f5"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/plaid-vault/vault-sync.test.ts||module exceeds the advisory operon budget",
+        "before": 714,
+        "after": 723,
+        "source_sha256": "b33121fe3a83a87b8b20da5802129aa8b5797e309d33b8178ee9067cd8fb7eee"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_user_gcp_backend.py||module exceeds the advisory operon budget",
+        "before": 646,
+        "after": 716,
+        "source_sha256": "63471844b4072a1ae5e1be2b185343774d5f4a909b948a00081e92885a3c5711"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_cloud_removal_postgres.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 680,
+        "source_sha256": "ebf9b0d9af8278c72284da6baf55e3f07c91c4d11a76921a3a41075051c3709d"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_hushh_tech_client_service.py||module exceeds the advisory operon budget",
+        "before": 615,
+        "after": 635,
+        "source_sha256": "6143e2519d36bdca9a096a1cdd512c709deb78464fd8159776edbbabc87d31c2"
+      },
+      {
+        "key": "module_size|consent-protocol/api/utils/firebase_auth.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 596,
+        "source_sha256": "d6fe4b8c1ecaa3fbb34b26214dae90828ec5131348fe2330360a767a1efdb9ba"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_migrations_are_replay_safe.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 584,
+        "source_sha256": "8903196d657cf13d45dd528d8705c8d7e3b739a8c18e23fe28d1dee3413cac6f"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 583,
+        "source_sha256": "c08954bee43bc71f015c9aa1879de8f8292992e599ff96fef543d441f0ceb1c0"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/one_voice/test_tools_profile.py||module exceeds the advisory operon budget",
+        "before": 567,
+        "after": 583,
+        "source_sha256": "cbffc7809cebf8812064fd4fefc4d9f8b3d666a00b8b08699ec51ac7bc5179d4"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_pod_ai_selection_doors.py||module exceeds the advisory operon budget",
+        "before": 507,
+        "after": 565,
+        "source_sha256": "90f8ebc3fd7051c9e58d080deb15351f58c3f6bd77c63bfb7f9b4d06dd3af4e1"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/flows/delete-account.ts||module exceeds the advisory operon budget",
+        "before": 503,
+        "after": 555,
+        "source_sha256": "26752be59888eed7af430af4693ccec0cc625fefb20b5a1d3bae2f780407bb08"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/services/account-identity-service.ts||module exceeds the advisory operon budget",
+        "before": 510,
+        "after": 529,
+        "source_sha256": "2102efe68547a2b393a66e90f4e4cfa96d2fb5d8f4bf47eb39ee852bce4a1dfa"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 525,
+        "source_sha256": "d16a804a2d043f2da405a0abe93a13b1ae93ef6072306a3197b5e621c4961846"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_hub_content_routes_guarded.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 511,
+        "source_sha256": "ce9cf8aa6dc85871a6a169a542670088f5febea320429c1d5f7b62608a4e6cd0"
+      },
+      {
+        "key": "module_size|.agents/skills/repo-operations/scripts/ci_monitor.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 510,
+        "source_sha256": "92fa098a28a8b33f628ca3de84ba4b9d741d6cc2fd27d32a6c85e69b46b59c24"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/api-service-pod-turn-direct.test.ts||module exceeds the advisory operon budget",
+        "before": 504,
+        "after": 507,
+        "source_sha256": "7f5c1cdbca82b09a8dba353e3771672b3ee8b6cd5740d23c41ac3778b30f91de"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/conftest.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 502,
+        "source_sha256": "d1dd7fcb99a30157bc6342593bf55cde94c19a00946736449f7efec345e95066"
+      }
+    ]
+  },
+  "surgical_fixture_lifecycle_review_20261024": {
+    "source_revision": "5d3e8f271349ee28d6962a96b30476f49ec963f9",
+    "review": "Independent framework reviewer admits exactly fourteen existing size ceilings: explicit account-lifecycle fixture dependencies, trusted offline replay lifecycle port threaded through the five existing admission sites, and bounded synthetic-owner SQL-refusal coverage. Production admission remains the default and foreign replay owners refuse before content. AST audit checks1063 existing test bodies:1059 unchanged; four reviewed body changes preserve or strengthen assertions. No scanner, global budget, exclusion, unrelated key or multiplicity changes. These source ceilings do not establish deployed acceptance.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|DrivePacketWorker|class exceeds the advisory operon budget",
+        "before": 385,
+        "after": 400,
+        "source_sha256": "d0c4dcc476342c6ee4a1c02a19aa4741174f665f9eee597666825cef90f1b4e3"
+      },
+      {
+        "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestGmailEmailDraftDirective|class exceeds the advisory operon budget",
+        "before": 321,
+        "after": 327,
+        "source_sha256": "d0ed30b9cc8318e660ca928c2bfd7e325e73f5aa333b00fe9a08fd4f7e4825c5"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_packet_one|function exceeds the advisory gene budget",
+        "before": 150,
+        "after": 153,
+        "source_sha256": "d0c4dcc476342c6ee4a1c02a19aa4741174f665f9eee597666825cef90f1b4e3"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py|run_facts_one|function exceeds the advisory gene budget",
+        "before": 95,
+        "after": 98,
+        "source_sha256": "d0c4dcc476342c6ee4a1c02a19aa4741174f665f9eee597666825cef90f1b4e3"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+        "before": 6518,
+        "after": 6526,
+        "source_sha256": "d0ed30b9cc8318e660ca928c2bfd7e325e73f5aa333b00fe9a08fd4f7e4825c5"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_google_calendar_service.py||module exceeds the advisory operon budget",
+        "before": 1746,
+        "after": 1748,
+        "source_sha256": "998728f3dc23c181241b0f2bc229da6c1674e7b88890489db12b07e419635735"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_world_model.py||module exceeds the advisory operon budget",
+        "before": 1141,
+        "after": 1145,
+        "source_sha256": "a4a85c72a20786652f16c7cd63544cfa402f6efbe7479696cd38c75af515aa80"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_eval/drive_packets/replay.py||module exceeds the advisory operon budget",
+        "before": 851,
+        "after": 859,
+        "source_sha256": "302213780febf13d1ed31d3f360c3cbdd777374f19a2c0b2f97bd2d6d00b3cac"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_chat_history_byok.py||module exceeds the advisory operon budget",
+        "before": 775,
+        "after": 777,
+        "source_sha256": "a5801a4f2fcba9744bc31cc8da2388babfe11d68eea0fa1f10a0e4d6cd0b31f6"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_specialist_turn_parity.py||module exceeds the advisory operon budget",
+        "before": 754,
+        "after": 756,
+        "source_sha256": "dfe796b7bf70ad2f1855ea9d18dcbade6b02e880034eb57abb78487ed744ea8c"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_routes.py||module exceeds the advisory operon budget",
+        "before": 659,
+        "after": 663,
+        "source_sha256": "9c12e4722e46ada5e9aa0ae9e65c4b02dfa0139a81a658a919a264807da52582"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_mcp_resume_receipt.py||module exceeds the advisory operon budget",
+        "before": 580,
+        "after": 588,
+        "source_sha256": "4a2172f080f1d84bafb25d1025bcf61e3a65aa129f25f3e1c2f19c2f36245e6d"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/drive_packet_worker.py||module exceeds the advisory operon budget",
+        "before": 508,
+        "after": 527,
+        "source_sha256": "d0c4dcc476342c6ee4a1c02a19aa4741174f665f9eee597666825cef90f1b4e3"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/conftest.py||module exceeds the advisory operon budget",
+        "before": 502,
+        "after": 505,
+        "source_sha256": "baa738f79b053be36a5d8a606fe43de14472e0c1d9195c186e7d0fc8172bac1f"
+      }
+    ]
+  },
+  "surgical_main_and_serial_fixture_review_20261024": {
+    "source_revision": "62c7eb2120",
+    "review": "Independent reviewer approves exactly four measured module ceilings for inherited main bounded erasure/scan cases, real session-epoch preflight regression, mandatory captured owner and lifecycle-port mock shape. Six fixture changes preserve real Files erasure and bind lifecycle lock/tombstone SQL to the paid-contract disposable schema, with an actual retired-owner export refusal. No scanner, global budget, exclusion or unrelated finding changes. These checks do not establish installed-owner or cloud acceptance.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/services/test_drive_reusable_packets_postgres.py||module exceeds the advisory operon budget",
+        "before": 2118,
+        "after": 2119,
+        "source_sha256": "5ca3d016a66e72bfc162ee8e98dede17488a3c93951fc94cc226fc88a3f67b28"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+        "before": 1669,
+        "after": 1736,
+        "source_sha256": "34b093963eac8e9497c0f1597446fcdc0efbd84fb09e4841949c2fda2194b2d3"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/flows/delete-account.test.ts||module exceeds the advisory operon budget",
+        "before": 816,
+        "after": 841,
+        "source_sha256": "0e7f77f095275a0418adff65397469f4d14b1efa63686d9cedd566e49ef9ad18"
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/flows/delete-account.ts||module exceeds the advisory operon budget",
+        "before": 555,
+        "after": 556,
+        "source_sha256": "bb42620529765cebb220255ccbf3f028e70686f0cefd2fe424de461252d71c20"
+      }
+    ]
+  },
+  "surgical_uat_critical_path_review_20261024": {
+    "source_revision": "9e7918cdff",
+    "integrated_main": "b2ee968a59ab30da79afcca418833adaa7a9f161",
+    "review": "Independent lifecycle and architecture reviewers admit exactly four current ceilings. Main replaces scheduler-sensitive SQL micro-sleeps with real100-row statement transition-table limits,57014 timeout and independent unbounded-query rollback controls. Those tests found journal admission overwrote configured transaction deadlines; the three-line production repair reapplies the erasure budget after all lifecycle admission, retaining initial pre-lock and journal deadlines. All five SQL cases pass2.51s; incoming UAT helper checks pass. Scanner,global budgets,unrelated findings and admission policies unchanged.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "before": 2958,
+        "after": 2961,
+        "source_sha256": "18178f0267399410138cb574b86cbedd20f8498a7c519b20d7a6e4b307a94fea"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "before": 587,
+        "after": 590,
+        "source_sha256": "18178f0267399410138cb574b86cbedd20f8498a7c519b20d7a6e4b307a94fea"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "before": 3059,
+        "after": 3062,
+        "source_sha256": "18178f0267399410138cb574b86cbedd20f8498a7c519b20d7a6e4b307a94fea"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+        "before": 1736,
+        "after": 1792,
+        "source_sha256": "e59fac1090ee323e88124ff98bdeb63e79c0f3fed2863a82bfd958ee775dc722"
+      }
+    ]
+  },
+  "byoc_availability_review_20261024": {
+    "source_revision": "c1861b4ae2",
+    "review": "Independent frontend/capability reviewer approves exactly these three existing module ceilings: bounded known-refusal API handling, nearest transport regression, and current-owner setup availability.166 focused tests cover disabled/unknown availability, preserved reserved/failed/attach/direct state and Shared continuation. No authority split for line count, scanner changes, global budget increases or unrelated findings. This is source evidence; serving acceptance remains required.",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+        "before": 6229,
+        "after": 6232,
+        "source_sha256": "3caa4dde24af43d7a1cbad36bc36da10515faad452a980ec7bf1ee3072729aa8"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/api-service-fetch.test.ts||module exceeds the advisory operon budget",
+        "before": 1747,
+        "after": 1757,
+        "source_sha256": "86c6774f15fee2c133d52732d80a5ef12fc052bf363d256e1c8d8e112b023394"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
+        "before": 811,
+        "after": 824,
+        "source_sha256": "b3d03326f91b5ff8dc618cadd569b795b863a29106d27f3a0643dbdb4cf1b599"
+      }
+    ]
+  },
+  "ci_auth_fixture_rca_review_20261025": {
+    "source_revision": "5794b9d556",
+    "review": "Independent frontend/authentication and CI reviewers approve only these existing module ceilings. Fixtures explicitly admit application principals, preserve ABA/owner/vault refusal tests and release fixture state. RCA observes exact-head/current-attempt hosted authority by default rather than starting duplicate full suites; local execution remains explicit. Existing runner import safety is preserved without a size-only split. No scanner, global budget, security gate or unrelated finding changes. Focused tests and actual hosted observation are required; these source ceilings do not establish deployment or owner acceptance.",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
+        "before": 1795,
+        "after": 1797,
+        "source_sha256": "ca358d7983a8ec3b8f8cae1895bbdeed9ad1226c6f96b0afb3cf5929a9848838"
+      },
+      {
+        "key": "module_size|.agents/skills/autonomous-rca-governance/scripts/rca_runner.py||module exceeds the advisory operon budget",
+        "before": 832,
+        "after": 887,
+        "source_sha256": "5078394def6f1bf1502dffd843ca53efe6ab105322a80407352b78b4e7dd1246"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/location-command-workflow.test.tsx||module exceeds the advisory operon budget",
+        "before": 836,
+        "after": 838,
+        "source_sha256": "03db581619920490c20bb30855ad7ec52d8848ba3613544751a56e2c89865511"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/calendar-agent-page.test.tsx||module exceeds the advisory operon budget",
+        "before": 821,
+        "after": 826,
+        "source_sha256": "195ee8d5ebba48dc978949762f0a45eb2bd8975a460861596ddc50fff2a322d7"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/connections-panel.test.tsx||module exceeds the advisory operon budget",
+        "before": 747,
+        "after": 753,
+        "source_sha256": "3045ec34b72e4505d3bd56f88327036a74d5153c897fa661b145de537d2c178a"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/services/byoc-never-calls-hub-content.test.tsx||module exceeds the advisory operon budget",
+        "before": 694,
+        "after": 697,
+        "source_sha256": "acca8412053d84770edacc5e0e0f4050b9bfd07c4ece6d9abc0b4fd696072902"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_rca_runner_can_say_it_did_not_look.py||module exceeds the advisory operon budget",
+        "before": 511,
+        "after": 620,
+        "source_sha256": "b15cda82ef6dae5384480ea7a181b090ee16bb84781dc769d85e62e19d8c5f83"
+      }
+    ]
+  },
+  "ci_browser_fixture_review_20261025": {
+    "source_revision": "fd67dcd5c9",
+    "review": "Independent browser/frontend reviewer approves this exact +3-line keyboard-modality explanation and non-activating key. WebKit diagnostic proved focused=true with focus-visible=false before keyboard input and both true afterward. The test retains the visible ring, Enter activation and exact request counts. Synthetic owner admission follows current application principals. The AI suite removes retired v10 artwork/Coming soon requirements while retaining managed selection, empty/invalid credential refusal, explicit confirmation, reduced-viewport reachability and captured navigation intent. No retry, timeout, product fallback, scanner or global-budget changes. Navigation intent and reduced viewport are not installed/native acceptance.",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 2737,
+        "after": 2740,
+        "source_sha256": "b5f436d7d1d66be3d7aa2a660781e9deb09b67bf105882923729b900296e2e86"
+      }
+    ]
+  },
+  "account_deletion_reopened_review_20261025": {
+    "base_revision": "c927b76281f05089041571e4d2a842af2bf311de",
+    "scope": "Independent read-only placement review; exact source ceilings only. Global500/250/80 budgets, dependency checks, runtime gates and future-growth ratchet unchanged. No new oversized production function admitted. Behavioral and live release evidence remain separate.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "before": 2961,
+        "after": 2973,
+        "source_sha256": "764e19cc43ecefafa158a01c1144633652752236afc2b62ca5b35c58ecc7933f",
+        "reviewer": "backend_deletion",
+        "review": "Existing account transaction owns admission ordering; extracted release-admission implementation is reused before owner locks. Neutral cleanup-qualified reporting preserves shared authority."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|AccountDeletionLifecycleService|class exceeds the advisory operon budget",
+        "before": 1185,
+        "after": 1202,
+        "source_sha256": "24af23fd188202ba77581eb924a9af4f494e82c513aa7017c46c66191364a287",
+        "reviewer": "backend_deletion",
+        "review": "Atomic preparation owns installed-contract admission, immutable descriptor validation and custody capture. No provider effect occurs in the transaction."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|test_provider_cleanup_retains_custody_through_failure_and_migration_replay|function exceeds the advisory gene budget",
+        "before": 682,
+        "after": 702,
+        "source_sha256": "7ca2e498133ed3d357f54411ffc473a4a165c74cd99796b09f453ce025caf703",
+        "reviewer": "ci_deletion",
+        "review": "Nearest real PostgreSQL custody/replay and HTTP-to-worker owner. Preserve transaction chronology and negative matrices. New encrypted-owner, preparation and owned-session fixtures keep the shared producer assertion below80; no new function ceiling for it."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "before": 590,
+        "after": 595,
+        "source_sha256": "764e19cc43ecefafa158a01c1144633652752236afc2b62ca5b35c58ecc7933f",
+        "reviewer": "backend_deletion",
+        "review": "Existing account transaction owns admission ordering; extracted release-admission implementation is reused before owner locks. Neutral cleanup-qualified reporting preserves shared authority."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py|test_full_account_deletion_covers_account_owned_tables|function exceeds the advisory gene budget",
+        "before": 315,
+        "after": 319,
+        "source_sha256": "b70542008524ca73f9c4a16bc315cdfdf43accd110e2e4212701b9a6c43623ac",
+        "reviewer": "ci_deletion",
+        "review": "Existing all-owned-table contract now asserts semantic release/fabric admission ordering rather than brittle call index."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|prepare_provider_cleanup_in_transaction|function exceeds the advisory gene budget",
+        "before": 136,
+        "after": 153,
+        "source_sha256": "24af23fd188202ba77581eb924a9af4f494e82c513aa7017c46c66191364a287",
+        "reviewer": "backend_deletion",
+        "review": "Atomic preparation owns installed-contract admission, immutable descriptor validation and custody capture. No provider effect occurs in the transaction."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|deprovision|function exceeds the advisory gene budget",
+        "before": 95,
+        "after": 101,
+        "source_sha256": "a1b1a17c59d6318161e80fc96b16faf10a4c937cb0280203deb0c642dffc5bff",
+        "reviewer": "backend_deletion",
+        "review": "Six-line independent teardown guard precedes reservation and irreversible phases at their existing authority; off/unset controls prove zero effects."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|test_shared_provider_sql_requires_exact_local_approval_and_no_dispatched_effects|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 87,
+        "source_sha256": "7ca2e498133ed3d357f54411ffc473a4a165c74cd99796b09f453ce025caf703",
+        "reviewer": "ci_deletion",
+        "review": "Nearest real PostgreSQL custody/replay and HTTP-to-worker owner. Preserve transaction chronology and negative matrices. New encrypted-owner, preparation and owned-session fixtures keep the shared producer assertion below80; no new function ceiling for it."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|_request_full_erasure|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 85,
+        "source_sha256": "7ca2e498133ed3d357f54411ffc473a4a165c74cd99796b09f453ce025caf703",
+        "reviewer": "ci_deletion",
+        "review": "Nearest real PostgreSQL custody/replay and HTTP-to-worker owner. Preserve transaction chronology and negative matrices. New encrypted-owner, preparation and owned-session fixtures keep the shared producer assertion below80; no new function ceiling for it."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py|test_staged_worker_stops_all_watches_then_revokes_a_project_account_once|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 83,
+        "source_sha256": "def9c3b93d0d763bfbb8d15e5369da2b14f09b4e7304778a7c817a17705e0f53",
+        "reviewer": "ci_deletion",
+        "review": "Existing provider ordering and cancellation owner; shared-authority tests prove explicit approval and zero refresh/watch/revoke calls. Retain cohesive watch-failure ordering scenario."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "before": 3062,
+        "after": 3074,
+        "source_sha256": "764e19cc43ecefafa158a01c1144633652752236afc2b62ca5b35c58ecc7933f",
+        "reviewer": "backend_deletion",
+        "review": "Existing account transaction owns admission ordering; extracted release-admission implementation is reused before owner locks. Neutral cleanup-qualified reporting preserves shared authority."
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/account.py||module exceeds the advisory operon budget",
+        "before": 2446,
+        "after": 2449,
+        "source_sha256": "034dbbf3da43017f05253a4bd1cb316ebad234cba1a91c678ca3e0ff45a0febd",
+        "reviewer": "backend_deletion",
+        "review": "Typed five-line HTTP detail formatter preserves exact Azure/GCP allowlist and omits unknown values. Existing handler is below80; no new function exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/firebase/auth-context.tsx||module exceeds the advisory operon budget",
+        "before": 2341,
+        "after": 2342,
+        "source_sha256": "3b4625c7cf0676866910cf8fb2a511ca565aba13d3854313c85bfb5b8793e2a0",
+        "reviewer": "frontend_deletion",
+        "review": "Existing AuthProvider retains sealed recovery during automatic/manual retry; loading and verification keep one owner. Identity, generation and lifecycle fences remain intact."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+        "before": 1792,
+        "after": 2205,
+        "source_sha256": "7ca2e498133ed3d357f54411ffc473a4a165c74cd99796b09f453ce025caf703",
+        "reviewer": "ci_deletion",
+        "review": "Nearest real PostgreSQL custody/replay and HTTP-to-worker owner. Preserve transaction chronology and negative matrices. New encrypted-owner, preparation and owned-session fixtures keep the shared producer assertion below80; no new function ceiling for it."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx||module exceeds the advisory operon budget",
+        "before": 1962,
+        "after": 1985,
+        "source_sha256": "bc12a250d15440c24a5bd9e495d3ce76d1837c39d561d74586dc0c44ff81b0c1",
+        "reviewer": "frontend_deletion",
+        "review": "Extend existing actual-AuthProvider temporal regressions for explicit and deferred automatic retry. Broken loading guard negative control fails."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "before": 1883,
+        "after": 1890,
+        "source_sha256": "b70542008524ca73f9c4a16bc315cdfdf43accd110e2e4212701b9a6c43623ac",
+        "reviewer": "ci_deletion",
+        "review": "Existing all-owned-table contract now asserts semantic release/fabric admission ordering rather than brittle call index."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "before": 1833,
+        "after": 1848,
+        "source_sha256": "6eaf95bf2124a8242873ce060e05393ffe0b13a319a488844e4269e3ad084c71",
+        "reviewer": "ci_deletion",
+        "review": "Nearest provisioning regression proves unset/off teardown refuses reservation and every destructive phase; no unrelated tests duplicated."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py||module exceeds the advisory operon budget",
+        "before": 1459,
+        "after": 1476,
+        "source_sha256": "24af23fd188202ba77581eb924a9af4f494e82c513aa7017c46c66191364a287",
+        "reviewer": "backend_deletion",
+        "review": "Atomic preparation owns installed-contract admission, immutable descriptor validation and custody capture. No provider effect occurs in the transaction."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_deletion_release_workflow.py||module exceeds the advisory operon budget",
+        "before": 1076,
+        "after": 1205,
+        "source_sha256": "341b93cfc6922ce54f4af96591173d6d500c0e16f2d50a0ef1589ec9166cd6bb",
+        "reviewer": "ci_deletion",
+        "review": "Existing release contract owner; extracted66-line synthetic command adapter leaves45-line failure/ordering scenario. No activation scenario function waiver; no duplicated heavy fixture."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py||module exceeds the advisory operon budget",
+        "before": 784,
+        "after": 865,
+        "source_sha256": "def9c3b93d0d763bfbb8d15e5369da2b14f09b4e7304778a7c817a17705e0f53",
+        "reviewer": "ci_deletion",
+        "review": "Existing provider ordering and cancellation owner; shared-authority tests prove explicit approval and zero refresh/watch/revoke calls. Retain cohesive watch-failure ordering scenario."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_routes.py||module exceeds the advisory operon budget",
+        "before": 663,
+        "after": 667,
+        "source_sha256": "67a616ff3d6a26a7841c4212bef6cbc470b82a3724365fa3cef135c2a2749cba",
+        "reviewer": "ci_deletion",
+        "review": "Nearest HTTP owner proves existing-owner cleanup remains reachable when new provisioning is disabled."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py||module exceeds the advisory operon budget",
+        "before": 583,
+        "after": 599,
+        "source_sha256": "0ef8b70cd79d6fe351469183f4fa081dd04f1200b8fe442deba05f9d9d52fec3",
+        "reviewer": "backend_deletion",
+        "review": "Existing claim lock owns digest-bound local-erasure approval and refusal of uncertain effects. Shared grants are explicitly retained."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py||module exceeds the advisory operon budget",
+        "before": 525,
+        "after": 556,
+        "source_sha256": "fe9405840f7a9c7cce1a633b8bc0b5c2ba7ddbad5bb478ae654b1a4c51289abb",
+        "reviewer": "backend_deletion",
+        "review": "Bounded lazy source-policy reader belongs with the existing credential descriptor authority; no new routing or credential store."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_shared_files_lifecycle_postgres.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 542,
+        "source_sha256": "e0b8345d58275492688ce6020c0b00391e454094d0d4135e0a84089858241ebd",
+        "reviewer": "ci_deletion",
+        "review": "Nearest Files erasure owner proves started provider threads remain joined after sibling failure and repeated cancellation; original implementation fails the negative control."
+      }
+    ]
+  },
+  "account_deletion_retained_authority_review_20261025": {
+    "base_revision": "c927b76281f05089041571e4d2a842af2bf311de",
+    "scope": "Independent exact-source placement and security review; global budgets and future growth gate unchanged. This is local-copy erasure, not historical provider verification.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py|_open_grant|function exceeds the advisory gene budget",
+        "before": 112,
+        "after": 120,
+        "source_sha256": "6caac00b4a3f7f9a9cf59330ea58a0cffbb18dbb627ea2dc836ba568667190e9",
+        "reviewer": "backend_deletion; security review deletion_review",
+        "review": "Configured shared-project/numeric-subject classification precedes unnecessary token opening. Exact owner/revision and digest-bound local approval still own erasure; no token, verification or provider action is granted. Exclusive/unknown credentials retain ordinary validation. Metadata does not prove historical token client or external validity."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py||module exceeds the advisory operon budget",
+        "before": 865,
+        "after": 898,
+        "source_sha256": "a12deeab9d7a83e9dd8999a603d724493f1e88f60d7cc0dfbe7e258ebfa62796",
+        "reviewer": "ci_deletion",
+        "review": "Existing shared-authority case now uses production _open_grant for Google/Gmail, a decrypt trap, explicit approval controls and an exclusive-project negative that must reach decrypt. Same-file32-line fixture keeps scenario66 lines; no new function waiver."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py||module exceeds the advisory operon budget",
+        "before": 556,
+        "after": 579,
+        "source_sha256": "6caac00b4a3f7f9a9cf59330ea58a0cffbb18dbb627ea2dc836ba568667190e9",
+        "reviewer": "backend_deletion; security review deletion_review",
+        "review": "Configured shared-project/numeric-subject classification precedes unnecessary token opening. Exact owner/revision and digest-bound local approval still own erasure; no token, verification or provider action is granted. Exclusive/unknown credentials retain ordinary validation. Metadata does not prove historical token client or external validity."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py|test_staged_worker_stops_all_watches_then_revokes_a_project_account_once|function exceeds the advisory gene budget",
+        "before": 83,
+        "after": 83,
+        "source_sha256": "a12deeab9d7a83e9dd8999a603d724493f1e88f60d7cc0dfbe7e258ebfa62796",
+        "reviewer": "ci_deletion",
+        "review": "Ordering function unchanged; refreshed whole-file hash after adjacent shared-authority fixture refinement. No ceiling increase."
+      }
+    ]
+  },
+  "account_deletion_reopened_final_review_20261025": {
+    "base_revision": "13df8f90cf229a2f8dcf974833464a6c8e824ef4",
+    "scope": "Four independently reviewed exact module ceilings only. No new function exceptions or global500/250/80 budget changes. Static placement review is separate from behavior and release evidence.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_account_deletion_release_workflow.py||module exceeds the advisory operon budget",
+        "before": 1205,
+        "after": 1260,
+        "source_sha256": "066181d7e794c56e9129b4b7fd4bd881e258409aa352cff80fc3a9977829ea88",
+        "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
+        "review": "Real rollback shell and source qualifier execute against synthetic external cloud/git ports; unsupported and invalid source withhold traffic. Existing release contract owner."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py||module exceeds the advisory operon budget",
+        "before": 898,
+        "after": 943,
+        "source_sha256": "2e4b9de612d712e517f3c586047543cd224d7dc8187633c8ab8965da797ac159",
+        "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
+        "review": "Six-case regression exercises real mixed-inventory dispatch with exact approved shared-watch settlement and independent rejection controls; nearest provider transition owner."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py||module exceeds the advisory operon budget",
+        "before": 599,
+        "after": 607,
+        "source_sha256": "8a281960ed9bc4fbeb619b875792c931ef169cc05ff78fad48cf71e14ec27130",
+        "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
+        "review": "Exact retained-shared watch exception stays within the existing atomic claim and receipt authority; no parallel decision owner."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_private_agent_adoption_postgres.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 508,
+        "source_sha256": "d790328382dbed51f2a1cf6c3b4c304ed1c70705c0b5783e3b967559c0a428ed",
+        "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
+        "review": "Existing real PostgreSQL replay scenario preserves current legacy predecessors and installed423, rejects altered guard and NULLversion; shared canonical fixture remains cohesive."
+      }
+    ]
+  },
+  "account_deletion_managed_refusal_review_20261025": {
+    "base_revision": "31241ef2acd2faaffb39c008d658e8c6fbb577c4",
+    "scope": "Two exact source-bound ceilings independently reviewed. Global500/250/80 budgets and future-growth ratchet unchanged. Managed completion remains unqualified; this change prevents partial provider effects.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|deprovision|function exceeds the advisory gene budget",
+        "before": 101,
+        "after": 105,
+        "source_sha256": "cb9d14c7cec2d7b18467609b0c6050d89f502b8d99e7a92d00c9391f1d60d136",
+        "reviewer": "backend_deletion",
+        "review": "Existing teardown boundary gains only four guard lines: refuse unqualified managed records before reservation, then recheck the returned snapshot before external effects. Managed explicit/legacy/race cases are in the nearest regression."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "before": 1848,
+        "after": 1862,
+        "source_sha256": "a8bb0db384d1d229e9bcf7fd2d2625223be581a8b6e11105bc22889eca940673",
+        "reviewer": "ci_deletion",
+        "review": "Extend existing zero-effect teardown matrix with explicit managed, legacy managed and reserved-snapshot race. No duplicate test or oversized function introduced."
       }
     ]
   }

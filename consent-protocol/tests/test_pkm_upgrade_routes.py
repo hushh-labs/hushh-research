@@ -14,7 +14,7 @@ from api.routes import pkm, pkm_routes_shared
 
 
 @pytest.fixture
-def shared_owner_placement(monkeypatch):
+def shared_owner_placement(monkeypatch, active_account_lifecycle):
     """Exercise the real hub guard with an explicitly Shared route-test owner."""
     from hushh_mcp.services import owner_placement_guard
 

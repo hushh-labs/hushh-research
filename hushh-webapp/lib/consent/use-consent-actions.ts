@@ -21,7 +21,7 @@ import {
   ConsentExportNoDataError,
 } from "@/lib/consent/export-builder";
 import { ROUTES } from "@/lib/navigation/routes";
-import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
+import { OwnerFacingConsentError, ownerFacingConsentError } from "@/lib/consent/consent-owner-copy";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { approvePaidOwnerTerms, isPkmScope, usePaidApprovalState } from "@/lib/consent/paid-owner-approval";
 import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
@@ -155,38 +155,6 @@ function extractConsentActionError(errorText: string, fallback: string): string 
 }
 
 /**
- * A sentence this hook wrote for the owner. The only kind of error a consent
- * toast shows verbatim.
- *
- * Every other error (a backend `detail`, a route's own generic string, a
- * driver error, a stack trace) reads as the action's fallback. The backend
- * writes for developers ("User ID does not match authenticated user", "Token
- * validation failed.", bare status codes) and the revoke route answers its own
- * catch with `Internal server error: ${error}`; all of those are short and
- * marker-free, so a deny-list rule let them through. Allow-listing by type
- * cannot be fooled by a new sentence.
- */
-class OwnerFacingConsentError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "OwnerFacingConsentError";
-  }
-}
-
-/**
- * The sentence a toast may show for a failed action.
- *
- * Only an `OwnerFacingConsentError` passes, and even then through
- * `oneLocationErrorMessage`, the one rule in this repo for what may cross the
- * vault boundary, so the hook's own sentences are held to the same bar as
- * every other surface.
- */
-function ownerFacingConsentError(error: unknown, fallback: string): string {
-  if (!(error instanceof OwnerFacingConsentError)) return fallback;
-  return oneLocationErrorMessage(error, fallback);
-}
-
-/**
  * The error a quiet caller receives.
  *
  * A quiet caller owns the reporting and may put the message in front of the
@@ -197,7 +165,7 @@ function ownerFacingConsentError(error: unknown, fallback: string): string {
  * it; it is never the message.
  */
 function quietConsentError(error: unknown, fallback: string): Error {
-  return new Error(ownerFacingConsentError(error, fallback), { cause: error });
+  return new OwnerFacingConsentError(ownerFacingConsentError(error, fallback), { cause: error });
 }
 
 const APPROVE_FAILED = "Could not allow this. Nothing was shared.";
@@ -807,7 +775,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         if (!options.quiet) {
           toast.error(message, { id: progressKey, duration: 5000 });
         }
-        throw new Error(message, { cause: firstError });
+        throw new OwnerFacingConsentError(message, { cause: firstError });
       } finally {
         setBundleProgress((current) =>
           current?.key === progressKey ? null : current,

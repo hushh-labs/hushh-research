@@ -6,9 +6,9 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
-vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: "owner" } }) }));
+vi.mock("@/lib/firebase", () => ({ useAuth: () => ({ user: { uid: "owner" }, userId: "owner" }) }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "owner" }) } }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { getPersonalAgentStatus: async () => ({ hostingMode: "byoc", hushhId: "pod-1" }) },
@@ -95,13 +95,14 @@ async function ask(text: string) {
 }
 
 beforeEach(() => {
-  publishValidatedAuthSessionOwner("owner");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   window.localStorage.clear();
   mocks.abortRun.mockReset();
   mocks.runAgent.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null);
   vi.clearAllMocks();
   window.localStorage.clear();
 });

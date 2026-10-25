@@ -83,6 +83,17 @@ class HushhTechClientError(ValueError):
         super().__init__(message)
 
 
+def _require_generation_compatibility() -> None:
+    # This conditional product integration still exchanges raw Firebase UIDs.
+    # Never attach an old authorization code to the identity's latest owner.
+    if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
+        raise HushhTechClientError(
+            "ACCOUNT_GENERATION_UNSUPPORTED",
+            "This connection is not available for this account setup.",
+            status_code=503,
+        )
+
+
 def require_hushh_tech_client_admission(firebase_uid: str) -> None:
     """Fail before any product-client write unless the UID is in the UAT cohort."""
     if not hushh_tech_client_enabled():
@@ -91,6 +102,7 @@ def require_hushh_tech_client_admission(firebase_uid: str) -> None:
             "Hushh Tech entry is not enabled.",
             status_code=404,
         )
+    _require_generation_compatibility()
     clean_uid = str(firebase_uid or "").strip()
     if not _UID_PATTERN.fullmatch(clean_uid):
         raise HushhTechClientError(
@@ -563,6 +575,7 @@ class HushhTechClientService:
                 "Hushh Tech entry is not enabled.",
                 status_code=404,
             )
+        _require_generation_compatibility()
 
     @staticmethod
     def _require_cohort(firebase_uid: str) -> None:

@@ -14,6 +14,7 @@
  * only a connector intent.
  */
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from '@/lib/vault/session-epoch';
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from '@/lib/services/auth-service';
@@ -160,16 +161,17 @@ function refusalCode(body: unknown, status: number): string {
 export async function sendConnectorCredentialToAgent(
   connector: GoogleConnector,
   plaintext: AuthorizationCodePlaintext & { transition?: GoogleConnectorTransition },
-  expectedOwner?: string,
+  expectedFirebaseUid?: string,
+  isCurrent?: () => boolean,
 ): Promise<ConnectOutcome> {
   let response: Response;
-  if (expectedOwner && AuthService.getCurrentUser()?.uid !== expectedOwner) return { ok: false, code: 'POD_OWNER_CHANGED' };
+  if (isCurrent?.() === false || (expectedFirebaseUid && AuthService.getCurrentUser()?.uid !== expectedFirebaseUid)) return { ok: false, code: 'POD_OWNER_CHANGED' };
   try {
     response = await ApiService.ownerPodRequest(`connectors/${connector}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(plaintext),
-    });
+    }, false, undefined, undefined, isCurrent);
   } catch (error) {
     const value = error instanceof Error ? ('code' in error ? String(error.code) : error.message) : '';
     const code = value === 'POD_VAULT_SESSION_CHANGED' ? 'PRIVATE_AGENT_UNLOCK_REQUIRED' : value;
@@ -195,8 +197,12 @@ export async function connectGoogleConnector(
   const client = nativeGoogleClient(platform);
   if (!client) return { ok: false, code: platform === 'android' ? 'ANDROID_CONNECTOR_DEV_REQUIRED' : 'NATIVE_CLIENT_NOT_CONFIGURED' };
   const vaultEpoch = snapshotVaultSessionEpoch();
-  const owner = AuthService.getCurrentUser()?.uid;
-  const current = () => AuthService.getCurrentUser()?.uid === owner && isVaultSessionEpochCurrent(vaultEpoch) && (deps.isCurrent?.() ?? true);
+  const principal = snapshotValidatedAuthSessionPrincipal();
+  const firebaseUid = AuthService.getCurrentUser()?.uid;
+  const owner = principal?.ownerId;
+  const current = () => Boolean(principal && isValidatedAuthSessionOwnerCurrent(principal)
+    && firebaseUid === principal.firebaseUid && AuthService.getCurrentUser()?.uid === firebaseUid
+    && isVaultSessionEpochCurrent(vaultEpoch) && (deps.isCurrent?.() ?? true));
   const changedCode = () => !isVaultSessionEpochCurrent(vaultEpoch) ? 'PRIVATE_AGENT_UNLOCK_REQUIRED' : 'POD_OWNER_CHANGED';
   if (!owner) return { ok: false, code: 'PRIVATE_AGENT_SIGN_IN_REQUIRED' };
   const capability = deps.vaultOwnerCapability;
@@ -249,7 +255,7 @@ export async function connectGoogleConnector(
     redirectUri: client.redirectUri,
     scopes: GOOGLE_CONNECTOR_SCOPES[connector],
     transition,
-  }, owner);
+  }, firebaseUid, current);
   return current() ? delivered : { ok: false, code: changedCode() };
 }
 

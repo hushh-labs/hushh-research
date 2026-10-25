@@ -117,6 +117,83 @@ while preserving compatible review history. The 971 SQL down path refuses while
 private reviews remain; never delete history to force it. Restoring its earlier
 schema requires the separately reviewed forward qualification before re-enablement.
 
+## Canonical private-agent graduation and cleanup replay
+
+Canonical 418–421 graduate private-agent authority through forward SQL; the
+current release head is 422. Applied 900–972 files and checksums remain immutable.
+Canonical 420 installs the final schema and accepts only reviewed predecessor and
+successor definitions. It does not repeat historical Shared cohort inference or
+destructive chat cleanup. Recovery is 421. Channel constraints carry
+`private-action-channel.v1/420`; a qualified 971 marker is preserved, never fabricated.
+
+Live dev also contains the consumer-memory consent guards authored on the separate
+consumer-MCP branch (938 at `253e89abe8`, 939 at `ac86743508`). The single
+`db/private_agent_adoption.py` execution adapter qualifies exact functions and
+trigger bindings before and after immutable 420 in replay and pending-ledger mode.
+Any retained consumer footprint requires the complete pair; unknown drift refuses.
+A bounded relation lock preserves ordinary row writes while fencing trigger DDL.
+Fresh schemas introduce no consumer objects or API. Observe and already-applied
+ledger entries remain unchanged. Historical SQL and checksums remain immutable.
+
+Permanent account cleanup additionally erases retained owner-scoped consumer
+connections before ordinary OAuth/app cleanup. The shared client and neighboring
+owners remain. This compatibility does not publish the consumer-MCP feature.
+
+The pinned `db/account_cleanup_replay.py` adapter preserves 418/419 cleanup and
+generation function/trigger successors during replay. Historical owner bootstrap
+statements exclude captured tombstoned identities; Gmail backfills exclude pending
+provider cleanup. The ordinary database guards remain the final concurrency fence.
+Referral filtering composes with the existing policy-successor verifier and retains
+the unresolved-genealogy refusal. Changed source, missing successor or changed
+function/trigger definitions refuse replay rather than restoring old authority.
+
+The checksum-pinned `db/private_agent_adoption.py` execution adapter preserves
+420's historical SQL and ledger checksum in replay and pending ledger execution;
+observe and already-applied ledger entries remain unchanged. Before 420's column
+inventory, it recognizes only the existing `byoc_setup_jobs.authorization_attempts`
+`jsonb` column with no default, nullable, and no identity or generated expression.
+This is the upgrade shape authored by 404's `ADD COLUMN IF NOT EXISTS`; 928's
+same clause does not tighten an already-present column. A missing column follows
+ordinary 420 DDL. Other shapes refuse adoption. Under the existing migration
+timeouts and table locks, SQL NULL becomes JSON literal `null`, never `{}`.
+The row's JSON representation remains unchanged and every non-null journal stays
+unchanged. Installed row guards remain authoritative: if they reject this update,
+adoption aborts rather than rewriting the table or disabling a guard.
+
+The adapter atomically sets the canonical empty-object default and `NOT NULL`,
+and installs the exact unvalidated `byoc_setup_authorization_history_object`
+check requiring an object on every future insert or update. Historical unknown
+journals remain unknown and retained. A retry cannot overwrite their job,
+project or stages; the canonical authorization guard also refuses deletion or
+replacement with an empty history. Replay verifies this check's exact definition,
+unvalidated state and column binding. A retained JSON-null journal without that
+check refuses adoption. The representation change and schema changes roll back
+if any later qualification fails; no authorization or cleanup receipt is created.
+
+The same preparation recognizes only the exact 906 deployment/credential checks,
+907 status check, and 904 receipt uniqueness/index predecessors. It qualifies
+their definitions, relation and column bindings, validation/deferral attributes,
+and supporting index definitions and validity before retiring them. The unchanged
+420 body then installs the 948/916/913 successors in the same transaction. Existing
+`anypoint` placements still refuse the deployment-target transition. Noncanonical
+constraints or indexes refuse; receipt rows and their hashes are never rewritten.
+Canonical successors are retained without replacing their objects. When an
+existing receipt table still lacks `ledger`, the same locked preparation must
+fully qualify and retire both 904 uniqueness constraints and its exact subject/id
+index before adding 913's `ledger TEXT NOT NULL DEFAULT 'consent'`. A partial or
+altered predecessor footprint refuses adoption; an existing ledger is left to
+420's exact column qualification. This adds the receipt namespace without
+updating existing payloads, sequence values, hashes or signatures. It does not
+re-sign old receipts or claim that a historical signing format passes the
+current cryptographic verifier.
+
+Qualification covers canonical-417 and rich-dev-972 upgrades, retained review,
+resource, consent, referral and encrypted credential records, backend/client roles,
+and unknown authority objects. SQL rollback of 418–421 deliberately refuses with
+forward-recovery guidance. Application rollback must retain these additive guards
+and receipts; once replacement generations are activated, an old generation-unaware
+binary cannot serve those accounts. Local qualification is not a live schema receipt.
+
 ## Execution Modes
 
 Canonical 399 supplies the eight service-only public-profile tables required by
@@ -195,6 +272,16 @@ OFF; their prior approval or source availability cannot be reconstructed from
 those flags. Historical SQL, ledger checksums and observe/ledger behavior remain
 unchanged. Repeated real PostgreSQL replay must preserve both provider ON and
 OFF states while continuing legacy retirement.
+
+Migration 420 adoption qualifies two retained external consumer-consent guards
+on `consent_audit` before admitting them alongside the canonical lifecycle
+triggers. The compatibility adapter pins the immutable migration source and the
+exact enabled trigger and called-function definitions, including security and
+search-path settings. Both guards must be present together or both absent;
+partial, altered or additional unknown objects still refuse adoption. Neither
+guard is invoked, replaced, disabled or removed by qualification. This applies
+to replay and a pending ledger application; observe and already-applied ledger
+entries remain unchanged. Historical SQL and recorded checksums stay immutable.
 
 ## UAT Zero-Loss Baseline Gate
 

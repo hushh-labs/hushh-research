@@ -64,7 +64,7 @@ import {
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { prepareProfileReview } from "@/lib/agent/profile-research-review";
 import { toPlainMemoryText } from "@/lib/pkm/memory-plain-text";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { LiveMirrorFact, LiveMirrorView } from "@/lib/pkm/live-mirror-contract";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
@@ -111,14 +111,14 @@ function liveMirrorView(ownerId: string, vaultEpoch: number): LiveMirrorView {
 }
 
 it("keeps a confirmed old-generation receipt without invalidating the replacement owner context", async () => {
-  publishValidatedAuthSessionOwner("owner-a");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-a", ownerId: "owner-a", accountGeneration: 0 });
   const guard = createAgentPkmCaptureGuard({
     userId: "owner-a", signal: new AbortController().signal, isEnabled: () => true,
   });
   const invalidate = vi.spyOn(AgentPkmContextStore, "invalidateUser");
   pkmSavePreparedDomainMock.mockImplementationOnce(async () => {
-    publishValidatedAuthSessionOwner("owner-b");
-    publishValidatedAuthSessionOwner("owner-a");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-b", ownerId: "owner-b", accountGeneration: 0 });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-a", ownerId: "owner-a", accountGeneration: 0 });
     advanceVaultSessionEpoch();
     return { success: true, saveState: "saved", fullBlob: {} };
   });
@@ -135,7 +135,7 @@ it("keeps a confirmed old-generation receipt without invalidating the replacemen
     expect(invalidate).not.toHaveBeenCalled();
   } finally {
     invalidate.mockRestore();
-    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionPrincipal(null);
   }
 });
 
@@ -228,6 +228,7 @@ describe("agent PKM memory helpers", () => {
     expect(() => AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "business-one" })).toThrow();
   });
   beforeEach(() => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_1", ownerId: "user_1", accountGeneration: 0 });
     vi.clearAllMocks();
     clearAgentPkmContext();
     peekLiveMirrorMock.mockReset().mockReturnValue(null);
@@ -382,6 +383,7 @@ describe("agent PKM memory helpers", () => {
   });
 
   afterEach(() => {
+    publishValidatedAuthSessionPrincipal(null);
     vi.useRealTimers();
   });
 

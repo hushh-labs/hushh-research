@@ -41,6 +41,8 @@ async def _terminal_outcome(
 ) -> str | None:
     if status == "invalidated":
         return "invalidated"
+    if status == "expired":
+        return "expired"
     if (
         status == "missing"
         and time.time() >= claimed["sessionObservedBy"] + _SESSION_EXPIRY_SECONDS
@@ -148,16 +150,17 @@ async def reconcile(
     if not await write_receipts.transition(row, operation, receipt, claimed, mode="claim"):
         return
     try:
-        size = claimed["byteCount"]
+        path, size = claimed["path"], claimed["byteCount"]
         if not isinstance(size, int) or not 28 <= size <= MAX_CIPHERTEXT_BYTES:
             raise FilesRefused("FILES_UPLOAD_CUSTODY_UNVERIFIED", 503)
         uri = write_receipts.restore(row, operation, claimed)
         stopped = claimed.get("providerTerminal") in {"cancelled", "invalidated", "expired"}
-        status = "uncertain" if stopped else await store.status(uri, claimed["path"], size)
-        # An inconclusive status probe may still identify a cancellable session.
-        # JSON HTTP 499 confirms cancellation; an exact session's HTTP 410
-        # confirms invalidation. A 404 qualifies only beyond the conservative
-        # post-initiation deadline. A 412 or lost reply remains inconclusive.
+        status = "uncertain"
+        if not stopped:
+            status = await store.status(uri, path, size, admission=row.get("bucket_admission"))
+        # JSON 499 confirms cancellation; 410 confirms invalidation. Qualified
+        # GCS expiry binds the original bucket; generic missing still needs age.
+        # A 412 or lost reply is unknown; its exact session may be cancellable.
         if status != "complete" and not stopped:
             outcome = await _terminal_outcome(store, claimed, status, uri)
             if outcome:
@@ -181,8 +184,7 @@ async def reconcile(
             await write_receipts.transition(row, operation, claimed, None, mode="recovery")
             return
         data, version = await store.get_bounded_with_generation(
-            claimed["path"],
-            max_bytes=MAX_CIPHERTEXT_BYTES,
+            path, max_bytes=MAX_CIPHERTEXT_BYTES
         )
         terminal = (
             (status == "complete" or stopped)

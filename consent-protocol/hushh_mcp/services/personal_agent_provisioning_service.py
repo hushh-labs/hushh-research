@@ -2375,6 +2375,11 @@ class PersonalAgentProvisioningService:
         handle = await discover(hushh_id)
         if handle is None:
             return None  # no live pod to adopt -> caller reinits/rebuilds
+        verify_adoption = getattr(backend, "verify_adoption", None)
+        if verify_adoption is not None:
+            # Observation is read-only and precedes restoration, key collection,
+            # registry publication and any newly minted grant.
+            handle = await verify_adoption(spec, handle)
 
         # A prior failed deletion can leave an unstarted, immutable erasure
         # reservation around a pod that was deliberately retained. Restore only
@@ -3631,6 +3636,7 @@ class PersonalAgentProvisioningService:
         ledger: Any = None,
         revoke: bool = True,
         defer_row_delete: bool = False,
+        expected_erasure_attempt: str | None = None,
     ) -> dict[str, Any]:
         """Reconcile qualified memory and compute erasure while retaining recovery resources.
 
@@ -3646,17 +3652,38 @@ class PersonalAgentProvisioningService:
             raise ValueError("user_id is required")
         from hushh_mcp.services.account_service import PersonalAgentDeprovisioningRequiredError
 
+        if expected_erasure_attempt is not None:
+            current = await self._registry.get(user_id) or {}
+            if (current.get("backend_metadata") or {}).get("erasure", {}).get(
+                "attemptId"
+            ) != expected_erasure_attempt:
+                raise PersonalAgentDeprovisioningRequiredError()
         try:
             await asyncio.to_thread(
                 AccountService().assert_personal_agent_external_resources_absent, user_id
             )
         except PersonalAgentDeprovisioningRequiredError:
+            from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+
+            # Admission precedes reservation, pod fencing, memory erasure and
+            # compute deletion. A later substrate guard cannot undo them.
+            if not personal_agent_substrate_teardown_enabled():
+                raise
+            from hushh_mcp.services.hosted_tier_guard import require_supported_erasure
+
+            require_supported_erasure(await self._registry.get(user_id))
             reserve = getattr(self._registry, "reserve_erasure", None)
             if reserve is not None:
                 try:
                     reservation = await reserve(user_id=user_id)
                     if not isinstance(reservation, dict):
                         raise RuntimeError("erasure reservation unavailable")
+                    require_supported_erasure(reservation.get("registrySnapshot"))
+                    if (
+                        expected_erasure_attempt is not None
+                        and reservation.get("attemptId") != expected_erasure_attempt
+                    ):
+                        raise RuntimeError("erasure attempt changed")
                     if await never_hosted.erase_reserved_outside_chain(self, user_id=user_id, reservation=reservation):  # fmt: skip
                         return {"status": "unprovisioned", "noOp": False, "rowDeleteDeferred": True}
                     if not reservation.get("bootstrapGrantRelease"):

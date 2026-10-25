@@ -124,7 +124,7 @@ def _user_keyed_tables() -> dict[str, str]:
 
 
 @pytest.fixture
-def erased_tables(monkeypatch) -> set[str]:
+def erased_tables(monkeypatch, legacy_account_without_shared_files) -> set[str]:
     """Capture SQL actually executed after the real external-resource guard."""
     service = AccountService()
     conn = MagicMock()
@@ -150,7 +150,9 @@ def erased_tables(monkeypatch) -> set[str]:
         yield conn
 
     monkeypatch.setattr("hushh_mcp.services.account_service.get_db_connection", connection)
-    result = asyncio.run(service._delete_full_account("synthetic-owner", requested_target="both"))
+    from tests.services.test_account_service_cleanup_tables import _finalize_recorded_cleanup
+
+    result = asyncio.run(_finalize_recorded_cleanup(service, monkeypatch, "synthetic-owner"))
     assert result["success"] is True
     statements = [str(call.args[0]) for call in conn.execute.call_args_list]
     guard = next(

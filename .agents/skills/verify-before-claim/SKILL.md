@@ -149,9 +149,9 @@ yet parse it — instantly, with a misleading label.
 Generalise the check: whenever configuration and the code it drives come from different
 refs, versions, or repositories, that seam is unversioned and will skew. Ask where the
 caller comes from, where the callee comes from, and whether anything forces them to agree.
-The same question applies to generated files — `.claude/agents/*.md` are generated from
-`.agents/subagents/*.toml`, so editing the generated copy is a change that silently disappears
-on the next sync.
+The same question applies to generated contracts: editing an emitted file instead of its
+authored source is a change that silently disappears on the next regeneration. Engineering
+lanes are authored only under `.agents/subagents/`; vendor projections are retired.
 
 ## 2c-i. A module-level import is a graph, not a line
 

@@ -324,7 +324,9 @@ describe("AG-UI Agent One client", () => {
       await vi.waitFor(() => expect(marks).toHaveBeenCalledWith("hushh:agent-chat:wire-start"));
       expect(marks).not.toHaveBeenCalledWith("hushh:agent-chat:response-headers");
       expect(marks).not.toHaveBeenCalledWith("hushh:agent-chat:first-text");
-      releaseHeaders(new Response("synthetic stream", { status: 200 }));
+      releaseHeaders(new Response(": synthetic fixture\n\n", {
+        status: 200, headers: { "content-type": "text/event-stream" },
+      }));
       await turn;
       expect(marks.mock.calls).toEqual([
         ["hushh:agent-chat:wire-start"],

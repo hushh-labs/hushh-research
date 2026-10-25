@@ -1,15 +1,12 @@
 {
   "id": "agent-orchestration-governance",
   "title": "Agent Orchestration Governance",
-  "goal": "Define or tighten repo-scoped Codex custom agents, bounded subagent limits, root craft and bacterial-architecture inheritance, delegation authority, and verification rules without duplicating the existing skills and workflow system.",
+  "goal": "Define or tighten repository engineering agents, bounded subagent limits, root craft and bacterial-architecture inheritance, delegation authority, and verification rules without duplicating the existing skills and workflow system.",
   "owner_skill": "agent-orchestration-governance",
   "default_spoke": null,
   "task_type": "agent-orchestration-governance",
   "affected_surfaces": [
     ".agents/subagents",
-    ".agents/generated",
-    ".agents/startup.json",
-    ".agents/scripts",
     ".agents/routing",
     ".agents/skills/agent-orchestration-governance",
     ".agents/workflows/agent-orchestration-governance",
@@ -33,22 +30,22 @@
   ],
   "verification_bundle": {
     "id": "agent-orchestration-governance",
-      "commands": [
-        "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
-        "python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
-        "./scripts/ci/repo-governance-check.sh",
-        "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-        "./bin/hushh codex list-workflows",
-        "./bin/hushh codex audit",
+    "commands": [
+      "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+      "python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+      "./scripts/ci/repo-governance-check.sh",
+      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh codex list-workflows",
+      "./bin/hushh codex audit",
       "./bin/hushh docs verify"
     ],
-      "tests": [
-        "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
-        "python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
-        "./scripts/ci/repo-governance-check.sh",
-        "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-        "./bin/hushh codex audit",
-        "./bin/hushh docs verify"
+    "tests": [
+      "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+      "python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+      "./scripts/ci/repo-governance-check.sh",
+      "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
+      "./bin/hushh codex audit",
+      "./bin/hushh docs verify"
     ]
   },
   "deliverables": [

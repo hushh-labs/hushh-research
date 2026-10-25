@@ -1,0 +1,37 @@
+{
+  "qualification": {
+    "version": 2,
+    "host_kind": "azure_container_apps",
+    "source_revision": "9174abfbe5944bae1757b01beadb0917534d7bd1",
+    "image_tag": "dev-9174abfbe5944bae1757b01beadb0917534d7bd1",
+    "public_policy_sha256": "4a0fd35d4fe0bb4e44fe6bb901a7953ce9b50b3c401d78234fa64355cf457978",
+    "readiness": {
+      "version": 2,
+      "cloud": "azure",
+      "component_digest": "sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423",
+      "boundary": "shared_owner_container",
+      "chromium_sandbox": false,
+      "browser_start_verified": true,
+      "runtime_uid_verified": true,
+      "lifecycle_verified": true,
+      "isolated": false,
+      "direct_egress_denied": false,
+      "broker_bridge_verified": true,
+      "ephemeral_bridge_verified": true,
+      "private_access_denied": false,
+      "model_transport_verified": true,
+      "model_name": "one-chat",
+      "model_transport": "hushh_mcp.runtime_providers.azure_browser_adk.AzureBrowserAdkModel"
+    },
+    "public_policy": {
+      "page_urls": [
+        "https://one-browser-fixture-43c093d2.hussh-qual-261025.workers.dev/",
+        "https://one-browser-fixture-43c093d2.hussh-qual-261025.workers.dev/favicon.ico"
+      ],
+      "static_prefixes": [],
+      "interactive_origins": [
+        "https://one-browser-fixture-43c093d2.hussh-qual-261025.workers.dev"
+      ]
+    }
+  }
+}

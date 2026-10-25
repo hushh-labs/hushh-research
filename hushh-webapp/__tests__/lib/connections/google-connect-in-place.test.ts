@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const placement = vi.hoisted(() => vi.fn(async () => false));
 vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: placement }));
@@ -309,6 +310,19 @@ describe("connectCalendarInPlace", () => {
     window.localStorage.clear();
   });
 
+  it("keeps a replacement owner's popup and status cache separate from Firebase UID", async () => {
+    const ownerId = "acct_" + "a".repeat(32);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: owner.uid, ownerId, accountGeneration: 1 });
+    mocks.calendarStatus.mockResolvedValue({ connected: true, status: "connected", access_level: "manage" });
+    const start = connectCalendarInPlace({ owner, accessLevel: "manage" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    const attempt = JSON.parse(popup.sessionStorage.getItem(GOOGLE_ATTEMPT_KEY) || "null");
+    expect(attempt.ownerId).toBe(ownerId);
+    post(calendarSettlement(attempt.attemptId), popup);
+    await expect(start.result).resolves.toBe("connected");
+    expect(mocks.calendarStatus).toHaveBeenCalledWith(expect.any(String), ownerId);
+  });
+
   it("requires manage access for a scheduling connect", async () => {
     mocks.calendarStatus.mockResolvedValue({ connected: true, status: "connected", access_level: "read" });
     const start = connectCalendarInPlace({ owner, accessLevel: "manage" });
@@ -370,3 +384,5 @@ it("preserves Calendar List permission through native in-chat recovery", async (
   expect(mocks.calendarStartNative).toHaveBeenCalledWith(expect.objectContaining({ includeCalendarList: true }));
   expect(mocks.connectCalendar).toHaveBeenCalledWith(expect.objectContaining({ includeCalendarList: true }));
 });
+
+beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: owner.uid, ownerId: owner.uid, accountGeneration: 0 }));

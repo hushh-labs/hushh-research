@@ -45,7 +45,7 @@ class ScriptedLlm(BaseLlm):
 
 
 @pytest.fixture(autouse=True)
-def active_token(monkeypatch):
+def active_token(monkeypatch, active_account_lifecycle):
     async def active(self, user_id, scope, agent_id=None, *, token_id=None):
         return True
 

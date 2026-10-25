@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
@@ -42,7 +43,7 @@ vi.mock("@/lib/services/initial-contacts-onboarding-service", () => {
 });
 vi.mock("@/lib/services/kai-profile-service", () => ({ resolveKaiOnboardingCompletion: () => false }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace, push: vi.fn(), prefetch: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
-vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: state.user }) }));
+vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: state.user, userId: state.user.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "vault-key", vaultOwnerToken: "vault-token" }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">Set a lock</div> : null }));
 vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
@@ -254,3 +255,5 @@ describe("Setup saved AI choice", () => {
     await waitFor(() => expect(state.replace).toHaveBeenCalledWith("/"));
   });
 });
+
+beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: state.user.uid, ownerId: state.user.uid, accountGeneration: 0 }));

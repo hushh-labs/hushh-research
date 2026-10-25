@@ -28,6 +28,38 @@ def copy_candidate_tools(root, destination_root):
         shutil.copy2(root / "scripts/ci" / name, destination_root / "scripts/ci" / name)
 
 
+def dev_migration_environment(directory: Path) -> dict[str, str]:
+    """Only fixed synthetic qualification, fence and migration subprocesses."""
+    (directory / "consent-protocol").mkdir()
+    commands = {
+        "python-gate": 'printf "%s:%s:%s\\n" "$*" "$DB_USER" "$DB_PASSWORD" >> "$CALLS"',
+        "gcloud": 'case "$*" in *MIGRATOR_DB_USER*) echo scope_commerce_sandbox_migrator;; '
+        "*MIGRATOR_DB_PASSWORD*) echo synthetic-migration-password;; *) exit 1;; esac",
+        "python3": '[ "$*" = "deploy/account-deletion/activate_release.py --qualify-source '
+        + "a" * 40
+        + '" ] || exit 91\necho qualified >> "$RELEASE_CALLS"\nexit "${QUALIFY_EXIT:-0}"',
+        "psql": '[ "$*" = "--no-psqlrc --set=ON_ERROR_STOP=1 --file '
+        'deploy/account-deletion/install_release_fence.sql" ] || exit 92\n'
+        '[ "$PGHOST:$PGPORT:$PGDATABASE:$PGUSER:$PGPASSWORD" = '
+        '"127.0.0.1:6543:postgres:scope_commerce_sandbox:synthetic-runtime-password" ] || exit 93\n'
+        'echo fence >> "$RELEASE_CALLS"\nexit "${FENCE_EXIT:-0}"',
+    }
+    for name, body in commands.items():
+        script = directory / name
+        script.write_text("#!/bin/sh\nset -eu\n" + body + "\n")
+        script.chmod(0o755)
+    return {
+        **os.environ,
+        "PATH": str(directory) + ":" + os.environ["PATH"],
+        "DEPLOY_SECRET_PREFIX": "SCOPE_COMMERCE_SANDBOX_",
+        "DB_USER": "scope_commerce_sandbox",
+        "DB_PASSWORD": "synthetic-runtime-password",
+        "DEV_DB_NAME": "postgres",
+        "CALLS": str(directory / "calls"),
+        "RELEASE_CALLS": str(directory / "release-calls"),
+    }
+
+
 def run_candidate_gate(
     root, env, *, project="project", region="region", service="service", tag="dev-candidate-99"
 ):
@@ -127,6 +159,20 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/process_group.py",
         "scripts/ci/runtime_capacity_inventory.py",
         "scripts/ci/account-deletion-fence-decision.py",
+        "scripts/ci/verify-cloud-scheduler-attempt.py",
+        "scripts/ci/cloudrun-rollback.sh",
+        "deploy/drive/rollback_after_worker_failure.sh",
+        *(
+            f"deploy/account-deletion/{name}"
+            for name in (
+                "install_release_fence.sql",
+                "remove_release_fence.sql",
+                "activate_release.py",
+                "release_target.py",
+                "setup_cleanup_scheduler.sh",
+                "verify_release_boundary.sql",
+            )
+        ),
         "scripts/ci/managed_provider_readiness.py",
         "scripts/ci/managed_capability_proof.py",
         "scripts/ops/verify-env-secrets-parity.py",

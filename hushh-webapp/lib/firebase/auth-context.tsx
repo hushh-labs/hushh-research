@@ -70,7 +70,11 @@ import {
   type AuthSessionInvalidationCode,
 } from "@/lib/auth/session-invalidation";
 import {
-  publishValidatedAuthSessionOwner,
+  publishValidatedAuthSessionPrincipal,
+  publishPendingAuthSessionIdentity,
+  snapshotValidatedAuthSessionPrincipal,
+  snapshotAuthSessionGeneration,
+  type AccountPrincipalBinding,
   AUTH_SESSION_VERIFICATION_REQUIRED_EVENT,
   snapshotValidatedAuthSessionOwner,
   isValidatedAuthSessionOwnerCurrent,
@@ -78,7 +82,7 @@ import {
   type AuthSessionVerificationRequiredDetail,
   type AuthSessionOwnerSnapshot,
 } from "@/lib/auth/session-owner";
-import { inspectAccountSessionStatusResponse, waitForAccountDeletionReprobe, withinAccountSessionValidationBudget } from "@/lib/auth/account-session-status";
+import { inspectAccountSessionStatusResponse, waitForAccountDeletionReprobe, withinAccountSessionValidationBudget, hasJsonResponseContentType, readBoundedAccountSessionStatusBody } from "@/lib/auth/account-session-status";
 import { ACCOUNT_SESSION_VALIDATION_BUDGET_MS } from "@/lib/auth/account-session-policy";
 import { clearAccountDeletionActive, markAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 import { shouldSkipAmbientIdentityHydrationForAutomation } from "@/lib/testing/native-test";
@@ -86,6 +90,8 @@ import { useOneConversationSession } from "@/lib/agent/one-conversation-session"
 import { settleSignOutNotifications } from "@/lib/auth/sign-out-notifications";
 import { replaceWindowLocation } from "@/lib/utils/browser-navigation";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { parseAccountRegistrationRecovery, type AccountRegistrationRecovery } from "@/lib/auth/account-registration";
+import { parseAccountCleanupOperation, type AccountCleanupOperation } from "@/lib/auth/account-cleanup-operation";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -96,7 +102,8 @@ const PHONE_RECOVERY_REQUEST_BUDGET_MS = 10_000;
 const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
 
 type AccountSessionValidationResult =
-  | { outcome: "active" | "unavailable" }
+  | { outcome: "active"; principal: AccountPrincipalBinding }
+  | { outcome: "unavailable"; cleanup?: AccountCleanupOperation; registration?: AccountRegistrationRecovery }
   | { outcome: "terminal"; code: AuthSessionInvalidationCode };
 
 function authInvalidationUserIdFromError(error: unknown): string | null {
@@ -157,6 +164,8 @@ interface AuthContextType {
   loading: boolean;
   /** True when the backend has not authoritatively confirmed this session. */
   sessionVerificationRequired: boolean;
+  accountCleanup: AccountCleanupOperation | null;
+  accountRegistration: AccountRegistrationRecovery | null;
   phoneNumber: string | null;
   phoneNumberStatus: "loading" | "verified" | "missing" | "unavailable";
   /** Resolves only after the verified backend phone lookup has settled. */
@@ -164,6 +173,7 @@ interface AuthContextType {
   // Derived state
   isAuthenticated: boolean;
   userId: string | null;
+  accountPrincipal: AccountPrincipalBinding | null;
   // Methods
   startPhoneVerification: (
     phoneNumber: string,
@@ -194,6 +204,7 @@ interface AuthContextType {
   checkAuth: () => Promise<void>; // Manually trigger auth check (e.g. after native login)
   setNativeUser: (user: User | null) => void; // Helper to manually set user state
   beginPostAuthSettlement: (user: User) => number;
+  admitPostAuthSettlement: (settlementId: number) => Promise<string | null>;
   completePostAuthSettlement: (settlementId: number) => void;
   refreshUser: () => Promise<User | null>;
   retrySessionVerification: () => Promise<void>;
@@ -218,6 +229,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
   const [sessionVerificationRequired, setSessionVerificationRequired] =
     useState(false);
+  const [cleanupStatus, setCleanupStatus] = useState<{ ownerId: string; operation: AccountCleanupOperation } | null>(null);
+  const cleanupStatusRef = useRef(cleanupStatus);
+  cleanupStatusRef.current = cleanupStatus;
+  const [registrationStatus, setRegistrationStatus] = useState<{ identityUid: string; recovery: AccountRegistrationRecovery } | null>(null);
+  const retainCleanupStatus = useCallback((ownerId: string, validation: AccountSessionValidationResult) => {
+    if (validation.outcome === "terminal") return;
+    setRegistrationStatus(current => validation.outcome === "unavailable" && validation.registration
+      ? { identityUid: ownerId, recovery: validation.registration }
+      : validation.outcome === "active" || validation.outcome === "unavailable" && validation.cleanup || current?.identityUid !== ownerId ? null : current);
+    setCleanupStatus(current => validation.outcome === "unavailable" && validation.cleanup
+      ? { ownerId, operation: validation.cleanup }
+      : validation.outcome === "active" || validation.outcome === "unavailable" && validation.registration || current?.ownerId !== ownerId ? null : current);
+  }, []);
   const [nativePrivacyReady, setNativePrivacyReady] =
     useState<NativeSessionPrivacyState | null>(null);
   const nativePrivacyLatestRef = useRef<NativeSessionPrivacyState | null>(null);
@@ -249,6 +273,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [userId, setUserId] = useState<string | null>(null);
 
   const userRef = useRef<User | null>(null);
+  const principalRef = useRef<AccountPrincipalBinding | null>(null);
+  const [accountPrincipal, setAccountPrincipal] = useState<AccountPrincipalBinding | null>(null);
   const phoneNumberRef = useRef<string | null>(null);
   const phoneVerificationOwnerRef = useRef<string | null>(null);
   const phoneVerificationEpochRef = useRef(0);
@@ -261,6 +287,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const authRecoveryInFlightRef = useRef(false);
   const terminalInvalidationLatchRef = useRef<{
     invalidatedUserId: string | null;
+    firebaseUid: string | null;
     observedAnonymous: boolean;
   } | null>(null);
   const activeSessionValidationPromiseRef = useRef<Promise<void> | null>(null);
@@ -290,10 +317,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => { phoneRecoveryLifetimeRef.current += 1; };
   }, []);
 
-  const applyAuthUser = useCallback((nextUser: User | null) => {
+  const applyAuthUser = useCallback((nextUser: User | null, admitted: AccountPrincipalBinding | null) => {
     if (nextUser && nextUser.uid === signingOutUserIdRef.current) return;
     const terminalLatch = terminalInvalidationLatchRef.current;
-    if (nextUser && terminalLatch?.invalidatedUserId === nextUser.uid) {
+    if (nextUser && terminalLatch?.firebaseUid === nextUser.uid) {
       // A late observer/native callback from the invalidated auth generation
       // must never republish the deleted identity while sign-out is settling.
       return;
@@ -306,8 +333,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } else if (
       nextUser &&
       terminalLatch?.observedAnonymous &&
-      (!terminalLatch.invalidatedUserId ||
-        nextUser.uid !== terminalLatch.invalidatedUserId)
+      (!terminalLatch.firebaseUid ||
+        nextUser.uid !== terminalLatch.firebaseUid)
     ) {
       // Do not reopen the invalidation path merely because sign-out finished.
       // A successfully validated identity published after an observed
@@ -315,7 +342,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       terminalInvalidationLatchRef.current = null;
     }
 
-    if (userRef.current?.uid !== nextUser?.uid) {
+    const verified = nextUser && admitted?.firebaseUid === nextUser.uid ? admitted : null;
+    const previous = principalRef.current;
+    const principal = verified && previous?.ownerId === verified.ownerId
+      && previous.firebaseUid === verified.firebaseUid && previous.accountGeneration === verified.accountGeneration
+      ? previous : verified;
+    const ownerId = principal?.ownerId ?? null;
+    if (userRef.current?.uid !== nextUser?.uid || principalRef.current?.ownerId !== ownerId) {
       phoneVerificationOwnerRef.current = null;
       phoneVerificationEpochRef.current += 1;
       setConfirmationResult(null);
@@ -323,47 +356,53 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setPhoneVerificationPhoneNumber(null);
       setPhoneVerificationAttempt(null);
     }
-    const cachedIdentity = nextUser?.uid
-      ? AccountIdentityService.peekCachedIdentity(nextUser.uid)
+    const cachedIdentity = ownerId
+      ? AccountIdentityService.peekCachedIdentity(ownerId)
       : null;
     // Web OTP persists its verified claim on the backend while the primary
     // social Firebase user remains phone-less. Publish that committed claim
     // even when Firebase republishes the same user object after verification.
     const cachedPhone = cachedIdentity?.isStale
       ? null
-      : verifiedBackendPhoneNumber(cachedIdentity?.data, nextUser?.uid);
+      : verifiedBackendPhoneNumber(cachedIdentity?.data, ownerId ?? undefined);
     // A provider refresh or expired view cache is not a phone removal event.
-    const retainedPhone = nextUser?.uid === userRef.current?.uid ? phoneNumberRef.current : null;
+    const sameOwner = Boolean(ownerId && principalRef.current?.ownerId === ownerId);
+    const retainedPhone = sameOwner ? phoneNumberRef.current : null;
     const confirmedMissing = Boolean(cachedIdentity && !cachedIdentity.isStale &&
-      backendPhoneIsMissing(cachedIdentity.data, nextUser?.uid)) ||
-      (Boolean(nextUser) && nextUser?.uid === userRef.current?.uid && phoneNumberStatusRef.current === "missing");
+      backendPhoneIsMissing(cachedIdentity.data, ownerId ?? undefined)) ||
+      (sameOwner && phoneNumberStatusRef.current === "missing");
     const nextPhoneNumber = cachedPhone || (confirmedMissing ? null : retainedPhone || nextUser?.phoneNumber) || null;
     if (nextUser) {
       completedScopedSignOutUserIdRef.current = null;
     }
     userRef.current = nextUser;
-    publishValidatedAuthSessionOwner(nextUser?.uid ?? null);
+    setCleanupStatus(current => current?.ownerId === nextUser?.uid ? current : null);
+    setRegistrationStatus(current => current?.identityUid === nextUser?.uid ? current : null);
+    principalRef.current = principal;
+    setAccountPrincipal(principal);
+    if (nextUser && !principal) publishPendingAuthSessionIdentity(nextUser.uid);
+    else publishValidatedAuthSessionPrincipal(principal);
     if (!nextUser) {
       setSessionVerificationRequired(false);
     }
     phoneNumberRef.current = nextPhoneNumber;
     setUser(nextUser);
-    setUserId(nextUser?.uid ?? null);
+    setUserId(ownerId);
     setPhoneNumber(nextPhoneNumber);
     setPhoneNumberStatus(nextPhoneNumber ? "verified" : !nextUser || confirmedMissing ? "missing" : "loading");
     // Binds the cross-surface analytics identity (a salted digest, never the
     // UID) so web, iOS and Android resolve to one user in GA4. Deliberately
     // not awaited: analytics identity must never sit on the auth critical path.
-    void setObservabilityUserId(nextUser?.uid ?? null);
-    if (nextUser?.uid && isLocalCrmBuildEnabled()) {
+    void setObservabilityUserId(ownerId);
+    if (nextUser && ownerId && isLocalCrmBuildEnabled()) {
       const hydrateConnectedSystems = () => {
         void import("@/lib/services/connected-systems-resource-service")
           .then(async ({ ConnectedSystemsResourceService }) => {
-            await ConnectedSystemsResourceService.hydrateRegistry(nextUser.uid);
+            await ConnectedSystemsResourceService.hydrateRegistry(ownerId);
             const authToken = await nextUser.getIdToken().catch(() => null);
-            if (!authToken || userRef.current?.uid !== nextUser.uid) return;
+            if (!authToken || userRef.current?.uid !== nextUser.uid || principalRef.current !== principal) return;
             await ConnectedSystemsResourceService.loadRegistry({
-              userId: nextUser.uid,
+              userId: ownerId,
               authToken,
             });
           })
@@ -381,25 +420,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
     string | null
   > => {
     const currentUser = userRef.current;
-    if (!currentUser?.uid) return null;
+    const ownerId = principalRef.current?.ownerId;
+    if (!currentUser?.uid || !ownerId) return null;
     const generation = getAuthSessionGeneration();
     const lifetime = phoneRecoveryLifetimeRef.current;
     const isCurrent = () => userRef.current?.uid === currentUser.uid &&
       generation === getAuthSessionGeneration() && lifetime === phoneRecoveryLifetimeRef.current;
 
     const cachedIdentity = AccountIdentityService.peekCachedIdentity(
-      currentUser.uid,
+      ownerId,
     );
     const cachedPhone = cachedIdentity?.isStale
       ? null
-      : verifiedBackendPhoneNumber(cachedIdentity?.data, currentUser.uid);
+      : verifiedBackendPhoneNumber(cachedIdentity?.data, ownerId);
     if (cachedPhone) {
       phoneNumberRef.current = cachedPhone;
       setPhoneNumber(cachedPhone);
       setPhoneNumberStatus("verified");
       return cachedPhone;
     }
-    if (cachedBackendPhoneIsMissing(currentUser.uid)) {
+    if (cachedBackendPhoneIsMissing(ownerId)) {
       phoneNumberRef.current = null;
       setPhoneNumber(null);
       setPhoneNumberStatus("missing");
@@ -412,7 +452,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (existingPhone) return existingPhone;
 
     const inFlight = verifiedPhoneResolutionRef.current;
-    if (inFlight?.userId === currentUser.uid && inFlight.generation === generation && inFlight.lifetime === lifetime) {
+    if (inFlight?.userId === ownerId && inFlight.generation === generation && inFlight.lifetime === lifetime) {
       return inFlight.promise;
     }
 
@@ -435,13 +475,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       // A newer claim can publish after this read returns but before the
       // awaiting consumer resumes. Preserve that canonical phone evidence.
-      const phoneIdentity = cachedBackendPhoneIdentity(currentUser.uid) ?? identity;
-      const backendPhone = verifiedBackendPhoneNumber(phoneIdentity, currentUser.uid);
+      const phoneIdentity = cachedBackendPhoneIdentity(ownerId) ?? identity;
+      const backendPhone = verifiedBackendPhoneNumber(phoneIdentity, ownerId);
       if (backendPhone) {
         phoneNumberRef.current = backendPhone;
         setPhoneNumber(backendPhone);
         setPhoneNumberStatus("verified");
-      } else if (backendPhoneIsMissing(phoneIdentity, currentUser.uid)) {
+      } else if (backendPhoneIsMissing(phoneIdentity, ownerId)) {
         phoneNumberRef.current = null;
         setPhoneNumber(null);
         setPhoneNumberStatus("missing");
@@ -452,7 +492,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return backendPhone || phoneNumberRef.current;
     })();
     verifiedPhoneResolutionRef.current = {
-      userId: currentUser.uid,
+      userId: ownerId,
       generation,
       lifetime,
       promise,
@@ -461,7 +501,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return await promise;
     } catch (error) {
       if (isCurrent() && !phoneNumberRef.current && !hasActivePhoneAttempt()) {
-        setPhoneNumberStatus(cachedBackendPhoneIsMissing(currentUser.uid) || phoneNumberStatusRef.current === "missing"
+        setPhoneNumberStatus(cachedBackendPhoneIsMissing(ownerId) || phoneNumberStatusRef.current === "missing"
           ? "missing" : "unavailable");
       }
       throw error;
@@ -473,8 +513,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [setPhoneNumberStatus]);
 
   useEffect(() => {
-    if (!user || shouldSkipAmbientIdentityHydrationForAutomation()) return;
+    if (!user || !accountPrincipal || shouldSkipAmbientIdentityHydrationForAutomation()) return;
     const expectedUid = user.uid;
+    const ownerId = accountPrincipal.ownerId;
     const generation = getAuthSessionGeneration();
     let disposed = false;
     let running = false;
@@ -488,19 +529,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
       retryTimer = null;
     };
-    const freshIdentity = () => cachedBackendPhoneIdentity(expectedUid);
+    const freshIdentity = () => cachedBackendPhoneIdentity(ownerId);
     const hasFreshPhoneEvidence = () => {
       const identity = freshIdentity();
-      return Boolean(verifiedBackendPhoneNumber(identity, expectedUid) || backendPhoneIsMissing(identity, expectedUid));
+      return Boolean(verifiedBackendPhoneNumber(identity, ownerId) || backendPhoneIsMissing(identity, ownerId));
     };
     const applyPhoneIdentity = (identity: AccountIdentity | null | undefined) => {
       if (!isCurrent()) return false;
-      const verifiedPhone = verifiedBackendPhoneNumber(identity, expectedUid);
+      const verifiedPhone = verifiedBackendPhoneNumber(identity, ownerId);
       if (verifiedPhone) {
         phoneNumberRef.current = verifiedPhone;
         setPhoneNumber(verifiedPhone);
         setPhoneNumberStatus("verified");
-      } else if (backendPhoneIsMissing(identity, expectedUid)) {
+      } else if (backendPhoneIsMissing(identity, ownerId)) {
         phoneNumberRef.current = null;
         setPhoneNumber(null);
         setPhoneNumberStatus("missing");
@@ -540,7 +581,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
     const cache = CacheService.getInstance();
     const unsubscribe = cache.subscribe((event) => {
-      if (!isCurrent() || event.type !== "set" || event.key !== CACHE_KEYS.ACCOUNT_IDENTITY(expectedUid)) return;
+      if (!isCurrent() || event.type !== "set" || event.key !== CACHE_KEYS.ACCOUNT_IDENTITY(ownerId)) return;
       applyPhoneIdentity(freshIdentity());
     });
     window.addEventListener("online", wake);
@@ -562,18 +603,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
       window.removeEventListener("focus", wake);
       document.removeEventListener("visibilitychange", wake);
     };
-  }, [resolveVerifiedPhoneNumber, setPhoneNumberStatus, user]);
+  }, [resolveVerifiedPhoneNumber, setPhoneNumberStatus, user, accountPrincipal]);
 
   const refreshUser = useCallback(async (): Promise<User | null> => {
+    const captured = principalRef.current;
+    const generation = getAuthSessionGeneration();
+    const current = () => generation === getAuthSessionGeneration()
+      && captured?.ownerId === principalRef.current?.ownerId;
     if (Capacitor.isNativePlatform()) {
       const restoreEpoch = nativeRestoreEpochRef.current.begin();
       nativeRestoreSettledRef.current = false;
       try {
         const nativeUser = await AuthService.restoreNativeSession();
-        if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
+        if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch) || !current()) {
           return userRef.current;
         }
-        applyAuthUser(nativeUser);
+        applyAuthUser(nativeUser, captured);
         return nativeUser;
       } finally {
         if (nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
@@ -588,7 +633,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       await currentUser.reload().catch(() => undefined);
     }
     const refreshedUser = auth.currentUser;
-    applyAuthUser(refreshedUser);
+    if (!current()) return userRef.current;
+    applyAuthUser(refreshedUser, captured);
     setLoading(false);
     return refreshedUser;
   }, [applyAuthUser]);
@@ -604,55 +650,74 @@ export function AuthProvider({ children }: AuthProviderProps) {
     async (candidateUser: User): Promise<AccountSessionValidationResult> => {
       const deadlineMs = Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS;
       const validationOwner = snapshotValidatedAuthSessionOwner();
+      const validationEpisode = snapshotAuthSessionGeneration();
+      const validationPrincipal = snapshotValidatedAuthSessionPrincipal();
       let cachedToken: string | null = null;
-      const activeResult = (): AccountSessionValidationResult => {
+      const activeResult = (principal: AccountPrincipalBinding): AccountSessionValidationResult => {
         const observed = observedDeletionOwnerRef.current;
-        if (observed?.userId === candidateUser.uid && validationOwner &&
-            observed.generation === validationOwner.generation &&
-            observed.userId === validationOwner.userId &&
-            isValidatedAuthSessionOwnerCurrent(validationOwner)) {
-          clearAccountDeletionActive(candidateUser.uid);
+        if (observed?.userId === principal.ownerId && principal.firebaseUid === candidateUser.uid &&
+            validationEpisode && isValidatedAuthSessionOwnerCurrent(validationEpisode)) {
+          clearAccountDeletionActive(principal.ownerId);
           observedDeletionOwnerRef.current = null;
         }
-        return { outcome: "active" };
+        return { outcome: "active", principal };
+      };
+
+      const resolveRegistrationRecovery = async (idToken: string, terminal: AccountSessionValidationResult): Promise<AccountSessionValidationResult> => {
+        try {
+          const response = await withinAccountSessionValidationBudget(ApiService.getAccountRegistrationStatus(idToken), deadlineMs);
+          // Older images and the deliberate rollout-off state keep the original
+          // lifecycle outcome. A network failure never proves cleanup completed.
+          if (response.status === 404) return terminal;
+          if (response.ok && hasJsonResponseContentType(response)) {
+            const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
+            const registration = parseAccountRegistrationRecovery(body);
+            if (registration) return { outcome: "unavailable", registration };
+          }
+        } catch { /* Keep identity for purpose-bound recovery, never admit it. */ }
+        return { outcome: "unavailable" };
       };
 
       const resolveDeletionInProgress = async (
         idToken: string,
-        response: Response,
+        pendingResponse: Response,
       ): Promise<AccountSessionValidationResult> => {
-        if (validationOwner?.userId === candidateUser.uid &&
+        if (validationPrincipal?.firebaseUid === candidateUser.uid && validationOwner &&
             isValidatedAuthSessionOwnerCurrent(validationOwner)) {
           observedDeletionOwnerRef.current = validationOwner;
-          markAccountDeletionActive(candidateUser.uid);
+          markAccountDeletionActive(validationOwner.userId);
         }
         try {
-          // The backend waited on the deletion transaction before returning
-          // 423. Honor its bounded Retry-After once, while the auth/native
-          // privacy gates stay closed, then require an authoritative result.
-          // Never spin or auto-retry the destructive DELETE request itself.
-          await waitForAccountDeletionReprobe(response, deadlineMs);
-          const retryResponse = await withinAccountSessionValidationBudget(
-            ApiService.getAccountSessionStatus(idToken),
+          const response = await withinAccountSessionValidationBudget(
+            ApiService.getAccountCleanupStatus(idToken),
             deadlineMs,
           );
-          const retryInspection = await inspectAccountSessionStatusResponse(
-            retryResponse,
-            deadlineMs,
-          );
-          if (retryInspection.outcome === "active") {
-            // The deletion transaction rolled back; the still-live session is
-            // safe to retain.
-            return activeResult();
-          }
-          if (retryInspection.outcome === "terminal") {
-            return retryInspection;
+          if (response.ok && hasJsonResponseContentType(response)) {
+            const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
+            const operation = parseAccountCleanupOperation(body?.operation);
+            if (operation?.state === "complete") {
+              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: "account_deletion_identity_retained" });
+            }
+            if (operation) return { outcome: "unavailable", cleanup: operation };
           }
         } catch {
-          // Once the backend proves deletion is underway, a timeout, network
-          // loss, or unreadable follow-up is an uncertain destructive outcome
-          // and must never reopen cached authenticated UI.
+          // Cleanup continues durably. An unavailable progress read must not
+          // erase its retry identity, reopen private content, or replay DELETE.
         }
+        const retainedCleanup = cleanupStatusRef.current;
+        if (retainedCleanup?.ownerId === candidateUser.uid) {
+          return { outcome: "unavailable", cleanup: retainedCleanup.operation };
+        }
+        try {
+          await waitForAccountDeletionReprobe(pendingResponse, deadlineMs);
+          const retryResponse = await withinAccountSessionValidationBudget(ApiService.getAccountSessionStatus(idToken), deadlineMs);
+          const retryInspection = await inspectAccountSessionStatusResponse(retryResponse, deadlineMs, candidateUser.uid);
+          if (retryInspection.outcome === "active") return activeResult(retryInspection.principal);
+          if (retryInspection.outcome === "terminal") {
+            return retryInspection.code === "account_not_found" || retryInspection.code === "account_deleted"
+              ? resolveRegistrationRecovery(idToken, retryInspection) : retryInspection;
+          }
+        } catch { /* Keep recovery sealed until commit or rollback is observed. */ }
         // An exclusive lifecycle lock is positive evidence of pending work.
         // Preserve identity behind the sealed recovery gate and let its
         // existing backoff observer discover commit or rollback. Signing out
@@ -681,9 +746,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
           const inspection = await inspectAccountSessionStatusResponse(
             response,
             deadlineMs,
+            candidateUser.uid,
           );
-          if (inspection.outcome === "active") return activeResult();
-          if (inspection.outcome === "terminal") return inspection;
+          if (inspection.outcome === "active") return activeResult(inspection.principal);
+          if (inspection.outcome === "terminal") {
+            return inspection.code === "account_not_found" || inspection.code === "account_deleted"
+              ? resolveRegistrationRecovery(cachedToken, inspection) : inspection;
+          }
           if (inspection.outcome === "deletion_in_progress") {
             return resolveDeletionInProgress(cachedToken, inspection.response);
           }
@@ -723,14 +792,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
             const inspection = await inspectAccountSessionStatusResponse(
               response,
               deadlineMs,
+              candidateUser.uid,
             );
-            if (inspection.outcome === "active") return activeResult();
-            if (inspection.outcome === "terminal") return inspection;
+            if (inspection.outcome === "active") return activeResult(inspection.principal);
+            if (inspection.outcome === "terminal") {
+              return inspection.code === "account_not_found" || inspection.code === "account_deleted"
+                ? resolveRegistrationRecovery(refreshedToken, inspection) : inspection;
+            }
             if (inspection.outcome === "deletion_in_progress") {
-              return resolveDeletionInProgress(
-                refreshedToken,
-                inspection.response,
-              );
+              return resolveDeletionInProgress(refreshedToken, inspection.response);
             }
             if (inspection.outcome === "credential_rejected") {
               return { outcome: "terminal", code: "session_invalid" };
@@ -794,8 +864,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (nativeUser) {
           console.log("🍎 [AuthProvider] Native session restored");
+          if (userRef.current?.uid !== nativeUser.uid) applyAuthUser(nativeUser, null);
+          const owner = snapshotValidatedAuthSessionOwner();
+          const episode = getAuthSessionGeneration();
           const validation = await validateAccountSession(nativeUser);
-          if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
+          if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)
+              || episode !== getAuthSessionGeneration()) {
             return;
           }
           if (validation.outcome === "terminal") {
@@ -803,10 +877,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
             dispatchAuthSessionInvalidated({
               code: validation.code,
               path: "native_restore",
-              userId: nativeUser.uid,
+              userId: owner?.userId ?? nativeUser.uid,
+              ...(episode !== null ? { generation: episode } : {}),
             });
             return;
           }
+          retainCleanupStatus(nativeUser.uid, validation);
           if (validation.outcome === "unavailable") {
             console.warn(
               "🍎 [AuthProvider] Native session validation unavailable",
@@ -815,11 +891,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
           } else {
             setSessionVerificationRequired(false);
           }
-          applyAuthUser(nativeUser);
+          applyAuthUser(nativeUser, validation.outcome === "active" ? validation.principal : null);
         } else {
           console.log("🍎 [AuthProvider] No native session found");
           setSessionVerificationRequired(false);
-          applyAuthUser(null);
+          applyAuthUser(null, null);
         }
       } catch (_error) {
         if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
@@ -847,7 +923,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         nativeRestoreSettledRef.current = true;
         // ✅ CRITICAL: Always set loading to false after native check
         // This ensures VaultLockGuard can proceed (to login or vault unlock)
-        if (!terminalInvalidationDispatched) {
+        if (!terminalInvalidationDispatched && !activeSessionValidationPromiseRef.current) {
           setLoading(false);
         }
       }
@@ -857,7 +933,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Web restoration is owned by onAuthStateChanged below. Its watchdog is
     // scoped to that initial observer subscription so it can never release a
     // later explicit-verification or sign-out loading gate.
-  }, [applyAuthUser, validateAccountSession]);
+  }, [applyAuthUser, validateAccountSession, retainCleanupStatus]);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -871,20 +947,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
       skipFcmCleanup?: boolean;
       expectedUserId?: string;
     }): Promise<void> => {
-      const expectedUserId =
-        String(options?.expectedUserId || "").trim() || null;
+      const initiatingPrincipal = principalRef.current;
+      const initiatingUser = userRef.current;
+      const initiatingSdkUser = !IS_NATIVE ? AuthService.getCurrentUser() : null;
+      const expectedUserId = String(options?.expectedUserId || initiatingPrincipal?.ownerId || initiatingUser?.uid || "").trim() || null;
+      if (initiatingPrincipal && expectedUserId !== initiatingPrincipal.ownerId) return;
+      const expectedFirebaseUid = initiatingPrincipal?.firebaseUid ?? initiatingUser?.uid ?? expectedUserId;
       const stillOwnsExpectedSession = (): boolean => {
         if (!expectedUserId) return true;
 
+        const publishedOwner = principalRef.current;
+        if (publishedOwner && publishedOwner.ownerId !== expectedUserId) return false;
         const publishedUserId = userRef.current?.uid ?? null;
-        if (publishedUserId && publishedUserId !== expectedUserId) return false;
+        if (publishedUserId && publishedUserId !== expectedFirebaseUid) return false;
 
         // The Firebase JS identity changes before our validated React identity is
         // published. Treat that as an ownership loss on web, but do not consult
         // it on native where the native bridge is the publication authority.
         if (!IS_NATIVE) {
           const firebaseUserId = AuthService.getCurrentUser()?.uid ?? null;
-          if (firebaseUserId && firebaseUserId !== expectedUserId) return false;
+          if (firebaseUserId && firebaseUserId !== expectedFirebaseUid) return false;
+          if (initiatingSdkUser && AuthService.getCurrentUser() && AuthService.getCurrentUser() !== initiatingSdkUser) return false;
         }
         return true;
       };
@@ -918,22 +1001,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // user is published. Retain that exact UID in the invalidation latch so
         // its local vault/cache state is still destroyed during sign-out.
         const currentUid =
-          currentUser?.uid ??
+          initiatingPrincipal?.ownerId ?? currentUser?.uid ??
           terminalInvalidationLatchRef.current?.invalidatedUserId ??
           null;
         const redirectTo = options?.redirectTo || ROUTES.HOME;
         let ownsExpectedSession = true;
         setLoading(true);
-        signingOutUserIdRef.current = currentUid;
+        signingOutUserIdRef.current = expectedFirebaseUid;
         // Withdraw the published owner immediately. Vault and realtime
         // consumers must tear down while optional notification cleanup waits.
-        applyAuthUser(null);
+        applyAuthUser(null, null);
 
         try {
           // Preserve notification cleanup before credential invalidation, with
           // a short budget instead of the general network-request timeout.
-          if (currentUser && !options?.skipFcmCleanup) {
-            await settleSignOutNotifications(currentUser);
+          if (currentUser && currentUid && !options?.skipFcmCleanup) {
+            await settleSignOutNotifications(currentUser, currentUid);
           }
 
           // Clear the server-owned httpOnly session independently from the
@@ -945,7 +1028,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ownsExpectedSession = stillOwnsExpectedSession();
           if (!ownsExpectedSession) return;
 
-          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(currentUid)];
+          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(expectedFirebaseUid)];
           // The httpOnly session cookie exists only on the web/Next.js origin.
           // Native static builds authenticate directly against the backend, where
           // `/api/auth/session` is intentionally not a route.
@@ -995,7 +1078,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
 
           userRef.current = null;
-          applyAuthUser(null);
+          applyAuthUser(null, null);
           setConfirmationResult(null);
           setNativeVerificationId(null);
           setPhoneVerificationPhoneNumber(null);
@@ -1068,12 +1151,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return Promise.resolve();
       }
 
-      if (userRef.current) {
-        // This path is reserved for an explicit verification/recovery action;
-        // lifecycle events never reach it and therefore never toggle this gate.
+      if (userRef.current && !authGateRef.current.sessionVerificationRequired) {
+        // Seal an admitted screen once. Subsequent probes keep the existing
+        // recovery surface mounted instead of restarting global boot on each
+        // retry. Its verification gate still hides every protected surface.
         setLoading(true);
       }
 
+      const settlementEpoch = postAuthSettlementEpochRef.current;
       let operation!: Promise<void>;
       const runValidation = async () => {
         // Resolve the identity after the predecessor settles so an auth switch
@@ -1089,12 +1174,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
 
         const expectedUid = currentUser.uid;
+        const owner = snapshotValidatedAuthSessionOwner();
+        const episode = getAuthSessionGeneration();
 
         const validation = await validateAccountSession(currentUser);
         const firebaseUserId = !IS_NATIVE
           ? (AuthService.getCurrentUser()?.uid ?? null)
           : null;
         if (
+          settlementEpoch !== postAuthSettlementEpochRef.current ||
+          episode !== getAuthSessionGeneration() ||
           userRef.current?.uid !== expectedUid ||
           (firebaseUserId != null && firebaseUserId !== expectedUid) ||
           activePostAuthSettlementRef.current !== null
@@ -1109,17 +1198,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
             dispatchAuthSessionInvalidated({
               code: validation.code,
               path: "explicit_verification",
-              userId: expectedUid,
+              userId: owner?.userId ?? expectedUid,
+              ...(episode !== null ? { generation: episode } : {}),
             });
           }
           return;
         }
+        retainCleanupStatus(expectedUid, validation);
         if (validation.outcome === "unavailable") {
           console.warn(
             "🔒 [AuthProvider] Session validation unavailable; preserving session",
           );
+          if (validation.registration || validation.cleanup) applyAuthUser(currentUser, null);
           setSessionVerificationRequired(true);
         } else {
+          applyAuthUser(currentUser, validation.principal);
           setSessionVerificationRequired(false);
         }
         if (signOutPromiseRef.current || terminalInvalidationLatchRef.current) {
@@ -1145,6 +1238,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           !signOutPromiseRef.current &&
           !terminalInvalidationLatchRef.current &&
           activePostAuthSettlementRef.current === null &&
+          settlementEpoch === postAuthSettlementEpochRef.current &&
           !webAuthObserverPendingRef.current
         ) {
           // Also releases a gate when the serialized task safely became a no-op
@@ -1155,7 +1249,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       void operation.then(clearCompletedOperation, clearCompletedOperation);
       return operation;
     },
-    [validateAccountSession],
+    [validateAccountSession, retainCleanupStatus, applyAuthUser],
   );
 
   const retrySessionVerification = useCallback(async () => {
@@ -1169,7 +1263,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [checkAuth, validateActiveSession]);
 
   useEffect(() => {
-    if (!sessionVerificationRequired || (!userId && !IS_NATIVE)) return;
+    if (!sessionVerificationRequired || (!user?.uid && !IS_NATIVE)
+        || registrationStatus && registrationStatus.identityUid === user?.uid) return;
 
     let cancelled = false;
     let attempt = 0;
@@ -1209,13 +1304,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
       cancelled = true;
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
     };
-  }, [sessionVerificationRequired, userId, retrySessionVerification]);
+  }, [sessionVerificationRequired, user?.uid, retrySessionVerification, registrationStatus]);
 
   useEffect(() => {
     const handleAuthInvalidated = (event: Event) => {
       const customEvent = event as CustomEvent<AuthSessionInvalidationDetail>;
-      const eventUserId = String(customEvent.detail?.userId || "").trim();
-      const publishedUserId = userRef.current?.uid ?? null;
+      let eventUserId = String(customEvent.detail?.userId || "").trim();
+      const principal = principalRef.current;
+      if (customEvent.detail?.generation !== undefined && customEvent.detail.generation !== getAuthSessionGeneration()) return;
+      // A legacy raw-UID event cannot acquire a replacement owner's authority.
+      // Current transport events carry their captured browser episode.
+      if (principal && principal.accountGeneration > 0 && eventUserId !== principal.ownerId) {
+        if (eventUserId !== principal.firebaseUid || customEvent.detail?.generation === undefined) return;
+        eventUserId = principal.ownerId;
+      }
+      const publishedUserId = principal?.ownerId ?? userRef.current?.uid ?? null;
       const firebaseUserId = !IS_NATIVE
         ? (AuthService.getCurrentUser()?.uid ?? null)
         : null;
@@ -1228,7 +1331,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         (eventUserId &&
           eventUserId !== currentUserId &&
           !isCurrentNativeRestore) ||
-        (eventUserId && firebaseUserId && eventUserId !== firebaseUserId) ||
+        (eventUserId && firebaseUserId && (principal ? principal.firebaseUid !== firebaseUserId : eventUserId !== firebaseUserId)) ||
         (!eventUserId && !currentUserId)
       ) {
         return;
@@ -1260,6 +1363,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
       terminalInvalidationLatchRef.current = {
         invalidatedUserId: eventUserId || currentUserId,
+        firebaseUid: principal?.firebaseUid ?? userRef.current?.uid ?? firebaseUserId ?? (eventUserId || null),
         observedAnonymous: currentUserId === null,
       };
 
@@ -1306,8 +1410,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const detail = (event as CustomEvent<AuthSessionVerificationRequiredDetail>).detail;
       const owner = snapshotValidatedAuthSessionOwner();
       if (!detail || !owner || detail.userId !== owner.userId ||
-          detail.generation !== owner.generation || detail.userId !== userRef.current?.uid) return;
-      if (detail.reason === "account_deletion_in_progress") {
+          detail.generation !== owner.generation || detail.userId !== principalRef.current?.ownerId) return;
+      if (detail.reason === "account_deletion_in_progress" || detail.reason === "AUTH_ACCOUNT_DELETION_IN_PROGRESS") {
         observedDeletionOwnerRef.current = owner;
       }
       setSessionVerificationRequired(true);
@@ -1503,12 +1607,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
+      if (activePostAuthSettlementRef.current !== null) {
+        if (firebaseUser === userRef.current) return;
+        // A real SDK sign-out/switch retires an in-flight interactive admission.
+        postAuthSettlementEpochRef.current += 1;
+        activePostAuthSettlementRef.current = null;
+        webAuthObserverPendingRef.current = false;
+      }
       const revision = ++webAuthRevision;
+      const settlementEpoch = postAuthSettlementEpochRef.current;
       const authEpoch = signOutEpochRef.current;
       if (firebaseUser && firebaseUser.uid === signingOutUserIdRef.current) return;
       if (!firebaseUser) {
         webAuthObserverPendingRef.current = false;
-        applyAuthUser(null);
+        applyAuthUser(null, null);
         if (
           !signOutPromiseRef.current &&
           !terminalInvalidationLatchRef.current
@@ -1520,10 +1632,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       webAuthObserverPendingRef.current = true;
       setLoading(true);
+      if (userRef.current?.uid !== firebaseUser.uid) applyAuthUser(firebaseUser, null);
+      const owner = snapshotValidatedAuthSessionOwner();
+      const episode = getAuthSessionGeneration();
       void validateAccountSession(firebaseUser).then(
         (validation) => {
           if (!mounted || revision !== webAuthRevision ||
-              authEpoch !== signOutEpochRef.current) {
+              authEpoch !== signOutEpochRef.current ||
+              settlementEpoch !== postAuthSettlementEpochRef.current) {
+            return;
+          }
+          if (episode !== getAuthSessionGeneration()) {
+            webAuthObserverPendingRef.current = false;
+            if (!activeSessionValidationPromiseRef.current && !signOutPromiseRef.current
+                && !terminalInvalidationLatchRef.current) setLoading(false);
             return;
           }
           if (validation.outcome === "terminal") {
@@ -1531,12 +1653,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
             dispatchAuthSessionInvalidated({
               code: validation.code,
               path: "web_restore",
-              userId: firebaseUser.uid,
+              userId: owner?.userId ?? firebaseUser.uid,
+              ...(episode !== null ? { generation: episode } : {}),
             });
             return;
           }
+          retainCleanupStatus(firebaseUser.uid, validation);
           setSessionVerificationRequired(validation.outcome === "unavailable");
-          applyAuthUser(firebaseUser);
+          applyAuthUser(firebaseUser, validation.outcome === "active" ? validation.principal : null);
           webAuthObserverPendingRef.current = false;
           if (
             !signOutPromiseRef.current &&
@@ -1547,11 +1671,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         },
         () => {
           if (!mounted || revision !== webAuthRevision ||
-              authEpoch !== signOutEpochRef.current) return;
+              authEpoch !== signOutEpochRef.current ||
+              settlementEpoch !== postAuthSettlementEpochRef.current) return;
+          if (episode !== getAuthSessionGeneration()) {
+            webAuthObserverPendingRef.current = false;
+            if (!activeSessionValidationPromiseRef.current && !signOutPromiseRef.current
+                && !terminalInvalidationLatchRef.current) setLoading(false);
+            return;
+          }
           // The validator is intentionally fail-soft for untyped availability
           // errors. Preserve the persisted identity and let API calls retry.
           setSessionVerificationRequired(true);
-          applyAuthUser(firebaseUser);
+          applyAuthUser(firebaseUser, null);
           webAuthObserverPendingRef.current = false;
           if (
             !signOutPromiseRef.current &&
@@ -1582,6 +1713,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     applyAuthUser,
     checkAuth,
     validateAccountSession,
+    retainCleanupStatus,
   ]);
 
   // A completed Promise is not a rendered gate. Wait for React to commit the
@@ -1665,6 +1797,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       expectedEpoch: number,
     ): Promise<User | null> => {
       const currentUser = userRef.current;
+      const ownerId = principalRef.current?.ownerId;
       if (!Capacitor.isNativePlatform() || !currentUser || phoneNumberRef.current !== phone) return null;
       // An existing app-level claim need not be linked to native Firebase.
       // Reuse it only after the backend freshly confirms this exact owner/phone.
@@ -1673,7 +1806,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         { force: true, requireSuccess: true },
       );
       requirePhoneVerificationOwner(expectedUid, expectedEpoch);
-      if (!identity || identity.user_id !== expectedUid) {
+      if (!identity || identity.user_id !== ownerId) {
         throw new Error("Saved phone verification could not be confirmed. Please retry.");
       }
       if (identity.phone_verified !== true || identity.phone_number !== phone) return null;
@@ -1712,8 +1845,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       options?: { resendCode?: boolean },
     ): Promise<{ autoVerified: boolean; user?: User | null }> => {
       return await (async () => {
+        const capturedPrincipal = principalRef.current;
         const expectedUid = userRef.current?.uid;
-        if (!expectedUid) throw new Error("Sign in before verifying a phone number.");
+        if (!expectedUid || !capturedPrincipal) throw new Error("Sign in before verifying a phone number.");
         phoneVerificationOwnerRef.current = expectedUid;
         const expectedPhoneEpoch = ++phoneVerificationEpochRef.current;
         setConfirmationResult(null);
@@ -1731,7 +1865,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           const retainedUser = await confirmRetainedNativePhone(phone, expectedUid, expectedPhoneEpoch);
           requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
           if (retainedUser) {
-            applyAuthUser(retainedUser);
+            applyAuthUser(retainedUser, capturedPrincipal);
             phoneVerificationOwnerRef.current = null;
             return { autoVerified: true, user: retainedUser };
           }
@@ -1767,7 +1901,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (!result) {
             const linkedUser = await finalizeLinkedProviderPhone(phone, expectedUid, expectedPhoneEpoch);
             if (linkedUser) {
-              applyAuthUser(linkedUser);
+              applyAuthUser(linkedUser, capturedPrincipal);
               phoneVerificationOwnerRef.current = null;
               return { autoVerified: true, user: linkedUser };
             }
@@ -1815,7 +1949,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             await AccountIdentityService.finalizeNativePhoneVerification(refreshedUser, phone);
           }
           requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
-          applyAuthUser(refreshedUser);
+          applyAuthUser(refreshedUser, capturedPrincipal);
           phoneVerificationOwnerRef.current = null;
           return {
             autoVerified: true,
@@ -1834,8 +1968,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       phone: string,
       options?: { resendCode?: boolean },
     ): Promise<{ autoVerified: boolean; user?: User | null }> => {
+      const capturedPrincipal = principalRef.current;
       const expectedUid = userRef.current?.uid;
-      if (!expectedUid) throw new Error("Sign in before changing a phone number.");
+      if (!expectedUid || !capturedPrincipal) throw new Error("Sign in before changing a phone number.");
       phoneVerificationOwnerRef.current = expectedUid;
       const expectedPhoneEpoch = ++phoneVerificationEpochRef.current;
       setConfirmationResult(null);
@@ -1851,13 +1986,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const retainedUser = await confirmRetainedNativePhone(phone, expectedUid, expectedPhoneEpoch);
         requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
         if (retainedUser) {
-          applyAuthUser(retainedUser);
+          applyAuthUser(retainedUser, capturedPrincipal);
           phoneVerificationOwnerRef.current = null;
           return { autoVerified: true, user: retainedUser };
         }
         const linkedUser = await finalizeLinkedProviderPhone(phone, expectedUid, expectedPhoneEpoch);
         if (linkedUser) {
-          applyAuthUser(linkedUser);
+          applyAuthUser(linkedUser, capturedPrincipal);
           phoneVerificationOwnerRef.current = null;
           return { autoVerified: true, user: linkedUser };
         }
@@ -1897,7 +2032,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (refreshedUser?.uid !== expectedUid) throw new Error("The verified account changed. Start phone verification again.");
         await AccountIdentityService.finalizeNativePhoneVerification(refreshedUser, phone);
         requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
-        applyAuthUser(refreshedUser);
+        applyAuthUser(refreshedUser, capturedPrincipal);
         phoneVerificationOwnerRef.current = null;
         return {
           autoVerified: true,
@@ -1913,6 +2048,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const confirmPhoneVerification = useCallback(
     async (otp: string): Promise<User> => {
       return await (async () => {
+        const capturedPrincipal = principalRef.current;
         const verificationUser = userRef.current;
         const expectedPhoneEpoch = phoneVerificationAttempt?.epoch ?? -1;
         requirePhoneVerificationOwner(phoneVerificationAttempt?.userId, expectedPhoneEpoch);
@@ -1997,7 +2133,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setPhoneVerificationPhoneNumber(null);
 
         const refreshedUser = verifiedUser ?? (await refreshUser());
-        applyAuthUser(refreshedUser);
+        applyAuthUser(refreshedUser, capturedPrincipal);
         phoneVerificationOwnerRef.current = null;
         if (!refreshedUser) {
           throw new Error(
@@ -2021,6 +2157,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const confirmPhoneReplacement = useCallback(
     async (otp: string): Promise<User> => {
+      const capturedPrincipal = principalRef.current;
       const expectedUid = phoneVerificationAttempt?.userId;
       const expectedPhoneEpoch = phoneVerificationAttempt?.epoch ?? -1;
       requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
@@ -2049,7 +2186,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setPhoneVerificationPhoneNumber(null);
 
       const refreshedUser = verifiedUser ?? (await refreshUser());
-      applyAuthUser(refreshedUser);
+      applyAuthUser(refreshedUser, capturedPrincipal);
       phoneVerificationOwnerRef.current = null;
       if (!refreshedUser) {
         throw new Error(
@@ -2075,12 +2212,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
       postAuthSettlementEpochRef.current += 1;
       const settlementId = postAuthSettlementEpochRef.current;
       activePostAuthSettlementRef.current = settlementId;
-      applyAuthUser(nextUser);
+      webAuthObserverPendingRef.current = false;
+      applyAuthUser(nextUser, null);
+      publishPendingAuthSessionIdentity(nextUser.uid, true);
+      setSessionVerificationRequired(true);
       setLoading(true);
       return settlementId;
     },
     [applyAuthUser],
   );
+
+  const admitPostAuthSettlement = useCallback(async (settlementId: number): Promise<string | null> => {
+    const candidate = userRef.current;
+    if (!candidate || activePostAuthSettlementRef.current !== settlementId) return null;
+    const sdkUser = !IS_NATIVE ? AuthService.getCurrentUser() : null;
+    if (!IS_NATIVE && sdkUser?.uid !== candidate.uid) return null;
+    const validation = await validateAccountSession(candidate);
+    if (activePostAuthSettlementRef.current !== settlementId || userRef.current !== candidate
+        || (!IS_NATIVE && AuthService.getCurrentUser() !== sdkUser)) return null;
+    if (validation.outcome === "terminal") {
+      dispatchAuthSessionInvalidated({ code: validation.code, path: "interactive_admission", userId: candidate.uid });
+      return null;
+    }
+    retainCleanupStatus(candidate.uid, validation);
+    if (validation.outcome !== "active") {
+      setSessionVerificationRequired(true);
+      return null;
+    }
+    applyAuthUser(candidate, validation.principal);
+    setSessionVerificationRequired(false);
+    return validation.principal.ownerId;
+  }, [validateAccountSession, retainCleanupStatus, applyAuthUser]);
 
   const completePostAuthSettlement = useCallback((settlementId: number) => {
     if (activePostAuthSettlementRef.current !== settlementId) return;
@@ -2092,16 +2254,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     (nextUser: User | null) => {
       console.log("🍎 [AuthContext] Manually setting Native User");
       if (nextUser) {
-        terminalInvalidationLatchRef.current = null;
+        const settlement = beginPostAuthSettlement(nextUser);
+        void admitPostAuthSettlement(settlement).finally(() => completePostAuthSettlement(settlement));
+        return;
       }
       // AuthStep has a confirmed native Apple result. Invalidate any launch or
       // resume restore that started before the Apple sheet completed.
       nativeRestoreEpochRef.current.invalidate();
       nativeRestoreSettledRef.current = true;
-      applyAuthUser(nextUser);
+      applyAuthUser(null, null);
       setLoading(false);
     },
-    [applyAuthUser],
+    [applyAuthUser, beginPostAuthSettlement, admitPostAuthSettlement, completePostAuthSettlement],
   );
 
   // Memoised so the 130+ useAuth() consumers re-render on an auth fact, not
@@ -2112,13 +2276,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       user,
       loading,
       sessionVerificationRequired,
+      accountCleanup: cleanupStatus && cleanupStatus.ownerId === user?.uid ? cleanupStatus.operation : null,
+      accountRegistration: registrationStatus && registrationStatus.identityUid === user?.uid ? registrationStatus.recovery : null,
       phoneNumber,
       phoneNumberStatus,
       resolveVerifiedPhoneNumber,
       // Derived
       // Unified Auth State: Authenticated = Identity Verified.
-      isAuthenticated: !!user,
+      isAuthenticated: Boolean(user && userId),
       userId,
+      accountPrincipal,
       // Methods
       startPhoneVerification,
       confirmPhoneVerification,
@@ -2129,6 +2296,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       refreshUser,
       retrySessionVerification,
       beginPostAuthSettlement,
+      admitPostAuthSettlement,
       completePostAuthSettlement,
       setNativeUser,
     }),
@@ -2136,10 +2304,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       user,
       loading,
       sessionVerificationRequired,
+      cleanupStatus,
+      registrationStatus,
       phoneNumber,
       phoneNumberStatus,
       resolveVerifiedPhoneNumber,
       userId,
+      accountPrincipal,
       startPhoneVerification,
       confirmPhoneVerification,
       startPhoneReplacement,
@@ -2149,6 +2320,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       refreshUser,
       retrySessionVerification,
       beginPostAuthSettlement,
+      admitPostAuthSettlement,
       completePostAuthSettlement,
       setNativeUser,
     ],

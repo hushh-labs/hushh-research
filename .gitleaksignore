@@ -91,3 +91,9 @@ f4edb2c474adfb071fdac4998e746021e195fa08:hushh-webapp/contracts/kai/one-capabili
 8669d492d072eadf13642d5f6483e7cd5a3801eb:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:37478
 8669d492d072eadf13642d5f6483e7cd5a3801eb:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:39058
 8669d492d072eadf13642d5f6483e7cd5a3801eb:hushh-webapp/contracts/kai/one-capability-graph.v1.json:generic-api-key:44599
+
+# Public SHA-256 source-lineage digests in migration418 comments; verified against
+# the retained903/925/949 SQL sources. Exact history findings only, no path exclusion.
+4752ed26885d9c58b8f1b564692dba60977bbf0d:consent-protocol/db/migrations/418_private_agent_lifecycle_foundation.sql:generic-api-key:13
+4752ed26885d9c58b8f1b564692dba60977bbf0d:consent-protocol/db/migrations/418_private_agent_lifecycle_foundation.sql:generic-api-key:57
+4752ed26885d9c58b8f1b564692dba60977bbf0d:consent-protocol/db/migrations/418_private_agent_lifecycle_foundation.sql:generic-api-key:97

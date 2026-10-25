@@ -38,6 +38,7 @@ const {
   isOnboardingAdmissionExemptRouteMock: vi.fn(),
   authState: {
     user: { uid: "journey-user" } as { uid: string } | null,
+    ownerId: undefined as string | null | undefined,
     loading: false,
     sessionVerificationRequired: false,
   },
@@ -60,6 +61,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     ...authState,
+    userId: authState.ownerId === undefined ? authState.user?.uid ?? null : authState.ownerId,
     retrySessionVerification,
     signOut,
   }),
@@ -164,6 +166,7 @@ describe("OnboardingJourneyGuard", () => {
     isOnboardingAdmissionExemptRouteMock.mockReset();
     isOnboardingAdmissionExemptRouteMock.mockReturnValue(false);
     authState.user = { uid: "journey-user" };
+    authState.ownerId = undefined;
     authState.loading = false;
     authState.sessionVerificationRequired = false;
     retrySessionVerification.mockReset();
@@ -199,6 +202,16 @@ describe("OnboardingJourneyGuard", () => {
       initialContactsWelcomeAcknowledged: false });
     render(<OnboardingJourneyGuard><div>friendly welcome</div></OnboardingJourneyGuard>);
     await waitFor(() => expect(screen.getByText("friendly welcome")).toBeTruthy());
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps pending admission on recovery instead of passing through to setup", async () => {
+    authState.ownerId = null;
+    authState.sessionVerificationRequired = true;
+    render(<OnboardingJourneyGuard><div>Protected content</div></OnboardingJourneyGuard>);
+    await screen.findByRole("button", { name: "Try again" });
+    expect(screen.queryByText("Protected content")).toBeNull();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
 

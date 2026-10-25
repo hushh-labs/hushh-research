@@ -125,9 +125,13 @@ class HushhAuthPlugin : Plugin() {
 
     // Firebase Auth instance
     private val firebaseAuth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+    private var deletionPhoneProof: DeletionPhoneProof? = null
 
     override fun load() {
         super.load()
+        activity.runOnUiThread {
+            deletionPhoneProof = try { DeletionPhoneProof(activity, firebaseAuth) } catch (_: Exception) { null }
+        }
         Log.d(TAG, "🤖 [HushhAuth] Plugin loaded")
 
         // Configure Google Sign-In
@@ -1016,6 +1020,7 @@ class HushhAuthPlugin : Plugin() {
     }
 
     override fun handleOnDestroy() {
+        deletionPhoneProof?.invalidate()
         googleContactsSignupAccount = null
         googleContactsOperation?.let { it.fence.drainProvider(); finishGoogleContacts(it, "session_changed") }
         identityReauthentication?.let { finishIdentity(it, "session_changed") }
@@ -1026,6 +1031,21 @@ class HushhAuthPlugin : Plugin() {
         super.handleOnDestroy()
     }
 
+    @PluginMethod
+    fun startPhoneDeletionVerification(call: PluginCall) {
+        deletionPhoneProof?.start(call) ?: call.reject("Phone verification is unavailable.", "phone_verification_failed")
+    }
+
+    @PluginMethod
+    fun confirmPhoneDeletionVerification(call: PluginCall) {
+        deletionPhoneProof?.confirm(call) ?: call.reject("Request a new verification code.", "auth/session-expired")
+    }
+
+    @PluginMethod
+    fun cancelPhoneDeletionVerification(call: PluginCall) {
+        deletionPhoneProof?.cancel(call) ?: call.resolve()
+    }
+
     // ==================== Sign Out ====================
 
     @PluginMethod
@@ -1034,6 +1054,7 @@ class HushhAuthPlugin : Plugin() {
             activity.runOnUiThread { signOut(call) }
             return
         }
+        deletionPhoneProof?.invalidate()
         identityReauthentication?.let { finishIdentity(it, "session_changed") }
         googleContactsSignupAccount = null
         googleContactsOperation?.let { finishGoogleContacts(it, "session_changed") }

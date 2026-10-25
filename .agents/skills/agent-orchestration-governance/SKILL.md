@@ -1,6 +1,6 @@
 ---
 name: agent-orchestration-governance
-description: Use when changing repo-scoped Codex custom agents, subagent concurrency or depth, delegation policy, or handoff verification rules in hushh-research.
+description: Use when changing repository engineering agents, subagent concurrency or depth, delegation policy, or handoff verification rules in hushh-research.
 ---
 
 # Hussh Agent Orchestration Governance Skill
@@ -19,19 +19,15 @@ description: Use when changing repo-scoped Codex custom agents, subagent concurr
 Owned repo surfaces:
 
 1. `.agents/subagents`
-2. `.agents/generated/subagents`
-3. `.agents/config.toml`
-4. `.agents/skills/agent-orchestration-governance`
-5. `.agents/workflows/agent-orchestration-governance`
-6. `AGENTS.md`
-7. `docs/reference/operations/README.md`
-8. `docs/reference/operations/coding-agent-mcp.md`
-9. `.agents/generated`
-10. `.agents/startup.json`
-11. `.agents/scripts`
-12. `.agents/routing`
-13. `.agents/instructions.md`
-14. `.agents/README.md`
+2. `.agents/config.toml`
+3. `.agents/skills/agent-orchestration-governance`
+4. `.agents/workflows/agent-orchestration-governance`
+5. `AGENTS.md`
+6. `docs/reference/operations/README.md`
+7. `docs/reference/operations/coding-agent-mcp.md`
+8. `.agents/routing`
+9. `.agents/instructions.md`
+10. `.agents/README.md`
 
 Non-owned surfaces:
 
@@ -69,12 +65,12 @@ Non-owned surfaces:
 2. Keep the fleet at the curated sweet spot: broad read-only evidence lanes, not one agent per skill.
 3. Preserve the repo-wide delegation checkpoint and truth-first handoff shape in `AGENTS.md` and `delegation-contract.md`.
 4. Keep custom-agent TOML files thin: role, sandbox, nicknames, root craft/bacterial-architecture inheritance hook, concise instructions, and skill routing.
-5. Treat the TOML files under `.agents/subagents` as the only authored fleet. Files under `.agents/generated/subagents` are generated from them by `sync_claude_agents.py --write`; never hand-edit a mirror.
+5. Treat `.agents/subagents/*.toml` as the only authored fleet; no host projections or copies are created.
 6. Keep wave-1 agents read-only and leave branch switching, writes, approval, merge, deploy, secrets, and final decisions to the parent/governor.
-7. Keep native host paths as checked relative links to `.agents`; never copy skills or create a second authored fleet. Release finished child sessions through supported host controls and verify closure.
+7. Reject vendor directories and per-host adapters; read `.agents` through root `AGENTS.md`. Release finished child sessions through supported host controls and verify closure.
 8. Keep global limits bounded at `max_threads = 6` and `max_depth = 1` unless a later review proves otherwise.
 9. Route product-direction, founder-language, One/Kai/Nav, PKM, voice/action, and PR north-star lanes through the Founder Wiki North-Star Probe when material; repo/wiki divergence is `current_state_vs_north_star_drift`.
-10. Run agent validation, fleet audit, router smoke, mirror sync check, skill lint, and repo/docs governance checks after orchestration changes.
+10. Run agent validation, fleet audit, router smoke, canonical-source check, skill lint, and repo/docs governance checks after orchestration changes.
 
 ## Handoff Rules
 
@@ -89,7 +85,7 @@ Non-owned surfaces:
 ```bash
 python3 .agents/skills/codex-skill-authoring/scripts/truth_first_smoke.py
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py
-python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .agents/skills/agent-orchestration-governance/scripts/delegation_router.py .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .agents/skills/agent-orchestration-governance/scripts/subagent_budget.py .agents/skills/agent-orchestration-governance/scripts/sync_claude_agents.py
+python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py .agents/skills/agent-orchestration-governance/scripts/delegation_router.py .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py .agents/skills/agent-orchestration-governance/scripts/subagent_budget.py
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.py --text
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
 ./scripts/ci/repo-governance-check.sh

@@ -8,15 +8,15 @@ Scopes support nested paths:
 - attr.{domain}.{subintent}.*
 """
 
-import asyncio
 import difflib
 import json
 import logging
-from typing import Optional
+from typing import Any, Optional, cast
 
 from db.db_client import get_db
 from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
 from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope, is_reserved_domain_scope
+from hushh_mcp.consent.scope_catalog_reads import read_scope_catalog_rows
 from hushh_mcp.consent.scope_sensitivity import tag_is_sensitive
 from hushh_mcp.constants import ConsentScope
 
@@ -228,7 +228,7 @@ class DynamicScopeGenerator:
         return str(domain or "").strip().lower()
 
     @staticmethod
-    def _normalize_scope_path(path: str | None) -> str:
+    def _normalize_scope_path(path: object) -> str:
         if not isinstance(path, str):
             return ""
         raw = path.strip().lower()
@@ -325,22 +325,31 @@ class DynamicScopeGenerator:
             "default_projection_updated_at": None,
         }
 
-    async def _get_legacy_scope_catalog(self, user_id: str) -> dict[str, dict[str, set[str]]]:
-        result = (
-            self.db.table("pkm_index")
-            .select("available_domains", "domain_summaries")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
-        if not result.data:
+    async def _get_legacy_scope_catalog(
+        self, user_id: str, *, connection: Any = None
+    ) -> dict[str, dict[str, set[str]]]:
+        if connection is not None:
+            records = await connection.fetch(
+                "SELECT available_domains,domain_summaries FROM pkm_index WHERE user_id=$1 LIMIT 1",
+                user_id,
+            )
+            rows = [dict(row) for row in records]
+        else:
+            rows = (
+                self.db.table("pkm_index")
+                .select("available_domains", "domain_summaries")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            ).data or []
+        if not rows:
             return {}
-
-        row = result.data[0]
-        available_domains = self._normalize_domains(row.get("available_domains") or [])
-        domain_summaries = row.get("domain_summaries")
-        if not isinstance(domain_summaries, dict):
-            domain_summaries = {}
+        row = rows[0]
+        domains = row.get("available_domains") or []
+        if isinstance(domains, str):
+            domains = json.loads(domains)
+        available_domains = self._normalize_domains(domains)
+        domain_summaries = self._coerce_json_dict(row.get("domain_summaries"))
 
         catalog: dict[str, dict[str, set[str]]] = {
             domain: {"paths": set(), "wildcards": set()}
@@ -422,56 +431,17 @@ class DynamicScopeGenerator:
 
         return await self._get_legacy_scope_catalog(user_id)
 
-    async def get_available_scope_entries(self, user_id: str) -> list[dict]:
-        """
-        Get manifest-backed scope discovery entries with provenance metadata.
+    async def get_available_scope_entries(
+        self, user_id: str, *, connection: Any = None
+    ) -> list[dict]:
+        """Resolve discovery and transactional approval through the same catalog.
 
-        Each entry describes one requestable scope string and why it exists.
+        A supplied connection retains the caller's existing locks and transaction;
+        it does not create a new snapshot or a separate information authority.
         """
         try:
-            # The database client is synchronous.  Scope discovery is optional
-            # metadata, so never freeze the async request loop while it waits
-            # for a pool connection.
-            index_result = await asyncio.to_thread(
-                lambda: (
-                    self.db.table("pkm_index")
-                    .select("available_domains")
-                    .eq("user_id", user_id)
-                    .limit(1)
-                    .execute()
-                )
-            )
-            manifest_result = await asyncio.to_thread(
-                lambda: (
-                    self.db.table("pkm_manifests")
-                    .select(
-                        "domain,top_level_scope_paths,externalizable_paths,"
-                        "manifest_version,summary_projection"
-                    )
-                    .eq("user_id", user_id)
-                    .execute()
-                )
-            )
-            path_result = await asyncio.to_thread(
-                lambda: (
-                    self.db.table("pkm_manifest_paths")
-                    .select(
-                        "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle,"
-                        "sensitivity_label"
-                    )
-                    .eq("user_id", user_id)
-                    .execute()
-                )
-            )
-            registry_result = await asyncio.to_thread(
-                lambda: (
-                    self.db.table("pkm_scope_registry")
-                    .select(
-                        "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version"
-                    )
-                    .eq("user_id", user_id)
-                    .execute()
-                )
+            source_rows = await read_scope_catalog_rows(
+                lambda: self.db, user_id, connection=connection
             )
         except Exception as exc:
             logger.error("scope_generator.get_scope_entries_failed")
@@ -551,12 +521,13 @@ class DynamicScopeGenerator:
             )
             entries[scope] = merged
 
+        index_rows = source_rows["pkm_index"]
         index_domains = self._normalize_domains(
-            (index_result.data or [{}])[0].get("available_domains") if index_result.data else []
+            index_rows[0].get("available_domains") if index_rows else []
         )
-        manifest_rows = manifest_result.data or []
-        path_rows = path_result.data or []
-        registry_rows = registry_result.data or []
+        manifest_rows = source_rows["pkm_manifests"]
+        path_rows = source_rows["pkm_manifest_paths"]
+        registry_rows = source_rows["pkm_scope_registry"]
 
         registry_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
         materialization_by_top_level: dict[tuple[str, str], dict[str, object]] = {}
@@ -700,7 +671,8 @@ class DynamicScopeGenerator:
             ):
                 continue
             domain_leaf_count = sum(
-                int(entry.get("materialized_leaf_count") or 0) for entry in domain_materialization
+                int(cast(int | str, entry.get("materialized_leaf_count") or 0))
+                for entry in domain_materialization
             )
             domain_state = "materialized" if domain_leaf_count > 0 else "unknown"
             _upsert_scope_entry(
@@ -727,7 +699,7 @@ class DynamicScopeGenerator:
                     "materialized_leaf_count": domain_leaf_count,
                     "source_manifest_revision": max(
                         (
-                            int(entry.get("source_manifest_revision") or 0)
+                            int(cast(int | str, entry.get("source_manifest_revision") or 0))
                             for entry in domain_materialization
                         ),
                         default=0,
@@ -914,7 +886,7 @@ class DynamicScopeGenerator:
         if entries or manifest_rows or path_rows or registry_rows:
             return [entries[scope] for scope in sorted(entries)]
 
-        legacy_catalog = await self._get_legacy_scope_catalog(user_id)
+        legacy_catalog = await self._get_legacy_scope_catalog(user_id, connection=connection)
         for domain, entry in legacy_catalog.items():
             _upsert_scope_entry(
                 {

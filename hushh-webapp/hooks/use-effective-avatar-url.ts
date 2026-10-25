@@ -20,8 +20,8 @@ export { providerAvatarAtSize } from "@/lib/profile/provider-avatar";
 export function useEffectiveAvatarUrl(options?: number | { fetchWhenCold?: boolean }): string | null {
   const pixels = typeof options === "number" ? options : undefined;
   const fetchWhenCold = typeof options === "object" ? options.fetchWhenCold ?? true : true;
-  const { user } = useAuth();
-  const uid = user?.uid ?? null;
+  const { user, userId } = useAuth();
+  const uid = userId;
   const firebasePhoto = user?.photoURL ?? null;
   const [effective, setEffective] = useState<{ owner: string; url: string | null } | null>(null);
 
@@ -62,7 +62,7 @@ export function useEffectiveAvatarUrl(options?: number | { fetchWhenCold?: boole
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid, fetchWhenCold]);
 
-  const cached = effective?.owner === uid ? effective.url : null;
+  const cached = effective && effective.owner === uid ? effective.url : null;
   const photo = cached ?? firebasePhoto;
   // Preserve custom uploads exactly. Request richer provider media only when
   // the effective image is the actual provider fallback, not an override.

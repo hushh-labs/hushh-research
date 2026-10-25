@@ -2,6 +2,11 @@
 set -euo pipefail
 
 MANIFEST_PATH="${1:-scripts/test-ci.manifest.txt}"
+PROTOCOL_TEST_PARTITION="${PROTOCOL_TEST_PARTITION:-all}"
+case "$PROTOCOL_TEST_PARTITION" in
+  all|parallel|database) ;;
+  *) echo "Unknown backend test partition: $PROTOCOL_TEST_PARTITION" >&2; exit 2 ;;
+esac
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [ -z "$PYTHON_BIN" ]; then
@@ -108,10 +113,10 @@ run_pytest() {
   "$PYTHON_BIN" -m pytest -q "@$args_file"
 }
 
-if [ "${#PARALLEL_TESTS[@]}" -gt 0 ]; then
+if [ "$PROTOCOL_TEST_PARTITION" != "database" ] && [ "${#PARALLEL_TESTS[@]}" -gt 0 ]; then
   run_pytest "${PYTEST_PARALLEL_ARGS[@]}" "${PARALLEL_TESTS[@]}"
 fi
-if [ "${#POSTGRES_TESTS[@]}" -gt 0 ]; then
+if [ "$PROTOCOL_TEST_PARTITION" != "parallel" ] && [ "${#POSTGRES_TESTS[@]}" -gt 0 ]; then
   echo "== Shared-database tests (serial) =="
   run_pytest "${POSTGRES_TESTS[@]}"
 fi
@@ -127,5 +132,7 @@ fi
 # Collection is cheap -- no test bodies run -- and it is the one check that cannot
 # be passed by a file nobody remembered to list. Same defect class as the DCO hook
 # that was correct, tracked, and had never run.
-echo "== Verifying every test file still imports =="
-PYTHONPATH=. "$PYTHON_BIN" -m pytest --collect-only -q tests/ >/dev/null
+if [ "$PROTOCOL_TEST_PARTITION" != "database" ]; then
+  echo "== Verifying every test file still imports =="
+  PYTHONPATH=. "$PYTHON_BIN" -m pytest --collect-only -q tests/ >/dev/null
+fi

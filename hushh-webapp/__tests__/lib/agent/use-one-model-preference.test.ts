@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn(), changed: null as null | (() => void) }));
 vi.mock("@/lib/services/model-preference-service", () => ({ ModelPreferenceService: mocks }));
@@ -14,7 +14,7 @@ const preference = { user_id: "owner-a", effective_model: "old", choices: [{ mod
 beforeEach(() => {
   vi.clearAllMocks();
   publishValidatedAuthSessionOwner(null);
-  publishValidatedAuthSessionOwner(user.uid);
+  publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 });
   mocks.get.mockResolvedValue(preference);
 });
 
@@ -44,7 +44,7 @@ it("keeps the verified choice while saving, coalesces duplicate selection, and f
   await waitFor(() => expect(mocks.set).toHaveBeenCalledOnce());
   expect(result.current.modelPreference?.effective_model).toBe("old");
   expect(result.current.modelPreferenceSaving).toBe(true);
-  publishValidatedAuthSessionOwner("owner-b");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-b", ownerId: "owner-b", accountGeneration: 0 });
   mocks.get.mockResolvedValue(null);
   rerender({ owner: { ...user, uid: "owner-b" } });
   await act(async () => finish({ ...preference, effective_model: "new" }));

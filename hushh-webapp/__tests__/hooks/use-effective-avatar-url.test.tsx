@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getIdentitySwr: vi.fn(),
   peekCachedIdentity: vi.fn(),
   subscribe: vi.fn(),
+  userId: "reviewer-user" as string | undefined,
   user: {
     uid: "reviewer-user",
     photoURL: "https://avatar.example.test/reviewer.png",
@@ -12,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: mocks.user }),
+  useAuth: () => ({ user: mocks.user, userId: mocks.userId }),
 }));
 
 vi.mock("@/lib/services/account-identity-service", () => ({
@@ -32,6 +33,7 @@ import { providerAvatarAtSize, useEffectiveAvatarUrl } from "@/hooks/use-effecti
 
 describe("useEffectiveAvatarUrl", () => {
   afterEach(() => {
+    mocks.userId = "reviewer-user";
     delete window.__HUSHH_NATIVE_TEST__;
     vi.clearAllMocks();
   });
@@ -47,6 +49,14 @@ describe("useEffectiveAvatarUrl", () => {
     expect(result.current).toBe("https://avatar.example.test/reviewer.png");
     expect(mocks.getIdentitySwr).not.toHaveBeenCalled();
     expect(mocks.subscribe).not.toHaveBeenCalled();
+  });
+
+  it("renders safely before application identity resolves without reading an owner's cache", () => {
+    mocks.userId = undefined;
+    const { result } = renderHook(() => useEffectiveAvatarUrl());
+    expect(result.current).toBe(mocks.user.photoURL);
+    expect(mocks.peekCachedIdentity).not.toHaveBeenCalled();
+    expect(mocks.getIdentitySwr).not.toHaveBeenCalled();
   });
 
   it("requests richer Google provider media without rewriting custom or unrelated URLs", () => {
@@ -70,6 +80,7 @@ describe("useEffectiveAvatarUrl", () => {
       expect(result.current).toBe("data:image/png;base64,AA==");
       act(() => { notify?.(); });
       mocks.user.uid = "second-owner";
+      mocks.userId = "second-owner";
       mocks.user.photoURL = "https://avatar.example.test/second.png";
       const before = frames.length;
       rerender();

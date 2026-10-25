@@ -153,9 +153,14 @@ def versioned_row(service):
     )
 
 
-def test_v2_encrypts_identity_and_roundtrips_without_plaintext_fields():
+@pytest.mark.feature_account_deletion
+@pytest.mark.trace_loop
+@pytest.mark.parametrize("json_snapshot", [False, True])
+def test_v2_encrypts_identity_and_roundtrips_without_plaintext_fields(json_snapshot):
     service = ExternalConnectorCredentialsService(db=_FakeConnectionsDb())
     row = versioned_row(service)
+    if json_snapshot:
+        row["credential_expires_at"] = row["credential_expires_at"].isoformat()
     assert "synthetic" not in str(row)
     assert "verified-subject" not in str(row)
     assert service.open_credential(user_id="owner", connector_id="google_drive", row=row) == {
@@ -173,6 +178,7 @@ def test_v2_encrypts_identity_and_roundtrips_without_plaintext_fields():
         ("credential_version", 4),
         ("envelope_version", 1),
         ("credential_expires_at", datetime(2030, 1, 1, tzinfo=UTC)),
+        ("credential_expires_at", "2030-01-01T00:00:00+00:00"),
     ],
 )
 def test_v2_rejects_owner_connector_generation_version_or_expiry_substitution(field, value):

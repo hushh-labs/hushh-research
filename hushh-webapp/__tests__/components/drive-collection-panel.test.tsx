@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
   setProcessing: vi.fn(),
   groups: vi.fn(), files: vi.fn(), groupProcessing: vi.fn(),
 }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: state.token, isVaultUnlocked: state.unlocked }),
 }));
@@ -30,7 +30,7 @@ vi.mock("@/components/consent/drive-packet-catalog", async (importOriginal) => (
 import { DriveCollectionPanel } from "@/components/agent/drive-collection-panel";
 import { DriveDataPacketsView, useDriveDataPackets } from "@/components/agent/drive-data-packets";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const status = {
@@ -60,7 +60,7 @@ const caption = () =>
 beforeEach(() => {
   vi.resetAllMocks();
   state.uid = "owner"; state.token = "private-token"; state.unlocked = true;
-  publishValidatedAuthSessionOwner("owner");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   state.collection.mockImplementation(async (_token: string, guard: () => void) => { guard(); return status; });
 });
 
@@ -107,7 +107,7 @@ describe("Drive data packet folders", () => {
 afterEach(() => {
   cleanup();
   advanceVaultSessionEpoch();
-  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionPrincipal(null);
 });
 
 describe("Prepare packets switch row", () => {

@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ uid: "owner", token: "private-token", unlocked: true,
   packets: vi.fn(), listing: vi.fn(), request: vi.fn() }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid }, userId: state.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, isVaultUnlocked: state.unlocked }) }));
 vi.mock("@/lib/services/drive-packet-service", () => ({ DrivePacketService: state }));
 vi.mock("@/lib/services/auth-service", () => ({ AuthService: {} }));
 
 import { DrivePacketCatalog, useOwnerPacketPageModel } from "@/components/consent/drive-packet-catalog";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { DrivePacket } from "@/lib/services/drive-packet-service";
 
@@ -44,11 +44,11 @@ beforeEach(() => {
   // Only this file's mocks: resetting every mock would also wipe the shared matchMedia stub the sheet reads.
   for (const mock of [state.packets, state.listing, state.request]) mock.mockReset();
   state.uid = "owner"; state.token = "private-token"; state.unlocked = true;
-  publishValidatedAuthSessionOwner("owner");
+  publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 });
   state.packets.mockImplementation(async (_token, guard) => { guard(); return { packets: ALL, nextCursor: null }; });
   state.listing.mockResolvedValue(undefined);
 });
-afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionOwner(null); });
+afterEach(() => { cleanup(); advanceVaultSessionEpoch(); publishValidatedAuthSessionPrincipal(null); });
 
 const row = (title: string) => screen.getByRole("button", { name: new RegExp(`^${title}`) });
 const section = (page: HTMLElement, title: string) => within(page).getByRole("heading", { name: title }).closest("section")!;

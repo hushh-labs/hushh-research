@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from firebase_admin import auth
 
 from api.utils.firebase_admin import get_firebase_auth_app
+from hushh_mcp.services.one_owner_admission import firebase_uids_for_owner_reads
 from hushh_mcp.services.requester_identity import label_from_identity_row
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,8 @@ def active_directory_user_ids(user_ids: Sequence[str], *, use_cache: bool = True
         app = get_firebase_auth_app()
         if app is None:
             raise DirectoryIdentityUnavailableError()
+        identities = firebase_uids_for_owner_reads(candidates)
+        candidates = [owner for owner in candidates if owner in identities]
         scope = (str(app.project_id or ""), str(app.name))
         now = time.monotonic()
         status: dict[str, bool] = {}
@@ -64,14 +67,20 @@ def active_directory_user_ids(user_ids: Sequence[str], *, use_cache: bool = True
         missing = [uid for uid in candidates if uid not in status]
         for offset in range(0, len(missing), 100):
             batch = missing[offset : offset + 100]
-            result = auth.get_users([auth.UidIdentifier(uid) for uid in batch], app=app)
+            result = auth.get_users(
+                [
+                    auth.UidIdentifier(uid)
+                    for uid in dict.fromkeys(identities[owner] for owner in batch)
+                ],
+                app=app,
+            )
             # Firebase does not preserve request order. Associate each record
             # with its own UID, never with a positional neighbour's name/photo.
             enabled = {record.uid for record in result.users if not record.disabled}
             expires_at = time.monotonic() + _STATUS_TTL_SECONDS
             with _STATUS_CACHE_LOCK:
                 for uid in batch:
-                    status[uid] = uid in enabled
+                    status[uid] = identities[uid] in enabled
                     _STATUS_CACHE[(*scope, uid)] = (expires_at, status[uid])
                     _STATUS_CACHE.move_to_end((*scope, uid))
                 while len(_STATUS_CACHE) > _STATUS_CACHE_MAX_ENTRIES:
@@ -100,10 +109,18 @@ def directory_auth_profiles(user_ids: Sequence[str]) -> dict[str, dict[str, str]
         app = get_firebase_auth_app()
         if app is None:
             raise DirectoryIdentityUnavailableError()
+        identities = firebase_uids_for_owner_reads(candidates)
+        candidates = [owner for owner in candidates if owner in identities]
         profiles: dict[str, dict[str, str]] = {}
         for offset in range(0, len(candidates), 100):
             batch = candidates[offset : offset + 100]
-            result = auth.get_users([auth.UidIdentifier(uid) for uid in batch], app=app)
+            result = auth.get_users(
+                [
+                    auth.UidIdentifier(uid)
+                    for uid in dict.fromkeys(identities[owner] for owner in batch)
+                ],
+                app=app,
+            )
             for record in result.users:
                 if record.disabled:
                     continue
@@ -126,7 +143,9 @@ def directory_auth_profiles(user_ids: Sequence[str]) -> dict[str, dict[str, str]
                         (str(source.photo_url).strip() for source in sources if source.photo_url),
                         "",
                     )
-                    profiles[record.uid] = {"display_name": name, "photo_url": photo}
+                    for owner in batch:
+                        if identities[owner] == record.uid:
+                            profiles[owner] = {"display_name": name, "photo_url": photo}
         return profiles
     except DirectoryIdentityUnavailableError:
         raise

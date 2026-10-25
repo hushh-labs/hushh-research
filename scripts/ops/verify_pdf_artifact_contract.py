@@ -9,9 +9,8 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_SKILL = REPO_ROOT / ".agents/skills/pdf-artifact-generation/SKILL.md"
-CLAUDE_BRIDGE = REPO_ROOT / ".claude/skills/pdf-artifact-generation/SKILL.md"
 LEGACY_ALIAS = REPO_ROOT / ".claude/skills/morphy-pdf/SKILL.md"
-CODEX_BRIDGE = REPO_ROOT / ".agents/skills/founder-brief-curation/references/pdf-artifact-generation.md"
+FOUNDER_REFERENCE = REPO_ROOT / ".agents/skills/founder-brief-curation/references/pdf-artifact-generation.md"
 FORMATTER = REPO_ROOT / "hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs"
 EXPORTER = REPO_ROOT / "hushh-webapp/scripts/reports/export-markdown-pdf.mjs"
 DESIGN_SYSTEM = REPO_ROOT / "docs/reference/quality/design-system.md"
@@ -43,7 +42,7 @@ def main() -> int:
     failures: list[str] = []
     try:
         canonical = read(CANONICAL_SKILL)
-        codex = read(CODEX_BRIDGE)
+        codex = read(FOUNDER_REFERENCE)
         formatter = read(FORMATTER)
         exporter = read(EXPORTER)
         design_system = read(DESIGN_SYSTEM)
@@ -56,9 +55,8 @@ def main() -> int:
         return 1
 
     require("name: pdf-artifact-generation" in frontmatter(canonical), "canonical skill name is not pdf-artifact-generation", failures)
-    require(CLAUDE_BRIDGE.resolve() == CANONICAL_SKILL.resolve(), "native PDF discovery must resolve to the canonical skill", failures)
-    require(len(codex.encode("utf-8")) <= 1100, "Codex bridge is too large to remain a routing-only bridge", failures)
-    require(".agents/skills/pdf-artifact-generation/SKILL.md" in codex, "Codex bridge does not point to the canonical skill", failures)
+    require(len(codex.encode("utf-8")) <= 1100, "Founder reference is too large to remain a routing-only bridge", failures)
+    require(".agents/skills/pdf-artifact-generation/SKILL.md" in codex, "Founder reference does not point to the canonical skill", failures)
     require(not LEGACY_ALIAS.parent.exists() and not LEGACY_ALIAS.parent.is_symlink(), "retired PDF alias must not recreate a second procedure", failures)
 
     legacy_root = LEGACY_ALIAS.parent

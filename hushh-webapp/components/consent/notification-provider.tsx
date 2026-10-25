@@ -697,7 +697,7 @@ export function ConsentNotificationProvider({
   const [fcmInitGeneration, setFcmInitGeneration] = useState(0);
   const [isRetryingPushRegistration, setIsRetryingPushRegistration] =
     useState(false);
-  const { user } = useAuth();
+  const { user, userId: applicationOwnerId } = useAuth();
   const requestPushPermissionRef = useRef(false);
   const pushRetryAttemptRef = useRef(0);
   const lastPushAttemptAtRef = useRef(0);
@@ -718,31 +718,31 @@ export function ConsentNotificationProvider({
   const consentReconcilePromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
-    const userId = user?.uid;
+    const userId = applicationOwnerId;
     if (!userId) return;
     return subscribeToRemotePkmDomainChanges((detail) => {
       if (detail.userId !== userId) return;
       CacheSyncService.onRemotePkmDomainChanged(detail);
     });
-  }, [user?.uid]);
+  }, [applicationOwnerId]);
 
   useEffect(() => {
-    const userId = user?.uid;
+    const userId = applicationOwnerId;
     if (!userId) return;
     return subscribeToRemoteOneLocationStateChanges((detail) => {
       if (detail.userId !== userId) return;
       CacheSyncService.onRemoteOneLocationStateChanged(detail);
     });
-  }, [user?.uid]);
+  }, [applicationOwnerId]);
 
   const acknowledgePendingConsent = useCallback(
     async (
       consent: Pick<PendingConsent, "id" | "bundleId">,
       openedVia: "review_button" | "consent_route" | "deep_link",
     ): Promise<ConsentOpenAcknowledgementResult> => {
-      if (!user?.uid) return "permanent_failure";
+      if (!applicationOwnerId) return "permanent_failure";
       const next = markPendingConsentReviewed(
-        user.uid,
+        applicationOwnerId,
         consent.id,
         consent.bundleId,
         reviewedIdsRef.current,
@@ -752,7 +752,7 @@ export function ConsentNotificationProvider({
       if (!vaultOwnerToken) return "retryable_failure";
       try {
         const response = await ApiService.markPendingConsentOpened({
-          userId: user.uid,
+          userId: applicationOwnerId,
           vaultOwnerToken,
           requestId: consent.id,
           bundleId: consent.bundleId,
@@ -782,39 +782,39 @@ export function ConsentNotificationProvider({
         }
       }
     },
-    [getVaultOwnerToken, isNativePlatform, user?.uid],
+    [getVaultOwnerToken, isNativePlatform, applicationOwnerId],
   );
 
-  const { startEmergencySms, stopEmergencySms, dismissEmergencySms } = useEmergencySmsAlarm(user?.uid, isNativePlatform);
+  const { startEmergencySms, stopEmergencySms, dismissEmergencySms } = useEmergencySmsAlarm(applicationOwnerId ?? undefined, isNativePlatform);
 
   const showOneLocationShareNotification = useCallback(
     (
       data: Record<string, string>,
       options: OneLocationPresentationOptions = {},
     ) => {
-      if (!user?.uid) return true;
+      if (!applicationOwnerId) return true;
       const grantId = String(data.grant_id || data.grantId || "").trim();
       if (!grantId) return true;
       // A delayed creation push cannot resurrect a share already known to end.
       if (smsPresentationRef.current.get(grantId) === "ended" ||
-          hasSeenOneLocationNotification(user.uid, `share-ended:${grantId}`) ||
-          hasSeenOneLocationNotification(user.uid, `location_share_revoked:${grantId}`) ||
-          hasSeenOneLocationNotification(user.uid, `location_share_expired:${grantId}`)) return true;
+          hasSeenOneLocationNotification(applicationOwnerId, `share-ended:${grantId}`) ||
+          hasSeenOneLocationNotification(applicationOwnerId, `location_share_revoked:${grantId}`) ||
+          hasSeenOneLocationNotification(applicationOwnerId, `location_share_expired:${grantId}`)) return true;
       const isEmergencySms = isOneLocationSmsEmergencyAlert({
         shareKind: data.share_kind,
         notificationProfile: data.notification_profile,
       });
       // A sender-side synchronization echo must never sound their own SOS.
-      if (isEmergencySms && data.owner_user_id === user.uid) return true;
+      if (isEmergencySms && data.owner_user_id === applicationOwnerId) return true;
       const expiry = String(data.expires_at || "").trim();
       if (isEmergencySms && expiry && (!Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now())) {
         rememberSmsPresentation(smsPresentationRef.current, grantId, "ended");
-        markOneLocationNotificationSeen(user.uid, `share-ended:${grantId}`);
+        markOneLocationNotificationSeen(applicationOwnerId, `share-ended:${grantId}`);
         return true;
       }
       const ownerLabel = oneLocationOwnerLabel(data);
       recordOneLocationShareNotification({
-        userId: user.uid,
+        userId: applicationOwnerId,
         grantId,
         ownerLabel,
         expiresAt: data.expires_at,
@@ -830,16 +830,16 @@ export function ConsentNotificationProvider({
       // Routine notification cards are owned by Feed. The only foreground
       // popup retained here is the safety-critical Save My Soul alarm.
       if (options.present === false || !isEmergencySms ||
-          isOneLocationGrantOpened(user.uid, grantId) ||
-          isOneLocationGrantUnwatched(user.uid, grantId)) return true;
+          isOneLocationGrantOpened(applicationOwnerId, grantId) ||
+          isOneLocationGrantUnwatched(applicationOwnerId, grantId)) return true;
       // Feed reconciliation is silent and must not consume the live alarm.
       const presentationId = `sms-presented:${grantId}`;
       const fallbackId = `sms-system-fallback:${grantId}`;
       // A toast without audio must keep requesting the system fallback until
       // the worker records successful presentation. Its retry can follow a
       // failed showNotification, even when this tab already ingested the event.
-      if (smsPresentationRef.current.has(grantId) || hasSeenOneLocationNotification(user.uid, presentationId)) {
-        return smsPresentationRef.current.get(grantId) !== false && !hasSeenOneLocationNotification(user.uid, fallbackId);
+      if (smsPresentationRef.current.has(grantId) || hasSeenOneLocationNotification(applicationOwnerId, presentationId)) {
+        return smsPresentationRef.current.get(grantId) !== false && !hasSeenOneLocationNotification(applicationOwnerId, fallbackId);
       }
 
       const toastKey = `one-location-share:${grantId}`;
@@ -876,8 +876,8 @@ export function ConsentNotificationProvider({
       const alarmExpiresAt = expiry ? Date.parse(expiry) : undefined;
       const sounded = startEmergencySms(grantId, alarmExpiresAt);
       rememberSmsPresentation(smsPresentationRef.current, grantId, sounded);
-      if (!sounded) markOneLocationNotificationSeen(user.uid, fallbackId);
-      markOneLocationNotificationSeen(user.uid, presentationId);
+      if (!sounded) markOneLocationNotificationSeen(applicationOwnerId, fallbackId);
+      markOneLocationNotificationSeen(applicationOwnerId, presentationId);
 
       toast(
         <EmergencySmsNotificationToast
@@ -887,7 +887,7 @@ export function ConsentNotificationProvider({
           coordinatesFallback={emergencyCoordinatesFallback}
           onDismiss={() => dismissEmergencySms(grantId)}
           onOpen={() => {
-            markOneLocationGrantOpened(user.uid, grantId);
+            markOneLocationGrantOpened(applicationOwnerId, grantId);
             dismissEmergencySms(grantId);
             router.push(href, { scroll: false });
           }}
@@ -903,7 +903,7 @@ export function ConsentNotificationProvider({
       );
       return sounded;
     },
-    [dismissEmergencySms, router, startEmergencySms, stopEmergencySms, user?.uid],
+    [dismissEmergencySms, router, startEmergencySms, stopEmergencySms, applicationOwnerId],
   );
 
   const showOneLocationWorkflowNotification = useCallback(
@@ -911,7 +911,7 @@ export function ConsentNotificationProvider({
       data: Record<string, string>,
       options: OneLocationPresentationOptions = {},
     ) => {
-      if (!user?.uid) return true;
+      if (!applicationOwnerId) return true;
       const msgType = data.type;
       if (!isOneLocationWorkflowNotificationType(msgType)) return true;
 
@@ -926,7 +926,7 @@ export function ConsentNotificationProvider({
         // Reconciliation payloads are intentionally excluded because their
         // state is already in the shared resource.
         CacheSyncService.onOneLocationStateMutated(
-          user.uid,
+          applicationOwnerId,
           isCircleWorkflow
             ? ["workspace", "circles", "sms_roster"]
             : ["workspace"],
@@ -981,10 +981,10 @@ export function ConsentNotificationProvider({
         // grant as well, so a delayed creation cannot sound a stopped alert.
         if (grantId) {
           rememberSmsPresentation(smsPresentationRef.current, grantId, "ended");
-          markOneLocationNotificationSeen(user.uid, `share-ended:${grantId}`);
+          markOneLocationNotificationSeen(applicationOwnerId, `share-ended:${grantId}`);
           dismissEmergencySms(grantId);
         }
-        if (grantId && isOneLocationGrantUnwatched(user.uid, grantId)) {
+        if (grantId && isOneLocationGrantUnwatched(applicationOwnerId, grantId)) {
           publishStateMutation();
           return true;
         }
@@ -1011,7 +1011,7 @@ export function ConsentNotificationProvider({
           msgType === "location_access_request_withdrawn" ||
           msgType === "location_access_approved")
       ) {
-        OneLocationStateResource.mergeRequestStatus(user.uid, {
+        OneLocationStateResource.mergeRequestStatus(applicationOwnerId, {
           id: requestId,
           status:
             msgType === "location_access_denied"
@@ -1080,7 +1080,7 @@ export function ConsentNotificationProvider({
       );
 
       recordOneLocationWorkflowNotification({
-        userId: user.uid,
+        userId: applicationOwnerId,
         notificationType: msgType,
         id,
         title: copy.title,
@@ -1109,28 +1109,28 @@ export function ConsentNotificationProvider({
       });
       return true;
     },
-    [dismissEmergencySms, showOneLocationShareNotification, user?.uid],
+    [dismissEmergencySms, showOneLocationShareNotification, applicationOwnerId],
   );
 
   useEffect(() => {
-    if (!user?.uid || queuedOneLocationNotificationsRef.current.length === 0)
+    if (!applicationOwnerId || queuedOneLocationNotificationsRef.current.length === 0)
       return;
     const queued = queuedOneLocationNotificationsRef.current;
     queuedOneLocationNotificationsRef.current = [];
     for (const notification of queued) {
       const targetUserId = String(notification.data.user_id || "").trim();
-      if (targetUserId && targetUserId !== user.uid) continue;
+      if (targetUserId && targetUserId !== applicationOwnerId) continue;
       if (notification.data.type === "location_pkm_changed") {
         const domain = String(notification.data.domain || "").trim();
         if (domain === "location") {
           if (notification.data.operation === "cleared") {
-            CacheSyncService.onPkmDomainCleared(user.uid, domain, {
+            CacheSyncService.onPkmDomainCleared(applicationOwnerId, domain, {
               eventId:
                 String(notification.data.message_id || "").trim() || undefined,
             });
           } else {
             const parsedVersion = Number(notification.data.data_version);
-            CacheSyncService.onPkmDomainStored(user.uid, domain, {
+            CacheSyncService.onPkmDomainStored(applicationOwnerId, domain, {
               eventDataVersion: Number.isFinite(parsedVersion)
                 ? parsedVersion
                 : undefined,
@@ -1147,7 +1147,7 @@ export function ConsentNotificationProvider({
       if (notification.data.type === "location_settings_changed") {
         const setting = String(notification.data.setting || "").trim();
         CacheSyncService.onOneLocationStateMutated(
-          user.uid,
+          applicationOwnerId,
           setting === "map_preferences" ? ["map_preferences"] : ["workspace"],
           {
             notificationType: notification.data.type,
@@ -1162,20 +1162,20 @@ export function ConsentNotificationProvider({
         source: "live",
       });
     }
-  }, [showOneLocationWorkflowNotification, user?.uid]);
+  }, [showOneLocationWorkflowNotification, applicationOwnerId]);
 
-  // Initialize FCM when user logs in (stable dependency: user?.uid).
+  // Initialize FCM when user logs in (stable dependency: applicationOwnerId).
   // Important: use the authenticated user object from our auth context.
   // This app can sign into a dedicated Firebase auth app, so `getAuth().currentUser`
   // may be null even while `useAuth()` is correctly authenticated.
   const retryPushRegistration = useCallback(() => {
-    if (!user) return;
-    clearPersistedDeliveryState(user.uid);
+    if (!user || !applicationOwnerId) return;
+    clearPersistedDeliveryState(applicationOwnerId);
     requestPushPermissionRef.current = true;
     pushRetryAttemptRef.current = 0;
     setIsRetryingPushRegistration(true);
     setFcmInitGeneration((current) => current + 1);
-  }, [user]);
+  }, [user, applicationOwnerId]);
 
   useEffect(() => {
     void prepareFCMListeners().catch((error) => {
@@ -1187,7 +1187,7 @@ export function ConsentNotificationProvider({
   }, []);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !applicationOwnerId) {
       if (lastAuthenticatedUidRef.current) {
         clearPersistedDeliveryState(lastAuthenticatedUidRef.current);
         clearQueuedPendingConsents(lastAuthenticatedUidRef.current);
@@ -1211,7 +1211,7 @@ export function ConsentNotificationProvider({
 
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    if (lastAuthenticatedUidRef.current !== user.uid) {
+    if (lastAuthenticatedUidRef.current !== applicationOwnerId) {
       pushRetryAttemptRef.current = 0;
       ingestedMessageIdsRef.current = new Set<string>();
       smsPresentationRef.current.clear();
@@ -1219,7 +1219,7 @@ export function ConsentNotificationProvider({
       acknowledgedNotificationOpenIdsRef.current = new Set<string>();
       notificationOpenAcksInFlightRef.current = new Set<string>();
     }
-    lastAuthenticatedUidRef.current = user.uid;
+    lastAuthenticatedUidRef.current = applicationOwnerId;
     reviewedIdsRef.current = new Set<string>();
 
     const requestPermission = requestPushPermissionRef.current;
@@ -1235,7 +1235,7 @@ export function ConsentNotificationProvider({
       lastPushAttemptAtRef.current = Date.now();
       const shouldRestoreFromSession = fcmInitGeneration === 0;
       if (shouldRestoreFromSession) {
-        const persisted = readPersistedDeliveryState(user.uid);
+        const persisted = readPersistedDeliveryState(applicationOwnerId);
         if (persisted) {
           if (cancelled) return;
           setFcmInitStatus(persisted.status);
@@ -1254,13 +1254,13 @@ export function ConsentNotificationProvider({
       try {
         const idToken = await user.getIdToken();
         if (cancelled) return;
-        const result = await initializeFCM(user.uid, idToken, {
+        const result = await initializeFCM(applicationOwnerId, idToken, {
           requestPermission,
           ...(Capacitor.isNativePlatform() ? { getIdToken: () => user.getIdToken() } : {}),
         });
         if (cancelled) return;
 
-        persistDeliveryState(user.uid, {
+        persistDeliveryState(applicationOwnerId, {
           status: result.status,
           detail: result.detail ?? null,
           updatedAt: Date.now(),
@@ -1275,7 +1275,7 @@ export function ConsentNotificationProvider({
         if (cancelled) return;
         const detail = err instanceof Error ? err.message : "fcm_init_failed";
         console.error("[NotificationProvider] FCM initialization failed:", err);
-        persistDeliveryState(user.uid, {
+        persistDeliveryState(applicationOwnerId, {
           status: "push_failed",
           detail,
           updatedAt: Date.now(),
@@ -1297,10 +1297,10 @@ export function ConsentNotificationProvider({
       cancelled = true;
       clearTimeout(retryTimer);
     };
-  }, [fcmInitGeneration, user]);
+  }, [fcmInitGeneration, user, applicationOwnerId]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !applicationOwnerId) return;
     const refresh = () => {
       if (document.visibilityState !== "visible" || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
       // Focus, visibility and the shell lifecycle can describe the same resume.
@@ -1324,11 +1324,11 @@ export function ConsentNotificationProvider({
       window.removeEventListener("focus", refresh);
       window.removeEventListener("online", refresh);
     };
-  }, [fcmInitStatus, user]);
+  }, [fcmInitStatus, user, applicationOwnerId]);
 
   useEffect(() => {
-    if (!user) { disabledSseUser.current = null; return; }
-    if (Capacitor.isNativePlatform() || disabledSseUser.current === user.uid) return;
+    if (!user || !applicationOwnerId) { disabledSseUser.current = null; return; }
+    if (Capacitor.isNativePlatform() || disabledSseUser.current === applicationOwnerId) return;
     const initStatus = fcmInitStatus;
     if (!initStatus || initStatus === "push_active") return;
 
@@ -1352,7 +1352,7 @@ export function ConsentNotificationProvider({
       try {
         const idToken = await user.getIdToken(reconnectAttempt > 0);
         const availability = await ApiService.apiFetch(
-          `/api/consent/events/${encodeURIComponent(user.uid)}?capabilities=1`,
+          `/api/consent/events/${encodeURIComponent(applicationOwnerId)}?capabilities=1`,
           {
             method: "GET",
             headers: { Authorization: `Bearer ${idToken}` },
@@ -1369,12 +1369,12 @@ export function ConsentNotificationProvider({
           throw new ConsentSseError("consent_delivery_discovery_invalid", 502);
         }
         if (!capability.enabled) {
-          disabledSseUser.current = user.uid;
+          disabledSseUser.current = applicationOwnerId;
           setDeliveryMode(initStatus === "push_blocked" ? "push_blocked" : "inbox_only");
           return;
         }
         const response = await ApiService.apiFetchStream(
-          `/api/consent/events/${encodeURIComponent(user.uid)}`,
+          `/api/consent/events/${encodeURIComponent(applicationOwnerId)}`,
           {
             method: "GET",
             headers: {
@@ -1491,7 +1491,7 @@ export function ConsentNotificationProvider({
           error instanceof ConsentSseError &&
           (error.disabled || isPermanentSseStatus(error.status))
         ) {
-          if (error.disabled) disabledSseUser.current = user.uid;
+          if (error.disabled) disabledSseUser.current = applicationOwnerId;
           return;
         }
 
@@ -1568,7 +1568,7 @@ export function ConsentNotificationProvider({
         globalThis.clearTimeout(delayedConnectTimer);
       }
     };
-  }, [fcmInitStatus, pathname, user]);
+  }, [fcmInitStatus, pathname, user, applicationOwnerId]);
 
   useEffect(() => {
     if (!user || !isVaultUnlocked) return;
@@ -1588,6 +1588,7 @@ export function ConsentNotificationProvider({
     isVaultUnlocked,
     pathname,
     user,
+    applicationOwnerId,
   ]);
 
   // A system-notification body tap still lands on Feed, but the consent
@@ -1597,7 +1598,7 @@ export function ConsentNotificationProvider({
   useEffect(() => {
     if (!user || !isVaultUnlocked || pathname !== ROUTES.ONE_FEED) return;
     if (!notificationRequestId && !notificationBundleId) return;
-    const acknowledgementId = `${user.uid}::${notificationBundleId}::${notificationRequestId}`;
+    const acknowledgementId = `${applicationOwnerId}::${notificationBundleId}::${notificationRequestId}`;
     if (acknowledgedNotificationOpenIdsRef.current.has(acknowledgementId))
       return;
 
@@ -1688,16 +1689,17 @@ export function ConsentNotificationProvider({
     notificationRequestId,
     pathname,
     user,
+    applicationOwnerId,
   ]);
 
   useEffect(() => {
-    if (!user || isVaultUnlocked) return;
-    setPendingCount(readQueuedPendingConsents(user.uid).length);
-  }, [isVaultUnlocked, user]);
+    if (!user || !applicationOwnerId || isVaultUnlocked) return;
+    setPendingCount(readQueuedPendingConsents(applicationOwnerId).length);
+  }, [isVaultUnlocked, user, applicationOwnerId]);
 
   // Listen for FCM messages -- extract consent data directly from payload (no HTTP fetch)
   useEffect(() => {
-    if (!user) return;
+    if (!user || !applicationOwnerId) return;
 
     const handleConsentStateChanged = (event: Event) => {
       const detail =
@@ -1711,7 +1713,7 @@ export function ConsentNotificationProvider({
       const requestId = String(detail.requestId || "").trim();
       const bundleId = String(detail.bundleId || "").trim();
       const next = markPendingConsentReviewed(
-        user.uid,
+        applicationOwnerId,
         requestId,
         bundleId,
         reviewedIdsRef.current,
@@ -1738,7 +1740,7 @@ export function ConsentNotificationProvider({
         CONSENT_STATE_CHANGED_EVENT,
         handleConsentStateChanged,
       );
-  }, [user]);
+  }, [user, applicationOwnerId]);
 
   useEffect(() => {
     const handleFCMMessage = (event: Event) => {
@@ -1756,34 +1758,34 @@ export function ConsentNotificationProvider({
       // auth-loading, or wrong-account tab must leave it unacknowledged. Native
       // One Location delivery has no worker fallback, so retain its existing
       // auth-hydration queue and validate the target uid when that queue drains.
-      if (!user?.uid) {
+      if (!applicationOwnerId) {
         const canQueueNativeLocation =
           detail.source !== "service_worker" &&
           isOneLocationNotificationType(msgType);
         if (!canQueueNativeLocation) return;
       }
       if (
-        user?.uid &&
+        applicationOwnerId &&
         data.user_id &&
-        String(data.user_id).trim() !== user.uid
+        String(data.user_id).trim() !== applicationOwnerId
       ) {
         return;
       }
 
       if (msgType === "answer_request_changed") {
         if (
-          !user?.uid ||
+          !applicationOwnerId ||
           !data.user_id ||
-          data.user_id !== user.uid ||
+          data.user_id !== applicationOwnerId ||
           !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
             data.request_id || "",
           )
         )
           return;
         detail.accepted = true;
-        CacheSyncService.onConsentMutated(user.uid);
+        CacheSyncService.onConsentMutated(applicationOwnerId);
         dispatchConsentStateChanged({
-          userId: user.uid,
+          userId: applicationOwnerId,
           source: "answer_request_changed",
           requestId: `answer_request:${data.request_id}`,
           messageId: data.event_id,
@@ -1817,14 +1819,14 @@ export function ConsentNotificationProvider({
         ["direct_message", "location_circle_message"].includes(msgType ?? "")
       ) {
         if (
-          !user?.uid ||
+          !applicationOwnerId ||
           (data.recipient_key_id &&
-            data.recipient_key_id !== activeNotificationKeyId(user?.uid)) ||
-          (data.user_id && data.user_id !== user.uid)
+            data.recipient_key_id !== activeNotificationKeyId(applicationOwnerId)) ||
+          (data.user_id && data.user_id !== applicationOwnerId)
         )
           return;
       }
-      if (user?.uid && !documentShareRequestId)
+      if (applicationOwnerId && !documentShareRequestId)
         detail.accepted = [
           "direct_message",
           "location_circle_message",
@@ -1836,9 +1838,9 @@ export function ConsentNotificationProvider({
         ["direct_message_read", "location_circle_chat_read"].includes(
           msgType ?? "",
         ) &&
-        user?.uid
+        applicationOwnerId
       ) {
-        const keyId = activeNotificationKeyId(user.uid);
+        const keyId = activeNotificationKeyId(applicationOwnerId);
         if (keyId && data.recipient_key_id === keyId)
           void ChatSystemNotifications.clearRead({
             threadId: String(data.circle_id || data.conversation_id || ""),
@@ -1859,7 +1861,7 @@ export function ConsentNotificationProvider({
               ? { badgeVersion: Number(data.chat_badge_version) }
               : {}),
           });
-        CacheSyncService.onFeedExternalReadChanged(user.uid);
+        CacheSyncService.onFeedExternalReadChanged(applicationOwnerId);
         if (msgType === "direct_message_read") {
           dispatchFeedStateChanged("action");
           return;
@@ -1875,16 +1877,16 @@ export function ConsentNotificationProvider({
       if (!smsCreation && dedupKey && ingestedMessageIdsRef.current.has(dedupKey)) return;
       if (dedupKey) ingestedMessageIdsRef.current.add(dedupKey);
 
-      if (msgType === "location_pkm_changed" && user?.uid) {
+      if (msgType === "location_pkm_changed" && applicationOwnerId) {
         const domain = String(data.domain || "").trim();
         if (domain === "location") {
           if (data.operation === "cleared") {
-            CacheSyncService.onPkmDomainCleared(user.uid, domain, {
+            CacheSyncService.onPkmDomainCleared(applicationOwnerId, domain, {
               eventId: String(data.message_id || "").trim() || undefined,
             });
           } else {
             const parsedVersion = Number(data.data_version);
-            CacheSyncService.onPkmDomainStored(user.uid, domain, {
+            CacheSyncService.onPkmDomainStored(applicationOwnerId, domain, {
               eventDataVersion: Number.isFinite(parsedVersion)
                 ? parsedVersion
                 : undefined,
@@ -1905,17 +1907,17 @@ export function ConsentNotificationProvider({
         (msgType === "location_circle_message" ||
           msgType === "location_circle_chat_read" ||
           msgType === "location_circle_chat_receipts") &&
-        user?.uid
+        applicationOwnerId
       ) {
         const circleId = String(data.circle_id || "").trim();
         const forOwner =
-          data.user_id === user.uid ||
+          data.user_id === applicationOwnerId ||
           (typeof data.recipient_key_id === "string" &&
-            data.recipient_key_id === activeNotificationKeyId(user?.uid));
+            data.recipient_key_id === activeNotificationKeyId(applicationOwnerId));
         if (forOwner && /^[0-9a-f-]{36}$/i.test(circleId)) {
-          dispatchCircleChatChanged(user.uid, circleId);
+          dispatchCircleChatChanged(applicationOwnerId, circleId);
           if (msgType === "location_circle_chat_read")
-            CacheSyncService.onFeedExternalReadChanged(user.uid);
+            CacheSyncService.onFeedExternalReadChanged(applicationOwnerId);
           if (msgType !== "location_circle_chat_receipts")
             dispatchFeedStateChanged(
               msgType === "location_circle_chat_read" ? "action" : "arrived",
@@ -1925,22 +1927,22 @@ export function ConsentNotificationProvider({
       }
       if (
         msgType === "location_circle_photo_updated" &&
-        user?.uid &&
-        data.user_id === user.uid
+        applicationOwnerId &&
+        data.user_id === applicationOwnerId
       ) {
         const circleId = String(data.circle_id || "").trim();
         if (/^[0-9a-f-]{36}$/i.test(circleId))
-          CacheSyncService.onOneLocationStateMutated(user.uid, ["circles"], {
+          CacheSyncService.onOneLocationStateMutated(applicationOwnerId, ["circles"], {
             notificationType: msgType,
             circleId,
             eventId: String(data.message_id || "").trim() || undefined,
           });
         return;
       }
-      if (msgType === "location_settings_changed" && user?.uid) {
+      if (msgType === "location_settings_changed" && applicationOwnerId) {
         const setting = String(data.setting || "").trim();
         CacheSyncService.onOneLocationStateMutated(
-          user.uid,
+          applicationOwnerId,
           setting === "map_preferences" ? ["map_preferences"] : ["workspace"],
           {
             notificationType: msgType,
@@ -1953,8 +1955,8 @@ export function ConsentNotificationProvider({
       if (msgType === "information_request_updated") {
         // A requester-only doorbell, not a new Feed item or grant authority.
         // The matching Chat card rereads current status before local decrypt.
-        if (user?.uid && data.user_id === user.uid && data.bundle_id) {
-          CacheSyncService.onConsentMutated(user.uid);
+        if (applicationOwnerId && data.user_id === applicationOwnerId && data.bundle_id) {
+          CacheSyncService.onConsentMutated(applicationOwnerId);
           dispatchConsentStateChanged({
             source: "information_request_updated",
             bundleId: data.bundle_id,
@@ -1966,13 +1968,13 @@ export function ConsentNotificationProvider({
         return;
       }
 
-      if (msgType === "direct_message" && user?.uid) {
+      if (msgType === "direct_message" && applicationOwnerId) {
         // The push is only a metadata doorbell. The inbox/chat owner performs
         // an authenticated reread, so no message body crosses the FCM boundary.
         // The same committed message now has a recipient-only Feed projection;
         // refresh it without changing the push's visible notification behavior.
         dispatchDirectMessagesUpdated({
-          userId: user.uid,
+          userId: applicationOwnerId,
           conversationId:
             String(data.conversation_id || data.conversationId || "").trim() ||
             null,
@@ -1995,8 +1997,8 @@ export function ConsentNotificationProvider({
         // Do not render push copy or invoke a sharing action. The canonical
         // Consent Center and its owner/Vault checks fetch the current review
         // after a person has opened the fixed local route.
-        if (user?.uid) {
-          CacheSyncService.onConsentMutated(user.uid);
+        if (applicationOwnerId) {
+          CacheSyncService.onConsentMutated(applicationOwnerId);
         }
         dispatchConsentStateChanged({
           source: "fcm_document_share",
@@ -2025,7 +2027,7 @@ export function ConsentNotificationProvider({
           (isNativePlatform ||
             (typeof document !== "undefined" &&
               document.visibilityState === "visible"));
-        if (!user?.uid) {
+        if (!applicationOwnerId) {
           queuedOneLocationNotificationsRef.current = [
             ...queuedOneLocationNotificationsRef.current.filter(
               (notification) =>
@@ -2059,13 +2061,13 @@ export function ConsentNotificationProvider({
         // A remote request changes the canonical Consent Center even while its
         // page is open. Invalidate the shared cache and let the page perform
         // one retained-data background refresh; do not wait for a navigation.
-        if (user?.uid) {
-          CacheSyncService.onConsentMutated(user.uid);
+        if (applicationOwnerId) {
+          CacheSyncService.onConsentMutated(applicationOwnerId);
         }
 
         if (!isVaultUnlocked) {
-          if (user?.uid) {
-            const queued = queuePendingConsent(user.uid, consent);
+          if (applicationOwnerId) {
+            const queued = queuePendingConsent(applicationOwnerId, consent);
             setPendingCount(Math.max(queued.length, 1));
             dispatchConsentStateChanged({
               source: "fcm_queued",
@@ -2092,9 +2094,9 @@ export function ConsentNotificationProvider({
         const bundleId =
           typeof data.bundle_id === "string" ? data.bundle_id : undefined;
         const toastKey = bundleId || requestId;
-        if (user?.uid) {
+        if (applicationOwnerId) {
           const next = markPendingConsentReviewed(
-            user.uid,
+            applicationOwnerId,
             requestId,
             bundleId,
             reviewedIdsRef.current,
@@ -2102,7 +2104,7 @@ export function ConsentNotificationProvider({
           for (const key of next) {
             reviewedIdsRef.current.add(key);
           }
-          removeQueuedPendingConsent(user.uid, requestId, bundleId);
+          removeQueuedPendingConsent(applicationOwnerId, requestId, bundleId);
         }
         if (toastKey) {
           toast.dismiss(toastKey);
@@ -2123,10 +2125,10 @@ export function ConsentNotificationProvider({
         const requestId = data.request_id;
         if (requestId) knownPendingConsentIdsRef.current.delete(requestId);
         const toastKey = data.bundle_id || requestId;
-        if (user?.uid) {
-          CacheSyncService.onConsentMutated(user.uid);
+        if (applicationOwnerId) {
+          CacheSyncService.onConsentMutated(applicationOwnerId);
           reviewedIdsRef.current = markPendingConsentReviewed(
-            user.uid,
+            applicationOwnerId,
             requestId,
             data.bundle_id,
             reviewedIdsRef.current,
@@ -2136,9 +2138,9 @@ export function ConsentNotificationProvider({
           toast.dismiss(toastKey);
           setPendingCount((prev) => Math.max(0, prev - 1));
         }
-        if (user?.uid) {
+        if (applicationOwnerId) {
           const queued = removeQueuedPendingConsent(
-            user.uid,
+            applicationOwnerId,
             requestId,
             data.bundle_id,
           );
@@ -2161,8 +2163,8 @@ export function ConsentNotificationProvider({
         // Connection requests follow the same Feed-first foreground policy as
         // every other routine notification. Invalidate the owning data so both
         // Feed and the Consent Center can expose the actionable request.
-        if (user?.uid) {
-          CacheSyncService.onConsentMutated(user.uid);
+        if (applicationOwnerId) {
+          CacheSyncService.onConsentMutated(applicationOwnerId);
         }
         dispatchConsentStateChanged({
           source: "fcm_connection_request",
@@ -2172,8 +2174,8 @@ export function ConsentNotificationProvider({
         // The requester withdrew before the addressee acted on it. Without
         // this the pending request just sat in their list until the next
         // reconcile, indistinguishable from one still awaiting a reply.
-        if (user?.uid) {
-          CacheSyncService.onConsentMutated(user.uid);
+        if (applicationOwnerId) {
+          CacheSyncService.onConsentMutated(applicationOwnerId);
         }
         dispatchConsentStateChanged({
           source: "fcm_connection_request_cancelled",
@@ -2185,11 +2187,11 @@ export function ConsentNotificationProvider({
         // so this only ever surfaced via the Feed's 45s foreground poll or the
         // next app open. Same shape as the sibling branch above: invalidate
         // and let Connect/Consent Center pick it up on their own refresh.
-        if (user?.uid) {
+        if (applicationOwnerId) {
           // The resolution may have formed a real connection. Invalidate and
           // announce the graph, not only Consent Center, so Location recipient
           // pickers reconcile while they are already open.
-          CacheSyncService.onConnectionGraphMutated(user.uid);
+          CacheSyncService.onConnectionGraphMutated(applicationOwnerId);
         }
         dispatchConsentStateChanged({
           source: "fcm_connection_request_resolved",
@@ -2199,8 +2201,8 @@ export function ConsentNotificationProvider({
         // Disconnect changes every connection-backed projection. This branch
         // also runs on the actor's other devices because the backend emits a
         // silent data push to both sides after the transaction commits.
-        if (user?.uid) {
-          CacheSyncService.onConnectionGraphMutated(user.uid);
+        if (applicationOwnerId) {
+          CacheSyncService.onConnectionGraphMutated(applicationOwnerId);
         }
         dispatchConsentStateChanged({
           source: "fcm_connection_removed",
@@ -2211,8 +2213,8 @@ export function ConsentNotificationProvider({
       } else if (msgType === "connection_graph_changed") {
         // Silent post-commit wake-up for contact sync, invite-link linking and
         // the accepting person's other devices. Never surface an alert here.
-        if (user?.uid) {
-          CacheSyncService.onConnectionGraphMutated(user.uid);
+        if (applicationOwnerId) {
+          CacheSyncService.onConnectionGraphMutated(applicationOwnerId);
         }
       }
     };
@@ -2224,11 +2226,11 @@ export function ConsentNotificationProvider({
     isNativePlatform,
     isVaultUnlocked,
     showOneLocationWorkflowNotification,
-    user?.uid,
+    applicationOwnerId,
   ]);
 
   const reconcileOneLocationNotifications = useCallback(async () => {
-    if (!user?.uid || !isVaultUnlocked || !fcmInitStatus) return;
+    if (!applicationOwnerId || !isVaultUnlocked || !fcmInitStatus) return;
     if (oneLocationReconcilePromiseRef.current) {
       return oneLocationReconcilePromiseRef.current;
     }
@@ -2236,7 +2238,7 @@ export function ConsentNotificationProvider({
     const request = (async () => {
       const vaultOwnerToken = getVaultOwnerToken();
       if (!vaultOwnerToken) return;
-      const state = await OneLocationStateResource.load(user.uid, () =>
+      const state = await OneLocationStateResource.load(applicationOwnerId, () =>
         OneLocationService.getState(vaultOwnerToken),
       );
       // Feed may omit an ended grant when this owner has another live share.
@@ -2245,7 +2247,7 @@ export function ConsentNotificationProvider({
       for (const grant of state.receivedGrants ?? []) {
         if (grant.status === "revoked" || grant.status === "expired") {
           rememberSmsPresentation(smsPresentationRef.current, grant.id, "ended");
-          markOneLocationNotificationSeen(user.uid, `share-ended:${grant.id}`);
+          markOneLocationNotificationSeen(applicationOwnerId, `share-ended:${grant.id}`);
           dismissEmergencySms(grant.id);
         }
       }
@@ -2256,9 +2258,9 @@ export function ConsentNotificationProvider({
       // Reconciliation is a state-repair path, never a presentation source.
       // Historical rows must not become new popup notifications after a fresh
       // install, storage reset, resume, or visibility change.
-      const payloads = buildOneLocationNotificationPayloads(state, user.uid, {
+      const payloads = buildOneLocationNotificationPayloads(state, applicationOwnerId, {
         isGrantUnwatched: (grantId) =>
-          isOneLocationGrantUnwatched(user.uid, grantId),
+          isOneLocationGrantUnwatched(applicationOwnerId, grantId),
       });
       for (const payload of payloads) {
         showOneLocationWorkflowNotification(payload, {
@@ -2292,7 +2294,7 @@ export function ConsentNotificationProvider({
     getVaultOwnerToken,
     isVaultUnlocked,
     showOneLocationWorkflowNotification,
-    user?.uid,
+    applicationOwnerId,
   ]);
 
   useEffect(() => {
@@ -2301,7 +2303,7 @@ export function ConsentNotificationProvider({
     // every route; this fallback reconciliation waits until the owner opens
     // the workspace that consumes the state.
     if (
-      !user?.uid ||
+      !applicationOwnerId ||
       !isVaultUnlocked ||
       !fcmInitStatus ||
       !isOneLocationWorkspaceRoute(pathname)
@@ -2360,7 +2362,7 @@ export function ConsentNotificationProvider({
     isVaultUnlocked,
     pathname,
     reconcileOneLocationNotifications,
-    user?.uid,
+    applicationOwnerId,
   ]);
 
   // One-time state catch-up on vault unlock. Pending items stay in Feed and the
@@ -2368,7 +2370,7 @@ export function ConsentNotificationProvider({
   useEffect(() => {
     if (!isVaultUnlocked) return;
 
-    const uid = user?.uid;
+    const uid = applicationOwnerId;
     if (!uid) return;
 
     let cancelled = false;
@@ -2475,21 +2477,21 @@ export function ConsentNotificationProvider({
       cancelled = true;
       globalThis.clearTimeout(timeoutId);
     };
-  }, [getVaultOwnerToken, isVaultUnlocked, pathname, user?.uid]);
+  }, [getVaultOwnerToken, isVaultUnlocked, pathname, applicationOwnerId]);
 
   // Push is authoritative when it is available. If a browser/device cannot
   // keep that channel, reconcile only while visible at a deliberately bounded
   // cadence. This writes the same memory cache the consent surfaces already
   // render from, so a missed push repairs state without a blocking route load.
   const reconcilePendingConsents = useCallback(async () => {
-    if (!user?.uid || !isVaultUnlocked) return;
+    if (!applicationOwnerId || !isVaultUnlocked) return;
     if (consentReconcilePromiseRef.current) {
       return consentReconcilePromiseRef.current;
     }
     const request = (async () => {
       const vaultOwnerToken = getVaultOwnerToken();
       if (!vaultOwnerToken) return;
-      const pending = await loadPendingConsentsOnce(user.uid, vaultOwnerToken, {
+      const pending = await loadPendingConsentsOnce(applicationOwnerId, vaultOwnerToken, {
         forceRefresh: true,
       });
       knownPendingConsentIdsRef.current = new Set(
@@ -2513,10 +2515,10 @@ export function ConsentNotificationProvider({
       });
     consentReconcilePromiseRef.current = request;
     return request;
-  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
+  }, [getVaultOwnerToken, isVaultUnlocked, applicationOwnerId]);
 
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked || deliveryMode === "push_active") {
+    if (!applicationOwnerId || !isVaultUnlocked || deliveryMode === "push_active") {
       return;
     }
     const reconcileWhenVisible = () => {
@@ -2548,7 +2550,7 @@ export function ConsentNotificationProvider({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       unregister();
     };
-  }, [deliveryMode, isVaultUnlocked, reconcilePendingConsents, user?.uid]);
+  }, [deliveryMode, isVaultUnlocked, reconcilePendingConsents, applicationOwnerId]);
 
   return (
     <ConsentNotificationStateContext.Provider

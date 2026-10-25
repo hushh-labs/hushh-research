@@ -1804,10 +1804,7 @@ def test_the_grading_lane_is_read_only_and_is_not_told_to_write(tmp_path):
     # at the grader. `replay` is the orchestrator's command and may be named.
     assert "memory_judge.py --run-dir <dir> record" not in lane
     assert "Emit verdicts; you never write" in lane
-    # The Claude-side mirror of the same lane must not drift from it.
-    mirror = (root / ".claude" / "agents" / "local_model_judge.md").read_text(encoding="utf-8")
-    assert "Emit verdicts; you never write" in mirror
-    assert "memory_judge.py --run-dir <dir> record" not in mirror
+    # This canonical lane is the source; orchestration governance rejects host mirrors.
 
 
 def test_the_receipt_says_whether_its_own_contents_locate_the_seal(tmp_path):

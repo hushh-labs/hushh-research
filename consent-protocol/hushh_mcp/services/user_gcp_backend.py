@@ -31,6 +31,7 @@ from hushh_mcp.services.compute_backend import (
 from hushh_mcp.services.gcp_backend import (
     A2A_ADDRESS_BASE,
     GcpBackend,
+    _deploy_env_label,
     _env,
     _flag,
     _liveness_mode,
@@ -2216,6 +2217,58 @@ class UserGcpBackend:
                 # The tier the adopted pod ACTUALLY runs at, read from its own live
                 # service (minScale absent means 0 on Cloud Run) -- never a guess.
                 "livenessMode": _liveness_mode(_rendered_min_scale(svc)),
+            },
+        )
+
+    async def verify_adoption(self, spec: PodSpec, handle: BackendHandle) -> BackendHandle:
+        """A name/label match never restores authority to a replacement service."""
+        import asyncio
+
+        from hushh_mcp.services.pod_adoption import PodAdoptionRefused
+        from hushh_mcp.services.pod_release import image_digest
+
+        expected_digest = image_digest(spec.expected_image_digest)
+        expected_principal = (
+            f"{pod_service_account_id(spec.hushh_id)}@{self._user_project}.iam.gserviceaccount.com"
+        )
+        if (
+            not self._live
+            or not spec.expected_service_uid
+            or not expected_digest
+            or spec.expected_runtime_principal != expected_principal
+            or handle.external_agent_id != _service_name(spec.hushh_id)
+        ):
+            raise PodAdoptionRefused("POD_ADOPTION_IDENTITY_UNVERIFIED")
+        try:
+            client = await asyncio.to_thread(self._client)
+            observed = await asyncio.to_thread(
+                client.observe_erasure_runtime,
+                name=handle.external_agent_id,
+                expected_uid=spec.expected_service_uid,
+                include_identity=True,
+            )
+        except Exception:
+            raise PodAdoptionRefused("POD_ADOPTION_OBSERVATION_UNAVAILABLE") from None
+        if (
+            observed.get("serviceUid") != spec.expected_service_uid
+            or image_digest(observed.get("image")) != expected_digest
+            or observed.get("runtime_service_account") != expected_principal
+            or observed.get("ownerIdentity")
+            != {"HUSSH_ID": spec.hushh_id, "HUSHH_DEPLOY_ENV": _deploy_env_label()}
+            or observed.get("podUrl") != (handle.backend_metadata or {}).get("url", "").rstrip("/")
+        ):
+            raise PodAdoptionRefused("POD_ADOPTION_IDENTITY_CHANGED")
+        return BackendHandle(
+            external_agent_id=handle.external_agent_id,
+            a2a_route=handle.a2a_route,
+            status=handle.status,
+            backend=handle.backend,
+            backend_metadata={
+                **(handle.backend_metadata or {}),
+                "serviceUid": observed["serviceUid"],
+                "image": observed["image"],
+                "image_digest": expected_digest,
+                "runtime_service_account": expected_principal,
             },
         )
 

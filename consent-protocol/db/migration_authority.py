@@ -22,6 +22,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
+from db.private_agent_adoption import execution_sql
 from db.referral_prize_activation import (
     REFERRAL_POLICY_V5_SHA256 as _REFERRAL_POLICY_V5_SHA256,
 )
@@ -650,8 +651,20 @@ def _replay_drive_cent_prices_sql(entry: MigrationManifestEntryV2) -> str:
 
 
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    from db.account_cleanup_replay import SOURCES as ACCOUNT_SOURCES
+    from db.account_cleanup_replay import account_cleanup_replay_sql
     from db.private_action_replay import SOURCES, private_action_replay_sql
 
+    if (entry.migration_id, entry.filename) in ACCOUNT_SOURCES:
+        try:
+            return account_cleanup_replay_sql(
+                entry,
+                qualified_referral_sql=_replay_referral_policy_v4_sql(entry)
+                if entry.migration_id == "347"
+                else None,
+            )
+        except ValueError as exc:
+            raise MigrationAuthorityError(str(exc)) from None
     if (entry.migration_id, entry.filename) in SOURCES:
         try:
             return private_action_replay_sql(entry)
@@ -672,8 +685,6 @@ def _replay_sql(entry: MigrationManifestEntryV2) -> str:
         return _replay_referral_policy_v2_sql(entry)
     if entry.migration_id == "338" and entry.filename == "338_one_referral_usd_catalogue.sql":
         return _replay_referral_policy_v3_sql(entry)
-    if entry.migration_id == "347" and entry.filename == "347_one_referral_dashboard_lifecycle.sql":
-        return _replay_referral_policy_v4_sql(entry)
     if entry.migration_id == "349" and entry.filename == "349_one_referral_dashboard_truth.sql":
         return _replay_referral_policy_v5_sql(entry)
     if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
@@ -905,7 +916,7 @@ async def apply_manifest_entries(
                 if covered_by_baseline or (existing and existing.get("status") == "applied"):
                     continue
 
-            sql = _replay_sql(entry) if mode is MigrationMode.REPLAY else entry.sql
+            sql = execution_sql(entry, replay=_replay_sql if mode is MigrationMode.REPLAY else None)
             for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
                 started = time.perf_counter()
                 recorded_applied = False

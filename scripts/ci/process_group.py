@@ -8,6 +8,25 @@ import sys
 import time
 
 
+def _group_is_absent(group):
+    """Independent absence proof; an unavailable/empty inventory is not proof."""
+    try:
+        observed = subprocess.run(
+            ["/bin/ps", "-axo", "pgid="],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=1,
+            check=False,
+        )
+        values = observed.stdout.split()
+        if not values or any(not value.isascii() or not value.isdecimal() for value in values):
+            return False
+        return observed.returncode == 0 and group not in {int(value) for value in values}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
 class _WindowsJob:
     def __init__(self):
         import ctypes
@@ -149,6 +168,17 @@ def command_group(args, **kwargs):
                 os.killpg(process.pid, signal.SIGKILL if force else signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            except PermissionError:
+                # Darwin can report EPERM for a group that vanished after TERM.
+                # Reaping the parent alone cannot prove its descendants exited.
+                if (
+                    force
+                    and sys.platform == "darwin"
+                    and process.poll() is not None
+                    and _group_is_absent(process.pid)
+                ):
+                    return
+                raise
 
         try:
             yield process, stop

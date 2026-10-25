@@ -420,7 +420,7 @@ def test_calendar_status_requires_an_active_provider_connection() -> None:
     assert status["scope_csv"] == ""
 
 
-def test_calendar_access_token_rejects_partial_granted_scopes() -> None:
+def test_calendar_access_token_rejects_partial_granted_scopes(shared_hub_owner) -> None:
     class _PartialScopeDb(_Db):
         def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
             self.calls.append((sql, params))
@@ -458,6 +458,7 @@ def test_calendar_access_token_rejects_partial_granted_scopes() -> None:
 
 def test_calendar_refresh_does_not_restore_a_token_after_disconnect(
     monkeypatch: pytest.MonkeyPatch,
+    shared_hub_owner,
 ) -> None:
     class _RefreshRaceDb(_Db):
         def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
@@ -1360,6 +1361,7 @@ def test_calendar_long_retry_after_is_not_retried_early() -> None:
 
 def test_calendar_read_accepts_manage_scope_without_requesting_extra_consent(
     monkeypatch: pytest.MonkeyPatch,
+    shared_hub_owner,
 ) -> None:
     class ScopeDb(_Db):
         def execute_raw(self, sql: str, params: dict | None = None):

@@ -43,9 +43,13 @@ def _build(monkeypatch, *, enabled=True, phone_verified=True):
             calls["deprovision"] = kw
             return {"status": "deprovisioned", "hushhId": "ha1_x"}
 
+    class FakeRegistry:
+        async def get(self, user_id):
+            return None
+
     monkeypatch.setattr(pa, "ActorIdentityService", lambda: FakeIdentity())
     monkeypatch.setattr(pa, "PersonalAgentProvisioningService", FakeProvisioning)
-    monkeypatch.setattr(pa, "PersonalAgentRegistryRepo", lambda: object())
+    monkeypatch.setattr(pa, "PersonalAgentRegistryRepo", FakeRegistry)
 
     app = FastAPI()
     app.include_router(pa.router)
@@ -86,10 +90,14 @@ def test_provision_forwards_pod_key(monkeypatch):
     assert calls["provision"]["pod_key_id"] == "pod-1"
 
 
-def test_deprovision_requires_flag(monkeypatch):
-    client, _ = _build(monkeypatch, enabled=False)
+@pytest.mark.feature_account_deletion
+@pytest.mark.trace_loop
+def test_existing_owner_cleanup_remains_available_with_provisioning_disabled(monkeypatch):
+    client, calls = _build(monkeypatch, enabled=False)
     resp = client.post("/api/one/personal-agent/deprovision")
-    assert resp.status_code == 404
+    assert resp.status_code == 200
+    assert calls["deprovision"]["user_id"] == "uid1"
+    assert "provision" not in calls
 
 
 def test_deprovision_calls_service(monkeypatch):

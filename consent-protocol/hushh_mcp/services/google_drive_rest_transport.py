@@ -795,8 +795,7 @@ def _only(arguments: dict[str, Any], allowed: set[str]) -> None:
         raise DriveWriteError("invalid_argument")
 
 
-# Tool name -> transport method. REST_TOOLS is derived from it so the admitted
-# set and the implemented set cannot drift apart.
+# REST_TOOLS derives from this tool-to-method authority, keeping admission and dispatch aligned.
 _OPERATIONS = {
     "list_shared_drives": "_list_shared_drives",
     "search_files": "_search_files",
@@ -813,6 +812,7 @@ _OWNER_SEARCH_OPERATIONS = {
 }
 _GROUP_INDEX_OPERATIONS = {
     "search_files": "_owner_search_files",
+    "get_file_metadata": "_get_file_metadata",
     "read_file_content": "_read_index_file_content",
     "changes_start_token": "_owner_changes_start_token",
     "list_changes": "_owner_list_changes",

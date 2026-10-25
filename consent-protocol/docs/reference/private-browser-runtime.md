@@ -1,49 +1,65 @@
 # Private browser runtime
 
+## Visual Context
+
+Use the [Founder/CTO diagram guide](../../../docs/reference/architecture/README.md#founder-and-cto-diagram-guide)
+and [private-agent runtime map](../../../docs/reference/architecture/private-agent-north-star.md)
+for the owner, hub and cloud boundary. This reference owns the Browser execution
+mode, exact qualification and installed-journey evidence.
+
 ## Status and evidence
 
-**2026-10-24 UTC — application repair accepted on dev/UAT; Dev29 synthetic
-format recovery passed on both clouds. Installed Browser acceptance stays open.**
-One and Browser now share one owner container, non-root UID and lifecycle. GCP
-uses Cloud Run with Chromium's internal sandbox enabled; Azure uses Container
-Apps with it explicitly disabled. The whole owner pod is the compromise boundary.
-The broker and consent checks constrain normal operations, not compromised code.
-No VM migration, separate Browser service or artificial keepalive is part of this release.
+**25 October 2026, 17:23 UTC — both clouds have exact-image component evidence;
+Azure owner installation is verified. Installed Browser journeys remain open.**
 
-Dev 28 reuses immutable image `8b846022…68ac07`, source `67a64533ac6a`.
-Native Gemini and the actual Azure `one-chat` deployment produced real frames and
-joined shutdown. Azure's exact owner-approved installation completed as operation
-`op_13e165d0d1bf4a6788ae230cc7e2a93f` at 02:22:22 UTC, retaining its identity and
-1 vCPU / 2 GiB, minimum-zero configuration. Its initial review failure exposed an installed channel constraint; the 971/replay
-repair is now deployed. A later owner task reached fresh model-processing consent
-and active takeover, then exposed startup/resize before Browser initialization.
-The join/viewport-epoch repair is on main with focused evidence but is not installed.
-Full takeover, handback, reconnect and Stop remain unverified on the owner image.
-GCP inventory/domain repair is recorded; its exact Browser activation and installed
-owner acceptance remain pending. Source implementation never grants activation.
+[PR #8451](https://github.com/hushh-labs/hushh-research/pull/8451) landed as
+`9174abfbe594`; its governed dev release is
+[40201425206](https://github.com/hushh-labs/hushh-research/actions/runs/40201425206).
+Publication [#8457](https://github.com/hushh-labs/hushh-research/pull/8457) reuses
+that executable. Dev application `c4aeb1ca09` serves at 100% through
+[40207330968](https://github.com/hushh-labs/hushh-research/actions/runs/40207330968),
+confirmed by corporate ADC at 17:22 UTC.
+The exact pod image is
+`sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423`.
 
-Application Hosting/AI/cleanup and provider-correct model routing remain on main.
-On 24 October 2026, PR #8401 landed as `ca83c0bf5a`; exact CI, landed smoke and
-[dev acceptance](https://github.com/hushh-labs/hushh-research/actions/runs/40041198106)
-passed. UAT also accepted `ca83c0bf5a` in
-[run 40043238175](https://github.com/hushh-labs/hushh-research/actions/runs/40043238175);
-schema, provenance, semantics and worker attestation passed. Corporate ADC confirms
-both serving revisions at 100% traffic.
-The earlier email-readiness timeout and collector defects have merged repairs.
+One and Browser share one non-root owner container and lifecycle. GCP Cloud Run
+retains Chromium's sandbox; Azure Container Apps explicitly disables it. The whole
+owner pod is the compromise boundary. Broker and consent checks constrain normal
+operations, not compromised code. No separate Browser service, VM or keepalive.
 
-The new Dev29 image is `683b7b5f08c0…dc52688`, source `ca83c0bf5a`, archived by
-that governed dev run. Synthetic format recovery from `8b846022…68ac07` passed
-on GCP and Azure, with identity/records/Files preserved and task-owned resources
-cleaned. GCP object soft-delete retention remains explicit. Other predecessors,
-normal startup/drain and installed Browser still require their own proof.
-Existing-owner eligibility remains empty and Browser execution pins are withheld.
-This publication does not install a pod or complete an owner Browser journey.
-The readiness memo records source, serving and installation outcomes separately.
+Both native component probes pass model-directed page observation, responsive
+390×844 control, manual login with zero model observations, encrypted remember,
+new-task restore, logout rejection, Forget, one reviewed save and joined Stop.
+GCP uses `gemini-3.7-flash` and its native ADK integration; Azure uses
+`AzureBrowserAdkModel` with the actual owner's `one-chat` deployment, backed by
+GPT-5.6 Luna. There is no provider fallback. These probes use synthetic exact
+consent and a local encrypted store; actual owner approval, active-task HTTP
+control, reconnect and owner-cloud session recovery remain separate acceptance.
 
-The current qualified policy covers Python documentation public research only.
-Login, submissions, selected PKM production and Files transfers retain their
-separate acceptance requirements. Earlier component images below are historical
-execution evidence, not current installed provenance.
+The reviewed interactive policy is limited to the controlled HTTPS fixture.
+It is not broad website qualification. The fixture is temporary; expiry returns
+unavailability rather than expanding destinations. Authenticated GitHub, selected
+PKM disclosure and Browser-to-Files retain their own acceptance requirements.
+
+Fresh synthetic recovery from installed digests `26bab163…c061809` and
+`8b846022…68ac07` preserves identity, six encrypted records, consent, revocation
+and 245,763 exact file bytes. Disposable compute, grants, active objects, copied
+images and Azure deleted vault were removed and read back. GCP's seven-day
+soft-delete retention remains explicit. This proves format recovery, not a normal
+active-work drain. Azure's exact owner-approved Dev 30 update is verified; GCP
+still serves its predecessor while the approved Files operation is reconciled.
+Its completed bootstrap checkpoints do not establish image handoff; preserve the
+held operation and do not replay the exhausted queue continuation.
+
+The preceding `c26fd848…401c5b3` image failed login redirect continuity after the
+POST succeeded. The corrected executor joins only explicit Chromium successor
+requests under their original scope, refuses unknown parents, waits for final
+navigation and closes on cancellation. Its delayed-redirect negative control fails
+on the old code. Historical failures remain evidence and cannot qualify new images.
+The [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
+separates source, application deployment and installed-owner results.
+
+## Historical component evidence
 
 The same immutable qualification image
 `sha256:b48f66b6db71f845a23882c2ff6a8480a8057a4af9e4d518507098b32fbf24a4`

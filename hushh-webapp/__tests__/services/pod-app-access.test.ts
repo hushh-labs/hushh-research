@@ -1,5 +1,6 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { generateKeyPairSync, sign as nodeSign } from "node:crypto";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { canonicalJson } from "@/lib/services/owner-pod-crypto";
 import { agentChatRequest, ownerPodRequest } from "@/lib/services/pod-app-access";
 import { requestPkmMemoryPreparation } from "@/lib/agent/agent-pkm-memory-preparation";
@@ -271,3 +272,6 @@ it("seals an AI selection to the hub-signed key of the addressed pod, and refuse
   await expect(ownerPodRequest('connectors/gmail?x', { method: 'GET', body: JSON.stringify(login) }, ports))
     .rejects.toThrow('POD_CONNECTOR_REQUEST_REFUSED');
 });
+
+// Fixtures represent an admitted application owner, not merely an SDK identity.
+beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: "owner", ownerId: "owner", accountGeneration: 0 }));

@@ -61,7 +61,7 @@ describe("profile security deletion contract", () => {
   it("uses the same destructive settlement from Profile and setup chrome", () => {
     expect(topAppBarSource).toContain('import { OnboardingRouteActions }');
     expect(topAppBarSource).toContain('<OnboardingRouteActions key={user?.uid');
-    expect(onboardingSource).toContain("needsCloudReview = azureAccountCleanupRequired(error)");
+    expect(onboardingSource).toContain("needsCloudReview = accountCleanupProvider(error)");
     expect(onboardingSource).toContain("if (!needsCloudReview) setDeleteConfirmOpen(false)");
     expect(onboardingSource).toContain("<AccountCloudCleanup");
     expect(onboardingSource).toContain("onFinish={handleDeleteAccount}");
@@ -78,7 +78,7 @@ describe("profile security deletion contract", () => {
     expect(deleteFlowSource).toContain("account_deletion_uncertain");
     expect(deleteFlowSource).toContain("account_delete_uncertain_unverified");
     expect(deleteFlowSource).toContain("account_delete_confirmed");
-    expect(deleteFlowSource).toContain("getAccountSessionStatus");
+    expect(deleteFlowSource).toContain("getAccountDeletionStatus");
     expect(deleteFlowSource).toContain("result?.success !== true");
     expect(deleteFlowSource).toContain("result.account_deleted !== true");
     expect(deleteFlowSource).toContain("CacheSyncService.onAccountDeleted");
@@ -199,7 +199,7 @@ describe("profile lifecycle voice settlement contract", () => {
       profilePageSource.indexOf("const handleResetClick = async ()"),
     );
     expect(resetBody.indexOf("resolveResetOutcome(result)")).toBeLessThan(
-      resetBody.indexOf("CacheSyncService.onAccountDeleted(user.uid)"),
+      resetBody.indexOf("CacheSyncService.onAccountDeleted(owner.ownerId)"),
     );
     expect(resetBody).toContain("error: (error: unknown) => resetErrorMessage(error)");
     expect(resetBody).not.toContain('error: "Failed to reset account. Please try again."');

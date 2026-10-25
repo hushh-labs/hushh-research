@@ -23,7 +23,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: mocks.ownerId }, loading: false }),
+  useAuth: () => ({ user: { uid: mocks.ownerId }, userId: mocks.ownerId, loading: false }),
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({

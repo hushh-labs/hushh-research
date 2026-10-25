@@ -1,8 +1,9 @@
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import type { CalendarAttendanceHandoff, CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/navigation/agent-navigation", () => ({
 
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
+    userId: mocks.ownerId,
     user: mocks.ownerId
       ? { uid: mocks.ownerId, email: `${mocks.ownerId}@example.com`, displayName: "Calendar owner", getIdToken: mocks.getIdToken }
       : null,
@@ -88,6 +90,7 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), promise: v
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import nativeRoutes from "@/native-route-inventory.json";
 
 describe("CalendarAgentPage", () => {
   beforeEach(() => {
@@ -96,6 +99,7 @@ describe("CalendarAgentPage", () => {
     mocks.native = false;
     mocks.authLoading = false;
     mocks.ownerId = "calendar-user";
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "calendar-user", ownerId: "calendar-user", accountGeneration: 0 });
     mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "shared" });
     mocks.popupAttempt = "";
     mocks.vaultOwnerToken = null;
@@ -310,25 +314,6 @@ describe("CalendarAgentPage", () => {
     expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
   });
 
-  it("keeps the Calendar connection surface focused on connection", async () => {
-    mocks.status.mockResolvedValue({
-      configured: true,
-      connected: false,
-      status: "disconnected",
-      scope_csv: "",
-    });
-
-    render(<CalendarAgentPage journeyVariant="onboarding" />);
-
-    expect(
-      await screen.findByRole("heading", {
-        name: "Bring your schedule into One.",
-      }),
-    ).toBeTruthy();
-    expect(screen.queryByText("Try asking One")).toBeNull();
-    expect(screen.queryByText(/Summarize my calendar for this week/)).toBeNull();
-  });
-
   it.each([false, true])("returns to the illustration when Google authorization has lapsed (raw connected=%s)", async (rawConnected) => {
     mocks.status.mockResolvedValue({
       configured: true,
@@ -358,16 +343,30 @@ describe("CalendarAgentPage", () => {
     );
   });
 
-  it.each(["workspace", "onboarding"] as const)("shows the illustration on a disconnected %s visit", async (journeyVariant) => {
+  it.each([["workspace", false], ["onboarding", false], ["workspace", true], ["onboarding", true]] as const)("shows disconnected %s with correct native audit (native=%s)", async (journeyVariant, native) => {
+    mocks.native = native;
     mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
     render(<CalendarAgentPage journeyVariant={journeyVariant} />);
     const connect = await waitForConnectButton();
     expect(screen.getByTestId("calendar-connect-hero")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Disconnect Calendar" })).toBeNull();
     expect(connect.getAttribute("data-voice-control-id")).toBe("open_calendar_connector");
-    expect(connect.getAttribute("data-voice-action-id")).toBe(
-      journeyVariant === "onboarding" ? "setup.connect_calendar" : null,
-    );
+    expect(connect.getAttribute("data-voice-action-id")).toBe(journeyVariant === "onboarding" ? "setup.connect_calendar" : null);
+    if (journeyVariant === "onboarding") {
+      expect(screen.getByRole("heading", { name: "Bring your schedule into One." })).toBeTruthy();
+      expect(screen.queryByText("Try asking One")).toBeNull();
+      expect(screen.queryByText(/Summarize my calendar for this week/)).toBeNull();
+    }
+    if (native) {
+      const route = journeyVariant === "onboarding" ? "/one/setup/calendar" : "/one/calendar";
+      const entry = nativeRoutes.routes.find(candidate => candidate.route === route);
+      expect(entry?.classification).toBe("native-required-functional");
+      if (!entry || !("expectedMarker" in entry)) throw new Error("Calendar native audit entry is missing");
+      const beacon = screen.getByTestId(entry.expectedMarker!);
+      expect(beacon).toHaveAttribute("data-native-data-state", "empty-valid");
+      expect(beacon).toHaveAttribute("data-native-route-id", entry.expectedRoute);
+      expect(beacon).toHaveAttribute("data-native-auth-state", "authenticated");
+    }
   });
 
   it.each([
@@ -448,12 +447,16 @@ describe("CalendarAgentPage", () => {
     mocks.status.mockRejectedValueOnce(new Error("Request failed"));
     render(<CalendarAgentPage />);
     const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(screen.getByTestId("native-route-calendar")).toHaveAttribute("data-native-data-state", "error");
+    expect(screen.getByTestId("native-route-calendar")).toHaveAttribute("data-native-error-code", "calendar_status_unavailable");
     expect(screen.getByText("Calendar connection couldn’t load. Try again.")).toBeTruthy();
     expect(screen.queryByText("Checking Calendar connection…")).toBeNull();
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
     let resolveStatus!: (value: unknown) => void;
     mocks.status.mockImplementationOnce(() => new Promise(resolve => { resolveStatus = resolve; }));
     fireEvent.click(retry);
+    expect(screen.getByTestId("native-route-calendar")).toHaveAttribute("data-native-data-state", "loading");
+    expect(screen.getByTestId("native-route-calendar")).toHaveAttribute("data-native-error-code", "");
     expect(screen.getByRole("status").textContent).toBe("Checking Calendar connection…");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
@@ -819,3 +822,5 @@ describe("CalendarAgentPage", () => {
   });
 
 });
+
+afterEach(() => publishValidatedAuthSessionPrincipal(null));

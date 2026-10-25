@@ -118,6 +118,7 @@ vi.mock("@/lib/utils/session-storage", () => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getAccountSessionStatus: mocks.apiGetAccountSessionStatus,
+    getAccountRegistrationStatus: vi.fn(async () => new Response(null, { status: 404 })),
     deleteSession: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -184,6 +185,7 @@ function SessionProbe() {
   const {
     beginPostAuthSettlement,
     completePostAuthSettlement,
+    admitPostAuthSettlement,
     loading,
     sessionVerificationRequired,
     retrySessionVerification,
@@ -215,9 +217,10 @@ function SessionProbe() {
       <button
         type="button"
         onClick={() => {
-          if (settlementIdRef.current !== null) {
-            completePostAuthSettlement(settlementIdRef.current);
-          }
+          const id = settlementIdRef.current;
+          if (id !== null) void admitPostAuthSettlement(id).then(owner => {
+            if (owner) completePostAuthSettlement(id);
+          });
         }}
       >
         Complete account B settlement
@@ -231,8 +234,8 @@ function emitPrivacy(overrides: Partial<typeof mocks.privacyState>, action = "st
   mocks.privacyListener?.({ ...mocks.privacyState, action });
 }
 
-function activeSessionResponse(): Response {
-  return Response.json({ active: true }, { status: 200 });
+function activeSessionResponse(uid = "native-account-owner"): Response {
+  return Response.json({ active: true, firebase_uid: uid, owner_id: uid, account_generation: 0 }, { status: 200 });
 }
 
 describe("AuthProvider native privacy generations", () => {
@@ -613,6 +616,7 @@ describe("AuthProvider native privacy generations", () => {
       expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
     });
 
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => activeSessionResponse("interactive-account-b"));
     act(() => {
       screen.getByRole("button", {
         name: "Start account B settlement",
@@ -635,7 +639,7 @@ describe("AuthProvider native privacy generations", () => {
     });
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
 
-    act(() => {
+    await act(async () => {
       screen.getByRole("button", {
         name: "Complete account B settlement",
       }).click();

@@ -16,6 +16,10 @@ class PodAdoptionExpectations(TypedDict):
     azure_vm_host: AzureVmHostBinding | None
 
 
+class PodAdoptionRefused(RuntimeError):
+    """Retained deployment identity does not authorize adopting an observed host."""
+
+
 def adoption_expectations(metadata: object) -> PodAdoptionExpectations:
     """Malformed or unknown explicit host bindings refuse rather than selecting ACA."""
     recorded = metadata if isinstance(metadata, dict) else {}
@@ -26,8 +30,12 @@ def adoption_expectations(metadata: object) -> PodAdoptionExpectations:
         vm = recorded_vm_host(recorded)
     return {
         "expected_service_uid": str(recorded.get("serviceUid") or "") or None,
-        "expected_runtime_principal": str(recorded.get("runtime_principal_id") or "") or None,
-        "expected_image_digest": str(recorded.get("image_digest") or "") or None,
+        "expected_runtime_principal": str(
+            recorded.get("runtime_principal_id") or recorded.get("runtime_service_account") or ""
+        )
+        or None,
+        "expected_image_digest": str(recorded.get("image_digest") or recorded.get("image") or "")
+        or None,
         "expected_setup_nonce": str(recorded.get("setupNonce") or "") or None,
         "azure_vm_host": vm,
     }

@@ -11,6 +11,7 @@ from collections import Counter, OrderedDict
 from pathlib import Path
 from typing import Any
 
+from ci_preflight import preflight
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 GOVERNANCE_POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
@@ -85,7 +86,7 @@ def _git_branch() -> str:
 
 
 def _resolve_pr(pr_number: int | None, branch: str | None) -> dict[str, Any]:
-    fields = "number,title,url,headRefName,statusCheckRollup"
+    fields = "number,title,url,headRefName,headRefOid,baseRefName,state,mergeable,isDraft,statusCheckRollup"
     if pr_number is not None:
         return _gh_json(["pr", "view", str(pr_number), "--json", fields])
 
@@ -469,7 +470,31 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=1800, help="max wait in seconds for --watch")
     parser.add_argument("--json", action="store_true", help="emit JSON")
     parser.add_argument("--text", action="store_true", help="emit concise text")
+    parser.add_argument("--require-success", action="store_true", help="refuse pending or unproven exact-head CI")
+    parser.add_argument("--expected-sha", help="full reviewed PR head required by --require-success")
     args = parser.parse_args()
+    if args.require_success:
+        if not args.expected_sha or args.watch:
+            parser.error(
+                "--require-success needs --expected-sha and cannot be combined with --watch"
+            )
+        try:
+            print(
+                json.dumps(
+                    preflight(
+                        args.pr,
+                        args.branch,
+                        args.expected_sha,
+                        resolve_pr=_resolve_pr,
+                        gh_json=_gh_json,
+                    )
+                )
+            )
+            return 0
+        except (RuntimeError, KeyError, ValueError) as exc:
+            print(f"Preflight refused: {exc}", file=sys.stderr)
+            return 1
+
 
     payload = _watch(args.pr, args.branch, args.interval, args.timeout) if args.watch else _build_payload(_resolve_pr(args.pr, args.branch))
     if args.json and not args.text:

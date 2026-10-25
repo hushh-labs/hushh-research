@@ -693,6 +693,15 @@ describe("revoking every bank before the account is erased", () => {
     expect(coordinator.saveMergedDomain).not.toHaveBeenCalled();
   });
 
+  it("stops before the next provider effect when the captured erasure owner retires", async () => {
+    domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: sealedTwo });
+    let current = true;
+    client.removeVaultItem.mockImplementationOnce(async () => { current = false; return { removed: true }; });
+    await expect(revokeAllVaultPlaidAtPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", isCurrent: () => current })).rejects.toThrow("cancelled before submission");
+    expect(client.removeVaultItem).toHaveBeenCalledTimes(1);
+    expect(pendingSeal.recoverPendingSeals).not.toHaveBeenCalled();
+  });
+
   it("reports a connection Plaid would not remove", async () => {
     domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: sealedTwo });
     client.removeVaultItem.mockResolvedValueOnce({ removed: true }).mockRejectedValueOnce(new Error("offline"));

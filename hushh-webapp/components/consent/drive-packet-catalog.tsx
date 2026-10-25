@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { getAuthSessionGeneration, isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,23 +24,22 @@ import { DrivePacketService, type DrivePacket, type DrivePacketPreview, type Pac
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 
 export function useDrivePacketSession(scope: string) {
-  const { user } = useAuth();
-  const userId = user?.uid ?? null;
+  const { user, userId } = useAuth();
   const { vaultOwnerToken, isVaultUnlocked } = useVault();
   const epoch = useSyncExternalStore(subscribeVaultSessionEpoch, snapshotVaultSessionEpoch, () => 0);
-  const key = `${userId ?? ""}:${epoch}:${scope}`;
+  const key = `${userId ?? ""}:${getAuthSessionGeneration()}:${epoch}:${scope}`;
   const identity = useMemo(() => ({ key, token: vaultOwnerToken }), [key, vaultOwnerToken]);
   const current = useRef(identity);
   useLayoutEffect(() => { current.current = identity; }, [identity]);
-  const owner = useMemo(() => identity.token ? snapshotValidatedAuthSessionOwner() : null, [identity]);
+  const owner = useMemo(() => identity.token ? snapshotValidatedAuthSessionPrincipal() : null, [identity]);
   const alive = useRef(true);
   useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const guard = useCallback(() => {
     if (!alive.current || !userId || !isVaultUnlocked || !vaultOwnerToken ||
         current.current.key !== key || current.current.token !== vaultOwnerToken ||
-        !isVaultSessionEpochCurrent(epoch) || owner?.userId !== userId ||
+        !isVaultSessionEpochCurrent(epoch) || !owner || owner.userId !== userId || owner.firebaseUid !== user?.uid ||
         !isValidatedAuthSessionOwnerCurrent(owner)) throw new Error("session_changed");
-  }, [epoch, isVaultUnlocked, key, owner, userId, vaultOwnerToken]);
+  }, [epoch, isVaultUnlocked, key, owner, user?.uid, userId, vaultOwnerToken]);
   return { key, guard, token: isVaultUnlocked && userId ? vaultOwnerToken : null };
 }
 

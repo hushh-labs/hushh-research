@@ -6,7 +6,7 @@ export const InitialContactsOnboardingService = { snapshotForOwner: (uid: string
   ? { ...snapshot, status: "deferred", result: null, people: [], overflow: 0, error: null }
   : snapshot : { ...snapshot, ownerId: null, circle: null }, isOwnerCurrent: () => true, prepareCircle: async () => {}, acknowledge: async () => { document.body.dataset.ack = "yes"; }, startSource: () => {} };
 export const useInitialContacts = () => snapshot;
-export const useAuth = () => ({ user: emptyWelcome() ? { ...owner, displayName: "hushh" } : owner });
+export const useAuth = () => ({ user: emptyWelcome() ? { ...owner, displayName: "hushh" } : owner, userId: owner.uid });
 export const useVault = () => ({ vaultOwnerToken: "synthetic-vault" });
 export const VaultLockGuard = ({ children }: { children: React.ReactNode }) => <>{children}</>;
 export const useRouter = () => ({ replace: (route: string) => { document.body.dataset.destination = route; } });

@@ -19,6 +19,7 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     account_deletion_user_hash,
 )
+from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
 
 DISCLOSURE_VERSION = "one-email-updates-v1"
 FREQUENCIES = frozenset({"daily", "weekly", "updates"})
@@ -53,9 +54,9 @@ async def verified_recipient(user_id: str) -> dict[str, Any]:
     if app is None:
         raise RuntimeError("Identity lookup unavailable")
     try:
-        person = await asyncio.wait_for(
-            asyncio.to_thread(auth.get_user, user_id, app=app), timeout=10
-        )
+        async with asyncio.timeout(10):
+            identity_uid = await asyncio.to_thread(firebase_uid_for_owner_read, user_id)
+            person = await asyncio.to_thread(auth.get_user, identity_uid, app=app)
     except auth.UserNotFoundError:
         raise VerifiedEmailRequired("A verified account email is required") from None
     email = str(getattr(person, "email", "") or "").strip().lower()

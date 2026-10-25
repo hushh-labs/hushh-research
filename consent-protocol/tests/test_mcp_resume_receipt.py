@@ -128,7 +128,10 @@ async def test_matching_resume_still_requires_exact_ledger_authority(monkeypatch
 
 @pytest.mark.parametrize("unlocked", [True, False])
 async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(
-    monkeypatch, unlocked, owner_chat_key
+    monkeypatch,
+    unlocked,
+    owner_chat_key,
+    active_account_lifecycle,
 ):
     from fastapi import HTTPException
     from starlette.requests import Request
@@ -163,7 +166,9 @@ async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(
     assert run.state == {}
 
 
-async def test_chat_state_keeps_owner_name_as_an_expiring_reference(monkeypatch, owner_chat_key):
+async def test_chat_state_keeps_owner_name_as_an_expiring_reference(
+    monkeypatch, owner_chat_key, active_account_lifecycle
+):
     from starlette.requests import Request
 
     from api.routes.one import agent_chat
@@ -202,7 +207,10 @@ async def test_chat_state_keeps_owner_name_as_an_expiring_reference(monkeypatch,
 
 @pytest.mark.parametrize("unlocked", [True, False])
 async def test_chat_configuration_admission_requires_unlock_and_scrubs_input(
-    monkeypatch, unlocked, owner_chat_key
+    monkeypatch,
+    unlocked,
+    owner_chat_key,
+    active_account_lifecycle,
 ):
     from fastapi import HTTPException
     from starlette.requests import Request

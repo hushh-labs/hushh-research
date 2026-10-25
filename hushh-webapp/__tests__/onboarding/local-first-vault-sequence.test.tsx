@@ -33,7 +33,7 @@ vi.mock("next/navigation", () => {
 });
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: authUser }),
+  useAuth: () => ({ user: authUser, userId: authUser.uid }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({

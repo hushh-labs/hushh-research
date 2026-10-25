@@ -22,7 +22,11 @@ from hushh_mcp.one_adk.world_model import (
 from hushh_mcp.one_adk.world_model_contracts import validated_facts_from_work
 from hushh_mcp.runtime_settings import get_app_runtime_settings, one_profile_research_enabled
 from hushh_mcp.services.chat_key import get_chat_key_provider
-from hushh_mcp.services.one_owner_admission import lookup_fresh_owner_identity, owner_setup_resolved
+from hushh_mcp.services.one_owner_admission import (
+    firebase_record_matches_owner,
+    lookup_fresh_owner_identity,
+    owner_setup_resolved,
+)
 from hushh_mcp.services.owner_placement_guard import hub_content_check
 from hushh_mcp.services.profile_research_jobs import ProfileResearchJobs, pending
 from hushh_mcp.services.profile_research_service import resolve_profile_research_identity
@@ -81,7 +85,7 @@ async def owner_identity(user_id, consent_token, *, conn=None):
     ):
         raise PermissionError("Owner session ended")
     record = await asyncio.wait_for(run_in_threadpool(lookup_fresh_owner_identity, user_id), 5)
-    if getattr(record, "uid", None) != user_id or getattr(record, "disabled", True):
+    if not firebase_record_matches_owner(user_id, record) or getattr(record, "disabled", True):
         raise PermissionError("Owner identity changed")
     identity = await resolve_profile_research_identity(
         user_id, record, **({"conn": conn} if conn is not None else {})

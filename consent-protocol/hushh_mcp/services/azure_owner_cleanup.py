@@ -230,6 +230,7 @@ async def _execute(
             advance=lambda _: None,
         )
         await bound_authorization(store, owner, selection)
+        await store.require_cloud_execution(owner, reservation["attemptId"])
         never_deployed = await store.never_deployed(owner, reservation["registrySnapshot"])
         if (
             reservation["azureTeardown"]["plan"]["context"].get("neverDeployed") is True

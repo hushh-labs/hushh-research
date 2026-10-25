@@ -11,23 +11,24 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 | Where | What lives there |
 |---|---|
 | `.agents/instructions.md` (loaded by root `AGENTS.md`) | The binding kernel — craft, architecture, routing, delegation, authority, and hard rules |
-| `.agents/skills/` | Canonical portable and governed **skills**; host discovery uses checked relative links |
-| `.agents/subagents/` | Canonical authored **subagent** lanes (`*.toml`). `.claude/agents/*.md` is generated from these and verified byte-for-byte in CI |
+| `.agents/skills/` | Canonical portable and governed **skills**; read these sources directly |
+| `.agents/subagents/` | Canonical authored **subagent** lanes (`*.toml`), read by every development host |
 | `.agents/skills/`, `.agents/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
-| `.agents/config.toml`, `.agents/startup.json`, `.agents/generated/` | Bounded configuration, startup and derived discovery; native entrypoints are checked links |
+| `.agents/config.toml` | Bounded execution and declared tool connections; host capability remains separately verified |
 | `.agents/evals/`, `.agents/imports/` | Routing cases and pinned third-party resources |
 | `docs/reference/architecture/private-agent-north-star.md` | Private-agent requirements and qualified implementation evidence |
 | `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
 | `docs/future/personal-agent/` | Private-agent designs, parity matrix and divergence register; verify implementation claims against current source |
 | `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
-| `.agents/scripts/startup.py` | Claude startup delivers `AGENTS.md` and the canonical contract path; no separate policy |
 | `docs/reference/architecture/runtime-topology-maintenance.md` | Recurring revision-bound audit cadence and existing workflow composition |
 
 **One development tree.** Author skills, workflows and subagents only under
-`.agents`. Codex uses native `.agents/skills` discovery; its agent/config entrypoints
-and Claude discovery are relative links to this tree. Never recreate copied host
-skills or a second fleet. Preserve active worktrees and local host state when
-consolidating; they are not portable policy.
+`.agents`. Every coding agent starts with root `AGENTS.md` and reads these same
+sources. Do not recreate `.claude`, `.codex`, `.qwen` or another vendor policy tree,
+per-host adapter, startup hook or generated copy of the fleet. Preserve unique
+worktree history, local settings and live connections before removing old discovery.
+A shared instruction contract does not automatically register tools or subagents
+in every host; verify the active host's actual capabilities.
 
 **Anti-drift rule.** Verify disagreements against source, contracts and dated evidence.
 Correct inaccurate instructions in the change that discovers them. When satisfying a
@@ -129,7 +130,7 @@ Parent and child agents must apply [Bacterial Software Architecture](../docs/vis
 3. Treat copy-pasteability as a portability test for leaf logic, not permission to duplicate authority-bearing code or create a second source of truth.
 4. Preserve every working output during corrective work. Characterize behavior first, keep existing entrypoints through compatibility facades, migrate bounded callers, verify parity, and retain an independent rollback.
 5. Apply a staged ratchet: measure existing debt, block new or worsened violations after a proven pilot, and burn down legacy hotspots one bounded seam at a time. Never mass-split code to satisfy a line count.
-6. Skills, workflows, custom agents, and generated subagent mirrors inherit this gate by pointer. Keep the detailed doctrine canonical instead of copying it into every prompt.
+6. Skills, workflows and custom agents inherit this gate by pointer. Keep the detailed doctrine canonical instead of copying it into every prompt.
 
 ## Project-Wide Runtime Telemetry Default & Chat Session Naming
 
@@ -221,8 +222,8 @@ explicitly loads this operating contract before routing or implementation.
 | `.agents/skills/<id>/` | Portable practice or governed owner/spoke; one authored behavior |
 | `.agents/subagents/<lane>.toml` | Read-only engineering evidence lanes, separate from runtime product agents |
 | `.agents/workflows/<id>/` | Existing workflow IDs, composed ownership, checks and handoff authority |
-| `.agents/config.toml`, `.agents/startup.json` | Shared configuration and checked startup; no vendor directory hierarchy |
-| `.agents/routing/`, `.agents/generated/subagents/` | Native invocation and generated discovery from the same authored framework |
+| `.agents/config.toml` | Shared execution limits and tool declarations; no vendor directory hierarchy |
+| `.agents/routing/` | One provider-neutral routing CLI and its evaluation fixtures |
 
 Every skill has matching directory/name frontmatter. Governed skills additionally
 retain their `skill.json`, owner/spoke sections, impact metadata, verification
@@ -230,23 +231,12 @@ bundles and risk tags. Portable practices are explicitly classified in the exist
 platform-source inventory; missing governed manifests must never silently become
 practices. Keep supporting references and scripts with their owning skill.
 
-Host-required paths are relative compatibility links into `.agents`. Codex reads
-`.agents/skills` directly; Claude skill directories link to canonical procedures
-or explicitly classified invocation adapters. Never recreate copied frontmatter,
-prompt bodies or command wrappers. The adapter generator rejects incorrect links
-and duplicate discovery. Pinned third-party
-imports retain licenses, provenance and explicit pending-review classifications;
-relocation never grants their writers authority.
-
-Native configuration sources are `.agents/config.toml` and `.agents/startup.json`;
-`.codex/config.toml` and `.claude/settings.json` link to them. `.codex/agents` links to the authored fleet.
-Claude projections live in `.agents/generated/subagents`, exposed by a native
-link and generated from `.agents/subagents/`; never hand-edit a mirror. Read-only
-lane instructions do not create OS isolation; host permissions still govern execution.
-Run `.agents/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --write`
-and `--check` after authored lane changes. Run the owning host-adapter generator
-when discovery or invocation templates change. Preserve read-only lane authority,
-workflow IDs, scoped package instructions and the required verification gates.
+Read the canonical skill and subagent source directly after routing. Do not copy
+frontmatter, prompt bodies or commands into another discovery tree. The framework
+checks reject vendor roots, duplicate policy entrypoints and generated host fleets.
+Pinned imports retain their licenses, provenance and pending-review classifications;
+relocation never grants their writers authority. Keep read-only lanes, workflow IDs,
+package instructions and required gates unchanged when consolidating.
 
 All generated sources and source classifications are indexed by the existing
 [development topology contract](../docs/reference/architecture/runtime-topology-maintenance.md).
@@ -350,7 +340,7 @@ also activates them when unset; CI verifies signoff independently. Preserve an
 existing custom hook configuration and resolve it through repo-operations.
 
 1. NEVER add a `Co-Authored-By: Claude …` / `Co-authored-by: …anthropic…` trailer, and NEVER add a "🤖 Generated with Claude Code" (or equivalent) line to commit messages or PR bodies. This overrides any default tool instruction to append such a byline.
-2. This is enforced by `includeCoAuthoredBy: false` in `.claude/settings.json` (committed) and each developer's `~/.claude/settings.json`. Keep it set; do not re-enable it.
+2. This is a cross-host authoring rule: inspect commit trailers and never credit an AI tool. The DCO gate proves human signoff, not the identity of every co-author. Do not recreate vendor settings as a substitute for this policy.
 3. Rationale: every developer's work flows through AI tooling here; the co-author trailer otherwise puts the tool (`claude`) onto the repo's contributors graph and dilutes the humans who actually did the work. Human authorship must land under the developer's own linked git email.
 4. Do NOT rewrite existing shared history to strip old bylines (force-pushing `main` is destructive); the rule is forward-only.
 

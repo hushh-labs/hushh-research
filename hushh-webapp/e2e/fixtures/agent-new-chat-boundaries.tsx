@@ -6,7 +6,8 @@ const user = { uid: "new-chat-test-owner", displayName: location.search.includes
   ? "AlexandriaVeryLongPreferredFirstNameForChatLayoutVerification Owner"
   : "Test Owner", email: "owner@example.test", getIdToken: async () => "synthetic-id-token" };
 export function useAuth() {
-  return { user: location.search.includes("anonymous=1") ? null : user, loading: false, sessionVerificationRequired: false };
+  const anonymous = location.search.includes("anonymous=1");
+  return { user: anonymous ? null : user, userId: anonymous ? null : user.uid, loading: false, sessionVerificationRequired: false };
 }
 export function useVault() {
   return { isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null, tokenExpiresAt: null, getVaultOwnerToken: () => null };

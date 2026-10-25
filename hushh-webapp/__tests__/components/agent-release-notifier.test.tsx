@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   owner: "owner-a" as string | null,
   ready: true,
+  notifyPresented: true,
   bootstrap: vi.fn(),
   status: vi.fn(),
   seen: new Set<string>(),
@@ -27,7 +28,7 @@ vi.mock("@/components/app-ui/release-notice-dialog", () => ({
   ReleaseNoticeDialog: ({ notice, onPresented, onClose }: {
     notice: { title: string } | null; onPresented: () => void; onClose: () => void;
   }) => {
-    useEffect(() => { if (notice) onPresented(); }, [notice, onPresented]);
+    useEffect(() => { if (notice && state.notifyPresented) onPresented(); }, [notice, onPresented]);
     return notice ? <button onClick={onClose}>{notice.title}</button> : null;
   },
 }));
@@ -49,6 +50,7 @@ const receipt = {
 beforeEach(() => {
   state.owner = "owner-a";
   state.ready = true;
+  state.notifyPresented = true;
   state.seen.clear();
   state.bootstrap.mockReset().mockResolvedValue({ userId: "owner-a", setupCompleted: true, firstLoginAt: Date.parse("2026-09-01") });
   state.status.mockReset().mockResolvedValue({});
@@ -121,6 +123,18 @@ describe("Release notices", () => {
     expect(screen.queryByRole("button")).toBeNull();
     expect(completedPodNotice({ ...receipt, installedReleaseVerified: false })).toBeNull();
     expect(completedPodNotice({ ...receipt, installedRelease: { version: "old", imageDigest: `sha256:${"b".repeat(64)}` } })).toBeNull();
+  });
+
+  it("remembers explicit dismissal when the autofocus presentation callback is suppressed", async () => {
+    state.notifyPresented = false;
+    state.bootstrap.mockResolvedValue({ userId: "owner-a", setupCompleted: true, firstLoginAt: null });
+    state.status.mockResolvedValue(receipt);
+    render(<AgentReleaseNotifier />);
+    fireEvent.click(await screen.findByRole("button", { name: "Your private agent is updated" }));
+    await waitFor(() => expect(screen.queryByRole("button")).toBeNull());
+    await act(async () => publishPodUpdateObservation("owner-a", receipt));
+    expect(state.seen.has(`owner-a:${completedPodNotice(receipt)!.id}`)).toBe(true);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("cancels queued dialogs on unmount so they cannot retain a sibling tab lock", async () => {

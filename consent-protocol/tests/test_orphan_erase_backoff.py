@@ -178,11 +178,16 @@ def test_bounded_code_admits_only_the_transport_shape():
 
 
 class _ReservedRegistry:
+    async def get(self, user_id: str) -> dict:
+        return {"deployment_target": "user_gcp", "backend": "user_gcp"}
+
     async def reserve_erasure(self, *, user_id: str) -> dict:
         return {"ownerId": user_id, "attemptId": "attempt-1"}
 
 
 def test_deprovision_logs_the_transport_code_never_the_message(monkeypatch, caplog):
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+
     def _refuse(self, user_id: str) -> None:
         raise account_service.PersonalAgentDeprovisioningRequiredError("resources remain")
 

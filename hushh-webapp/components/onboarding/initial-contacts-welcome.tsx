@@ -32,24 +32,24 @@ import { useOneConversationSession } from "@/lib/agent/one-conversation-session"
 import type { InvitationShare } from "@/lib/services/contact-invitations-service";
 
 export function InitialContactsWelcome() {
-  const { user } = useAuth();
+  const { user, userId } = useAuth();
   const { vaultOwnerToken } = useVault();
-  return <VaultLockGuard>{user && vaultOwnerToken
-    ? <WelcomeForOwner key={user.uid} user={user} vaultOwnerToken={vaultOwnerToken} />
+  return <VaultLockGuard>{user && userId && vaultOwnerToken
+    ? <WelcomeForOwner key={userId} userId={userId} user={user} vaultOwnerToken={vaultOwnerToken} />
     : <HushhLoader variant="page" />}</VaultLockGuard>;
 }
 
-function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToken: string }) {
+function WelcomeForOwner({ user, userId, vaultOwnerToken }: { user: User; userId: string; vaultOwnerToken: string }) {
   const router = useRouter();
   const query = useSearchParams();
   useInitialContacts();
-  const snapshot = InitialContacts.snapshotForOwner(user.uid);
+  const snapshot = InitialContacts.snapshotForOwner(userId);
   const authOwner = useMemo(() => {
     const owner = snapshotValidatedAuthSessionOwner();
-    return owner?.userId === user.uid ? owner : null;
-  }, [user]);
-  const currentOwner = useCallback(() => Boolean(authOwner && authOwner.userId === user.uid
-    && isValidatedAuthSessionOwnerCurrent(authOwner)), [authOwner, user.uid]);
+    return owner?.userId === userId ? owner : null;
+  }, [userId]);
+  const currentOwner = useCallback(() => Boolean(authOwner && authOwner.userId === userId
+    && isValidatedAuthSessionOwnerCurrent(authOwner)), [authOwner, userId]);
   const [overview, setOverview] = useState<OneLocationCircleOverview | null>(null);
   const [members, setMembers] = useState<OneLocationCircleMember[]>([]);
   const [preview, setPreview] = useState<OneLocationCircleMember[]>([]);
@@ -68,12 +68,12 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
   const [continuing, setContinuing] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [personalInvite, setPersonalInvite] = useState<InvitationShare | null>(null);
-  const invitations = useContactInvitationSession(user.uid, snapshot.attemptId ?? "initial-welcome");
+  const invitations = useContactInvitationSession(userId, snapshot.attemptId ?? "initial-welcome");
   const { beginSync: beginInvitationSync, clear: clearInvitations } = invitations;
   const actions = useMemo(() => createConnectCircleActions({ vaultOwnerToken }), [vaultOwnerToken]);
   const queueEntryWelcome = useOneConversationSession((state) => state.queueEntryWelcome);
   const destination = useMemo(() => initialContactsWelcomeDestination(query.get("return_to")), [query]);
-  const circleId = snapshot.ownerId === user.uid ? snapshot.circle?.circleId : null;
+  const circleId = snapshot.ownerId === userId ? snapshot.circle?.circleId : null;
 
   useEffect(() => {
     void InitialContacts.prepareCircle(vaultOwnerToken);
@@ -92,10 +92,10 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
     let active = true;
     if (!circleId || snapshot.people.length) return;
     void actions.loadCircleMembersPage(circleId, { page: 1, limit: 4 }).then((page) => {
-      if (active && currentOwner()) setPreview(page.items.filter((member) => member.userId !== user.uid).slice(0, 3));
+      if (active && currentOwner()) setPreview(page.items.filter((member) => member.userId !== userId).slice(0, 3));
     }).catch(() => undefined);
     return () => { active = false; };
-  }, [actions, circleId, snapshot.people.length, currentOwner, user.uid]);
+  }, [actions, circleId, snapshot.people.length, currentOwner, userId]);
 
   useEffect(() => {
     let active = true;
@@ -112,12 +112,12 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
 
   useEffect(() => {
     const receive = beginInvitationSync();
-    receive?.(snapshot.ownerId === user.uid ? snapshot.candidates : []);
-  }, [snapshot.candidates, snapshot.ownerId, user.uid, beginInvitationSync]);
+    receive?.(snapshot.ownerId === userId ? snapshot.candidates : []);
+  }, [snapshot.candidates, snapshot.ownerId, userId, beginInvitationSync]);
 
   const continueToOne = useCallback(async () => {
     const owner = snapshotValidatedAuthSessionOwner();
-    if (continuing || !owner || owner.userId !== user.uid) return;
+    if (continuing || !owner || owner.userId !== userId) return;
     setContinuing(true);
     clearInvitations();
     try { await InitialContacts.acknowledge(user); }
@@ -125,9 +125,9 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
     // Acknowledgment clears the initial session. Validate the AuthProvider
     // owner separately before routing an asynchronous completed action.
     if (!isValidatedAuthSessionOwnerCurrent(owner)) return;
-    queueEntryWelcome(user.uid);
+    queueEntryWelcome(userId);
     router.replace(destination);
-  }, [continuing, destination, clearInvitations, queueEntryWelcome, router, user]);
+  }, [continuing, destination, clearInvitations, queueEntryWelcome, router, user, userId]);
 
   useBackLayer(ROUTES.ONE_WELCOME, 1, () => { void continueToOne(); return true; });
   useBackLayer(ROUTES.ONE_WELCOME, 2, () => {
@@ -244,9 +244,9 @@ function WelcomeForOwner({ user, vaultOwnerToken }: { user: User; vaultOwnerToke
     displayName: person.displayName ?? "One member",
     photoUrl: person.photoUrl,
     isRia: person.isRia,
-    isSelf: person.userId === user.uid,
+    isSelf: person.userId === userId,
   }));
-  const trustedRoster = trustedMembers.filter((person) => person.userId !== user.uid).map((person): OnboardingPerson => ({
+  const trustedRoster = trustedMembers.filter((person) => person.userId !== userId).map((person): OnboardingPerson => ({
     userId: person.userId,
     displayName: person.displayName ?? "One member",
     photoUrl: person.photoUrl,

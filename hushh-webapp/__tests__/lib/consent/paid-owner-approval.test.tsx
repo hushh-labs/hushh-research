@@ -72,6 +72,7 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
 
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { approvePaidOwnerTerms } from "@/lib/consent/paid-owner-approval";
+import { commerceActionError } from "@/lib/services/scope-commerce-readiness";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
 
 function consent(id = "req-1"): PendingConsent {
@@ -129,6 +130,21 @@ describe("paid owner approval releases no encrypted information", () => {
     const { result } = renderHook(() => useConsentActions({ userId: "user-1" }));
     await expect(act(async () => result.current.handleApprove({ ...consent("paid-stale"), scope: "attr.travel.plans", metadata: { commercial_required: true } }, { quiet: true }))).rejects.toThrow();
     expect(buildConsentExportForScope).not.toHaveBeenCalled();
+    expect(mocks.approvePendingConsent).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["scope_unavailable", "This request's information changed. Ask them to send a new request."],
+    ["recipient_key_changed", "This request's recipient changed. Ask them to send a new request."],
+    ["recipient_or_scope_unavailable", "This request is no longer available. Ask them to send a new request."],
+  ])("keeps %s actionable across grouped owner decisions without exporting", async (code, message) => {
+    mocks.scopeRequest.mockRejectedValue(commerceActionError({ detail: { code } }, 409));
+    const { buildConsentExportForScope } = await import("@/lib/consent/export-builder");
+    const { result } = renderHook(() => useConsentActions({ userId: "user-1" }));
+    await expect(act(async () => result.current.handleApproveBundle([
+      { ...consent(), scope: "attr.travel.plans", metadata: { scope_handle: "exact-handle" } },
+    ], { quiet: true }))).rejects.toThrow(message);
+    expect(buildConsentExportForScope).not.toHaveBeenCalled();
+    expect(mocks.approveInactive).not.toHaveBeenCalled();
     expect(mocks.approvePendingConsent).not.toHaveBeenCalled();
   });
 });

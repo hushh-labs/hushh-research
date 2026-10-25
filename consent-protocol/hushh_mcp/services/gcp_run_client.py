@@ -505,7 +505,9 @@ class GcpRunClient:
             "podUrl": url.rstrip("/"),
         }
 
-    def observe_erasure_runtime(self, *, name: str, expected_uid: str) -> dict[str, Any]:
+    def observe_erasure_runtime(
+        self, *, name: str, expected_uid: str, include_identity: bool = False
+    ) -> dict[str, Any]:
         """Join the existing service fence observation to its resolved revision image."""
         import requests  # type: ignore[import-untyped]
 
@@ -540,7 +542,28 @@ class GcpRunClient:
             != service["metadata"]["generation"]
         ):
             raise RuntimeError("erasure runtime changed during observation")
-        return {**target, "generation": service["metadata"]["generation"], "image": digest}
+        observed = {**target, "generation": service["metadata"]["generation"], "image": digest}
+        if include_identity:
+            spec = revision.get("spec") or {}
+            containers = spec.get("containers") or []
+            if len(containers) != 1 or not isinstance(containers[0], dict):
+                raise RuntimeError("serving owner container is unverified")
+            # Only these public deployment coordinates leave the revision read.
+            # Never return the full environment, secret references or key values.
+            env = containers[0].get("env") or []
+            identity = {}
+            for key in ("HUSSH_ID", "HUSHH_DEPLOY_ENV"):
+                matches = [
+                    entry for entry in env if isinstance(entry, dict) and entry.get("name") == key
+                ]
+                if len(matches) != 1 or not isinstance(matches[0].get("value"), str):
+                    raise RuntimeError("serving owner identity is unverified")
+                identity[key] = matches[0]["value"]
+            principal = spec.get("serviceAccountName")
+            if not isinstance(principal, str) or not principal:
+                raise RuntimeError("serving workload principal is unverified")
+            observed.update(runtime_service_account=principal, ownerIdentity=identity)
+        return observed
 
     @staticmethod
     def upgrade_acknowledgement(

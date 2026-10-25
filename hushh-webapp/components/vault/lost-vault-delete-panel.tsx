@@ -152,12 +152,6 @@ function LostVaultDeleteJourney({
               Enter the mobile number already linked to this account
               {flow.options?.phone_hint ? ` (${flow.options.phone_hint})` : ""}.
             </p>
-            {native ? (
-              <p className="type-footnote text-[color:var(--app-secondary-label)]">
-                This phone check is unavailable in this app. Use One on the web
-                or contact support.
-              </p>
-            ) : (
               <>
                 <div className="flex items-end gap-3">
                   <div className="flex min-w-[5.5rem] shrink-0 flex-col gap-[var(--app-form-field-gap)]">
@@ -252,7 +246,6 @@ function LostVaultDeleteJourney({
                   </button>
                 )}
               </>
-            )}
           </div>
         ) : flow.stage === "confirm" ? (
           <div className="space-y-4">

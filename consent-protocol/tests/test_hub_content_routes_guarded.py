@@ -63,6 +63,34 @@ INLINE_ROUTES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def active_account_lifecycle(monkeypatch):
+    """Placement units declare an active account independently of its hosting."""
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
+
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _owner: False)
+
+
+async def test_deleting_account_cannot_use_retained_shared_credentials(monkeypatch):
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionInProgressError,
+        AccountDeletionLifecycleService,
+    )
+
+    def deleting(_owner):
+        raise AccountDeletionInProgressError("synthetic cleanup")
+
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", deleting)
+    placement = AsyncMock(return_value="shared")
+    with pytest.raises(HTTPException) as error:
+        await guard.admit_hub_content(OWNER, "retained_google_credentials", resolve_mode=placement)
+    assert error.value.status_code == 423
+    placement.assert_not_awaited()
+
+
 @pytest.fixture(scope="module")
 def hub_routes() -> list[tuple[str, str, Any]]:
     from server import app

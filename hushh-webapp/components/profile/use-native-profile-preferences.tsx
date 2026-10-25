@@ -58,7 +58,7 @@ export function useNativeProfilePreferences({ enabled, retainDraft, onGemini, on
         ] },
     ] },
     { id: "preferences-agent", rows: [
-      { id: "preferences-gemini", label: "Gemini", detail: "Choose managed or BYOK.", enabled: true, artworkId: "gemini", chevron: true },
+      { id: "preferences-gemini", label: "AI connection", detail: "Cloud connection or your own key.", enabled: true, artworkId: "ai-connection", chevron: true },
       { id: "preferences-voice", label: "Voice", detail: "Voice and safety controls.", enabled: true, artworkId: "voice", chevron: true },
     ] },
     { id: "preferences-writing", title: "How One writes to you", rows: [

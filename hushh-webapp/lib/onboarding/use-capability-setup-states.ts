@@ -72,10 +72,9 @@ export function useCapabilitySetupStates(
 ): UseCapabilitySetupStatesResult {
   const { enrichVault = false, enrichOauth = false, enrichRia = false } = options;
 
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const { isVaultUnlocked, getVaultKey, getVaultOwnerToken } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
-  const userId = user?.uid ?? null;
 
   const cachedPreVaultState = userId
     ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null

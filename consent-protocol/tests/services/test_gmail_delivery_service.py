@@ -31,7 +31,7 @@ from hushh_mcp.services.google_drive_blob_attachment_service import (
 
 
 @pytest.fixture(autouse=True)
-def shared_placement(monkeypatch):
+def shared_placement(monkeypatch, active_account_lifecycle):
     from hushh_mcp.services import owner_placement_guard as guard
 
     monkeypatch.setattr(guard, "pod_mode", lambda: False)

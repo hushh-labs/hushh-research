@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 /** Direct owner turns never retry private work on the hub after a named failure. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSseResponse } from "../utils/test-helpers";
@@ -502,3 +503,5 @@ describe("ApiService.revokeTrustedDeviceEverywhere", () => {
   });
 
 });
+
+beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: "uid-owner", ownerId: "uid-owner", accountGeneration: 0 }));

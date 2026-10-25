@@ -691,17 +691,20 @@ export function CalendarAgentPage({
       headerContentSpacing={journeyVariant === "workspace" ? "compact" : "standard"}
       className={CALENDAR_SETUP_SHELL_CLASSNAME}
       nativeTest={{
-        routeId: ROUTES.CALENDAR,
-        marker: "native-route-calendar",
+        routeId: journeyVariant === "onboarding" ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
+        marker: journeyVariant === "onboarding" ? "native-route-one-setup-calendar" : "native-route-calendar",
         authState: user ? "authenticated" : loading ? "pending" : "anonymous",
         dataState:
           checkingConnection
             ? "loading"
-            : status === null
-              ? "unavailable-valid"
-              : connected
-                ? "loaded"
-                : "empty-valid",
+            : statusError
+              ? "error"
+              : status === null
+                ? "unavailable-valid"
+                : connected
+                  ? "loaded"
+                  : "empty-valid",
+        errorCode: statusError && !checkingConnection ? "calendar_status_unavailable" : null,
       }}
     >
       <AppPageContentRegion className={`${CALENDAR_SETUP_REGION_CLASSNAME} ${presentationStyles.setup}`} data-calendar-presentation>

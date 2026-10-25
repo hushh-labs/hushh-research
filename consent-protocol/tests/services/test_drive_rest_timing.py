@@ -145,3 +145,94 @@ async def test_permission_failure_timing_uses_only_safe_code(caplog):
     )
     assert "private-file-id" not in caplog.text
     assert "private@example.invalid" not in caplog.text
+
+
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
+async def test_financial_candidate_metadata_uses_the_real_fenced_group_transport(monkeypatch):
+    from hushh_mcp.services.drive_financial_packet_tagging import CandidateReads
+    from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+    from tests.services.test_google_drive_rest_transport import FILE_ID, transport
+
+    adapter = SimpleNamespace(
+        get_file_facts=AsyncMock(return_value={"version": "1", "trashed": False})
+    )
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    source = {"id": FILE_ID, "sourceVersion": "1"}
+    job = {"user_id": "synthetic-owner", "connection_generation": 7, "items": [{"source": source}]}
+    reads = CandidateReads(SimpleNamespace(current=AsyncMock(), transport=drive), job)
+    await reads.verify_source(source)
+    drive._oauth.current_credential.assert_awaited_once_with(
+        user_id="synthetic-owner", required_profile="live"
+    )
+    adapter.get_file_facts.assert_awaited_once()
+    adapter.get_file_facts.reset_mock()
+    reads.job = {**job, "connection_generation": 6}
+    with pytest.raises(DriveOAuthError, match="connection_changed"):
+        await reads.verify_source(source)
+    adapter.get_file_facts.assert_not_awaited()
+
+
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
+@pytest.mark.parametrize("failure", ["missing_operation", "unknown_oauth_code"])
+async def test_financial_tagger_settles_real_transport_oauth_failures_without_private_logs(
+    monkeypatch, caplog, failure
+):
+    from datetime import UTC, datetime
+
+    from hushh_mcp.services import drive_financial_packet_tag_store as tags
+    from hushh_mcp.services import drive_financial_packet_tagging as tagging
+    from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+    from tests.services.test_google_drive_rest_transport import FILE_ID, transport
+
+    monkeypatch.setenv("DRIVE_PERIOD_PACKETS_ENABLED", "true")
+    caplog.set_level(logging.INFO, logger="financial_packet_tagging")
+    adapter = SimpleNamespace(get_file_facts=AsyncMock())
+    drive = transport(adapter=adapter, monkeypatch=monkeypatch)
+    if failure == "missing_operation":
+        # Negative control: reproduce the production omission on the real operation table.
+        monkeypatch.delitem(rest._GROUP_INDEX_OPERATIONS, "get_file_metadata")
+    else:
+        drive._oauth.current_credential.side_effect = DriveOAuthError(
+            "synthetic-private-provider-message"
+        )
+    source = {
+        "id": FILE_ID,
+        "sourceVersion": "1",
+        "mimeType": "text/plain",
+        "name": "Synthetic private title",
+    }
+    job = {
+        "user_id": "synthetic-owner",
+        "connection_generation": 7,
+        "items": [{"source": source}],
+        "packet_id": "11111111-1111-4111-8111-111111111111",
+        "tagging_next_at": datetime.now(UTC),
+    }
+    commit = AsyncMock(return_value="queued")
+    monkeypatch.setattr(tags, "claim", AsyncMock(return_value=job))
+    monkeypatch.setattr(tags, "cached", AsyncMock(return_value={}))
+    monkeypatch.setattr(tags, "require_current", AsyncMock())
+    monkeypatch.setattr(tags, "commit", commit)
+    monkeypatch.setattr(tagging, "admit_hub_content", AsyncMock())
+    worker = tagging.FinancialPacketTagger(
+        store=object(), transport=drive, embedder=SimpleNamespace(embed=AsyncMock())
+    )
+    assert await worker.run_one() == "deferred"
+    commit.assert_awaited_once_with(worker.store, job, error=True)
+    adapter.get_file_facts.assert_not_awaited()
+    if failure == "missing_operation":
+        drive._oauth.current_credential.assert_not_awaited()
+    worker.embedder.embed.assert_not_awaited()
+    code = "connector_unavailable" if failure == "missing_operation" else "oauth_unavailable"
+    assert f"period_packet.tagging outcome=deferred code={code}" in caplog.text
+    for private in (
+        FILE_ID,
+        source["name"],
+        job["user_id"],
+        job["packet_id"],
+        "synthetic-private-provider-message",
+        "synthetic-live-grant",
+    ):
+        assert private not in caplog.text

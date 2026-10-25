@@ -3576,6 +3576,56 @@ class MaintenanceAuthorityTest(unittest.TestCase):
 
 
 class CommandLifecycleTest(unittest.TestCase):
+    def test_permission_refusal_requires_darwin_reaped_child_and_absent_group(self):
+        import process_group
+
+        for platform, returncode, absent, force, accepted in (
+            ("darwin", 0, True, True, True),
+            ("darwin", 0, True, False, False),
+            ("darwin", 0, False, True, False),
+            ("darwin", None, True, True, False),
+            ("linux", 0, True, True, False),
+        ):
+            with self.subTest(platform=platform, returncode=returncode, absent=absent, force=force):
+                process = mock.Mock(pid=123)
+                process.poll.return_value = returncode
+                with (
+                    mock.patch.object(process_group.sys, "platform", platform),
+                    mock.patch.object(process_group.subprocess, "Popen", return_value=process),
+                    mock.patch.object(process_group.os, "killpg", side_effect=PermissionError),
+                    mock.patch.object(process_group, "_group_is_absent", return_value=absent, create=True),
+                ):
+                    if accepted:
+                        with process_group.command_group(["target"]) as (_, stop):
+                            stop(force=force)
+                    else:
+                        with self.assertRaises(PermissionError):
+                            with process_group.command_group(["target"]) as (_, stop):
+                                stop(force=force)
+
+    def test_group_absence_refuses_missing_malformed_or_live_inventory(self):
+        import process_group
+
+        for code, output, absent in (
+            (0, "10\n20\n", True),
+            (0, "10\n123\n", False),
+            (0, "", False),
+            (0, "unknown", False),
+            (0, "-123", False),
+            (0, "+123", False),
+            (0, "1_23", False),
+            (0, "１２３", False),
+            (1, "10\n20\n", False),
+        ):
+            with self.subTest(code=code, output=output):
+                result = subprocess.CompletedProcess([], code, stdout=output)
+                with mock.patch.object(process_group.subprocess, "run", return_value=result):
+                    self.assertIs(process_group._group_is_absent(123), absent)
+        with mock.patch.object(
+            process_group.subprocess, "run", side_effect=subprocess.TimeoutExpired("ps", 1)
+        ):
+            self.assertFalse(process_group._group_is_absent(123))
+
     def test_cleanup_budget_reaps_a_command_and_its_descendant(self):
         import time
 

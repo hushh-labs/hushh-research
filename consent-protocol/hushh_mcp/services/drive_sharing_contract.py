@@ -68,7 +68,12 @@ class VerifiedGoogleRecipient:
 
 
 def recipient_from_verified_firebase_claims(
-    claims: dict, *, owner_user_id: str, google_provider: object, now: datetime | None = None
+    claims: dict,
+    *,
+    owner_user_id: str,
+    google_provider: object,
+    now: datetime | None = None,
+    firebase_uid: str | None = None,
 ) -> VerifiedGoogleRecipient:
     """Input must come from the existing Firebase verifier, never a decoded JWT.
 
@@ -84,7 +89,7 @@ def recipient_from_verified_firebase_claims(
         # valid One session was established with another sign-in provider.
         email = getattr(google_provider, "email", None)
         if (
-            claims.get("uid", claims.get("sub")) != owner_user_id
+            claims.get("uid", claims.get("sub")) != (firebase_uid or owner_user_id)
             or not isinstance(subjects, list)
             or len(subjects) != 1
             or not isinstance(subjects[0], str)
@@ -127,12 +132,12 @@ def recipient_from_google_provider(
 
 
 def recipient_from_verified_firebase_email(
-    user_id: str, user: object, *, now: datetime | None = None
+    user_id: str, user: object, *, now: datetime | None = None, firebase_uid: str | None = None
 ) -> VerifiedGoogleRecipient:
     """Use B's current verified One email for an owner-initiated share."""
     email = getattr(user, "email", None)
     if (
-        getattr(user, "uid", None) != user_id
+        getattr(user, "uid", None) != (firebase_uid or user_id)
         or getattr(user, "disabled", None) is not False
         or getattr(user, "email_verified", None) is not True
         or not isinstance(email, str)

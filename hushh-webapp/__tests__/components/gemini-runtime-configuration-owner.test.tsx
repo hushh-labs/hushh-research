@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const { state, markChoice, navigate, replace, clearDraft } = vi.hoisted(() => ({
   state: { uid: "owner-a" },
@@ -12,7 +12,7 @@ const { state, markChoice, navigate, replace, clearDraft } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: state.uid }, loading: false }),
+  useAuth: () => ({ user: { uid: state.uid }, userId: state.uid, loading: false }),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
@@ -50,8 +50,8 @@ describe("runtime setup owner settlement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.uid = "owner-a";
-    publishValidatedAuthSessionOwner(null);
-    publishValidatedAuthSessionOwner(state.uid);
+    publishValidatedAuthSessionPrincipal(null);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: state.uid, ownerId: state.uid, accountGeneration: 0 });
   });
 
   function pendingChoice() {
@@ -66,7 +66,7 @@ describe("runtime setup owner settlement", () => {
     fireEvent.click(screen.getByRole("button", { name: "Choose managed" }));
     expect(markChoice).toHaveBeenCalledWith("owner-a", "hushh_managed_vertex");
     state.uid = "owner-b";
-    publishValidatedAuthSessionOwner(state.uid);
+    publishValidatedAuthSessionPrincipal({ firebaseUid: state.uid, ownerId: state.uid, accountGeneration: 0 });
     view.rerender(<GeminiRuntimeConfigurationPage setupMode />);
     await act(async () => { settle(); });
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
@@ -86,7 +86,7 @@ describe("runtime setup owner settlement", () => {
 
   it("refuses a callback after the validated session has changed", () => {
     render(<GeminiRuntimeConfigurationPage setupMode />);
-    publishValidatedAuthSessionOwner("owner-b");
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "owner-b", ownerId: "owner-b", accountGeneration: 0 });
     fireEvent.click(screen.getByRole("button", { name: "Choose managed" }));
     expect(markChoice).not.toHaveBeenCalled();
   });

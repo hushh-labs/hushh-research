@@ -3,11 +3,11 @@
  * route through `useRouter().push`. The fixture records the push instead of
  * navigating, so a spec can prove a same-origin link stayed in the app.
  */
-import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const user = { uid: "fixture-puppy-owner" };
-publishValidatedAuthSessionOwner(user.uid);
-export function useAuth() { return { user }; }
+publishValidatedAuthSessionPrincipal({ firebaseUid: user.uid, ownerId: user.uid, accountGeneration: 0 });
+export function useAuth() { return { user, userId: user.uid }; }
 export const AuthService = { getCurrentUser: () => user };
 export const ApiService = {
   getPersonalAgentStatus: async () => ({
@@ -37,6 +37,9 @@ export async function fetchPuppyStatus() {
   return { connected: document.body.dataset.puppyConnected === "true", reason: "not_configured" };
 }
 export const PUPPY_ONE_INSTALL_URL = "https://github.com/hushh-labs/hussh-one-hermes";
+export async function fetchPuppyChatStream(): Promise<Response> {
+  throw new Error("The typography fixture supplies HttpAgent events, never a live transport.");
+}
 export function PuppyModelPicker() { return null; }
 export function PuppyMachineSheet() { return null; }
 export function PrivatePuppyInferencePanel() {

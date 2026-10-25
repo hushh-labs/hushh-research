@@ -235,6 +235,8 @@ const routeOverrides = {
         service_methods: [
           "status",
           "startConnect",
+          "startNativeConnect",
+          "completeNativeConnect",
           "disconnect",
           "executeProposal",
         ],
@@ -243,13 +245,16 @@ const routeOverrides = {
         backend_endpoint_family:
           "/api/one/calendar/{status,connect/*,proposals/*}",
         native_transport:
-          "Web-only Google OAuth; Calendar does not claim native authorization support.",
+          "ApiService direct backend; shared-runtime authorization uses HushhAuth.connectCalendar and an owner/attempt-bound server-code exchange. Private hosting retains its owner-pod connector flow.",
       },
     ],
-    native_plugin_dependencies: [],
+    native_plugin_dependencies: [{
+      package: "HushhAuth",
+      integration: "connectCalendar returns a transient server authorization code to the existing Calendar connection owner; it does not replace the signed-in application account.",
+    }],
     thread_and_consent_contract: {
       oauth_connection:
-        "Google refresh tokens remain server-encrypted; the browser receives only connection status and an authorization URL.",
+        "Shared-runtime Google refresh tokens remain server-encrypted. Web uses the owned authorization popup; native returns only a transient server authorization code for the existing bound completion flow.",
       mutation_authority:
         "Calendar creates, reschedules, and cancellations remain short-lived proposals and execute only after explicit owner confirmation in One chat.",
     },
@@ -258,18 +263,21 @@ const routeOverrides = {
     api_dependencies: [
       {
         service_file: "lib/services/google-calendar-service.ts",
-        service_methods: ["status", "startConnect", "disconnect"],
+        service_methods: ["status", "startConnect", "startNativeConnect", "completeNativeConnect", "disconnect"],
         nextjs_api_route: "/api/one/{path*}",
         nextjs_proxy_file: "app/api/one/[...path]/route.ts",
         backend_endpoint_family: "/api/one/calendar/{status,connect/*}",
         native_transport:
-          "Web-only Google OAuth; Calendar setup does not claim native authorization support.",
+          "Calendar setup reuses the workspace's ApiService transport and HushhAuth.connectCalendar bound authorization flow; no setup-specific sign-in or credential store.",
       },
     ],
-    native_plugin_dependencies: [],
+    native_plugin_dependencies: [{
+      package: "HushhAuth",
+      integration: "Calendar setup delegates authorization to the same connectCalendar owner as the workspace.",
+    }],
     thread_and_consent_contract: {
       oauth_connection:
-        "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL.",
+        "Calendar setup reuses the workspace's owner-bound authorization flow. Shared-runtime refresh tokens remain server-encrypted; the native server authorization code is transient.",
     },
   },
   "/one/location": {

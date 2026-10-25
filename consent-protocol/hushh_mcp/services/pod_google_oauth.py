@@ -182,13 +182,14 @@ async def refresh(
     client_secret: Optional[str] = None,
     post: Optional[Post] = None,
 ) -> TokenGrant:
-    """A fresh access token narrowed to ``scopes`` (RFC 6749 section 6)."""
+    """Refresh within the grant; empty scopes preserve it (RFC 6749 section 6)."""
     form = {
         "grant_type": "refresh_token",
         "client_id": client_id,
         "refresh_token": refresh_token,
-        "scope": " ".join(scopes),
     }
+    if scopes:
+        form["scope"] = " ".join(scopes)
     if client_secret:
         form["client_secret"] = client_secret
     return _grant(*await _call(post, TOKEN_URL, form))

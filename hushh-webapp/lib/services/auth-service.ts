@@ -12,21 +12,21 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import {
+  startDeletionPhoneProof, confirmDeletionPhoneProof, cancelDeletionPhoneProof, mintPhoneClaimIdToken,
+  type PhoneDeletionContext, type PhoneDeletionConfirmation, type PhoneClaimConfirmation,
+} from "./phone-deletion-verification";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 import { authenticateCustomToken } from "@/lib/auth/custom-token-auth";
-import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
   type ConfirmationResult,
   GoogleAuthProvider,
   getAdditionalUserInfo,
-  getAuth,
-  inMemoryPersistence,
   OAuthProvider,
   PhoneAuthProvider,
   linkWithCredential,
   linkWithPopup,
-  setPersistence,
   signInWithCredential,
   signInWithPopup,
   reauthenticateWithPopup,
@@ -35,7 +35,7 @@ import {
   User,
   onAuthStateChanged,
 } from "firebase/auth";
-import { app, auth } from "@/lib/firebase/config";
+import { auth } from "@/lib/firebase/config";
 import {
   FirebaseAuthentication,
   ProviderId,
@@ -79,7 +79,6 @@ export interface PhoneVerificationStartResult {
 }
 
 type PhoneVerificationIntent = "link" | "replace";
-const PHONE_CLAIM_APP_NAME = "hushh-phone-claim";
 const LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX = "local-dev-phone:";
 const LOCAL_DEV_PHONE_VERIFICATION_HOSTS = new Set([
   "localhost",
@@ -701,7 +700,7 @@ export class AuthService {
   /** Fresh current-user provider proof; ordinary token refresh is insufficient. */
   static async reauthenticateIdentity(
     expectedUserId: string,
-    providerId: "google.com" | "apple.com",
+    providerId: "google.com" | "apple.com" | "microsoft.com",
     isCurrent: () => boolean,
   ): Promise<string> {
     if (providerId === "google.com") {
@@ -716,7 +715,7 @@ export class AuthService {
     if (!expectedUserId || !isCurrent() || !currentUser ||
         currentUser.uid !== expectedUserId ||
         !currentUser.providerData.some((provider) => provider.providerId === providerId)) {
-      throw new Error("apple_identity_required");
+      throw new Error(providerId === "apple.com" ? "apple_identity_required" : "microsoft_identity_required");
     }
     const assertCurrent = () => {
       if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== expectedUserId) {
@@ -725,7 +724,7 @@ export class AuthService {
     };
     assertCurrent();
     try {
-      const result = await reauthenticateWithPopup(currentUser, this.createWebProvider("apple"));
+      const result = await reauthenticateWithPopup(currentUser, this.createWebProvider(providerId === "apple.com" ? "apple" : "microsoft"));
       assertCurrent();
       if (result.user.uid !== expectedUserId) throw new Error("identity_mismatch");
       const token = await result.user.getIdToken(true);
@@ -1459,22 +1458,14 @@ export class AuthService {
     return this.startPhoneVerification("link", phoneNumber, options);
   }
 
-  /** Send a one-time phone proof without adding, replacing, or unlinking a phone. */
-  static async startPhoneDeletionVerification(
-    phoneNumber: string,
-    recaptchaVerifier: ApplicationVerifier,
-  ): Promise<string> {
-    if (Capacitor.isNativePlatform()) throw new Error("native_identity_unavailable");
-    if (!auth.currentUser) throw new Error("session_changed");
-    const normalizedPhoneNumber = String(phoneNumber ?? "").trim();
-    if (!normalizedPhoneNumber) throw new Error("phone_unavailable");
-    try {
-      const provider = new PhoneAuthProvider(auth);
-      return await provider.verifyPhoneNumber(normalizedPhoneNumber, recaptchaVerifier);
-    } catch (error) {
-      throw this.normalizePhoneVerificationError(error, "link_start");
-    }
+  /** Proof verification stays isolated from the primary Firebase session. */
+  static startPhoneDeletionVerification(phone: string, verifier: ApplicationVerifier | undefined, context: PhoneDeletionContext) {
+    return startDeletionPhoneProof(phone, verifier, context, (error) => this.normalizePhoneVerificationError(error, "link_start"));
   }
+  static confirmPhoneDeletionVerification(params: PhoneDeletionConfirmation) {
+    return confirmDeletionPhoneProof(params, (error) => this.normalizePhoneVerificationError(error, "link_confirm"));
+  }
+  static cancelPhoneDeletionVerification = cancelDeletionPhoneProof;
 
   static async startPhoneReplacementVerification(
     phoneNumber: string,
@@ -1682,53 +1673,8 @@ export class AuthService {
     return this.confirmPhoneVerification("link", params);
   }
 
-  static async getPhoneClaimIdToken(params: {
-    verificationCode: string;
-    verificationId?: string | null;
-  }): Promise<string> {
-    const verificationCode = String(params.verificationCode ?? "").trim();
-    if (!verificationCode) {
-      throw new Error("Verification code is required.");
-    }
-
-    if (Capacitor.isNativePlatform()) {
-      throw new Error("Phone claim token minting is only supported on web.");
-    }
-
-    const verificationId = String(params.verificationId ?? "").trim();
-    if (!verificationId) {
-      throw new Error("Verification ID is required.");
-    }
-
-    const credential = PhoneAuthProvider.credential(
-      verificationId,
-      verificationCode,
-    );
-    const secondaryApp =
-      getApps().find(
-        (firebaseApp) => firebaseApp.name === PHONE_CLAIM_APP_NAME,
-      ) || initializeApp(app.options, PHONE_CLAIM_APP_NAME);
-    const phoneClaimAuth = getAuth(secondaryApp);
-
-    await setPersistence(phoneClaimAuth, inMemoryPersistence);
-
-    let claimToken = "";
-    try {
-      const result = await signInWithCredential(phoneClaimAuth, credential);
-      claimToken = await result.user.getIdToken(true);
-    } catch (error) {
-      throw this.normalizePhoneVerificationError(error, "link_confirm");
-    } finally {
-      await firebaseSignOut(phoneClaimAuth).catch(() => undefined);
-    }
-
-    if (!claimToken) {
-      throw new Error(
-        "Phone verification completed but no claim token was returned.",
-      );
-    }
-
-    return claimToken;
+  static getPhoneClaimIdToken(params: PhoneClaimConfirmation): Promise<string> {
+    return mintPhoneClaimIdToken(params, (error) => this.normalizePhoneVerificationError(error, "link_confirm"));
   }
 
   static async confirmPhoneReplacementVerification(params: {

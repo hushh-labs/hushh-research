@@ -58,6 +58,29 @@ class AzureTeardownStore:
         ):
             raise AzureTeardownRefused("CLOUD_REMOVAL_APPROVAL_CHANGED")
 
+    async def require_cloud_execution(self, owner: str, attempt: str) -> None:
+        """An account cleanup remains separate; a cloud-only worker needs dispatch proof."""
+        installed = await self._value(
+            "SELECT to_regclass('public.personal_agent_cloud_removals') IS NOT NULL AS value",
+            {},
+        )
+        if installed is not True:
+            return
+        cloud_only = await self._value(
+            "SELECT EXISTS(SELECT 1 FROM public.personal_agent_cloud_removals WHERE user_id=:owner AND attempt_id=:attempt) AS value",
+            {"owner": owner, "attempt": attempt},
+        )
+        if cloud_only is not True:
+            return
+        if (
+            await self._value(
+                "SELECT public.cloud_removal_execution_admitted(:owner,:attempt) AS value",
+                {"owner": owner, "attempt": attempt},
+            )
+            is not True
+        ):
+            raise AzureTeardownRefused("CLOUD_REMOVAL_EXECUTION_NOT_ADMITTED")
+
     async def require_completion_contract(self) -> None:
         exists = await self._value(
             "SELECT to_regprocedure('public.azure_account_cleanup_ready()') IS NOT NULL AS value",

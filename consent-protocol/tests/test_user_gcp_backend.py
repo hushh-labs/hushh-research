@@ -262,6 +262,76 @@ async def test_discover_adopts_an_existing_user_owned_pod(monkeypatch):
     assert sa.endswith("@acme.iam.gserviceaccount.com")
 
 
+@pytest.mark.parametrize(
+    "fault", [None, "uid", "image", "principal", "owner", "environment", "missing_evidence"]
+)
+async def test_adoption_requires_retained_identity_and_actual_serving_observation(
+    monkeypatch, fault
+):
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.pod_adoption import PodAdoptionRefused
+
+    live = UserGcpBackend(user_project="acme", live=True)
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setattr(live, "_client", lambda: _ServiceClient(_ready_service()))
+    handle = await live.discover("ha1abc")
+    principal = handle.backend_metadata["runtime_service_account"]
+    spec = replace(
+        _spec("ha1abc"),
+        expected_service_uid="retained-uid",
+        expected_image_digest="sha256:" + "a" * 64,
+        expected_runtime_principal=principal,
+    )
+    observed = {
+        "serviceUid": "retained-uid",
+        "image": "registry/pod@sha256:" + "a" * 64,
+        "runtime_service_account": principal,
+        "podUrl": handle.backend_metadata["url"],
+        "ownerIdentity": {"HUSSH_ID": "ha1abc", "HUSHH_DEPLOY_ENV": "dev"},
+    }
+    if fault == "uid":
+        observed["serviceUid"] = "replacement-uid"
+    elif fault == "image":
+        observed["image"] = "registry/pod@sha256:" + "b" * 64
+    elif fault == "principal":
+        observed["runtime_service_account"] = "foreign@acme.iam.gserviceaccount.com"
+    elif fault == "owner":
+        observed["ownerIdentity"]["HUSSH_ID"] = "another-owner"
+    elif fault == "environment":
+        observed["ownerIdentity"]["HUSHH_DEPLOY_ENV"] = "production"
+    elif fault == "missing_evidence":
+        spec = replace(spec, expected_service_uid=None)
+    calls = []
+
+    def observation(**kwargs):
+        calls.append(kwargs)
+        return observed
+
+    monkeypatch.setattr(
+        live, "_client", lambda: SimpleNamespace(observe_erasure_runtime=observation)
+    )
+    if fault:
+        with pytest.raises(PodAdoptionRefused):
+            await live.verify_adoption(spec, handle)
+    else:
+        verified = await live.verify_adoption(spec, handle)
+        assert verified.backend_metadata["serviceUid"] == "retained-uid"
+        assert verified.backend_metadata["image_digest"] == "sha256:" + "a" * 64
+    assert calls == (
+        []
+        if fault == "missing_evidence"
+        else [
+            {
+                "name": handle.external_agent_id,
+                "expected_uid": "retained-uid",
+                "include_identity": True,
+            }
+        ]
+    )
+
+
 async def test_discover_returns_none_when_no_pod_exists(monkeypatch):
     live = UserGcpBackend(user_project="acme", live=True)
     monkeypatch.setattr(live, "_client", lambda: _AbsentServiceClient())

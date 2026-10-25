@@ -730,6 +730,26 @@
       "primary_access_path": "atomic full-account deletion, old-revision-compatible actor/vault root deletion triggers, Firebase bearer verification, catalog-installed tombstone guards for every public scalar user_id, role-prefixed *_user_id/user_<role>_id, firebase_uid, and *_firebase_uid reference, and an indexed hash-only account-state presence preflight"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "account_generations"
+      ],
+      "id": "account_environment_generations",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "AccountGenerationService and purpose-bound enrollment under identity namespace199; normal admission resolves independently verified Firebase identity to one immutable application owner."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "account_firebase_mutations"
+      ],
+      "id": "account_identity_mutation_receipts",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "The existing identity-mutation dispatcher records captured owner/identity hashes, approved authority project, purpose and settlement nonce before the no-retry provider request."
+    },
+    {
       "data_class": "audit_regulated",
       "exact_tables": [
         "account_legal_acceptances"
@@ -1714,9 +1734,9 @@
         "personal_agent_cloud_removals"
       ],
       "id": "personal_agent_cloud_removal",
-      "lifecycle_status": "dev_only",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Dev-only migration972; vault-owner POST /api/one/personal-agent/removal and the existing resource-erasure executor. Owner/attempt primary-key lookups and transactional finalization; GET discovery is Firebase-owner authenticated and creates no operation."
+      "primary_access_path": "Existing cloud-removal API/store and provider erasure executor; parked972 is the dev predecessor, with canonical419/420 in qualification. Owner/attempt lookups bind exact review, dispatch and recovery. Read-only discovery creates no removal operation."
     },
     {
       "data_class": "workflow_state",
@@ -1727,7 +1747,7 @@
         "personal_agent_deletion_tombstones"
       ],
       "id": "personal_agent_provisioning",
-      "lifecycle_status": "parked_flag_off_with_live_environment_drift",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "owner": "backend-runtime-governance",
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
@@ -1738,7 +1758,7 @@
         "personal_agent_deletion_tombstones"
       ],
       "id": "personal_agent_registry",
-      "lifecycle_status": "dev_only",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "owner": "iam-consent-governance",
       "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement. Dev-only migration949 retains, once per reserved erasure attempt and before any access is revoked, the pod's crypto-erase confirmation for a user_azure agent with its setup nonce (the agentCryptoErase checkpoint a cut-short revocation resumes from), then the owner-access erasure receipt (that confirmation, the role assignments revoked, the person's remaining resource ids, the vault purge date and the resource group to delete), both validated against the reserved snapshot; account deletion still refuses while those resources remain. Dev-only migration950 adds placement_epoch (0 for every existing row, bumped by one on every standby promotion); the hub verifier refuses a signed pod request whose X-Hushh-Pod-Epoch is missing or stale once the person has a standby or an epoch above 0"
     },
@@ -1921,6 +1941,16 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "pod_migration_jobs"
+      ],
+      "id": "private_agent_migration_recovery",
+      "lifecycle_status": "retained_legacy_unqualified_new_transfers",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "The existing migration/recovery owner tracks one captured source/destination job per application owner. Schema presence does not enable hosting transfers."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "one_profile_discovery_daily_usage"
       ],
       "id": "profile_discovery_daily_usage",
@@ -2011,6 +2041,16 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "Owner-authenticated selection/management and separately consented continuous live collection discovery, with durable connection-generation-bound ingestion leases and versioned publication. No client database access."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "shared_files_storage"
+      ],
+      "id": "shared_files_ciphertext_transport",
+      "lifecycle_status": "dev_pilot_canonical_graduation_pending",
+      "owner": "security-audit",
+      "primary_access_path": "Shared Files storage admission, bounded upload leases and account-erasure inventory; browser-side encryption and vault custody retain the library key."
     },
     {
       "data_class": "workflow_state",
@@ -3230,13 +3270,15 @@
       "api_dependencies": [
         {
           "backend_endpoint_family": "/api/one/calendar/{status,connect/*,proposals/*}",
-          "native_transport": "Web-only Google OAuth; Calendar does not claim native authorization support.",
+          "native_transport": "ApiService direct backend; shared-runtime authorization uses HushhAuth.connectCalendar and an owner/attempt-bound server-code exchange. Private hosting retains its owner-pod connector flow.",
           "nextjs_api_route": "/api/one/{path*}",
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
           "service_file": "lib/services/google-calendar-service.ts",
           "service_methods": [
             "status",
             "startConnect",
+            "startNativeConnect",
+            "completeNativeConnect",
             "disconnect",
             "executeProposal"
           ]
@@ -3251,7 +3293,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-calendar",
       "page_file": "app/one/calendar/page.tsx",
       "pathname": "/one/calendar",
       "route_mode": "standard",
@@ -5854,13 +5896,15 @@
       "api_dependencies": [
         {
           "backend_endpoint_family": "/api/one/calendar/{status,connect/*}",
-          "native_transport": "Web-only Google OAuth; Calendar setup does not claim native authorization support.",
+          "native_transport": "Calendar setup reuses the workspace's ApiService transport and HushhAuth.connectCalendar bound authorization flow; no setup-specific sign-in or credential store.",
           "nextjs_api_route": "/api/one/{path*}",
           "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
           "service_file": "lib/services/google-calendar-service.ts",
           "service_methods": [
             "status",
             "startConnect",
+            "startNativeConnect",
+            "completeNativeConnect",
             "disconnect"
           ]
         }
@@ -5874,7 +5918,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-one-setup-calendar",
       "page_file": "app/one/setup/calendar/page.tsx",
       "pathname": "/one/setup/calendar",
       "route_mode": "standard",
@@ -7020,13 +7064,13 @@
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
     "action_gateway": "701eea9ef4092300ba7dc903e189164060bcc479632579aa9c27e4837fdf9c01",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "cache_manifest": "8dbd3b9ea314314d2280430fa134ccfb7ed791249763e243b66402b601ed17e3",
-    "data_plane": "0eb31d8d08ba922e07c444bd741340c67a89e884a68107dc47d96ef5a8ba835c",
+    "cache_manifest": "632bc70c2c4cdf4895f834ef8d892b4d276b132716099ccfb9be17aeecfc3937",
+    "data_plane": "1f8101fc21079d306c8ca6bf7ea930fa39d95eb49d6ca57638b5252611a8182c",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "c64a0fe8fe9b233eb5f6f4979d150f7a01d29572342dcf7f435c0831f434ee9d",
-    "route_layout": "e7adcaf6d61b0258a88ab31add2a6059853e9e8d77478368ff378278ff3de18e",
-    "surface_map": "d8f4fccb4f149b4d20cc14bb228e76a94ac40d6a5db0c637aec26e0a43f851f5",
+    "route_index": "c83bec322288e5b0211437406d96a9a42b90498e36a5ffedb452bb88139b8821",
+    "route_layout": "1f72d0dab33e517788879c4c7dafe225d48a809b581a64b091c5d3bf00b96442",
+    "surface_map": "b3ab720a9f07ef62f88fd64466c4f8c5552da3763bb10e740014f2a3bafd02ff",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -7040,6 +7084,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 160,
     "semantic_routes": 17,
-    "table_families": 128
+    "table_families": 132
   }
 }

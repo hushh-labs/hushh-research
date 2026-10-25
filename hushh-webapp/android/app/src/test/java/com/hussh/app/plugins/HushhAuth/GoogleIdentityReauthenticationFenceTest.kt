@@ -5,6 +5,36 @@ import org.junit.Test
 import com.hussh.app.plugins.HushhAuth.GoogleIdentityReauthenticationFence.Claim
 
 class GoogleIdentityReauthenticationFenceTest {
+    @Test fun deletionProofRejectsChangedOwnerSessionAndExpiry() {
+        val fence = DeletionPhoneProofFence("owner", "attempt", 100)
+        assertFalse(fence.codeSent("other", true, 101))
+        assertFalse(fence.codeSent("owner", false, 101))
+        assertFalse(fence.codeSent("owner", true, 300_100))
+        assertTrue(fence.codeSent("owner", true, 101))
+        assertFalse(fence.exchange(DeletionPhoneProofFence.Phase.WAITING, "owner", true, 102))
+        assertTrue(fence.exchange(DeletionPhoneProofFence.Phase.CODE_SENT, "owner", true, 102))
+        assertFalse(fence.exchange(DeletionPhoneProofFence.Phase.CODE_SENT, "owner", true, 103))
+        assertTrue(fence.settle())
+        assertFalse(fence.canRelease)
+        fence.drainExchange()
+        assertTrue(fence.canRelease)
+        assertFalse(fence.current("owner", true, 104))
+    }
+
+    @Test fun deletionInstantProofAndIncorrectCodeCannotReviveCancelledWork() {
+        val instant = DeletionPhoneProofFence("owner", "instant", 100)
+        assertTrue(instant.exchange(DeletionPhoneProofFence.Phase.WAITING, "owner", true, 101))
+        assertFalse(instant.codeSent("owner", true, 102))
+        val manual = DeletionPhoneProofFence("owner", "manual", 100)
+        assertTrue(manual.codeSent("owner", true, 101))
+        assertTrue(manual.exchange(DeletionPhoneProofFence.Phase.CODE_SENT, "owner", true, 102))
+        manual.retryCode()
+        assertTrue(manual.exchange(DeletionPhoneProofFence.Phase.CODE_SENT, "owner", true, 103))
+        manual.settle()
+        manual.retryCode()
+        assertFalse(manual.current("owner", true, 104))
+    }
+
     @Test fun driveFallbackAllowsDelayedCustomSchemeDelivery() {
         assertEquals(5_000L, NativeDriveOAuthPolicy.FALLBACK_RETURN_GRACE_MS)
     }

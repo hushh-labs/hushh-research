@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, DotsThreeIcon as MoreHorizontal, TrashIcon as Trash2 } from "@/components/icons";
+import { snapshotValidatedAuthSessionPrincipal, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -12,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { toast } from "sonner";
 import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
 import { useCloudRemovalControl } from "@/components/profile/cloud-removal-control";
-import { azureAccountCleanupRequired } from "@/lib/services/account-cloud-cleanup";
+import { accountCleanupProvider } from "@/lib/services/account-cloud-cleanup";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
@@ -37,12 +38,13 @@ import {
 /* ── OnboardingRouteActions ────────────────────────────────────────── */
 export function OnboardingRouteActions() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, userId, signOut } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
+  const [cloudCleanupProvider, setCloudCleanupProvider] = useState<"azure" | "gcp" | null>(null);
+  const cloudCleanupRequired = cloudCleanupProvider !== null;
   const [menuOpen, setMenuOpen] = useState(false);
   const cloudRemoval = useCloudRemovalControl({ menuOpen });
   const deletionRunning = useRef(false);
@@ -58,11 +60,13 @@ export function OnboardingRouteActions() {
   }
 
   async function requestDeleteAccount() {
-    if (!user?.uid) return;
+    const owner = snapshotValidatedAuthSessionPrincipal();
+    if (!user || !owner || owner.firebaseUid !== user.uid || owner.ownerId !== userId) return;
 
     try {
       const resolution = await resolveDeleteAccountAuth({
-        userId: user.uid,
+        userId: owner.ownerId,
+        owner,
         existingVaultOwnerToken: vaultOwnerToken ?? null,
       });
 
@@ -80,14 +84,16 @@ export function OnboardingRouteActions() {
   }
 
   async function handleDeleteAccount() {
-    if (!user?.uid || deletionRunning.current) return;
+    const owner = snapshotValidatedAuthSessionPrincipal();
+    if (!user || !owner || owner.firebaseUid !== user.uid || owner.ownerId !== userId || deletionRunning.current) return;
 
     deletionRunning.current = true;
     setIsDeleting(true);
-    let needsCloudReview = false;
+    let needsCloudReview: "azure" | "gcp" | null = null;
     try {
       const resolution = await resolveDeleteAccountAuth({
-        userId: user.uid,
+        userId: owner.ownerId,
+        owner,
         existingVaultOwnerToken: vaultOwnerToken ?? null,
       });
 
@@ -100,7 +106,8 @@ export function OnboardingRouteActions() {
       await morphyToast
         .promise(
           executeVerifiedAccountDeletion({
-            userId: user.uid,
+            userId: owner.ownerId,
+            owner,
             vaultOwnerToken: resolution.token,
             sessionUser: user,
             vaultKey,
@@ -114,14 +121,14 @@ export function OnboardingRouteActions() {
         )
         .unwrap();
 
-      await signOut({
+      if (isValidatedAuthSessionOwnerCurrent(owner)) await signOut({
         redirectTo: buildLoginRouteWithAuthSessionNotice("account_deleted"),
-        expectedUserId: user.uid,
+        expectedUserId: owner.ownerId,
         skipFcmCleanup: true,
       });
     } catch (error) {
-      needsCloudReview = azureAccountCleanupRequired(error);
-      if (needsCloudReview) setCloudCleanupRequired(true);
+      needsCloudReview = accountCleanupProvider(error);
+      if (needsCloudReview && isValidatedAuthSessionOwnerCurrent(owner)) setCloudCleanupProvider(needsCloudReview);
       (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
         "[TopAppBar] Failed to delete account:",
         error,
@@ -189,11 +196,14 @@ export function OnboardingRouteActions() {
                 : DELETE_ACCOUNT_DIALOG_DESCRIPTION}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {cloudCleanupRequired && user ? (
+          {cloudCleanupRequired && user && userId ? (
             <AccountCloudCleanup
-              key={user.uid}
-              userId={user.uid}
+              key={userId}
+              userId={userId}
               token={vaultOwnerToken ?? null}
+              provider={cloudCleanupProvider ?? undefined}
+              purpose={cloudCleanupProvider === "gcp" ? "remove_cloud" : "account"}
+              continueAccountDeletion={cloudCleanupProvider === "gcp"}
               onUnlock={() => {
                 setDeleteConfirmOpen(false);
                 setVaultUnlockOpen(true);

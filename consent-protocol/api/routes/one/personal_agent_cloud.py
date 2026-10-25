@@ -27,7 +27,18 @@ async def adopt_personal_agent(
     because reconnecting preserves the agent's identity and memory.
     """
     owner._require_enabled()
-    result = await owner._service().adopt_orphan(user_id=user_id)
+    from hushh_mcp.services.pod_adoption import PodAdoptionRefused
+
+    try:
+        result = await owner._service().adopt_orphan(user_id=user_id)
+    except PodAdoptionRefused:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "POD_ADOPTION_REVIEW_REQUIRED",
+                "message": "Review your hosting connection. Your existing resources have been retained.",
+            },
+        ) from None
     if not result:
         return {"adopted": False}
     return {"adopted": True, **result}
@@ -41,7 +52,6 @@ async def personal_agent_cloud_removal_availability(
     from hushh_mcp.services.azure_teardown_inventory import AzureTeardownRefused
     from hushh_mcp.services.personal_agent_cloud_removal import CloudRemovalStore
 
-    owner._require_enabled()
     store = CloudRemovalStore(owner.PersonalAgentRegistryRepo())
     try:
         await store.require_completion_contract()
@@ -71,7 +81,6 @@ async def remove_personal_agent_cloud(
     """Review and remove the caller's cloud; preserve their Hussh account."""
     from api.routes.account_cloud_cleanup import remove_owner_cloud
 
-    owner._require_enabled()
     return await remove_owner_cloud(token_data["user_id"], payload)
 
 
@@ -80,7 +89,6 @@ async def inspect_personal_agent_hosting(user_id: str = Depends(require_firebase
     """Inspect only recorded owner resources; never repair or delete on a read."""
     from hushh_mcp.services.personal_agent_hosting_inspection import inspect_recorded_hosting
 
-    owner._require_enabled()
     row = await owner.PersonalAgentRegistryRepo().get(user_id)
     inspection: dict = await inspect_recorded_hosting(owner._service(), owner=user_id, row=row)
     return inspection
@@ -91,8 +99,18 @@ async def deprovision_personal_agent(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Tear down the caller's own agent. Requires the owner's VAULT_OWNER token."""
-    owner._require_enabled()
     user_id = token_data["user_id"]
+    # Cloud removal requires its purpose-bound review and exact operation.
+    # The account erasure worker retains its separate qualified entrypoint.
+    row = await owner.PersonalAgentRegistryRepo().get(user_id)
+    if row and row.get("deployment_target") in {"user_gcp", "user_azure"}:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CLOUD_REMOVAL_REVIEW_REQUIRED",
+                "message": "Review cloud removal in Hosting before removing your private agent.",
+            },
+        )
     try:
         result = await owner._service().deprovision(user_id=user_id)
     except PersonalAgentDeprovisioningRequiredError as exc:

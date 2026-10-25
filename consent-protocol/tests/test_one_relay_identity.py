@@ -10,7 +10,7 @@ from api.utils import firebase_auth
 
 
 @pytest.fixture
-def shared_compatibility(monkeypatch):
+def shared_compatibility(monkeypatch, active_account_lifecycle):
     """Explicit legacy Shared helper contract; never an owner-cloud admission."""
     from unittest.mock import AsyncMock
 
@@ -76,7 +76,9 @@ async def test_auth_provider_outage_preserves_503_without_ticket(monkeypatch):
         ("unknown", 503, "AGENT_HOSTING_UNAVAILABLE"),
     ],
 )
-async def test_private_or_unknown_voice_never_mints_hub_ticket(monkeypatch, mode, status, code):
+async def test_private_or_unknown_voice_never_mints_hub_ticket(
+    monkeypatch, mode, status, code, active_account_lifecycle
+):
     from api.routes.one import pod_live_relay
     from hushh_mcp.services import owner_placement_guard as guard
 
@@ -127,7 +129,12 @@ async def test_public_onboarding_still_mints_its_anonymous_ticket(monkeypatch):
     [("byoc", "AGENT_PRIVATE_RUNTIME_REQUIRED"), ("unknown", "AGENT_HOSTING_UNAVAILABLE")],
 )
 async def test_signed_ticket_never_reads_credentials_or_builds_shared_runner(
-    monkeypatch, uid, tier, mode, code
+    monkeypatch,
+    uid,
+    tier,
+    mode,
+    code,
+    active_account_lifecycle,
 ):
     from api.routes.one import pod_live_relay
     from hushh_mcp.services import owner_placement_guard as guard

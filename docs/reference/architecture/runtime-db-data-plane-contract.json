@@ -170,7 +170,7 @@
       "id": "personal_agent_provisioning",
       "owner": "backend-runtime-governance",
       "data_class": "workflow_state",
-      "lifecycle_status": "parked_flag_off_with_live_environment_drift",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "exact_tables": [
         "personal_agent_registry",
         "byoc_setup_jobs",
@@ -178,9 +178,9 @@
         "personal_agent_deletion_tombstones"
       ],
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
-      "retention_policy": "Registry and current setup rows exist only while the account exists. Lifecycle events have a 30-day operational TTL and account deletion removes them immediately only when the registry proves status=unprovisioned with no external coordinates, BYOC job, or pending deprovision intent. A lifecycle row without its registry cannot establish that absence and therefore fails closed. The parked personal_agent_deletion_tombstones design has no in-repo consumer, so an existing intent remains a no-ship operational state rather than evidence that provider cleanup will happen.",
-      "deletion_behavior": "AccountService locks all present personal-agent rows and directly deletes only demonstrably unprovisioned state with no provider coordinates. Any BYOC job, orphaned lifecycle row, non-unprovisioned status, external coordinate, or existing personal_agent_deletion_tombstone returns ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING and rolls back the entire account-deletion transaction. Account deletion cannot report success until an owned provider deprovisioner exists and the external or billable resource is independently proven absent.",
-      "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists.",
+      "retention_policy": "Retain placement, setup and bounded recovery metadata while provider operations remain unresolved. Lifecycle events use the existing operational TTL. Required deletion tombstones and exact resource-absence/retention receipts survive removal until the governing erasure contract permits scrubbing; elapsed time never proves cleanup.",
+      "deletion_behavior": "The owned erasure executor fences ordinary access, preserves retry custody and reconciles each captured resource before transactional finalization. Unconfirmed provider absence remains repairable. Account erasure cannot treat a suspended registry, destroyed key or accepted provider DELETE as complete resource cleanup.",
+      "trust_boundary": "Owner-bound cloud coordinates, public keys, keyed phone hashes and bounded lifecycle receipts only. Provider credentials remain in existing encrypted custody or the admitted owner pod; never copy them into registry metadata.",
       "plaintext_posture": "provider_teardown_metadata_only",
       "expected_row_growth": "one mutable registry and setup row per opted-in user, bounded 30-day lifecycle events, and parked deprovision intents that must not be activated without an owned consumer and compaction policy"
     },
@@ -1618,14 +1618,14 @@
       "id": "personal_agent_registry",
       "owner": "iam-consent-governance",
       "data_class": "personal_metadata",
-      "lifecycle_status": "dev_only",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "exact_tables": [
         "personal_agent_registry",
         "personal_agent_deletion_tombstones"
       ],
       "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement. Dev-only migration949 retains, once per reserved erasure attempt and before any access is revoked, the pod's crypto-erase confirmation for a user_azure agent with its setup nonce (the agentCryptoErase checkpoint a cut-short revocation resumes from), then the owner-access erasure receipt (that confirmation, the role assignments revoked, the person's remaining resource ids, the vault purge date and the resource group to delete), both validated against the reserved snapshot; account deletion still refuses while those resources remain. Dev-only migration950 adds placement_epoch (0 for every existing row, bumped by one on every standby promotion); the hub verifier refuses a signed pod request whose X-Hushh-Pod-Epoch is missing or stale once the person has a standby or an epoch above 0",
-      "retention_policy": "Retain the registry, operation attempts and resource evidence while provisioning, recovery, upgrade or erasure remains unresolved; elapsed time does not release admission. Completed provision metadata stays with the registry. Retain existing deletion tombstones for identity-generation suppression and unresolved resource recovery; no in-repo consumer establishes their cleanup.",
-      "deletion_behavior": "Account deletion refuses retained registry metadata and external resources. Erasure admission suspends ordinary access and preserves retry authority; it is not successful cleanup. Only the existing transactional absence guard permits empty-state removal. New provisioning attempts cannot remove or overwrite unresolved operation evidence.",
+      "retention_policy": "Retain exact provisioning, update, removal and erasure attempts until resource reconciliation settles. The existing executor consumes deletion intents; unresolved absence or provider retention remains explicit, never inferred from elapsed time.",
+      "deletion_behavior": "Suspend new work before approved cleanup. Preserve exact resource/custody evidence and attempt identity through retry; finalize only when provider absence or the declared retained-resource outcome is verified. Cloud-only removal preserves the account; full account erasure has its own generation-bound authority.",
       "trust_boundary": "Stores opaque owner/HusshID bindings, keyed phone hashes, public keys, provider coordinates and bounded lifecycle evidence. Azure coordinates are directory, subscription and resource-group identifiers only; one owner per resource group is enforced by a partial unique index. No raw phone, private key, OAuth token or provider payload belongs in registry metadata. Owner locks and exact-attempt publication govern provisioning; PKM and agent memory remain separate authorities. Dev-only migration947 adds the pod's public request-signing key and key id (recorded only from a hub-initiated pull, bound to pod_pubkey) and the one-way identity_mode latch; they are removed with the row by the same deletion path.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one registry row per owner; bounded nested attempt/evidence objects, plus deliberately retained deletion intents"
@@ -2205,16 +2205,76 @@
       "id": "personal_agent_cloud_removal",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
-      "lifecycle_status": "dev_only",
+      "lifecycle_status": "dev_qualified_canonical_graduation_pending",
       "exact_tables": [
         "personal_agent_cloud_removals"
       ],
-      "primary_access_path": "Dev-only migration972; vault-owner POST /api/one/personal-agent/removal and the existing resource-erasure executor. Owner/attempt primary-key lookups and transactional finalization; GET discovery is Firebase-owner authenticated and creates no operation.",
+      "primary_access_path": "Existing cloud-removal API/store and provider erasure executor; parked972 is the dev predecessor, with canonical419/420 in qualification. Owner/attempt lookups bind exact review, dispatch and recovery. Read-only discovery creates no removal operation.",
       "retention_policy": "Retain pending operations and completed bounded archives while the account exists. Unconfirmed resource absence never expires retry custody. Completed archives are limited to 2 MiB and preserve exact resource/history digests; no content or credentials. No time-based pruning without a replacement recovery contract.",
-      "deletion_behavior": "Cloud-only finalization preserves account/vault and replaces the registry with a clean unplaced identity, advancing placement epoch and retaining exact prior homes. Full account erasure explicitly removes these records only under its independent full-account tombstone. Standbys, migration jobs and unresolved earlier homes block cloud removal.",
+      "deletion_behavior": "Cloud-only finalization preserves account/vault and replaces the registry with a clean unplaced identity, advancing placement epoch and retaining exact prior homes. Full account erasure explicitly removes these records only under its independent full-account tombstone. Standbys, migration jobs and unresolved earlier homes block cloud removal. Unapproved, undispatched reviews can cancel only through the atomic exact-snapshot restoration port; approval and cancellation serialize on the existing owner locks.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "One pending or completed record per explicitly admitted removal; owner/attempt uniqueness and immutable completion prevent retry duplication. Historical removals remain until account erasure.",
       "trust_boundary": "No OAuth tokens, vault keys, filenames or file contents. Database guards bind owner, attempt, incarnation, snapshot and exact approved review. Legacy account-cleanup authorization cannot grant cloud-only purpose. Read-only inspection covers recorded owner resources only; labels and provider DELETE acceptance do not prove ownership or absence."
+    },
+    {
+      "id": "account_environment_generations",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": [
+        "account_generations"
+      ],
+      "primary_access_path": "AccountGenerationService and purpose-bound enrollment under identity namespace199; normal admission resolves independently verified Firebase identity to one immutable application owner.",
+      "retention_policy": "Active bindings retain external UID and application owner for that generation. Retirement scrubs those raw bindings, preserving hashes, generation, cleanup references and immutable enrollment evidence to prevent resurrection.",
+      "deletion_behavior": "Retire only after committed, qualified erasure. Re-registration explicitly creates the next opaque owner after fresh proof; old callbacks, sessions and jobs never acquire a replacement owner by looking up the latest generation.",
+      "trust_boundary": "Environment-local identity/ownership metadata; no passwords, provider tokens, vault/library keys or private content. No global Firebase generation claims and no email-based owner relinking.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "one immutable row per explicitly admitted account generation"
+    },
+    {
+      "id": "account_identity_mutation_receipts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": [
+        "account_firebase_mutations"
+      ],
+      "primary_access_path": "The existing identity-mutation dispatcher records captured owner/identity hashes, approved authority project, purpose and settlement nonce before the no-retry provider request.",
+      "retention_policy": "Keep immutable dispatch and terminal settlement metadata. Uncertain or unresolved calls prevent replacement enrollment; timeout alone never releases authority.",
+      "deletion_behavior": "Account retirement preserves the minimum hash-only receipt needed to reconcile outstanding external writes. A newer generation cannot inherit an old dispatch or be admitted while its external identity mutation is unresolved.",
+      "trust_boundary": "Operation IDs, hashes, purpose enums and timestamps only; no account display name, email, credentials, SDK payload or provider error body.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "one bounded receipt per identity mutation"
+    },
+    {
+      "id": "private_agent_migration_recovery",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "retained_legacy_unqualified_new_transfers",
+      "exact_tables": [
+        "pod_migration_jobs"
+      ],
+      "primary_access_path": "The existing migration/recovery owner tracks one captured source/destination job per application owner. Schema presence does not enable hosting transfers.",
+      "retention_policy": "Retain captured coordinates, progress, counts and chain-head references until recovery and resource settlement finish. Failed or uncertain transfers retain repair authority.",
+      "deletion_behavior": "Outstanding migration work fences cloud/account cleanup until the source, destination and job settle. Incomplete cross-cloud/reverse transitions remain unavailable.",
+      "trust_boundary": "Metadata and integrity references only; no migration bundle, decrypted information, vault key or model/provider credential.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one current migration operation per owner"
+    },
+    {
+      "id": "shared_files_ciphertext_transport",
+      "owner": "security-audit",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_pilot_canonical_graduation_pending",
+      "exact_tables": [
+        "shared_files_storage"
+      ],
+      "primary_access_path": "Shared Files storage admission, bounded upload leases and account-erasure inventory; browser-side encryption and vault custody retain the library key.",
+      "retention_policy": "Retain opaque library/bucket/prefix admission and write-settlement receipts until all uploads are fenced and provider absence or declared retention is confirmed.",
+      "deletion_behavior": "Account erasure fences new writes and settles outstanding uploads before provider cleanup. An accepted delete or key destruction does not prove retained objects are gone.",
+      "trust_boundary": "Opaque resource identifiers and bounded transport metadata only. Contents, names, folder index and library keys never become Shared plaintext; durable provider bearer receipts use existing encrypted credential custody.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one library transport/inventory row per Shared owner"
     },
     {
       "id": "one_area_discovery",

@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => ({
   authServiceRestoreNativeSession: vi.fn(),
   authServiceSignOut: vi.fn(),
   apiGetAccountSessionStatus: vi.fn(),
+  apiGetAccountRegistrationStatus: vi.fn(),
+  apiStartFreshAccount: vi.fn(),
+  apiGetAccountDeletionStatus: vi.fn(),
+  apiGetAccountCleanupStatus: vi.fn(),
+  apiContinueAccountCleanup: vi.fn(),
   apiDeleteSession: vi.fn(),
   cacheSignedOut: vi.fn(),
   clearForUser: vi.fn(),
@@ -122,7 +127,7 @@ vi.mock("@/lib/services/account-identity-service", () => ({
 }));
 
 vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: { onAuthSignedOut: mocks.cacheSignedOut },
+  CacheSyncService: { onAuthSignedOut: mocks.cacheSignedOut, onAccountDeleted: vi.fn() },
 }));
 
 vi.mock("@/lib/services/onboarding-local-service", () => ({
@@ -164,6 +169,11 @@ vi.mock("@/lib/interaction/interaction-intent-coordinator", () => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     getAccountSessionStatus: mocks.apiGetAccountSessionStatus,
+    getAccountRegistrationStatus: mocks.apiGetAccountRegistrationStatus,
+    startFreshAccount: mocks.apiStartFreshAccount,
+    getAccountDeletionStatus: mocks.apiGetAccountDeletionStatus,
+    getAccountCleanupStatus: mocks.apiGetAccountCleanupStatus,
+    continueAccountCleanup: mocks.apiContinueAccountCleanup,
     deleteSession: mocks.apiDeleteSession,
   },
 }));
@@ -177,8 +187,10 @@ vi.mock("@/lib/connected-systems/crm-product-availability", () => ({
 }));
 
 import { AuthProvider, useAuth } from "@/lib/firebase/auth-context";
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import {
   AUTH_SESSION_INVALIDATED_EVENT,
+  dispatchAuthSessionInvalidated,
   AUTH_SESSION_SIBLING_TAB_STORAGE_KEY,
   publishAccountDeletionToSiblingTabs,
   type AuthSessionInvalidationDetail,
@@ -211,8 +223,16 @@ function makeUser(uid = "account-owner", phoneNumber = "+14155550100"): User {
   } as unknown as User;
 }
 
-function activeSessionResponse(): Response {
-  return Response.json({ active: true }, { status: 200 });
+function activeSessionResponse(firebaseUid = (mocks.firebaseUser as User)?.uid ?? "account-owner", ownerId = firebaseUid, generation = 0): Response {
+  return Response.json({ active: true, firebase_uid: firebaseUid, owner_id: ownerId, account_generation: generation }, { status: 200 });
+}
+
+function cleanupStatusResponse(state: "cleaning_up" | "action_required" | "complete" = "cleaning_up", localErasure = false): Response {
+  return Response.json({ operation: {
+    id: "b99efb85-c1f2-4714-8a63-614d774a25a3", state, credential_count: 1,
+    local_erasure_confirmation_required: localErasure, external_validity_unconfirmed_count: localErasure ? 1 : 0,
+    inventory_sha256: "a".repeat(64), retry_after_seconds: state === "cleaning_up" ? 3 : null,
+  } });
 }
 
 function deletionInProgressResponse(): Response {
@@ -260,6 +280,7 @@ function SessionProbe() {
     loading,
     retrySessionVerification,
     sessionVerificationRequired,
+    accountCleanup,
     signOut,
     user,
   } = useAuth();
@@ -269,6 +290,7 @@ function SessionProbe() {
     return (
       <>
         <p>Verification required</p>
+        {accountCleanup && <p>Cleanup: {accountCleanup.state}</p>}
         <button type="button" onClick={() => void retrySessionVerification()}>
           Retry verification
         </button>
@@ -303,6 +325,13 @@ function renderProvider() {
   );
 }
 
+function CleanupInterfaceProbe() {
+  const { sessionVerificationRequired,retrySessionVerification,signOut }=useAuth();
+  return sessionVerificationRequired
+    ? <SessionVerificationRecovery onRetry={() => void retrySessionVerification()} onSignOut={() => void signOut()} />
+    : <SessionProbe />;
+}
+
 function ScopedSignOutRaceProbe() {
   const { signOut } = useAuth();
   return (
@@ -327,10 +356,10 @@ function OrdinarySignOutProbe() {
 }
 
 function InteractiveSettlementProbe() {
-  const { beginPostAuthSettlement, completePostAuthSettlement } = useAuth();
+  const { beginPostAuthSettlement, admitPostAuthSettlement, completePostAuthSettlement } = useAuth();
   return <button onClick={() => {
     const settlement = beginPostAuthSettlement(mocks.firebaseUser as User);
-    completePostAuthSettlement(settlement);
+    void admitPostAuthSettlement(settlement).finally(() => completePostAuthSettlement(settlement));
   }}>Complete interactive sign-in</button>;
 }
 
@@ -378,9 +407,11 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     );
     mocks.authServiceRestoreNativeSession.mockResolvedValue(null);
     mocks.authServiceSignOut.mockResolvedValue(undefined);
-    mocks.apiGetAccountSessionStatus.mockResolvedValue(
-      activeSessionResponse(),
-    );
+    mocks.apiGetAccountSessionStatus.mockReset().mockImplementation(async () => activeSessionResponse());
+    mocks.apiGetAccountRegistrationStatus.mockReset().mockImplementation(async () => new Response(null, { status: 404 }));
+    mocks.apiStartFreshAccount.mockReset();
+    mocks.apiGetAccountCleanupStatus.mockReset().mockImplementation(async () => new Response(null, { status: 503 }));
+    mocks.apiContinueAccountCleanup.mockReset().mockImplementation(async () => Response.json({}));
     mocks.apiDeleteSession.mockResolvedValue(undefined);
     mocks.identityRefresh.mockResolvedValue(null);
     mocks.identityPeek.mockReturnValue(null);
@@ -403,6 +434,141 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
   afterEach(() => {
     vi.useRealTimers();
     delete window.__HUSHH_NATIVE_TEST__;
+  });
+
+  it.each(["confirmed", "lost_response"])("starts fresh only after exact review and normal session admission: %s", async outcome => {
+    const ownerId = "acct_" + "d".repeat(32);
+    const review = { previous_generation: 0, cleanup_operation: "b99efb85-c1f2-4714-8a63-614d774a25a3",
+      enrollment_operation: "86f55df8-4527-49e4-81f7-62d9ac3dde7a", expires_at: Math.floor(Date.now() / 1000) + 300, terms_version: 1, digest: "a".repeat(64) };
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted" } }, { status: 401 }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "ready", review }));
+    mocks.apiStartFreshAccount.mockImplementation(async () => {
+      mocks.apiGetAccountSessionStatus.mockImplementation(async () => activeSessionResponse("account-owner", ownerId, 1));
+      if (outcome === "lost_response") throw new TypeError("synthetic lost response");
+      return Response.json({ active: true });
+    });
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByRole("heading", { name: "Start fresh?" });
+    expect(snapshotValidatedAuthSessionOwner()).toBeNull();
+    const create = screen.getByRole("button", { name: "Create new account" });
+    expect(create).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(create);
+    if (outcome === "lost_response") {
+      await screen.findByText("We couldn’t confirm the result. Refresh status before trying again.");
+      expect(screen.getByRole("button", { name: "Create new account" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    }
+    await screen.findByText("Vault content for account-owner");
+    expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(ownerId);
+    expect(mocks.apiStartFreshAccount).toHaveBeenCalledTimes(1);
+    expect(mocks.apiStartFreshAccount).toHaveBeenCalledWith("persisted-token", review, expect.any(Function));
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("requires renewed confirmation when registration review terms change", async () => {
+    const review = { previous_generation: 0, cleanup_operation: "b99efb85-c1f2-4714-8a63-614d774a25a3",
+      enrollment_operation: "86f55df8-4527-49e4-81f7-62d9ac3dde7a", expires_at: Math.floor(Date.now() / 1000) + 300, terms_version: 1, digest: "a".repeat(64) };
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "ready", review }));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByRole("heading", { name: "Start fresh?" });
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: "Create new account" })).toBeEnabled();
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "ready", review: { ...review, digest: "b".repeat(64) } }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    await waitFor(() => expect(screen.getByRole("checkbox")).not.toBeChecked());
+    expect(screen.getByRole("button", { name: "Create new account" })).toBeDisabled();
+    expect(mocks.apiStartFreshAccount).not.toHaveBeenCalled();
+  });
+
+  it("withdraws an admitted owner when forced verification discovers registration recovery", async () => {
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    expect(snapshotValidatedAuthSessionOwner()?.userId).toBe("account-owner");
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "fresh_identity_required" }));
+    act(() => requestExplicitSessionVerification());
+    await screen.findByRole("heading", { name: "Verify it’s you" });
+    expect(snapshotValidatedAuthSessionOwner()).toBeNull();
+    expect(screen.queryByText("Vault content for account-owner")).toBeNull();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("keeps unknown historical cleanup on review without offering account activation", async () => {
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    mocks.apiGetAccountRegistrationStatus.mockImplementation(async () => Response.json({ state: "action_required", reason: "historical_cleanup_unconfirmed" }));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByRole("heading", { name: "Your previous cleanup needs attention" });
+    expect(screen.queryByRole("button", { name: "Create new account" })).toBeNull();
+    expect(mocks.apiStartFreshAccount).not.toHaveBeenCalled();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+    expect(snapshotValidatedAuthSessionOwner()).toBeNull();
+  });
+
+  it("admits a replacement owner without changing Firebase identity and handles terminal verification", async () => {
+    const ownerId = "acct_" + "1".repeat(32);
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => activeSessionResponse("account-owner", ownerId, 1));
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(ownerId);
+    act(() => dispatchAuthSessionInvalidated({ code: "account_not_found", userId: "account-owner" }));
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(Response.json({ detail: { code: "AUTH_ACCOUNT_NOT_FOUND" } }, { status: 401 }));
+    act(() => requestExplicitSessionVerification());
+    await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledWith("account-owner"));
+    expect(mocks.clearForUser).toHaveBeenCalledWith(ownerId);
+    await waitFor(() => expect(snapshotValidatedAuthSessionOwner()).toBeNull());
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    await act(async () => { await Promise.resolve(); });
+    expect(snapshotValidatedAuthSessionOwner()).toBeNull();
+  });
+
+  it.each([null, "account-b"])("retires interactive admission when Firebase changes to %s", async replacement => {
+    render(<AuthProvider><SessionProbe /><InteractiveSettlementProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    const admission = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(admission.promise);
+    fireEvent.click(screen.getByRole("button", { name: "Complete interactive sign-in" }));
+    await waitFor(() => expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2));
+    mocks.firebaseUser = replacement ? makeUser(replacement) : null;
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    if (replacement) await screen.findByText("Vault content for account-b");
+    await act(async () => { admission.resolve(activeSessionResponse("account-owner")); await admission.promise; });
+    expect(snapshotValidatedAuthSessionOwner()?.userId ?? null).toBe(replacement);
+  });
+
+  it("releases only the stale observer gate after forced verification admits a replacement", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    const observer = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(observer.promise);
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    await waitFor(() => expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2));
+    const ownerId = "acct_" + "5".repeat(32);
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(activeSessionResponse("account-owner", ownerId, 1));
+    act(() => requestExplicitSessionVerification());
+    await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(ownerId));
+    await act(async () => { observer.resolve(activeSessionResponse()); await observer.promise; });
+    await screen.findByText("Vault content for account-owner");
+    expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(ownerId);
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+  });
+
+  it("rejects a same-UID observer response from before a new interactive admission", async () => {
+    render(<AuthProvider><SessionProbe /><InteractiveSettlementProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    const oldStatus = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(oldStatus.promise);
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    await waitFor(() => expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(2));
+    const ownerId = "acct_" + "2".repeat(32);
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(activeSessionResponse("account-owner", ownerId, 1));
+    fireEvent.click(screen.getByRole("button", { name: "Complete interactive sign-in" }));
+    await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(ownerId));
+    await act(async () => { oldStatus.resolve(activeSessionResponse()); await oldStatus.promise; });
+    expect(snapshotValidatedAuthSessionOwner()?.userId).toBe(ownerId);
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
   });
 
   it("does not restart a confirmed-missing phone lookup when returning to an active OTP attempt", async () => {
@@ -985,6 +1151,7 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
   it.each(["commit", "rollback"] as const)("settles an in-flight deletion as %s after foreground validation", async (outcome) => {
     renderProvider();
     await screen.findByText("Vault content for account-owner");
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(outcome === "commit" ? cleanupStatusResponse("complete") : new Response(null, { status: 404 }));
     mocks.apiGetAccountSessionStatus
       .mockResolvedValueOnce(deletionInProgressResponse())
       .mockResolvedValueOnce(outcome === "commit"
@@ -995,7 +1162,7 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
     if (outcome === "commit") {
       await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1));
-      expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_not_found");
+      expect(mocks.replaceDocument).toHaveBeenCalledWith("/login?auth_notice=account_deletion_identity_retained");
     } else {
       expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
       expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
@@ -1024,6 +1191,47 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(isAccountDeletionActive("account-owner")).toBe(false);
   });
 
+  it("preserves identity behind recovery while durable deletion progress is unavailable", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    const deletionInProgress = () =>
+      new Response(
+        JSON.stringify({
+          detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" },
+        }),
+        { status: 423, headers: { "Retry-After": "0" } },
+      );
+    mocks.apiGetAccountSessionStatus
+      .mockResolvedValueOnce(deletionInProgress())
+      .mockResolvedValueOnce(deletionInProgress());
+
+    act(() => requestExplicitSessionVerification());
+
+    expect(screen.getByText("Checking session")).toBeInTheDocument();
+    await screen.findByText("Verification required");
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
+    expect(mocks.apiGetAccountCleanupStatus).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByText("Vault content for account-owner"),
+    ).not.toBeInTheDocument();
+
+    // Rechecking the same sealed recovery must not replace it with startup
+    // loading (and reopen a URL-requested Profile between every poll).
+    const recheck = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(recheck.promise);
+    fireEvent.click(screen.getByRole("button", { name: "Retry verification" }));
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
+    await act(async () => {
+      recheck.resolve(activeSessionResponse());
+      await recheck.promise;
+    });
+    expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
   it("clears a pending deletion handoff when rollback precedes the first owner re-probe", async () => {
     renderProvider();
     await screen.findByText("Vault content for account-owner");
@@ -1035,6 +1243,113 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     await waitFor(() => expect(isAccountDeletionActive("account-owner")).toBe(false));
     expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("clears pending deletion after the auth observer withdraws its principal and observes rollback", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    mocks.apiGetAccountSessionStatus
+      .mockResolvedValueOnce(deletionInProgressResponse())
+      .mockResolvedValueOnce(deletionInProgressResponse());
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    await screen.findByText("Verification required");
+    expect(isAccountDeletionActive("account-owner")).toBe(true);
+    fireEvent.click(screen.getByText("Retry verification"));
+    expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
+    expect(isAccountDeletionActive("account-owner")).toBe(false);
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("rediscovers durable cleanup after refresh and retains it during a provider outage", async () => {
+    const { parseAccountCleanupOperation } = await import("@/lib/auth/account-cleanup-operation");
+    expect(parseAccountCleanupOperation((await cleanupStatusResponse().json()).operation)).not.toBeNull();
+    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json(
+      { detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" } }, { status: 423 },
+    ));
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse());
+    renderProvider();
+    await screen.findByText("Verification required");
+    expect(mocks.apiGetAccountCleanupStatus).toHaveBeenCalledTimes(1);
+    await screen.findByText("Cleanup: cleaning_up");
+    expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Retry verification"));
+    await screen.findByText("Cleanup: cleaning_up");
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+    expect(mocks.clearDeviceSecretsForDeletedAccount).not.toHaveBeenCalled();
+  });
+
+  it("refuses a late cleanup response after switching to another owner", async () => {
+    const pending = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(Response.json(
+      { detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" } }, { status: 423 },
+    ));
+    mocks.apiGetAccountCleanupStatus.mockReturnValueOnce(pending.promise);
+    renderProvider();
+    await waitFor(() => expect(mocks.apiGetAccountCleanupStatus).toHaveBeenCalledTimes(1));
+    const nextOwner=makeUser("account-b");
+    mocks.firebaseUser=nextOwner;
+    act(() => mocks.authStateListener?.(nextOwner));
+    await screen.findByText("Vault content for account-b");
+    await act(async () => { pending.resolve(cleanupStatusResponse()); await pending.promise; });
+    expect(screen.getByText("Vault content for account-b")).toBeInTheDocument();
+    expect(screen.queryByText("Cleanup: cleaning_up")).not.toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it.each([false,true])("confirms only the reviewed cleanup while preserving the current owner (switch: %s)", async switchOwner => {
+    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(Response.json(
+      { detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" } }, { status: 423 },
+    ));
+    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse("action_required",true));
+    render(<AuthProvider><CleanupInterfaceProbe /></AuthProvider>);
+    await screen.findByText("Remove Hussh’s copy");
+    const token=deferred<string>();
+    vi.mocked((mocks.firebaseUser as User).getIdToken).mockReturnValueOnce(token.promise);
+    fireEvent.click(screen.getByText("Remove Hussh’s copy"));
+    expect(screen.getByText("Confirming…")).toBeDisabled();
+    if(switchOwner){
+      const nextOwner=makeUser("account-b");
+      mocks.firebaseUser=nextOwner;
+      act(() => mocks.authStateListener?.(nextOwner));
+      await screen.findByText("Vault content for account-b");
+    }
+    await act(async () => {token.resolve("cleanup-proof");await token.promise;});
+    if(switchOwner){
+      expect(mocks.apiContinueAccountCleanup).not.toHaveBeenCalled();
+      expect(screen.getByText("Vault content for account-b")).toBeInTheDocument();
+    } else {
+      await waitFor(() => expect(mocks.apiContinueAccountCleanup).toHaveBeenCalledTimes(1));
+      expect(mocks.apiContinueAccountCleanup).toHaveBeenCalledWith(
+        "cleanup-proof",expect.objectContaining({inventory_sha256:"a".repeat(64)}),true,expect.any(Function),
+      );
+    }
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+  });
+
+  it("confirms a lost deletion response through real transport before the provider clears the session", async () => {
+    const { ApiService } = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
+    const { AccountService } = await import("@/lib/services/account-service");
+    const { executeVerifiedAccountDeletion } = await import("@/lib/flows/delete-account");
+    const lostResponse = vi.spyOn(AccountService, "deleteAccount").mockRejectedValueOnce(new TypeError("synthetic lost response"));
+    mocks.apiGetAccountDeletionStatus.mockImplementationOnce(ApiService.getAccountDeletionStatus);
+    vi.mocked(global.fetch).mockResolvedValueOnce(Response.json({ detail: {
+      code: "AUTH_ACCOUNT_NOT_FOUND", account_lifecycle: "deleted",
+    } }, { status: 401 }));
+    render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    try {
+      await act(async () => executeVerifiedAccountDeletion({
+        userId: "account-owner", sessionUser: mocks.firebaseUser as User, vaultOwnerToken: "synthetic-vault-token",
+      }));
+      expect(mocks.apiGetAccountDeletionStatus).toHaveBeenCalledTimes(1);
+      expect(mocks.clearForUser).toHaveBeenCalledWith("account-owner", { deleteDurableReceipts: true });
+      await waitFor(() => expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1));
+      expect(mocks.replaceDocument).not.toHaveBeenCalledWith("/login?auth_notice=account_deletion_uncertain");
+      expect(lostResponse).toHaveBeenCalledTimes(1);
+    } finally {
+      lostResponse.mockRestore();
+    }
   });
 
   it("retains the deleted notice through real apiFetch before the provider sign-out latch", async () => {
@@ -1305,9 +1620,17 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
       screen.queryByText("Vault content for account-owner"),
     ).not.toBeInTheDocument();
 
+    const recheck = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(recheck.promise);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    await act(async () => { recheck.resolve(activeSessionResponse()); await recheck.promise; });
 
     expect(
       screen.getByText("Vault content for account-owner"),
@@ -1378,7 +1701,7 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     mocks.apiGetAccountSessionStatus
       .mockReturnValueOnce(accountAStatus.promise)
       .mockResolvedValueOnce(
-        activeSessionResponse(),
+        activeSessionResponse("account-b"),
       );
     act(() => requestExplicitSessionVerification());
     await waitFor(() => {
