@@ -315,14 +315,14 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
+    "guard_drive_owner_search_capacity",
+    "preserve_financial_discovery_capacity",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
     "scope_commerce_queue_continuous_refresh_v1",
     "scope_commerce_payout_account_claims_v1",
-    "enforce_stripe_payout_source_binding",
-    "guard_drive_owner_search_capacity",
-    "preserve_financial_discovery_capacity"
+    "enforce_stripe_payout_source_binding"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
