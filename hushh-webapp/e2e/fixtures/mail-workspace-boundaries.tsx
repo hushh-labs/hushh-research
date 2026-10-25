@@ -5,7 +5,7 @@ export const useSearchParams = () => params;
 const router = { push() {}, replace() {}, prefetch() {} };
 export const useRouter = () => router;
 const user = { uid: 'synthetic-owner', displayName: 'Alex Morgan', email: 'alex@example.com', getIdToken: async () => 'synthetic-id-token' };
-export const useAuth = () => ({ user, loading: document.documentElement.dataset.workspace === 'callback-loading' || document.documentElement.dataset.workspace === 'callback-cloud-loading', isAuthenticated: true });
+export const useAuth = () => ({ user, userId: user.uid, loading: document.documentElement.dataset.workspace === 'callback-loading' || document.documentElement.dataset.workspace === 'callback-cloud-loading', isAuthenticated: true });
 export const useRequireAuth = useAuth;
 const vault = { vaultKey: '12'.repeat(32), vaultOwnerToken: 'synthetic-owner-token', isVaultUnlocked: true };
 export const VaultContext = createContext(vault);
@@ -53,7 +53,9 @@ export const GmailInformationRequestsService = {
  list: async (input?: { view?: string }) => ({ workflows: document.documentElement.dataset.queue === '1' && input?.view !== 'activity' ? [syntheticRequest] : [], next_offset: null, total_count: document.documentElement.dataset.queue === '1' && input?.view !== 'activity' ? 1 : 0 }),
  scanStream: async () => ({ accepted: true, scanned_count: 0, unchanged_count: 0, matched_count: 0, failed_count: 0, workflow_ids: [] }),
 };
-export const ApiService = new Proxy({}, { get: () => async () => { throw new Error('Unhandled fixture network request'); } });
+export const ApiService = new Proxy({}, { get: (_target, name) => name === 'getPersonalAgentStatus'
+ ? async () => ({ hostingMode: 'shared' })
+ : async () => { throw new Error('Unhandled fixture network request'); } });
 export const HushhPersonalKnowledgeModel = {};
 export const HushhVault = {};
 export const useNativeOverlayCollisionPadding = () => 16;

@@ -11,7 +11,7 @@ import { resolveSignedInShellContentOffset, resolveTopShellGeometryStyle } from 
 import { primeCachedGmailReceipts } from '@/lib/profile/gmail-receipts-cache';
 import { captureReceiptSnapshot } from '@/lib/mail/receipt-snapshot';
 import { MailReceiptResourceService } from '@/lib/services/mail-receipt-resource-service';
-import { publishValidatedAuthSessionOwner } from '@/lib/auth/session-owner';
+import { publishValidatedAuthSessionPrincipal } from '@/lib/auth/session-owner';
 const syntheticReceipts = ['Amazon','Apple','Myntra','Udemy','Plaid'].map((merchant, i) => ({
  id: i + 1, source_id: `synthetic-source-${i}`, receipt_key: `synthetic-source-${i}`, source_kind: 'gmail_live' as const,
  source_evidence: [], gmail_message_id: `synthetic-message-${i}`, merchant_name: merchant, merchant_domain: `${merchant.toLowerCase()}.com`,
@@ -19,7 +19,7 @@ const syntheticReceipts = ['Amazon','Apple','Myntra','Udemy','Plaid'].map((merch
  transaction_date: 'October 18, 2026', amount: document.documentElement.dataset.stress === 'long' && i === 0 ? 2450000000 : [2450, 199, 1299, 849, 750][i], amount_decimal: document.documentElement.dataset.stress === 'long' && i === 0 ? '2450000000.00' : ['2450.00','199.00','1299.00','849.00','750.00'][i],
  currency: 'INR', status: 'paid' as const, document_kind: 'receipt' as const, event_type: 'purchase' as const,
 })).map((receipt, i) => document.documentElement.dataset.stress === 'long' && i === 0 ? { ...receipt, merchant_name: 'The Very Long International Merchant and Services Group Limited' } : receipt);
-publishValidatedAuthSessionOwner('synthetic-owner');
+publishValidatedAuthSessionPrincipal({ firebaseUid: 'synthetic-owner', ownerId: 'synthetic-owner', accountGeneration: 0 });
 primeCachedGmailReceipts({ userId: 'synthetic-owner', accountKey: 'synthetic-account', response: { items: syntheticReceipts, page: 1, total: syntheticReceipts.length, has_more: false } });
 function Fixture() {
  const workspace = (document.documentElement.dataset.workspace || 'overview') as 'overview'|'kyc'|'receipts'|'setup'|'intro'|'skeleton'|'skeleton-hidden'|'callback'|'callback-loading'|'callback-cloud-loading';

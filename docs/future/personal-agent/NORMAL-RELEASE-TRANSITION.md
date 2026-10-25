@@ -1,7 +1,7 @@
 # Private agent: normal release transition
 
 **Current surgical follow-up — 24 October 2026:** the preserved branch includes
-main `44d8efecaf`, preserving the earlier `b2ee968a59ab` integration. Peer source and historical
+main `3895a3d902`, preserving the earlier `44d8efecaf` and `b2ee968a59ab` integrations. Peer source and historical
 migration bytes remain intact. Canonical 417–420 carry the unapplied lifecycle
 correction; main’s 416 financial-packet migration is preserved byte-for-byte.
 `.agents` is the sole authored development framework. The combined

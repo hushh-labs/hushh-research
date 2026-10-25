@@ -24688,7 +24688,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 2737
+      "value": 2740
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86191,6 +86191,18 @@
         "before": 511,
         "after": 620,
         "source_sha256": "b15cda82ef6dae5384480ea7a181b090ee16bb84781dc769d85e62e19d8c5f83"
+      }
+    ]
+  },
+  "ci_browser_fixture_review_20261025": {
+    "source_revision": "fd67dcd5c9",
+    "review": "Independent browser/frontend reviewer approves this exact +3-line keyboard-modality explanation and non-activating key. WebKit diagnostic proved focused=true with focus-visible=false before keyboard input and both true afterward. The test retains the visible ring, Enter activation and exact request counts. Synthetic owner admission follows current application principals. The AI suite removes retired v10 artwork/Coming soon requirements while retaining managed selection, empty/invalid credential refusal, explicit confirmation, reduced-viewport reachability and captured navigation intent. No retry, timeout, product fallback, scanner or global-budget changes. Navigation intent and reduced viewport are not installed/native acceptance.",
+    "entries": [
+      {
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 2737,
+        "after": 2740,
+        "source_sha256": "b5f436d7d1d66be3d7aa2a660781e9deb09b67bf105882923729b900296e2e86"
       }
     ]
   }

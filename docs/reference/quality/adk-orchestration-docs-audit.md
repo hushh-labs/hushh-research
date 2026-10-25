@@ -37,6 +37,24 @@ remains mandatory, and a local full suite requires explicit execution. Its 58
 focused tests pass. These repairs still require the finished candidate's hosted
 validation and deployment; no serving or installed-owner claim follows.
 
+Hosted run [40152110805](https://github.com/hushh-labs/hushh-research/actions/runs/40152110805)
+finished unsuccessfully after 33 minutes 29 seconds. Two serial browser packs
+reached their 30-minute job bound after unmet fixture admission; the runner did
+not spend that time provisioning an owner cloud. Corrected Connections tests
+completed 130 cases in 1.9 minutes; all eight keyboard cases subsequently passed
+after establishing keyboard modality explicitly in WebKit. The actual null-crash
+repair and generation fences remain unchanged. Eighteen Drive request/question
+cases pass across both engines. Current AI selection passes 16 responsive cases
+plus eight reduced-viewport checks; retired artwork and unavailable-provider
+assertions were replaced with the current provider selection/validation contract.
+These are synthetic interface checks, not cloud or native-keyboard acceptance.
+
+Main `3895a3d902` is now preserved through merge `fd67dcd5c9`, including its approved
+PWM lead policy and privacy-safe probe diagnostics. Its 99 affected backend cases
+pass. The retained ADK branch is unchanged at `48140fcd70`. The task-owned HTTPS
+Browser fixture has been removed with verified Worker/subdomain absence; its
+earlier HTTP controls do not certify installed Browser execution.
+
 At 01:38 UTC on 25 October (24 October Pacific), both dev services served
 `b2ee968a59ab` through [dev run 40148134757](https://github.com/hushh-labs/hushh-research/actions/runs/40148134757).
 A concurrent governed UAT rollout now serves the same `b2ee968a59ab` application
