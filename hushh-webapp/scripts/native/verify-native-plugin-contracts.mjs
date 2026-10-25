@@ -8,6 +8,7 @@ const appRoot = process.cwd();
 
 const tsPluginFiles = [
   "lib/capacitor/index.ts",
+  "lib/capacitor/settings.ts",
   "lib/capacitor/invitations.ts",
   "lib/capacitor/account.ts",
   "lib/capacitor/kai.ts",

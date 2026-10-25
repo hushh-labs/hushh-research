@@ -5,7 +5,7 @@
  * Regulated cutover default: remote sync disabled.
  */
 
-import type { HushhSettingsPlugin, HushhSettingsData } from "../index";
+import type { HushhSettingsPlugin, HushhSettingsData } from "../settings";
 
 const STORAGE_KEY = "hushh_settings";
 
