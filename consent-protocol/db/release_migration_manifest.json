@@ -357,7 +357,8 @@
     "418_account_provider_cleanup_staging.sql",
     "419_account_generations.sql",
     "420_private_agent_lifecycle_foundation.sql",
-    "421_cloud_removal_recovery.sql"
+    "421_cloud_removal_recovery.sql",
+    "422_financial_packet_discovery_capacity.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -757,6 +758,7 @@
     "414_pkm_recovery_erasure_index.sql": "rollback/414_pkm_recovery_erasure_index.rollback.sql",
     "415_validate_pkm_recovery_erasure_indexes.sql": "rollback/415_validate_pkm_recovery_erasure_indexes.rollback.sql",
     "416_financial_packet_tag_work.sql": "rollback/416_financial_packet_tag_work.rollback.sql",
-    "417_drive_packet_public_summary.sql": "rollback/417_drive_packet_public_summary.rollback.sql"
+    "417_drive_packet_public_summary.sql": "rollback/417_drive_packet_public_summary.rollback.sql",
+    "422_financial_packet_discovery_capacity.sql": "rollback/422_financial_packet_discovery_capacity.rollback.sql"
   }
 }

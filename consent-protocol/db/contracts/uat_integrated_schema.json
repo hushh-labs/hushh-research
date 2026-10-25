@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 421,
+  "expected_migration_version": 422,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -318,6 +318,8 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
+    "guard_drive_owner_search_capacity",
+    "preserve_financial_discovery_capacity",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -4424,5 +4426,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 421
+  "expected_schema_head": 422
 }

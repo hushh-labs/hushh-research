@@ -23,6 +23,7 @@ def apply_drive_fixture_migration(connection: Connection, filename: str) -> None
         apply_drive_fixture_migration(connection, "411_drive_period_packets.sql")
         apply_drive_fixture_migration(connection, "416_financial_packet_tag_work.sql")
         apply_drive_fixture_migration(connection, "417_drive_packet_public_summary.sql")
+        apply_drive_fixture_migration(connection, "422_financial_packet_discovery_capacity.sql")
 
 
 def apply_bulk_search_fixture_migrations(connection: Connection) -> None:
