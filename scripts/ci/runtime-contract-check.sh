@@ -38,10 +38,7 @@ if grep -q 'consent-protocol-rpphvsc3tq-uc.a.run.app' "$backend_helper"; then
   exit 1
 fi
 
-if ! grep -q 'do not guess a backend origin' "$backend_helper"; then
-  echo "❌ backend route helper is missing the hosted fail-fast contract."
-  exit 1
-fi
+# Executable hosted-origin rejection is owned by backend-runtime.test.ts.
 
 if ! has_frontend_secret_binding BACKEND_URL BACKEND_URL; then
   echo "❌ frontend Cloud Run deploy must inject BACKEND_URL at runtime."

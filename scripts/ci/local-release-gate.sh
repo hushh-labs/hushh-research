@@ -1,26 +1,8 @@
 #!/usr/bin/env bash
-# One command that runs every CI check GitHub Actions would run, and emits a
-# signed-off verdict the deploy driver can consume.
-#
-# WHY THIS EXISTS: when runners are unavailable, `CI Status Gate` and
-# `Main Post-Merge Smoke Gate` never report, and every deploy lane refuses the
-# SHA. The checks themselves do not need GitHub -- scripts/ci/orchestrate.sh is
-# the canonical stage runner and is already documented as being for "GitHub
-# Actions and local CI wrappers". This is that wrapper, plus the three
-# PR-shaped checks orchestrate.sh omits, plus a machine-readable report.
-#
-# HOW IT DIFFERS FROM `orchestrate.sh all`, and why the difference matters:
-#   - orchestrate.sh stops at the first failing stage (set -e). This runs every
-#     stage and reports all failures at once, because when you are trying to
-#     ship you want the whole list, not a fresh one every 20 minutes.
-#   - `all` omits `smoke`, which is the stage the deploy gate actually names.
-#   - `all` omits dco / pr-base-policy / main-freshness, which CI Status Gate
-#     lists in its needs.
-#
-# THE REPORT IS THE POINT. It writes a JSON verdict keyed to the exact SHA, and
-# scripts/ops/cloudbuild_release.sh --skip-ci-check refuses to deploy without
-# one. That keeps the fallback lane evidence-based: the green check is replaced
-# by a real local run, not by a waiver.
+# Diagnostic local bundle. This is not the complete hosted CI surface and its
+# report never authorizes deployment. Use the canonical GitHub workflows for
+# release authority, including security, browser/native and exact-source gates.
+# A complete report means all declared LOCAL stages ran, not hosted acceptance.
 #
 # Usage:
 #   scripts/ci/local-release-gate.sh                  # full gate
@@ -249,15 +231,13 @@ for row in "${RESULTS[@]}"; do
   printf '%-16s %-34s %-9s %ss\n' "$s" "$c" "$r" "$t"
 done
 
-# A partial run must never be recorded as a full verdict -- the deploy driver
-# reads `complete` to decide whether this report can stand in for CI.
+# Complete describes this local diagnostic bundle only, never release authority.
 COMPLETE=true
 [[ "$MODE" == "fast" || -n "$ONLY_STAGE" ]] && COMPLETE=false
-# A run on a mismatched Node cannot authorize a deploy either, even if every
-# stage happened to pass -- the toolchain that produced the verdict was not CI's.
+# Toolchain skew also makes the local bundle incomplete.
 [[ "$NODE_SKEW" == "true" ]] && COMPLETE=false
 
-SHA="$SHA" BASE_SHA="$BASE_SHA" MODE="$MODE" COMPLETE="$COMPLETE" \
+if ! SHA="$SHA" BASE_SHA="$BASE_SHA" MODE="$MODE" COMPLETE="$COMPLETE" \
 NODE_SKEW="$NODE_SKEW" CI_NODE_MAJOR="$CI_NODE_MAJOR" LOCAL_NODE_MAJOR="$LOCAL_NODE_MAJOR" \
 FAILED="$FAILED" REPORT_PATH="$REPORT_PATH" RESULT_ROWS="$(printf '%s\n' "${RESULTS[@]}")" \
 python3 - <<'PY'
@@ -277,6 +257,7 @@ generated_at = subprocess.run(
 ).stdout.strip()
 
 payload = {
+    "authorizes_deployment": False,
     "sha": os.environ["SHA"],
     "base_sha": os.environ["BASE_SHA"],
     "mode": os.environ["MODE"],
@@ -293,20 +274,27 @@ payload = {
     "not_covered": [
         "GitHub secret-scanning and dependabot alert state beyond what `gh` can read",
         "the merge commit GitHub itself would construct and build",
+        "hosted browser/native jobs and authenticated workflow/check authority",
     ],
 }
 path = Path(os.environ["REPORT_PATH"])
-path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+temporary = path.with_suffix(".tmp")
+temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+temporary.replace(path)
 print(f"\nReport: {path}")
 PY
+then
+  red "Diagnostic report publication failed."
+  exit 1
+fi
 
 if [[ $FAILED -ne 0 ]]; then
   red "Gate FAILED. Fix the stages above before deploying."
   exit 1
 fi
 if [[ "$COMPLETE" != "true" ]]; then
-  grey "Partial run recorded. A deploy needs a full run (no --fast, no --stage)."
+  grey "Partial diagnostic run recorded; no deployment authority."
   exit 0
 fi
 green "Gate PASSED for ${SHA}."
-echo "scripts/ops/cloudbuild_release.sh will accept this report with --skip-ci-check."
+echo "Diagnostic result only. Dispatch the governed workflow and verify its release receipt."

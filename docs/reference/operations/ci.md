@@ -1098,6 +1098,45 @@ it. Never repeat the source request merely because the worker response was lost.
 
 Do not add new CI/parity scripts without replacing or consolidating an existing check.
 
+## Release Check Authority and Local Diagnostics
+
+Release admission binds the check to the exact SHA, canonical GitHub Actions
+workflow/event, successful latest run and matching current-attempt gate job.
+A copied green label, a stale successful attempt or a Cloud Build diagnostic
+cannot authorize deployment. Dev retains its independent full branch verdict;
+merge-group CI results retain their queue producer.
+
+Manual post-merge smoke recovery must test the same commit that receives its
+check. Leave `sha` blank when dispatching current main, or provide that exact
+commit. To recover an older main commit, retry its original workflow run. A
+mismatched checkout is refused before verification; old unguarded manual smoke
+receipts are not accepted as recovery proof.
+
+`scripts/ops/cloudbuild_release.sh` and `scripts/ops/release_pipeline.sh` are
+compatibility entrypoints for the existing main-owned deployment workflows.
+They resolve a main-reachable immutable SHA and dispatch `deploy-dev.yml`,
+`deploy-uat.yml` or `deploy-production.yml`; Dev's legacy entrypoint explicitly
+selects `ref=main`. They do not upload the caller's working tree, mutate Cloud
+Run or consume a local report as release authority. `--dry-run` prints a dispatch
+plan. A successful dispatch request is not a successful deployment: verify the
+terminal workflow and its release receipt. CI/migration waiver and local resume
+flags are refused. Actor policy, environment admission, predecessor acceptance,
+capacity, migration, readiness, worker and rollback gates remain workflow-owned.
+
+`deploy/ci.cloudbuild.yaml` runs selected local stages for diagnosis only. Supply
+an immutable `_SHA`; it has no GitHub check-publishing credential or release
+verdict. `scripts/ci/local-release-gate.sh` similarly reports only its declared
+local bundle and records `authorizes_deployment=false`; it does not replace
+hosted browser/native checks or authenticated workflow acceptance.
+
+Within one advisory-inclusive local `all` invocation, successful Governance
+already includes docs verification, so advisory reuses that result. Standalone
+`advisory` and `docs verify` still execute the complete docs suite, and docs
+failures still block. Hosted-origin behavior remains covered by executable
+`backend-runtime.test.ts` cases rather than requiring an error-message phrase.
+Architecture ratchets retain new initialization and size-growth protection;
+moving an unchanged initialization's source line does not worsen its finding.
+
 ## Lean Required Gate Model
 
 The required pre-merge lane stays intentionally small:

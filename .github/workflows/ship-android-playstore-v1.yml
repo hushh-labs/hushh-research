@@ -38,6 +38,7 @@ name: Ship Android to Google Play Store
 permissions:
   contents: read
   checks: read
+  actions: read
   id-token: write
 
 env:

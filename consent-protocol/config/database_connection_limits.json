@@ -87,10 +87,6 @@
             "recorded": "2026-10-06",
             "note": "Dormant: no Cloud Build trigger exists. Verified read-only on 2026-10-06: gcloud builds triggers list (global and us-central1) returned none in hushh-pda-dev, hushh-pda-uat, hushh-pda and hussh-developer-platform. scripts/ops/setup_dev_cloudbuild_triggers.sh would create it in hushh-pda-dev."
           }
-        },
-        {
-          "path": "scripts/ops/cloudbuild_release.sh",
-          "branch": "non_production"
         }
       ],
       "companion_services": []
@@ -114,15 +110,6 @@
             "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
             "recorded": "2026-10-06"
           }
-        },
-        {
-          "path": "scripts/ops/cloudbuild_release.sh",
-          "branch": "non_production",
-          "accepted_worst_case": {
-            "connections": 145,
-            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
-            "recorded": "2026-10-06"
-          }
         }
       ],
       "companion_services": [
@@ -143,15 +130,6 @@
       "deploy_paths": [
         {
           "path": ".github/workflows/deploy-production.yml",
-          "accepted_worst_case": {
-            "connections": 237,
-            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
-            "recorded": "2026-10-06"
-          }
-        },
-        {
-          "path": "scripts/ops/cloudbuild_release.sh",
-          "branch": "production",
           "accepted_worst_case": {
             "connections": 237,
             "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",

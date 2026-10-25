@@ -70,6 +70,10 @@ activate_tracked_git_hooks() {
 
 activate_tracked_git_hooks
 
+# Only this process can establish successful Governance evidence. Standalone
+# advisory retains the complete docs suite. Never accept a caller skip flag.
+governance_passed=0
+
 run_stage() {
   local stage="$1"
   case "$stage" in
@@ -78,6 +82,7 @@ run_stage() {
       ;;
     governance)
       scripts/ci/repo-governance-check.sh
+      governance_passed=1
       ;;
     web-core)
       scripts/ci/web-core-check.sh
@@ -104,7 +109,9 @@ run_stage() {
       scripts/ci/main-post-merge-smoke.sh
       ;;
     advisory)
-      scripts/ci/docs-parity-check.sh
+      if [ "$governance_passed" -eq 0 ]; then
+        scripts/ci/docs-parity-check.sh
+      fi
       scripts/ci/subtree-sync-check.sh
       scripts/ci/github-security-alerts.sh
       scripts/ci/verify-production-environment-governance.sh

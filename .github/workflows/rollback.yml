@@ -129,12 +129,13 @@ jobs:
         if: github.event.inputs.scope == 'backend' || github.event.inputs.scope == 'all'
         shell: bash
         env:
+          REQUESTED_REVISION: ${{ github.event.inputs.backend_revision }}
           ROLLBACK_VERIFY_SERVICE: ${{ env.BACKEND_SERVICE }}
           ROLLBACK_VERIFY_REGION: ${{ env.GCP_REGION }}
           ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat backend "${{ github.event.inputs.backend_revision }}")"
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat backend "$REQUESTED_REVISION")"
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
@@ -151,12 +152,13 @@ jobs:
         if: github.event.inputs.scope == 'frontend' || github.event.inputs.scope == 'all'
         shell: bash
         env:
+          REQUESTED_REVISION: ${{ github.event.inputs.frontend_revision }}
           ROLLBACK_VERIFY_SERVICE: ${{ env.FRONTEND_SERVICE }}
           ROLLBACK_VERIFY_REGION: ${{ env.GCP_REGION }}
           ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat frontend "${{ github.event.inputs.frontend_revision }}")"
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh uat frontend "$REQUESTED_REVISION")"
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
@@ -171,15 +173,20 @@ jobs:
       - name: Rollback summary
         if: always()
         shell: bash
+        env:
+          ROLLBACK_REASON: ${{ github.event.inputs.reason }}
+          ROLLBACK_SCOPE: ${{ github.event.inputs.scope }}
+          BACKEND_TARGET: ${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}
+          FRONTEND_TARGET: ${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}
         run: |
           {
             echo "## UAT Rollback"
             echo ""
             echo "- Actor: \`${GITHUB_ACTOR}\`"
-            echo "- Reason: ${{ github.event.inputs.reason }}"
-            echo "- Scope: \`${{ github.event.inputs.scope }}\`"
-            echo "- Backend target revision: \`${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}\`"
-            echo "- Frontend target revision: \`${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}\`"
+            printf -- '- Reason: %s\n' "$ROLLBACK_REASON"
+            printf -- '- Scope: `%s`\n' "$ROLLBACK_SCOPE"
+            printf -- '- Backend target revision: `%s`\n' "$BACKEND_TARGET"
+            printf -- '- Frontend target revision: `%s`\n' "$FRONTEND_TARGET"
           } >> "$GITHUB_STEP_SUMMARY"
 
   rollback-production:
@@ -254,12 +261,13 @@ jobs:
         if: github.event.inputs.scope == 'backend' || github.event.inputs.scope == 'all'
         shell: bash
         env:
+          REQUESTED_REVISION: ${{ github.event.inputs.backend_revision }}
           ROLLBACK_VERIFY_SERVICE: ${{ env.BACKEND_SERVICE }}
           ROLLBACK_VERIFY_REGION: ${{ env.GCP_REGION }}
           ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production backend "${{ github.event.inputs.backend_revision }}")"
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production backend "$REQUESTED_REVISION")"
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
@@ -276,12 +284,13 @@ jobs:
         if: github.event.inputs.scope == 'frontend' || github.event.inputs.scope == 'all'
         shell: bash
         env:
+          REQUESTED_REVISION: ${{ github.event.inputs.frontend_revision }}
           ROLLBACK_VERIFY_SERVICE: ${{ env.FRONTEND_SERVICE }}
           ROLLBACK_VERIFY_REGION: ${{ env.GCP_REGION }}
           ROLLBACK_VERIFY_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production frontend "${{ github.event.inputs.frontend_revision }}")"
+          REVISION="$(bash scripts/ci/resolve-rollback-target.sh production frontend "$REQUESTED_REVISION")"
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
@@ -296,13 +305,18 @@ jobs:
       - name: Rollback summary
         if: always()
         shell: bash
+        env:
+          ROLLBACK_REASON: ${{ github.event.inputs.reason }}
+          ROLLBACK_SCOPE: ${{ github.event.inputs.scope }}
+          BACKEND_TARGET: ${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}
+          FRONTEND_TARGET: ${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}
         run: |
           {
             echo "## Production Rollback"
             echo ""
             echo "- Actor: \`${GITHUB_ACTOR}\`"
-            echo "- Reason: ${{ github.event.inputs.reason }}"
-            echo "- Scope: \`${{ github.event.inputs.scope }}\`"
-            echo "- Backend target revision: \`${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}\`"
-            echo "- Frontend target revision: \`${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}\`"
+            printf -- '- Reason: %s\n' "$ROLLBACK_REASON"
+            printf -- '- Scope: `%s`\n' "$ROLLBACK_SCOPE"
+            printf -- '- Backend target revision: `%s`\n' "$BACKEND_TARGET"
+            printf -- '- Frontend target revision: `%s`\n' "$FRONTEND_TARGET"
           } >> "$GITHUB_STEP_SUMMARY"
