@@ -1558,6 +1558,7 @@ export function PortfolioReviewView({
       } satisfies RealizedGainLoss) as RealizedGainLoss;
 
       const portfolioToSave: PortfolioData = {
+        historical_values: initialData.historical_values,
         account_info: hasRecordValues(normalizedAccountInfo as Record<string, unknown>)
           ? normalizedAccountInfo
           : undefined,

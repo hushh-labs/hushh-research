@@ -400,23 +400,9 @@ async def test_stock_history_closed_backfill_cache_fences_and_stale_fallback(mon
         lambda: SimpleNamespace(get_ticker_metadata=lambda _: supported),
     )
 
-    class Provider:
-        name = "recorded"
-        calls = []
-        fail = False
+    from tests.helpers.market_public_cache import RecordedHistoryProvider
 
-        async def fetch(self, request):
-            self.calls.append(request)
-            await asyncio.sleep(0)
-            if self.fail:
-                raise RuntimeError("provider unavailable")
-            return {
-                "points": [{"t": 1792000000.0, "p": 230.0}, {"t": 1792086400.0, "p": 232.0}],
-                "source": "Recorded daily source",
-                "retrieved_at": datetime.fromtimestamp(now[0]).isoformat(),
-            }
-
-    provider = Provider()
+    provider = RecordedHistoryProvider(now)
     with bind_market_data_provider(provider):
         with pytest.raises(HTTPException) as error:
             await price_history.get_stock_price_history("owner", "AAPL", "another-owner")

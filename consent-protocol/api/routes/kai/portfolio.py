@@ -70,7 +70,7 @@ from hushh_mcp.kai_import import (
     build_token_counts_payload,
     evaluate_import_quality_gate_v2,
 )
-from hushh_mcp.kai_import.balance_history import normalize_balance_history
+from hushh_mcp.kai_import.statement_extract import build_raw_statement_extract
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.portfolio_import_service import (
@@ -3196,32 +3196,14 @@ async def _portfolio_import_stream_generator(
                 )
                 return
 
-            raw_extract_v2 = {
-                "statement_details": statement_details,
-                "portfolio_summary": portfolio_summary,
-                "detailed_holdings": detailed_holdings,
-                "cash_balance": cash_balance,
-                "total_value": total_value,
-                # Compatibility defaults for existing consumers.
-                "account_metadata": {},
-                "asset_allocation": [],
-                "portfolio_detail": {},
-                "transactions": {},
-                "reconciliation_summary": {},
-                "investment_objective": {},
-                "management_contacts": {},
-                "derived_metrics": {},
-                "income_summary": {},
-                "realized_gain_loss": {},
-                "cash_flow": {},
-                "cash_management": {},
-                "projections_and_mrd": {},
-                "historical_values": normalize_balance_history(
-                    parsed_data.get("historical_values")
-                ),
-                "ytd_metrics": {},
-                "legal_and_disclosures": {},
-            }
+            raw_extract_v2 = build_raw_statement_extract(
+                statement_details=statement_details,
+                portfolio_summary=portfolio_summary,
+                detailed_holdings=detailed_holdings,
+                cash_balance=cash_balance,
+                total_value=total_value,
+                historical_values=parsed_data.get("historical_values"),
+            )
             portfolio_data_v2 = build_financial_portfolio_canonical_v2(
                 raw_extract_v2=raw_extract_v2,
                 account_info=account_info,
