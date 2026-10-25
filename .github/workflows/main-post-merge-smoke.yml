@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: "Exact main SHA to smoke-test (blank = current main)"
+        description: "Must match the dispatch ref SHA (blank = dispatched commit); retry the original run for older main commits"
         required: false
         type: string
 
@@ -42,23 +42,22 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          # On a dispatch this MUST be the requested SHA. Checking out the ref
-          # would publish a "Main Post-Merge Smoke Gate" result attributed to a
-          # different commit than the one actually tested, which is worse than
-          # no result at all.
-          ref: ${{ github.event.inputs.sha || github.sha }}
+          ref: ${{ github.sha }}
 
-      - name: Assert the dispatched SHA is on main
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.sha != ''
+      - name: Verify smoke source identity
         shell: bash
+        env:
+          REQUESTED_SHA: ${{ github.event.inputs.sha || github.sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "${{ github.event.inputs.sha }}" origin/main; then
-            echo "Refusing: ${{ github.event.inputs.sha }} is not an ancestor of origin/main." >&2
+          [[ "$REQUESTED_SHA" == "$GITHUB_SHA" && "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "Refusing smoke: dispatch/check identity differs from the tested checkout. Retry the original run for an older main SHA." >&2
             exit 1
+          }
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main
           fi
-          echo "Confirmed ${{ github.event.inputs.sha }} is on main."
 
       - uses: actions/setup-node@v6
         with:

@@ -111,21 +111,10 @@ def _substitutions_from_line(text: str, relative: str) -> dict[str, str]:
     return dict(_SUBSTITUTION.findall(lines[0]))
 
 
-def _release_script_branch(text: str, branch: str) -> dict[str, str]:
-    """The production or non-production SUBS block of scripts/ops/cloudbuild_release.sh."""
-    start = text.index('if [[ "$TARGET_ENV" == "production" ]]; then')
-    end = text.index("run gcloud builds submit", start)
-    production, non_production = text[start:end].split("\n  else\n", 1)
-    return dict(_SUBSTITUTION.findall(production if branch == "production" else non_production))
-
-
 def _deploy_path_values(deploy_path: dict[str, str]) -> dict[str, str]:
     relative = deploy_path["path"]
     text = _read(relative)
-    if "branch" in deploy_path:
-        declared = _release_script_branch(text, deploy_path["branch"])
-    else:
-        declared = _substitutions_from_line(text, relative)
+    declared = _substitutions_from_line(text, relative)
     return {**_template_defaults(), **declared}
 
 

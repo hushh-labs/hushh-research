@@ -192,6 +192,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: read
       id-token: write
     environment:
       name: uat

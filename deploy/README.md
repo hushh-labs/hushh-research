@@ -24,6 +24,17 @@ traffic, or repair CORS/runtime variables with direct `gcloud builds submit`,
 The workflow identity, provenance labels, bounded verification, and rollback
 receipts are part of the release contract.
 
+### Diagnostic CI and release compatibility entrypoints
+
+The optional `ci.cloudbuild.yaml` runs selected local CI stages on GCP. It does
+not publish governed GitHub checks or authorize release. Provide an immutable
+`_SHA` and use the canonical GitHub workflow for recovery and acceptance.
+The legacy `scripts/ops/cloudbuild_release.sh` and `release_pipeline.sh`
+entrypoints dispatch that workflow at an exact main-reachable SHA. They do not
+upload local source or perform direct Cloud Run mutations. Local reports and
+CI/migration waiver flags cannot substitute for required release gates.
+See [CI authority](../docs/reference/operations/ci.md#release-check-authority-and-local-diagnostics).
+
 ## Normal UAT dispatch
 
 After the exact landed `main` SHA passes `Main Post-Merge Smoke Gate`, dispatch

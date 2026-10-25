@@ -61,7 +61,7 @@ for requested in "${requested_names[@]}"; do
   name="$(printf '%s' "$requested" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
   [ -n "$name" ] || continue
   index=$((index + 1))
-  curl -fsSL -G \
+  curl -fsSL --connect-timeout 10 --max-time 30 -G \
     -H "Accept: application/vnd.github+json" \
     -H "Authorization: Bearer ${GITHUB_TOKEN}" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -71,28 +71,12 @@ for requested in "${requested_names[@]}"; do
     -o "$PAYLOAD_DIR/$index.json"
 done
 
-# Dev may explicitly accept a full manual branch verdict. Bind that new label
-# to the canonical Actions workflow/event and check suite; never trust its name
-# or follow a caller-controlled details_url. Other release names stay unchanged.
-for requested in "${requested_names[@]}"; do
-  name="$(printf '%s' "$requested" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  [ "$name" = "Branch Validation Gate" ] || continue
-  mkdir -p "$PAYLOAD_DIR/provenance"
-  curl -fsSL -G \
-    -H "Accept: application/vnd.github+json" \
-    -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    --data-urlencode "event=workflow_dispatch" \
-    --data-urlencode "head_sha=${TARGET_SHA}" \
-    --data-urlencode "per_page=100" \
-    "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs" \
-    -o "$PAYLOAD_DIR/provenance/branch.json"
-  break
-done
-
 python3 - "$TARGET_SHA" "$REQUIRED_BRANCH" "$REQUIRED_CHECK_NAME" "$PAYLOAD_DIR" <<'PY'
 import json
+import os
+import subprocess
 import sys
+from urllib.parse import urlencode
 from pathlib import Path
 
 sha, branch, check_name, payload_dir = sys.argv[1:]
@@ -115,38 +99,89 @@ if not matches:
         f"Available checks: {available}"
     )
 
-def verified_branch_check(check):
-    if check.get("name") != "Branch Validation Gate":
-        return True
-    if (
-        check.get("head_sha") != sha
-        or check.get("status") != "completed"
-        or check.get("app", {}).get("id") != 15368
-        or check.get("app", {}).get("slug") != "github-actions"
-    ):
+# A label from a different App or diagnostic build cannot authorize release.
+producers = {
+    "CI Status Gate": [("ci.yml", "pull_request"), ("queue-validation.yml", "merge_group")],
+    "Queue Validation": [("queue-validation.yml", "merge_group")],
+    "Branch Validation Gate": [("ci.yml", "workflow_dispatch")],
+    "Main Post-Merge Smoke Gate": [("main-post-merge-smoke.yml", "push"),
+                                   ("main-post-merge-smoke.yml", "workflow_dispatch")],
+}
+api = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}"
+cache = {}
+
+
+def request_json(path):
+    if path not in cache:
+        output = Path(payload_dir) / f"authority-{len(cache)}.json"
+        response = subprocess.run(
+            ["curl", "-fsSL", "--connect-timeout", "10", "--max-time", "30", "-H", "Accept: application/vnd.github+json",
+             "-H", f"Authorization: Bearer {os.environ['GITHUB_TOKEN']}",
+             api + path, "-o", str(output)], capture_output=True, text=True,
+        )
+        if response.returncode:
+            raise SystemExit("Refusing deploy: check authority lookup failed.")
+        try:
+            cache[path] = json.loads(output.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            raise SystemExit("Refusing deploy: malformed check authority response.")
+    return cache[path]
+
+
+def verified_check(check):
+    name = check.get("name")
+    if (check.get("head_sha") != sha or check.get("status") != "completed"
+            or check.get("conclusion") != "success"
+            or check.get("app", {}).get("id") != 15368
+            or check.get("app", {}).get("slug") != "github-actions"):
         return False
     suite = check.get("check_suite", {}).get("id")
-    if type(suite) is not int or suite <= 0:
+    if type(suite) is not int or suite <= 0 or type(check.get("id")) is not int:
         return False
-    payload = Path(payload_dir) / "provenance/branch.json"
-    # A bounded API page can refuse an old run, never authorize an unobserved
-    # one. A fresh full dispatch supplies a current receipt if the page is full.
-    runs = json.loads(payload.read_text(encoding="utf-8")).get("workflow_runs", [])
-    return any(
-        run.get("head_sha") == sha
-        and run.get("check_suite_id") == suite
-        and run.get("path") == ".github/workflows/ci.yml"
-        and run.get("event") == "workflow_dispatch"
-        and run.get("status") == "completed"
-        and run.get("conclusion") == "success"
-        for run in runs
-    )
+    candidates = []
+    for workflow, event in producers.get(name, []):
+        query = urlencode({"event": event, "head_sha": sha, "per_page": 100})
+        runs = request_json(f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs", [])
+        candidates.extend(run for run in runs if run.get("head_sha") == sha
+                      and run.get("path") == f".github/workflows/{workflow}"
+                      and run.get("event") == event and type(run.get("id")) is int)
+    if not candidates:
+        return False
+    # Select the latest canonical run across allowed producers/events. A newer
+    # failed recovery cannot be bypassed with an older green push or attempt.
+    run = max(candidates, key=lambda item: item["id"])
+    workflow = run["path"].rsplit("/", 1)[-1]
+    event = run["event"]
+    attempt = run.get("run_attempt")
+    if (run.get("check_suite_id") != suite or run.get("status") != "completed"
+            or run.get("conclusion") != "success"
+            or type(attempt) is not int or attempt <= 0
+            or workflow == "main-post-merge-smoke.yml" and run.get("head_branch") != "main"):
+        return False
+    jobs = request_json(f"/actions/runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
+    if jobs.get("total_count", 0) > len(jobs.get("jobs", [])):
+        raise SystemExit("Refusing deploy: incomplete current-attempt job inventory.")
+    for job in jobs.get("jobs", []):
+        if (job.get("name") != name or job.get("status") != "completed"
+                or job.get("conclusion") != "success"
+                or job.get("check_run_url") != api + f"/check-runs/{check['id']}"):
+            continue
+        if name == "Main Post-Merge Smoke Gate" and event == "workflow_dispatch":
+            # Old dispatches could test another checkout than the SHA
+            # receiving the check. Only the guarded producer qualifies.
+            if not any(step.get("name") == "Verify smoke source identity"
+                       and step.get("conclusion") == "success"
+                       for step in job.get("steps", [])):
+                continue
+        fresh = request_json(f"/actions/runs/{run['id']}")
+        fields = ("id", "head_sha", "path", "event", "check_suite_id", "run_attempt",
+                  "status", "conclusion", "head_branch")
+        if all(fresh.get(key) == run.get(key) for key in fields):
+            return True
+    return False
 
 
-successful = [
-    run for run in matches
-    if run.get("conclusion") == "success" and verified_branch_check(run)
-]
+successful = [run for run in matches if verified_check(run)]
 if not successful:
     conclusions = ", ".join(
         f"{run.get('name')}={run.get('conclusion') or 'unknown'}" for run in matches

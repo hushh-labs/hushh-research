@@ -295,7 +295,8 @@ def ratchet_regressions(current: dict, baseline: dict) -> list[dict]:
             current_value = item.get("value")
             previous_value = previous_group[index].get("value")
             if (
-                isinstance(current_value, int)
+                item.get("kind") != "import_initialization"
+                and isinstance(current_value, int)
                 and isinstance(previous_value, int)
                 and current_value > previous_value
             ):
@@ -380,6 +381,14 @@ def oversized():
     duplicate_current = {"findings": [{"key": "duplicate", "value": 10}, {"key": "duplicate", "value": 20}]}
     if ratchet_regressions(duplicate_current, duplicate_baseline):
         print("architecture fitness self-test failed: duplicate comparison", file=sys.stderr)
+        return 1
+    location = {"kind": "import_initialization", "key": "init", "value": 10}
+    moved = location | {"value": 20}
+    if ratchet_regressions({"findings": [moved]}, {"findings": [location]}):
+        print("architecture fitness self-test failed: location movement", file=sys.stderr)
+        return 1
+    if len(ratchet_regressions({"findings": [location, moved]}, {"findings": [location]})) != 1:
+        print("architecture fitness self-test failed: added initialization", file=sys.stderr)
         return 1
     clean = {
         "status": "ratchet-pass", "inspected_files": 1, "finding_count": 1,
