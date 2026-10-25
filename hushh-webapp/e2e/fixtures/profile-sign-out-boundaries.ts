@@ -19,9 +19,10 @@ export const AuthService = {
   signOut: async () => { currentUser = null; record("credentials-cleared"); },
 };
 export const ApiService = {
-  getAccountSessionStatus: async () => Response.json({ active: true }),
+  getAccountSessionStatus: async () => Response.json({ active: true, firebase_uid: "sign-out-fixture", owner_id: "sign-out-fixture", account_generation: 0 }),
   deleteSession: async () => { record("cookie-cleared"); },
 };
+export const clearLocalChatNotificationState = async () => record("notification-previews-cleared");
 export const deleteFCMToken = async () => {
   record("notification-cleanup-started");
   await new Promise(() => undefined);
@@ -50,3 +51,10 @@ export const appInteractionCoordinator = {
   subscribeLifecycle: () => () => undefined,
 };
 export const useOneConversationSession = { getState: () => ({ clearSession: () => undefined }) };
+
+// Web fixtures retain the current native preparation interface without native work.
+export const prepareNativeSessionPrivacyValidation = async () => undefined;
+export const nativeProfilePreparationExpected = () => false;
+export const nativeProfilePreparationRevision = () => 0;
+export const nativeSessionPreparationRevision = () => 0;
+export const subscribeNativeProfilePreparation = () => () => undefined;
