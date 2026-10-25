@@ -23,10 +23,11 @@ retains its disclosed boundary.
 not the application currently serving dev or UAT. Installed Browser and Puppy
 acceptance remain separate.**
 
-At 01:29 UTC on 25 October (24 October Pacific), both dev services served
+At 01:38 UTC on 25 October (24 October Pacific), both dev services served
 `b2ee968a59ab` through [dev run 40148134757](https://github.com/hushh-labs/hushh-research/actions/runs/40148134757).
-Both UAT services still served `217007c71544` through
-[UAT run 40134067349](https://github.com/hushh-labs/hushh-research/actions/runs/40134067349).
+A concurrent governed UAT rollout now serves the same `b2ee968a59ab` application
+through [UAT run 40149756129](https://github.com/hushh-labs/hushh-research/actions/runs/40149756129).
+This rollout does not carry the local surgical correction or change BYOC enablement.
 Read-only corporate ADC inspection confirmed `PERSONAL_AGENT_ENABLED=true` in dev
 and absent in UAT. Twelve hours of bounded request logs contained five UAT
 `/byoc/authorize/begin` responses with HTTP 503, while setup-status and suggestion
@@ -326,7 +327,7 @@ keep the control unavailable. The historical account-deletion HTTP 500 was on ol
 source and its underlying exception was not captured. No personal cloud has been
 deleted to qualify this UI.
 
-Browser startup/viewport repair is in source, but the installed Dev28 owner journey
+Browser startup/viewport repair is in source, but the final installed owner journey
 remains unqualified. Research, preview, takeover, handback, reconnect and Stop must
 pass on each exact installed image. Login, remembered sessions, selected PKM and
 Files transfers retain separate acceptance. The 30-second cold target is an
@@ -339,15 +340,23 @@ explicit lifecycle before promising a fresh start.
 
 ## Security
 
-GitHub's refreshed inventory has **three open dependency alerts**: two
-OpenTelemetry records and Zod alert #507. Seven patched alerts are closed, with
-none manually dismissed. The pinned ADK cap excludes the
-fixed version. Incoming vendor `tracestate` is ignored at the public propagator
-boundary while preserving traceparent/outbound context. This is mitigation, not
-upstream remediation. The protected worker accepts verified pending concurrency
-states without weakening exact repository/workflow/run/attempt/SHA binding. Its
-receipt cannot replace successful PR validation. Repository-secret removal is
-verified; original-token revocation remains separately unverified.
+At 01:37 UTC on 25 October, GitHub reports **15 open dependency alerts**
+(4 high, 5 moderate and 6 low): four records in the standalone mail lock,
+five each in the Python lock and requirements export, and one frontend record.
+Compatible fixes remain on this branch, so they must not be counted as resolved
+on main or on the separately deployed mail service. The dated seven-day inventory
+ending 00:05 UTC records **165 fixed alert records**, representing 103 distinct
+advisories and 81 CVEs across the repository; this is not attribution to one agent.
+The exact-candidate secret scan finds no leaks and zero open secret-scanning
+alerts. These inventories are not substitutes for deployed acceptance.
+
+The remaining constrained OpenTelemetry and Zod findings retain explicit
+mitigations. The pinned ADK cap excludes the fixed telemetry version. Incoming
+vendor `tracestate` is ignored at the public propagator boundary while preserving
+traceparent/outbound context; this is mitigation, not upstream remediation. The
+protected worker preserves exact repository/workflow/run/attempt/SHA binding and
+cannot replace successful PR validation. Repository-secret removal was verified;
+original-token revocation remains separately unverified.
 
 AG-UI's nested Zod 3 remains affected even though root Zod 4 is patched. A forced
 major override is incompatible with the current SDK contracts. No compatible
