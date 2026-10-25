@@ -20,11 +20,12 @@ export async function POST(request: NextRequest) {
     const body = (await readJsonObject(request)) as {
       userId?: string;
       scope?: string;
+      requestId?: unknown;
     } | null;
     if (!body) {
       return invalidJsonPayloadResponse();
     }
-    const { userId, scope } = body;
+    const { userId, scope, requestId } = body;
     const authHeader =
       request.headers.get("authorization") ||
       request.headers.get("Authorization");
@@ -41,11 +42,13 @@ export async function POST(request: NextRequest) {
         { status: 401 },
       );
     }
-
-    console.log(`[API] Revoking consent for scope: ${scope}`);
+    if (requestId !== undefined && (
+      typeof requestId !== "string" || !requestId.trim() || requestId.length > 128
+    )) {
+      return NextResponse.json({ error: "Invalid requestId" }, { status: 400 });
+    }
 
     const backendUrl = `${BACKEND_URL}/api/consent/revoke`;
-    console.log(`[API] Calling backend: ${backendUrl}`);
 
     const response = await fetch(backendUrl, {
       method: "POST",
@@ -53,15 +56,11 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/json",
         Authorization: authHeader,
       },
-      body: JSON.stringify({ userId, scope }),
+      body: JSON.stringify({ userId, scope, ...(requestId === undefined ? {} : { requestId }) }),
     });
 
     const responseText = await response.text();
-    console.log(`[API] Backend response status: ${response.status}`);
-    console.log(`[API] Backend response body: ${responseText}`);
-
     if (!response.ok) {
-      console.error("[API] Backend error:", responseText);
       return NextResponse.json(
         { error: responseText || "Failed to revoke consent" },
         { status: response.status },
@@ -75,10 +74,10 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ status: "revoked", raw: responseText });
     }
-  } catch (error) {
-    console.error("[API] Revoke consent error:", error);
+  } catch {
+    console.error("[API] Revoke consent failed");
     return NextResponse.json(
-      { error: `Internal server error: ${error}` },
+      { error: "Internal server error" },
       { status: 500 },
     );
   }

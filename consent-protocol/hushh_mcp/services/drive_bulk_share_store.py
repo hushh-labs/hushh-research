@@ -4010,7 +4010,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 deadline = connection.execute(
                     text("""UPDATE drive_share_requests
                     SET access_expires_at=COALESCE(access_expires_at,
-                        date_trunc('second',clock_timestamp()) + approved_access_days * INTERVAL '1 day')
+                        date_trunc('second',clock_timestamp()) + approved_access_days * INTERVAL '24 hours')
                     WHERE request_id=:request AND access_stop_requested_at IS NULL
                       AND (access_expires_at IS NULL OR access_expires_at>clock_timestamp())
                     RETURNING access_expires_at"""),
