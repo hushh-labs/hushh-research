@@ -5,6 +5,7 @@ import json
 from uuid import uuid4
 
 from db.migration_authority import _replay_sql, build_manifest_entries
+from db.private_agent_adoption import execution_sql
 from tests.standby_postgres_support import seed_primary
 
 
@@ -32,7 +33,7 @@ def apply_release_successors(conn, cp, *, retained_consumer=False):
                 ):
                     cur.execute(entry.sql)
                 cur.execute("ROLLBACK")
-            cur.execute(_replay_sql(entry))
+            cur.execute(execution_sql(entry, replay=_replay_sql))
         if retained_consumer:
             cur.execute("SELECT to_jsonb(c) FROM consumer_mcp_connections c ORDER BY connection_id")
             assert cur.fetchall() == before
@@ -202,7 +203,7 @@ def verify_retained_release_records(conn, cp):
         execute(_replay_referral_policy_v4_sql(referral))
     execute("ROLLBACK")
     for entry in build_manifest_entries(cp / "db/migrations", files):
-        execute(_replay_sql(entry))
+        execute(execution_sql(entry, replay=_replay_sql))
     after = {k: execute(*q) for k, q in queries.items()}
     assert before == after, "RETAINED_RECORD_BYTES_CHANGED: " + ",".join(
         k for k in before if before[k] != after[k]

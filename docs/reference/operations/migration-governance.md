@@ -127,14 +127,13 @@ destructive chat cleanup. Recovery is 421. Channel constraints carry
 `private-action-channel.v1/420`; a qualified 971 marker is preserved, never fabricated.
 
 Live dev also contains the consumer-memory consent guards authored on the separate
-consumer-MCP branch (938 at `253e89abe8`, 939 at `ac86743508`). Their presence must
-not justify dropping consent enforcement or changing immutable 420. The pinned
-420 replay adapter qualifies both exact functions and trigger bindings before and
-after foundation replay, admits only their two table/name pairs, and retains the
-original refusal of unknown drift. A partial or changed footprint refuses. Fresh
-schemas introduce no consumer objects or API. Observe and ledger modes are unchanged.
-The existing migration advisory lock serializes governed DDL; privileged out-of-band
-DDL must use that lock. No new early table lock reverses the established ordering.
+consumer-MCP branch (938 at `253e89abe8`, 939 at `ac86743508`). The single
+`db/private_agent_adoption.py` execution adapter qualifies exact functions and
+trigger bindings before and after immutable 420 in replay and pending-ledger mode.
+Any retained consumer footprint requires the complete pair; unknown drift refuses.
+A bounded relation lock preserves ordinary row writes while fencing trigger DDL.
+Fresh schemas introduce no consumer objects or API. Observe and already-applied
+ledger entries remain unchanged. Historical SQL and checksums remain immutable.
 
 Permanent account cleanup additionally erases retained owner-scoped consumer
 connections before ordinary OAuth/app cleanup. The shared client and neighboring

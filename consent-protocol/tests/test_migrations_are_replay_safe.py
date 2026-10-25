@@ -404,6 +404,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
     from db import migrate
     from db.account_cleanup_replay import SOURCES
     from db.migration_authority import MigrationAuthorityError, _replay_sql, build_manifest_entries
+    from db.private_agent_adoption import execution_sql
     from tests.private_agent_release_postgres_support import (
         apply_release_successors,
         verify_release_contract,
@@ -492,10 +493,11 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
         verify_release_contract(guard, cp, "dev_minimum_schema")
         verify_retained_release_records(conn, cp)
         verify_release_contract(guard, cp, "uat_integrated_schema")
-        foundation = _replay_sql(
+        foundation = execution_sql(
             build_manifest_entries(MIGRATIONS_DIR, ["420_private_agent_lifecycle_foundation.sql"])[
                 0
-            ]
+            ],
+            replay=_replay_sql,
         )
         with conn.cursor() as cur:
             # Unrelated performance indexes remain valid; unreviewed effects do not.
@@ -553,7 +555,7 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
                 0
             ]
             with pytest.raises(psycopg2.errors.RaiseException, match="successor missing"):
-                cur.execute(_replay_sql(entry))
+                cur.execute(execution_sql(entry, replay=_replay_sql))
             cur.execute("ROLLBACK")
             cur.execute(
                 "ALTER FUNCTION synthetic_pending(text) RENAME TO account_provider_cleanup_pending"
