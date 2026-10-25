@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
+from api import database_listener_lifecycle as _listener_lifecycle
 from hushh_mcp.runtime_settings import get_app_runtime_settings, pod_mode  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
@@ -32,14 +33,13 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 install_sensitive_log_filter()
+
 logger = logging.getLogger(__name__)
 _APP_RUNTIME_SETTINGS = get_app_runtime_settings()
-_STARTUP_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
-
-
-def _track_startup_background_task(task: asyncio.Task[None]) -> None:
-    _STARTUP_BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_STARTUP_BACKGROUND_TASKS.discard)
+_STARTUP_BACKGROUND_TASKS = _listener_lifecycle._STARTUP_BACKGROUND_TASKS
+_track_startup_background_task = _listener_lifecycle._track_startup_background_task
+_track_database_listener_task = _listener_lifecycle._track_database_listener_task
+shutdown_database_listeners = _listener_lifecycle.shutdown_database_listeners
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -658,18 +658,14 @@ async def startup_consent_listener():
     if pod_mode():
         logger.info("startup.consent_listener_skipped reason=pod_mode")
         return
-    import asyncio
-
     from api.consent_listener import run_consent_listener
 
-    asyncio.create_task(run_consent_listener())
+    _track_database_listener_task(asyncio.create_task(run_consent_listener()))
 
-    # The referral tab's live stream. Same shape, its own channel: one LISTEN
-    # connection per instance, pushing doorbells to whichever referrers have a
-    # stream open here.
+    # Keep the referral channel on the same worker-owned listener transport.
     from api.referral_listener import run_referral_listener
 
-    asyncio.create_task(run_referral_listener())
+    _track_database_listener_task(asyncio.create_task(run_referral_listener()))
 
 
 @app.on_event("startup")
@@ -684,11 +680,12 @@ async def startup_pod_lifecycle_listener():
     if pod_mode():
         logger.info("startup.pod_lifecycle_listener_skipped reason=pod_mode")
         return
-    import asyncio
-
     from api.pod_lifecycle_listener import run_pod_lifecycle_listener
 
-    _track_startup_background_task(asyncio.create_task(run_pod_lifecycle_listener()))
+    _track_database_listener_task(asyncio.create_task(run_pod_lifecycle_listener()))
+
+
+app.on_event("shutdown")(shutdown_database_listeners)
 
 
 @app.on_event("startup")

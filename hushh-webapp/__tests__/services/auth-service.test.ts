@@ -550,7 +550,7 @@ describe("AuthService.restoreNativeSession", () => {
       token: null,
     } as any);
     vi.mocked(FirebaseAuthentication.addListener).mockResolvedValue({
-      remove: vi.fn(),
+      remove: vi.fn().mockResolvedValue(undefined),
     } as any);
     vi.mocked(FirebaseAuthentication.confirmVerificationCode).mockResolvedValue(
       {} as any,
@@ -950,7 +950,7 @@ describe("AuthService.restoreNativeSession", () => {
         callback: (event: any) => void | Promise<void>,
       ) => {
         listeners[eventName] = callback;
-        return { remove: vi.fn() } as any;
+        return { remove: vi.fn().mockResolvedValue(undefined) } as any;
       },
     );
 
@@ -962,9 +962,9 @@ describe("AuthService.restoreNativeSession", () => {
       },
     );
 
-    for (let i = 0; i < 10 && !listeners.phoneCodeSent; i += 1) {
-      await Promise.resolve();
-    }
+    await vi.waitFor(() => {
+      expect(FirebaseAuthentication.linkWithPhoneNumber).toHaveBeenCalledTimes(1);
+    });
     expect(listeners.phoneCodeSent).toBeTypeOf("function");
     await listeners.phoneCodeSent({ verificationId: "native-verification-id" });
 

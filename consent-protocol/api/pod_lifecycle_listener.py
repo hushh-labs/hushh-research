@@ -26,6 +26,8 @@ import json
 import logging
 from typing import Dict
 
+from db import listener_connection as listener_transport
+
 logger = logging.getLogger(__name__)
 
 _QUEUE_MAXSIZE = 100
@@ -102,24 +104,29 @@ async def run_pod_lifecycle_listener() -> None:
     except Exception as exc:  # noqa: BLE001 - no pool means degrade, not crash
         logger.warning("pod_lifecycle_listener.pool_unavailable err=%s", type(exc).__name__)
         return
-    conn = None
-    try:
-        conn = await pool.acquire()
-        await conn.execute("LISTEN pod_lifecycle_new")
-        await conn.add_listener("pod_lifecycle_new", _notify_callback)
-        _listener_active = True
-        logger.info("pod_lifecycle_listener.active channel=pod_lifecycle_new")
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        logger.info("pod_lifecycle_listener.cancelled")
-    except Exception:
-        logger.exception("pod_lifecycle_listener.error")
-    finally:
-        _listener_active = False
-        if conn is not None:
-            with contextlib.suppress(Exception):
-                await conn.remove_listener("pod_lifecycle_new", _notify_callback)
-                await conn.execute("UNLISTEN pod_lifecycle_new")
-            with contextlib.suppress(Exception):
-                await pool.release(conn)
+    while True:
+        conn = None
+        try:
+            conn = await listener_transport.acquire_listener_connection(pool)
+            await conn.execute("LISTEN pod_lifecycle_new")
+            await conn.add_listener("pod_lifecycle_new", _notify_callback)
+            _listener_active = True
+            logger.info("pod_lifecycle_listener.active channel=pod_lifecycle_new")
+            while True:
+                await listener_transport.wait_for_listener_connection(conn, 3600)
+        except asyncio.CancelledError:
+            logger.info("pod_lifecycle_listener.cancelled")
+            return
+        except Exception:
+            logger.exception("pod_lifecycle_listener.error")
+        finally:
+            _listener_active = False
+            if conn is not None:
+                with contextlib.suppress(Exception):
+                    await conn.remove_listener("pod_lifecycle_new", _notify_callback)
+                    await conn.execute("UNLISTEN pod_lifecycle_new")
+                with contextlib.suppress(Exception):
+                    await listener_transport.release_listener_connection(pool, conn)
+        if not listener_transport.listener_isolation_enabled():
+            return
+        await asyncio.sleep(5)

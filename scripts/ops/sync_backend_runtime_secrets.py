@@ -295,6 +295,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
     config: dict[str, Any] = {
         "environment": args.environment,
+        "auth_db_listener_isolation_enabled": getattr(args, "auth_db_listener_isolation_enabled", "true"),
         "one_plg_export_enabled": False,
         "one_plg_activity_enabled": False,
         "one_plg_activity_all_registered": False,
@@ -487,6 +488,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--environment", required=True)
+    parser.add_argument("--auth-db-listener-isolation-enabled", default="true", choices=["true", "false"])
     parser.add_argument("--email-auth-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--app-frontend-origin", required=True)
     parser.add_argument("--db-host", required=True)

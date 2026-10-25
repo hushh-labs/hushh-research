@@ -108,10 +108,22 @@ def _retained_dev_inference_bridge(
 def retained_settings(
     existing: dict[str, Any], *, project: str, environment: str
 ) -> dict[str, Any]:
-    return {
+    retained: dict[str, Any] = {
         **_retained_referral_config(existing, project=project, environment=environment),
         **_retained_plg_config(existing, project=project, environment=environment),
         **_retained_dev_inference_bridge(
             existing, project=project, environment=environment
         ),
     }
+    key = "auth_db_listener_isolation_enabled"
+    if key in existing:
+        value = existing[key]
+        if not isinstance(value, bool) and value not in {"true", "false"}:
+            raise ValueError("Listener isolation must be an explicit boolean")
+        if (
+            existing.get("environment") != environment
+            or existing.get("google_cloud_project") != project
+        ):
+            raise ValueError("Listener isolation belongs to a different runtime")
+        retained[key] = value
+    return retained

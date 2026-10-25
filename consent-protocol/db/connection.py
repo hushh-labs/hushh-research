@@ -550,10 +550,7 @@ async def get_pool() -> asyncpg.Pool:
         database_url = _get_database_url()
         ssl_config = get_database_ssl()
         connect_timeout_seconds = _get_connect_timeout_seconds()
-        # Pool sizing is env-tunable. The previous fixed max_size=10 was easily
-        # exhausted when a few slow endpoints held connections, causing other
-        # requests to block on acquire() until they hit the connect timeout and
-        # 500'd. A larger ceiling plus a warm floor removes that cliff.
+        # Listener transport reuses the reviewed, environment-tunable pool ceiling.
         pool_min_size = _get_pool_int("DB_POOL_MIN_SIZE", 2, minimum=0)
         pool_max_size = _get_pool_int("DB_POOL_MAX_SIZE", 20, minimum=1)
         if pool_max_size < pool_min_size:
@@ -607,9 +604,12 @@ async def get_pool() -> asyncpg.Pool:
 
 async def close_pool():
     """Close the connection pool."""
+    from db.listener_connection import forget_listener_pool
+
     global _pool
     if _pool:
         await _pool.close()
+        forget_listener_pool(_pool)
         _pool = None
         logger.info("PostgreSQL connection pool closed")
 

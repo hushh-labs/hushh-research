@@ -178,3 +178,14 @@ def validate_phone_test_confirmation(owner: str, phone: str, challenge: str, cod
             },
         )
     return "uat_test_phone_claim"
+
+
+def _require_phone_verification_owner(expected_user_id: str | None, firebase_uid: str) -> None:
+    if expected_user_id is not None and expected_user_id != firebase_uid:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_VERIFICATION_ACCOUNT_CHANGED",
+                "message": "Your signed-in account changed. Start phone verification again.",
+            },
+        )

@@ -1,0 +1,5 @@
+{
+  "name": "obs_auth_allowlist_failure_count",
+  "description": "Failed or unavailable hourly protected phone allowlist verification; aggregate status only, no extracted labels.",
+  "filter": "resource.type=\"global\" AND logName=\"projects/__PROJECT_ID__/logs/obs-auth-health\" AND jsonPayload.message=\"auth.test_allowlist.health\" AND (jsonPayload.status=\"failed\" OR jsonPayload.status=\"unavailable\")"
+}

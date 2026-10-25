@@ -94,6 +94,18 @@ def plg_runtime_sync():
     return module
 
 
+@pytest.mark.feature_auth_reliability
+def test_listener_isolation_rollback_survives_the_deployment_writer(monkeypatch, plg_runtime_sync):
+    writes, target = _write_configuration(
+        monkeypatch,
+        plg_runtime_sync,
+        "uat",
+        False,
+        {"auth_db_listener_isolation_enabled": False},
+    )
+    assert json.loads(writes[target])["auth_db_listener_isolation_enabled"] is False
+
+
 @pytest.mark.parametrize(
     ("environment", "candidate", "stored", "expected"),
     [
