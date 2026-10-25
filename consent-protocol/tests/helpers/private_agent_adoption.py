@@ -190,3 +190,35 @@ LEGACY_GUARD_MUTATIONS = (
         "DROP FUNCTION public.guard_consumer_memory_consent(integer)",
     ),
 )
+
+
+# Catalog-only observations shared by the real PostgreSQL adoption rehearsals.
+def guard_catalog(connection):
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT t.oid,t.tgname,t.tgenabled,t.tgfoid,
+          pg_get_triggerdef(t.oid,true),pg_get_functiondef(p.oid),p.prosecdef,p.proconfig
+          FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+          WHERE t.tgrelid='public.consent_audit'::regclass
+          AND t.tgname LIKE 'zz_%consumer_memory%' ORDER BY t.tgname""")
+        return cursor.fetchall()
+
+
+def authorization_state(connection):
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT a.atttypid::regtype::text,a.attnotnull,
+          pg_get_expr(d.adbin,d.adrelid),a.attgenerated,a.attidentity FROM pg_attribute a
+          LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+          WHERE a.attrelid='public.byoc_setup_jobs'::regclass
+          AND a.attname='authorization_attempts' AND NOT a.attisdropped""")
+        column = cursor.fetchone()
+        cursor.execute(
+            "SELECT user_id,to_jsonb(j),ctid::text FROM public.byoc_setup_jobs j ORDER BY user_id"
+        )
+        return column, cursor.fetchall()
+
+
+def receipt_state(connection):
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT to_jsonb(r),ctid::text FROM public.consent_audit_receipts r
+          WHERE subject_id='synthetic-retained' ORDER BY id""")
+        return cursor.fetchall()

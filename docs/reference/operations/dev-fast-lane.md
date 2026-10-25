@@ -118,6 +118,7 @@ flowchart LR
 | Secret sync + runtime identity assertions | every deploy | dev cannot silently drift to wrong DB/CORS/identity |
 | Migrations + `dev_minimum_schema.json` (policy: minimum, floor = UAT schema) | every backend deploy | dev may run AHEAD of UAT's schema (train migrations) but never behind it |
 | Provenance labels + parity + semantic verification + classified rollback | every deploy | release failures block acceptance; classified service failures restore the captured revision. A verifier setup failure can block without rollback, so read back serving traffic and the terminal receipt. |
+| Account-deletion admission and activation | shared-Dev backend deployment | fence installation before migration; exact SHA/run, installed authority guards, fresh Scheduler HTTP completion and retirement of incompatible consumers before reopening deletion or issuing healthy acceptance |
 | Dev environment isolation (own project, DB, secrets) | always | nothing dev does can touch UAT or production data |
 
 ## What we deliberately did NOT add (overkill avoidance)
@@ -137,7 +138,9 @@ flowchart LR
 ## Candidate verification and compatibility
 
 The workflow definition comes from `main`; the selected application SHA must carry
-its own successful canonical CI result. Deploy helpers run from that selected SHA.
+its own successful canonical CI result. Most deploy helpers run from that selected SHA. Account-deletion admission,
+activation, boundary and Scheduler tooling are preserved from the governed workflow
+checkout and require a compatible application producer contract before migration.
 Older compatibility images therefore need the candidate probe, provenance verifier,
 Voice parity option, and protected-revision retention helper before dispatch.
 
@@ -176,7 +179,13 @@ runs independently of backend migration selection, and required reviewer
 navigation must produce a successful receipt before dev acceptance. Reviewer
 credentials are resolved in process memory, not written to the workflow environment
 file. Schema, candidate health, provenance and semantic checks remain mandatory.
-The isolated commerce preview retains its own admission and verification path.
+Shared-Dev backend releases install the account-deletion fence before migration
+replay, then require the common activation receipt before healthy acceptance. A
+failed migration leaves the fence in place; recovery must qualify the serving
+producer, catalog and workers before removing it. The PostgreSQL client is
+installed before either lifecycle or preservation work. The isolated commerce
+preview retains its own admission and verification path and does not run this
+shared-Dev activation.
 
 ### Deployment duration and independent work
 

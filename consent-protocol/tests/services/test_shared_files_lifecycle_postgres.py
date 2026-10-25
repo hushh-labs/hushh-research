@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import threading
 import uuid
 from copy import deepcopy
 from pathlib import Path
@@ -19,6 +21,69 @@ from tests.services.test_external_connector_lifecycle_postgres import (
 )
 
 local_postgres = _postgres_fixture
+
+
+@pytest.mark.feature_account_deletion
+@pytest.mark.trace_loop
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_erasure_joins_every_started_provider_delete_before_returning(monkeypatch, cancel):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.shared_files.erasure_objects import erase_objects
+
+    started, release = threading.Event(), threading.Event()
+    finished = threading.Event()
+    prefix = "shared-files/v1/synthetic/"
+    monkeypatch.setattr(bucket_admission, "observe", lambda *_: asyncio.sleep(0, result=BUCKET))
+    monkeypatch.setattr(
+        bucket_admission, "verify", lambda *_: {"noSoftDeleteHistory": True, "identity": {}}
+    )
+
+    class Store:
+        _session = None
+
+        def _object_get(self, *_):
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "items": [
+                        {"name": prefix + "fast", "generation": "1"},
+                        {"name": prefix + "slow", "generation": "2"},
+                    ]
+                },
+            )
+
+        def _authorized(self, execute):
+            return execute({})
+
+        def delete(self, _target, *, params, **_):
+            if params["generation"] == "2":
+                started.set()
+                assert release.wait(3), "synthetic provider thread was not released"
+                finished.set()
+                return SimpleNamespace(status_code=204)
+            assert started.wait(3)
+            return SimpleNamespace(status_code=403)
+
+    store = Store()
+    store._session = store
+    operation = asyncio.create_task(erase_objects(store, "synthetic-files", prefix, {}))
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        if cancel:
+            operation.cancel()
+            await asyncio.sleep(0)
+            operation.cancel()  # Repeated cancellation must retain ownership too.
+        await asyncio.sleep(0.05)
+        assert not operation.done(), "provider DELETE escaped its operation/release lease"
+        release.set()
+        with pytest.raises(asyncio.CancelledError if cancel else FilesRefused):
+            await operation
+        assert finished.is_set()
+    finally:
+        release.set()
+        await asyncio.gather(operation, return_exceptions=True)
+
 
 BUCKET = {
     "name": "synthetic-files",

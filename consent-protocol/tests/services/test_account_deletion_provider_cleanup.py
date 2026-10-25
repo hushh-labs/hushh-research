@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from contextlib import contextmanager
+import hashlib
+from contextlib import asynccontextmanager, contextmanager
 from datetime import UTC, datetime, timedelta
 from threading import Event
 from types import SimpleNamespace
@@ -569,6 +570,9 @@ async def test_staged_erasure_requires_provider_proof_before_files_and_never_rev
     ready = True
     result = await service.finalize_provider_cleanup(claim)
     assert result["account_deleted"] is True
+    assert result["details"]["provider_grant_release"] == {
+        "status": "cleanup_qualified_before_erasure"
+    }
     files.assert_awaited_once_with(claim.owner_id, backend_only=False)
     erase.assert_called_once_with(
         claim.owner_id, requested_target="both", backend_only=False, provider_cleanup=claim
@@ -669,6 +673,11 @@ async def test_staged_worker_stops_all_watches_then_revokes_a_project_account_on
     from hushh_mcp.services import account_deletion_provider_journal as journal
     from hushh_mcp.services import account_deletion_provider_worker as worker
 
+    @asynccontextmanager
+    async def admitted():
+        yield SimpleNamespace(check=AsyncMock())
+
+    monkeypatch.setattr(worker, "release_admission", admitted)
     events = []
     descriptor = {"revocationSupport": "required", "groupDigest": "a" * 64}
     inventory = {
@@ -676,13 +685,14 @@ async def test_staged_worker_stops_all_watches_then_revokes_a_project_account_on
         for ref in ("mail", "calendar")
     }
     receipt = {
+        "version": 2,
         "items": {
             ref: {
                 "watchOutcome": "pending" if ref == "mail" else "not_required",
                 "revocation": "pending",
             }
             for ref in inventory
-        }
+        },
     }
     claim = journal.ProviderCleanupClaim(
         "owner", "identity", str(uuid4()), str(uuid4()), inventory, receipt
@@ -740,6 +750,155 @@ async def test_staged_worker_stops_all_watches_then_revokes_a_project_account_on
         assert await worker.run_claim(claim)
         assert events == ["verify:mail", "verify:calendar", "stop:mail", "revoke:mail"]
         finalize.assert_awaited_once_with(claim)
+
+
+def _retained_google_fixture(monkeypatch, source):
+    from hushh_mcp.services import account_deletion_provider_credentials as credentials
+
+    client_id = "12345-abcdefghijklmnop.apps.googleusercontent.com"
+    for name in ["GOOGLE_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID"]:
+        monkeypatch.setenv(name, client_id)
+    if source == "google_provider_connections":
+        service = GoogleConnectionService(db=MagicMock())
+        decrypt = MagicMock(side_effect=AssertionError("retained token must stay unopened"))
+        monkeypatch.setattr(service, "_decrypt", decrypt)
+        monkeypatch.setattr(
+            "hushh_mcp.services.google_connection_service.get_google_connection_service",
+            lambda: service,
+        )
+    else:
+        service = GmailReceiptsService()
+        decrypt = MagicMock(side_effect=AssertionError("retained token must stay unopened"))
+        monkeypatch.setattr(service, "_decrypt_token", decrypt)
+        monkeypatch.setattr(
+            "hushh_mcp.services.gmail_receipts_service.get_gmail_receipts_service", lambda: service
+        )
+    row = {
+        "provider_subject": "123456789",
+        "google_sub": "123456789",
+        "refresh_token_ciphertext": "synthetic-unopened",
+        "refresh_token_iv": "synthetic-iv",
+    }
+    grant = credentials.CleanupGrant("mail", "owner", source, row)
+    credentials._open_grant(MagicMock(), grant)
+    decrypt.assert_not_called()
+    assert grant.refresh_token == ""
+    return grant, decrypt, row
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+@pytest.mark.parametrize("source", ["google_provider_connections", "kai_gmail_connections"])
+async def test_shared_google_authority_requires_local_confirmation_without_any_provider_effect(
+    monkeypatch, accepted, source
+):
+    from hushh_mcp.services import account_deletion_provider_credentials as credentials
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+    from hushh_mcp.services import account_deletion_provider_worker as worker
+
+    @asynccontextmanager
+    async def admitted():
+        yield SimpleNamespace(check=AsyncMock())
+
+    monkeypatch.setattr(worker, "release_admission", admitted)
+    monkeypatch.setattr(
+        credentials,
+        "_shared_google_projects",
+        lambda: frozenset({hashlib.sha256(b"12345").hexdigest()}),
+    )
+    grant, decrypt, row = _retained_google_fixture(monkeypatch, source)
+    descriptor = grant.descriptor()
+    assert descriptor["revocationSupport"] == "required"
+    assert descriptor["authorityScope"] == "retain_shared_google"
+    inventory = {"mail": {**descriptor, "revision": "b" * 64, "watchRequired": True}}
+    receipt = {
+        "version": 2,
+        "items": {"mail": {"watchOutcome": "pending", "revocation": "pending"}},
+        "localErasureAccepted": accepted,
+    }
+    claim = journal.ProviderCleanupClaim(
+        "owner", "identity", str(uuid4()), str(uuid4()), inventory, receipt
+    )
+    monkeypatch.setattr(journal, "load_grants", lambda _: {"mail": grant})
+    monkeypatch.setattr(journal, "current_receipt", lambda _: receipt)
+
+    def settle(_claim, *, reference):
+        if not accepted:
+            raise journal.ProviderCleanupNotReady("local confirmation required")
+        receipt["items"][reference]["revocation"] = "local_erasure_approved"
+
+    monkeypatch.setattr(journal, "settle_unsupported", settle)
+    ports = [AsyncMock(), AsyncMock(), AsyncMock()]
+    for name, port in zip(["verify_grant", "stop_watch", "revoke_grant"], ports, strict=True):
+        monkeypatch.setattr(credentials, name, port)
+    finalize = AsyncMock(return_value={"success": True, "account_deleted": True})
+    monkeypatch.setattr(AccountService, "finalize_provider_cleanup", finalize)
+    if accepted:
+        assert await worker.run_claim(claim)
+        finalize.assert_awaited_once_with(claim)
+    else:
+        with pytest.raises(journal.ProviderCleanupNotReady):
+            await worker.run_claim(claim)
+        finalize.assert_not_awaited()
+    for port in ports:
+        port.assert_not_awaited()
+    if accepted:
+        receipt["items"]["mail"]["revocation"] = "pending"
+        monkeypatch.setattr(credentials, "_shared_google_projects", lambda: frozenset())
+        with pytest.raises(credentials.CleanupCredentialUnavailable, match="configuration changed"):
+            await worker.run_claim(claim)
+        for port in ports:
+            port.assert_not_awaited()
+
+    monkeypatch.setattr(credentials, "_shared_google_projects", lambda: frozenset())
+    # Exclusive authority still requires the original encrypted-custody adapter.
+    with pytest.raises(AssertionError, match="retained token must stay unopened"):
+        credentials._open_grant(MagicMock(), credentials.CleanupGrant("mail", "owner", source, row))
+    decrypt.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "watch,accepted,scope,revocation,allowed",
+    [
+        ("retained_shared", True, "retain_shared_google", "local_erasure_approved", True),
+        ("pending", True, "retain_shared_google", "local_erasure_approved", False),
+        ("uncertain", True, "retain_shared_google", "local_erasure_approved", False),
+        ("retained_shared", False, "retain_shared_google", "local_erasure_approved", False),
+        ("retained_shared", True, "exclusive", "local_erasure_approved", False),
+        ("retained_shared", True, "retain_shared_google", "pending", False),
+    ],
+)
+def test_mixed_cleanup_dispatch_requires_exact_shared_watch_approval(
+    monkeypatch, watch, accepted, scope, revocation, allowed
+):
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    shared = {"authorityScope": scope, "watchRequired": True}
+    inventory = {"shared": shared, "exclusive": {"watchRequired": False}}
+    receipt = {
+        "localErasureAccepted": accepted,
+        "items": {
+            "shared": {**shared, "watchOutcome": watch, "revocation": revocation},
+            "exclusive": {"watchOutcome": "not_required", "revocation": "pending"},
+        },
+    }
+    claim = journal.ProviderCleanupClaim(
+        "owner", "identity", "cleanup", "claim", inventory, receipt
+    )
+    conn, written = MagicMock(), MagicMock()
+    conn.__enter__.return_value = conn
+    monkeypatch.setattr(journal, "get_db_connection", lambda: conn)
+    monkeypatch.setattr(journal, "_lock_claim", lambda *_args: copy.deepcopy(receipt))
+    monkeypatch.setattr(journal, "_write_receipt", written)
+    if allowed:
+        assert journal.dispatch(claim, reference="exclusive", phase="revocation")
+        written.assert_called_once()
+        settled = written.call_args.args[2]["items"]
+        assert settled["exclusive"]["revocation"] == "dispatched"
+        assert settled["shared"] == receipt["items"]["shared"]
+    else:
+        with pytest.raises(journal.ProviderCleanupNotReady, match="all watches"):
+            journal.dispatch(claim, reference="exclusive", phase="revocation")
+        written.assert_not_called()
 
 
 async def test_cleanup_cancellation_joins_replacement_capture_before_returning(monkeypatch):

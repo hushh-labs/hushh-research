@@ -147,7 +147,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { isAuthenticated, loading: authLoading, userId } = useAuth();
+  const { isAuthenticated, loading: authLoading, sessionVerificationRequired, userId } = useAuth();
   const profileReturnFocus = useRef<{ owner: string | null; target: HTMLElement } | null>(null);
   const [profilePaneResume, setProfilePaneResume] = useState<{
     ownerId: string | null;
@@ -272,7 +272,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   const hideGlobalChrome =
     !topShellMetrics.shellVisible || hidesPersistentChrome;
   const profilePaneEnabled =
-    isAuthenticated && !authLoading && !hidesPersistentChrome;
+    isAuthenticated && !authLoading && !sessionVerificationRequired && !hidesPersistentChrome;
   const profilePaneUrlState = useMemo(
     () => resolveProfilePaneUrlState(searchParams),
     [searchParams],

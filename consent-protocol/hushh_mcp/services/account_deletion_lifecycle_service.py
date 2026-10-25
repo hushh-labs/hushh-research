@@ -372,6 +372,13 @@ class AccountDeletionLifecycleService:
             raise ValueError("account cleanup principal is invalid")
         if requested_target not in {"investor", "ria", "both"}:
             raise ValueError("account cleanup target is invalid")
+        if (
+            conn.execute(
+                text("SELECT public.account_provider_cleanup_contract_version()")
+            ).scalar_one()
+            != 2
+        ):
+            raise RuntimeError("current provider cleanup contract is required")
         AccountDeletionLifecycleService._lock_user_ids_in_transaction(conn, user_ids=(owner,))
         from hushh_mcp.services.account_personal_agent_erasure import (
             assert_external_resources_absent,
@@ -435,8 +442,18 @@ class AccountDeletionLifecycleService:
             if not isinstance(metadata, dict) or set(metadata) != set(inventory):
                 raise RuntimeError("provider cleanup metadata is unavailable")
             for ref, extra in metadata.items():
-                if not isinstance(extra, dict) or set(extra) - {"groupDigest", "revocationSupport"}:
+                if not isinstance(extra, dict) or set(extra) - {
+                    "groupDigest",
+                    "revocationSupport",
+                    "authorityScope",
+                }:
                     raise ValueError("provider cleanup metadata is invalid")
+                if "authorityScope" in extra and (
+                    extra["authorityScope"] != "retain_shared_google"
+                    or extra.get("revocationSupport") != "required"
+                    or "groupDigest" not in extra
+                ):
+                    raise ValueError("provider cleanup authority is invalid")
                 if extra.get("revocationSupport") not in {"required", "unsupported", "unverified"}:
                     raise ValueError("provider cleanup support is invalid")
                 if "groupDigest" in extra and not re.fullmatch(
@@ -455,7 +472,7 @@ class AccountDeletionLifecycleService:
             }
         cleanup_id = str(uuid4())
         receipt = {
-            "version": 1,
+            "version": 2,
             "cleanupId": cleanup_id,
             "ownerHash": params["user_id_hash"],
             "inventorySha256": inventory_row["inventory_sha256"],

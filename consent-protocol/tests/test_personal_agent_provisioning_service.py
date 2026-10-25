@@ -95,6 +95,7 @@ def _env(monkeypatch):
     monkeypatch.setenv("APP_SIGNING_KEY", "test_secret_key_for_ci_only_32chars_min")
     monkeypatch.setenv("VAULT_DATA_KEY", "0" * 64)
     monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
     get_core_security_settings.cache_clear()
     yield
     get_core_security_settings.cache_clear()
@@ -118,6 +119,58 @@ async def test_disabled_flag_refuses(monkeypatch):
             pod_public_key_b64=pod.public_key_b64,
             pod_key_id=pod.key_id,
         )
+
+
+@pytest.mark.feature_account_deletion
+@pytest.mark.trace_loop
+@pytest.mark.parametrize(
+    "enabled,row,reserved",
+    [
+        (None, None, None),
+        ("0", None, None),
+        ("1", {"deployment_target": "gcp"}, None),
+        ("1", {"backend": "gcp"}, None),
+        ("1", {"deployment_target": "user_gcp"}, {"deployment_target": "gcp"}),
+    ],
+)
+async def test_teardown_refuses_before_reservation_or_any_destructive_phase(
+    monkeypatch, enabled, row, reserved
+):
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
+
+    if enabled is None:
+        monkeypatch.delenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", enabled)
+    service = _svc()
+    service._registry.rows[_UID] = row
+    service._registry.reserve_erasure = AsyncMock(
+        return_value={"ownerId": _UID, "registrySnapshot": reserved}
+    )
+    phases = [
+        "_fence_reserved_erasure",
+        "_erase_reserved_memory",
+        "_erase_reserved_compute",
+        "_revoke_reserved_runtime_writer",
+        "_erase_reserved_bucket",
+        "_erase_reserved_kms_material",
+        "_erase_reserved_bootstrap_grants",
+    ]
+    for name in phases:
+        monkeypatch.setattr(service, name, AsyncMock())
+    monkeypatch.setattr(
+        AccountService,
+        "assert_personal_agent_external_resources_absent",
+        Mock(side_effect=PersonalAgentDeprovisioningRequiredError()),
+    )
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await service.deprovision(user_id=_UID)
+    assert service._registry.reserve_erasure.await_count == (1 if reserved is not None else 0)
+    for name in phases:
+        getattr(service, name).assert_not_awaited()
 
 
 async def test_tombstone_rejection_prevents_provider_and_grant_side_effects():
