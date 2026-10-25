@@ -47,6 +47,9 @@ export function commerceReadinessCopy(readiness?: CommerceReadiness): string {
 }
 
 const ACTION_ERRORS: Record<string, string> = {
+  scope_unavailable: "This request's information changed. Ask them to send a new request.",
+  recipient_key_changed: "This request's recipient changed. Ask them to send a new request.",
+  recipient_or_scope_unavailable: "This request is no longer available. Ask them to send a new request.",
   ...Object.fromEntries(PLATFORM_REASONS.map(code => [code, "Paid sharing is unavailable. Review Payments and earnings; free sharing does not require Stripe."])),
   ...Object.fromEntries(SELLER_REASONS.map(code => [code, "Review information-access payout setup in Payments and earnings before continuing with paid sharing."])),
   provider_sandbox_reviewer_required: "Paid sharing is limited to the approved Sandbox reviewers. Free sharing still requires your approval.",

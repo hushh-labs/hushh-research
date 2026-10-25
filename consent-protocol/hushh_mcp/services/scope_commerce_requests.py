@@ -57,46 +57,18 @@ async def authoritative_scope_handle(
     *,
     connection: Any = None,
 ) -> str:
-    """Use the PKM's authored handle; deterministic handles are only a fallback.
-
-    Admission reads use their existing transaction connection so a handle change
-    cannot race export publication. Discovery remains owned by ScopeGenerator.
-    """
+    """Resolve the exact eligible scope through canonical discovery on caller custody."""
     if not machine_scope.startswith("attr.") or not is_scope_requestable_by_others(machine_scope):
         raise CommerceRequestError("scope_unavailable")
-    if connection is None:
-        entries = await get_scope_generator().get_available_scope_entries(owner_user_id)
-        entry = next((item for item in entries if item.get("scope") == machine_scope), None)
-        if entry is None or entry.get("materialization_state") == "empty":
-            raise CommerceRequestError("scope_unavailable")
-        return str(
-            entry.get("registry_handle")
-            or scope_handle_for_machine_scope(owner_user_id, machine_scope)
-        )
-    parts = machine_scope.split(".", 2)
-    if len(parts) != 3:
-        raise CommerceRequestError("scope_unavailable")
-    domain, path = parts[1], parts[2].removesuffix(".*")
-    handle = await connection.fetchval(
-        """SELECT scope_handle FROM pkm_manifest_paths
-           WHERE user_id=$1 AND domain=$2 AND json_path=$3
-             AND exposure_eligibility IS DISTINCT FROM false
-             AND NULLIF(scope_handle,'') IS NOT NULL LIMIT 1""",
-        owner_user_id,
-        domain,
-        path,
+    entries = await get_scope_generator().get_available_scope_entries(
+        owner_user_id, connection=connection
     )
-    if not handle and path != "*":
-        handle = await connection.fetchval(
-            """SELECT scope_handle FROM pkm_scope_registry
-               WHERE user_id=$1 AND domain=$2
-                 AND summary_projection->>'top_level_scope_path'=$3
-                 AND NULLIF(scope_handle,'') IS NOT NULL LIMIT 1""",
-            owner_user_id,
-            domain,
-            path.split(".", 1)[0],
-        )
-    return str(handle or scope_handle_for_machine_scope(owner_user_id, machine_scope))
+    entry = next((item for item in entries if item.get("scope") == machine_scope), None)
+    if entry is None or entry.get("materialization_state") == "empty":
+        raise CommerceRequestError("scope_unavailable")
+    return str(
+        entry.get("registry_handle") or scope_handle_for_machine_scope(owner_user_id, machine_scope)
+    )
 
 
 async def resolve_commerce_request(
@@ -248,7 +220,10 @@ def _binding(
         or key["connector_wrapping_alg"] != "X25519-AES256-GCM"
     ):
         raise CommerceRequestError("recipient_or_scope_unavailable")
-    fingerprint = connector_key_fingerprint(str(key["connector_public_key"]))
+    try:
+        fingerprint = connector_key_fingerprint(str(key["connector_public_key"]))
+    except ValueError:
+        raise CommerceRequestError("recipient_or_scope_unavailable") from None
     if metadata.get("scope_handle") != handle:
         raise CommerceRequestError("scope_unavailable")
     if metadata.get("recipient_key_fingerprint") != fingerprint:

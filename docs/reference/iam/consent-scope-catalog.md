@@ -62,6 +62,15 @@ state is reconciled.
 
 ## Display Metadata Contract
 
+Request creation and approval resolve each exact scope through the same canonical
+catalog, including wildcard versus leaf handle provenance, visibility and
+materialization. Commerce approval uses the caller's existing transaction and
+locks; it must not maintain a second SQL interpretation or accept either of two
+different handles. This check applies to free requests as well as paid requests.
+A changed scope or recipient requires a renewed request; failure never authorizes
+an export. Chat and Feed preserve the same authored recovery message while hiding
+raw provider and database errors.
+
 Consent UIs and MCP discovery surfaces should not hand-author labels for dynamic scopes.
 Scope presentation resolves from:
 

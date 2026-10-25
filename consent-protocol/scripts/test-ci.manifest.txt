@@ -192,6 +192,9 @@ tests/test_scope_commerce_delivery_contracts_postgres.py
 tests/test_scope_commerce_lineage_contracts_postgres.py
 tests/test_scope_commerce_receipt_contracts_postgres.py
 tests/test_scope_commerce_work.py
+# Canonical discovery/approval parity and private-scope refusal (no provider calls).
+tests/test_scope_generator_available_entries.py
+tests/test_scope_catalog_self_corrects_stale_rows.py
 tests/test_marketplace_consent_delivery.py
 tests/test_marketplace_earnings_accrual.py
 tests/test_encrypted_blob_bounds.py
