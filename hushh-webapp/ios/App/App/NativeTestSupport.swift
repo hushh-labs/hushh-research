@@ -833,6 +833,8 @@ final class NativeVaultLayoutProbe {
             payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
             payload["regionRefusal"] = (webView.superview as? NativePresentationContainer)?.lastRegionRefusal ?? 0
             payload["baseEditorFocused"] = (webView.superview as? NativePresentationContainer)?.baseEditorFocused ?? false
+            payload["nativeBaseConcealed"] = (webView.superview as? NativePresentationContainer)?.preparationBaseIsConcealed ?? false
+            payload["nativeIsolation"] = (webView.superview as? NativePresentationContainer)?.interactionIsolated ?? false
             if let container = webView.superview as? NativePresentationContainer,
                let frame = container.lastRejectedInitialFrame {
                 for (key, value) in [("initialTopDelta", frame.minY - container.bounds.minY),
