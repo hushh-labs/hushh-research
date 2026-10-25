@@ -9,7 +9,6 @@ and names use the existing Drive authenticated cipher, never the owner's key.
 from __future__ import annotations
 
 import base64
-import hmac
 import json
 import math
 import random
@@ -19,6 +18,13 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.drive_financial_packet_search_limits import (
+    commit_result_batch,
+    financial_discovery_bound,
+    mark_financial_discovery,
+    owned_result_page,
+    result_cursor_after,
+)
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import (
     LEGACY_REQUEST_POLICY,
@@ -1114,37 +1120,19 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         signature = self.search_cipher.digest("owner-search-result-cursor", [user, identity, after])
         return base64.urlsafe_b64encode(f"{after}:{signature}".encode()).decode()
 
-    def _after(self, user, identity, cursor):
-        if cursor is None:
-            return 0
-        try:
-            if not isinstance(cursor, str) or len(cursor) > 1024:
-                raise ValueError()
-            value, signature = (
-                base64.b64decode(cursor, altchars=b"-_", validate=True).decode().split(":")
-            )
-            after = int(value)
-            if not 0 <= after <= MAX_RESULTS or not hmac.compare_digest(
-                signature,
-                self.search_cipher.digest("owner-search-result-cursor", [user, identity, after]),
-            ):
-                raise ValueError()
-            return after
-        except (ValueError, UnicodeError):
-            raise DriveReadError("invalid_argument") from None
+    def _after(self, user, identity, cursor, *, connection=None):
+        return result_cursor_after(
+            self, user, identity, cursor, connection=connection, ordinary_limit=MAX_RESULTS
+        )
 
     async def results(self, *, user_id, job_id, cursor=None, limit=25, request_id=None):
         identity = _identity(job_id)
         request_identity = _identity(request_id) if request_id is not None else None
         if type(limit) is not int or not 1 <= limit <= 25:
             raise DriveReadError("invalid_argument")
-        after = self._after(user_id, identity, cursor)
 
         def operation(connection):
-            current = self._access(connection, user_id, read_only=True)
-            row = self._owned(connection, user_id, identity)
-            if row["connection_generation"] != current["connection_generation"]:
-                raise DriveReadError("connection_changed")
+            row, after = owned_result_page(self, connection, user_id, identity, cursor)
             manual = None
             if request_identity is not None:
                 request = self._row(
@@ -1530,7 +1518,15 @@ class DriveOwnerSearchStore(DriveLivePreferences):
         return row
 
     async def require_current(self, job):
-        await self._transaction(lambda connection: self._current(connection, job))
+        def operation(connection):
+            row = self._current(connection, job)
+            mark_financial_discovery(
+                job,
+                financial_discovery_bound(self, connection, row, ordinary_limit=MAX_RESULTS)
+                > MAX_RESULTS,
+            )
+
+        await self._transaction(operation)
 
     def _retain_latest_candidates(self, connection, job, selection):
         """Keep the latest N encrypted candidates under the current job lock.
@@ -1663,56 +1659,17 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             unshareable = row.get("unshareable_count", 0)
             limited = False
             invalid_ranking = False
-            if len(files) > 100 and count + len(files) <= MAX_RESULTS:
-                # One membership query and one batch insert replace up to 2000
-                # SQL round trips on a 1000-row V1 page. Keep the existing
-                # per-row boundary path when reaching the storage ceiling,
-                # where latest-N compaction can change membership mid-page.
-                digested = [
-                    (
-                        item,
-                        self.search_cipher.digest("owner-search-file", [job["job_id"], item["id"]]),
-                    )
-                    for item in files
-                ]
-                existing = set(
-                    connection.execute(
-                        text("""SELECT file_digest FROM drive_owner_search_results
-                        WHERE job_id=:job AND file_digest = ANY(CAST(:digests AS text[]))"""),
-                        {"job": job["job_id"], "digests": list({d for _, d in digested})},
-                    ).scalars()
+            result_limit = financial_discovery_bound(
+                self, connection, row, checkpoint=saved_checkpoint, ordinary_limit=MAX_RESULTS
+            )
+            financial = result_limit > MAX_RESULTS
+            committed_checkpoint = checkpoint
+            if financial or len(files) > 100 and count + len(files) <= result_limit:
+                count, unshareable, limited = commit_result_batch(
+                    self, connection, job, checkpoint, files, count, unshareable, result_limit
                 )
-                pending = []
-                for item, digest in digested:
-                    if digest in existing:
-                        if checkpoint.get("coverage_manifest"):
-                            counts = checkpoint.setdefault("coverage_counts", {})
-                            counts["deduplicatedCount"] = counts.get("deduplicatedCount", 0) + 1
-                        continue
-                    existing.add(digest)
-                    count += 1
-                    unshareable += int(item.get("shareable") is False)
-                    pending.append(
-                        {
-                            "job": job["job_id"],
-                            "user": job["user_id"],
-                            "position": count,
-                            "digest": digest,
-                            "envelope": self._seal(
-                                item,
-                                job["user_id"],
-                                f"{job['job_id']}:{count}",
-                                "owner-search-result",
-                            ),
-                        }
-                    )
-                if pending:
-                    connection.execute(
-                        text("""INSERT INTO drive_owner_search_results
-                        (job_id,user_id,position,file_digest,metadata_envelope)
-                        VALUES(:job,:user,:position,:digest,CAST(:envelope AS jsonb))"""),
-                        pending,
-                    )
+                if limited:
+                    committed_checkpoint = saved_checkpoint
             else:
                 for item in files:
                     digest = self.search_cipher.digest(
@@ -1727,8 +1684,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                             counts = checkpoint.setdefault("coverage_counts", {})
                             counts["deduplicatedCount"] = counts.get("deduplicatedCount", 0) + 1
                         continue
-                    if count == MAX_RESULTS:
-                        if selection is None or selection[0] >= MAX_RESULTS:
+                    if count == result_limit:
+                        if selection is None or selection[0] >= result_limit:
                             limited = True
                             break
                         retained = self._retain_latest_candidates(connection, job, selection)
@@ -1758,7 +1715,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     )
             if discovery_delivery(saved_checkpoint):
                 checkpoint.setdefault("coverage_counts", {})["uniqueCandidateCount"] = count
-            limited = limited or selection is None and count == MAX_RESULTS and not done
+            limited = limited or selection is None and count == result_limit and not done
             is_incomplete = incomplete or row["incomplete_search"] or limited
             if selection is not None:
                 checkpoint["request_results_finalized"] = False
@@ -1799,7 +1756,10 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     if limited
                     else None,
                     "envelope": self._seal(
-                        checkpoint, job["user_id"], job["job_id"], "owner-search-checkpoint"
+                        committed_checkpoint,
+                        job["user_id"],
+                        job["job_id"],
+                        "owner-search-checkpoint",
                     ),
                 },
             )

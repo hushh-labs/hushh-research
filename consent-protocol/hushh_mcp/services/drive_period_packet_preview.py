@@ -144,7 +144,7 @@ def preview_summary(store, row):
         "revision": row["revision"],
         "matched": saved.get("matched"),
         "complete": complete,
-        "stale": bool(pending and saved),
+        "stale": bool(saved and (pending or row.get("error_code") or saved.get("errorCode"))),
         "updatedAt": saved.get("updatedAt"),
         "errorCode": row.get("error_code") or saved.get("errorCode"),
         **({"tagging": build["tagging"]} if build.get("tagging") else {}),
@@ -279,10 +279,14 @@ async def read_preview(store, *, user_id, packet_id, cursor=None):
             if search_id
             else None
         )
-        if search and not summary["stale"]:
+        if search and (
+            not summary["stale"]
+            or not build.get("refresh_pending")
+            and build.get("preview", {}).get("job_id") == str(search["job_id"])
+        ):
             checkpoint = searches._checkpoint(search)
             store.validate_origin(row, checkpoint)
-            after = searches._after(user_id, search_id, cursor)
+            after = searches._after(user_id, search_id, cursor, connection=connection)
             items = list(
                 connection.execute(
                     text("""SELECT position,metadata_envelope FROM

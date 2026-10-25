@@ -97,7 +97,10 @@ def _project(row, viewer, purchases, relationship, processing_ready):
         "availability": "ready"
         if ready
         else "unavailable"
-        if frozen or not processing_ready
+        if frozen
+        or not processing_ready
+        or row["preview_complete"]
+        and (row["preview_document_count"] or 0) > 120
         else "preparing",
         "viewerAction": action,
     }

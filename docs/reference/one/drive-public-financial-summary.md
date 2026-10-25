@@ -55,3 +55,22 @@ changes; it does not assert current public visibility. This management read retu
 no files, opens no encrypted records and starts no preparation. It uses the existing
 owner revision-CAS withdrawal PUT. Enabling still requires valid current OAuth and
 version/generation authority.
+## Large owner previews
+
+Financial owner discovery retains every saved original across the generic search's
+former 10,000-result boundary. Custom searches and bulk sharing retain their
+existing limits; the frozen sale contract still admits at most 120 sources.
+An owner preview count is therefore not a promise that those matches are
+verified financial documents or available for purchase.
+
+Migration 422 expands only financial provider-discovery storage, with database
+guards preserving ordinary search limits. A legacy capped financial preview is
+replayed once against its identical frozen queries, in the same job, with stable
+positions and file-digest deduplication. This recovers a potentially unsaved page
+tail without deleting earlier results. Current authorization and processing
+authority are revalidated before recovery. The encrypted checkpoint records the
+recovery; existing per-slice and checkpoint bounds remain in force.
+
+Application rollback can leave these compatible storage guards installed. The
+SQL rollback refuses to shrink capacity while larger retained previews exist;
+never delete originals or alter owner preferences to force a rollback.

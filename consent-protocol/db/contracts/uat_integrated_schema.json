@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 417,
+  "expected_migration_version": 422,
   "migration_version_policy": "exact",
   "required_functions": [
     "activate_reserved_wallet_cards",
@@ -37,6 +37,7 @@
     "feed_from_bulk_share_outcome",
     "get_pkm_domain_snapshot_v1",
     "get_user_pkm_metadata",
+    "guard_drive_owner_search_capacity",
     "guard_direct_message_attachment_write",
     "guard_direct_message_block_write",
     "guard_direct_message_conversation_write",
@@ -61,6 +62,7 @@
     "pkm_spend_credits",
     "populate_feed_counterpart_identity",
     "preserve_active_location_rating_visit",
+    "preserve_financial_discovery_capacity",
     "preserve_drive_owner_delivery_basis",
     "preserve_drive_request_owner_payout",
     "project_agent_outcome_feed",
@@ -3992,5 +3994,5 @@
       "request_id"
     ]
   },
-  "expected_schema_head": 417
+  "expected_schema_head": 422
 }

@@ -18,6 +18,11 @@ from hushh_mcp.services.drive_request_semantic_plan import semantic_plan_digest
 
 
 async def create_search_job(search_store, job, plan, binding):
+    from hushh_mcp.services.drive_period_packet_search_recovery import recover_financial_search
+
+    recovered = await recover_financial_search(search_store, job)
+    if recovered is not None:
+        return recovered
     purpose = {
         "purpose": CATEGORY_PURPOSES[job["category"]],
         "periodStart": job["period_start"].isoformat(),
@@ -45,7 +50,8 @@ async def create_search_job(search_store, job, plan, binding):
         request={"query": purpose["purpose"], "timezone": job["period_timezone"]},
         confirmed=True,
         period_packet_id=str(job["packet_id"]),
-        replace_terminal_request=True,
+        # Financial previews retain saved originals through failure/recovery.
+        replace_terminal_request=job["category"] != "financial",
         checkpoint={
             "request": {"query": purpose["purpose"], "timezone": job["period_timezone"]},
             "period_packet_origin": {
@@ -121,13 +127,22 @@ async def finish_search(store, job, build, state, *, logger):
             timezone=job["period_timezone"],
         )
         # A scan begun while the period was open is a preview, never the final sale.
-        if period.closed(datetime.now(UTC)) and period.closed(
-            datetime.fromisoformat(state["createdAt"])
+        if (
+            (job["category"] != "financial" or state["matched"] <= 120)
+            and period.closed(datetime.now(UTC))
+            and period.closed(datetime.fromisoformat(state["createdAt"]))
         ):
             job["build"] = build
             await store.freeze(job, search_job_id=state["jobId"])
         else:
-            await store.save_build(job, build, preview_complete=True)
+            await store.save_build(
+                job,
+                build,
+                preview_complete=True,
+                final_owner_preview=job["category"] == "financial"
+                and state["matched"] > 120
+                and period.closed(datetime.now(UTC)),
+            )
         logger.info("period_packet.search outcome=completed matched=%d", state["matched"])
         return "completed"
     await store.save_build(
