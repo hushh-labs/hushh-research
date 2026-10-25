@@ -442,7 +442,7 @@ remain placeholders; native/provider strings have separate owners.
 | Phone status | `No phone number yet`; `Phone number temporarily unavailable`; `Checking phone number…`; blocked `Try again` / `Cancel`; linked `Continue`. |
 | Native phone | `Save phone number`; `Resend code`; code footer `Back`, number footer `Cancel`. |
 | Reset | `Reset account?` / `Clears saved details and setup progress. Your sign-in and vault stay.` / `Cancel` / `Reset account`. |
-| Delete | `Delete account?` / `Deletes your account, vault, memory, chats, and connections. This can’t be undone.` / `Cancel` / `Delete account`. |
+| Delete | `Delete account?` / `Deletes your account, vault, memory, chats, and connections.` / `Cancel` / `Delete account`. |
 | Lifecycle unlock | `Unlock to delete` / `This permanently removes encrypted records.`; `Unlock to reset` / `Saved details reset. Account and vault stay.`; `Unlock vault` / `Unlock to continue.` |
 | Methods | `Create your vault` / `Secure saved details.`; `Loading vault methods...`; `Unlock vault` / `Change methods or password.`; `Add passkey`, `Add another passkey`, or capability-specific biometric label. |
 | Wrapper detail | `Website` when RP id exists; `Use as default`; confirmation `Remove passkey?` / `Cancel` / `Remove passkey`. Password/Browser passkey/Device passkey/device label are derived locally. |
