@@ -8,6 +8,12 @@ private final class ZeroSafeAreaView: UIView {
     override var safeAreaInsets: UIEdgeInsets { .zero }
 }
 
+@available(iOS 16.0, *)
+@MainActor private final class EditorMenuDismissalProbe: UIEditMenuInteraction {
+    private(set) var dismissals = 0
+    override func dismissMenu() { dismissals += 1 }
+}
+
 final class NativeSupportTests: XCTestCase {
     @MainActor
     func testFullWindowWebViewPublishesStatusBarClearance() throws {
@@ -468,6 +474,20 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(field.text, ""); XCTAssertEqual(model.draft, .empty); XCTAssertEqual(model.projection.draft, .empty)
         XCTAssertNil(model.projection.error); XCTAssertNil(model.pending); XCTAssertNil(model.edit); XCTAssertNil(model.choose); XCTAssertNil(model.finalEdit)
         XCTAssertFalse(model.update(state(3, 1)))
+        if #available(iOS 16.0, *) {
+            let retiring = NativeRuntimeModel(state(1, 0)), target = UITextField()
+            let menu = EditorMenuDismissalProbe(delegate: nil)
+            target.addInteraction(menu); target.text = "synthetic-private-text"
+            retiring.register(target, name: "credential"); retiring.editMenuPresented(target)
+            retiring.clear()
+            var finished = false
+            retiring.dismissEditorMenus { finished = true }
+            XCTAssertEqual(target.text, "", "Scrub before requesting popup retirement")
+            XCTAssertEqual(menu.dismissals, 1, "Cleared registries must not lose the active menu target")
+            XCTAssertFalse(finished, "A dismissal request is not its completion")
+            retiring.editMenuDismissed(target)
+            XCTAssertTrue(finished)
+        }
     }
 
     @MainActor

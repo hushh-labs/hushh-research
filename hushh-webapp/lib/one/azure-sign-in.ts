@@ -53,8 +53,11 @@ const POPUP_HEIGHT = 720;
 const popupOwners = new WeakMap<Window, symbol>();
 
 /** A reused named popup belongs to its newest initiating action. */
-export function captureSignInPopupOwner(popup: Window | null): () => boolean {
+export function captureSignInPopupOwner(popup: Window | null, admitUnowned = false): () => boolean {
   if (!popup) return () => true;
+  // Existing authored approval callers may supply their own freshly opened
+  // window. Admit it once; never steal a registered named popup from its owner.
+  if (admitUnowned && !popupOwners.has(popup)) popupOwners.set(popup, Symbol());
   const owner = popupOwners.get(popup);
   return () => owner !== undefined && popupOwners.get(popup) === owner;
 }

@@ -44,8 +44,10 @@ export function useNativePayments(enabled: boolean, native: boolean, owner: stri
   type Field = { id: object; visit: typeof visit; scene: NativePaymentsScene; value: string; baseline: string; revision: number };
   const input = useRef<Field | null>(null);
   const [fieldState, setFieldState] = useState<Field | null>(null);
+  const fieldId = fieldState?.visit === visit ? fieldState.id : undefined;
+  const fieldCurrent = useCallback(() => current() && fieldId !== undefined && input.current?.id === fieldId, [current, fieldId]);
   useLayoutEffect(() => { input.current = fieldState?.visit === visit ? fieldState : null; }, [fieldState, visit]);
-  useLayoutEffect(() => { visit.activate(); setAdmittedVisit(visit); return () => { visit.retire(); if (input.current?.visit === visit) input.current = null; }; }, [visit]);
+  useLayoutEffect(() => { visit.activate(); setAdmittedVisit(visit); setFieldState(null); return () => { visit.retire(); if (input.current?.visit === visit) input.current = null; }; }, [visit]);
   const change = (patch: Partial<Omit<typeof local, "visit">>) => { if (current()) setStored({ ...local, ...patch }); };
   const history = useScopeCommerceActivity(enabled && native && local.panel === "history");
   const rows = new Map<string, () => Promise<void>>();
@@ -163,9 +165,9 @@ export function useNativePayments(enabled: boolean, native: boolean, owner: stri
   function effectivePage(length: number) { return Math.min(local.page, Math.max(0, Math.ceil(length / 30) - 1)); }
   function pageControls(length: number) { const page = effectivePage(length); return [...(page > 0 ? [action("commerce-page-previous", "Previous", () => change({ page: page - 1 }))] : []),
     ...((page + 1) * 30 < length ? [action("commerce-page-next", "More", () => change({ page: page + 1 }))] : [])]; }
-  const closeEditor = (restore: boolean) => {
+  const closeEditor = (restore: boolean, expectedId?: object) => {
     const field = input.current;
-    if (!current() || busy || !field || field.visit !== visit) return;
+    if (!current() || busy || !field || field.visit !== visit || expectedId !== undefined && field.id !== expectedId) return;
     if (!restore) { if (field.scene === "payment-funding") commerce.changeAmount(field.value); else commerce.changeCountry(field.value); }
     input.current = null; setFieldState(null); change({ form: null });
   };
@@ -197,7 +199,7 @@ export function useNativePayments(enabled: boolean, native: boolean, owner: stri
     ancestor: (choice: { rowId?: string }) => { if (busy) return false; if (choice.rowId === "payouts") return reset(); return document.ancestor(choice); },
     formScene: local.form,
     editor: (destinationId: string, onFallback: () => void) => field && local.form ? <NativePaymentsEditor owner={owner} destinationId={destinationId} scene={local.form}
-      onClose={() => closeEditor(true)} onSaved={() => closeEditor(false)} onFallback={onFallback} model={{ current,
+      onClose={() => closeEditor(true, field.id)} onSaved={() => closeEditor(false, field.id)} onFallback={onFallback} model={{ current: fieldCurrent,
         draft: { value: field.value }, inputRevision: () => input.current?.id === field.id ? input.current.revision : -1, mutationPending: () => busy, busy, canSave: validValue(field), error: null,
         changeDraft: (draft, expected) => {
           const latest = input.current;

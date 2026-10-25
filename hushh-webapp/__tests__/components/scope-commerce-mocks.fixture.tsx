@@ -1,3 +1,4 @@
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { vi } from "vitest";
 export const readiness = () => ({ schema_version: 1 as const, enabled: true, free: { requires_payment_provider: false as const, requires_owner_approval: true as const, tariff_controls_available: true },
   platform: { status: "ready" as const, reason_code: null, verification_scope: "configured_and_persisted" as const }, seller: { status: "not_onboarded" as const, reason_code: "seller_onboarding_required" as const },
@@ -44,3 +45,13 @@ vi.mock("@/components/app-ui/settings-ui", () => ({ SettingsGroup: ({ title, chi
 
 export { mocks };
 
+
+export function resetCommerceAccountFixture() {
+  vi.resetAllMocks();
+  publishValidatedAuthSessionOwner("owner");
+  mocks.user = { uid: "owner", getIdToken: vi.fn(async () => "owner-token") };
+  mocks.pathname = "/one/profile/payouts"; mocks.search = ""; mocks.vaultKey = "memory-key";
+  mocks.account.mockResolvedValue(balanceAccount());
+  mocks.readiness.mockResolvedValue(readiness());
+  mocks.sandboxVerified.mockRejectedValue(new Error("unverified"));
+}

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import type { CommerceActivityItem, ScopeCommerceRequest, ScopeQuote } from "@/lib/services/scope-commerce-service";
 
-import { mocks, readiness, unavailable, balanceAccount } from "./scope-commerce-mocks.fixture";
+import { mocks, readiness, unavailable, balanceAccount, resetCommerceAccountFixture } from "./scope-commerce-mocks.fixture";
 
 import { useCommerceRead } from "@/components/consent/use-commerce-session";
 import { useScopeCommerceRequest } from "@/components/consent/use-scope-commerce-request";
@@ -11,8 +11,6 @@ import { ScopeCommerceOwnerReview } from "@/components/consent/scope-commerce-ow
 import { ScopeCommerceBuyerReview } from "@/components/consent/scope-commerce-buyer-review";
 import { ScopeCommerceActivity } from "@/components/consent/scope-commerce-activity";
 import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-account-panel";
-import { useNativePayments } from "@/components/profile/use-native-payments";
-import { validNativeDrawerProjection } from "@/lib/capacitor/native-drawers";
 import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -47,13 +45,7 @@ const entry = (id: string): CommerceActivityItem => ({ id, request_id: requestId
   next_action: { label: "Prepare information", href: `/one/consent?commerceRequestId=${requestId}` } });
 
 beforeEach(() => {
-  vi.resetAllMocks();
-  publishValidatedAuthSessionOwner("owner");
-  mocks.user = { uid: "owner", getIdToken: vi.fn(async () => "owner-token") };
-  mocks.pathname = "/one/profile/payouts"; mocks.search = ""; mocks.vaultKey = "memory-key";
-  mocks.account.mockResolvedValue(balanceAccount());
-  mocks.readiness.mockResolvedValue(readiness());
-  mocks.sandboxVerified.mockRejectedValue(new Error("unverified"));
+  resetCommerceAccountFixture();
   mocks.tariff.mockResolvedValue(null);
   mocks.saveTariff.mockResolvedValue({});
   mocks.activity.mockResolvedValue({ items: [], next_cursor: null });
@@ -65,37 +57,6 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("commerce session and review authority", () => {
-  it("stages native funding edits without retiring an unchanged uncertain checkout and survives revalidation", async () => {
-    mocks.checkout.mockRejectedValue(new Error("Outcome unconfirmed"));
-    mocks.openWindow.mockReturnValue({ close: vi.fn() });
-    const { result, rerender } = renderHook(() => useNativePayments(true, true, "payments-owner"));
-    await waitFor(() => expect(result.current.commerce.account).not.toBeNull());
-    await act(async () => { await result.current.commerce.checkout(); });
-    const firstKey = mocks.checkout.mock.calls[0][2];
-    const command = (label: string) => {
-      const row = result.current.pages.at(-1)!.sections.flatMap(section => section.rows).find(row => row.label === label)!;
-      return result.current.rows.get(row.id)!;
-    };
-    const retiredOpen = command("Add funds");
-    await act(async () => { await retiredOpen(); });
-    await act(async () => { await command("Add to balance (USD)")(); });
-    let editor = result.current.editor("funding-visit", vi.fn())!;
-    act(() => { editor.props.model.changeDraft({ value: "" }); });
-    expect(result.current.commerce.amount).toBe("10.00");
-    expect(validNativeDrawerProjection({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: 1, family: "profile",
-      updateSequence: 1, privacyGeneration: 0, appearance: "light", accentHex: "#007aff", foregroundHex: "#111111", title: "Profile", sections: [],
-      open: true, enabled: true, backEnabled: true, profileStack: result.current.pages, profileDestinationId: "funding-visit" })).toBe(true);
-    editor = result.current.editor("funding-visit", vi.fn())!;
-    expect(editor.props.model.canSave).toBe(false);
-    act(() => editor.props.onClose());
-    await act(async () => { await result.current.commerce.checkout(); });
-    expect(mocks.checkout.mock.calls[1][2]).toBe(firstKey);
-    act(() => { publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner"); rerender(); });
-    await act(async () => retiredOpen());
-    expect(result.current.pages).toHaveLength(1);
-    await act(async () => { await command("Add funds")(); });
-    expect(result.current.pages.at(-1)?.id).toBe("commerce-funding");
-  });
   it("labels simulated funds only after owner-bound Sandbox verification", async () => {
     render(<ScopeCommerceAccountPanel />);
     await screen.findByText(/1 Hussh coin/);

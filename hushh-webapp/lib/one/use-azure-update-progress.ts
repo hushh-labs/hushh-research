@@ -21,6 +21,7 @@ import {
   startAzureSignIn,
   useAzureSetupStartedSignal,
   type AzureSignInStarted,
+  captureSignInPopupOwner,
 } from "@/lib/one/azure-sign-in";
 import { AZURE_UPDATE_JOB_RECHECK_MS } from "@/lib/one/azure-update-sign-in";
 import { ApiService } from "@/lib/services/api-service";
@@ -182,13 +183,15 @@ function useApproveInPlace(watchSignIn: WatchSignIn, current: () => boolean) {
       if (!current()) throw new DOMException("Session changed", "AbortError");
       const deploymentTarget = input.agent?.deploymentTarget;
       const popup = openAzureUpdateSignInPopup(deploymentTarget);
+      const ownsPopup = captureSignInPopupOwner(popup);
       const approval = await approveAgentUpdate({
         deploymentTarget,
         releaseId: input.releaseId,
         idempotencyKey: input.idempotencyKey,
         popup,
+        isCurrent: current,
       });
-      if (!current()) { popup?.close(); throw new DOMException("Session changed", "AbortError"); }
+      if (!current()) { if (ownsPopup()) popup?.close(); throw new DOMException("Session changed", "AbortError"); }
       if (popup && approval === "signing_in_popup") {
         watchSignIn(popup);
       }
@@ -209,11 +212,12 @@ function useRetryInPlace(watchSignIn: WatchSignIn, showError: (message: string |
     showError(null);
     // Opened before the first await: popup blockers need the click's gesture.
     const popup = isAzureSignInAvailable() ? openSignInPopup() : null;
+    const ownsPopup = captureSignInPopupOwner(popup);
     try {
-      const where = await startAzureSignIn("upgrade", undefined, popup, undefined, current);
+      const where = await startAzureSignIn("upgrade", undefined, popup, undefined, () => current() && ownsPopup());
       if (popup && where === "popup") watchSignIn(popup);
     } catch (cause) {
-      popup?.close();
+      if (ownsPopup()) popup?.close();
       if (current()) showError(azureSignInErrorMessage(cause, "upgrade"));
     } finally {
       inFlight.current = false;
