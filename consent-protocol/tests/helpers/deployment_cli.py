@@ -19,6 +19,7 @@ def copy_candidate_tools(root, destination_root):
         "scripts/ci/cloudrun-retention.sh",
         "scripts/ci/verify-cloudrun-revision-provenance.py",
         "scripts/ops/verify-env-secrets-parity.py",
+        "scripts/ops/secret_metadata_inventory.py",
         "deploy/backend.cloudbuild.yaml",
     ):
         destination = destination_root / relative
@@ -130,6 +131,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/managed_provider_readiness.py",
         "scripts/ci/managed_capability_proof.py",
         "scripts/ops/verify-env-secrets-parity.py",
+        "scripts/ops/secret_metadata_inventory.py",
         *(f"deploy/drive/{name}" for name in DRIVE_PRODUCTION_TOOLS),
         *(
             f"scripts/deploy/{name}"

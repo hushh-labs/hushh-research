@@ -274,6 +274,7 @@ tests/test_uat_deploy_parallelism.py
 tests/test_uat_frontend_image_handoff.py
 tests/test_feed_stream_capacity_contract.py
 tests/test_verify_env_secrets_parity.py
+tests/test_secret_metadata_inventory.py
 tests/test_deploy_sha_gate_payload_size.py
 tests/services/test_advisor_directory_service.py
 tests/test_advisors_runtime_config_wiring.py

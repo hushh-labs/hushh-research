@@ -206,8 +206,10 @@ LEGACY_BACKEND_RUNTIME_COMPONENTS = (
 )
 
 
-class CloudReadUnavailable(RuntimeError):
-    """Cloud access failed; absence cannot be inferred from this observation."""
+_secret_inventory = run_path(str(Path(__file__).with_name("secret_metadata_inventory.py")))
+CloudReadUnavailable = _secret_inventory["CloudReadUnavailable"]
+_has_secret = _secret_inventory["has_secret"]
+_missing_secrets = _secret_inventory["missing_secrets"]
 
 
 def _connected_systems_credentials(
@@ -249,29 +251,6 @@ def _connected_systems_credentials(
         "authority": str(authority.relative_to(Path(__file__).resolve().parents[2])),
         "external_crm_credentials": "not_required",
     }
-
-
-def _has_secret(project: str, name: str) -> bool:
-    cmd = [
-        "gcloud",
-        "secrets",
-        "describe",
-        name,
-        "--project",
-        project,
-        "--format=value(name)",
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise CloudReadUnavailable("secret_inventory_unverifiable") from exc
-    if result.returncode == 0 and result.stdout.strip():
-        return True
-    if result.returncode != 0 and "NOT_FOUND" in result.stderr:
-        return False
-    # Authentication, permission, transport and malformed-success responses are
-    # unknown, not missing secrets. Never render provider stderr or credentials.
-    raise CloudReadUnavailable("secret_inventory_unverifiable")
 
 
 def _read_secret_value(project: str, name: str, version: str = "latest") -> str | None:
@@ -922,7 +901,7 @@ def main() -> int:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
     try:
-        missing = [name for name in required if not _has_secret(args.project, name)]
+        missing = _missing_secrets(args.project, required, _has_secret)
     except CloudReadUnavailable:
         unavailable_report = {
             "project": args.project,

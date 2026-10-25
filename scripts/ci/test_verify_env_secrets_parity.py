@@ -50,43 +50,6 @@ def test_one_email_runtime_semantics_rejects_noncanonical_mailbox():
     assert result["checks"]["mailbox"] == "mismatch"
 
 
-def test_secret_inventory_does_not_misclassify_auth_failure(monkeypatch):
-    import subprocess
-    import pytest
-    module = _module()
-    monkeypatch.setattr(module.subprocess, "run", lambda *a, **k:
-                        subprocess.CompletedProcess(a, 1, "", "Reauthentication failed: sensitive marker"))
-    with pytest.raises(module.CloudReadUnavailable, match="secret_inventory_unverifiable"):
-        module._has_secret("example", "EXAMPLE_SECRET")
-
-
-def test_secret_inventory_distinguishes_found_and_not_found(monkeypatch):
-    import subprocess
-    module = _module()
-    monkeypatch.setattr(module.subprocess, "run", lambda *a, **k:
-                        subprocess.CompletedProcess(a, 0, "projects/example/secrets/EXAMPLE", ""))
-    assert module._has_secret("example", "EXAMPLE") is True
-    monkeypatch.setattr(module.subprocess, "run", lambda *a, **k:
-                        subprocess.CompletedProcess(a, 1, "", "NOT_FOUND: Secret missing"))
-    assert module._has_secret("example", "EXAMPLE") is False
-
-
-def test_unverifiable_inventory_report_omits_provider_error(monkeypatch, tmp_path, capsys):
-    import json
-    import sys
-    module = _module()
-    report = tmp_path / "report.json"
-    monkeypatch.setattr(sys, "argv", ["verify", "--project", "example", "--report-path", str(report)])
-    def unavailable(*args):
-        raise module.CloudReadUnavailable("sensitive marker")
-    monkeypatch.setattr(module, "_has_secret", unavailable)
-    assert module.main() == 1
-    payload = json.loads(report.read_text())
-    assert payload["missing_secrets"] is None
-    assert payload["classifications"] == ["secret_inventory_unverifiable"]
-    assert "sensitive marker" not in report.read_text() + capsys.readouterr().out
-
-
 def test_db_guard_clears_inherited_socket_for_explicit_tcp(tmp_path):
     import json
     import os
