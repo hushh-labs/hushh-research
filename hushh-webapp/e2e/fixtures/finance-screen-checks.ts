@@ -53,11 +53,13 @@ export function registerFinanceScreenChecks(
         await expect(overview.getByText("Invested", { exact: true })).toBeVisible();
         expect(await overview.getByRole("heading", { name: "Your portfolio" }).evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
-        await expect(overview.getByText("Value history isn’t available for this source yet.")).toBeVisible();
+        await expect(overview.getByText("Balance snapshot · This source hasn’t supplied dated balance history.")).toBeVisible();
         if (width >= 1024) {
           const value = await overview.getByTestId("portfolio-value-card").boundingBox();
           const options = await overview.getByTestId("portfolio-overview-options").boundingBox();
           expect(Math.abs(value!.y - options!.y)).toBeLessThanOrEqual(2);
+          const shell = await overview.getByTestId("portfolio-overview-options").locator("[data-slot=\"settings-group-shell\"]").boundingBox();
+          expect(Math.abs(value!.height - shell!.height)).toBeLessThanOrEqual(2);
         }
         await overview.screenshot({ path: test.info().outputPath(`overview-${width}-${theme}.png`) });
         await overview.getByRole("button", { name: "Share portfolio PDF" }).click();
@@ -73,10 +75,24 @@ export function registerFinanceScreenChecks(
         const holding = page.getByRole("dialog", { name: "TEST", exact: true });
         await expect(holding.getByText("$21,000.00", { exact: true })).toBeVisible();
         expect(await holding.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+        const holdingChart = holding.getByRole("region", { name: "Price history", exact: true });
+        await expect(holdingChart.locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
+        await expect.poll(() => holdingChart.evaluate(el => {
+          const line = el.querySelector("path.recharts-area-curve")!.getBoundingClientRect();
+          return line.width >= el.clientWidth - 85;
+        })).toBe(true);
+        await holding.screenshot({ path: test.info().outputPath(`holding-${width}-${theme}.png`) });
         await holding.getByRole("button", { name: "Edit Holding" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Edit sample");
         await page.keyboard.press("Escape");
         await expect(holding).toHaveCount(0);
+        if (width >= 1024) {
+          const table = page.getByTestId("holdings-table-fixture");
+          await table.scrollIntoViewIfNeeded();
+          expect(await table.locator("table").evaluate(el => el.getBoundingClientRect().width <= el.closest("[data-testid]")!.clientWidth)).toBe(true);
+          await expect(table.getByText("$22,680.42", { exact: true })).toBeVisible();
+          await table.screenshot({ path: test.info().outputPath(`holdings-table-${width}-${theme}.png`) });
+        }
         const history = page.getByTestId("finance-history-fixture");
         await history.getByRole("button", { name: "Open TEST analysis" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Open saved");

@@ -15,6 +15,7 @@ export function finiteNumber(value: unknown): number | null {
 export function toHoldingViewModel(
   holding: HoldingsListItem,
   totalMarketValue: number,
+  context?: { source?: string; statementAsOf?: string | null; valuationKind?: "statement" | "linked" },
 ): HoldingMobileCardViewModel {
   const explicitMarketValue = finiteNumber(holding.market_value);
   const marketValue = explicitMarketValue ?? 0;
@@ -48,8 +49,11 @@ export function toHoldingViewModel(
         : null,
     currentPrice: finiteNumber(holding.price),
     costBasis,
-    source: holding.source_type || null,
+    source: holding.institution_name || context?.source || holding.source_type || null,
     quoteAsOf: holding.institution_price_as_of || null,
+    statementAsOf: context?.statementAsOf || null,
+    valuationKind: context?.valuationKind,
+    identifierType: holding.identifier_type,
     portfolioWeightPct:
       totalMarketValue > 0 ? (marketValue / totalMarketValue) * 100 : 0,
     sector: sector || null,

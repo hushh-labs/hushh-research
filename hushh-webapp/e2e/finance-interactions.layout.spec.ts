@@ -192,8 +192,8 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
         const moverCard = movers.locator(":scope > [data-surface-tone]");
         const sectorBounds = await sectorCard.boundingBox();
         const moverBounds = await moverCard.boundingBox();
-        expect(Math.abs(sectorBounds!.y - moverBounds!.y)).toBeLessThanOrEqual(1);
-        expect(Math.abs(sectorBounds!.height - moverBounds!.height)).toBeLessThanOrEqual(1);
+        expect(moverBounds!.y).toBeGreaterThan(sectorBounds!.y + sectorBounds!.height);
+        expect(Math.abs(sectorBounds!.width - moverBounds!.width)).toBeLessThanOrEqual(1);
       }
       const gainers = await movers.getByRole("heading", { name: "Movers", exact: true }).boundingBox();
       const decliners = await movers.getByRole("heading", { name: "Losers", exact: true }).boundingBox();
@@ -474,6 +474,14 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       const ids = await page.locator("linearGradient[id^='price-']").evaluateAll(nodes => nodes.map(node => node.id));
       expect(new Set(ids).size).toBe(ids.length);
+      const profile = detail.locator("details").filter({ hasText: "Full company profile" });
+      await profile.locator("summary").scrollIntoViewIfNeeded();
+      await expect(detail.getByRole("listitem")).toHaveCount(2);
+      await expect(profile).not.toHaveAttribute("open");
+      expect((await profile.locator("summary").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await profile.locator("summary").click();
+      await expect(profile.getByText(/Additional details remain available/)).toBeVisible();
+      await profile.locator("summary").click();
       await page.screenshot({ path: test.info().outputPath(`stock-detail-${width}-${theme}.png`) });
       await detail.getByRole("button", { name: /^Close(?: detail panel)?$/, exact: true }).click();
       await expect(detail).toHaveCount(0);

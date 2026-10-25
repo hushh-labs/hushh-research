@@ -195,6 +195,7 @@ export interface PortfolioData {
   realized_gain_loss?: RealizedGainLoss;
   transactions?: Array<Record<string, unknown>>;
   activity_and_transactions?: Array<Record<string, unknown>>;
+  historical_values?: Array<Record<string, unknown>>;
   cash_flow?: Record<string, unknown>;
   cash_management?: Record<string, unknown>;
   projections_and_mrd?: Record<string, unknown>;
@@ -1437,6 +1438,7 @@ export function PortfolioReviewView({
         account_summary: accountSummary,
         asset_allocation: assetAllocation,
         holdings: consolidatedActiveHoldings,
+        historical_values: initialData.historical_values,
         income_summary: incomeSummary,
         realized_gain_loss: realizedGainLoss,
         cash_balance: toFiniteNumber(initialData.cash_balance),
@@ -1556,6 +1558,7 @@ export function PortfolioReviewView({
       } satisfies RealizedGainLoss) as RealizedGainLoss;
 
       const portfolioToSave: PortfolioData = {
+        historical_values: initialData.historical_values,
         account_info: hasRecordValues(normalizedAccountInfo as Record<string, unknown>)
           ? normalizedAccountInfo
           : undefined,

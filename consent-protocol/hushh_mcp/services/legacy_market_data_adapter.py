@@ -33,6 +33,11 @@ class LegacyMarketDataAdapter:
             return await fetchers._legacy_fetch_market_company_facts(symbol)
         if request.operation == "session_history":
             return await fetchers._legacy_fetch_market_session_history(list(request.symbols))
+        if request.operation == "daily_history":
+            from hushh_mcp.market_data.history import daily_history_snapshot
+
+            history = await fetchers._legacy_fetch_market_session_history([symbol])
+            return daily_history_snapshot(history.get(symbol, []), source="Yahoo Chart (Batch)")
         if request.operation == "news":
             return await fetchers._legacy_fetch_market_news(
                 symbol, "market-public", None, request.days_back
