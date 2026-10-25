@@ -384,7 +384,10 @@ date; this is not proof of a statement's coverage period. There is no new index,
 Drive folder, shortcut, move, delete or per-file cloud relevance assessment.
 
 The search saves each page, deduplicates by Drive ID and immediately exposes all
-original links through owner paging. Two owners can advance independently; a
+original links through owner paging. The owner prepare response returns after
+the first saved matched page; the same durable job continues the remaining pages.
+Its bounded scheduler wake runs concurrently within the request, never detached.
+Two owners can advance independently; a
 slice can promptly continue within its existing page/deadline budget. Ordinary
 requests retain priority. The same coordinator separately claims up to eight
 saved candidates for local organizing; discovery never awaits it. Prefix reads
