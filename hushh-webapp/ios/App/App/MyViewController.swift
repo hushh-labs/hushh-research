@@ -91,7 +91,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var nativeTestStatusLabel: NativeTestStatusLabel?
     private var nativeTestPollTimer: Timer?
     private var nativeTestPollInFlight = false
-    #if DEBUG
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
     private var vaultLayoutProbe: NativeVaultLayoutProbe?
     #endif
     #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
@@ -203,7 +203,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
                 installNativeTestBridge(on: webView)
                 startNativeTestPolling(on: webView)
             }
-            #if DEBUG
+            #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
             if ProcessInfo.processInfo.arguments.contains("--hushh-vault-layout-diagnostics") {
                 vaultLayoutProbe = NativeVaultLayoutProbe(host: view, webView: webView)
             }

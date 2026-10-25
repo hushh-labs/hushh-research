@@ -797,7 +797,7 @@ final class AppUITests: XCTestCase {
         if let raw = publicReceipt.exists ? publicReceipt.value as? String : nil,
            let data = raw.data(using: .utf8),
            let values = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
-            for key in ["dockOptIn", "chromeOptIn", "methodClicks", "methodPointerUps", "passphraseFields", "dockActive"] {
+            for key in ["dockOptIn", "chromeOptIn", "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "routeKind", "globalErrorKind", "phoneGate"] {
                 if let value = values[key], value.doubleValue.isFinite, (0...100_000).contains(value.doubleValue) {
                     print("NATIVE_PUBLIC_ADMISSION key=\(key) value=\(value.intValue)")
                 }

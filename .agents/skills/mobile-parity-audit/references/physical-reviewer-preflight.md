@@ -16,6 +16,9 @@ another reviewer store or a privileged app-unlock route.
    harness change. Keep executable digests and install receipts with the run,
    and require the requested case's observed markers before interpreting its
    result. A stale installed runner is not evidence against the new feature.
+   Serialize dependency installation, web export, native resource sync and
+   packaging. Compare exported application files with the signed bundle before
+   installation; a successful native build can still contain stale web assets.
 2. Inspect `xcrun devicectl list devices` and
    `xcrun devicectl device info lockState --device <udid>`. Pairing does not prove
    unlocked transport; a connection reset is not a vault rejection. Recheck once
@@ -46,6 +49,14 @@ another reviewer store or a privileged app-unlock route.
    entering the named secure field; submit normal Unlock once. A device passcode
    is not a vault passphrase. Persist neither in skills, env files, launch
    arguments, xctestrun files, screenshots, traces or diagnostics.
+   A reconnect/account-verification page precedes vault admission. Diagnose
+   its transport and deployed response contract before retrying credentials.
+   Bind the backend's serving source to the candidate's expected principal
+   fields; HTTP 200 alone is insufficient. If necessary, use a bounded
+   read-only probe through the existing native auth owner, emitting status and
+   schema-validation booleans only. Never relax principal validation or silently
+   substitute another environment. Record an explicitly selected dev replica
+   as dev evidence, not UAT or release acceptance.
 7. Check that the native privacy cover has actually retired before private
    input. XCTest can report an underlying WebKit control as hittable while
    UIKit still covers it. Use only the authored recovery action or cancel a

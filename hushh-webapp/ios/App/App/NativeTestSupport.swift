@@ -698,7 +698,7 @@ enum NativeTestResetter {
 }
 
 final class NativeTestStatusLabel: UIButton {
-    #if DEBUG
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
     /// Synchronous, bounded public evidence only. No asynchronous WebKit
     /// completion is needed to inspect the current native presentation.
     var currentValue: ((String?) -> String)?
@@ -734,7 +734,7 @@ final class NativeTestStatusLabel: UIButton {
     }
 }
 
-#if DEBUG
+#if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
 /// Attach-only layout evidence, separate from reviewer bootstrap and its
 /// persistent status store. Opt-in snapshots contain public geometry and passive
 /// event counts only; they cannot invoke unlock or inspect credential values.
@@ -815,7 +815,8 @@ final class NativeVaultLayoutProbe {
                             "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
                             "bottomProgress", "appScrollTop", "appScrollRange", "appScrollHeight", "appScrollClientHeight", "appScrollRootCount", "windowScrollRange", "oneRosterPresent",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
-                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial"])
+                            "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial",
+                            "routeKind", "globalErrorKind", "phoneGate"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -917,6 +918,9 @@ final class NativeVaultLayoutProbe {
         } catch { /* Malformed public diagnostics grant no authority. */ }
       }
       const result = {
+        routeKind: Math.max(0, ['/', '/one', '/login', '/register', '/register/phone', '/one/setup'].indexOf(location.pathname) + 1),
+        globalErrorKind: Math.max(0, ['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError'].indexOf(document.querySelector('[data-native-global-error]')?.getAttribute('data-native-global-error')) + 1),
+        phoneGate: !!document.querySelector('[data-figma-phone-step]'),
         ...profileGuards,
         bottomProgress: finite(getComputedStyle(progressConsumer).getPropertyValue('--bottom-chrome-progress')),
         appScrollTop: scrollRoot?.scrollTop,

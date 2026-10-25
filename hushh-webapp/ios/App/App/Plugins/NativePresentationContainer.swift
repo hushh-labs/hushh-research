@@ -178,7 +178,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
         return privacyConcealed && underlay.isHidden && contentChrome.isHidden &&
             groups.values.allSatisfy(\.isHidden) && !focused(underlay) && !focused(contentChrome)
     }
-    #if DEBUG
+    #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
     private(set) var lastRegionRefusal = 0
     private(set) var lastRejectedInitialFrame: CGRect?
     var baseEditorFocused: Bool {
@@ -186,12 +186,12 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
             if view.accessibilityIdentifier == "native-dock-editor" { return view.isFirstResponder }
             return view.subviews.contains(where: focused)
         }
-        return focused(underlay)
+        return focused(underlay) || focused(contentChrome)
     }
     #endif
 
     private func rejectRegion(_ reason: NativeRegionRefusal) -> Bool {
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         lastRegionRefusal = reason.rawValue
         #endif
         return false
@@ -218,7 +218,7 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
                   abs(initialPose.frame.minY) <= 1, abs(initialPose.frame.maxY - bounds.height) <= 1,
                   initialPose.hasValidGeometry,
                   initialPose.opacity == 0 || initialPose.opacity == 1 else {
-                #if DEBUG
+                #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
                 lastRejectedInitialFrame = initialPose.frame
                 #endif
                 return rejectRegion(.initialGeometry)
@@ -604,6 +604,8 @@ final class NativePresentationContainer: UIView, UIGestureRecognizerDelegate {
     func conceal() {
         #if DEBUG
         continuity?.discard()
+        #endif
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         lastRegionRefusal = 0
         lastRejectedInitialFrame = nil
         #endif
