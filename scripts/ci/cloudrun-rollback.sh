@@ -43,6 +43,19 @@ if [[ "${manual_reader_guard}" == true ]]; then
     --service "${SERVICE}" --revision "${REVISION}"
 fi
 
+if [[ "$SERVICE" == "consent-protocol" ]]; then
+  REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  inspect=(gcloud run revisions describe "$REVISION" "--region=$REGION"
+    '--format=value(metadata.labels.deploy-sha)')
+  if [[ -n "$PROJECT" ]]; then
+    inspect+=("--project=$PROJECT")
+  fi
+  rollback_sha="$("${inspect[@]}")"
+  # v201 alone does not prove Files/provider effects obey the release fence.
+  python3 "$REPO_ROOT/deploy/account-deletion/activate_release.py" \
+    --qualify-source "$rollback_sha"
+fi
+
 cmd=(
   gcloud run services update-traffic "$SERVICE"
   "--region=$REGION"

@@ -41,6 +41,36 @@ _INVENTORY_END = "THEN RAISE EXCEPTION 'Unqualified private-agent triggers'; END
 _ANCHOR = "('consent_audit','zz_personal_agent_renewal_authority'),"
 
 
+def _shared_authority_qualification_sql() -> str:
+    """Qualify migration423's exact successor without rewriting published420."""
+    return """DO $shared_authority_adoption$
+DECLARE installed record;
+BEGIN
+ LOCK TABLE public.account_deletion_tombstones IN SHARE UPDATE EXCLUSIVE MODE;
+ IF to_regprocedure('public.account_provider_cleanup_contract_version()') IS NULL
+  AND to_regprocedure('public.guard_account_shared_provider_authority()') IS NULL
+  AND NOT EXISTS(SELECT 1 FROM pg_trigger WHERE
+   tgrelid='public.account_deletion_tombstones'::regclass AND tgname='account_shared_provider_authority')
+ THEN RETURN; END IF;
+ SELECT t.*,p.prosecdef,p.proconfig,pg_get_functiondef(p.oid) AS body,
+  pg_get_triggerdef(t.oid,true) AS definition INTO installed
+ FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+ WHERE t.tgrelid='public.account_deletion_tombstones'::regclass
+ AND t.tgname='account_shared_provider_authority';
+ IF NOT FOUND OR installed.tgenabled<>'O' OR installed.tgisinternal
+ OR installed.tgtype<>23 OR installed.tgnargs<>0 OR installed.tgqual IS NOT NULL
+ OR installed.tgfoid IS DISTINCT FROM to_regprocedure('public.guard_account_shared_provider_authority()')::oid
+ OR installed.prosecdef OR installed.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, public']::text[]
+ OR encode(sha256(convert_to(installed.body,'UTF8')),'hex')<>'17dd4b27470399679744160db4e58f398269ca1f450dfaa9b4ddc692c99cd1c5'
+ OR encode(sha256(convert_to(installed.definition,'UTF8')),'hex')<>'575bfb26880fb7bfab0b21504735b1c0ef61123e51fdc74c72f4ddc63d36a357'
+ OR encode(sha256(convert_to(pg_get_functiondef(to_regprocedure('public.account_provider_cleanup_contract_version()')),'UTF8')),'hex') IS DISTINCT FROM 'fa80a7519c272438cc2bd54a0468a361c14687f465b12e5a07c54ce0a618e2ad' THEN
+  RAISE EXCEPTION 'Unqualified shared provider authority successor';
+ END IF;
+END
+$shared_authority_adoption$;
+"""
+
+
 def _qualification_sql() -> str:
     values = ",\n".join(
         f"('{name}','{function}',{kind},'{trigger_hash}','{function_hash}',{config})"
@@ -211,9 +241,12 @@ def _predecessor_constraints_sql() -> str:
         "(" + ",".join("'" + value.replace("'", "''") + "'" for value in spec) + ")"
         for spec in _PREDECESSORS
     )
-    return """DO $private_agent_predecessors$
+    return (
+        """DO $private_agent_predecessors$
 DECLARE spec record; relation regclass; retained record; backing record; columns text[];
+ preledger boolean:=false; retired_receipt_uniques integer:=0; retired_receipt_index boolean:=false;
 BEGIN
+ @RECEIPT_STATE@
  FOR spec IN SELECT * FROM (VALUES @VALUES@)
   AS expected(table_name,name,kind,definition,successor_hash,columns) LOOP
   relation:=to_regclass(format('public.%I',spec.table_name));
@@ -259,18 +292,23 @@ BEGIN
    RAISE EXCEPTION 'Unqualified anypoint placement before private-agent adoption';
   END IF;
   EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT %I',spec.table_name,spec.name);
+  IF spec.kind='u' THEN retired_receipt_uniques:=retired_receipt_uniques+1; END IF;
  END LOOP;
+ @RECEIPT_LEDGER@
 END
 $private_agent_predecessors$;
 """.replace("@VALUES@", values)
+        .replace("@RECEIPT_STATE@", _preledger_state_sql())
+        .replace("@RECEIPT_LEDGER@", _preledger_finish_sql())
+    )
 
 
 def _predecessor_index_sql() -> str:
-    return """DO $private_agent_receipt_index$
+    return """<<receipt_index_adoption>>
 DECLARE relation regclass; retained record; signature text;
 BEGIN
  relation:=to_regclass('public.idx_consent_audit_receipts_subject');
- IF relation IS NULL THEN RETURN; END IF;
+ IF relation IS NULL THEN EXIT receipt_index_adoption; END IF;
  LOCK TABLE public.consent_audit_receipts IN SHARE UPDATE EXCLUSIVE MODE;
  SELECT i.*,pg_get_indexdef(i.indexrelid) AS definition INTO retained
   FROM pg_index i WHERE i.indexrelid=relation
@@ -284,14 +322,35 @@ BEGIN
   OR EXISTS(SELECT 1 FROM pg_constraint WHERE conindid=relation) THEN
   RAISE EXCEPTION 'Unqualified private-agent receipt index';
  END IF;
- IF signature='d9c1519f6ac0529791dfa55dd00d62de8a6a9b4de6a9bf7bd264bc8bc0debbb5' THEN RETURN; END IF;
+ IF signature='d9c1519f6ac0529791dfa55dd00d62de8a6a9b4de6a9bf7bd264bc8bc0debbb5' THEN EXIT receipt_index_adoption; END IF;
  IF signature<>'ceef0869d7a7093723742f8eb018a34a78b18a1af11a797ea3a2769a1858c3dd' THEN
   RAISE EXCEPTION 'Unqualified private-agent receipt index';
  END IF;
  LOCK TABLE public.consent_audit_receipts IN ACCESS EXCLUSIVE MODE;
  DROP INDEX public.idx_consent_audit_receipts_subject;
-END
-$private_agent_receipt_index$;
+ retired_receipt_index:=true;
+END receipt_index_adoption;
+"""
+
+
+def _preledger_state_sql() -> str:
+    return """IF to_regclass('public.consent_audit_receipts') IS NOT NULL THEN
+ LOCK TABLE public.consent_audit_receipts IN SHARE UPDATE EXCLUSIVE MODE;
+ preledger:=NOT EXISTS(SELECT 1 FROM pg_attribute
+  WHERE attrelid='public.consent_audit_receipts'::regclass AND attname='ledger'
+   AND attnum>0 AND NOT attisdropped);
+END IF;
+""" + _predecessor_index_sql()
+
+
+def _preledger_finish_sql() -> str:
+    return """IF preledger THEN
+ IF retired_receipt_uniques<>2 OR NOT retired_receipt_index THEN
+  RAISE EXCEPTION 'Incomplete pre-ledger consent receipt predecessor';
+ END IF;
+ --913 supplies a namespace, never a signature or a consent decision.
+ ALTER TABLE public.consent_audit_receipts ADD COLUMN ledger text NOT NULL DEFAULT 'consent';
+END IF;
 """
 
 
@@ -334,23 +393,23 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     if len(inventory) != 1 or inventory[0].count(_ANCHOR) != 1:
         raise MigrationAuthorityError("Private-agent adoption inventory source shape changed")
     additions = "".join(f"('consent_audit','{spec[0]}')," for spec in GUARDS)
+    additions += "('account_deletion_tombstones','account_shared_provider_authority'),"
     block = f"DO $pod_414$\nBEGIN\n{inventory[0]}\nEND\n$pod_414$;"
     if entry.sql.count(block) != 1:
         raise MigrationAuthorityError("Private-agent adoption inventory block changed")
     column_anchor = "DO $pod_414$\nBEGIN\n IF EXISTS(SELECT 1 FROM pg_attribute a JOIN pg_class c"
     if entry.sql.count(column_anchor) != 1:
         raise MigrationAuthorityError("Private-agent adoption column inventory changed")
-    preparation = (
-        _authorization_attempts_sql() + _predecessor_constraints_sql() + _predecessor_index_sql()
-    )
+    preparation = _authorization_attempts_sql() + _predecessor_constraints_sql()
     sql = entry.sql.replace(column_anchor, preparation + column_anchor, 1)
     sql = _retention_inventory_sql(sql)
     qualified = block.replace(_ANCHOR, _ANCHOR + additions)
     if not entry.sql.rstrip().endswith("COMMIT;"):
         raise MigrationAuthorityError("Private-agent adoption transaction source changed")
-    adapted = sql.replace(block, _qualification_sql() + qualified, 1)
+    guards = _qualification_sql() + _shared_authority_qualification_sql()
+    adapted = sql.replace(block, guards + qualified, 1)
     before_commit, commit = adapted.rsplit("COMMIT;", 1)
-    return before_commit + _qualification_sql() + "COMMIT;" + commit
+    return before_commit + guards + "COMMIT;" + commit
 
 
 def execution_sql(

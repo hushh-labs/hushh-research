@@ -37,6 +37,7 @@ type Props = {
   onCancel?: () => void;
   purpose?: CloudCleanupPurpose;
   provider?: "gcp" | "azure";
+  continueAccountDeletion?: boolean;
 };
 type Action = "inspect" | "refresh" | "approve" | "execute" | "cancel";
 
@@ -159,7 +160,7 @@ export function AccountCloudCleanup(props: Props) {
         if (auth.kind === "needs_unlock") { props.onUnlock(); return; }
         if (!view) return;
         await morphyToast.promise(finishCloudRemoval(auth.token, view), {
-          loading: "Finishing cloud removal…", success: () => isCurrent() ? "Cloud removed. Your Hussh account is kept." : null,
+          loading: "Finishing cloud removal…", success: () => isCurrent() ? props.continueAccountDeletion ? "Cloud removed. Continuing account deletion…" : "Cloud removed. Your Hussh account is kept." : null,
           error: (error) => isCurrent() ? cloudCleanupErrorMessage(error) : null,
         }).unwrap();
       }
@@ -168,7 +169,7 @@ export function AccountCloudCleanup(props: Props) {
     finally { finishingRef.current = false; setFinishing(false); }
   };
   if (!isAzureSignInAvailable()) return <p className="text-sm text-muted-foreground">Continue cloud cleanup on the Hussh website.</p>;
-  const keepAccount = props.purpose === "remove_cloud";
+  const keepAccount = props.purpose === "remove_cloud" && !props.continueAccountDeletion;
   const gcp = props.provider === "gcp" || view?.provider === "gcp";
   const executing = !!view?.inProgress && !view.needsAttention && !view.canFinalize;
   return <div className="space-y-4" data-testid="account-cloud-cleanup" aria-busy={busy || finishing || executing}>

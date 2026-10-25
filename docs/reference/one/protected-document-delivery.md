@@ -179,7 +179,7 @@ on the governed web streams and inspect actual SDK collection with synthetic
 document locators. Payload tests do not qualify arbitrary custom vendor tags;
 changing those tags or enabling automatic collection requires fresh verification.
 
-Migration 423 registers ten request/crypto/obligation tables in the runtime
+Migration 424 registers ten request/crypto/obligation tables in the runtime
 data-plane contract. File/source metadata uses existing encrypted Drive custody;
 packages hold ciphertext descriptors and key envelopes, never plaintext keys.
 Activity retention is 90 days. Preparation and unfinished uploads expire after
@@ -226,6 +226,9 @@ resolver before its existing traffic mutator, binds the exact target service,
 revision, source and immutable image, and applies the same fresh empty-inventory
 and effective-off proof to a pre-reader target. This also protects an explicit
 operator-selected revision rather than relying on a healthy HTTP response.
+The account-lifecycle producer qualification remains an independent prerequisite.
+An empty hosted inventory never authorizes rollback to an incompatible provider
+cleanup producer; such a transition requires forward recovery.
 Production activation follows its separately
 authorized deployment gate with the same required verification and provenance.
 

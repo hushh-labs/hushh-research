@@ -52,7 +52,6 @@ async def personal_agent_cloud_removal_availability(
     from hushh_mcp.services.azure_teardown_inventory import AzureTeardownRefused
     from hushh_mcp.services.personal_agent_cloud_removal import CloudRemovalStore
 
-    owner._require_enabled()
     store = CloudRemovalStore(owner.PersonalAgentRegistryRepo())
     try:
         await store.require_completion_contract()
@@ -82,7 +81,6 @@ async def remove_personal_agent_cloud(
     """Review and remove the caller's cloud; preserve their Hussh account."""
     from api.routes.account_cloud_cleanup import remove_owner_cloud
 
-    owner._require_enabled()
     return await remove_owner_cloud(token_data["user_id"], payload)
 
 
@@ -91,7 +89,6 @@ async def inspect_personal_agent_hosting(user_id: str = Depends(require_firebase
     """Inspect only recorded owner resources; never repair or delete on a read."""
     from hushh_mcp.services.personal_agent_hosting_inspection import inspect_recorded_hosting
 
-    owner._require_enabled()
     row = await owner.PersonalAgentRegistryRepo().get(user_id)
     inspection: dict = await inspect_recorded_hosting(owner._service(), owner=user_id, row=row)
     return inspection
@@ -102,7 +99,6 @@ async def deprovision_personal_agent(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Tear down the caller's own agent. Requires the owner's VAULT_OWNER token."""
-    owner._require_enabled()
     user_id = token_data["user_id"]
     # Cloud removal requires its purpose-bound review and exact operation.
     # The account erasure worker retains its separate qualified entrypoint.

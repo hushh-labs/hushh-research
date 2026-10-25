@@ -20,6 +20,85 @@ from tests.helpers.pod_browser import (
 )
 
 
+async def test_redirect_joins_original_scope_and_unknown_parent_cannot_borrow_next_input():
+    import time
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_browser.contracts import BrowserExecutionScope, BrowserResponse
+    from hushh_mcp.services.pod_browser.playwright_executor import PlaywrightExecutor
+
+    scope = BrowserExecutionScope(
+        sequence=1, control_epoch=1, actor="owner", deadline_at=time.time() + 10
+    )
+    sent, failed = [], []
+    parent_finished = asyncio.Event()
+
+    async def fetch(request):
+        sent.append(request)
+        return BrowserResponse(
+            status=303 if request.url.endswith("/login") else 200,
+            headers=(("Location", "/account"),) if request.url.endswith("/login") else (),
+            body=b"ok",
+        )
+
+    driver = PlaywrightExecutor(network=SimpleNamespace(fetch=fetch), chromium_sandbox=True)
+    driver._main_frame_id = "main"
+
+    def event(identifier, path, predecessor=None):
+        return {
+            "requestId": identifier,
+            "frameId": "main",
+            "resourceType": "Document",
+            "request": {"url": "https://example.com" + path, "method": "GET", "headers": {}},
+            **({"redirectedRequestId": predecessor} if predecessor else {}),
+        }
+
+    async def send(method, params):
+        if method == "Fetch.fulfillRequest" and params["requestId"] == "parent":
+            parent_finished.set()
+        if method == "Fetch.failRequest":
+            failed.append(params["requestId"])
+
+    async def press(_):
+        driver._request_paused(event("parent", "/login"))
+
+    page = SimpleNamespace(
+        is_closed=lambda: False,
+        keyboard=SimpleNamespace(press=press),
+        screenshot=AsyncMock(return_value=b"\x89PNG\r\n\x1a\nsynthetic"),
+        wait_for_url=AsyncMock(),
+        viewport_size={"width": 1280, "height": 720},
+        url="https://example.com/account",
+    )
+    driver._page, driver._cdp = page, SimpleNamespace(send=send)
+    work = asyncio.create_task(
+        driver.execute(
+            BrowserAction(operation="keys", sequence=1, control_epoch=1, keys=("Enter",)),
+            scope=scope,
+        )
+    )
+    try:
+        await asyncio.wait_for(parent_finished.wait(), 1)
+        await asyncio.gather(*tuple(driver._requests))
+        done, _ = await asyncio.wait({work}, timeout=0.01)
+        assert not done  # successor is deliberately withheld after parent handler completion
+        assert not work.done() and not page.screenshot.called
+        driver._request_paused(event("child", "/account", "parent"))
+        frame = await asyncio.wait_for(work, 1)
+        assert frame.url == "https://example.com/account"
+        assert [request.scope for request in sent] == [scope, scope]
+        page.wait_for_url.assert_awaited_once()
+        assert page.wait_for_url.call_args.kwargs["wait_until"] == "domcontentloaded"
+        driver._scope = scope.model_copy(update={"sequence": 2, "control_epoch": 2})
+        driver._request_paused(event("unrelated", "/account", "unknown-parent"))
+        await driver._settle_requests()
+        assert failed == ["unrelated"] and len(sent) == 2
+    finally:
+        await driver.close()
+        await asyncio.gather(work, return_exceptions=True)
+
+
 @pytest.mark.parametrize("operation", ["observe", "click"])
 async def test_owner_takeover_interrupts_blocked_model_action_without_replaying(
     monkeypatch, operation

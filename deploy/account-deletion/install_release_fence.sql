@@ -9,6 +9,49 @@ BEGIN;
 SET LOCAL lock_timeout = '20s';
 SET LOCAL statement_timeout = '90s';
 
+-- New workers hold a shared session lease through provider effects and joined
+-- erasure. Legacy revisions still require the existing boundary qualification.
+SELECT pg_advisory_xact_lock(hashtextextended('hushh.account-deletion.release.v1', 0));
+
+-- A lost worker session is not proof its dispatched HTTP effect has settled.
+-- Preserve durable uncertainty; never migrate on an advisory-lock disappearance
+-- alone. The column check preserves migration-first compatibility before 418.
+DO $drain$
+DECLARE unsettled boolean;
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='account_deletion_tombstones'
+        AND column_name='provider_cleanup_receipt') THEN
+    EXECUTE $query$
+      SELECT EXISTS (
+        SELECT 1 FROM public.account_deletion_tombstones t
+        WHERE t.erasure_phase='provider_cleanup' AND (
+          t.cleanup_status='running' OR EXISTS (
+            SELECT 1 FROM jsonb_each(COALESCE(t.provider_cleanup_receipt->'items','{}'::jsonb)) item
+            WHERE item.value->'refresh'->>'state' IN ('dispatched','uncertain')
+               OR item.value->>'watchOutcome' IN ('dispatched','uncertain','token_absent')
+               OR item.value->>'revocation' IN ('dispatched','uncertain','token_absent')
+          )
+        )
+      )
+    $query$ INTO unsettled;
+    IF unsettled THEN
+      RAISE EXCEPTION USING ERRCODE='55000',
+        MESSAGE='account deletion provider effects require settlement before release';
+    END IF;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='shared_files_storage'
+        AND column_name='state') THEN
+    EXECUTE 'SELECT EXISTS(SELECT 1 FROM public.shared_files_storage WHERE state=''erasing'')'
+      INTO unsettled;
+    IF unsettled THEN
+      RAISE EXCEPTION USING ERRCODE='55000',
+        MESSAGE='account deletion Files effects require settlement before release';
+    END IF;
+  END IF;
+END $drain$;
+
 LOCK TABLE public.actor_profiles, public.vault_keys
   IN SHARE ROW EXCLUSIVE MODE;
 

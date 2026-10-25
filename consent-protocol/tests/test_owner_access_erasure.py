@@ -45,6 +45,7 @@ def _group() -> str:
 
 @pytest.fixture(autouse=True)
 def _hub_caller(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
     monkeypatch.setenv(
         "HUSSH_CONSENT_PLANE_SA", "consent-plane@hushh-pda-dev.iam.gserviceaccount.com"
     )

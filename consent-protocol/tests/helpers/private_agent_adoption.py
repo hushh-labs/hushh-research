@@ -5,10 +5,6 @@ RECEIPT_PREDECESSORS = (
         "904_consent_audit_receipts.sql",
         "3dd91a54968b624471548ec97e90d18f254a86ced3b9d459501fc2fccc79fdaf",
     ),
-    (
-        "913_consent_audit_receipts_ledger.sql",
-        "5ab2f7722bbb50583ad78298289d1c975260b91184b1742aeb0c285a8a7bc8e4",
-    ),
 )
 
 # Reviewed schema-only definitions from the legacy Dev catalog. No owner rows.
@@ -104,7 +100,7 @@ $function$;
 LEGACY_TRIGGERS = r"""CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON consent_audit FOR EACH ROW EXECUTE FUNCTION guard_consumer_memory_consent();
 CREATE TRIGGER zz_preserve_consumer_memory_consent BEFORE DELETE OR UPDATE ON consent_audit FOR EACH ROW EXECUTE FUNCTION preserve_consumer_memory_consent();"""
 
-# Authored904/906/907 definitions observed in the legacy upgrade, not an inferred alias.
+# Authored906/907 registry definitions; actual904 supplies the pre-ledger receipt schema.
 LEGACY_PREDECESSOR_SCHEMA = """
 ALTER TABLE public.personal_agent_registry
  DROP CONSTRAINT IF EXISTS personal_agent_registry_deployment_target_check,
@@ -116,26 +112,31 @@ ALTER TABLE public.personal_agent_registry
   CHECK(model_credential_mode IS NULL OR model_credential_mode IN ('user_adc','byok_per_turn','fleet_adc')),
  ADD CONSTRAINT personal_agent_registry_status_check
   CHECK(status IN ('unprovisioned','pending','provisioning','connecting','provisioned','provisioning_failed','reaped'));
-ALTER TABLE public.consent_audit_receipts
- DROP CONSTRAINT IF EXISTS consent_audit_receipts_subject_id_ledger_hash_key,
- DROP CONSTRAINT IF EXISTS consent_audit_receipts_subject_id_ledger_seq_key,
- ADD CONSTRAINT consent_audit_receipts_subject_id_hash_key UNIQUE(subject_id,hash),
- ADD CONSTRAINT consent_audit_receipts_subject_id_seq_key UNIQUE(subject_id,seq);
-DROP INDEX IF EXISTS public.idx_consent_audit_receipts_subject;
-CREATE INDEX idx_consent_audit_receipts_subject ON public.consent_audit_receipts(subject_id,id);
 """
 LEGACY_PREDECESSOR_DRIFT = (
+    (
+        "ALTER TABLE public.consent_audit_receipts ADD COLUMN ledger text",
+        "column",
+    ),
     (
         "ALTER TABLE public.personal_agent_registry DROP CONSTRAINT IF EXISTS personal_agent_registry_status_check; ALTER TABLE public.personal_agent_registry ADD CONSTRAINT personal_agent_registry_status_check CHECK(status IS NOT NULL) NOT VALID",
         "predecessor",
     ),
     (
         "ALTER TABLE public.consent_audit_receipts DROP CONSTRAINT consent_audit_receipts_subject_id_hash_key; ALTER TABLE public.consent_audit_receipts ADD CONSTRAINT consent_audit_receipts_subject_id_hash_key UNIQUE(hash,subject_id)",
-        "predecessor",
+        "receipt",
+    ),
+    (
+        "ALTER TABLE public.consent_audit_receipts DROP CONSTRAINT consent_audit_receipts_subject_id_seq_key",
+        "receipt",
     ),
     (
         "DROP INDEX public.idx_consent_audit_receipts_subject; CREATE INDEX idx_consent_audit_receipts_subject ON public.consent_audit_receipts(subject_id,seq)",
-        "receipt index",
+        "receipt",
+    ),
+    (
+        "DROP INDEX public.idx_consent_audit_receipts_subject",
+        "receipt",
     ),
     (
         "INSERT INTO public.personal_agent_registry(user_id,hushh_id,deployment_target) VALUES('synthetic-anypoint','synthetic-anypoint','anypoint')",
@@ -189,3 +190,35 @@ LEGACY_GUARD_MUTATIONS = (
         "DROP FUNCTION public.guard_consumer_memory_consent(integer)",
     ),
 )
+
+
+# Catalog-only observations shared by the real PostgreSQL adoption rehearsals.
+def guard_catalog(connection):
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT t.oid,t.tgname,t.tgenabled,t.tgfoid,
+          pg_get_triggerdef(t.oid,true),pg_get_functiondef(p.oid),p.prosecdef,p.proconfig
+          FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+          WHERE t.tgrelid='public.consent_audit'::regclass
+          AND t.tgname LIKE 'zz_%consumer_memory%' ORDER BY t.tgname""")
+        return cursor.fetchall()
+
+
+def authorization_state(connection):
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT a.atttypid::regtype::text,a.attnotnull,
+          pg_get_expr(d.adbin,d.adrelid),a.attgenerated,a.attidentity FROM pg_attribute a
+          LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+          WHERE a.attrelid='public.byoc_setup_jobs'::regclass
+          AND a.attname='authorization_attempts' AND NOT a.attisdropped""")
+        column = cursor.fetchone()
+        cursor.execute(
+            "SELECT user_id,to_jsonb(j),ctid::text FROM public.byoc_setup_jobs j ORDER BY user_id"
+        )
+        return column, cursor.fetchall()
+
+
+def receipt_state(connection):
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT to_jsonb(r),ctid::text FROM public.consent_audit_receipts r
+          WHERE subject_id='synthetic-retained' ORDER BY id""")
+        return cursor.fetchall()

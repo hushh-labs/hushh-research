@@ -45,6 +45,33 @@ def verify_release_contract(guard, cp, name):
     assert not violations, violations
 
 
+def seed_current_cleanup_receipt(execute, owner):
+    operation = str(uuid4())
+    import psycopg2
+    import pytest
+
+    with pytest.raises(
+        psycopg2.errors.InsufficientPrivilege, match="current cleanup producer contract"
+    ):
+        execute(
+            "INSERT INTO account_deletion_tombstones(user_id_hash,firebase_uid,account_owner_id,provider_cleanup_id,provider_cleanup_inventory) VALUES('sha256:'||encode(sha256(convert_to(%s,'UTF8')),'hex'),%s,%s,%s,'{}'::jsonb)",
+            (owner, owner, owner, operation),
+        )
+    execute(
+        """WITH binding AS (
+            SELECT 'sha256:'||encode(sha256(convert_to(%s,'UTF8')),'hex') AS owner_hash,
+                   %s::text AS operation
+        ) INSERT INTO account_deletion_tombstones(
+            user_id_hash,firebase_uid,account_owner_id,provider_cleanup_id,
+            provider_cleanup_inventory,provider_cleanup_receipt
+        ) SELECT owner_hash,%s,%s,operation::uuid,'{}'::jsonb,
+            jsonb_build_object('version',2,'cleanupId',operation,'ownerHash',owner_hash,
+                'inventorySha256',encode(sha256(convert_to('{}'::jsonb::text,'UTF8')),'hex'),
+                'items','{}'::jsonb) FROM binding""",
+        (owner, operation, owner, owner),
+    )
+
+
 def verify_retained_release_records(conn, cp):
     def execute(sql, params=None):
         with conn.cursor() as cur:
@@ -125,11 +152,7 @@ def verify_retained_release_records(conn, cp):
         "INSERT INTO one_referral_network_members(user_id,circle_id) SELECT leader_user_id,id FROM one_referral_network_circles WHERE leader_user_id=%s ON CONFLICT DO NOTHING",
         (owners[2],),
     )
-    operation = str(uuid4())
-    execute(
-        "INSERT INTO account_deletion_tombstones(user_id_hash,firebase_uid,account_owner_id,provider_cleanup_id,provider_cleanup_inventory) VALUES('sha256:'||encode(sha256(convert_to(%s,'UTF8')),'hex'),%s,%s,%s,'{}'::jsonb)",
-        (owners[2], owners[2], owners[2], operation),
-    )
+    seed_current_cleanup_receipt(execute, owners[2])
     queries = {
         "shared_choice": ("SELECT to_jsonb(v) FROM vault_keys v WHERE user_id=%s", (owners[0],)),
         "pod_registry": (

@@ -12,6 +12,7 @@ import yaml
 from tests.helpers.deployment_cli import (
     candidate_clock_environment,
     copy_candidate_tools,
+    dev_migration_environment,
     run_candidate_gate,
 )
 
@@ -247,24 +248,13 @@ def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path, ta
     section = section[: section.index("\nfi") + 3]
     section = section.replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-dev")
     section = section.replace("${{ env.PROTOCOL_PYTHON }}", str(tmp_path / "python-gate"))
-    (tmp_path / "consent-protocol").mkdir()
-    (tmp_path / "python-gate").write_text(
-        '#!/bin/sh\nprintf "%s:%s:%s\\n" "$*" "$DB_USER" "$DB_PASSWORD" >> "$CALLS"\n'
+    section = section.replace("${{ steps.resolve-sha.outputs.sha }}", "a" * 40)
+    section = section.replace(
+        "/tmp/dev-account-deletion-fence-installation.log",  # noqa: S108 - redirect authored log into isolated fixture.
+        str(tmp_path / "fence.log"),
     )
-    (tmp_path / "python-gate").chmod(0o755)
-    (tmp_path / "gcloud").write_text(
-        '#!/bin/sh\ncase "$*" in *MIGRATOR_DB_USER*) echo scope_commerce_sandbox_migrator;; '
-        "*MIGRATOR_DB_PASSWORD*) echo synthetic-migration-password;; *) exit 1;; esac\n"
-    )
-    (tmp_path / "gcloud").chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": str(tmp_path) + ":" + os.environ["PATH"],
-        "DEPLOY_SECRET_PREFIX": "SCOPE_COMMERCE_SANDBOX_",
-        "DB_USER": "scope_commerce_sandbox",
-        "DB_PASSWORD": "synthetic-runtime-password",
-        "CALLS": str(tmp_path / "calls"),
-    }
+    assert "${{" not in section
+    env = dev_migration_environment(tmp_path)
     env.pop("DEV_TARGET", None)
     if target is not None:
         env["DEV_TARGET"] = target
@@ -288,7 +278,23 @@ def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path, ta
     )
     assert (tmp_path / "calls").read_text().splitlines() == expected
     if target != "scope-commerce-sandbox":
+        assert (tmp_path / "release-calls").read_text().splitlines() == ["qualified", "fence"]
+        for failure, expected_calls in (
+            ("QUALIFY_EXIT", ["qualified"]),
+            ("FENCE_EXIT", ["qualified", "fence"]),
+        ):
+            (tmp_path / "calls").unlink(missing_ok=True)
+            (tmp_path / "release-calls").unlink()
+            refused = subprocess.run(  # noqa: S603 - same hermetic production step.
+                ["bash", "-eu", "-c", section],
+                cwd=tmp_path,
+                env=env | {failure: "1"},
+                capture_output=True,
+            )
+            assert refused.returncode != 0 and not (tmp_path / "calls").exists()
+            assert (tmp_path / "release-calls").read_text().splitlines() == expected_calls
         return
+    assert not (tmp_path / "release-calls").exists()
     (tmp_path / "calls").unlink()
     result = subprocess.run(  # noqa: S603 - real workflow with hermetic command adapters.
         ["bash", "-eu", "-c", section],

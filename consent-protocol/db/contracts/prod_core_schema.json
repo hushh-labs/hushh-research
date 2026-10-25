@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 423,
+  "expected_migration_version": 424,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -8,6 +8,7 @@
     "account_enrollment_review_digest",
     "account_firebase_mutations_settled",
     "account_generation_admission_cutoff",
+    "account_provider_cleanup_contract_version",
     "account_provider_cleanup_live_inventory",
     "account_provider_cleanup_pending",
     "account_provider_cleanup_qualified",
@@ -115,6 +116,7 @@
     "guard_account_firebase_mutation_receipt",
     "guard_account_generation_history",
     "guard_account_provider_cleanup_phase",
+    "guard_account_shared_provider_authority",
     "guard_azure_vm_power_deletion",
     "guard_azure_vm_power_registry",
     "guard_azure_vm_power_standby",
@@ -4518,5 +4520,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 423
+  "expected_schema_head": 424
 }

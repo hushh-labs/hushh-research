@@ -2290,6 +2290,13 @@ async def _delete_account_result(user_id: str, *, target: str) -> dict[str, Any]
         return {"success": False, "error": type(exc).__name__}
 
 
+def _cleanup_provider_detail(value: object) -> dict[str, str]:
+    if not isinstance(value, str):
+        return {}
+    provider = {"user_azure": "azure", "user_gcp": "gcp"}.get(value)
+    return {"cleanupProvider": provider} if provider else {}
+
+
 async def _perform_account_deletion(user_id: str, *, target: str):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
@@ -2309,11 +2316,7 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 detail={
                     "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
                     "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
-                    **(
-                        {"cleanupProvider": "azure"}
-                        if result.get("cleanup_provider") == "user_azure"
-                        else {}
-                    ),
+                    **_cleanup_provider_detail(result.get("cleanup_provider")),
                 },
             )
         if result.get("error_code") == ACCOUNT_DELETION_PAUSED_CODE:

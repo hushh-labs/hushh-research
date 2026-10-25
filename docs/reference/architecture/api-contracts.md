@@ -720,9 +720,11 @@ model/deployment. The hub's Shared model catalog is not an Azure pod catalog.
   `cleanup_pending` or `unverified`, plus bounded previous-home metadata. A denied
   read is never absence. This neither wakes nor repairs/deletes the pod.
 
-These routes use the existing One proxy and personal-agent feature authority.
-Cloud removal requires dev-only migration972; native execution and broad orphan
-scanning are not qualified. See the [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account).
+These routes use the existing One proxy and exact owner authority. Inspection and
+removal remain available when new provisioning is disabled. GCP destructive work
+still requires the independent substrate-teardown control before reservation or
+provider effects. Cloud removal requires the installed lifecycle schema; native
+execution and broad orphan scanning are not qualified. See the [deletion runbook](../operations/account-deletion-rollout.md#remove-cloud-while-keeping-the-account).
 
 
 ## Route Categories
@@ -3365,7 +3367,7 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | GET    | `/api/account/email-aliases`                      | List vault-owner account email aliases                                                                                                                                                                   |
 | POST   | `/api/account/email-aliases/verification/start`   | Start explicit email alias verification; dev/UAT review mode may echo the code                                                                                                                           |
 | POST   | `/api/account/email-aliases/verification/confirm` | Confirm an email alias before it can match One Email KYC intake                                                                                                                                          |
-| DELETE | `/api/account/delete`                             | Delete the account, user-owned Vault/profile/application records, and the authenticated Firebase UID. Required append-only or regulated evidence follows its approved retention/redaction policy rather than an incidental cascade. Returns `409 ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING` without deleting anything when parked personal-agent/BYOC state may still own an external resource. A settled bounded Shared Files batch returns `409 FILES_ERASURE_IN_PROGRESS` while versions remain; keys are retained and completion requires subsequent qualified absence. The owner may retry deliberately after active-account confirmation; uncertain delivery is never replayed automatically. |
+| DELETE | `/api/account/delete`                             | Delete the selected environment’s user-owned Vault/profile/application records. Shared Firebase identity is retained; this operation does not erase another environment. Required append-only or regulated evidence follows its approved retention/redaction policy rather than an incidental cascade. Returns `409 ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING` without deleting anything when personal-agent/BYOC state may still own an external resource. Recorded user-owned Azure/GCP targets include `cleanupProvider: "azure" | "gcp"`; GCP completes the existing reviewed cloud-removal finalization before the owner explicitly continues account deletion. A settled bounded Shared Files batch returns `409 FILES_ERASURE_IN_PROGRESS` while versions remain; keys are retained and completion requires subsequent qualified absence. The owner may retry deliberately after active-account confirmation; uncertain delivery is never replayed automatically. |
 | GET | `/api/account/delete-lost-vault/options` | Firebase-authenticated, no-store discovery for a signed-in person with an inaccessible vault. Returns whether a verified linked phone is required, a masked hint, and enrolled Google/Apple provider IDs. It grants no deletion or vault authority. |
 | POST | `/api/account/delete-lost-vault/phone` | Read-only preflight after fresh same-owner Google/Apple reauthentication. Accepts `{phone_number:"+..."}` with an explicit country code, normalizes through the canonical phone utility, and compares the complete number with the same authoritative existing binding used by deletion. Returns only `{valid:true}`, with `private, no-store`; mismatch, invalid number, binding conflict, or unavailable identity cannot issue SMS through the normal UI. It changes no binding and grants no deletion or vault authority. Final deletion rereads the binding and checks fresh phone proof independently. |
 | POST | `/api/account/delete-lost-vault` | Full account deletion without a vault secret. Requires a fresh (at most five minutes) Google/Apple reauthentication bearer for the exact current UID; when an account has a verified linked phone, also requires a fresh Firebase phone ID token for that exact stored number. A phone token alone, a newly entered number in the request, a different UID/provider, or a stale bearer cannot authorize deletion. The body is `{method:"provider"}` when no linked phone is required or `{method:"phone",phone_id_token:"..."}` when one is required. Reuses the full erasure and Firebase cleanup lifecycle and its external-resource blockers. `ready_to_start_fresh` is true only when the old Firebase identity was deleted or already absent; otherwise the client must withhold fresh signup. `details.firebase_auth_user: "identity_retained"` means deliberate preservation, not automatically completing cleanup; the central sign-out/login notice preserves this distinction. |
@@ -3383,6 +3385,13 @@ A verified `423 AUTH_ACCOUNT_DELETION_IN_PROGRESS` preserves identity behind the
 existing sealed session-recovery gate, which observes commit or rollback with
 backoff. It never resubmits DELETE or reports pending work as a completed deletion.
 The public deletion proxy forwards and echoes the existing request correlation ID.
+
+Provider cleanup requires the installed version-2 producer contract (migration423).
+A reviewed Google OAuth project shared across environments is retained: revocation
+affects the whole project’s clients for that person. The existing digest-bound
+local-erasure confirmation authorizes removal of this environment’s copies, and
+the receipt records retained shared authority. It never reports those grants as
+revoked. Unknown effects retain recovery custody and require reconciliation.
 
 Every Firebase bearer dependency verifies signature, issuer, audience, and
 expiry, preserves revoked/disabled-token enforcement, and always enforces the
@@ -4500,7 +4509,7 @@ and 32 MiB ciphertext/request. Availability is for every authenticated user in t
 released environment. Native preparation/viewer remains an explicit parity gap
 with browser handoff, rather than a claim of verified device support.
 
-Migration 423 owns the request-bound encrypted artifact inventory, access receipts,
+Migration 424 owns the request-bound encrypted artifact inventory, access receipts,
 activity and retained financial/cleanup obligations. Runtime bucket admission pins
 a dedicated private GCS bucket's creation identity, public-access prevention,
 uniform access and no retained-version/hold policy. Exact-generation erasure and

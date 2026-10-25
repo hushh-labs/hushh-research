@@ -107,8 +107,8 @@ def seed_delivery_registry(sharing, public):
             .split("ALTER TABLE one_kyc_workflows", 1)[0]
         )
         connection.exec_driver_sql((registry + "COMMIT;").replace("%", "%%"))
-        apply_drive_fixture_migration(connection, "423_protected_one_document_delivery.sql")
-        apply_drive_fixture_migration(connection, "423_protected_one_document_delivery.sql")
+        apply_drive_fixture_migration(connection, "424_protected_one_document_delivery.sql")
+        apply_drive_fixture_migration(connection, "424_protected_one_document_delivery.sql")
         connection.execute(
             text("""INSERT INTO one_kyc_client_connectors
           (user_id,connector_key_id,connector_public_key,public_key_fingerprint)

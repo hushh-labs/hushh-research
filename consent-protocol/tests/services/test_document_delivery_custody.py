@@ -340,11 +340,11 @@ async def test_migration_replay_refuses_loosened_identity_shape_and_rollback_is_
                 "ALTER TABLE document_delivery_contracts ALTER COLUMN recipient_key_fingerprint DROP NOT NULL"
             )
         )
-        apply_drive_fixture_migration(connection, "423_protected_one_document_delivery.sql")
+        apply_drive_fixture_migration(connection, "424_protected_one_document_delivery.sql")
     await new_request(system)
     rollback = (
         Path(__file__).parents[2]
-        / "db/migrations/rollback/423_protected_one_document_delivery.rollback.sql"
+        / "db/migrations/rollback/424_protected_one_document_delivery.rollback.sql"
     ).read_text()
     with (
         pytest.raises(DBAPIError, match="reconcile retained document deliveries"),
@@ -358,5 +358,5 @@ async def test_migration_replay_refuses_loosened_identity_shape_and_rollback_is_
             connection, user_id="owner", permanent=True, cipher=system.store.sharing_cipher
         )
         connection.exec_driver_sql(rollback.replace("%", "%%"))
-        apply_drive_fixture_migration(connection, "423_protected_one_document_delivery.sql")
+        apply_drive_fixture_migration(connection, "424_protected_one_document_delivery.sql")
         assert system.store.schema_ready(connection)

@@ -10,6 +10,10 @@
     "source": "PostgreSQL 15 default superuser_reserved_connections = 3 (https://www.postgresql.org/docs/15/runtime-config-connection.html). No instance overrides it (gcloud sql instances describe, 2026-10-06)."
   },
   "dedicated_connections_per_worker": {
+    "hushh_mcp/services/account_deletion_release_admission.py": {
+      "connections": 3,
+      "why": "Deletion admission holds a dedicated release-lease session through joined provider and Files effects. It shares db.connection's existing process-wide three-connection ceiling reserved before network access; this is not an additional per-caller allowance."
+    },
     "hushh_mcp/services/market_cache_store.py": {
       "connections": 1,
       "why": "Market refresh advisory lock. The startup warm and the refresh loop run one after the other, so one connection per worker at a time."

@@ -1215,6 +1215,21 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(
       screen.queryByText("Vault content for account-owner"),
     ).not.toBeInTheDocument();
+
+    // Rechecking the same sealed recovery must not replace it with startup
+    // loading (and reopen a URL-requested Profile between every poll).
+    const recheck = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(recheck.promise);
+    fireEvent.click(screen.getByRole("button", { name: "Retry verification" }));
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
+    await act(async () => {
+      recheck.resolve(activeSessionResponse());
+      await recheck.promise;
+    });
+    expect(await screen.findByText("Vault content for account-owner")).toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 
   it("clears a pending deletion handoff when rollback precedes the first owner re-probe", async () => {
@@ -1605,9 +1620,17 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
       screen.queryByText("Vault content for account-owner"),
     ).not.toBeInTheDocument();
 
+    const recheck = deferred<Response>();
+    mocks.apiGetAccountSessionStatus.mockReturnValueOnce(recheck.promise);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_001); });
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    await act(async () => { recheck.resolve(activeSessionResponse()); await recheck.promise; });
 
     expect(
       screen.getByText("Vault content for account-owner"),

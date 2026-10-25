@@ -33,6 +33,9 @@ from tests.helpers.private_agent_adoption import (
     LEGACY_PREDECESSOR_SCHEMA,
     LEGACY_TRIGGERS,
     RECEIPT_PREDECESSORS,
+    authorization_state,
+    guard_catalog,
+    receipt_state,
 )
 from tests.pkm_conformance.postgres_harness import find_pg_bin
 from tests.test_migrations_are_replay_safe import replay_pg
@@ -107,16 +110,6 @@ def install_legacy_guards(connection, *, triggers=True):
             cursor.execute(LEGACY_TRIGGERS)
 
 
-def guard_catalog(connection):
-    with connection.cursor() as cursor:
-        cursor.execute("""SELECT t.oid,t.tgname,t.tgenabled,t.tgfoid,
-          pg_get_triggerdef(t.oid,true),pg_get_functiondef(p.oid),p.prosecdef,p.proconfig
-          FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
-          WHERE t.tgrelid='public.consent_audit'::regclass
-          AND t.tgname LIKE 'zz_%consumer_memory%' ORDER BY t.tgname""")
-        return cursor.fetchall()
-
-
 def assert_absent_guard_qualification_blocks_concurrent_install(connection, server, database):
     with connection.cursor() as cursor:
         cursor.execute(
@@ -172,13 +165,13 @@ def reject_guard_drift(connection, entry):
                 cursor.execute(cleanup)
 
 
-async def execute_mode(server, database, entry, mode):
+async def execute_mode(server, database, entry, mode, *, following=()):
     connection = await asyncpg.connect(
         host=server.dir, port=server.port, user="hushh", database=database
     )
     try:
         return await apply_manifest_entries(
-            connection, (entry,), mode=mode, deploy_sha="synthetic-adoption-head"
+            connection, (entry, *following), mode=mode, deploy_sha="synthetic-adoption-head"
         )
     finally:
         await connection.close()
@@ -238,6 +231,35 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
         assert guard_catalog(connection) == before
         reject_guard_drift(connection, entry)
         assert_pending_ledger_receipt(replay_pg, database, connection, entry)
+        # The next release must preserve423's installed admission guard while
+        # replaying immutable420, rather than rejecting or removing it.
+        successor = (MIGRATIONS / "423_account_shared_provider_authority.sql").read_text()
+        with connection.cursor() as cursor:
+            cursor.execute(successor)
+        assert asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY)) == (
+            FOUNDATION,
+        )
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT public.account_provider_cleanup_contract_version()")
+            assert cursor.fetchone()[0] == 2
+            cursor.execute("""CREATE OR REPLACE FUNCTION public.guard_account_shared_provider_authority()
+                RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public
+                AS $$ BEGIN RETURN NEW; END $$""")
+        try:
+            with pytest.raises(asyncpg.RaiseError, match="shared provider authority successor"):
+                asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY))
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(successor)
+        with connection.cursor() as cursor:
+            cursor.execute("""CREATE OR REPLACE FUNCTION public.account_provider_cleanup_contract_version()
+                RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT NULL::integer $$""")
+        try:
+            with pytest.raises(asyncpg.RaiseError, match="shared provider authority successor"):
+                asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY))
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute(successor)
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
 
 
@@ -258,27 +280,6 @@ def test_private_agent_adoption_refuses_changed_immutable_source(drift):
     )
     with pytest.raises(MigrationAuthorityError, match="checksum"):
         execution_sql(altered)
-
-
-def authorization_state(connection):
-    with connection.cursor() as cursor:
-        cursor.execute("""SELECT a.atttypid::regtype::text,a.attnotnull,
-          pg_get_expr(d.adbin,d.adrelid),a.attgenerated,a.attidentity FROM pg_attribute a
-          LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
-          WHERE a.attrelid='public.byoc_setup_jobs'::regclass
-          AND a.attname='authorization_attempts' AND NOT a.attisdropped""")
-        column = cursor.fetchone()
-        cursor.execute(
-            "SELECT user_id,to_jsonb(j),ctid::text FROM public.byoc_setup_jobs j ORDER BY user_id"
-        )
-        return column, cursor.fetchall()
-
-
-def receipt_state(connection):
-    with connection.cursor() as cursor:
-        cursor.execute("""SELECT to_jsonb(r),ctid::text FROM public.consent_audit_receipts r
-          WHERE subject_id='synthetic-retained' ORDER BY id""")
-        return cursor.fetchall()
 
 
 def seed_legacy_authorization(connection):
@@ -315,6 +316,7 @@ def seed_legacy_authorization(connection):
 
 
 def reject_authorization_drift(connection, entry, before):
+    receipts = receipt_state(connection)
     mutations = (
         tuple(
             (ddl, "authorization_attempts")
@@ -336,6 +338,7 @@ def reject_authorization_drift(connection, entry, before):
             finally:
                 cursor.execute("ROLLBACK")
             assert authorization_state(connection) == before
+            assert receipt_state(connection) == receipts
         cursor.execute(
             "CREATE UNIQUE INDEX synthetic_adoption_drift ON public.personal_agent_registry(space_id)"
         )
@@ -344,6 +347,7 @@ def reject_authorization_drift(connection, entry, before):
                 cursor.execute(execution_sql(entry))
             cursor.execute("ROLLBACK")
             assert authorization_state(connection) == before
+            assert receipt_state(connection) == receipts
         finally:
             cursor.execute("ROLLBACK")
             cursor.execute("DROP INDEX synthetic_adoption_drift")
@@ -448,6 +452,7 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
         before = seed_legacy_authorization(connection)
         receipts = receipt_state(connection)
         assert len(receipts) == 1
+        assert "ledger" not in receipts[0][0]
         assert before[0] == ("jsonb", False, None, "", "")
         with connection.cursor() as cursor:
             with pytest.raises(psycopg2.errors.RaiseException, match="column"):
@@ -475,5 +480,26 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
         expected = () if mode is MigrationMode.LEDGER else (FOUNDATION,)
         assert asyncio.run(execute_mode(replay_pg, database, entry, mode)) == expected
         assert authorization_state(connection) == normalized
-        assert receipt_state(connection) == receipts
+        following = build_manifest_entries(
+            MIGRATIONS,
+            [
+                "421_cloud_removal_recovery.sql",
+                "422_financial_packet_discovery_capacity.sql",
+                "423_account_shared_provider_authority.sql",
+            ],
+        )
+        assert asyncio.run(
+            execute_mode(replay_pg, database, following[0], mode, following=following[1:])
+        ) == tuple(e.filename for e in following)
+        expected = (
+            () if mode is MigrationMode.LEDGER else (FOUNDATION, *(e.filename for e in following))
+        )
+        assert (
+            asyncio.run(execute_mode(replay_pg, database, entry, mode, following=following))
+            == expected
+        )
+        assert authorization_state(connection) == normalized
+        assert receipt_state(connection) == [
+            ({**row, "ledger": "consent"}, ctid) for row, ctid in receipts
+        ]
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256

@@ -17,39 +17,58 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026
+## Current decision — 25 October 2026, 14:46 UTC
 
-**[PR #8445](https://github.com/hushh-labs/hushh-research/pull/8445) landed through
-Admin SOP as `2737492a6a`, after 24 exact-head checks passed and three lanes were
-intentionally unselected. [Landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40179472423)
-passed.** It preserves main's financial Files work, migration 422 and peer edits.
-PR #8437 previously landed as `a65e4f5fd5` with all 27 checks passing.
+**Browser repair [#8451](https://github.com/hushh-labs/hushh-research/pull/8451)
+is on main as `9174abfbe594`.** Exact-head
+[CI](https://github.com/hushh-labs/hushh-research/actions/runs/40198710835),
+landed smoke and the governed
+[dev release](https://github.com/hushh-labs/hushh-research/actions/runs/40201425206)
+passed. The dev run took 23m58s without retry or rollback. Corporate ADC at
+14:41 UTC confirms backend `00239-7vz` and frontend `00205-jb4` serve that source
+at 100%. UAT still serves `24545d1dc2`; it has not received this candidate.
 
-Corporate ADC readback at 10:07 UTC still found both applications serving
-`24545d1dc2`. The earlier [dev attempt](https://github.com/hushh-labs/hushh-research/actions/runs/40174285264)
-failed before switching traffic because immutable 420 refused two legitimate
-consumer-consent guards. Main's [PR #8446](https://github.com/hushh-labs/hushh-research/pull/8446)
-now supplies the single adoption authority. [PR #8447](https://github.com/hushh-labs/hushh-research/pull/8447)
-consolidates the overlapping repair, refuses incomplete retained footprints and
-adds permanent owner-scoped consumer-connection erasure. Historical SQL and
-checksums stay unchanged; neighboring connections and the independent client remain.
-The combined 144 PostgreSQL/replay/cleanup cases pass. Peer financial and Calendar
-changes are inherited normally; exact candidate CI and deployment remain separate.
-A peer [dev rollout](https://github.com/hushh-labs/hushh-research/actions/runs/40183489218)
-from `7dcc0fba55` is in progress; its outcome is not yet an acceptance receipt.
+| Boundary | Actual result | Remaining acceptance |
+|---|---|---|
+| Source and dev application | Explicit Chromium redirect chains retain their original authority; unknown parents refuse. Local core, exact CI, schema, parity and provenance pass | Accepted UAT promotion |
+| Browser executable | Exact image `6e57f2510819…eeac423`, source `9174abfbe594`, passes native interactive component checks on both clouds | Normal owner installation, active-task controls and reconnect |
+| Remembered login | Synthetic login suppresses model observations; encrypted remember, new-task restore, logout rejection, Forget, one reviewed save and Stop pass | Installed owner cloud custody and review flows |
+| Recovery | Both actual predecessors preserve identity, six records, revocation, consent and 245,763 exact file bytes | Normal approved update and active-work drain |
+| Account generations | Isolated real-mail candidate completes two delete/register cycles, same Firebase UID, generations 0/1/2, three application owners; both old sessions refuse | Deployed admission and remaining identity-integration compatibility |
+| Information sharing | Existing fixed-term flow is the accepted scope; no recurring billing is added | Two-owner request, review, selected access and revocation; paid Sandbox pair remains an explicit configuration decision |
 
-Person approval now uses canonical discovery inside the caller's transaction and
-keeps exact scope/key refusals. The replacement-account Browser client uses the
-captured Firebase/application principal pair and session episode. Local core,
-43 combined migration/Files cases, 44 Browser/principal cases and the changed
-frontend stage pass; these are source receipts, not installed-owner acceptance.
+The Browser image uses real Gemini `gemini-3.7-flash` on GCP and the owner's Azure
+`one-chat` deployment backed by GPT-5.6 Luna. It made two and three native model
+round trips respectively. One and Browser share the non-root owner container;
+GCP keeps Chromium's sandbox enabled, Azure explicitly disables it. Normal broker
+and approval enforcement do not contain compromised code in that shared boundary.
+The qualified interactive policy is limited to the temporary controlled HTTPS
+fixture. It establishes no general website or authenticated GitHub compatibility.
+The reviewed release pins must preserve that exact policy and model transport.
 
-Both normal owner browser sessions respond. GCP still reports predecessor
-`26bab163`; Azure still reports `8b846022`. Browser activation is unavailable on
-those installed images. Final-image qualification, recovery, exact owner updates
-and Browser/Puppy acceptance remain distinct from application deployment.
-Replacement enrollment stays off until controlled live acceptance; no existing
-Firebase identity or terminal tombstone is reset to obtain a pass.
+Task-owned qualification and recovery compute, temporary grants, active objects,
+images and Azure deleted vault were removed and read back. GCP's seven-day object
+soft-delete retention remains explicit. The controlled website remains temporarily
+available for owner acceptance. No existing owner pod has been upgraded by these probes.
+GCP still reports `26bab163`; Azure reports `8b846022`; neither reports active Browser.
+
+The existing Hosting/AI checks preserve the saved connection, Back and Finish
+return to Hosting, and Azure identifies its existing cloud as Azure AI. No model
+selection or placement was changed. Person approval retains canonical scope/key
+checks; cleanup remains durable and repairable. Historical checksums and peer
+Calendar, financial, consent and deletion changes remain preserved.
+
+Replacement enrollment remains disabled in ordinary environments pending deployed
+compatibility and acceptance. The successful two-cycle proof used an isolated
+canonical database, real purpose-bound email and legitimate encrypted vault setup;
+it did not reset personal accounts, terminal tombstones or the shared Firebase identity.
+An earlier isolated final-session 401 is retained as failed evidence, without an
+unproven root-cause claim. The successful run closed all owned processes and scratch.
+
+The next publication reuses the exact qualified executable instead of rebuilding
+it, and makes only the two recovery-qualified predecessors eligible. Exact owner
+approval, installed Browser/Puppy/Files acceptance and UAT remain separate steps.
+No production rollout, stable publication or automatic owner update is authorized.
 
 ### PR #8437 verification history
 

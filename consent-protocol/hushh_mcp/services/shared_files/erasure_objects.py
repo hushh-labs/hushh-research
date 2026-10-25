@@ -15,6 +15,30 @@ from . import bucket_admission
 async def erase_objects(
     store: GcsObjectStore, bucket: str, prefix: str, row: dict[str, Any]
 ) -> dict[str, str]:
+    # Provider threads cannot be cancelled. Retain their owning operation until
+    # every started DELETE settles, so release admission cannot outlive it.
+    operation = asyncio.create_task(_erase_objects(store, bucket, prefix, row))
+    cancellation = None
+    while True:
+        try:
+            result = await asyncio.shield(operation)
+            break
+        except asyncio.CancelledError as exc:
+            if operation.cancelled():
+                raise
+            cancellation = exc
+        except Exception:
+            if cancellation is not None:
+                raise cancellation
+            raise
+    if cancellation is not None:
+        raise cancellation
+    return result
+
+
+async def _erase_objects(
+    store: GcsObjectStore, bucket: str, prefix: str, row: dict[str, Any]
+) -> dict[str, str]:
     url = f"https://storage.googleapis.com/storage/v1/b/{quote(bucket, safe='')}/o"
     before = await bucket_admission.observe(store, bucket)
     retained = bucket_admission.verify(row, before)
@@ -64,7 +88,10 @@ async def erase_objects(
             if response.status_code not in {204, 404}:
                 raise FilesRefused("FILES_ERASURE_DELETE_UNCONFIRMED", 409)
 
-    await asyncio.gather(*(remove(item) for item in page))
+    outcomes = await asyncio.gather(*(remove(item) for item in page), return_exceptions=True)
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            raise outcome
     if await listing():
         raise FilesRefused("FILES_ERASURE_IN_PROGRESS", 409)
     qualified_disabled = retained["noSoftDeleteHistory"] and bucket_admission.no_history(before)

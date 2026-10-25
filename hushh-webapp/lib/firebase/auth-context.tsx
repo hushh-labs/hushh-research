@@ -1151,9 +1151,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return Promise.resolve();
       }
 
-      if (userRef.current) {
-        // This path is reserved for an explicit verification/recovery action;
-        // lifecycle events never reach it and therefore never toggle this gate.
+      if (userRef.current && !authGateRef.current.sessionVerificationRequired) {
+        // Seal an admitted screen once. Subsequent probes keep the existing
+        // recovery surface mounted instead of restarting global boot on each
+        // retry. Its verification gate still hides every protected surface.
         setLoading(true);
       }
 

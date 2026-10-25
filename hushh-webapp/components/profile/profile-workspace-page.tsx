@@ -91,7 +91,7 @@ import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-pre
 import { CommunicationPreferencesSection } from "@/components/profile/communication-preferences-section";
 import { Brain } from "@/components/icons";
 import { AccountCloudCleanup } from "@/components/profile/account-cloud-cleanup";
-import { azureAccountCleanupRequired } from "@/lib/services/account-cloud-cleanup";
+import { accountCleanupProvider } from "@/lib/services/account-cloud-cleanup";
 import { GeminiRuntimeSettingsView, useGeminiRuntimeSettingsModel } from "@/components/connections/gemini-runtime-settings-card";
 import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtime-settings";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
@@ -579,8 +579,9 @@ function ProfilePageContent({
     "profile_data" | "delete_account" | "reset_account"
   >("profile_data");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [cloudCleanupRequired, setCloudCleanupRequired] = useState(false);
-  useEffect(() => { setCloudCleanupRequired(false); }, [applicationOwnerId]);
+  const [cloudCleanupProvider, setCloudCleanupProvider] = useState<"azure" | "gcp" | null>(null);
+  const cloudCleanupRequired = cloudCleanupProvider !== null;
+  useEffect(() => { setCloudCleanupProvider(null); }, [applicationOwnerId]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -1719,7 +1720,7 @@ function ProfilePageContent({
     const owner = snapshotValidatedAuthSessionPrincipal();
     if (!user || !owner || owner.firebaseUid !== user.uid) return "auth_failed";
 
-    let needsCloudReview = false;
+    let needsCloudReview: "azure" | "gcp" | null = null;
     setIsDeleting(true);
 
     // Resolve auth first so a vault-unlock requirement is handled as a guard
@@ -1789,8 +1790,8 @@ function ProfilePageContent({
       });
       return "deleted";
     } catch (error) {
-      needsCloudReview = azureAccountCleanupRequired(error);
-      if (needsCloudReview && isValidatedAuthSessionOwnerCurrent(owner)) setCloudCleanupRequired(true);
+      needsCloudReview = accountCleanupProvider(error);
+      if (needsCloudReview && isValidatedAuthSessionOwnerCurrent(owner)) setCloudCleanupProvider(needsCloudReview);
       (isHandledAccountDeletionOutcome(error) ? console.warn : console.error)(
         "Delete account error:",
         error,
@@ -1798,7 +1799,7 @@ function ProfilePageContent({
       return classifyDeletionError(error);
     } finally {
       setIsDeleting(false);
-      setShowDeleteConfirm(needsCloudReview);
+      setShowDeleteConfirm(needsCloudReview !== null);
     }
   };
 
@@ -4964,6 +4965,8 @@ function ProfilePageContent({
             </AlertDialogDescription>
           </AlertDialogHeader>
           {cloudCleanupRequired && applicationOwnerId ? <AccountCloudCleanup key={applicationOwnerId} userId={applicationOwnerId} token={vaultOwnerToken ?? null}
+            provider={cloudCleanupProvider ?? undefined} purpose={cloudCleanupProvider === "gcp" ? "remove_cloud" : "account"}
+            continueAccountDeletion={cloudCleanupProvider === "gcp"}
             onUnlock={() => { setShowDeleteConfirm(false); requestVaultUnlock("delete_account"); }}
             onFinish={handleDeleteAccount} /> : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">

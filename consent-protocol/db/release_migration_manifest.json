@@ -359,7 +359,8 @@
     "420_private_agent_lifecycle_foundation.sql",
     "421_cloud_removal_recovery.sql",
     "422_financial_packet_discovery_capacity.sql",
-    "423_protected_one_document_delivery.sql"
+    "423_account_shared_provider_authority.sql",
+    "424_protected_one_document_delivery.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -761,6 +762,7 @@
     "416_financial_packet_tag_work.sql": "rollback/416_financial_packet_tag_work.rollback.sql",
     "417_drive_packet_public_summary.sql": "rollback/417_drive_packet_public_summary.rollback.sql",
     "422_financial_packet_discovery_capacity.sql": "rollback/422_financial_packet_discovery_capacity.rollback.sql",
-    "423_protected_one_document_delivery.sql": "rollback/423_protected_one_document_delivery.rollback.sql"
+    "423_account_shared_provider_authority.sql": "rollback/423_account_shared_provider_authority.rollback.sql",
+    "424_protected_one_document_delivery.sql": "rollback/424_protected_one_document_delivery.rollback.sql"
   }
 }

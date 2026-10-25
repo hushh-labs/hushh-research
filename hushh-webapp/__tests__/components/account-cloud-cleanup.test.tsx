@@ -68,6 +68,20 @@ it("inspects a GCP removal without opening a Microsoft popup or changing account
   expect(mocks.popup).not.toHaveBeenCalled();
   expect(mocks.begin).toHaveBeenCalledWith("synthetic-memory-only", "inspect", "remove_cloud", null);
 });
+it("@feature_account_deletion @trace_loop requires verified GCP removal to finish before explicitly continuing account deletion", async () => {
+  const view = { ...plan, canFinalize: true, approvalRequired: false, provider: "gcp" };
+  mocks.read.mockResolvedValue(view);
+  let settle!: () => void;
+  mocks.finishCloud.mockReturnValue(new Promise<void>(done => { settle = done; }));
+  const onFinish = vi.fn();
+  render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only" purpose="remove_cloud" provider="gcp" continueAccountDeletion onUnlock={vi.fn()} onFinish={onFinish} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Finish account deletion" }));
+  await waitFor(() => expect(mocks.finishCloud).toHaveBeenCalledWith("synthetic-memory-only", view));
+  expect(onFinish).not.toHaveBeenCalled();
+  await act(async () => settle());
+  await waitFor(() => expect(onFinish).toHaveBeenCalledOnce());
+  expect(mocks.popup).not.toHaveBeenCalled();
+});
 it("refreshes the same operation after Microsoft returns, without approving or executing it", async () => {
   mocks.read.mockRejectedValueOnce("no-reservation").mockResolvedValue(plan);
   mocks.begin.mockResolvedValue({ operationId: plan.operationId, authorizationUrl: "https://login.microsoftonline.com/owner/oauth2/v2.0/authorize" });

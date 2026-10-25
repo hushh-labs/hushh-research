@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -42,6 +43,38 @@ def copy_candidate_tools(root, destination_root):
         shutil.copy2(root / relative, destination)
     for name in ("cloudrun-retention.py", "process_group.py"):
         shutil.copy2(root / "scripts/ci" / name, destination_root / "scripts/ci" / name)
+
+
+def dev_migration_environment(directory: Path) -> dict[str, str]:
+    """Only fixed synthetic qualification, fence and migration subprocesses."""
+    (directory / "consent-protocol").mkdir()
+    commands = {
+        "python-gate": 'printf "%s:%s:%s\\n" "$*" "$DB_USER" "$DB_PASSWORD" >> "$CALLS"',
+        "gcloud": 'case "$*" in *MIGRATOR_DB_USER*) echo scope_commerce_sandbox_migrator;; '
+        "*MIGRATOR_DB_PASSWORD*) echo synthetic-migration-password;; *) exit 1;; esac",
+        "python3": '[ "$*" = "deploy/account-deletion/activate_release.py --qualify-source '
+        + "a" * 40
+        + '" ] || exit 91\necho qualified >> "$RELEASE_CALLS"\nexit "${QUALIFY_EXIT:-0}"',
+        "psql": '[ "$*" = "--no-psqlrc --set=ON_ERROR_STOP=1 --file '
+        'deploy/account-deletion/install_release_fence.sql" ] || exit 92\n'
+        '[ "$PGHOST:$PGPORT:$PGDATABASE:$PGUSER:$PGPASSWORD" = '
+        '"127.0.0.1:6543:postgres:scope_commerce_sandbox:synthetic-runtime-password" ] || exit 93\n'
+        'echo fence >> "$RELEASE_CALLS"\nexit "${FENCE_EXIT:-0}"',
+    }
+    for name, body in commands.items():
+        script = directory / name
+        script.write_text("#!/bin/sh\nset -eu\n" + body + "\n")
+        script.chmod(0o755)
+    return {
+        **os.environ,
+        "PATH": str(directory) + ":" + os.environ["PATH"],
+        "DEPLOY_SECRET_PREFIX": "SCOPE_COMMERCE_SANDBOX_",
+        "DB_USER": "scope_commerce_sandbox",
+        "DB_PASSWORD": "synthetic-runtime-password",
+        "DEV_DB_NAME": "postgres",
+        "CALLS": str(directory / "calls"),
+        "RELEASE_CALLS": str(directory / "release-calls"),
+    }
 
 
 def run_candidate_gate(
@@ -145,6 +178,20 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/cloudrun-rollback.sh",
         "scripts/ci/runtime_capacity_inventory.py",
         "scripts/ci/account-deletion-fence-decision.py",
+        "scripts/ci/verify-cloud-scheduler-attempt.py",
+        "scripts/ci/cloudrun-rollback.sh",
+        "deploy/drive/rollback_after_worker_failure.sh",
+        *(
+            f"deploy/account-deletion/{name}"
+            for name in (
+                "install_release_fence.sql",
+                "remove_release_fence.sql",
+                "activate_release.py",
+                "release_target.py",
+                "setup_cleanup_scheduler.sh",
+                "verify_release_boundary.sql",
+            )
+        ),
         "scripts/ci/managed_provider_readiness.py",
         "scripts/ci/managed_capability_proof.py",
         "scripts/ops/verify-env-secrets-parity.py",
@@ -275,3 +322,104 @@ def probe_worker_payment_bindings(
         text=True,
         check=False,
     )
+
+
+def assert_backend_source_rollback(
+    root: Path, directory: Path, *, service: str, current: bool, sha_valid: bool, allowed: bool
+) -> None:
+    commands = directory / "commands"
+    sha = "a" * 40 if sha_valid else "unverified"
+    (directory / "gcloud").write_text(
+        "#!/usr/bin/env python3\nimport os,sys\n"
+        "a=sys.argv[1:]\n"
+        "with open(os.environ['CALLS'],'a') as f: f.write(' '.join(a)+'\\n')\n"
+        "if a[:3]==['run','revisions','describe']: print(os.environ['SOURCE_SHA'])\n"
+        "elif a[:3]!=['run','services','update-traffic']: raise SystemExit(99)\n"
+    )
+    (directory / "git").write_text(
+        "#!/usr/bin/env python3\nimport json,os,sys\n"
+        "assert sys.argv[1]=='show'\n"
+        "if os.environ['CURRENT']!='true': raise SystemExit(1)\n"
+        "print(json.dumps({'version':1} if sys.argv[2].endswith('account-deletion-authority.json') "
+        "else {'ordered_migrations':['423_account_shared_provider_authority.sql']}))\n"
+    )
+    for binary in ("gcloud", "git"):
+        (directory / binary).chmod(0o700)
+    environment = {
+        **os.environ,
+        "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+        "CALLS": str(commands),
+        "SOURCE_SHA": sha,
+        "CURRENT": str(current).lower(),
+        "GCP_PROJECT_ID": "synthetic-project",
+    }
+    environment.pop("BASH_ENV", None)
+    result = subprocess.run(  # noqa: S603 - authored script and synthetic cloud/git ports
+        ["bash", str(root / "scripts/ci/cloudrun-rollback.sh"), service, "us-central1", "prior"],
+        cwd=root,
+        env=environment,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert (result.returncode == 0) is allowed, result.stderr
+    calls = commands.read_text().splitlines()
+    assert any("update-traffic" in call for call in calls) is allowed
+    if service == "consent-protocol":
+        assert calls[0].startswith("run revisions describe prior ")
+        assert "--project=synthetic-project" in calls[0]
+
+
+def backend_rollback_authority_fixture(
+    root: Path, directory: Path, denied: str | None
+) -> tuple[Path, Callable[[Path], subprocess.CompletedProcess[str]]]:
+    tools = directory / "bin"
+    tools.mkdir()
+    calls = directory / "calls"
+    sha = "a" * 40
+    programs = {
+        "python3": (
+            '#!/bin/sh\ncase "$1" in\n'
+            " */resolve_protected_document_release.py) guard=reader;;\n"
+            " */activate_release.py) guard=provider; "
+            '[ "$2" = --qualify-source ] && [ "$3" = "$SOURCE_SHA" ] || exit 98;;\n'
+            " *) exit 99;;\nesac\n"
+            'printf "%s\\n" "$guard" >> "$CALLS"\n'
+            '[ "$guard" != "$DENIED" ] || exit 47\n'
+        ),
+        "gcloud": (
+            '#!/bin/sh\ncase "$1:$2:$3" in\n'
+            ' run:revisions:describe) printf "%s\\n" "$SOURCE_SHA";;\n'
+            ' run:services:update-traffic) printf "traffic\\n" >> "$CALLS";;\n'
+            " *) exit 99;;\nesac\n"
+        ),
+    }
+    for name, program in programs.items():
+        path = tools / name
+        path.write_text(program)
+        path.chmod(0o700)
+    environment = {
+        **os.environ,
+        "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+        "PROTOCOL_PYTHON": str(tools / "python3"),
+        "GCP_PROJECT_ID": "hushh-pda",
+        "HUSHH_DOCUMENT_READER_ENVIRONMENT": "production",
+        "HUSHH_DOCUMENT_READER_GUARD_REPORT": "synthetic-reader-report",
+        "HUSHH_DOCUMENT_MANUAL_ROLLBACK_GUARD": "false",
+        "CALLS": str(calls),
+        "SOURCE_SHA": sha,
+        "DENIED": denied or "",
+    }
+    environment.pop("BASH_ENV", None)
+
+    def execute(script):
+        return subprocess.run(  # noqa: S603 -- Real shell and fixed synthetic authority ports; no provider calls.
+            ["bash", str(script), "consent-protocol", "us-central1", "consent-protocol-prior"],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    return calls, execute

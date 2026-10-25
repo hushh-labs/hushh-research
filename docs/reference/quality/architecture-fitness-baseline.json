@@ -4672,7 +4672,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": "AccountDeletionLifecycleService",
-      "value": 1185
+      "value": 1202
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4681,7 +4681,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2961
+      "value": 2973
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -8722,7 +8722,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 590
+      "value": 595
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12250,7 +12250,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "deprovision",
-      "value": 95
+      "value": 105
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -15004,7 +15004,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": "test_full_account_deletion_covers_account_owned_tables",
-      "value": 315
+      "value": 319
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18001,7 +18001,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/account.py",
       "symbol": null,
-      "value": 2446
+      "value": 2449
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18730,7 +18730,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": null,
-      "value": 1459
+      "value": 1476
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18739,7 +18739,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 3062
+      "value": 3074
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20539,7 +20539,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": null,
-      "value": 1883
+      "value": 1890
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21151,7 +21151,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_deletion_release_workflow.py",
       "symbol": null,
-      "value": 1076
+      "value": 1260
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21844,7 +21844,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_provisioning_service.py",
       "symbol": null,
-      "value": 1833
+      "value": 1862
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21880,7 +21880,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_routes.py",
       "symbol": null,
-      "value": 663
+      "value": 667
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22906,7 +22906,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx",
       "symbol": null,
-      "value": 1962
+      "value": 1985
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -24958,7 +24958,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/firebase/auth-context.tsx",
       "symbol": null,
-      "value": 2341
+      "value": 2342
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32147,7 +32147,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
       "symbol": "test_provider_cleanup_retains_custody_through_failure_and_migration_replay",
-      "value": 682
+      "value": 702
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -32201,7 +32201,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
       "symbol": "prepare_provider_cleanup_in_transaction",
-      "value": 136
+      "value": 153
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -32219,7 +32219,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py",
       "symbol": "_open_grant",
-      "value": 112
+      "value": 120
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -32291,7 +32291,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
       "symbol": null,
-      "value": 1792
+      "value": 2205
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32300,7 +32300,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_account_deletion_provider_cleanup.py",
       "symbol": null,
-      "value": 784
+      "value": 943
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32336,7 +32336,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py",
       "symbol": null,
-      "value": 583
+      "value": 607
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32345,7 +32345,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py",
       "symbol": null,
-      "value": 525
+      "value": 579
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32373,6 +32373,51 @@
       "path": "consent-protocol/tests/conftest.py",
       "symbol": null,
       "value": 505
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|test_shared_provider_sql_requires_exact_local_approval_and_no_dispatched_effects|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
+      "symbol": "test_shared_provider_sql_requires_exact_local_approval_and_no_dispatched_effects",
+      "value": 87
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|_request_full_erasure|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
+      "symbol": "_request_full_erasure",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py|test_staged_worker_stops_all_watches_then_revokes_a_project_account_once|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_account_deletion_provider_cleanup.py",
+      "symbol": "test_staged_worker_stops_all_watches_then_revokes_a_project_account_once",
+      "value": 83
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_shared_files_lifecycle_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_shared_files_lifecycle_postgres.py",
+      "symbol": null,
+      "value": 542
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_private_agent_adoption_postgres.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_private_agent_adoption_postgres.py",
+      "symbol": null,
+      "value": 508
     }
   ],
   "inspected_files": 6625,
@@ -86203,6 +86248,302 @@
         "before": 2737,
         "after": 2740,
         "source_sha256": "b5f436d7d1d66be3d7aa2a660781e9deb09b67bf105882923729b900296e2e86"
+      }
+    ]
+  },
+  "account_deletion_reopened_review_20261025": {
+    "base_revision": "c927b76281f05089041571e4d2a842af2bf311de",
+    "scope": "Independent read-only placement review; exact source ceilings only. Global500/250/80 budgets, dependency checks, runtime gates and future-growth ratchet unchanged. No new oversized production function admitted. Behavioral and live release evidence remain separate.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "before": 2961,
+        "after": 2973,
+        "source_sha256": "764e19cc43ecefafa158a01c1144633652752236afc2b62ca5b35c58ecc7933f",
+        "reviewer": "backend_deletion",
+        "review": "Existing account transaction owns admission ordering; extracted release-admission implementation is reused before owner locks. Neutral cleanup-qualified reporting preserves shared authority."
+      },
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|AccountDeletionLifecycleService|class exceeds the advisory operon budget",
+        "before": 1185,
+        "after": 1202,
+        "source_sha256": "24af23fd188202ba77581eb924a9af4f494e82c513aa7017c46c66191364a287",
+        "reviewer": "backend_deletion",
+        "review": "Atomic preparation owns installed-contract admission, immutable descriptor validation and custody capture. No provider effect occurs in the transaction."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|test_provider_cleanup_retains_custody_through_failure_and_migration_replay|function exceeds the advisory gene budget",
+        "before": 682,
+        "after": 702,
+        "source_sha256": "7ca2e498133ed3d357f54411ffc473a4a165c74cd99796b09f453ce025caf703",
+        "reviewer": "ci_deletion",
+        "review": "Nearest real PostgreSQL custody/replay and HTTP-to-worker owner. Preserve transaction chronology and negative matrices. New encrypted-owner, preparation and owned-session fixtures keep the shared producer assertion below80; no new function ceiling for it."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "before": 590,
+        "after": 595,
+        "source_sha256": "764e19cc43ecefafa158a01c1144633652752236afc2b62ca5b35c58ecc7933f",
+        "reviewer": "backend_deletion",
+        "review": "Existing account transaction owns admission ordering; extracted release-admission implementation is reused before owner locks. Neutral cleanup-qualified reporting preserves shared authority."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py|test_full_account_deletion_covers_account_owned_tables|function exceeds the advisory gene budget",
+        "before": 315,
+        "after": 319,
+        "source_sha256": "b70542008524ca73f9c4a16bc315cdfdf43accd110e2e4212701b9a6c43623ac",
+        "reviewer": "ci_deletion",
+        "review": "Existing all-owned-table contract now asserts semantic release/fabric admission ordering rather than brittle call index."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py|prepare_provider_cleanup_in_transaction|function exceeds the advisory gene budget",
+        "before": 136,
+        "after": 153,
+        "source_sha256": "24af23fd188202ba77581eb924a9af4f494e82c513aa7017c46c66191364a287",
+        "reviewer": "backend_deletion",
+        "review": "Atomic preparation owns installed-contract admission, immutable descriptor validation and custody capture. No provider effect occurs in the transaction."
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|deprovision|function exceeds the advisory gene budget",
+        "before": 95,
+        "after": 101,
+        "source_sha256": "a1b1a17c59d6318161e80fc96b16faf10a4c937cb0280203deb0c642dffc5bff",
+        "reviewer": "backend_deletion",
+        "review": "Six-line independent teardown guard precedes reservation and irreversible phases at their existing authority; off/unset controls prove zero effects."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|test_shared_provider_sql_requires_exact_local_approval_and_no_dispatched_effects|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 87,
+        "source_sha256": "7ca2e498133ed3d357f54411ffc473a4a165c74cd99796b09f453ce025caf703",
+        "reviewer": "ci_deletion",
+        "review": "Nearest real PostgreSQL custody/replay and HTTP-to-worker owner. Preserve transaction chronology and negative matrices. New encrypted-owner, preparation and owned-session fixtures keep the shared producer assertion below80; no new function ceiling for it."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py|_request_full_erasure|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 85,
+        "source_sha256": "7ca2e498133ed3d357f54411ffc473a4a165c74cd99796b09f453ce025caf703",
+        "reviewer": "ci_deletion",
+        "review": "Nearest real PostgreSQL custody/replay and HTTP-to-worker owner. Preserve transaction chronology and negative matrices. New encrypted-owner, preparation and owned-session fixtures keep the shared producer assertion below80; no new function ceiling for it."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py|test_staged_worker_stops_all_watches_then_revokes_a_project_account_once|function exceeds the advisory gene budget",
+        "before": null,
+        "after": 83,
+        "source_sha256": "def9c3b93d0d763bfbb8d15e5369da2b14f09b4e7304778a7c817a17705e0f53",
+        "reviewer": "ci_deletion",
+        "review": "Existing provider ordering and cancellation owner; shared-authority tests prove explicit approval and zero refresh/watch/revoke calls. Retain cohesive watch-failure ordering scenario."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "before": 3062,
+        "after": 3074,
+        "source_sha256": "764e19cc43ecefafa158a01c1144633652752236afc2b62ca5b35c58ecc7933f",
+        "reviewer": "backend_deletion",
+        "review": "Existing account transaction owns admission ordering; extracted release-admission implementation is reused before owner locks. Neutral cleanup-qualified reporting preserves shared authority."
+      },
+      {
+        "key": "module_size|consent-protocol/api/routes/account.py||module exceeds the advisory operon budget",
+        "before": 2446,
+        "after": 2449,
+        "source_sha256": "034dbbf3da43017f05253a4bd1cb316ebad234cba1a91c678ca3e0ff45a0febd",
+        "reviewer": "backend_deletion",
+        "review": "Typed five-line HTTP detail formatter preserves exact Azure/GCP allowlist and omits unknown values. Existing handler is below80; no new function exception."
+      },
+      {
+        "key": "module_size|hushh-webapp/lib/firebase/auth-context.tsx||module exceeds the advisory operon budget",
+        "before": 2341,
+        "after": 2342,
+        "source_sha256": "3b4625c7cf0676866910cf8fb2a511ca565aba13d3854313c85bfb5b8793e2a0",
+        "reviewer": "frontend_deletion",
+        "review": "Existing AuthProvider retains sealed recovery during automatic/manual retry; loading and verification keep one owner. Identity, generation and lifecycle fences remain intact."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+        "before": 1792,
+        "after": 2205,
+        "source_sha256": "7ca2e498133ed3d357f54411ffc473a4a165c74cd99796b09f453ce025caf703",
+        "reviewer": "ci_deletion",
+        "review": "Nearest real PostgreSQL custody/replay and HTTP-to-worker owner. Preserve transaction chronology and negative matrices. New encrypted-owner, preparation and owned-session fixtures keep the shared producer assertion below80; no new function ceiling for it."
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/lib/firebase/auth-context-session-invalidation.test.tsx||module exceeds the advisory operon budget",
+        "before": 1962,
+        "after": 1985,
+        "source_sha256": "bc12a250d15440c24a5bd9e495d3ce76d1837c39d561d74586dc0c44ff81b0c1",
+        "reviewer": "frontend_deletion",
+        "review": "Extend existing actual-AuthProvider temporal regressions for explicit and deferred automatic retry. Broken loading guard negative control fails."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_service_cleanup_tables.py||module exceeds the advisory operon budget",
+        "before": 1883,
+        "after": 1890,
+        "source_sha256": "b70542008524ca73f9c4a16bc315cdfdf43accd110e2e4212701b9a6c43623ac",
+        "reviewer": "ci_deletion",
+        "review": "Existing all-owned-table contract now asserts semantic release/fabric admission ordering rather than brittle call index."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "before": 1833,
+        "after": 1848,
+        "source_sha256": "6eaf95bf2124a8242873ce060e05393ffe0b13a319a488844e4269e3ad084c71",
+        "reviewer": "ci_deletion",
+        "review": "Nearest provisioning regression proves unset/off teardown refuses reservation and every destructive phase; no unrelated tests duplicated."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py||module exceeds the advisory operon budget",
+        "before": 1459,
+        "after": 1476,
+        "source_sha256": "24af23fd188202ba77581eb924a9af4f494e82c513aa7017c46c66191364a287",
+        "reviewer": "backend_deletion",
+        "review": "Atomic preparation owns installed-contract admission, immutable descriptor validation and custody capture. No provider effect occurs in the transaction."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_deletion_release_workflow.py||module exceeds the advisory operon budget",
+        "before": 1076,
+        "after": 1205,
+        "source_sha256": "341b93cfc6922ce54f4af96591173d6d500c0e16f2d50a0ef1589ec9166cd6bb",
+        "reviewer": "ci_deletion",
+        "review": "Existing release contract owner; extracted66-line synthetic command adapter leaves45-line failure/ordering scenario. No activation scenario function waiver; no duplicated heavy fixture."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py||module exceeds the advisory operon budget",
+        "before": 784,
+        "after": 865,
+        "source_sha256": "def9c3b93d0d763bfbb8d15e5369da2b14f09b4e7304778a7c817a17705e0f53",
+        "reviewer": "ci_deletion",
+        "review": "Existing provider ordering and cancellation owner; shared-authority tests prove explicit approval and zero refresh/watch/revoke calls. Retain cohesive watch-failure ordering scenario."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_routes.py||module exceeds the advisory operon budget",
+        "before": 663,
+        "after": 667,
+        "source_sha256": "67a616ff3d6a26a7841c4212bef6cbc470b82a3724365fa3cef135c2a2749cba",
+        "reviewer": "ci_deletion",
+        "review": "Nearest HTTP owner proves existing-owner cleanup remains reachable when new provisioning is disabled."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py||module exceeds the advisory operon budget",
+        "before": 583,
+        "after": 599,
+        "source_sha256": "0ef8b70cd79d6fe351469183f4fa081dd04f1200b8fe442deba05f9d9d52fec3",
+        "reviewer": "backend_deletion",
+        "review": "Existing claim lock owns digest-bound local-erasure approval and refusal of uncertain effects. Shared grants are explicitly retained."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py||module exceeds the advisory operon budget",
+        "before": 525,
+        "after": 556,
+        "source_sha256": "fe9405840f7a9c7cce1a633b8bc0b5c2ba7ddbad5bb478ae654b1a4c51289abb",
+        "reviewer": "backend_deletion",
+        "review": "Bounded lazy source-policy reader belongs with the existing credential descriptor authority; no new routing or credential store."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_shared_files_lifecycle_postgres.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 542,
+        "source_sha256": "e0b8345d58275492688ce6020c0b00391e454094d0d4135e0a84089858241ebd",
+        "reviewer": "ci_deletion",
+        "review": "Nearest Files erasure owner proves started provider threads remain joined after sibling failure and repeated cancellation; original implementation fails the negative control."
+      }
+    ]
+  },
+  "account_deletion_retained_authority_review_20261025": {
+    "base_revision": "c927b76281f05089041571e4d2a842af2bf311de",
+    "scope": "Independent exact-source placement and security review; global budgets and future growth gate unchanged. This is local-copy erasure, not historical provider verification.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py|_open_grant|function exceeds the advisory gene budget",
+        "before": 112,
+        "after": 120,
+        "source_sha256": "6caac00b4a3f7f9a9cf59330ea58a0cffbb18dbb627ea2dc836ba568667190e9",
+        "reviewer": "backend_deletion; security review deletion_review",
+        "review": "Configured shared-project/numeric-subject classification precedes unnecessary token opening. Exact owner/revision and digest-bound local approval still own erasure; no token, verification or provider action is granted. Exclusive/unknown credentials retain ordinary validation. Metadata does not prove historical token client or external validity."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py||module exceeds the advisory operon budget",
+        "before": 865,
+        "after": 898,
+        "source_sha256": "a12deeab9d7a83e9dd8999a603d724493f1e88f60d7cc0dfbe7e258ebfa62796",
+        "reviewer": "ci_deletion",
+        "review": "Existing shared-authority case now uses production _open_grant for Google/Gmail, a decrypt trap, explicit approval controls and an exclusive-project negative that must reach decrypt. Same-file32-line fixture keeps scenario66 lines; no new function waiver."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_credentials.py||module exceeds the advisory operon budget",
+        "before": 556,
+        "after": 579,
+        "source_sha256": "6caac00b4a3f7f9a9cf59330ea58a0cffbb18dbb627ea2dc836ba568667190e9",
+        "reviewer": "backend_deletion; security review deletion_review",
+        "review": "Configured shared-project/numeric-subject classification precedes unnecessary token opening. Exact owner/revision and digest-bound local approval still own erasure; no token, verification or provider action is granted. Exclusive/unknown credentials retain ordinary validation. Metadata does not prove historical token client or external validity."
+      },
+      {
+        "key": "function_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py|test_staged_worker_stops_all_watches_then_revokes_a_project_account_once|function exceeds the advisory gene budget",
+        "before": 83,
+        "after": 83,
+        "source_sha256": "a12deeab9d7a83e9dd8999a603d724493f1e88f60d7cc0dfbe7e258ebfa62796",
+        "reviewer": "ci_deletion",
+        "review": "Ordering function unchanged; refreshed whole-file hash after adjacent shared-authority fixture refinement. No ceiling increase."
+      }
+    ]
+  },
+  "account_deletion_reopened_final_review_20261025": {
+    "base_revision": "13df8f90cf229a2f8dcf974833464a6c8e824ef4",
+    "scope": "Four independently reviewed exact module ceilings only. No new function exceptions or global500/250/80 budget changes. Static placement review is separate from behavior and release evidence.",
+    "entries": [
+      {
+        "key": "module_size|consent-protocol/tests/test_account_deletion_release_workflow.py||module exceeds the advisory operon budget",
+        "before": 1205,
+        "after": 1260,
+        "source_sha256": "066181d7e794c56e9129b4b7fd4bd881e258409aa352cff80fc3a9977829ea88",
+        "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
+        "review": "Real rollback shell and source qualifier execute against synthetic external cloud/git ports; unsupported and invalid source withhold traffic. Existing release contract owner."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/services/test_account_deletion_provider_cleanup.py||module exceeds the advisory operon budget",
+        "before": 898,
+        "after": 943,
+        "source_sha256": "2e4b9de612d712e517f3c586047543cd224d7dc8187633c8ab8965da797ac159",
+        "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
+        "review": "Six-case regression exercises real mixed-inventory dispatch with exact approved shared-watch settlement and independent rejection controls; nearest provider transition owner."
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_deletion_provider_journal.py||module exceeds the advisory operon budget",
+        "before": 599,
+        "after": 607,
+        "source_sha256": "8a281960ed9bc4fbeb619b875792c931ef169cc05ff78fad48cf71e14ec27130",
+        "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
+        "review": "Exact retained-shared watch exception stays within the existing atomic claim and receipt authority; no parallel decision owner."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_private_agent_adoption_postgres.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 508,
+        "source_sha256": "d790328382dbed51f2a1cf6c3b4c304ed1c70705c0b5783e3b967559c0a428ed",
+        "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
+        "review": "Existing real PostgreSQL replay scenario preserves current legacy predecessors and installed423, rejects altered guard and NULLversion; shared canonical fixture remains cohesive."
+      }
+    ]
+  },
+  "account_deletion_managed_refusal_review_20261025": {
+    "base_revision": "31241ef2acd2faaffb39c008d658e8c6fbb577c4",
+    "scope": "Two exact source-bound ceilings independently reviewed. Global500/250/80 budgets and future-growth ratchet unchanged. Managed completion remains unqualified; this change prevents partial provider effects.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|deprovision|function exceeds the advisory gene budget",
+        "before": 101,
+        "after": 105,
+        "source_sha256": "cb9d14c7cec2d7b18467609b0c6050d89f502b8d99e7a92d00c9391f1d60d136",
+        "reviewer": "backend_deletion",
+        "review": "Existing teardown boundary gains only four guard lines: refuse unqualified managed records before reservation, then recheck the returned snapshot before external effects. Managed explicit/legacy/race cases are in the nearest regression."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "before": 1848,
+        "after": 1862,
+        "source_sha256": "a8bb0db384d1d229e9bcf7fd2d2625223be581a8b6e11105bc22889eca940673",
+        "reviewer": "ci_deletion",
+        "review": "Extend existing zero-effect teardown matrix with explicit managed, legacy managed and reserved-snapshot race. No duplicate test or oversized function introduced."
       }
     ]
   }

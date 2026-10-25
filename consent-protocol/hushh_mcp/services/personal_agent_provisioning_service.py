@@ -3663,12 +3663,22 @@ class PersonalAgentProvisioningService:
                 AccountService().assert_personal_agent_external_resources_absent, user_id
             )
         except PersonalAgentDeprovisioningRequiredError:
+            from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+
+            # Admission precedes reservation, pod fencing, memory erasure and
+            # compute deletion. A later substrate guard cannot undo them.
+            if not personal_agent_substrate_teardown_enabled():
+                raise
+            from hushh_mcp.services.hosted_tier_guard import require_supported_erasure
+
+            require_supported_erasure(await self._registry.get(user_id))
             reserve = getattr(self._registry, "reserve_erasure", None)
             if reserve is not None:
                 try:
                     reservation = await reserve(user_id=user_id)
                     if not isinstance(reservation, dict):
                         raise RuntimeError("erasure reservation unavailable")
+                    require_supported_erasure(reservation.get("registrySnapshot"))
                     if (
                         expected_erasure_attempt is not None
                         and reservation.get("attemptId") != expected_erasure_attempt
