@@ -13,6 +13,7 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_period_packet_previews_postgres import (
     collection,
     collection_pages,
+    completed_preview,
     connector_postgres_url,
     documents,
     drive,
@@ -273,7 +274,7 @@ async def test_retention_advances_past_pinned_current_and_previous_previews(reus
 
     service, head, _, _ = await preview_runtime(reusable, monkeypatch)
     identity = str(head["packet_id"])
-    first = await service.prepare_preview(user_id="owner", packet_id=identity)
+    first = await completed_preview(service, identity)
     assert first["complete"]
     with service.store.db.engine.connect() as connection:
         row = dict(

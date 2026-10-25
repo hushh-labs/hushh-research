@@ -15,7 +15,11 @@ from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
 from hushh_mcp.services.drive_period_packet_contract import CATEGORY_PURPOSES
 from hushh_mcp.services.drive_period_packet_preview import snapshot_search
-from hushh_mcp.services.drive_period_packet_search import create_search_job, finish_search
+from hushh_mcp.services.drive_period_packet_search import (
+    advance_search,
+    create_search_job,
+    finish_search,
+)
 from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
 from hushh_mcp.services.drive_request_package_assessment import semantic_request_model_binding
 from hushh_mcp.services.drive_suggestion_service import (
@@ -72,7 +76,21 @@ class DrivePeriodPacketService:
         await self.require_owner()
         await admit_hub_content(user_id, "drive_period_packets")
         if await self.store.request_preview(user_id=user_id, packet_id=packet_id, refresh=refresh):
-            await self.run_one(user_id=user_id, packet_id=packet_id, deadline_seconds=25)
+            from hushh_mcp.services.drive_work_wake import wake_drive_work
+
+            outcomes = await asyncio.gather(
+                self.run_one(
+                    user_id=user_id,
+                    packet_id=packet_id,
+                    deadline_seconds=25,
+                    first_results_only=True,
+                ),
+                wake_drive_work("suggestions"),
+                return_exceptions=True,
+            )
+            for outcome in outcomes:
+                if isinstance(outcome, BaseException):
+                    raise outcome
         return await self.preview(user_id=user_id, packet_id=packet_id)
 
     async def ensure_owner(self, *, user_id, timezone="UTC"):
@@ -117,7 +135,9 @@ class DrivePeriodPacketService:
         return await create_search_job(self.search.store, job, plan, binding)
 
     @drive_operation(job_key="packet_id")
-    async def run_one(self, *, user_id, packet_id=None, deadline_seconds=75):
+    async def run_one(
+        self, *, user_id, packet_id=None, deadline_seconds=75, first_results_only=False
+    ):
         await self.ensure_owner(user_id=user_id)
         job = await self.store.claim_build(
             user_id=user_id, **({"packet_id": packet_id} if packet_id else {})
@@ -162,26 +182,15 @@ class DrivePeriodPacketService:
                         build = await snapshot_search(self.store, job, build, state["jobId"])
 
                 await snapshot()
-                for _ in range(4):
-                    remaining = deadline - asyncio.get_running_loop().time()
-                    if (
-                        state["status"] in {"completed", "failed", "limited", "stopped"}
-                        or remaining < 2
-                    ):
-                        break
-                    await self.search.run_one(
-                        user_id=user_id,
-                        job_id=state["jobId"],
-                        require_current=current,
-                        max_pages=4,
-                        deadline_seconds=min(30, max(1, int(remaining) - 1)),
-                        after_page=snapshot,
-                    )
-                    state = await self.search.store.status(user_id=user_id, job_id=state["jobId"])
-                    if state["status"] == "queued" and not state.get("errorCode"):
-                        await asyncio.sleep(1)  # bounded continuation, not a scheduler-minute gap
-                    else:
-                        break
+                state = await advance_search(
+                    self.search,
+                    state,
+                    user_id=user_id,
+                    current=current,
+                    deadline=deadline,
+                    snapshot=snapshot,
+                    first_results_only=first_results_only,
+                )
                 await snapshot()
                 return await finish_search(self.store, job, build, state, logger=logger)
         except (

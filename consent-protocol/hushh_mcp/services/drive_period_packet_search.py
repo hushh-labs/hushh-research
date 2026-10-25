@@ -1,5 +1,6 @@
 """Create a bound period search and settle its completed or resumable slice."""
 
+import asyncio
 from datetime import UTC, datetime
 
 from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE, financial_queries
@@ -83,6 +84,32 @@ async def create_search_job(search_store, job, plan, binding):
             "drive_tokens": [],
         },
     )
+    return state
+
+
+async def advance_search(
+    search, state, *, user_id, current, deadline, snapshot, first_results_only
+):
+    """Owner previews stop on a saved first batch; workers continue the same job."""
+    for _ in range(4):
+        remaining = deadline - asyncio.get_running_loop().time()
+        if state["status"] in {"completed", "failed", "limited", "stopped"} or remaining < 2:
+            break
+        await search.run_one(
+            user_id=user_id,
+            job_id=state["jobId"],
+            require_current=current,
+            max_pages=1 if first_results_only else 4,
+            deadline_seconds=min(30, max(1, int(remaining) - 1)),
+            after_page=snapshot,
+        )
+        state = await search.store.status(user_id=user_id, job_id=state["jobId"])
+        if first_results_only and state["matched"]:
+            break
+        if state["status"] == "queued" and not state.get("errorCode"):
+            await asyncio.sleep(1)
+        else:
+            break
     return state
 
 

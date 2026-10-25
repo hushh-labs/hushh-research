@@ -30,6 +30,7 @@ from tests.services.test_drive_financial_packet_recovery_postgres import (
 from tests.services.test_drive_period_packet_previews_postgres import (
     collection,
     collection_pages,
+    completed_preview,
     connector_postgres_url,
     documents,
     drive,
@@ -314,10 +315,7 @@ async def test_saved_financial_tags_preserve_originals_and_require_current_autho
 
     service, head, planner, transport = await preview_runtime(reusable, monkeypatch)
     identity = str(head["packet_id"])
-    for _ in range(5):
-        result = await service.prepare_preview(user_id="owner", packet_id=identity)
-        if result["complete"]:
-            break
+    result = await completed_preview(service, identity)
     assert result["complete"] and result["matched"] == 26
     planner.assert_not_awaited()
     reads = transport.read_tool.await_count
@@ -392,7 +390,7 @@ async def test_background_organizer_uses_saved_candidates_and_keeps_every_origin
     from tests.drive_postgres_test_support import apply_drive_fixture_migration
 
     service, head, planner, _ = await preview_runtime(reusable, monkeypatch)
-    result = await service.prepare_preview(user_id="owner", packet_id=str(head["packet_id"]))
+    result = await completed_preview(service, str(head["packet_id"]))
     assert result["complete"] and result["matched"] == 26
     with service.store.db.engine.begin() as connection:
         apply_drive_fixture_migration(connection, "410_drive_group_index.sql")
