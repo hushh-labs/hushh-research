@@ -7,6 +7,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
+from hushh_mcp.kai_import.balance_history import normalize_balance_history
+
 
 def _to_num(value: Any) -> float | None:
     if isinstance(value, bool):
@@ -110,6 +112,8 @@ def build_financial_portfolio_canonical_v2(
             "brokerage_name": account_info.get("brokerage") or account_info.get("brokerage_name"),
             "institution_name": account_info.get("institution_name"),
             "statement_period": statement_period,
+            "statement_period_start": statement_period["start"],
+            "statement_period_end": statement_period["end"],
             "statement_details": statement_details,
             "account_metadata": account_metadata,
         },
@@ -124,6 +128,7 @@ def build_financial_portfolio_canonical_v2(
         "total_value": total_value,
         "cash_balance": cash_balance,
         "statement_period": statement_period,
+        "historical_values": normalize_balance_history(raw_extract_v2.get("historical_values")),
         "quality_report_v2": quality_report_v2,
     }
 
