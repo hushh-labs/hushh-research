@@ -10,7 +10,6 @@ import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
  * and fail if any `/api/one/(agent-chat|email|location|information|kai)` or
  * `/api/kai` request reaches the hub for such an owner.
  */
-import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const HUB_CONTENT =
