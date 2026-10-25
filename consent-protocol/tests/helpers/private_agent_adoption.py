@@ -1,5 +1,16 @@
 """Reviewed schema-only adoption fixtures; no owner rows or runtime authority."""
 
+RECEIPT_PREDECESSORS = (
+    (
+        "904_consent_audit_receipts.sql",
+        "3dd91a54968b624471548ec97e90d18f254a86ced3b9d459501fc2fccc79fdaf",
+    ),
+    (
+        "913_consent_audit_receipts_ledger.sql",
+        "5ab2f7722bbb50583ad78298289d1c975260b91184b1742aeb0c285a8a7bc8e4",
+    ),
+)
+
 # Reviewed schema-only definitions from the legacy Dev catalog. No owner rows.
 LEGACY_FUNCTIONS = r"""CREATE OR REPLACE FUNCTION public.guard_consumer_memory_consent()
  RETURNS trigger
@@ -92,3 +103,89 @@ $function$;
 """
 LEGACY_TRIGGERS = r"""CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON consent_audit FOR EACH ROW EXECUTE FUNCTION guard_consumer_memory_consent();
 CREATE TRIGGER zz_preserve_consumer_memory_consent BEFORE DELETE OR UPDATE ON consent_audit FOR EACH ROW EXECUTE FUNCTION preserve_consumer_memory_consent();"""
+
+# Authored904/906/907 definitions observed in the legacy upgrade, not an inferred alias.
+LEGACY_PREDECESSOR_SCHEMA = """
+ALTER TABLE public.personal_agent_registry
+ DROP CONSTRAINT IF EXISTS personal_agent_registry_deployment_target_check,
+ DROP CONSTRAINT IF EXISTS personal_agent_registry_model_credential_mode_check,
+ DROP CONSTRAINT IF EXISTS personal_agent_registry_status_check,
+ ADD CONSTRAINT personal_agent_registry_deployment_target_check
+  CHECK(deployment_target IS NULL OR deployment_target IN ('gcp','user_gcp','anypoint','null')),
+ ADD CONSTRAINT personal_agent_registry_model_credential_mode_check
+  CHECK(model_credential_mode IS NULL OR model_credential_mode IN ('user_adc','byok_per_turn','fleet_adc')),
+ ADD CONSTRAINT personal_agent_registry_status_check
+  CHECK(status IN ('unprovisioned','pending','provisioning','connecting','provisioned','provisioning_failed','reaped'));
+ALTER TABLE public.consent_audit_receipts
+ DROP CONSTRAINT IF EXISTS consent_audit_receipts_subject_id_ledger_hash_key,
+ DROP CONSTRAINT IF EXISTS consent_audit_receipts_subject_id_ledger_seq_key,
+ ADD CONSTRAINT consent_audit_receipts_subject_id_hash_key UNIQUE(subject_id,hash),
+ ADD CONSTRAINT consent_audit_receipts_subject_id_seq_key UNIQUE(subject_id,seq);
+DROP INDEX IF EXISTS public.idx_consent_audit_receipts_subject;
+CREATE INDEX idx_consent_audit_receipts_subject ON public.consent_audit_receipts(subject_id,id);
+"""
+LEGACY_PREDECESSOR_DRIFT = (
+    (
+        "ALTER TABLE public.personal_agent_registry DROP CONSTRAINT IF EXISTS personal_agent_registry_status_check; ALTER TABLE public.personal_agent_registry ADD CONSTRAINT personal_agent_registry_status_check CHECK(status IS NOT NULL) NOT VALID",
+        "predecessor",
+    ),
+    (
+        "ALTER TABLE public.consent_audit_receipts DROP CONSTRAINT consent_audit_receipts_subject_id_hash_key; ALTER TABLE public.consent_audit_receipts ADD CONSTRAINT consent_audit_receipts_subject_id_hash_key UNIQUE(hash,subject_id)",
+        "predecessor",
+    ),
+    (
+        "DROP INDEX public.idx_consent_audit_receipts_subject; CREATE INDEX idx_consent_audit_receipts_subject ON public.consent_audit_receipts(subject_id,seq)",
+        "receipt index",
+    ),
+    (
+        "INSERT INTO public.personal_agent_registry(user_id,hushh_id,deployment_target) VALUES('synthetic-anypoint','synthetic-anypoint','anypoint')",
+        "anypoint",
+    ),
+)
+
+
+LEGACY_GUARD_MUTATIONS = (
+    (
+        "CREATE TRIGGER zz_unreviewed_consumer_memory BEFORE INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent()",
+        "DROP TRIGGER zz_unreviewed_consumer_memory ON public.consent_audit",
+    ),
+    (
+        "ALTER TABLE public.consent_audit DISABLE TRIGGER zz_consumer_memory_consent",
+        "ALTER TABLE public.consent_audit ENABLE TRIGGER zz_consumer_memory_consent",
+    ),
+    (
+        "DROP TRIGGER zz_preserve_consumer_memory_consent ON public.consent_audit",
+        LEGACY_TRIGGERS.split(";\n", 1)[1],
+    ),
+    (
+        "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; DROP TRIGGER zz_preserve_consumer_memory_consent ON public.consent_audit",
+        LEGACY_TRIGGERS,
+    ),
+    (
+        "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent AFTER INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent()",
+        "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
+        + LEGACY_TRIGGERS.split(";\n", 1)[0],
+    ),
+    (
+        "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent('extra')",
+        "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
+        + LEGACY_TRIGGERS.split(";\n", 1)[0],
+    ),
+    (
+        "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW WHEN(NEW.scope IS NOT NULL) EXECUTE FUNCTION public.guard_consumer_memory_consent()",
+        "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
+        + LEGACY_TRIGGERS.split(";\n", 1)[0],
+    ),
+    (
+        "CREATE OR REPLACE FUNCTION public.guard_consumer_memory_consent() RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$ BEGIN RETURN NEW; END; $$",
+        LEGACY_FUNCTIONS,
+    ),
+    (
+        "ALTER FUNCTION public.guard_consumer_memory_consent() SECURITY DEFINER",
+        "ALTER FUNCTION public.guard_consumer_memory_consent() SECURITY INVOKER",
+    ),
+    (
+        "CREATE FUNCTION public.guard_consumer_memory_consent(integer) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$",
+        "DROP FUNCTION public.guard_consumer_memory_consent(integer)",
+    ),
+)

@@ -226,7 +226,8 @@ BEGIN
    FROM unnest(retained.conkey) WITH ORDINALITY x(attribute,position)
    JOIN pg_attribute a ON a.attrelid=relation AND a.attnum=x.attribute;
   IF retained.contype::text<>spec.kind OR NOT retained.convalidated
-   OR retained.condeferrable OR retained.condeferred OR retained.connoinherit
+   OR retained.condeferrable OR retained.condeferred
+   OR retained.connoinherit IS DISTINCT FROM (spec.kind='u')
    OR NOT retained.conislocal OR retained.coninhcount<>0 OR retained.conparentid<>0
    OR columns IS DISTINCT FROM string_to_array(spec.columns,',') THEN
    RAISE EXCEPTION 'Unqualified private-agent predecessor: %',spec.name;

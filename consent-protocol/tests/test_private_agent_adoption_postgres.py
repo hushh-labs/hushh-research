@@ -26,7 +26,14 @@ from db.migration_authority import (
 )
 from db.private_agent_adoption import _authorization_attempts_sql, _qualification_sql, execution_sql
 from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
-from tests.helpers.private_agent_adoption import LEGACY_FUNCTIONS, LEGACY_TRIGGERS
+from tests.helpers.private_agent_adoption import (
+    LEGACY_FUNCTIONS,
+    LEGACY_GUARD_MUTATIONS,
+    LEGACY_PREDECESSOR_DRIFT,
+    LEGACY_PREDECESSOR_SCHEMA,
+    LEGACY_TRIGGERS,
+    RECEIPT_PREDECESSORS,
+)
 from tests.pkm_conformance.postgres_harness import find_pg_bin
 from tests.test_migrations_are_replay_safe import replay_pg
 
@@ -151,53 +158,8 @@ def assert_absent_guard_qualification_blocks_concurrent_install(connection, serv
 
 
 def reject_guard_drift(connection, entry):
-    mutations = (
-        (
-            "CREATE TRIGGER zz_unreviewed_consumer_memory BEFORE INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent()",
-            "DROP TRIGGER zz_unreviewed_consumer_memory ON public.consent_audit",
-        ),
-        (
-            "ALTER TABLE public.consent_audit DISABLE TRIGGER zz_consumer_memory_consent",
-            "ALTER TABLE public.consent_audit ENABLE TRIGGER zz_consumer_memory_consent",
-        ),
-        (
-            "DROP TRIGGER zz_preserve_consumer_memory_consent ON public.consent_audit",
-            LEGACY_TRIGGERS.split(";\n", 1)[1],
-        ),
-        (
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; DROP TRIGGER zz_preserve_consumer_memory_consent ON public.consent_audit",
-            LEGACY_TRIGGERS,
-        ),
-        (
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent AFTER INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent()",
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
-            + LEGACY_TRIGGERS.split(";\n", 1)[0],
-        ),
-        (
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW EXECUTE FUNCTION public.guard_consumer_memory_consent('extra')",
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
-            + LEGACY_TRIGGERS.split(";\n", 1)[0],
-        ),
-        (
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; CREATE TRIGGER zz_consumer_memory_consent BEFORE INSERT ON public.consent_audit FOR EACH ROW WHEN(NEW.scope IS NOT NULL) EXECUTE FUNCTION public.guard_consumer_memory_consent()",
-            "DROP TRIGGER zz_consumer_memory_consent ON public.consent_audit; "
-            + LEGACY_TRIGGERS.split(";\n", 1)[0],
-        ),
-        (
-            "CREATE OR REPLACE FUNCTION public.guard_consumer_memory_consent() RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$ BEGIN RETURN NEW; END; $$",
-            LEGACY_FUNCTIONS,
-        ),
-        (
-            "ALTER FUNCTION public.guard_consumer_memory_consent() SECURITY DEFINER",
-            "ALTER FUNCTION public.guard_consumer_memory_consent() SECURITY INVOKER",
-        ),
-        (
-            "CREATE FUNCTION public.guard_consumer_memory_consent(integer) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$",
-            "DROP FUNCTION public.guard_consumer_memory_consent(integer)",
-        ),
-    )
     with connection.cursor() as cursor:
-        for mutation, cleanup in mutations:
+        for mutation, cleanup in LEGACY_GUARD_MUTATIONS:
             cursor.execute(mutation)
             before = guard_catalog(connection)
             try:
@@ -312,6 +274,13 @@ def authorization_state(connection):
         return column, cursor.fetchall()
 
 
+def receipt_state(connection):
+    with connection.cursor() as cursor:
+        cursor.execute("""SELECT to_jsonb(r),ctid::text FROM public.consent_audit_receipts r
+          WHERE subject_id='synthetic-retained' ORDER BY id""")
+        return cursor.fetchall()
+
+
 def seed_legacy_authorization(connection):
     with connection.cursor() as cursor:
         canonical = authorization_state(connection)
@@ -327,6 +296,14 @@ def seed_legacy_authorization(connection):
             assert authorization_state(connection) == absent
         finally:
             cursor.execute("ROLLBACK")
+        for filename, digest in RECEIPT_PREDECESSORS:
+            source = (MIGRATIONS / "parked" / filename).read_bytes()
+            assert hashlib.sha256(source).hexdigest() == digest
+            cursor.execute(source.decode())
+        cursor.execute(LEGACY_PREDECESSOR_SCHEMA)
+        cursor.execute("""INSERT INTO public.consent_audit_receipts
+          (subject_id,seq,event_type,issued_at_ms,prev_hash,hash,signature)
+          VALUES('synthetic-retained',1,'synthetic-preserved',0,'','synthetic-hash','synthetic-signature')""")
         cursor.execute("""ALTER TABLE public.byoc_setup_jobs
           ALTER COLUMN authorization_attempts DROP NOT NULL,
           ALTER COLUMN authorization_attempts DROP DEFAULT;
@@ -339,16 +316,22 @@ def seed_legacy_authorization(connection):
 
 def reject_authorization_drift(connection, entry, before):
     mutations = (
-        "ALTER TABLE public.byoc_setup_jobs ALTER COLUMN authorization_attempts TYPE json USING authorization_attempts::json",
-        "ALTER TABLE public.byoc_setup_jobs ALTER COLUMN authorization_attempts SET DEFAULT '[]'::jsonb",
-        "ALTER TABLE public.byoc_setup_jobs DROP COLUMN authorization_attempts; ALTER TABLE public.byoc_setup_jobs ADD COLUMN authorization_attempts jsonb GENERATED ALWAYS AS ('{}'::jsonb) STORED",
+        tuple(
+            (ddl, "authorization_attempts")
+            for ddl in (
+                "ALTER TABLE public.byoc_setup_jobs ALTER COLUMN authorization_attempts TYPE json USING authorization_attempts::json",
+                "ALTER TABLE public.byoc_setup_jobs ALTER COLUMN authorization_attempts SET DEFAULT '[]'::jsonb",
+                "ALTER TABLE public.byoc_setup_jobs DROP COLUMN authorization_attempts; ALTER TABLE public.byoc_setup_jobs ADD COLUMN authorization_attempts jsonb GENERATED ALWAYS AS ('{}'::jsonb) STORED",
+            )
+        )
+        + LEGACY_PREDECESSOR_DRIFT
     )
     with connection.cursor() as cursor:
-        for ddl in mutations:
+        for ddl, failure in mutations:
             cursor.execute("BEGIN")
             try:
                 cursor.execute(ddl)
-                with pytest.raises(psycopg2.errors.RaiseException, match="authorization_attempts"):
+                with pytest.raises(psycopg2.errors.RaiseException, match=failure):
                     cursor.execute(execution_sql(entry))
             finally:
                 cursor.execute("ROLLBACK")
@@ -463,6 +446,8 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
     connection, database = canonical_database(replay_pg, monkeypatch)
     with closing(connection):
         before = seed_legacy_authorization(connection)
+        receipts = receipt_state(connection)
+        assert len(receipts) == 1
         assert before[0] == ("jsonb", False, None, "", "")
         with connection.cursor() as cursor:
             with pytest.raises(psycopg2.errors.RaiseException, match="column"):
@@ -490,4 +475,5 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
         expected = () if mode is MigrationMode.LEDGER else (FOUNDATION,)
         assert asyncio.run(execute_mode(replay_pg, database, entry, mode)) == expected
         assert authorization_state(connection) == normalized
+        assert receipt_state(connection) == receipts
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
