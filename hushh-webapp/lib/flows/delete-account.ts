@@ -29,6 +29,7 @@ import {
   dispatchAuthSessionVerificationRequired,
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
+  type AuthSessionOwnerSnapshot,
 } from "@/lib/auth/session-owner";
 import {
   AccountDeletionNotCompletedError,
@@ -59,6 +60,17 @@ export const DELETE_ACCOUNT_DIALOG_DESCRIPTION =
 
 type AccountDeletionSessionUser = Pick<User, "uid" | "getIdToken">;
 type DeletionStatusProbe = "active" | "deleted" | "in_progress" | "unavailable";
+
+function captureDeletionOwner(params: {
+  userId: string;
+  sessionUser: AccountDeletionSessionUser;
+}): AuthSessionOwnerSnapshot | null {
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (params.sessionUser.uid !== params.userId || (owner && owner.userId !== params.userId)) {
+    throw new Error("Account deletion session identity changed. Please retry.");
+  }
+  return owner;
+}
 
 export const DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE =
   ACCOUNT_DELETION_OUTCOME_UNCERTAIN_MESSAGE;
@@ -131,7 +143,7 @@ export class AccountDeletionOutcomeUncertainError extends Error {
 
 export class AccountDeletionInProgressError extends Error {
   constructor() {
-    super("Your account deletion is still running. Please wait while we check its status.");
+    super("Your account deletion status is still being checked. Please wait for confirmation.");
     this.name = "AccountDeletionInProgressError";
   }
 }
@@ -291,9 +303,7 @@ export async function executeVerifiedAccountDeletion(params: {
   /** When the vault is open, its bank connections are revoked at Plaid first. */
   vaultKey?: string | null;
 }): Promise<void> {
-  if (params.sessionUser.uid !== params.userId) {
-    throw new Error("Account deletion session identity changed. Please retry.");
-  }
+  const owner = captureDeletionOwner(params);
 
   await revokeVaultBanksBeforeErasure({
     userId: params.userId,
@@ -304,6 +314,7 @@ export async function executeVerifiedAccountDeletion(params: {
   await executeAccountDeletion({
     userId: params.userId,
     sessionUser: params.sessionUser,
+    owner,
     performDeletion: () => AccountService.deleteAccount(params.vaultOwnerToken, "both"),
   });
 }
@@ -321,6 +332,7 @@ export async function executeLostVaultAccountDeletion(params: {
   return executeAccountDeletion({
     userId: params.userId,
     sessionUser: params.sessionUser,
+    owner: captureDeletionOwner(params),
     isCurrent: params.isCurrent,
     performDeletion: () => AccountService.deleteLostVaultAccount({
       firebaseIdToken: params.firebaseIdToken,
@@ -333,17 +345,14 @@ export async function executeLostVaultAccountDeletion(params: {
 async function executeAccountDeletion(params: {
   userId: string;
   sessionUser: AccountDeletionSessionUser;
+  owner: AuthSessionOwnerSnapshot | null;
   performDeletion: () => Promise<AccountDeletionResult>;
   isKnownPrecommitError?: (error: unknown) => boolean;
   isCurrent?: () => boolean;
 }): Promise<AccountDeletionResult> {
-  if (params.sessionUser.uid !== params.userId) {
-    throw new Error("Account deletion session identity changed. Please retry.");
-  }
-  const owner = snapshotValidatedAuthSessionOwner();
-  if (owner && owner.userId !== params.userId) {
-    throw new Error("Account deletion session identity changed. Please retry.");
-  }
+  // Preserve the generation that authorized the action, including across bank
+  // preflight. A later sign-in by the same UID cannot adopt this old approval.
+  const owner = params.owner;
 
   // Capture a UID-bound Firebase credential before the destructive request.
   // Even if Firebase is removed and the HTTP response is lost, this token can
@@ -406,7 +415,7 @@ async function executeAccountDeletion(params: {
           ).catch(() => "unavailable" as const);
     if (deletionStatus === "in_progress" && owner &&
         isValidatedAuthSessionOwnerCurrent(owner)) {
-      // A lifecycle lock proves work is still running, not a lost identity.
+      // A busy lifecycle barrier leaves deletion unconfirmed, not identity lost.
       // The existing UID/generation-scoped privacy gate seals protected UI and
       // owns bounded status reads with backoff. Never submit DELETE again.
       dispatchAuthSessionVerificationRequired(owner, "account_deletion_in_progress");

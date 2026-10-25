@@ -37,6 +37,7 @@ from hushh_mcp.one_voice.tools.base import (
     ToolSpec,
 )
 from hushh_mcp.services.account_deletion_lifecycle_service import (
+    AccountDeletionInProgressError,
     AccountDeletionLifecycleService,
 )
 from hushh_mcp.services.account_service import AccountService
@@ -229,59 +230,71 @@ def _verified(
     )
 
 
+async def _report_deletion(ctx: ToolContext, args: ReportAccountLifecycleInput) -> ToolResult:
+    """Verify deletion from the tombstone or its in-flight transaction barrier."""
+    try:
+        tombstoned = await _is_tombstoned(ctx)
+    except AccountDeletionInProgressError:
+        return _verified(
+            "delete",
+            "unverified",
+            ["Your account deletion status is still being checked. Please wait for confirmation."],
+            reason_code="deletion_in_progress",
+        )
+    except Exception:  # noqa: BLE001
+        return _verified(
+            "delete",
+            "unverified",
+            [
+                "I couldn't confirm whether your account was deleted. "
+                "Please sign in again to check before trying again."
+            ],
+            reason_code="lifecycle_unavailable",
+        )
+    if tombstoned:
+        return _verified("delete", "account_deleted", ["Your account has been deleted."])
+    if args.client_status == "needs_unlock":
+        return _verified(
+            "delete",
+            "needs_unlock",
+            ["Unlock your vault in Profile first, then ask me again to delete your account."],
+            reason_code="vault_locked",
+        )
+    if args.client_status == "blocked_external":
+        return _verified(
+            "delete",
+            "blocked_external",
+            [
+                "Your private agent or cloud setup has to be removed before the account "
+                "can be deleted. Nothing was deleted."
+            ],
+            reason_code="external_resources_require_deprovisioning",
+        )
+    if args.client_status == "unknown":
+        return _verified(
+            "delete",
+            "unverified",
+            [
+                "I couldn't confirm whether your account was deleted. "
+                "Please sign in again to check before trying again."
+            ],
+            reason_code="outcome_unknown",
+        )
+    return _verified(
+        "delete",
+        "not_changed",
+        ["Account deletion didn't complete. Nothing was deleted."],
+        reason_code=f"client_{args.client_status}",
+    )
+
+
 async def report_account_lifecycle(
     ctx: ToolContext, args: ReportAccountLifecycleInput
 ) -> ToolResult:
     """Decide the outcome from the server, using the device's report only to
     choose between honest wordings of *not changed*."""
     if args.operation == "delete":
-        try:
-            tombstoned = await _is_tombstoned(ctx)
-        except Exception:  # noqa: BLE001
-            return _verified(
-                "delete",
-                "unverified",
-                [
-                    "I couldn't confirm whether your account was deleted. "
-                    "Please sign in again to check before trying again."
-                ],
-                reason_code="lifecycle_unavailable",
-            )
-        if tombstoned:
-            return _verified("delete", "account_deleted", ["Your account has been deleted."])
-        if args.client_status == "needs_unlock":
-            return _verified(
-                "delete",
-                "needs_unlock",
-                ["Unlock your vault in Profile first, then ask me again to delete your account."],
-                reason_code="vault_locked",
-            )
-        if args.client_status == "blocked_external":
-            return _verified(
-                "delete",
-                "blocked_external",
-                [
-                    "Your private agent or cloud setup has to be removed before the account "
-                    "can be deleted. Nothing was deleted."
-                ],
-                reason_code="external_resources_require_deprovisioning",
-            )
-        if args.client_status == "unknown":
-            return _verified(
-                "delete",
-                "unverified",
-                [
-                    "I couldn't confirm whether your account was deleted. "
-                    "Please sign in again to check before trying again."
-                ],
-                reason_code="outcome_unknown",
-            )
-        return _verified(
-            "delete",
-            "not_changed",
-            ["Account deletion didn't complete. Nothing was deleted."],
-            reason_code=f"client_{args.client_status}",
-        )
+        return await _report_deletion(ctx, args)
 
     # reset
     try:

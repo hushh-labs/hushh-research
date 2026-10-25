@@ -236,6 +236,21 @@ async def test_delete_verification_failure_is_unverified_not_failed():
     assert "couldn't confirm" in result.spoken_facts[0]
 
 
+@pytest.mark.parametrize("client_status", ["unknown", "deleted"])
+async def test_pending_deletion_uses_server_barrier_evidence_without_sign_in_or_retry(
+    client_status,
+):
+    from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionInProgressError
+
+    ctx = _ctx(account_lifecycle=LifecycleDouble(error=AccountDeletionInProgressError("busy")))
+    result = await lifecycle.report_account_lifecycle(ctx, _report("delete", client_status))
+    assert result.status == "unverified"
+    assert result.reason_code == "deletion_in_progress"
+    assert "still being checked" in result.spoken_facts[0]
+    assert "sign in" not in result.spoken_facts[0].lower()
+    assert "try again" not in result.spoken_facts[0].lower()
+
+
 # -- verifier: reset -----------------------------------------------------------
 
 
