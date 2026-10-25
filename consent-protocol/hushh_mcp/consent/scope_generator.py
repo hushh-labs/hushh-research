@@ -8,7 +8,6 @@ Scopes support nested paths:
 - attr.{domain}.{subintent}.*
 """
 
-import asyncio
 import difflib
 import json
 import logging
@@ -17,6 +16,7 @@ from typing import Any, Optional, cast
 from db.db_client import get_db
 from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
 from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope, is_reserved_domain_scope
+from hushh_mcp.consent.scope_catalog_reads import read_scope_catalog_rows
 from hushh_mcp.consent.scope_sensitivity import tag_is_sensitive
 from hushh_mcp.constants import ConsentScope
 
@@ -431,54 +431,6 @@ class DynamicScopeGenerator:
 
         return await self._get_legacy_scope_catalog(user_id)
 
-    async def _scope_entry_rows(
-        self, user_id: str, connection: Any = None
-    ) -> dict[str, list[dict]]:
-        sources = (
-            ("pkm_index", "available_domains", ("available_domains",)),
-            (
-                "pkm_manifests",
-                "domain,top_level_scope_paths,externalizable_paths,manifest_version,summary_projection",
-                ("top_level_scope_paths", "externalizable_paths", "summary_projection"),
-            ),
-            (
-                "pkm_manifest_paths",
-                "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle,sensitivity_label",
-                (),
-            ),
-            (
-                "pkm_scope_registry",
-                "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version",
-                ("summary_projection",),
-            ),
-        )
-        # Only these authored tables/columns can enter this metadata projection.
-        statements = {
-            "pkm_index": "SELECT available_domains FROM pkm_index WHERE user_id=$1 LIMIT 1",
-            "pkm_manifests": "SELECT domain,top_level_scope_paths,externalizable_paths,manifest_version,summary_projection FROM pkm_manifests WHERE user_id=$1",
-            "pkm_manifest_paths": "SELECT domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle,sensitivity_label FROM pkm_manifest_paths WHERE user_id=$1",
-            "pkm_scope_registry": "SELECT domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version FROM pkm_scope_registry WHERE user_id=$1",
-        }
-        result = {}
-        for table, columns, json_columns in sources:
-            if connection is not None:
-                rows = [dict(row) for row in await connection.fetch(statements[table], user_id)]
-                # asyncpg's default JSONB codec returns text; the synchronous
-                # client returns decoded objects. Feed one reducer the same shape.
-                for row in rows:
-                    for column in json_columns:
-                        if isinstance(row.get(column), str):
-                            row[column] = json.loads(row[column])
-            else:
-
-                def read(table: str = table, columns: str = columns):
-                    query = self.db.table(table).select(columns).eq("user_id", user_id)
-                    return (query.limit(1) if table == "pkm_index" else query).execute()
-
-                rows = (await asyncio.to_thread(read)).data or []
-            result[table] = rows
-        return result
-
     async def get_available_scope_entries(
         self, user_id: str, *, connection: Any = None
     ) -> list[dict]:
@@ -488,7 +440,9 @@ class DynamicScopeGenerator:
         it does not create a new snapshot or a separate information authority.
         """
         try:
-            source_rows = await self._scope_entry_rows(user_id, connection)
+            source_rows = await read_scope_catalog_rows(
+                lambda: self.db, user_id, connection=connection
+            )
         except Exception as exc:
             logger.error("scope_generator.get_scope_entries_failed")
             raise ScopeCatalogUnavailableError(

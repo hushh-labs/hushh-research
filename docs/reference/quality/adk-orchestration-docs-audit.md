@@ -23,7 +23,7 @@ retains its disclosed boundary.
 Admin SOP as `a65e4f5fd5`, after all 27 exact-head jobs passed on `c6e21f86e0`.
 Main's finance, Profile and migration changes are preserved.**
 Landed-SHA [smoke 40170482003](https://github.com/hushh-labs/hushh-research/actions/runs/40170482003)
-is pending. Corporate ADC readback at 06:23 UTC still found both applications
+passed. Corporate ADC readback at 06:23 UTC still found both applications
 serving `24545d1dc2`; source landing is not deployment or owner installation.
 
 A newly reported person-request approval regression is a separate local correction.
@@ -31,7 +31,7 @@ Read-only UAT metadata found three pending requests: one canonical/SQL handle
 mismatch, one genuinely changed scope and one matching binding. The repair reuses
 canonical discovery inside the caller's existing transaction, retains scope/key
 refusals and carries only authored recovery copy through Chat and Feed. Focused
-proof passes 68 backend, 64 frontend and 501 Back cases; the original wildcard
+proof passes 68 backend, 73 frontend and 501 Back cases; the original wildcard
 mismatch fails before repair. TypeScript, targeted mypy/lint and UI contracts pass.
 This correction is not yet published. Dev/UAT promotion waits for its acceptance;
 installed Browser/Puppy and historical recovery remain separate evidence gates.

@@ -74,6 +74,28 @@ class _FakeDb:
         return _FakeQuery(self._tables.get(name, []))
 
 
+class _CallerMetadataConnection:
+    def __init__(self, tables, owner):
+        self.tables, self.owner = tables, owner
+
+    async def fetch(self, statement, bound_owner):
+        assert bound_owner == self.owner
+        assert "WHERE user_id=$1" in statement
+        table = statement.split(" FROM ", 1)[1].split(" ", 1)[0]
+        return [
+            {
+                key: json.dumps(value) if isinstance(value, (dict, list)) else value
+                for key, value in row.items()
+            }
+            for row in self.tables.get(table, [])
+        ]
+
+
+class _ForbiddenDatabase:
+    def table(self, _name):
+        raise AssertionError("Caller transaction must not open a separate database read")
+
+
 def _generator_with_onboarded_manifest() -> DynamicScopeGenerator:
     generator = DynamicScopeGenerator()
     generator._db = _FakeDb(
@@ -196,29 +218,7 @@ def test_information_scope_catalog_matches_token_scope_grammar():
     ]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "posture,enabled,state,count,visible,internal,eligible",
-    [
-        ("consent_required", True, "materialized", 1, True, False, True),
-        ("private", True, "materialized", 1, True, False, False),
-        ("consent_required", False, "materialized", 1, True, False, False),
-        ("consent_required", True, "empty", 0, True, False, False),
-        ("consent_required", True, "materialized", 1, False, False, False),
-        ("consent_required", True, "materialized", 1, True, True, False),
-    ],
-)
-@pytest.mark.parametrize("transactional", [False, True])
-async def test_answer_catalog_maps_opaque_registry_authority(
-    monkeypatch, posture, enabled, state, count, visible, internal, eligible, transactional
-):
-    from hushh_mcp.consent.answer_scope_resolution import validate_resolved_scopes
-    from hushh_mcp.services import connections_service
-    from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
-    from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
-
-    owner, requester = "synthetic-owner", "synthetic-requester"
-    opaque, scope = "s_0123456789ab", "attr.travel.trips.destination"
+def _policy_generator(opaque, *, posture, enabled, state, count, visible, internal):
     projection = {
         "top_level_scope_path": "trips",
         "materialization_state": state,
@@ -267,29 +267,47 @@ async def test_answer_catalog_maps_opaque_registry_authority(
             ],
         }
     )
+    return generator
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "posture,enabled,state,count,visible,internal,eligible",
+    [
+        ("consent_required", True, "materialized", 1, True, False, True),
+        ("private", True, "materialized", 1, True, False, False),
+        ("consent_required", False, "materialized", 1, True, False, False),
+        ("consent_required", True, "empty", 0, True, False, False),
+        ("consent_required", True, "materialized", 1, False, False, False),
+        ("consent_required", True, "materialized", 1, True, True, False),
+    ],
+)
+@pytest.mark.parametrize("transactional", [False, True])
+async def test_answer_catalog_maps_opaque_registry_authority(
+    monkeypatch, posture, enabled, state, count, visible, internal, eligible, transactional
+):
+    from hushh_mcp.consent.answer_scope_resolution import validate_resolved_scopes
+    from hushh_mcp.services import connections_service
+    from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+    from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+    owner, requester = "synthetic-owner", "synthetic-requester"
+    opaque, scope = "s_0123456789ab", "attr.travel.trips.destination"
+    generator = _policy_generator(
+        opaque,
+        posture=posture,
+        enabled=enabled,
+        state=state,
+        count=count,
+        visible=visible,
+        internal=internal,
+    )
     connection = None
     if transactional:
         tables = generator._db._tables
 
-        class CallerConnection:
-            async def fetch(self, statement, bound_owner):
-                assert bound_owner == owner
-                assert "WHERE user_id=$1" in statement
-                table = statement.split(" FROM ", 1)[1].split(" ", 1)[0]
-                return [
-                    {
-                        key: json.dumps(value) if isinstance(value, (dict, list)) else value
-                        for key, value in row.items()
-                    }
-                    for row in tables.get(table, [])
-                ]
-
-        class ForbiddenDatabase:
-            def table(self, _name):
-                raise AssertionError("Caller transaction must not open a separate database read")
-
-        connection = CallerConnection()
-        generator._db = ForbiddenDatabase()
+        connection = _CallerMetadataConnection(tables, owner)
+        generator._db = _ForbiddenDatabase()
     entries = await generator.get_available_scope_entries(owner, connection=connection)
     monkeypatch.setattr(
         connections_service,

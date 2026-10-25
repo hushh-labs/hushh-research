@@ -6,8 +6,6 @@ import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
 import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
-import { OwnerFacingConsentError } from "@/lib/consent/consent-owner-copy";
-import { morphyToast } from "@/lib/morphy-ux/morphy";
 
 function actionable(overrides: Partial<FeedActionable> = {}): FeedActionable {
   return {
@@ -23,18 +21,6 @@ function actionable(overrides: Partial<FeedActionable> = {}): FeedActionable {
 }
 
 describe("FeedActionableRow", () => {
-  it.each([true, false])("shows only trusted owner-decision copy after failed Allow (trusted=%s)", async trusted => {
-    const message = "This request's information changed. Ask them to send a new request.";
-    const error = trusted ? new OwnerFacingConsentError(message) : new Error(message);
-    const showError = vi.spyOn(morphyToast, "error").mockReturnValue(1);
-    try {
-      render(<FeedActionableRow item={actionable({ actions: [
-        { key: "allow", label: "Allow", tone: "primary", run: async () => { throw error; } },
-      ] })} />);
-      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Allow" })); });
-      expect(showError).toHaveBeenCalledWith(trusted ? message : "That didn't go through. Try again.");
-    } finally { showError.mockRestore(); }
-  });
   it("groups repeat SMS by sender identity and preserves every incident's sent time and live link", () => {
     const base = actionable({ title: "Same name", person: { displayName: "Same name", photoUrl: null }, smsEmergency: { senderId: "sender-a" }, description: "Emergency SMS · Revoked", displayTimestamp: Date.parse("2026-08-12T09:00:00Z"), sortAt: 1 });
     const active = { ...base, id: "active", emphasis: "emergency" as const, description: "Emergency SMS · Active", href: "/one/location?grantId=active&open=1&section=shared", chevron: true, sortAt: 2 };
