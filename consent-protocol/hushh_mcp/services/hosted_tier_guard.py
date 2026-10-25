@@ -8,6 +8,7 @@ Plan rendering and existing resource inspection remain available.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 from hushh_mcp.services.dev_simulation_guard import deploy_lane, runtime_environment
 
@@ -37,6 +38,17 @@ def hosted_pod_creates_permitted() -> bool:
     # identity. Replace this refusal only with authoritative shard reservations
     # and qualified per-owner key custody, together with their negative controls.
     return False
+
+
+def require_supported_erasure(row: object) -> None:
+    """Preserve managed recovery until its complete erasure receipts qualify."""
+    if not isinstance(row, Mapping):
+        return
+    target = row.get("deployment_target")
+    if target == "gcp" or (not target and row.get("backend") == "gcp"):
+        from hushh_mcp.services.account_service import PersonalAgentDeprovisioningRequiredError
+
+        raise PersonalAgentDeprovisioningRequiredError()
 
 
 def require_hosted_pod_maintenance_permitted(what: str = "hosted pod maintenance") -> None:

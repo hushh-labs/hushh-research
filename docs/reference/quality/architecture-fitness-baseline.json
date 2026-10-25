@@ -12250,7 +12250,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "deprovision",
-      "value": 101
+      "value": 105
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -21844,7 +21844,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_provisioning_service.py",
       "symbol": null,
-      "value": 1848
+      "value": 1862
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86522,6 +86522,28 @@
         "source_sha256": "d790328382dbed51f2a1cf6c3b4c304ed1c70705c0b5783e3b967559c0a428ed",
         "reviewer": "ci_deletion; journal independently rechecked by deletion_review",
         "review": "Existing real PostgreSQL replay scenario preserves current legacy predecessors and installed423, rejects altered guard and NULLversion; shared canonical fixture remains cohesive."
+      }
+    ]
+  },
+  "account_deletion_managed_refusal_review_20261025": {
+    "base_revision": "31241ef2acd2faaffb39c008d658e8c6fbb577c4",
+    "scope": "Two exact source-bound ceilings independently reviewed. Global500/250/80 budgets and future-growth ratchet unchanged. Managed completion remains unqualified; this change prevents partial provider effects.",
+    "entries": [
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py|deprovision|function exceeds the advisory gene budget",
+        "before": 101,
+        "after": 105,
+        "source_sha256": "cb9d14c7cec2d7b18467609b0c6050d89f502b8d99e7a92d00c9391f1d60d136",
+        "reviewer": "backend_deletion",
+        "review": "Existing teardown boundary gains only four guard lines: refuse unqualified managed records before reservation, then recheck the returned snapshot before external effects. Managed explicit/legacy/race cases are in the nearest regression."
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
+        "before": 1848,
+        "after": 1862,
+        "source_sha256": "a8bb0db384d1d229e9bcf7fd2d2625223be581a8b6e11105bc22889eca940673",
+        "reviewer": "ci_deletion",
+        "review": "Extend existing zero-effect teardown matrix with explicit managed, legacy managed and reserved-snapshot race. No duplicate test or oversized function introduced."
       }
     ]
   }

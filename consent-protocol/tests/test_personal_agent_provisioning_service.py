@@ -123,8 +123,19 @@ async def test_disabled_flag_refuses(monkeypatch):
 
 @pytest.mark.feature_account_deletion
 @pytest.mark.trace_loop
-@pytest.mark.parametrize("enabled", [None, "0"])
-async def test_teardown_refuses_before_reservation_or_any_destructive_phase(monkeypatch, enabled):
+@pytest.mark.parametrize(
+    "enabled,row,reserved",
+    [
+        (None, None, None),
+        ("0", None, None),
+        ("1", {"deployment_target": "gcp"}, None),
+        ("1", {"backend": "gcp"}, None),
+        ("1", {"deployment_target": "user_gcp"}, {"deployment_target": "gcp"}),
+    ],
+)
+async def test_teardown_refuses_before_reservation_or_any_destructive_phase(
+    monkeypatch, enabled, row, reserved
+):
     from hushh_mcp.services.account_service import (
         AccountService,
         PersonalAgentDeprovisioningRequiredError,
@@ -135,7 +146,10 @@ async def test_teardown_refuses_before_reservation_or_any_destructive_phase(monk
     else:
         monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", enabled)
     service = _svc()
-    service._registry.reserve_erasure = AsyncMock(return_value={"ownerId": _UID})
+    service._registry.rows[_UID] = row
+    service._registry.reserve_erasure = AsyncMock(
+        return_value={"ownerId": _UID, "registrySnapshot": reserved}
+    )
     phases = [
         "_fence_reserved_erasure",
         "_erase_reserved_memory",
@@ -154,7 +168,7 @@ async def test_teardown_refuses_before_reservation_or_any_destructive_phase(monk
     )
     with pytest.raises(PersonalAgentDeprovisioningRequiredError):
         await service.deprovision(user_id=_UID)
-    service._registry.reserve_erasure.assert_not_awaited()
+    assert service._registry.reserve_erasure.await_count == (1 if reserved is not None else 0)
     for name in phases:
         getattr(service, name).assert_not_awaited()
 

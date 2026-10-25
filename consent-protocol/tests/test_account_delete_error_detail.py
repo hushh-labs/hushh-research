@@ -141,7 +141,8 @@ class TestAccountDeleteErrorDetail:
         assert self._SENTINEL not in resp.text
 
     @pytest.mark.parametrize(
-        "provider,expected", [("user_azure", "azure"), ("user_gcp", "gcp"), ("managed", None)]
+        "provider,expected",
+        [("user_azure", "azure"), ("user_gcp", "gcp"), ("managed", None), ("gcp", None)],
     )
     def test_cloud_blocker_exposes_only_supported_reviewed_removal_provider(
         self, provider, expected
