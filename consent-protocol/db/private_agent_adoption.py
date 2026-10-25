@@ -295,6 +295,23 @@ $private_agent_receipt_index$;
 """
 
 
+def _receipt_ledger_sql() -> str:
+    """Expand the reviewed 904 receipt table using the additive 913 successor."""
+    return """DO $private_agent_receipt_ledger$
+BEGIN
+ IF to_regclass('public.consent_audit_receipts') IS NULL THEN RETURN; END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_attribute
+   WHERE attrelid='public.consent_audit_receipts'::regclass AND attname='ledger'
+    AND attnum>0 AND NOT attisdropped) THEN
+  ALTER TABLE public.consent_audit_receipts
+   ADD COLUMN ledger TEXT NOT NULL DEFAULT 'consent';
+ END IF;
+ -- Existing columns remain subject to the immutable foundation inventory.
+END
+$private_agent_receipt_ledger$;
+"""
+
+
 def _retention_inventory_sql(sql: str) -> str:
     from db.migration_authority import MigrationAuthorityError
 
@@ -341,7 +358,10 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     if entry.sql.count(column_anchor) != 1:
         raise MigrationAuthorityError("Private-agent adoption column inventory changed")
     preparation = (
-        _authorization_attempts_sql() + _predecessor_constraints_sql() + _predecessor_index_sql()
+        _authorization_attempts_sql()
+        + _predecessor_constraints_sql()
+        + _predecessor_index_sql()
+        + _receipt_ledger_sql()
     )
     sql = entry.sql.replace(column_anchor, preparation + column_anchor, 1)
     sql = _retention_inventory_sql(sql)

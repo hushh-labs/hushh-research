@@ -119,6 +119,15 @@ schema requires the separately reviewed forward qualification before re-enableme
 
 ## Canonical private-agent graduation and cleanup replay
 
+[UAT run 1900](https://github.com/hushh-labs/hushh-research/actions/runs/40196796880)
+exposed a retained 904 receipt table without the later 913 `ledger`
+column. The existing private-agent adoption adapter adds that reviewed column
+with the `consent` default before 420 validates the inventory and installs its
+ledger-aware indexes. Existing receipts and sequence positions are retained;
+unexpected column definitions still fail the immutable inventory. The original
+420 SQL and checksum remain unchanged. The adoption PostgreSQL suite covers
+both pre-913 and post-913 tables in replay and pending-ledger execution.
+
 Canonical 418–421 graduate private-agent authority through forward SQL; the
 current release head is 422. Applied 900–972 files and checksums remain immutable.
 Canonical 420 installs the final schema and accepts only reviewed predecessor and
