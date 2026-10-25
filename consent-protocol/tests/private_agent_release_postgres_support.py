@@ -1,10 +1,48 @@
 """Synthetic retained-state checks for canonical private-agent graduation."""
 
+import asyncio
 import json
 from uuid import uuid4
 
 from db.migration_authority import _replay_sql, build_manifest_entries
+from db.private_agent_adoption import execution_sql
 from tests.standby_postgres_support import seed_primary
+
+
+def apply_release_successors(conn, cp, *, retained_consumer=False):
+    from db import migrate
+    from tests.consumer_consent_replay_support import (
+        install_consumer_predecessor,
+        seed_consumer_connections,
+    )
+
+    with conn.cursor() as cur:
+        if retained_consumer:
+            install_consumer_predecessor(cur.execute)
+            seed_consumer_connections(cur.execute)
+            cur.execute("SELECT to_jsonb(c) FROM consumer_mcp_connections c ORDER BY connection_id")
+            before = cur.fetchall()
+        files = [name for name in migrate.RELEASE_MIGRATION_FILES if int(name[:3]) > 417]
+        for entry in build_manifest_entries(cp / "db/migrations", files):
+            if retained_consumer and entry.migration_id == "420":
+                import psycopg2
+                import pytest
+
+                with pytest.raises(
+                    psycopg2.errors.RaiseException, match="Unqualified private-agent triggers"
+                ):
+                    cur.execute(entry.sql)
+                cur.execute("ROLLBACK")
+            cur.execute(execution_sql(entry, replay=_replay_sql))
+        if retained_consumer:
+            cur.execute("SELECT to_jsonb(c) FROM consumer_mcp_connections c ORDER BY connection_id")
+            assert cur.fetchall() == before
+
+
+def verify_release_contract(guard, cp, name):
+    contract = json.loads((cp / "db/contracts" / (name + ".json")).read_text())
+    _report, violations = asyncio.run(guard._run_db_contract_check(contract))
+    assert not violations, violations
 
 
 def verify_retained_release_records(conn, cp):
@@ -165,7 +203,7 @@ def verify_retained_release_records(conn, cp):
         execute(_replay_referral_policy_v4_sql(referral))
     execute("ROLLBACK")
     for entry in build_manifest_entries(cp / "db/migrations", files):
-        execute(_replay_sql(entry))
+        execute(execution_sql(entry, replay=_replay_sql))
     after = {k: execute(*q) for k, q in queries.items()}
     assert before == after, "RETAINED_RECORD_BYTES_CHANGED: " + ",".join(
         k for k in before if before[k] != after[k]

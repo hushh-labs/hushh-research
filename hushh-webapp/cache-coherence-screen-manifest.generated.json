@@ -1525,7 +1525,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/calendar",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fcalendar",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5339,7 +5339,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/setup/calendar",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fcalendar",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -7201,5 +7201,5 @@
       ]
     }
   ],
-  "content_sha256": "4101e3fd42f131f8058b3b50494706d8b4f4a040115efaee706ad56e4e489a3c"
+  "content_sha256": "68d32c211a47d9dcbe9fd4c0767e4e68218730efc8c22a461a753cd48a53908a"
 }
