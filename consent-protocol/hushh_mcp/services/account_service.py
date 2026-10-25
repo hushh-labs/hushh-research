@@ -2296,6 +2296,9 @@ class AccountService:
                     )
                 results["account_deletion_tombstone"] = True
                 results["firebase_cleanup_intent_count"] = len(cleanup_user_ids)
+                # Admission owns its own deadlines; restore the erasure budget
+                # before destructive statements, including bounded recovery batches.
+                conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
                 guard_answer_erasure(conn, user_id=user_id)
                 self._delete_personal_agent_state(
                     conn,

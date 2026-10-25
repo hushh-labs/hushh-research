@@ -321,6 +321,8 @@ jobs:
           cp scripts/ci/capture_managed_provider_receipt.py \
             "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py"
           cp scripts/ci/uat_backend_build_config.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_frontend_image_handoff.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/resolve-cloud-run-image.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ops/run_uat_text_recovery_job.py \
             "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py"
           if [[ "${{ inputs.skip_managed_vertex_probe_once }}" == "true" ]]; then
@@ -358,6 +360,8 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/capture_managed_provider_receipt.py" \
             scripts/ci/capture_managed_provider_receipt.py
           cp "${RUNNER_TEMP}/release-tools/uat_backend_build_config.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/uat_frontend_image_handoff.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/resolve-cloud-run-image.py" scripts/ci/
           # The launcher is current release tooling; the approved target image
           # and its processing policy remain bound by the launcher itself.
           cp "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py" \
@@ -942,7 +946,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          image_tag="uat-${{ steps.resolve-sha.outputs.sha }}"
+          image_tag="uat-${{ steps.resolve-sha.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
           # The single definition of every value compiled into the web image.
           # The deploy step reuses it, so the build and deploy cannot disagree.
           build_substitutions="_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=${image_tag},_ONE_WALLET_CARD_ENABLED=true,_ONE_LOCATION_NEARBY_CHECK_IN=true,_LOCATION_MAP_DEMO=false"
@@ -1373,7 +1377,7 @@ jobs:
           fi
           echo "names=${names}" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare frontend rollout and reuse a ready image
+      - name: Prepare frontend rollout and its exact image build
         id: prepare-frontend-rollout
         if: steps.scope.outputs.deploy_frontend == 'true'
         shell: bash
@@ -1392,8 +1396,9 @@ jobs:
           echo "substitutions=${SUBSTITUTIONS}" >> "$GITHUB_OUTPUT"
           echo "parallel=false" >> "$GITHUB_OUTPUT"
           echo "wait_seconds=0" >> "$GITHUB_OUTPUT"
-          # Do not delay backend readiness for a cold frontend build. A ready
-          # image may deploy at zero traffic in the same required Cloud Build.
+          # Readiness is independent of the web image. Await a still-building
+          # image in its own branch of the same required Cloud Build, preserving
+          # the image/IAM prerequisites and the final successful-build join.
           if [[ "${{ steps.scope.outputs.deploy_backend }}" == "true" &&
                 "${{ steps.start-frontend-image-build.outputs.prebuilt }}" == "true" ]]; then
             status="$(gcloud builds describe "${FRONTEND_IMAGE_BUILD_ID}" \
@@ -1411,6 +1416,12 @@ jobs:
               echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
               echo "parallel=true" >> "$GITHUB_OUTPUT"
               echo "wait_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
+            elif [[ "$status" == "WORKING" || "$status" == "QUEUED" || "$status" == "PENDING" ]]; then
+              echo "parallel=true" >> "$GITHUB_OUTPUT"
+              echo "pending_image_build_id=${FRONTEND_IMAGE_BUILD_ID}" >> "$GITHUB_OUTPUT"
+            else
+              echo "Frontend image build is not eligible for deployment." >&2
+              exit 1
             fi
           fi
 
@@ -1422,6 +1433,7 @@ jobs:
           FRONTEND_PARALLEL: ${{ steps.prepare-frontend-rollout.outputs.parallel || 'false' }}
           FRONTEND_DEPLOY_SUBSTITUTIONS: ${{ steps.prepare-frontend-rollout.outputs.substitutions }}
           FRONTEND_PARALLEL_IMAGE: ${{ steps.prepare-frontend-rollout.outputs.image_reference }}
+          FRONTEND_PENDING_IMAGE_BUILD_ID: ${{ steps.prepare-frontend-rollout.outputs.pending_image_build_id }}
           STRIPE_UAT_MODE: ${{ vars.STRIPE_UAT_MODE || 'test' }}
           STRIPE_CONNECT_UAT_MODE: ${{ vars.STRIPE_CONNECT_UAT_MODE || vars.STRIPE_UAT_MODE || 'test' }}
           DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_SEMANTIC_SEARCH_UAT_ENABLED || 'true' }}
@@ -1507,8 +1519,13 @@ jobs:
           config_args=(--output /tmp/uat-backend-parallel.cloudbuild.json)
           if [[ "$FRONTEND_PARALLEL" == "true" ]]; then
             config_args+=(--frontend-source deploy/frontend.cloudbuild.yaml
-              --backend-substitutions "$SUBSTITUTIONS"
-              --frontend-substitutions "${FRONTEND_DEPLOY_SUBSTITUTIONS},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${FRONTEND_PARALLEL_IMAGE}")
+              --backend-substitutions "$SUBSTITUTIONS")
+            if [[ -n "$FRONTEND_PENDING_IMAGE_BUILD_ID" ]]; then
+              config_args+=(--frontend-image-build-id "$FRONTEND_PENDING_IMAGE_BUILD_ID"
+                --frontend-substitutions "${FRONTEND_DEPLOY_SUBSTITUTIONS},_SKIP_IMAGE_BUILD=true")
+            else
+              config_args+=(--frontend-substitutions "${FRONTEND_DEPLOY_SUBSTITUTIONS},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${FRONTEND_PARALLEL_IMAGE}")
+            fi
           fi
           "${{ env.PROTOCOL_PYTHON }}" scripts/ci/uat_backend_build_config.py "${config_args[@]}"
           build_id="$(gcloud builds submit \
@@ -1712,11 +1729,31 @@ jobs:
           FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
           FRONTEND_IMAGE_TAG: ${{ steps.start-frontend-image-build.outputs.image_tag }}
           FRONTEND_PARALLEL_IMAGE: ${{ steps.prepare-frontend-rollout.outputs.image_reference }}
+          FRONTEND_PENDING_IMAGE_BUILD_ID: ${{ steps.prepare-frontend-rollout.outputs.pending_image_build_id }}
+          FRONTEND_SHARED_BUILD_ID: ${{ steps.deploy-backend.outputs.build_id }}
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
           image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
-          if [[ -n "$FRONTEND_PARALLEL_IMAGE" ]]; then
+          if [[ -n "$FRONTEND_PENDING_IMAGE_BUILD_ID" ]]; then
+            # Collect this exact build's original executable pin. Never resolve
+            # the mutable tag again after its no-traffic candidate was created.
+            image_reference="$(python3 scripts/ci/uat_frontend_image_handoff.py collect \
+              --image-build-id "$FRONTEND_PENDING_IMAGE_BUILD_ID" \
+              --deployment-build-id "$FRONTEND_SHARED_BUILD_ID" \
+              --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --github-run "${{ github.run_id }}" \
+              --github-attempt "${{ github.run_attempt }}" \
+              --backend-image "${{ steps.build-backend-image.outputs.image_reference }}" \
+              --legacy-exception "${{ inputs.skip_managed_vertex_probe_once || false }}" \
+              --manifest-output /tmp/uat-frontend-image-manifest.json \
+              --output /tmp/uat-frontend-image.json \
+              --proof-output /tmp/uat-frontend-image-handoff.json)"
+            # Waiting occurs inside the shared build. Report that exact step's
+            # elapsed time, separately from this post-build evidence collection.
+            wait_seconds="$(python3 -c 'import json; print(json.load(open("/tmp/uat-frontend-image-handoff.json"))["image_wait_seconds"])')"
+            echo "collection_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$FRONTEND_PARALLEL_IMAGE" ]]; then
             image_reference="$FRONTEND_PARALLEL_IMAGE"
           else
             image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
@@ -1733,7 +1770,10 @@ jobs:
             exit 1
           fi
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
-          echo "wait_seconds=$(( $(date +%s) - started_at + ${{ steps.prepare-frontend-rollout.outputs.wait_seconds || '0' }} ))" >> "$GITHUB_OUTPUT"
+          if [[ -z "$FRONTEND_PENDING_IMAGE_BUILD_ID" ]]; then
+            wait_seconds="$(( $(date +%s) - started_at ))"
+          fi
+          echo "wait_seconds=$(( wait_seconds + ${{ steps.prepare-frontend-rollout.outputs.wait_seconds || '0' }} ))" >> "$GITHUB_OUTPUT"
 
       - name: Deploy frontend using Cloud Build
         id: deploy-frontend
@@ -3594,9 +3634,10 @@ jobs:
               "timing_seconds": {
                   "backend_cloud_build": "${{ steps.deploy-backend.outputs.duration_seconds || '0' }}",
                   "frontend_cloud_build": "${{ steps.deploy-frontend.outputs.duration_seconds || '0' }}",
-                  # Time the lane blocked on the parallel web image build. Near
-                  # zero means the build was fully hidden behind the backend path.
+                  # Includes the exact shared-build waiter when selected. This
+                  # branch can overlap probes, so wait is not critical-path cost.
                   "frontend_image_wait": "${{ steps.build-frontend-image.outputs.wait_seconds || '0' }}",
+                  "frontend_image_pin_collection": "${{ steps.build-frontend-image.outputs.collection_seconds || '0' }}",
               },
               "build_execution": {
                   "backend_cloud_build_id": "${{ steps.deploy-backend.outputs.build_id }}",
@@ -3669,6 +3710,7 @@ jobs:
             /tmp/uat-backend-image.json
             /tmp/uat-backend-image-manifest.json
             /tmp/uat-frontend-image.json
+            /tmp/uat-frontend-image-handoff.json
             /tmp/uat-frontend-image-manifest.json
             /tmp/uat-backend-candidate.json
             /tmp/uat-backend-candidate-readiness.json

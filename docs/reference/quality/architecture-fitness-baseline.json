@@ -4681,7 +4681,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2958
+      "value": 2961
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -8722,7 +8722,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 587
+      "value": 590
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18739,7 +18739,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 3059
+      "value": 3062
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32291,7 +32291,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py",
       "symbol": null,
-      "value": 1736
+      "value": 1792
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -86088,6 +86088,37 @@
         "before": 555,
         "after": 556,
         "source_sha256": "bb42620529765cebb220255ccbf3f028e70686f0cefd2fe424de461252d71c20"
+      }
+    ]
+  },
+  "surgical_uat_critical_path_review_20261024": {
+    "source_revision": "9e7918cdff",
+    "integrated_main": "b2ee968a59ab30da79afcca418833adaa7a9f161",
+    "review": "Independent lifecycle and architecture reviewers admit exactly four current ceilings. Main replaces scheduler-sensitive SQL micro-sleeps with real100-row statement transition-table limits,57014 timeout and independent unbounded-query rollback controls. Those tests found journal admission overwrote configured transaction deadlines; the three-line production repair reapplies the erasure budget after all lifecycle admission, retaining initial pre-lock and journal deadlines. All five SQL cases pass2.51s; incoming UAT helper checks pass. Scanner,global budgets,unrelated findings and admission policies unchanged.",
+    "entries": [
+      {
+        "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+        "before": 2958,
+        "after": 2961,
+        "source_sha256": "18178f0267399410138cb574b86cbedd20f8498a7c519b20d7a6e4b307a94fea"
+      },
+      {
+        "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+        "before": 587,
+        "after": 590,
+        "source_sha256": "18178f0267399410138cb574b86cbedd20f8498a7c519b20d7a6e4b307a94fea"
+      },
+      {
+        "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+        "before": 3059,
+        "after": 3062,
+        "source_sha256": "18178f0267399410138cb574b86cbedd20f8498a7c519b20d7a6e4b307a94fea"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_account_erasure_lock_timeout_postgres.py||module exceeds the advisory operon budget",
+        "before": 1736,
+        "after": 1792,
+        "source_sha256": "e59fac1090ee323e88124ff98bdeb63e79c0f3fed2863a82bfd958ee775dc722"
       }
     ]
   }

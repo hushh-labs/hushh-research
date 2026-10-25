@@ -1,6 +1,7 @@
 """Explicit synthetic checkout inputs for deployment capability contracts."""
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -175,9 +176,9 @@ def frontend_deploy_script(steps: list[dict], project: str, tmp_path: Path) -> t
     )
     if preparation:
         prepare = preparation["run"]
-        # Exercise the shared rollout settings and original serial fallback.
-        # The ready-image combined-build path has its own DAG/admission tests.
-        prepare = prepare[: prepare.index("# Do not delay")]
+        # Synthetic scope expressions below leave admission unselected. Exercise
+        # the full settings preparation without coupling this helper to prose.
+        # Combined-build admission has its own behavioral/DAG tests.
         run = (
             prepare + '\nexport FRONTEND_DEPLOY_SUBSTITUTIONS="$SUBSTITUTIONS"; '
             "export FRONTEND_PARALLEL=false;\n" + run
@@ -193,3 +194,34 @@ def frontend_deploy_script(steps: list[dict], project: str, tmp_path: Path) -> t
         "echo UNEXPECTED_CLOUD_COMMAND >&2; return 95; };\n"
     )
     return guards + run, capture
+
+
+def frontend_release():
+    return {
+        "_FRONTEND_RUNTIME_SERVICE_ACCOUNT": "hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+        "_APP_ENV": "uat",
+        "_DEPLOY_ENV": "uat",
+        "_DEPLOY_SOURCE": "deploy-uat",
+        "_DEPLOY_SHA": "a" * 40,
+        "_GITHUB_RUN_ID": "42",
+        "_GITHUB_RUN_ATTEMPT": "1",
+        "_SKIP_IMAGE_BUILD": "true",
+        "_CLOUD_RUN_NO_TRAFFIC": "true",
+        "_IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/hushh-webapp@sha256:" + "b" * 64,
+        "_CLOUD_RUN_MEMORY": "1Gi",
+        "_CLOUD_RUN_MIN_INSTANCES": "2",
+        "_CLOUD_RUN_MAX_INSTANCES": "10",
+        "_CLOUD_RUN_CONCURRENCY": "10",
+        "_CLOUD_RUN_TIMEOUT_SECONDS": "300",
+        "_REGION": "us-central1",
+    }
+
+
+def uat_build_module():
+    spec = importlib.util.spec_from_file_location(
+        "uat_build_config",
+        Path(__file__).resolve().parents[3] / "scripts/ci/uat_backend_build_config.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

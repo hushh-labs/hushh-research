@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import shutil
@@ -13,28 +12,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.helpers.deployment_cli import frontend_release as _frontend_release
+from tests.helpers.deployment_cli import uat_build_module as _uat_build_module
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _frontend_release():
-    return {
-        "_FRONTEND_RUNTIME_SERVICE_ACCOUNT": "hushh-webapp-runtime@hushh-pda-uat.iam.gserviceaccount.com",
-        "_APP_ENV": "uat",
-        "_DEPLOY_ENV": "uat",
-        "_DEPLOY_SOURCE": "deploy-uat",
-        "_DEPLOY_SHA": "a" * 40,
-        "_GITHUB_RUN_ID": "42",
-        "_GITHUB_RUN_ATTEMPT": "1",
-        "_SKIP_IMAGE_BUILD": "true",
-        "_CLOUD_RUN_NO_TRAFFIC": "true",
-        "_IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/hushh-webapp@sha256:" + "b" * 64,
-        "_CLOUD_RUN_MEMORY": "1Gi",
-        "_CLOUD_RUN_MIN_INSTANCES": "2",
-        "_CLOUD_RUN_MAX_INSTANCES": "10",
-        "_CLOUD_RUN_CONCURRENCY": "10",
-        "_CLOUD_RUN_TIMEOUT_SECONDS": "300",
-        "_REGION": "us-central1",
-    }
 
 
 def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend_setting():
@@ -151,25 +132,17 @@ def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
-def _uat_build_module():
-    spec = importlib.util.spec_from_file_location(
-        "uat_build_config", REPO_ROOT / "scripts/ci/uat_backend_build_config.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.mark.parametrize(
     "backend,status,pin_status,parallel",
     [
         (True, "SUCCESS", 0, True),
-        (True, "WORKING", 0, False),
+        (True, "WORKING", 0, True),
+        (True, "QUEUED", 0, True),
         (False, "SUCCESS", 0, False),
         (True, "SUCCESS", 7, False),
     ],
 )
-def test_frontend_overlap_requires_a_ready_pinned_image_and_keeps_cold_fallback(
+def test_frontend_overlap_pins_ready_images_and_joins_an_exact_inflight_build(
     tmp_path, backend, status, pin_status, parallel
 ):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
@@ -211,7 +184,7 @@ def test_frontend_overlap_requires_a_ready_pinned_image_and_keeps_cold_fallback(
             "PINNED_IMAGE": release["_IMAGE_REFERENCE"],
             "BUILD_STATUS": status,
             "FRONTEND_BUILD_SUBSTITUTIONS": "_APP_ENV=uat,_DEPLOY_ENV=uat,_IMAGE_TAG=uat-fixture",
-            "FRONTEND_IMAGE_BUILD_ID": "fixture",
+            "FRONTEND_IMAGE_BUILD_ID": "11111111-1111-4111-8111-111111111111",
             "FRONTEND_IMAGE_TAG": "uat-fixture",
         },
         text=True,
@@ -226,7 +199,11 @@ def test_frontend_overlap_requires_a_ready_pinned_image_and_keeps_cold_fallback(
         ["describe", "pin"] if backend and status == "SUCCESS" else ["describe"] if backend else []
     )
     if parallel:
-        assert outputs["image_reference"] == release["_IMAGE_REFERENCE"]
+        pending = outputs.get("pending_image_build_id")
+        if pending:
+            assert "image_reference" not in outputs
+        else:
+            assert outputs["image_reference"] == release["_IMAGE_REFERENCE"]
         module = _uat_build_module()
         # Validate the actual workflow's assembled values, not another fixture
         # copy of its service identity, zero-traffic or exact-release settings.
@@ -239,9 +216,10 @@ def test_frontend_overlap_requires_a_ready_pinned_image_and_keeps_cold_fallback(
             module.substitutions(
                 outputs["substitutions"]
                 + ",_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE="
-                + outputs["image_reference"],
+                + outputs.get("image_reference", ""),
                 ",",
             ),
+            frontend_image_build_id=pending,
         )
 
 
