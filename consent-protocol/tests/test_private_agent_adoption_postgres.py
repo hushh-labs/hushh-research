@@ -281,7 +281,7 @@ def receipt_state(connection):
         return cursor.fetchall()
 
 
-def seed_legacy_authorization(connection):
+def seed_legacy_authorization(connection, *, receipt_ledger=True):
     with connection.cursor() as cursor:
         canonical = authorization_state(connection)
         cursor.execute(_authorization_attempts_sql())
@@ -296,7 +296,8 @@ def seed_legacy_authorization(connection):
             assert authorization_state(connection) == absent
         finally:
             cursor.execute("ROLLBACK")
-        for filename, digest in RECEIPT_PREDECESSORS:
+        predecessors = RECEIPT_PREDECESSORS if receipt_ledger else RECEIPT_PREDECESSORS[:1]
+        for filename, digest in predecessors:
             source = (MIGRATIONS / "parked" / filename).read_bytes()
             assert hashlib.sha256(source).hexdigest() == digest
             cursor.execute(source.decode())
@@ -325,6 +326,13 @@ def reject_authorization_drift(connection, entry, before):
             )
         )
         + LEGACY_PREDECESSOR_DRIFT
+        + (
+            (
+                "ALTER TABLE public.consent_audit_receipts ADD COLUMN IF NOT EXISTS ledger text NOT NULL DEFAULT 'consent'; "
+                "ALTER TABLE public.consent_audit_receipts ALTER COLUMN ledger SET DEFAULT 'internal'",
+                "column",
+            ),
+        )
     )
     with connection.cursor() as cursor:
         for ddl, failure in mutations:
@@ -439,15 +447,19 @@ def assert_unknown_authorization_is_fenced(connection, server, database):
 
 @pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
 @pytest.mark.parametrize("mode", [MigrationMode.REPLAY, MigrationMode.LEDGER])
+@pytest.mark.parametrize("receipt_ledger", [False, True], ids=["pre-913", "post-913"])
 def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacement(
-    replay_pg, monkeypatch, mode
+    replay_pg, monkeypatch, mode, receipt_ledger
 ):
     [entry] = build_manifest_entries(MIGRATIONS, [FOUNDATION])
     connection, database = canonical_database(replay_pg, monkeypatch)
     with closing(connection):
-        before = seed_legacy_authorization(connection)
+        before = seed_legacy_authorization(connection, receipt_ledger=receipt_ledger)
         receipts = receipt_state(connection)
         assert len(receipts) == 1
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT last_value,is_called FROM public.consent_audit_receipts_id_seq")
+            receipt_sequence = cursor.fetchone()
         assert before[0] == ("jsonb", False, None, "", "")
         with connection.cursor() as cursor:
             with pytest.raises(psycopg2.errors.RaiseException, match="column"):
@@ -475,5 +487,28 @@ def test_legacy_unknown_authorization_preserves_wire_history_and_blocks_replacem
         expected = () if mode is MigrationMode.LEDGER else (FOUNDATION,)
         assert asyncio.run(execute_mode(replay_pg, database, entry, mode)) == expected
         assert authorization_state(connection) == normalized
-        assert receipt_state(connection) == receipts
+        assert receipt_state(connection) == [
+            ({**row, "ledger": "consent"}, row_location) for row, row_location in receipts
+        ]
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT last_value,is_called FROM public.consent_audit_receipts_id_seq")
+            assert cursor.fetchone() == receipt_sequence
+            cursor.execute("""SELECT a.attnotnull,pg_get_expr(d.adbin,d.adrelid,true)
+              FROM pg_attribute a JOIN pg_attrdef d
+                ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+              WHERE a.attrelid='public.consent_audit_receipts'::regclass AND a.attname='ledger'""")
+            assert cursor.fetchone() == (True, "'consent'::text")
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute("""INSERT INTO public.consent_audit_receipts
+                  (subject_id,ledger,seq,event_type,issued_at_ms,prev_hash,hash,signature)
+                  VALUES('synthetic-retained','internal',1,'synthetic-independent',0,'',
+                    'synthetic-hash','synthetic-signature')""")
+                with pytest.raises(psycopg2.errors.UniqueViolation):
+                    cursor.execute("""INSERT INTO public.consent_audit_receipts
+                      (subject_id,seq,event_type,issued_at_ms,prev_hash,hash,signature)
+                      VALUES('synthetic-retained',1,'synthetic-duplicate',0,'',
+                        'synthetic-hash','synthetic-signature')""")
+            finally:
+                cursor.execute("ROLLBACK")
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
