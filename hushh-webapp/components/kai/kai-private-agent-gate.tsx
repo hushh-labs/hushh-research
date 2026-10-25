@@ -12,9 +12,11 @@ import { Button } from "@/lib/morphy-ux/button";
  * coming to their own agent, and no Kai route is ever called on the hub for them.
  */
 export function KaiPrivateAgentGate({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading, accountPrincipal } = useAuth();
   const [attempt, setAttempt] = useState(0);
-  const placement = useKaiPlacement(user?.uid, attempt);
+  const principal = !loading && accountPrincipal?.firebaseUid === user?.uid
+    ? accountPrincipal : null;
+  const placement = useKaiPlacement(principal, attempt);
   if (placement === "shared") return <>{children}</>;
   if (placement === "checking") return null;
   return (
