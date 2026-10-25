@@ -23,12 +23,15 @@ echo '== Account deletion: client completion, proxy outcomes and atomic SQL eras
   cd "$REPO_ROOT/consent-protocol"
   TESTING=true DB_OFFLINE=1 OFFLINE_DB_PATH="$test_dir/protocol.db" \
   GOOGLE_CLOUD_PROJECT=hushh-ci-test REQUIRE_ACCOUNT_DELETION_POSTGRES=1 \
+  REQUIRE_CONNECTOR_POSTGRES=1 \
   .venv/bin/python -m pytest -q \
     tests/test_account_delete_error_detail.py \
     tests/services/test_account_erasure_covers_every_user_table.py \
     tests/services/test_account_deletion_provider_cleanup.py \
     tests/services/test_external_connector_credentials_service.py \
     tests/services/test_shared_files_lifecycle_postgres.py \
+    tests/services/test_shared_files_upload_receipts_postgres.py \
+    tests/test_shared_files_upload_sessions.py \
     tests/test_personal_agent_provisioning_service.py \
     tests/test_personal_agent_routes.py \
     tests/test_account_erasure_lock_timeout_postgres.py \

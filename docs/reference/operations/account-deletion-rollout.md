@@ -48,6 +48,17 @@ sessions, unresolved dispatch receipts and erasing Files retain the pause.
 Cancelling Files work joins every started provider thread, including siblings
 of a failed DELETE. Local completion is separate from remote absence proof.
 
+The Dev predeploy drain also found a historical fenced Files library whose
+encrypted upload session had expired without a recorded local observation time.
+An exact GCS session 404 can qualify `expired` only after purpose-bound session
+custody, the fixed provider URI and fresh original-bucket identity are verified.
+[Google documents both 404 and 410 as invalid session URIs](https://cloud.google.com/storage/docs/resumable-uploads#session-uris).
+Generic missing status retains its conservative age requirement; conflicts,
+changed custody or bucket identity, redirects and unavailable providers remain
+unsettled. This terminal write receipt does not authorize deletion or establish
+object absence: the normal owner approval, erasure and retention proofs still
+apply. No historical local clock is backdated.
+
 Deletion is confined to its selected environment. The reviewed shared Google
 project hashes live in
 `consent-protocol/config/account-deletion-authority.json`. Google revocation
