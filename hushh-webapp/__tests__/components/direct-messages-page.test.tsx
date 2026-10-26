@@ -820,6 +820,28 @@ describe("DirectMessagesPage", () => {
     recording.release();
   });
 
+  it("uses the latest playback speed after a voice download and releases playback resources", async () => {
+    let loaded!: (blob: Blob) => void;
+    const player = { paused: true, playbackRate: 1, src: "", pause: vi.fn(), play: vi.fn().mockResolvedValue(undefined) };
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("Audio", vi.fn(function () { return player; }));
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn(() => "blob:voice");
+      static revokeObjectURL = revokeObjectURL;
+    });
+    const view = render(<DirectMessageVoicePlayer durationMs={1000} loadAudio={() => new Promise(resolve => { loaded = resolve; })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Play voice message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Playback speed 1x" }));
+    fireEvent.click(screen.getByRole("button", { name: "Playback speed 1.5x" }));
+    await act(async () => { loaded({ arrayBuffer: async () => validVoiceWav().buffer } as Blob); });
+    expect(player.play).toHaveBeenCalledOnce();
+    expect(player.playbackRate).toBe(2);
+    view.unmount();
+    expect(player.pause).toHaveBeenCalledOnce();
+    expect(player.src).toBe("");
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:voice");
+  });
+
   it("validates a bounded WAV before handing it to the send owner and releases the microphone", async () => {
     mocks.captureFinish.mockResolvedValue({ audioBase64: btoa(String.fromCharCode(...validVoiceWav())), mimeType: "audio/wav" });
     const onRecorded = vi.fn(), onRecordingChange = vi.fn();
@@ -832,6 +854,18 @@ describe("DirectMessagesPage", () => {
     expect(mocks.sendMessage).not.toHaveBeenCalled();
     expect(onRecordingChange).toHaveBeenLastCalledWith(false);
     expect(mocks.captureCancel).toHaveBeenCalled();
+  });
+
+  it("returns to idle without sending when the microphone ends unexpectedly", async () => {
+    const onRecorded = vi.fn();
+    render(<DirectMessageVoiceRecorder disabled={false} onRecorded={onRecorded} onRecordingChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send voice message" })).toBeEnabled());
+    act(() => mocks.captureStart.mock.calls[0]![3]());
+    expect(screen.getByRole("button", { name: "Record voice message" })).toBeEnabled();
+    expect(mocks.morphyToast.error).toHaveBeenCalledWith("The microphone disconnected. Record your message again.");
+    expect(onRecorded).not.toHaveBeenCalled();
+    expect(mocks.captureFinish).not.toHaveBeenCalled();
   });
 
   it.each(["open", "late"])("releases the %s response stream on route departure", async (phase) => {

@@ -596,6 +596,9 @@ export class DirectMessagesService {
     const payload = await jsonOrThrow<{ readCount?: unknown; readAt?: unknown; readThroughCreatedAt?: unknown; readThroughMessageId?: string; chatBadgeCount?: number; chatBadgeVersion?: number }>(
       response,
     );
+    if (!Number.isSafeInteger(payload.readCount) || Number(payload.readCount) < 0) {
+      throw new Error("Read status could not be verified.");
+    }
     if (keyId) {
       const { ChatSystemNotifications } = await import("@/lib/notifications/chat-system-notifications");
       const cutoff = payload.readThroughCreatedAt ?? input.throughCreatedAt;
@@ -609,7 +612,7 @@ export class DirectMessagesService {
         ...(messageId ? { messageId: `direct-message:${messageId}` } : {}) });
     }
     return {
-      readCount: asNonNegativeInt(payload.readCount),
+      readCount: Number(payload.readCount),
       readAt: asTrimmedString(payload.readAt),
     };
   }
