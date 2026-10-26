@@ -11,7 +11,12 @@ echo '== Protected documents: real browser, SQL, signed payment, preview, downlo
   # Qualify actual PDF rendering and downloads in Chromium and Safari's engine.
   # The ordinary Web lanes retain ownership of the broad layout matrix.
   if [ "${CI:-}" = "true" ]; then
-    npx playwright install --with-deps chromium webkit
+    # Match the browser/UAT lanes: this preferred mirror can spend the entire
+    # job budget downloading dependencies. Preserve signed archive fallbacks.
+    if [ -f /etc/apt/apt-mirrors.txt ]; then
+      sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
+    fi
+    timeout --signal=TERM --kill-after=30s 8m npx playwright install --with-deps chromium webkit
   fi
   node --input-type=module -e 'import fs from "node:fs"; import { chromium, webkit } from "playwright"; for (const engine of [chromium, webkit]) if (!fs.existsSync(engine.executablePath())) throw new Error("Install the pinned headless browsers before this gate");'
 )
