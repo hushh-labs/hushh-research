@@ -10,14 +10,12 @@ import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { DirectMessagesPage as ProductionDirectMessagesPage } from "@/components/direct-messages/direct-messages-page";
 import type { ComponentProps } from "react";
 import type { AppPageShell } from "@/components/app-ui/app-page-shell";
-import { DirectMessageVoiceRecorder } from "@/components/direct-messages/direct-message-voice-recorder";
-import { DirectMessageVoicePlayer } from "@/components/direct-messages/direct-message-voice-player";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { CacheService } from "@/lib/services/cache-service";
 import { DirectMessagesServiceRequestError } from "@/lib/services/direct-messages-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { registerDirectMessageVideoCases, registerDirectMessagePhotoPreviewCase, registerDirectMessageReplyCases } from "./direct-message-media-cases";
+import { registerDirectMessageVideoCases, registerDirectMessagePhotoPreviewCase, registerDirectMessageReplyCases, registerDirectMessageVoiceCases } from "./direct-message-media-cases";
 
 const mocks = vi.hoisted(() => {
   const conversation = {
@@ -788,85 +786,7 @@ describe("DirectMessagesPage", () => {
     await waitFor(() => expect(mocks.acknowledgeDelivery).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conversation-1", messageIds: ["visible-message"], isEffectCurrent: expect.any(Function) })));
   });
 
-  it("reuses a permission-granted capture on retry and discards a late finished recording after backgrounding", async () => {
-    mocks.captureStart.mockRejectedValueOnce(new Error("Microphone permission updated. Tap Talk to One to record."));
-    const onRecorded = vi.fn(), onRecordingChange = vi.fn();
-    render(<DirectMessageVoiceRecorder disabled={false} onRecorded={onRecorded} onRecordingChange={onRecordingChange} />);
-    fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
-    await waitFor(() => expect(mocks.morphyToast.error).toHaveBeenCalledWith("Microphone enabled. Tap the mic again to record."));
-    fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Send voice message" })).toBeEnabled());
-    expect(mocks.captureInstances).toHaveLength(1);
-    let finish!: (value: unknown) => void;
-    mocks.captureFinish.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    fireEvent.click(screen.getByRole("button", { name: "Send voice message" }));
-    act(() => appInteractionCoordinator.handleLifecycle("background"));
-    await act(async () => { finish({ audioBase64: "invalid-stale-bytes" }); });
-    expect(onRecorded).not.toHaveBeenCalled();
-    expect(mocks.captureCancel).toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Record voice message" })).toBeEnabled();
-  });
-
-  it("never lets a pending voice download supersede a newer recording", async () => {
-    let loaded!: (blob: Blob) => void;
-    const loadAudio = vi.fn(() => new Promise<Blob>(resolve => { loaded = resolve; }));
-    const createObjectURL = vi.fn(); vi.stubGlobal("URL", class extends URL { static createObjectURL = createObjectURL; });
-    render(<DirectMessageVoicePlayer durationMs={1000} loadAudio={loadAudio} />);
-    fireEvent.click(screen.getByRole("button", { name: "Play voice message" }));
-    const recording = appInteractionCoordinator.acquireVoiceLease({ owner: "new-recording", onRevoked: vi.fn() });
-    await act(async () => { loaded({ arrayBuffer: async () => validVoiceWav().buffer } as Blob); });
-    expect(recording.isCurrent()).toBe(true);
-    expect(createObjectURL).not.toHaveBeenCalled();
-    recording.release();
-  });
-
-  it("uses the latest playback speed after a voice download and releases playback resources", async () => {
-    let loaded!: (blob: Blob) => void;
-    const player = { paused: true, playbackRate: 1, src: "", pause: vi.fn(), play: vi.fn().mockResolvedValue(undefined) };
-    const revokeObjectURL = vi.fn();
-    vi.stubGlobal("Audio", vi.fn(function () { return player; }));
-    vi.stubGlobal("URL", class extends URL {
-      static createObjectURL = vi.fn(() => "blob:voice");
-      static revokeObjectURL = revokeObjectURL;
-    });
-    const view = render(<DirectMessageVoicePlayer durationMs={1000} loadAudio={() => new Promise(resolve => { loaded = resolve; })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Play voice message" }));
-    fireEvent.click(screen.getByRole("button", { name: "Playback speed 1x" }));
-    fireEvent.click(screen.getByRole("button", { name: "Playback speed 1.5x" }));
-    await act(async () => { loaded({ arrayBuffer: async () => validVoiceWav().buffer } as Blob); });
-    expect(player.play).toHaveBeenCalledOnce();
-    expect(player.playbackRate).toBe(2);
-    view.unmount();
-    expect(player.pause).toHaveBeenCalledOnce();
-    expect(player.src).toBe("");
-    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:voice");
-  });
-
-  it("validates a bounded WAV before handing it to the send owner and releases the microphone", async () => {
-    mocks.captureFinish.mockResolvedValue({ audioBase64: btoa(String.fromCharCode(...validVoiceWav())), mimeType: "audio/wav" });
-    const onRecorded = vi.fn(), onRecordingChange = vi.fn();
-    render(<DirectMessageVoiceRecorder disabled={false} onRecorded={onRecorded} onRecordingChange={onRecordingChange} />);
-    fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Send voice message" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Send voice message" }));
-    await waitFor(() => expect(onRecorded).toHaveBeenCalledOnce());
-    expect(onRecorded.mock.calls[0]![0]).toMatchObject({ name: "Voice message.wav", type: "audio/wav", size: 32044 });
-    expect(mocks.sendMessage).not.toHaveBeenCalled();
-    expect(onRecordingChange).toHaveBeenLastCalledWith(false);
-    expect(mocks.captureCancel).toHaveBeenCalled();
-  });
-
-  it("returns to idle without sending when the microphone ends unexpectedly", async () => {
-    const onRecorded = vi.fn();
-    render(<DirectMessageVoiceRecorder disabled={false} onRecorded={onRecorded} onRecordingChange={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Record voice message" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Send voice message" })).toBeEnabled());
-    act(() => mocks.captureStart.mock.calls[0]![3]());
-    expect(screen.getByRole("button", { name: "Record voice message" })).toBeEnabled();
-    expect(mocks.morphyToast.error).toHaveBeenCalledWith("The microphone disconnected. Record your message again.");
-    expect(onRecorded).not.toHaveBeenCalled();
-    expect(mocks.captureFinish).not.toHaveBeenCalled();
-  });
+  registerDirectMessageVoiceCases({ mocks, validVoiceWav });
 
   it.each(["open", "late"])("releases the %s response stream on route departure", async (phase) => {
     const cancelled = vi.fn();
