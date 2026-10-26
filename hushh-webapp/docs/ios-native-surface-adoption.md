@@ -27,9 +27,12 @@ Main `66f3855082` is integrated at `e0f036778c`, after `c0bf05df4f` at
 team's pending-phone-transfer Close guard with the retained connector Back
 owner. Phone verification and authentication changed, so this merge needs a
 new combined build; earlier device results do not qualify those changes. The
-installed `f77047caac` below includes phone-transfer integration, but not the
-subsequent Wallet changes. Its completed canonical core stages pass; the newer
-integration requires its own combined verification.
+historical `f77047caac` below includes phone-transfer integration. Its canonical
+core stages pass. The newer combined `05ced189e0` includes the Wallet changes;
+protocol, database, web and package stages pass. Integration initially timed out
+while importing Providers inside its five-second behavior test. Loading the same
+mocked production module during setup preserves every assertion and deadline;
+the focused case passes in 427 ms. The integration stage requires its own rerun.
 Preservation checks found no dropped team content; preserve subsequent peer changes.
 Profile and Chat are **partially native**, not completely qualified. The
 authored roster now contains 15 ordinary destinations, plus guarded Developer
@@ -73,7 +76,7 @@ platform form control; no glass overlay is needed merely to open a native picker
 Mail/Consent/Wallet route tabs remain deliberate retained families.
 
 The installed UAT-backed local Release qualification binary is source
-`f77047caac`, version 1.4.1 (69), on iPhone 16e/iOS 27.2 Beta. All 1,754 bundled
+`05ced189e0`, version 1.4.1 (69), on iPhone 16e/iOS 27.2 Beta. All 1,763 bundled
 runtime files match the export and generated Cordova resources. Dependency pins,
 deep code signing and the executable digest were checked before installation.
 The app was launched without reviewer/bootstrap arguments; normal passphrase
@@ -82,6 +85,14 @@ unlock passes. UAT independently serves `7d5546e471` at 100% traffic on
 backend. Account/Phone cancellation and Payments inspection/return pass on this
 candidate without sending an OTP or changing reviewer records. This is not a
 TestFlight release.
+
+The combined Wallet journey passes My cards / Shared with me, the actual visible
+empty state, Add-sheet inspection/cancellation, covered-navigation isolation and
+return to the unchanged Chat draft and WebView. The retired three-tab rehearsal
+was replaced in the existing case. Its first updated guard incorrectly required
+the named HTML section to be an XCUI node; observed metadata shows that node is
+absent while the visible empty body is present and no sharing error is shown.
+No card, grant or financial outcome was changed.
 
 The strict UAT roster passed Hosting/Software updates, Account and Phone
 cancellation, Payments history/filtering, Pricing editing, Memory readers/editor
@@ -139,8 +150,13 @@ despite positive FPS; no hitch/frame ceiling is accepted from those samples.
 Instruments intermittently sees the phone offline while CoreDevice and XCTest
 work. An all-process Animation Hitches probe saved its schema table only after
 reporting a device disconnect; this does not establish measured gesture coverage.
-Owned collectors exited and private raw traces were removed. This is a separate
-profiling failure, not a lost XCTest grant or proof of an SDK defect.
+Owned collectors exited and private raw traces were removed. The supported Xcode
+device-symbol preparation subsequently completed. An all-process five-second
+capture then recorded its requested duration and exported 145 frame-lifetime rows,
+146 vsync rows and 143 displayed-surface rows. This establishes collection only;
+global/idle rows do not satisfy app-attributed gesture or three-run acceptance.
+PID attachment remains refused, and symbol-timeline overlap warnings need
+capture-integrity review. No SDK cause is established.
 First-entry whole-value XCUI typing also remains intermittently incomplete with
 public text; an unproven preparation change was discarded. Normal warm
 whole-value reviewer unlock passes and incomplete entries are never submitted.

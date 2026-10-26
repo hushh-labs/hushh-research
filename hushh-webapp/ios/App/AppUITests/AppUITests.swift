@@ -5589,81 +5589,78 @@ final class AppUITests: XCTestCase {
                 select("Active"); select("History"); select("Connections"); select("Requests")
             default:
                 openAgent("Wallet")
-                func walletPaneReady(_ isVisible: @escaping () -> Bool, failure: String,
-                                     diagnoseFailure: (() -> Void)? = nil) -> Bool {
+                func walletPaneReady(_ isVisible: @escaping () -> Bool, failure: String) -> Bool {
                     let visible = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                         isVisible()
                     }, object: web)
                     guard XCTWaiter.wait(for: [visible], timeout: 10) == .completed else {
-                        diagnoseFailure?()
                         XCTFail(failure); return false
                     }
                     return true
                 }
                 let introduction = web.buttons["Continue"].firstMatch
                 func diagnoseWalletTabs() {
-                    let cards = tab("Cards"), frame = cards.exists ? cards.frame : .zero
+                    let cards = tab("My cards"), frame = cards.exists ? cards.frame : .zero
                     print("WALLET_TAB_DIAG exists=\(cards.exists) enabled=\(cards.exists && cards.isEnabled) hittable=\(cards.exists && cards.isHittable) x=\(Int(frame.minX)) y=\(Int(frame.minY)) width=\(Int(frame.width)) height=\(Int(frame.height))")
                 }
                 let admission = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    (tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable) ||
+                    (tab("My cards").exists && tab("My cards").isEnabled && tab("My cards").isHittable) ||
                     (introduction.exists && introduction.isEnabled && introduction.isHittable)
                 }, object: web)
                 guard XCTWaiter.wait(for: [admission], timeout: 15) == .completed else {
                     diagnoseWalletTabs()
                     XCTFail("WORKSPACE_WALLET_ADMISSION_UNOBSERVED"); return
                 }
-                if !tab("Cards").exists {
+                if !tab("My cards").exists {
                     // Cosmetic owner-local introduction only; no card or grant operation.
                     introduction.tap()
                 }
                 let cardsReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    tab("Cards").exists && tab("Cards").isEnabled && tab("Cards").isHittable
+                    tab("My cards").exists && tab("My cards").isEnabled && tab("My cards").isHittable
                 }, object: web)
                 guard XCTWaiter.wait(for: [cardsReady], timeout: 15) == .completed else {
                     diagnoseWalletTabs()
                     XCTFail("WORKSPACE_WALLET_NOT_READY"); return
                 }
-                guard tab("Cards").isSelected else {
+                guard tab("My cards").isSelected else {
                     // Do not erase or route around an owner's staged add/reveal handoff.
                     XCTFail("WORKSPACE_WALLET_UNEXPECTED_HANDOFF"); return
                 }
-                select("Cards"); select("Add")
-                let addHeading = web.staticTexts["Add your card"].firstMatch
-                guard walletPaneReady({ addHeading.exists && addHeading.isHittable },
-                                      failure: "WORKSPACE_WALLET_ADD_BODY_UNOBSERVED") else { return }
-                select("Sharing")
-                let sharingHeading = web.staticTexts.matching(NSPredicate(format:
-                    "label CONTAINS %@ AND label CONTAINS %@", "Your cards.", "Your control.")).firstMatch
-                // WKWebView may expose a <br>-separated heading as two static texts.
-                // Either representation must prove the complete, hittable public body.
-                let sharingFirst = web.staticTexts["Your cards."].firstMatch
-                let sharingSecond = web.staticTexts["Your control."].firstMatch
-                let sharingExplanation = web.staticTexts["You choose who can access your Wallet information."].firstMatch
-                let sharingAnchors: [(String, XCUIElement)] = [
-                    ("combined", sharingHeading), ("first", sharingFirst),
-                    ("second", sharingSecond), ("explanation", sharingExplanation),
-                ]
-                guard walletPaneReady({
-                    let completeHeading = (sharingHeading.exists && sharingHeading.isHittable) ||
-                        (sharingFirst.exists && sharingFirst.isHittable && sharingSecond.exists && sharingSecond.isHittable)
-                    return completeHeading && sharingExplanation.exists && sharingExplanation.isHittable
-                }, failure: "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED", diagnoseFailure: {
-                    // Only authored public anchors; never enumerate card or recipient content.
-                    for (name, anchor) in sharingAnchors {
-                        print("WORKSPACE_WALLET_PUBLIC_ANCHOR anchor=\(name) exists=\(anchor.exists) hittable=\(anchor.exists && anchor.isHittable)")
-                    }
-                }) else { return }
-                select("Cards")
-                let cardsActions = ["All cards", "Add a payment card", "Add another card"].map { web.buttons[$0].firstMatch }
-                for _ in 0..<4 {
-                    if cardsActions.contains(where: { $0.exists && $0.isHittable }) { break }
-                    web.swipeUp()
+                // Match the authored two-collection contract. Add is an owned
+                // sheet now; historical Cards/Add/Sharing tabs are retired.
+                select("Shared with me")
+                let received = web.descendants(matching: .any).matching(NSPredicate(
+                    format: "label == %@", "Received card history")).firstMatch
+                let emptyShared = web.staticTexts["No active shared cards"].firstMatch
+                let receivedCard = web.buttons.matching(NSPredicate(
+                    format: "label BEGINSWITH %@ AND label CONTAINS %@", "View ", " from ")).firstMatch
+                // A named HTML section need not become a hittable XCUI node.
+                // Require its actual settled body, including the valid empty
+                // state; loading and failure messages cannot satisfy this.
+                let sharedReady = walletPaneReady({
+                    emptyShared.exists && emptyShared.isHittable || receivedCard.exists && receivedCard.isHittable
+                }, failure: "WORKSPACE_WALLET_SHARING_BODY_UNOBSERVED")
+                let sharingFailed = ["Could not refresh card sharing.", "Card sharing is unavailable. Automatic refresh is paused."]
+                    .contains { web.staticTexts[$0].firstMatch.exists && web.staticTexts[$0].firstMatch.isHittable }
+                print("WALLET_BODY_ADMISSION named_region=\(received.exists) empty=\(emptyShared.exists && emptyShared.isHittable) card=\(receivedCard.exists && receivedCard.isHittable) failed=\(sharingFailed)")
+                XCTAssertFalse(sharingFailed, "WORKSPACE_WALLET_SHARING_UNAVAILABLE")
+                guard sharedReady, !sharingFailed else { return }
+                select("My cards")
+                let add = web.buttons["Add a card"].firstMatch
+                guard waitForAdmittedControl(add) else { XCTFail("WORKSPACE_WALLET_ADD_TRIGGER_UNAVAILABLE"); return }
+                add.tap()
+                let name = web.textFields["Name on card"].firstMatch
+                let cancel = web.buttons["Cancel"].firstMatch
+                guard waitForAdmittedControl(name), waitForAdmittedControl(cancel) else {
+                    XCTFail("WORKSPACE_WALLET_ADD_BODY_UNOBSERVED"); return
                 }
-                guard walletPaneReady({ cardsActions.contains(where: { $0.exists && $0.isHittable }) },
-                                      failure: "WORKSPACE_WALLET_CARDS_BODY_UNOBSERVED") else { return }
-                XCTAssertFalse(addHeading.exists && addHeading.isHittable,
-                               "WORKSPACE_WALLET_INACTIVE_ADD_HITTABLE")
+                // Inspection and cancellation only: never enter or save a card.
+                XCTAssertFalse(app.tabBars.firstMatch.buttons["Chat"].firstMatch.isHittable,
+                               "WORKSPACE_WALLET_SHEET_LEAKED_NAVIGATION")
+                cancel.tap()
+                guard walletPaneReady({
+                    tab("My cards").isSelected && tab("My cards").isHittable && add.isHittable && !name.isHittable
+                }, failure: "WORKSPACE_WALLET_ADD_CANCEL_NOT_RESTORED") else { return }
                 let back = app.buttons.matching(NSPredicate(format: "label == %@", "Go back")).firstMatch
                 XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable, "WORKSPACE_BACK_UNAVAILABLE")
                 back.tap()
