@@ -31,6 +31,10 @@ another reviewer store or a privileged app-unlock route.
    localNetwork`. Hostname lookup and paired-UDID lookup can differ. Separate a
    failed tunnel handshake from DDI compatibility and XCTest admission. Do not
    restart shared CoreDevice/Xcode services while another session owns work.
+   A failed upload does not establish that USB is required. After reconnecting
+   the existing pairing, recheck the authenticated service and make one bounded
+   transfer attempt appropriate to the artifact size. Install the app and matching
+   runner serially; verify both receipts before launch or attach-only testing.
 3. Inspect this Xcode version's `devicectl device settings --help` before claiming
    a supported authorization or unlock command. Do not infer one from permission
    to operate the device or from the possession of its passcode.
@@ -57,6 +61,14 @@ another reviewer store or a privileged app-unlock route.
    schema-validation booleans only. Never relax principal validation or silently
    substitute another environment. Record an explicitly selected dev replica
    as dev evidence, not UAT or release acceptance.
+   If whole-value input is not acknowledged, do not submit or retry the private
+   value. Use the existing synthetic secure-entry probe first, with the matching
+   Xcode toolchain selected explicitly through `DEVELOPER_DIR`. On the same
+   iOS 27.2 candidate, Xcode 27.1 delivered six of eight public characters;
+   Xcode 27.2 passed both public samples and the subsequent normal reviewer
+   unlock. This comparison identifies a working toolchain, not every possible
+   input-loss cause. Keep synthetic counts separate from private input, which
+   must remain process-only and produce only acknowledgement booleans.
 7. Check that the native privacy cover has actually retired before private
    input. XCTest can report an underlying WebKit control as hittable while
    UIKit still covers it. Use only the authored recovery action or cancel a

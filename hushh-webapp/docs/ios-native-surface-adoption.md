@@ -16,6 +16,33 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Integrated source and physical rehearsal — 2026-10-26
+
+Candidate `e9d3432220` includes main `f6ed17d3c2` and passes canonical core:
+23,882 protocol tests, 1,479 database tests, web-core, package and integration.
+All 1,764 packaged files, signatures and UAT settings were verified. App and
+matching runner installed over Wi-Fi after reconnecting the existing pairing;
+ordinary launch and attach-only admission passed. Matching Xcode 27.2 passed
+the public whole-value input probe and normal reviewer unlock. Credentials and
+private test-result bundles were not retained.
+
+The preceding installed `d70c40fd01` passed two warm batches across all 15
+Profile destinations, including Invite pane containment, nested editors and
+Legal readers, with a single WebView/session and no reviewer saves. The full
+`e9d3432220` traversal is in progress; those older receipts do not qualify it.
+
+Main advanced again to `2dc3da0ff9`; integration `3538c13cce` preserves 91 of
+92 incoming paths exactly. The remaining workflow retains both main's release
+policy and five existing native path-filter entries. Native source is unchanged;
+the newer combined source requires affected verification and exact-head CI.
+The earlier push stopped at freshness rather than overwriting team work.
+
+Ordinary custom-native Release/TestFlight admission remains **off**. Visual,
+accessibility, mutation and three-run physical frame acceptance remain separate
+from these functional receipts. Xcode/Instruments 27.2 is installed alongside the
+original tools; a standard 30-second trace exports, but semantic motion capture
+is not yet qualified. No merge, UAT deployment or native distribution is implied.
+
 ### Owned native feedback candidate — 2026-10-26
 
 Main `c2a5638606` is integrated at `82265c0cf1`; its 22 Drive recovery,
