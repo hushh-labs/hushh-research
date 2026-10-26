@@ -248,7 +248,6 @@ def test_hosted_recovery_proof_refuses_incomplete_or_misattributed_authority(fai
 
 def test_document_restoration_fence_drains_real_writers_and_preserves_empty_cascades():
     import threading
-    import time
     from unittest.mock import patch
 
     import psycopg2
@@ -270,16 +269,7 @@ def test_document_restoration_fence_drains_real_writers_and_preserves_empty_casc
             server.start()
         dsn = f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}"
         writer, installer, observer = [psycopg2.connect(dsn) for _ in range(3)]
-        with writer:
-            with writer.cursor() as cursor:
-                cursor.execute("CREATE TABLE drive_share_requests(id int PRIMARY KEY)")
-                cursor.execute(
-                    "CREATE TABLE document_delivery_contracts("
-                    "id int PRIMARY KEY REFERENCES drive_share_requests(id) ON DELETE CASCADE)"
-                )
-                for table in module.TABLES[1:]:
-                    cursor.execute(f"CREATE TABLE {table}(id int PRIMARY KEY)")
-                cursor.execute("INSERT INTO drive_share_requests VALUES(1),(2)")
+        _document_fixture(writer, module)
         with writer.cursor() as cursor:
             cursor.execute("INSERT INTO document_delivery_contracts VALUES(1)")
         outcomes = []
@@ -294,18 +284,7 @@ def test_document_restoration_fence_drains_real_writers_and_preserves_empty_casc
 
         thread = threading.Thread(target=install)
         thread.start()
-        deadline = time.monotonic() + 5
-        with observer.cursor() as cursor:
-            while time.monotonic() < deadline:
-                cursor.execute(
-                    "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=%s AND NOT granted)",
-                    (installer.get_backend_pid(),),
-                )
-                if cursor.fetchone()[0]:
-                    break
-                time.sleep(0.02)
-            else:
-                pytest.fail("Installer did not wait for the uncommitted writer")
+        _wait_for_document_writer(observer, installer)
         writer.commit()
         thread.join(timeout=5)
         assert not thread.is_alive()
@@ -330,15 +309,7 @@ def test_document_restoration_fence_drains_real_writers_and_preserves_empty_casc
         with writer, writer.cursor() as cursor:
             cursor.execute("DELETE FROM drive_share_requests WHERE id=2")
             assert cursor.rowcount == 1
-        with writer, writer.cursor() as cursor:
-            cursor.execute(f"DROP TRIGGER {module.TRIGGER} ON document_delivery_contracts")
-            cursor.execute(
-                f"CREATE TRIGGER {module.TRIGGER} BEFORE INSERT ON document_delivery_contracts "
-                f"FOR EACH STATEMENT WHEN(false) EXECUTE FUNCTION public.{module.FUNCTION}()"
-            )
-            cursor.execute(
-                f"ALTER TABLE document_delivery_contracts ENABLE ALWAYS TRIGGER {module.TRIGGER}"
-            )
+        _tamper_document_fence(writer, module)
         with pytest.raises(module.Refused, match="registration_changed"):
             module.install(installer, source="a" * 40, run_id="12", database="postgres")
     finally:
@@ -352,3 +323,80 @@ def test_document_restoration_fence_drains_real_writers_and_preserves_empty_casc
             if connection:
                 connection.close()
         server.stop()
+
+
+def test_legacy_restoration_activation_requires_explicit_mode_and_production(monkeypatch):
+    from tests.helpers.phone_retirement_fixture import lifecycle_retirement_revisions
+
+    spec = importlib.util.spec_from_file_location(
+        "activation", ROOT / "deploy/account-deletion/activate_release.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sha = "a" * 40
+    service, revisions = lifecycle_retirement_revisions(sha)
+    revision = next(row for row in revisions if row["metadata"]["labels"]["deploy-sha"] == sha)
+    run_id = revision["metadata"]["labels"]["github-run-id"]
+    monkeypatch.setattr(module, "supports_current_contract", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(module, "supports_restoration_source", lambda candidate: candidate == sha)
+    with pytest.raises(ValueError, match="provider_contract"):
+        module.serving_candidate(service, revisions, expected_sha=sha, expected_run=run_id)
+    assert (
+        module.serving_candidate(
+            service, revisions, expected_sha=sha, expected_run=run_id, restoration=True
+        )
+        == revision["metadata"]["name"]
+    )
+    monkeypatch.setattr(module, "supports_restoration_source", lambda _candidate: False)
+    with pytest.raises(ValueError, match="provider_contract"):
+        module.serving_candidate(
+            service, revisions, expected_sha=sha, expected_run=run_id, restoration=True
+        )
+    with pytest.raises(ValueError, match="production_target"):
+        module.qualify_restoration_database(
+            SimpleNamespace(
+                production_restoration=True, project="hushh-pda-uat", db_name="postgres"
+            ),
+            {},
+        )
+
+
+def _document_fixture(writer, module):
+    with writer, writer.cursor() as cursor:
+        cursor.execute("CREATE TABLE drive_share_requests(id int PRIMARY KEY)")
+        cursor.execute(
+            "CREATE TABLE document_delivery_contracts("
+            "id int PRIMARY KEY REFERENCES drive_share_requests(id) ON DELETE CASCADE)"
+        )
+        for table in module.TABLES[1:]:
+            cursor.execute(f"CREATE TABLE {table}(id int PRIMARY KEY)")
+        cursor.execute("INSERT INTO drive_share_requests VALUES(1),(2)")
+
+
+def _wait_for_document_writer(observer, installer):
+    import time
+
+    deadline = time.monotonic() + 5
+    with observer.cursor() as cursor:
+        while time.monotonic() < deadline:
+            cursor.execute(
+                "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=%s AND NOT granted)",
+                (installer.get_backend_pid(),),
+            )
+            if cursor.fetchone()[0]:
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("Installer did not wait for the uncommitted writer")
+
+
+def _tamper_document_fence(writer, module):
+    with writer, writer.cursor() as cursor:
+        cursor.execute(f"DROP TRIGGER {module.TRIGGER} ON document_delivery_contracts")
+        cursor.execute(
+            f"CREATE TRIGGER {module.TRIGGER} BEFORE INSERT ON document_delivery_contracts "
+            f"FOR EACH STATEMENT WHEN(false) EXECUTE FUNCTION public.{module.FUNCTION}()"
+        )
+        cursor.execute(
+            f"ALTER TABLE document_delivery_contracts ENABLE ALWAYS TRIGGER {module.TRIGGER}"
+        )

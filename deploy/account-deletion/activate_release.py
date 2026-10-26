@@ -18,10 +18,9 @@ from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-POLICY = "consent-protocol/config/account-deletion-authority.json"
-MIGRATION = "423_account_shared_provider_authority.sql"
-PHONE_MIGRATION = "425_account_phone_transfers.sql"
-PHONE_ACTION_MIGRATION = "431_phone_recovery_actions.sql"
+SOURCE = runpy.run_path(str(Path(__file__).with_name("release_source.py")))
+supports_restoration_source = SOURCE["supports_restoration_source"]
+qualify_restoration_database = SOURCE["qualify_restoration_database"]
 CONTRACT_SQL = """SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_trigger
  WHERE tgrelid='public.account_deletion_tombstones'::regclass
  AND tgname='account_shared_provider_authority' AND tgenabled='O' AND NOT tgisinternal)
@@ -43,45 +42,7 @@ def run(argv, *, env=None, timeout=120):
 
 @lru_cache(maxsize=256)
 def supports_current_contract(sha: str, *, rollback: bool = False) -> bool:
-    if not re.fullmatch(r"[0-9a-f]{40}", sha):
-        return False
-    try:
-        policy = json.loads(run(["git", "show", f"{sha}:{POLICY}"]))
-        manifest = json.loads(
-            run(
-                [
-                    "git",
-                    "show",
-                    f"{sha}:consent-protocol/db/release_migration_manifest.json",
-                ]
-            )
-        )
-        migrations = manifest.get("ordered_migrations", [])
-        return (
-            policy.get("version") == 1
-            and MIGRATION in migrations
-            and (
-                not rollback
-                or all(
-                    name in migrations
-                    for name in (PHONE_MIGRATION, PHONE_ACTION_MIGRATION)
-                )
-            )
-        )
-    except (RuntimeError, ValueError):
-        return False
-
-
-def restoration_authority():
-    return runpy.run_path(str(Path(__file__).with_name("compatibility_restoration.py")))
-
-
-def supports_restoration_source(sha: str) -> bool:
-    try:
-        restoration_authority()["qualify_source"](sha)
-        return True
-    except (ValueError, RuntimeError, OSError):
-        return False
+    return SOURCE["supports_current_contract"](sha, run=run, rollback=rollback)
 
 
 def serving_candidate(
@@ -277,44 +238,6 @@ def verify_boundary(pg, expected):
         env=pg,
         timeout=330,
     )
-
-
-def qualify_restoration_database(args, pg):
-    if not getattr(args, "production_restoration", False):
-        return
-    if args.project != "hushh-pda" or args.db_name != "hushh_vault":
-        raise ValueError("restoration_requires_production_target")
-    import psycopg2
-
-    authority = restoration_authority()
-    record = authority["qualify_source"](args.expected_sha)
-    connection = psycopg2.connect(
-        host=pg["PGHOST"],
-        port=pg["PGPORT"],
-        dbname=pg["PGDATABASE"],
-        user=pg["PGUSER"],
-        password=pg["PGPASSWORD"],
-        connect_timeout=10,
-    )
-    try:
-        connection.set_session(readonly=True)
-        proof = authority["qualify_schema"](
-            connection, record, require_empty_documents=True
-        )
-        fence = runpy.run_path(
-            str(Path(__file__).with_name("document_restoration_fence.py"))
-        )
-        fence["verify"](
-            connection, source=args.expected_sha, run_id=args.expected_run_id
-        )
-        return {
-            **proof,
-            "sourceSha": args.expected_sha,
-            "runId": args.expected_run_id,
-            "documentFence": "verified",
-        }
-    finally:
-        connection.close()
 
 
 def qualify_database(args, retain):
@@ -534,21 +457,9 @@ def parse_arguments():
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] == "--qualify-restoration-source":
-        if not supports_restoration_source(sys.argv[2]):
-            raise SystemExit("Source is not the exact reviewed production restoration")
-        return 0
-    if len(sys.argv) == 3 and sys.argv[1] in (
-        "--qualify-source",
-        "--qualify-rollback-source",
+    if SOURCE["qualify_cli"](
+        sys.argv, supports_current_contract, supports_restoration_source
     ):
-        rollback = sys.argv[1] == "--qualify-rollback-source"
-        if not supports_current_contract(sys.argv[2], rollback=rollback):
-            raise SystemExit(
-                "Target lacks the phone/device admission rollback contract (migrations 425 and 431)"
-                if rollback
-                else "Target lacks the current account lifecycle producer contract"
-            )
         return 0
     args = parse_arguments()
     evidence = {

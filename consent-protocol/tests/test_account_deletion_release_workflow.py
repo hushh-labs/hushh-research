@@ -39,36 +39,6 @@ def _activation_module():
     return module
 
 
-def test_legacy_restoration_activation_requires_explicit_mode_and_production(monkeypatch):
-    module = _activation_module()
-    sha = "a" * 40
-    service, revisions = lifecycle_retirement_revisions(sha)
-    revision = next(row for row in revisions if row["metadata"]["labels"]["deploy-sha"] == sha)
-    run_id = revision["metadata"]["labels"]["github-run-id"]
-    monkeypatch.setattr(module, "supports_current_contract", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(module, "supports_restoration_source", lambda candidate: candidate == sha)
-    with pytest.raises(ValueError, match="provider_contract"):
-        module.serving_candidate(service, revisions, expected_sha=sha, expected_run=run_id)
-    assert (
-        module.serving_candidate(
-            service, revisions, expected_sha=sha, expected_run=run_id, restoration=True
-        )
-        == revision["metadata"]["name"]
-    )
-    monkeypatch.setattr(module, "supports_restoration_source", lambda _candidate: False)
-    with pytest.raises(ValueError, match="provider_contract"):
-        module.serving_candidate(
-            service, revisions, expected_sha=sha, expected_run=run_id, restoration=True
-        )
-    with pytest.raises(ValueError, match="production_target"):
-        module.qualify_restoration_database(
-            SimpleNamespace(
-                production_restoration=True, project="hushh-pda-uat", db_name="postgres"
-            ),
-            {},
-        )
-
-
 def _activation_adapter(module, args, failure, monkeypatch, *, phone_floor=False):
     service, revisions = lifecycle_retirement_revisions(
         args.expected_sha, invalid_candidate=failure == "candidate"

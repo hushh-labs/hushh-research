@@ -95,39 +95,7 @@ def install(
                 "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname=%s)", (TRIGGER,)
             )
             _require(cursor.fetchone()[0] is False, "partial_restoration_fence")
-            cursor.execute(
-                sql.SQL(
-                    "CREATE FUNCTION public.{}() RETURNS trigger LANGUAGE plpgsql "
-                    "SET search_path=pg_catalog AS %s"
-                ).format(sql.Identifier(FUNCTION)),
-                (BODY,),
-            )
-            cursor.execute(
-                sql.SQL("COMMENT ON FUNCTION public.{}() IS %s").format(
-                    sql.Identifier(FUNCTION)
-                ),
-                (owner,),
-            )
-            for table in TABLES:
-                # INSERT is the only way to create state in these empty tables.
-                # Empty cascade DELETE/UPDATE must remain usable by account cleanup.
-                cursor.execute(
-                    sql.SQL(
-                        "CREATE TRIGGER {} BEFORE INSERT ON {} FOR EACH STATEMENT "
-                        "EXECUTE FUNCTION public.{}()"
-                    ).format(
-                        sql.Identifier(TRIGGER),
-                        sql.Identifier("public", table),
-                        sql.Identifier(FUNCTION),
-                    )
-                )
-                cursor.execute(
-                    sql.SQL("ALTER TABLE {} ENABLE ALWAYS TRIGGER {}").format(
-                        sql.Identifier("public", table), sql.Identifier(TRIGGER)
-                    )
-                )
-            cursor.execute("SELECT to_regprocedure(%s)::oid", (f"public.{FUNCTION}()",))
-            _verify(cursor, cursor.fetchone()[0])
+            _create(cursor, owner)
     return {"status": "installed", "source": source, "runId": run_id}
 
 
@@ -168,3 +136,39 @@ def verify(connection, *, source: str, run_id: str) -> None:
             "restoration_fence_unconfirmed",
         )
         _verify(cursor, row[0])
+
+
+def _create(cursor, owner: str) -> None:
+    cursor.execute(
+        sql.SQL(
+            "CREATE FUNCTION public.{}() RETURNS trigger LANGUAGE plpgsql "
+            "SET search_path=pg_catalog AS %s"
+        ).format(sql.Identifier(FUNCTION)),
+        (BODY,),
+    )
+    cursor.execute(
+        sql.SQL("COMMENT ON FUNCTION public.{}() IS %s").format(
+            sql.Identifier(FUNCTION)
+        ),
+        (owner,),
+    )
+    for table in TABLES:
+        # INSERT is the only way to create state in these empty tables.
+        # Empty cascade DELETE/UPDATE must remain usable by account cleanup.
+        cursor.execute(
+            sql.SQL(
+                "CREATE TRIGGER {} BEFORE INSERT ON {} FOR EACH STATEMENT "
+                "EXECUTE FUNCTION public.{}()"
+            ).format(
+                sql.Identifier(TRIGGER),
+                sql.Identifier("public", table),
+                sql.Identifier(FUNCTION),
+            )
+        )
+        cursor.execute(
+            sql.SQL("ALTER TABLE {} ENABLE ALWAYS TRIGGER {}").format(
+                sql.Identifier("public", table), sql.Identifier(TRIGGER)
+            )
+        )
+    cursor.execute("SELECT to_regprocedure(%s)::oid", (f"public.{FUNCTION}()",))
+    _verify(cursor, cursor.fetchone()[0])
