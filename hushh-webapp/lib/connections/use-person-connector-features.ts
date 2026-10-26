@@ -9,7 +9,7 @@ import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vau
 
 export type PersonConnectorAvailability =
   | { status: "checking" | "locked" | "error" }
-  | { status: "ready"; documentSharing: boolean; agentPackages: boolean };
+  | { status: "ready"; documentSharing: boolean; agentPackages: boolean; periodPackets: boolean };
 
 /** A small owner-scoped hint; each mutation still enforces server authority. */
 export function usePersonConnectorFeatures(userId: string | undefined, token: string | null, unlocked: boolean) {
@@ -25,7 +25,8 @@ export function usePersonConnectorFeatures(userId: string | undefined, token: st
   const availability: PersonConnectorAvailability = !unlocked ? { status: "locked" }
     : resource.error ? { status: "error" }
     : resource.data ? { status: "ready", documentSharing: resource.data.features?.drive_document_sharing === true,
-      agentPackages: resource.data.driveAgentPackagesEnabled === true || resource.data.features?.drive_period_packets === true }
+      agentPackages: resource.data.driveAgentPackagesEnabled === true,
+      periodPackets: resource.data.features?.drive_period_packets === true }
     : { status: "checking" };
   return { availability, retry: () => resource.refresh({ force: true }) };
 }

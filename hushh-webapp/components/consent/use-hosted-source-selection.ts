@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { DocumentHostingService, type DocumentSession, type HostedSourceFile, type HostedTermsProjection } from "@/lib/services/document-hosting-service";
 
@@ -9,6 +9,8 @@ export function useHostedSourceSelection(session: DocumentSession, requestId: st
   const [files, setFiles] = useState<HostedSourceFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const refresh = useCallback(() => setRefreshVersion(value => value + 1), []);
   useLayoutEffect(() => {
     setFiles([]); setLoading(false); setUnavailable(false);
     if (!terms || terms.ownerUserId !== session.userId || (Capacitor.isNativePlatform() && terms.status !== "staged") ||
@@ -25,6 +27,6 @@ export function useHostedSourceSelection(session: DocumentSession, requestId: st
       if (!controller.signal.aborted && session.isCurrent()) setLoading(false);
     });
     return () => controller.abort();
-  }, [session, requestId, terms]);
-  return { files, loading, unavailable };
+  }, [session, requestId, terms, refreshVersion]);
+  return { files, loading, unavailable, refresh };
 }
