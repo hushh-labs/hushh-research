@@ -54821,20 +54821,12 @@
       "actions:phone_mandate.review_previous_devices"
     ],
     "breaking": [],
-    "changed": [
-      "screens:screen:/people/[personRef]"
-    ],
+    "changed": [],
     "compatible": [],
-    "deprecated": [
-      "actions:people.profile.browse_financial_summaries",
-      "actions:people.profile.browse_packets"
-    ],
-    "from_revision": "9031503093c4ce05",
+    "deprecated": [],
+    "from_revision": "2168af5df998b238",
     "migrated": [],
-    "removed": [
-      "actions:people.profile.browse_financial_summaries",
-      "actions:people.profile.browse_packets"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -57189,6 +57181,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -57502,6 +57495,7 @@
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
+          "2168af5df998b238",
           "22194555a3198d88",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -57585,6 +57579,7 @@
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
+          "2168af5df998b238",
           "22194555a3198d88",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -57901,6 +57896,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "2748dec227779c3d",
           "27a5c64caf11b36c",
@@ -58241,6 +58237,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -58578,6 +58575,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -58915,6 +58913,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
@@ -59250,6 +59249,7 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
           "22194555a3198d88",
           "22b91ec0916f167f",
           "2748dec227779c3d",
