@@ -12,6 +12,9 @@ import { getCachedGmailReceipts, cachedGmailReceiptDisplayItems } from "@/lib/pr
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import styles from "./one-agent-profile-sheet.module.css";
 import { TodoAgentSuggestions } from "@/components/todos/todo-agent-suggestions";
+import { TodoItemEditor } from "@/components/todos/todo-item-editor";
+import { TodoSourceFilter, todoMatchesSource } from "@/components/todos/todo-source-filter";
+import type { TodoEditableFields } from "@/lib/todos/todo-list-model";
 
 export function OneTodoPreview({
   user,
@@ -36,6 +39,10 @@ export function OneTodoPreview({
   const loading = ready && (!current || snapshot.loading);
   const error = current && snapshot.error;
   const savingTaskId = current ? snapshot.savingTaskId : null;
+  const [editing, setEditing] = useState<{ identity: symbol; task: TodoItem } | null>(null);
+  const editPending = useRef(false);
+  const editTrigger = useRef<HTMLButtonElement | null>(null);
+  const editingTask = ready && editing?.identity === identity ? editing.task : null;
 
   const loadTasks = useCallback(async () => {
     if (!ready || !vaultKey || !vaultOwnerToken || identityRef.current !== identity || snapshotVaultSessionEpoch() !== epoch) return;
@@ -70,13 +77,14 @@ export function OneTodoPreview({
     return getCachedGmailReceipts(user.uid, receiptAccountKey);
   }, [ready, receiptAccountKey, user.uid]);
 
+  const [sourceFilter, setSourceFilter] = useState("all");
   const dueReceipts = useMemo(() => {
-    if (!cachedReceipts) return [];
+    if (!cachedReceipts || !["all", "gmail"].includes(sourceFilter)) return [];
     return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
-  }, [cachedReceipts]);
+  }, [cachedReceipts, sourceFilter]);
 
   const live = useTodoLiveTasks({ userId: user.uid, vaultOwnerToken, idTokenProvider, enabled: ready, tasks });
-  const openTasks = live.pending;
+  const openTasks = live.pending.filter(task => todoMatchesSource(task, sourceFilter));
   const sourceLoading = live.agentLoading || live.calendarReadLoading || live.sourceLoading;
   const sourceError = Boolean(live.agentLoadError || live.calendarReadError || live.sourceError);
   const retry = () => {
@@ -101,7 +109,7 @@ export function OneTodoPreview({
     const request = ++requestRef.current;
     const isCurrent = () => identityRef.current === identity && requestRef.current === request && snapshotVaultSessionEpoch() === epoch;
     // Keep automatic-task tombstones so a live source cannot resurrect an item.
-    const updated = { ...task, status };
+    const updated = { ...task, status, revision: (task.revision ?? 0) + 1 };
     setSnapshot(previous => ({ ...previous, savingTaskId: task.id, tasks: [...previous.tasks.filter(item => item.id !== task.id), updated] }));
     try {
       const params = { userId: user.uid, vaultKey, vaultOwnerToken, task };
@@ -119,18 +127,47 @@ export function OneTodoPreview({
   const toggleTask = (task: TodoItem, complete: boolean) => persistTask(task, complete ? "done" : "pending");
   const deleteTask = (task: TodoItem) => persistTask(task, "deleted");
 
+  const openEdit = (task: TodoItem, trigger?: HTMLButtonElement) => {
+    if (loading || savingTaskId || editPending.current) return;
+    editTrigger.current = trigger ?? null;
+    setEditing({ identity, task });
+  };
+  const saveEdit = async (update: TodoEditableFields) => {
+    if (!editingTask || !vaultKey || !vaultOwnerToken || editPending.current) return;
+    editPending.current = true;
+    setSnapshot(previous => ({ ...previous, savingTaskId: editingTask.id }));
+    const isCurrent = () => identityRef.current === identity && snapshotVaultSessionEpoch() === epoch;
+    try {
+      const result = await TodoListPkmService.update({ userId: user.uid, vaultKey, vaultOwnerToken,
+        taskId: editingTask.id, task: editingTask, update });
+      if (!result.success) throw new Error("Task could not be updated");
+      if (!isCurrent()) return;
+      setEditing(null);
+      await loadTasks();
+    } catch {
+      if (isCurrent()) {
+        setSnapshot(previous => ({ ...previous, error: true }));
+        throw new Error("Item could not be updated. Try again.");
+      }
+    }
+    finally { editPending.current = false; if (isCurrent()) setSnapshot(previous => ({ ...previous, savingTaskId: null })); }
+  };
+
   return (
     <div className={`${styles.todo} profile-home-content`} data-profile-type-scale="todo">
       <div className={styles.sectionHeading}>
         <h3 data-profile-role="header">To-do list</h3>
       </div>
+      {editingTask ? <TodoItemEditor open task={editingTask} saving={Boolean(savingTaskId)} onSave={saveEdit}
+        onOpenChange={open => { if (!open) { setEditing(null); requestAnimationFrame(() => editTrigger.current?.focus()); } }} /> : null}
 
       {ready && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
         userId={user.uid} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
-        evidence={live.evidence} coverage={live.coverage} loading={Boolean(sourceLoading || loading)}
+        onContinueMail={() => void live.continueMail?.()} evidence={live.evidence} coverage={live.coverage} loading={Boolean(sourceLoading || loading)}
         onRefresh={retry} onSaved={() => void loadTasks()}
       /> : null}
 
+      {ready ? <TodoSourceFilter value={sourceFilter} onChange={setSourceFilter} /> : null}
       {ready && (error || sourceError) ? (
         <div className={styles.notice} role="status">
           <p>{error ? "Your saved tasks could not refresh." : "Some tasks could not refresh."}</p>
@@ -167,6 +204,7 @@ export function OneTodoPreview({
                     saving={loading || Boolean(savingTaskId)}
                     onToggle={toggleTask}
                     onDelete={deleteTask}
+                    onEdit={openEdit}
                   />
                 ))}
               </SurfaceInset>
@@ -201,6 +239,7 @@ export function OneTodoPreview({
                     saving={loading || Boolean(savingTaskId)}
                     onToggle={toggleTask}
                     onDelete={deleteTask}
+                    onEdit={openEdit}
                   />
                 ))}
               </SurfaceInset>

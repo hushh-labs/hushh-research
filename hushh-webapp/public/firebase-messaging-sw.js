@@ -202,6 +202,7 @@ function isSilentNotification(data) {
 }
 
 function notificationTapTarget(data) {
+  if (data?.type === "todo_reminder") return "/one/todos";
   if (data?.type === "location_circle_message") {
     const circleId = String(data.circle_id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(circleId)) return "/one/feed";
@@ -576,6 +577,7 @@ self.addEventListener("push", function (event) {
         }
         if (isChat && notificationData.recipient_key_id && notificationData.recipient_key_id !== await self.currentChatNotificationKey()) return;
         if (isChat && Number(notificationData.chat_expires_at) < Date.now() / 1000) return;
+        if (notificationType === "todo_reminder" && (!Number.isFinite(Number(notificationData.reminder_expires_at)) || Number(notificationData.reminder_expires_at) <= Date.now() / 1000)) return;
         if (isChat && !await chatCanPresent(notificationData)) return;
         if (isChat) await applyChatBadge(notificationData);
         const deliveryId = nextDeliveryId();

@@ -935,7 +935,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u00e2\u2020\u2019inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimerâ†’inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -2179,11 +2179,12 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "system_push_outbox",
-        "system_push_device_deliveries"
+        "system_push_device_deliveries",
+        "one_todo_reminder_schedules"
       ],
-      "primary_access_path": "Source-transaction triggers enqueue SMS/Location shares, location requests, Circle membership and connection requests; leased background worker reads current sources and installation ownership before provider acceptance. PostgreSQL owns delivery; a future shared queue adapter must preserve these leases and receipts.",
-      "retention_policy": "Intent expires within one day or the earlier share deadline, with at most twelve attempts. Expired intents and cascading device receipts are pruned after three days. No historical backfill.",
-      "deletion_behavior": "Recipient actor deletion cascades to intents and receipts. Source removal, expiry, key revocation and account tombstones suppress further delivery; no source content is copied.",
+      "primary_access_path": "Source-transaction triggers enqueue SMS/Location shares, location requests, Circle membership and connection requests; leased background worker reads current sources and installation ownership before provider acceptance. PostgreSQL owns delivery; a future shared queue adapter must preserve these leases and receipts. Owner-confirmed one_todos writes atomically project opaque reminder schedules into the same outbox. A pinned OIDC minute scheduler wakes delivery after scale to zero.",
+      "retention_policy": "Intent expires within one day or the earlier share deadline, with at most twelve attempts. Expired intents and cascading device receipts are pruned after three days. No historical backfill. One opaque schedule per task until domain reset or account erasure; reminder delivery expires fifteen minutes after its due time. Task content remains encrypted in PKM.",
+      "deletion_behavior": "Recipient actor deletion cascades to intents and receipts. Source removal, expiry, key revocation and account tombstones suppress further delivery; no source content is copied. Deleting the one_todos manifest removes reminder schedules and associated intents in the same transaction.",
       "utilization_policy": "Retry only unaccepted installations; provider acceptance never authorizes a domain action or establishes read or device receipt.",
       "plaintext_posture": "opaque_source_revision_recipient_and_device_delivery_metadata_only",
       "expected_row_growth": "one_intent_per_source_transition_and_one_receipt_per_registered_installation",

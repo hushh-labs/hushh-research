@@ -752,6 +752,26 @@ describe("connection-request Feed-first foreground policy", () => {
     expect(screen.getByTestId("pending-count")).toHaveTextContent("0");
   });
 
+  it("presents owner reminders once and rejects expired, hidden and wrong-owner events", async () => {
+    await renderProvider();
+    const data = { type: "todo_reminder", user_id: "recipient-user", message_id: "reminder-one", reminder_expires_at: String(Math.floor(Date.now() / 1000) + 600) };
+    const dispatch = (overrides = {}) => {
+      const detail = { data: { ...data, ...overrides }, accepted: false };
+      act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail })));
+      return detail;
+    };
+    expect(dispatch({ user_id: "previous-owner" }).accepted).toBe(false);
+    expect(dispatch({ reminder_expires_at: "1" }).accepted).toBe(false);
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    expect(dispatch().accepted).toBe(false);
+    visibility.mockReturnValue("visible");
+    expect(dispatch().accepted).toBe(true);
+    expect(dispatch().accepted).toBe(true);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledWith("Task reminder", expect.objectContaining({ description: "Open your to-do list." }));
+    visibility.mockRestore();
+  });
+
   it("refreshes Feed when a direct-message notification arrives", async () => {
     await renderProvider();
     const notification = {

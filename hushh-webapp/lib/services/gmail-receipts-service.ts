@@ -339,12 +339,18 @@ export interface GmailNudge {
   starts_at?: string | null;
   /** Conferencing "join" link for upcoming_meeting nudges; null when unavailable. */
   meeting_url?: string | null;
+  ical_uid?: string | null;
+  meeting_source?: "invite" | "email" | null;
 }
 
 export interface GmailNudgesResponse {
   user_id: string;
   account_email: string | null;
   nudges: GmailNudge[];
+  meeting_scan?: { scope: "recent_invitations_and_mentions"; status: "checked" | "unavailable" };
+  next_cursor?: string | null;
+  has_more?: boolean;
+  coverage?: { scope: "mailbox_excluding_spam_trash"; scanned_threads: number; failed_threads: number; complete: boolean; as_of: string };
 }
 
 interface ErrorEnvelope {
@@ -1349,16 +1355,25 @@ export class GmailReceiptsService {
     vaultOwnerToken: string;
     userId: string;
     limit?: number;
+    scanAll?: boolean;
+    cursor?: string | null;
+    signal?: AbortSignal;
+    isCurrent?: () => boolean;
   }): Promise<GmailNudgesResponse> {
     if (await ownerContentIsPrivate()) throw new PrivateGoogleUnsupportedError('Mail receipt sync');
+    if (params.isCurrent && !params.isCurrent()) throw new DOMException("Session changed", "AbortError");
     const query = new URLSearchParams({
       limit: String(params.limit ?? 10),
+      ...(params.scanAll ? { scan_all: "true" } : {}),
+      ...(params.cursor ? { cursor: params.cursor } : {}),
     }).toString();
     const response = await ApiService.apiFetch(
       `${buildGmailNudgesPath(params.userId)}?${query}`,
       {
         method: "GET",
         headers: buildSealedHeaders(params.idToken, params.vaultOwnerToken),
+        signal: params.signal,
+        isEffectCurrent: params.isCurrent,
       },
     );
 
@@ -1368,6 +1383,14 @@ export class GmailReceiptsService {
       );
     }
 
-    return (await response.json()) as GmailNudgesResponse;
+    const payload = (await response.json()) as GmailNudgesResponse;
+    if (params.isCurrent && !params.isCurrent()) throw new DOMException("Session changed", "AbortError");
+    if (params.scanAll && (payload.user_id !== params.userId || !Array.isArray(payload.nudges) || payload.nudges.length > 25 ||
+        payload.coverage?.scope !== "mailbox_excluding_spam_trash" || !Number.isSafeInteger(payload.coverage.scanned_threads) || payload.coverage.scanned_threads < 0 ||
+        !Number.isSafeInteger(payload.coverage.failed_threads) || payload.coverage.failed_threads < 0 || payload.coverage.failed_threads > 25 ||
+        typeof payload.has_more !== "boolean" || typeof payload.coverage.complete !== "boolean" || payload.coverage.complete === payload.has_more ||
+        payload.has_more !== Boolean(payload.next_cursor) || (payload.next_cursor && (typeof payload.next_cursor !== "string" || payload.next_cursor.length > 8192)) ||
+        payload.coverage.complete && payload.coverage.failed_threads > 0)) throw new Error("Email follow-up coverage could not be verified.");
+    return payload;
   }
 }

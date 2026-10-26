@@ -1,7 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useCalendarUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events";
+import { useCalendarUpcomingEvents, useTodoUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events";
+import { webcrypto } from "node:crypto";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 
 vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
@@ -33,6 +34,21 @@ const RAW_EVENT = {
 describe("useCalendarUpcomingEvents", () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("provides owner-only meeting context, distinct account identities and honest coverage without widening chat", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    mockedListEvents.mockResolvedValueOnce({ events: [
+      { ...RAW_EVENT, account_id: "account-one", organizer: { displayName: "Ravi" } },
+      { ...RAW_EVENT, account_id: "account-two", organizer: { displayName: "Jamie" } },
+    ], truncated: true });
+    const { result } = renderHook(() => useTodoUpcomingEvents({ userId: "owner", vaultOwnerToken: "fixture", isConnected: true, windowHours: 168 }));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.complete).toBe(false);
+    expect(result.current.events[0]!.context).toContain("Ravi");
+    expect(result.current.events[0]!.id).not.toBe(result.current.events[1]!.id);
+    expect(JSON.stringify(result.current.events)).not.toContain(RAW_EVENT.description);
+    expect(JSON.stringify(result.current.events)).not.toContain(RAW_EVENT.location);
   });
 
   it("does not fetch when disconnected", () => {

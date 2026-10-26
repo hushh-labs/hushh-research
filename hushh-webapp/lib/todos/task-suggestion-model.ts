@@ -7,6 +7,11 @@ export type TaskCoverage = {
   capability: TaskCapability;
   status: "ready" | "unavailable" | "incomplete" | "not_connected";
   count: number;
+  scanned?: number;
+  canContinue?: boolean;
+  scanning?: boolean;
+  scanFailed?: boolean;
+  meetings?: "recent" | "unavailable";
 };
 /** Presentation identities stay with One's existing capability catalog. */
 export function taskCapabilities() {
@@ -19,6 +24,11 @@ export type TaskEvidence = {
   href: string;
   /** Existing pending tasks are shown directly, never proposed again. */
   pendingTitle?: string;
+  context?: string;
+  date?: string | null;
+  time?: string | null;
+  /** Exact provider event identity and occurrence; never matched by title. */
+  meetingRef?: string;
 };
 export const taskSuggestionSchema = z.object({
   items: z.array(z.object({ source_ref: z.string(), title: z.string().min(1).max(160), reason: z.string().min(1).max(240) }).strict()).max(12),

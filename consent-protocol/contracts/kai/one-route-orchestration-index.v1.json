@@ -6355,7 +6355,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.todos",
-        "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+        "purpose": "Review, add and edit private to-do items. Owner edits affect only this list; provider actions remain in their originating service. Dated and timed items can schedule private reminder alerts.",
         "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -6370,7 +6370,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+        "completion_boundary": "Owner-confirmed task edits and reminder schedules commit together. Calendar and other provider records remain unchanged; notification scheduling does not establish device delivery.",
         "next_route": null,
         "return_policy": "stay",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

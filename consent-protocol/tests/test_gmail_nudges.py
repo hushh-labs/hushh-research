@@ -27,6 +27,64 @@ _NOW = datetime(2026, 7, 4, 12, 0, 0, tzinfo=timezone.utc)
 _USER = "me@example.com"
 
 
+def test_owner_sent_alias_is_not_a_reply_obligation():
+    message = NudgeMessage(
+        message_id="sent",
+        from_email="my-alias@example.com",
+        from_name="Me",
+        subject="Demo",
+        received_at=_NOW,
+        sent_by_owner=True,
+    )
+    assert (
+        derive_needs_reply_nudges(
+            [NudgeThread(thread_id="thread", messages=(message,))], user_email=_USER, now=_NOW
+        )
+        == []
+    )
+    inbound = NudgeMessage(
+        message_id="inbound",
+        from_email=message.from_email,
+        from_name="Someone else",
+        subject="Demo",
+        received_at=_NOW,
+    )
+    assert (
+        len(
+            derive_needs_reply_nudges(
+                [NudgeThread(thread_id="thread", messages=(inbound,))], user_email=_USER, now=_NOW
+            )
+        )
+        == 1
+    )
+
+
+def test_invitation_identity_survives_nudge_projection_and_cancellation_never_becomes_a_task():
+    ics = "\r\n".join(
+        [
+            "BEGIN:VCALENDAR",
+            "BEGIN:VEVENT",
+            "UID:demo-occurrence",
+            "SUMMARY:Friday demo",
+            "DTSTART:20260705T120000Z",
+            "END:VEVENT",
+            "END:VCALENDAR",
+        ]
+    )
+    event = parse_ics_event(ics, message_id="message", thread_id="thread")
+    assert event is not None
+    nudge = derive_upcoming_meeting_nudges([event], now=_NOW)[0].to_dict()
+    assert nudge["ical_uid"] == "demo-occurrence" and nudge["meeting_source"] == "invite"
+    assert (
+        parse_ics_event(
+            ics.replace("SUMMARY:", "STATUS:CANCELLED\r\nSUMMARY:"),
+            message_id="message",
+            thread_id="thread",
+        )
+        is None
+    )
+
+
 def _msg(
     from_email: str,
     *,

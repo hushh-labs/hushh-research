@@ -2146,12 +2146,13 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "system_push_outbox",
-        "system_push_device_deliveries"
+        "system_push_device_deliveries",
+        "one_todo_reminder_schedules"
       ],
       "id": "system_push_delivery",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Source-transaction triggers enqueue SMS/Location shares, location requests, Circle membership and connection requests; leased background worker reads current sources and installation ownership before provider acceptance. PostgreSQL owns delivery; a future shared queue adapter must preserve these leases and receipts."
+      "primary_access_path": "Source-transaction triggers enqueue SMS/Location shares, location requests, Circle membership and connection requests; leased background worker reads current sources and installation ownership before provider acceptance. PostgreSQL owns delivery; a future shared queue adapter must preserve these leases and receipts. Owner-confirmed one_todos writes atomically project opaque reminder schedules into the same outbox. A pinned OIDC minute scheduler wakes delivery after scale to zero."
     },
     {
       "data_class": "workflow_state",
@@ -7146,12 +7147,12 @@
     "action_gateway": "542230898cc411c092071915b1ad7986c766b74886d81404c9115ef8d0b16e97",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "8b7c2ede3d91f5aef6086aab2526782dfe733424239fc1b39e85d556178723b2",
+    "data_plane": "c96b4884194857b02bce677ce3e89535047e64a9823e681b9f95e06c129071f5",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "ebe0ebe56dcee625d5d9113b19a770821e503e0890ac877837d6aa9d26fb8931",
-    "route_layout": "70797338bdab9648b22a77d38f19f43049bfcf00fd7ebe910778fbe457b2f09f",
-    "surface_map": "9c52b1335ff5ed3242fa30a856aa359512434fdf67a61197537b39e92450c2f8",
+    "route_index": "5424c3c186d5d6c98110a41df88174b01ed168641207c745cce3e21140061ce4",
+    "route_layout": "7e7db6eedfdd9911c21e5e1de0d56e2f8cc373453a445b324be11cd613260c51",
+    "surface_map": "c82a6e939caa6d26f8182d8367ac898828b6c5ec677dc7aef9aaf82237be516b",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

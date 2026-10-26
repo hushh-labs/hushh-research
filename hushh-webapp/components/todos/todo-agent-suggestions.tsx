@@ -12,24 +12,26 @@ import { taskCapabilities, type TaskCoverage, type TaskEvidence, type TaskSugges
 type Props = {
   userId: string; vaultKey: string; vaultOwnerToken: string;
   evidence: TaskEvidence[]; coverage: TaskCoverage[]; loading: boolean;
-  onRefresh: () => void; onSaved: () => void;
+  onRefresh: () => void; onSaved: () => void; onContinueMail?: () => void;
 };
 
-function Coverage({ coverage, loading }: Pick<Props, "coverage" | "loading">) {
+function Coverage({ coverage, loading, onContinueMail }: Pick<Props, "coverage" | "loading" | "onContinueMail">) {
   const sources = new Map(coverage.map(row => [row.capability, row]));
   return <details>
     <summary data-profile-role="name" className="min-h-11 cursor-pointer content-center">{loading ? "Checking task sources…" : "Task sources"}</summary>
     <ul className="space-y-2 pb-2">
       {taskCapabilities().map(capability => {
         const source = sources.get(capability.id as TaskCoverage["capability"]);
-        const status = loading ? "Checking…" : !source ? "Not checked yet" : source.status === "not_connected" ? "Not connected" : source.status === "unavailable" ? "Could not check" : source.status === "incomplete" ? `${source.count} found · Limited coverage` : source.count ? `${source.count} awaiting attention` : "No pending work";
-        return <li key={capability.id} className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"><span data-profile-role="name">{capability.title}</span><span data-profile-role="description" className="text-muted-foreground">{status}</span></li>;
+        const status = capability.id === "gmail" && source?.scanned !== undefined
+          ? `${source.count} follow-ups · ${source.scanned} threads checked${source.status === "ready" ? " · Scan complete" : source.scanning ? " · Scanning…" : source.scanFailed ? " · Retry needed" : " · More to scan"}`
+          : loading ? "Checking…" : !source ? "Not checked yet" : source.status === "not_connected" ? "Not connected" : source.status === "unavailable" ? "Could not check" : source.status === "incomplete" ? `${source.count} found · Limited coverage` : source.count ? `${source.count} awaiting attention` : "No pending work";
+        return <li key={capability.id} className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1"><span data-profile-role="name">{capability.title}</span><span data-profile-role="description" className="text-muted-foreground">{status}</span>{capability.id === "gmail" && source?.canContinue && onContinueMail ? <Button type="button" variant="none" effect="fade" size="compact" disabled={source.scanning} onClick={onContinueMail}>{source.scanFailed ? "Retry email scan" : "Continue email scan"}</Button> : null}</li>;
       })}
     </ul>
   </details>;
 }
 
-export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, evidence, coverage, loading, onRefresh, onSaved }: Props) {
+export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, evidence, coverage, loading, onRefresh, onSaved, onContinueMail }: Props) {
   const epoch = snapshotVaultSessionEpoch();
   const signature = JSON.stringify(evidence);
   const identity = useMemo(() => Symbol(`todo-suggestions-${Boolean(userId)}-${Boolean(vaultKey)}-${Boolean(vaultOwnerToken)}-${epoch}-${signature.length}`), [userId, vaultKey, vaultOwnerToken, epoch, signature]);
@@ -87,7 +89,9 @@ export function TodoAgentSuggestions({ userId, vaultKey, vaultOwnerToken, eviden
     }
   };
   return <section aria-label="One task suggestions" className="space-y-1">
-    <Coverage coverage={coverage} loading={loading} />
+    <Coverage coverage={coverage} loading={loading} onContinueMail={onContinueMail} />
+    {coverage.some(source => source.capability === "gmail" && source.meetings) ? <HelperText as="p" data-profile-role="description">Calendar covers the next seven days. Email meeting suggestions use recent invitations and mentions; verify their details.</HelperText> : null}
+    {coverage.some(source => source.meetings === "unavailable") ? <HelperText as="p" role="status">Email meetings couldn’t be checked. Refresh sources to try again.</HelperText> : null}
     {coverage.some(source => source.status === "unavailable" || source.status === "incomplete") ? <HelperText as="p" data-profile-role="description" role="status">Some sources couldn’t be fully checked.</HelperText> : null}
     <label className="flex min-h-11 items-center gap-2">
       <input type="checkbox" className="size-4 shrink-0 accent-[var(--app-accent)]" checked={approved} disabled={!available || busy} onChange={event => setState({ identity, approved: event.target.checked, busy: false, saving: null, error: "", items: [], checked: false })} />

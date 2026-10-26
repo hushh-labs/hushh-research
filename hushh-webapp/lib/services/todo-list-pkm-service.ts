@@ -16,6 +16,8 @@ import {
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
+import { todoReminderProjection } from "@/lib/todos/reminder-schedule";
+import { changedTodoFields } from "@/lib/todos/todo-list-model";
 
 export const TODO_LIST_PKM_DOMAIN = "one_todos" as const;
 
@@ -25,6 +27,7 @@ import {
   type TodoStatus,
   type TodoSourceAgent,
   type TodoItem,
+  type TodoEditableFields,
 } from "@/lib/todos/todo-list-model";
 export {
   TODO_SOURCE_LABELS,
@@ -45,6 +48,12 @@ export type AgentTodo = {
   source: Exclude<TodoSourceAgent, null>;
   title: string;
   href: string;
+  context?: string;
+  /** A shared account prerequisite, explicitly identified by its publisher. */
+  groupKey?: string;
+  sourceVersion?: string;
+  date?: string | null;
+  time?: string | null;
 };
 
 export type CreateTodoInput = {
@@ -57,6 +66,9 @@ export type CreateTodoInput = {
   sourceId?: string | null;
   link?: string | null;
   notes?: string | null;
+  reminderAt?: string | null;
+  context?: string | null;
+  sourceVersion?: string;
 };
 
 export type CalendarTodoEvent = {
@@ -65,6 +77,7 @@ export type CalendarTodoEvent = {
   start?: { dateTime?: string | null; date?: string | null } | null;
   conference_url?: string | null;
   conferenceUrl?: string | null;
+  context?: string | null;
 };
 
 export type GmailTodoEvent = {
@@ -87,7 +100,7 @@ type PrivateTodoData = {
   updatedAt?: unknown;
 };
 
-type MutableTodoFields = Pick<TodoItem, "title" | "date" | "time" | "notes">;
+type MutableTodoFields = TodoEditableFields;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -102,7 +115,25 @@ function text(value: unknown, maximum: number): string {
 
 function normalizeDate(value: unknown): string | null {
   const date = text(value, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = new Date(`${date}T12:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : null;
+}
+
+function normalizeReminder(value: unknown): string | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function normalizeEdits(value: Partial<MutableTodoFields>): Partial<MutableTodoFields> {
+  return {
+    ...(value.title === undefined ? {} : { title: text(value.title, 240) }),
+    ...(value.date === undefined ? {} : { date: normalizeDate(value.date) }),
+    ...(value.time === undefined ? {} : { time: normalizeTime(value.time) }),
+    ...(value.notes === undefined ? {} : { notes: text(value.notes, 1_200) || null }),
+    ...(value.reminderAt === undefined ? {} : { reminderAt: normalizeReminder(value.reminderAt) }),
+  };
 }
 
 function normalizeTime(value: unknown): string | null {
@@ -187,6 +218,8 @@ function normalizeItem(value: unknown): TodoItem | null {
       hasInternalTaskLink(id, sourceId),
     ),
     notes: value.notes ? String(value.notes) : null,
+    ...(Object.hasOwn(value, "context") ? { context: text(value.context, 1_200) || null } : {}),
+    ...(typeof value.sourceVersion === "string" ? { sourceVersion: value.sourceVersion } : {}),
     revision:
       Number.isSafeInteger(value.revision) && Number(value.revision) >= 0
         ? Number(value.revision)
@@ -195,6 +228,9 @@ function normalizeItem(value: unknown): TodoItem | null {
     updatedAt,
     completedAt,
     deletedAt,
+    ...(Object.hasOwn(value, "reminderAt") ? { reminderAt: normalizeReminder(value.reminderAt) } : {}),
+    ...(isRecord(value.ownerOverrides)
+      ? { ownerOverrides: normalizeEdits(value.ownerOverrides) } : {}),
   };
 }
 
@@ -253,6 +289,9 @@ export function buildTodo(
       hasInternalTaskLink(id, sourceId),
     ),
     notes: text(input.notes, 1_200) || null,
+    ...(input.context ? { context: text(input.context, 1_200) } : {}),
+    ...(input.sourceVersion ? { sourceVersion: input.sourceVersion } : {}),
+    reminderAt: normalizeReminder(input.reminderAt),
     createdAt: now,
     updatedAt: now,
     completedAt: null,
@@ -284,6 +323,7 @@ export function calendarTodoInput(
       source: "calendar",
       sourceId,
       link,
+      context: event.context,
     };
   }
 
@@ -310,6 +350,7 @@ export function calendarTodoInput(
     source: "calendar",
     sourceId,
     link,
+    context: event.context,
   };
 }
 
@@ -356,6 +397,10 @@ export function agentTodoInput(
     type: "automatic",
     source: item.source,
     link,
+    context: item.context,
+    sourceVersion: item.sourceVersion,
+    date: item.date,
+    time: item.time,
   };
 }
 
@@ -395,7 +440,7 @@ async function write(
     vaultOwnerToken: params.vaultOwnerToken,
     confirmation: { confirmedByUser: true, surface: "web", source },
     idempotencyScope,
-    build: (context) => {
+    build: async (context) => {
       const currentDomain = (context.currentDomainData ?? {}) as Record<
         string,
         unknown
@@ -414,6 +459,7 @@ async function write(
 
       return {
         domainData: privateDomainData(currentDomain, tasks, updatedAt),
+        writeProjections: [await todoReminderProjection(params.userId, tasks)],
         // Consumer details stay entirely under `_private`; the discovery
         // projection carries counters only.
         summary: {
@@ -455,10 +501,13 @@ export async function createTodo(
       // already completed or removed.
       const updated = {
         ...task,
+        ...existing.ownerOverrides,
         status: existing.status,
         completedAt: existing.completedAt,
         deletedAt: existing.deletedAt,
         createdAt: existing.createdAt,
+        ownerOverrides: existing.ownerOverrides,
+        reminderAt: Object.hasOwn(existing, "reminderAt") ? existing.reminderAt : task.reminderAt,
       };
       return current.tasks.map((item) =>
         item.id === task.id ? updated : item,
@@ -484,6 +533,7 @@ export const TodoListPkmService = {
   update(
     params: TodoWriteParams & {
       taskId: string;
+      task?: TodoItem;
       update: Partial<MutableTodoFields>;
     },
   ) {
@@ -492,27 +542,21 @@ export const TodoListPkmService = {
       params,
       "one_todo_list_owner_confirmed_update",
       `one_todo_list:update:${params.taskId}:${updatedAt}`,
-      (current) =>
-        current.tasks.map((task) =>
-          task.id === params.taskId
-            ? {
-                ...task,
-                ...(params.update.title === undefined
-                  ? {}
-                  : { title: text(params.update.title, 240) || task.title }),
-                ...(params.update.date === undefined
-                  ? {}
-                  : { date: normalizeDate(params.update.date) }),
-                ...(params.update.time === undefined
-                  ? {}
-                  : { time: normalizeTime(params.update.time) }),
-                ...(params.update.notes === undefined
-                  ? {}
-                  : { notes: text(params.update.notes, 1_200) || null }),
-                updatedAt,
-              }
-            : task,
-        ),
+      (current) => {
+        const saved = current.tasks.find(task => task.id === params.taskId);
+        const rendered = params.task?.type === "automatic" && params.task.id === params.taskId ? params.task : null;
+        const task = rendered?.sourceVersion && rendered.sourceVersion !== saved?.sourceVersion ? rendered : saved ?? rendered;
+        if (!task || task.status === "deleted") throw new Error("This item is no longer available.");
+        if (saved && params.task && (saved.revision ?? 0) !== (params.task.revision ?? 0)) {
+          throw new Error("This item changed on another device. Refresh before editing it.");
+        }
+        const edits = normalizeEdits(changedTodoFields(params.task ?? task, params.update));
+        if ((edits.date !== undefined || edits.time !== undefined) && params.update.reminderAt === undefined) edits.reminderAt = null;
+        if (edits.title !== undefined && !edits.title) throw new Error("Enter a title.");
+        const updated = { ...task, ...edits, updatedAt,
+          ...(task.type === "automatic" ? { ownerOverrides: { ...task.ownerOverrides, ...edits } } : {}) };
+        return saved ? current.tasks.map(item => item.id === task.id ? updated : item) : [updated, ...current.tasks];
+      },
     );
   },
 
@@ -528,8 +572,9 @@ export const TodoListPkmService = {
       "one_todo_list_owner_confirmed_status",
       `one_todo_list:status:${params.task.id}:${params.status}:${updatedAt}`,
       (current) => {
+        const stored = current.tasks.find((task) => task.id === params.task.id);
         const latest =
-          current.tasks.find((task) => task.id === params.task.id) ??
+          (params.task.sourceVersion && params.task.sourceVersion !== stored?.sourceVersion ? params.task : stored) ??
           (params.task.type === "automatic" ? params.task : null);
         if (!latest || latest.status === "deleted") return current.tasks;
         const next = {
@@ -576,6 +621,7 @@ export const TodoListPkmService = {
           return [
             {
               ...task,
+              ...(params.task.sourceVersion ? { sourceVersion: params.task.sourceVersion, context: params.task.context } : {}),
               status: "deleted" as const,
               deletedAt: updatedAt,
               updatedAt,

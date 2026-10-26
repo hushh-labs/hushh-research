@@ -29,10 +29,10 @@ test.beforeAll(async () => {
     "lib/profile/gmail-connector-store.ts": "useGmailConnectorStatus",
     "lib/profile/gmail-receipts-cache.ts":
       "getCachedGmailReceipts,cachedGmailReceiptDisplayItems,clearCachedGmailReceipts",
-    "lib/services/todo-capability-sources.ts": "readTodoCapabilities",
+    "lib/services/todo-capability-sources.ts": "readTodoCapabilities,readTodoMail",
     "lib/services/todo-suggestion-service.ts":
       "todoSuggestionsAvailable,suggestTodoTasks",
-    "lib/calendar/use-calendar-upcoming-events.ts": "useCalendarUpcomingEvents",
+    "lib/calendar/use-calendar-upcoming-events.ts": "useTodoUpcomingEvents",
     "lib/services/personal-knowledge-model-service.ts":
       "PersonalKnowledgeModelService",
     "lib/services/pkm-write-coordinator.ts": "PkmWriteCoordinator",
@@ -287,4 +287,37 @@ test("empty To-do stays truthful and readable through phone widths and enlargeme
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   expect(errors).toEqual([]);
   await page.screenshot({ path: test.info().outputPath("todo-empty-200-percent.png"), animations: "disabled" });
+});
+
+
+for (const width of [320, 393, 1280]) test(`task editing and reminder scheduling remain usable at ${width}px`, async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width, height: 850 });
+  await page.route("http://localhost/todo-fixture", route => route.fulfill({ contentType: "text/html",
+    body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+  await page.goto("http://localhost/todo-fixture");
+  await page.addScriptTag({ content: script });
+  await page.getByRole("button", { name: "Add item" }).click();
+  const editor = page.getByRole("dialog");
+  await editor.getByLabel("Title", { exact: true }).fill("Prepare the plan");
+  await editor.getByLabel("Date", { exact: true }).fill("2030-10-26");
+  await editor.getByLabel("Time", { exact: true }).fill("09:30");
+  await expect(editor.getByRole("button", { name: "Enable reminder notifications" })).toBeVisible();
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor).toBeHidden();
+  await page.getByRole("button", { name: "Edit Prepare the plan", exact: true }).click();
+  await editor.getByLabel("Title", { exact: true }).fill("Review the final plan");
+  await editor.getByLabel("Time", { exact: true }).fill("");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor).toBeHidden();
+  await page.getByRole("button", { name: "Reopen list" }).click();
+  await expect(page.getByRole("button", { name: "Edit Review the final plan", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit Review the final plan", exact: true }).click();
+  await expect(editor.getByLabel("Time", { exact: true })).toHaveValue("");
+  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(editor).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: test.info().outputPath("todo-edit-reminder.png"), animations: "disabled" });
 });

@@ -77,6 +77,7 @@ async def list_nudges_with_token(
     # Upcoming meetings from calendar invites AND body-text meeting mentions
     # (best-effort: never fail the whole nudge response over meeting parsing).
     # Invite events are listed first so they win the per-thread de-dupe.
+    meetings_checked = True
     try:
         invite_events, body_events = await asyncio.wait_for(
             asyncio.gather(
@@ -87,6 +88,7 @@ async def list_nudges_with_token(
         )
         meetings = derive_upcoming_meeting_nudges(invite_events + body_events, limit=bounded_limit)
     except Exception:
+        meetings_checked = False
         _svc.logger.warning("gmail.nudges.meetings_failed", exc_info=True)
         meetings = []
     return {
@@ -94,6 +96,10 @@ async def list_nudges_with_token(
         "account_email": user_email or None,
         "nudges": [nudge.to_dict() for nudge in needs_reply]
         + [nudge.to_dict() for nudge in meetings],
+        "meeting_scan": {
+            "scope": "recent_invitations_and_mentions",
+            "status": "checked" if meetings_checked else "unavailable",
+        },
     }
 
 

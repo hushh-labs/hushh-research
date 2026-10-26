@@ -255,6 +255,7 @@ export function directMessageNotificationTapTarget(
 export function buildNotificationTapTarget(
   data: Record<string, unknown> | undefined,
 ): string {
+  if (data?.type === "todo_reminder") return ROUTES.ONE_TODOS;
   const circleTarget = circleChatNotificationTarget(data);
   if (circleTarget) return circleTarget;
   const directMessageTarget = directMessageNotificationTapTarget(data);
@@ -291,6 +292,7 @@ function resolveNotificationClickTarget(
   value: unknown,
   data: Record<string, unknown> | undefined,
 ): string {
+  if (data?.type === "todo_reminder") return ROUTES.ONE_TODOS;
   const circleTarget = circleChatNotificationTarget(data);
   if (circleTarget) return circleTarget;
   // Older workers send a Feed URL but retain the original typed payload.

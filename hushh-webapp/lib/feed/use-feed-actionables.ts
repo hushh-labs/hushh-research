@@ -1528,6 +1528,8 @@ export function useFeedActionables({ enabled = true, allPending = false }: { ena
         id: `consent:${entry.id}`,
         ...(isDocumentRequestSetupStep(setup) ? { todo: {
           key: `consent:${entry.id}:setup:${setup}`, source: "drive" as const,
+          groupKey: `document-setup:${setup}`,
+          context: `Document requested by ${resolveConsentRequesterLabel({ counterpartLabel: entry.counterpart_label })}`,
           title: documentRequestSetupLabel(setup, true),
           href: documentRequestSetupHref(setup, "/one/todos"),
         } } : {}),

@@ -18,8 +18,10 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
+import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "todo-owner", getIdToken: vi.fn() },
@@ -29,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   feedLoading: false,
   retryFeed: vi.fn(),
   pendingKyc: null as { count: number; workflowId: string } | null,
+  extraReads: [] as CapabilityRead[],
   events: [
     {
       id: "calendar-event-1",
@@ -38,7 +41,7 @@ const mocks = vi.hoisted(() => ({
   ],
 }));
 
-vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
+vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.extraReads, loading: false, error: false, refresh: vi.fn() }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
   useFeedActionables: ({ enabled }: { enabled: boolean }) => ({
     actionables: enabled ? mocks.actionables : [],
@@ -72,7 +75,7 @@ vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({
 }));
 
 vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({
-  useCalendarUpcomingEvents: () => ({ events: mocks.events, loaded: true, loading: false, error: null, refresh: vi.fn() }),
+  useTodoUpcomingEvents: () => ({ events: mocks.events, loaded: true, loading: false, error: null, refresh: vi.fn() }),
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -108,6 +111,7 @@ describe("TodoListPage row actions", () => {
     mocks.feedError = null;
     mocks.feedLoading = false;
     mocks.pendingKyc = null;
+    mocks.extraReads = [];
     mocks.retryFeed.mockReset().mockResolvedValue(undefined);
     mocks.events = [
       {
@@ -149,6 +153,50 @@ describe("TodoListPage row actions", () => {
     vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [] });
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
+  });
+
+  it("edits a projected task once, retains failed drafts, and keeps the source link through refresh", async () => {
+    const update = vi.spyOn(TodoListPkmService, "update").mockResolvedValueOnce({ success: false, saveState: "failed", fullBlob: {} })
+      .mockResolvedValue({ success: true, saveState: "saved", fullBlob: {} });
+    const view = render(<TodoListPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Review the plan" }));
+    expect(screen.getByRole("heading", { name: "Edit item" })).toBeVisible();
+    fireEvent.change(screen.getByPlaceholderText("What do you want to do?"), { target: { value: "Owner's edited task" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Your changes couldn.t be saved\. Try again\./);
+    expect(screen.getByPlaceholderText("What do you want to do?")).toHaveValue("Owner's edited task");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Edit item" })).not.toBeInTheDocument());
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ task: expect.objectContaining({ sourceAgent: "calendar" }),
+      update: expect.objectContaining({ title: "Owner's edited task" }) }));
+    mocks.events = [{ ...mocks.events[0], title: "New provider title" }];
+    view.rerender(<TodoListPage />);
+    expect(screen.getByText("Owner's edited task")).toBeVisible();
+    expect(screen.queryByText("New provider title")).not.toBeInTheDocument();
+  });
+
+  it("cancels editing with Back and never publishes a late edit into another owner's list", async () => {
+    const task = { ...buildTodo({ id: "manual", title: "Private task" }), revision: 1 };
+    mocks.events = [];
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [task] });
+    let finish!: (value: { success: boolean; saveState: "saved"; fullBlob: Record<string, unknown> }) => void;
+    const update = vi.spyOn(TodoListPkmService, "update").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<TodoListPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Private task" }));
+    act(() => { expect(unwindBackLayer("/one/todos")).toBe(true); });
+    expect(screen.queryByRole("heading", { name: "Edit item" })).not.toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Private task" }));
+    fireEvent.change(screen.getByPlaceholderText("What do you want to do?"), { target: { value: "Edited privately" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(update).toHaveBeenCalledOnce();
+    mocks.user.uid = "other-owner";
+    vi.mocked(TodoListPkmService.load).mockResolvedValue({ tasks: [] });
+    view.rerender(<TodoListPage />);
+    await act(async () => finish({ success: true, saveState: "saved", fullBlob: {} }));
+    expect(screen.queryByText("Edited privately")).not.toBeInTheDocument();
   });
 
   it("keeps a saved suggestion tied to its offered source and marks it already pending", () => {
@@ -218,6 +266,23 @@ describe("TodoListPage row actions", () => {
     expect(screen.queryByText("Review shared files 📁")).not.toBeInTheDocument();
   });
 
+  it("groups a shared prerequisite with its requesters, preserves distinct requests and filters without mutating", async () => {
+    mocks.events = [];
+    mocks.actionables = ["Jamie", "Ravi", "Asha"].map((name, index) => ({ id: `request-${index}`,
+      todo: { key: `request-${index}:setup`, groupKey: "document-setup:drive", source: "drive", title: "Connect Google Drive", href: "/one/profile", context: `Document requested by ${name}` } } as FeedActionable));
+    mocks.actionables.push(...["one", "two"].map(key => ({ id: key, todo: { source: "consent", title: "Review document request", href: "/one/consent" } } as FeedActionable)));
+    const save = vi.spyOn(TodoListPkmService, "setStatus");
+    render(<TodoListPage />);
+    await screen.findByText("Connect Google Drive");
+    expect(screen.getAllByText("Connect Google Drive")).toHaveLength(1);
+    expect(screen.getByText(/Document requested by Jamie; Document requested by Ravi; Document requested by Asha/)).toBeVisible();
+    expect(screen.getAllByText("Review document request")).toHaveLength(2);
+    fireEvent.change(screen.getByRole("combobox", { name: "Task source" }), { target: { value: "consent" } });
+    expect(screen.queryByText("Connect Google Drive")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Review document request")).toHaveLength(2);
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it("does not revive resolved live tasks from stored pending snapshots and retains available lanes on partial failure", async () => {
     mocks.events = [];
     const saved = buildTodo(agentTodoInput("connection:gone", { source: "connections", title: "Resolved request", href: "/one/connect" })!);
@@ -231,6 +296,45 @@ describe("TodoListPage row actions", () => {
     expect(screen.queryByText("private raw provider diagnostic")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry agent tasks" }));
     await waitFor(() => expect(mocks.retryFeed).toHaveBeenCalledOnce());
+  });
+
+  it("keeps a grouped prerequisite dismissed until its blocking request set changes", () => {
+    mocks.events = [];
+    const request = (id: string) => ({ id, todo: { key: id, groupKey: "document-setup:drive", source: "drive", title: "Connect Google Drive", href: "/one/profile" } } as FeedActionable);
+    mocks.actionables = [request("one"), request("two")];
+    const params = { userId: "todo-owner", vaultOwnerToken: "fixture", idTokenProvider: async () => "fixture", enabled: true, tasks: [] as TodoItem[] };
+    const { result, rerender } = renderHook(({ tasks }) => useTodoLiveTasks({ ...params, tasks }), { initialProps: { tasks: [] as TodoItem[] } });
+    const task = result.current.pending[0]!;
+    mocks.actionables.reverse();
+    rerender({ tasks: [{ ...task, status: "done", revision: 1 }] });
+    expect(result.current.pending).toHaveLength(0);
+    mocks.actionables = [...mocks.actionables, request("three")];
+    rerender({ tasks: [{ ...task, status: "done", revision: 1 }] });
+    expect(result.current.pending).toHaveLength(1);
+    expect(result.current.pending[0]!.sourceVersion).not.toBe(task.sourceVersion);
+  });
+
+  it("shows who and what for a Calendar demo and Mail reply while merging the exact duplicate invitation", async () => {
+    const meetingRef = '["demo-uid","2030-10-25T09:00:00.000Z"]';
+    mocks.events = [{ id: "demo", title: "Friday demo", start: { date: "2030-10-25" }, context: "With Ravi", meetingRef }] as typeof mocks.events;
+    mocks.extraReads = [{ coverage: { capability: "gmail", count: 2, status: "ready" }, evidence: [
+      { capability: "gmail", key: "reply-demo", summary: "Friday demo", pendingTitle: "Reply to Ravi: Friday demo", context: "From Ravi <ravi@example.com>", href: "/one/gmail" },
+      { capability: "gmail", key: "invite-demo", summary: "Friday demo", pendingTitle: "Attend: Friday demo", href: "/one/gmail", meetingRef },
+    ] }];
+    render(<TodoListPage />);
+    expect(await screen.findByText("Friday demo")).toBeVisible();
+    expect(screen.getByText("With Ravi")).toBeVisible();
+    expect(screen.getByText("Reply to Ravi: Friday demo")).toBeVisible();
+    expect(screen.getByText("From Ravi <ravi@example.com>")).toBeVisible();
+    expect(screen.queryByText("Attend: Friday demo")).not.toBeInTheDocument();
+  });
+
+  it("preserves an unambiguous legacy Calendar mutation id and revision during context refresh", () => {
+    const task = { ...buildTodo(todoService.calendarTodoInput({ id: "legacy", title: "Old title", start: { date: "2030-10-26" } })!), revision: 5 };
+    mocks.events = [{ id: "new-composite", legacyId: "legacy", title: "Friday demo", start: { date: "2030-10-26" } }] as typeof mocks.events;
+    const { result } = renderHook(() => useTodoLiveTasks({ userId: "todo-owner", vaultOwnerToken: "fixture", idTokenProvider: async () => "fixture", enabled: true, tasks: [task] }));
+    expect(result.current.pending).toHaveLength(1);
+    expect(result.current.pending[0]).toMatchObject({ id: task.id, sourceId: "legacy", revision: 5, title: "Friday demo" });
   });
 
   it("includes the existing KYC queue and gives a later failed agent run its own task identity", async () => {

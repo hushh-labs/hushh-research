@@ -2359,13 +2359,57 @@ completion/dismissal state. Coverage follows Messages, Finance, Wallet, Location
 Advisor, Mail, Calendar, Memory and Consent, using their existing authorized
 services. This is a bounded foreground inventory, not a background sweep of all
 connected information. Calendar agenda covers the next 168 hours plus bounded
-invitations; Mail inspects at most 50 recent nudges and reports limited coverage;
+invitations (a truncated provider page remains incomplete); Mail scans resumable
+25-thread pages across the connected mailbox, excluding Spam and Trash, with no
+fixed total of 50 or 30-day cutoff. The list continues while mounted, deduplicates
+retried pages and offers Retry email scan after partial failure. Coverage is only
+complete after the provider has no next page. This is reply-candidate coverage,
+not a claim that every email contains an obligation or that email meeting parsing
+is exhaustive. Calendar supplies scheduled meetings within the stated window;
+an independent, bounded recent-Mail read reuses existing invitation/meeting
+derivation. Dated invitations become meeting tasks; body mentions are labelled
+for review. Matching iCalendar UID and occurrence deduplicate the same Calendar
+meeting without merging unrelated equal titles. Meeting-read failures retain
+reply results and report unavailable meeting coverage;
 Advisor reads existing advisor-persona attention items (other personas report
 unavailable coverage, not disconnected relationships); Memory inspects only the
 current session's verified Live Memory mirror metadata, never its contents.
 A cold or stale mirror is unavailable/incomplete. Consent and Wallet page at
 most 5,000 rows each and preserve incomplete coverage when capped. Source failures
 remain independent, never becoming a disconnected status or an empty success.
+
+Published queue work appears directly without model processing. Mail reply rows
+include sender, subject and receiving account; owner-only Calendar rows include
+bounded participant labels and account/calendar context. Chat's Calendar
+projection remains redacted. Shared document setup prerequisites are grouped
+once with their blocked requesters; distinct review requests retain their own
+identities. Source filters change the current view only. Every task supports
+owner edits to title, date, time and notes in both list and profile preview;
+edits never change the originating meeting, approval, payment or message.
+Automatic tasks retain per-field overrides across source refreshes. Revision
+checks refuse stale edits and tombstones prevent completed/deleted work reviving.
+
+Date and time together create an absolute reminder instant in the device's
+displayed time zone. Date-only tasks do not alert; invalid, ambiguous or missing
+wall-clock times are rejected. Past schedules do not create a new reminder.
+Encrypted task writes carry `todo_reminders_v1` in the existing versioned PKM
+write-projection envelope. Migration 428 applies only opaque owner-bound task
+UUIDs and due times inside the same transaction as the ciphertext/CAS/events;
+titles, people, provider IDs and notes remain encrypted. Completion, deletion,
+rescheduling, domain erasure and account erasure suppress old generations.
+The existing durable system-push outbox sends generic alerts and rechecks live
+schedule/device ownership before each provider attempt. Expired reminders are
+suppressed after 15 minutes; device acceptance does not prove OS presentation.
+
+`POST /api/internal/system-push/drain` wakes the durable worker at scale zero.
+It accepts only Google OIDC with the exact environment audience and dedicated
+`system-push-drain` service account, and returns private/no-store counts. Release
+order: apply migration 428, deploy the backend/frontend, then run
+`DEPLOY_ENV=uat bash deploy/notifications/setup_system_push_scheduler.sh` (or
+`production`) to configure the minute Cloud Scheduler job. Notification permission
+is requested only through the explicit editor CTA. No scheduler provisioning or
+device/provider delivery is implied by local test evidence. Rollback refuses
+active schedules; cancel or preserve them before executing its registered SQL.
 
 `GET /api/one/todos/suggestions/status` requires vault-owner authentication and
 returns private/no-store `{available}` from `ONE_TODO_SUGGESTIONS_ENABLED`.
@@ -2424,8 +2468,9 @@ purges expired plans. Event data is not persisted as PKM or a Calendar cache in
 this first release. After the owner confirms a successful Calendar create, the
 unlocked client may write a safe task presentation snapshot to the encrypted
 `one_todos` PKM domain. The Calendar event remains authoritative; the To-do
-record only retains its private completion or dismissal state and never stores
-attendees, description, location, or the provider's HTML event link.
+record retains private completion, dismissal, owner edits and optional reminders.
+The owner-only task projection may include bounded participant display labels;
+raw attendee objects, description, location and provider HTML links are excluded.
 
 The shared Google credential boundary verifies provider subject before refresh
 reuse, rejects account replacement while connected, and requires fresh credentials

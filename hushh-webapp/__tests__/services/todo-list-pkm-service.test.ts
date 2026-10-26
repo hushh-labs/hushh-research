@@ -1,3 +1,6 @@
+import { webcrypto } from "node:crypto";
+import { todoReminderInstant } from "@/lib/todos/reminder-schedule";
+import { applyTodoOwnerOverrides } from "@/lib/todos/todo-list-model";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
@@ -356,5 +359,62 @@ describe("TodoListPkmService", () => {
       status: "done",
       revision: 10,
     });
+  });
+});
+
+
+describe("task edits and atomic reminder metadata", () => {
+  it("materializes an edited source task and preserves explicit cleared overrides across refresh", async () => {
+    mockSuccessfulWrite();
+    const projected = buildTodo(calendarTodoInput({ id: "calendar-private-id", title: "Provider title", start: { date: "2030-10-26" } })!);
+    await TodoListPkmService.update({ ...persistence, taskId: projected.id, task: projected,
+      update: { title: "Owner title", date: null, time: null, notes: "Private note", reminderAt: null } });
+    const plan = await vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls.at(-1)![0].build({ ...coordinatorContext, currentDomainData: {} });
+    const saved = readTodoListState(plan.domainData).tasks[0]!;
+    expect(saved.ownerOverrides).toMatchObject({ title: "Owner title", date: null });
+    expect(applyTodoOwnerOverrides({ ...projected, title: "New provider title" }, saved)).toMatchObject({ title: "Owner title", date: null, sourceId: projected.sourceId });
+    expect(plan.writeProjections).toEqual([{ projectionType: "todo_reminders_v1", projectionVersion: 1, payload: { items: [] } }]);
+  });
+  it("refuses stale or deleted edits instead of reviving a removed task", async () => {
+    mockSuccessfulWrite();
+    await TodoListPkmService.update({ ...persistence, taskId: task.id, task: { ...task, revision: 1 }, update: { title: "Changed" } });
+    const build = vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls.at(-1)![0].build;
+    await expect(build({ ...coordinatorContext, currentDomainData: { _private: { tasks: [{ ...task, revision: 2 }] } } })).rejects.toThrow("changed on another device");
+    await expect(build({ ...coordinatorContext, currentDomainData: { _private: { tasks: [{ ...task, status: "deleted" }] } } })).rejects.toThrow("no longer available");
+  });
+  it("does not pin untouched provider fields when editing a refreshed source snapshot", async () => {
+    mockSuccessfulWrite();
+    const stored = buildTodo(calendarTodoInput({ id: "source", title: "Old title", start: { date: "2030-10-26" } })!);
+    const rendered = { ...stored, title: "New title", date: "2030-10-27", context: "With Ravi" };
+    await TodoListPkmService.update({ ...persistence, taskId: rendered.id, task: rendered,
+      update: { title: rendered.title, date: rendered.date, time: null, notes: "My note" } });
+    const plan = await vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls.at(-1)![0].build({ ...coordinatorContext, currentDomainData: { _private: { tasks: [stored] } } });
+    const saved = readTodoListState(plan.domainData).tasks[0]!;
+    expect(saved.ownerOverrides).toEqual({ notes: "My note" });
+    expect(applyTodoOwnerOverrides({ ...rendered, title: "Latest title" }, saved)).toMatchObject({ title: "Latest title", date: "2030-10-27", notes: "My note", context: "With Ravi" });
+  });
+  it("sends only opaque schedule metadata with the encrypted write and cancels on completion", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    mockSuccessfulWrite();
+    const scheduled = { ...task, reminderAt: "2030-10-26T08:00:00.000Z" };
+    await TodoListPkmService.setStatus({ ...persistence, task: scheduled, status: "pending" });
+    let build = vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls.at(-1)![0].build;
+    const state = { ...coordinatorContext, currentDomainData: { _private: { tasks: [scheduled] } } };
+    const plan = await build(state);
+    const serialized = JSON.stringify(plan.writeProjections);
+    expect(serialized).toContain("2030-10-26T08:00:00.000Z");
+    expect(serialized).not.toContain(task.title);
+    expect(serialized).not.toContain(task.id);
+    expect(serialized).not.toContain(task.notes);
+    await TodoListPkmService.setStatus({ ...persistence, task: scheduled, status: "done" });
+    build = vi.mocked(PkmWriteCoordinator.saveMergedDomain).mock.calls.at(-1)![0].build;
+    expect((await build(state)).writeProjections![0]!.payload).toEqual({ items: [] });
+  });
+  it("rejects invalid dates and time-only reminders while keeping date-only tasks valid", () => {
+    expect(todoReminderInstant("2030-10-26", null)).toBeNull();
+    expect(() => todoReminderInstant(null, "09:00")).toThrow();
+    expect(() => todoReminderInstant("2030-02-30", "09:00")).toThrow();
+    expect(() => todoReminderInstant("2030-10-26", "24:00")).toThrow();
+    expect(new Date(todoReminderInstant("2032-02-29", "00:00")!).getDate()).toBe(29);
   });
 });

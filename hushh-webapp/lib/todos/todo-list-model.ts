@@ -20,6 +20,14 @@ export const TODO_SOURCE_LABELS = {
 } as const;
 export type TodoSourceAgent = keyof typeof TODO_SOURCE_LABELS | null;
 
+export type TodoEditableFields = {
+  title: string;
+  date: string | null;
+  time: string | null;
+  notes: string | null;
+  reminderAt?: string | null;
+};
+
 /**
  * The private task model. `userId` is intentionally not duplicated in the
  * value: the encrypted PKM domain is already owner-scoped by user id.
@@ -36,11 +44,30 @@ export type TodoItem = {
   link: string | null;
   notes: string | null;
   createdAt: string;
+  /** Verified source context, separate from the owner's editable notes. */
+  context?: string | null;
+  /** Exact, order-independent queue membership for a grouped prerequisite. */
+  sourceVersion?: string;
   updatedAt: string;
   completedAt: string | null;
   deletedAt: string | null;
   revision?: number;
+  /** An absolute instant, chosen in the editor's local time zone. */
+  reminderAt?: string | null;
+  /** Owner edits affect this task, while the provider retains its own record. */
+  ownerOverrides?: Partial<TodoEditableFields>;
 };
+
+export function applyTodoOwnerOverrides(task: TodoItem, saved?: TodoItem): TodoItem {
+  return saved ? { ...task, ...saved.ownerOverrides, ownerOverrides: saved.ownerOverrides,
+    reminderAt: saved.reminderAt ?? null, revision: saved.revision,
+    createdAt: saved.createdAt, updatedAt: saved.updatedAt } : task;
+}
+
+export function changedTodoFields(task: TodoItem, fields: Partial<TodoEditableFields>): Partial<TodoEditableFields> {
+  return Object.fromEntries(Object.entries(fields).filter(([key, value]) =>
+    value !== undefined && value !== task[key as keyof TodoEditableFields]));
+}
 
 /** Active rows are pending tasks. Completed and dismissed rows stay private. */
 export function openTodoItems(tasks: TodoItem[]): TodoItem[] {

@@ -1,6 +1,6 @@
 import { webcrypto } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readTodoCapabilities, type TaskReadContext } from "@/lib/services/todo-capability-sources";
+import { readTodoCapabilities, readTodoMail, type TaskReadContext } from "@/lib/services/todo-capability-sources";
 
 const mocks = vi.hoisted(() => ({ messages: vi.fn(), wallet: vi.fn(), persona: vi.fn(), home: vi.fn(), mail: vi.fn(), invitations: vi.fn(), memory: vi.fn() }));
 vi.mock("@/lib/services/direct-messages-service", () => ({ DirectMessagesService: { unreadCount: mocks.messages } }));
@@ -18,18 +18,19 @@ describe("owner-safe capability task reads", () => {
     mocks.messages.mockResolvedValue(3);
     mocks.wallet.mockResolvedValue({ items: [], hasMore: false, nextCursor: null });
     mocks.persona.mockResolvedValue({ personas: ["investor"] });
-    mocks.mail.mockResolvedValue({ nudges: [{ type: "needs_reply", thread_id: "raw-thread", message_id: "raw-message", title: "Reply about the meeting" }] });
+    mocks.mail.mockResolvedValue({ account_email: "owner@example.com", nudges: [{ type: "needs_reply", thread_id: "raw-thread", message_id: "raw-message", title: "Friday demo", sender: "Ravi", sender_email: "ravi@example.com" }] });
     mocks.invitations.mockResolvedValue({ events: [], pending_count: 0, complete: true });
     mocks.memory.mockReturnValue(null);
   });
-  it("uses only unread metadata, a supported Mail limit, and opaque provider keys", async () => {
+  it("uses only unread metadata, a resumable Mail scan, and opaque provider keys", async () => {
     const result = await readTodoCapabilities(context());
     expect(mocks.messages).toHaveBeenCalledWith({ idToken: "fixture-id" });
-    expect(mocks.mail).toHaveBeenCalledWith(expect.objectContaining({ limit: 50 }));
+    expect(mocks.mail).toHaveBeenCalledWith(expect.objectContaining({ scanAll: true }));
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain("raw-thread");
     expect(serialized).not.toContain("raw-message");
     expect(result.find(row => row.coverage.capability === "gmail")?.coverage.status).toBe("incomplete");
+    expect(result.find(row => row.coverage.capability === "gmail")?.evidence[0]).toMatchObject({ pendingTitle: "Reply to Ravi: Friday demo", context: "From Ravi <ravi@example.com> · To owner@example.com" });
   });
   it("paginates pending Wallet work and keeps the exact reviewed request destination", async () => {
     mocks.wallet.mockResolvedValueOnce({ items: [{ id: requestId }], hasMore: true, nextCursor: requestId }).mockResolvedValueOnce({ items: [], hasMore: false, nextCursor: null });
@@ -38,6 +39,28 @@ describe("owner-safe capability task reads", () => {
     expect(mocks.wallet).toHaveBeenCalledTimes(2);
     expect(wallet.coverage.count).toBe(1);
     expect(wallet.evidence[0].href).toContain(`card_request=${requestId}`);
+  });
+
+  it("projects dated email invitations with organizer context and exact meeting identity", async () => {
+    mocks.mail.mockImplementation(async input => input.scanAll ? { account_email: "owner@example.com", nudges: [], coverage: { complete: true } }
+      : { account_email: "owner@example.com", nudges: [{ type: "upcoming_meeting", thread_id: "thread", message_id: "message", title: "Friday demo", sender: "Ravi", starts_at: "2030-10-25T09:00:00Z", ical_uid: "invite-uid", meeting_source: "invite" }] });
+    const result = await readTodoMail(context(), "fixture");
+    expect(result.evidence[0]).toMatchObject({ pendingTitle: "Attend: Friday demo", meetingRef: '["invite-uid","2030-10-25T09:00:00.000Z"]' });
+    expect(result.evidence[0]!.context).toContain("Ravi");
+    expect(result.evidence[0]!.date).toBeTruthy();
+  });
+
+  it("keeps unchanged Memory work stable across rebuilds and distinguishes new source revisions", async () => {
+    const view = { ownerId: "owner", vaultEpoch: 0, builtAt: "first", conflicts: [], inventoryComplete: true,
+      sources: [{ id: "living:profile", contentRevision: 1, pendingChanges: 2, state: "current", reason: null }] };
+    mocks.memory.mockReturnValue(view);
+    const first = (await readTodoCapabilities(context())).find(row => row.coverage.capability === "pkm")!;
+    mocks.memory.mockReturnValue({ ...view, builtAt: "rebuilt" });
+    const rebuilt = (await readTodoCapabilities(context())).find(row => row.coverage.capability === "pkm")!;
+    expect(first.evidence[0]!.key).toBe(rebuilt.evidence[0]!.key);
+    mocks.memory.mockReturnValue({ ...view, sources: [{ ...view.sources[0], contentRevision: 2 }] });
+    const changed = (await readTodoCapabilities(context())).find(row => row.coverage.capability === "pkm")!;
+    expect(first.evidence[0]!.key).not.toBe(changed.evidence[0]!.key);
   });
   it("preserves other sources and marks failed reads unavailable", async () => {
     mocks.wallet.mockRejectedValue(new Error("Offline"));
@@ -69,4 +92,20 @@ describe("owner-safe capability task reads", () => {
     mocks.messages.mockImplementation(async () => { current = false; return 3; });
     await expect(readTodoCapabilities({ ...context(), isCurrent: () => current })).rejects.toThrow("Session changed");
   });
+});
+
+
+it("continues beyond fifty email follow-ups, deduplicates retries and waits for complete coverage", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  const ctx = context();
+  let previous;
+  for (let page = 0; page < 3; page++) {
+    mocks.mail.mockResolvedValueOnce({ nudges: Array.from({ length: 25 }, (_, i) => ({ type: "needs_reply", thread_id: `thread-${page}-${i}`, message_id: `message-${page}-${i}`, title: "Reply" })),
+      next_cursor: page < 2 ? `opaque-${page}` : null, has_more: page < 2,
+      coverage: { complete: page === 2, scanned_threads: (page + 1) * 25, failed_threads: 0 } });
+    previous = await readTodoMail(ctx, "fixture-id", previous);
+    expect(previous.coverage.status).toBe(page === 2 ? "ready" : "incomplete");
+  }
+  expect(previous!.evidence).toHaveLength(75);
+  expect(previous!.coverage.scanned).toBe(75);
 });

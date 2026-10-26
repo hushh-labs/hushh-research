@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
   type Ref,
 } from "react";
 import Link from "next/link";
@@ -40,17 +39,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { TodoItemEditor } from "./todo-item-editor";
+import { TodoSourceFilter, todoMatchesSource } from "./todo-source-filter";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { changedTodoFields, type TodoEditableFields } from "@/lib/todos/todo-list-model";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -87,162 +79,6 @@ export {
   taskSort,
 } from "./todo-list-presentation";
 export type { DueReceiptItem } from "./todo-list-presentation";
-
-type EditableTodoFields = {
-  title: string;
-  date: string | null;
-  time: string | null;
-  notes: string | null;
-};
-
-function TodoAddItemSheet({
-  open,
-  saving,
-  onOpenChange,
-  onSave,
-}: {
-  open: boolean;
-  saving: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSave: (input: EditableTodoFields) => Promise<void>;
-}) {
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState("");
-  const [time, setTime] = useState("");
-  const [notes, setNotes] = useState("");
-  const [notesOpen, setNotesOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setTitle("");
-    setDate("");
-    setTime("");
-    setNotes("");
-    setNotesOpen(false);
-  }, [open]);
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    await onSave({
-      title: title.trim(),
-      date: date || null,
-      time: time || null,
-      notes: notes.trim() || null,
-    });
-  };
-
-  return (
-    <Sheet
-      modal
-      open={open}
-      onOpenChange={(next) => {
-        if (!saving) onOpenChange(next);
-      }}
-    >
-      <SheetContent
-        side="bottom"
-        className="mx-auto max-w-xl gap-0 rounded-t-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-default-solid)] p-0 sm:bottom-6 sm:max-w-lg sm:rounded-[var(--app-card-radius-feature)]"
-        showCloseButton={!saving}
-      >
-        <form onSubmit={(event) => void submit(event)}>
-          <SheetHeader className="px-5 pb-3 pt-2 text-left">
-            <SheetTitle className="text-xl tracking-[-0.02em]">
-              Add item
-            </SheetTitle>
-            <SheetDescription className="sr-only">
-              This stays encrypted in your private agent.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="space-y-4 px-5 pb-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="todo-title" className="sr-only">
-                Title
-              </Label>
-              <Input
-                id="todo-title"
-                autoFocus
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                disabled={saving}
-                placeholder="What do you want to do?"
-                maxLength={240}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-date">Date</Label>
-                <Input
-                  id="todo-date"
-                  type="date"
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
-                  disabled={saving}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-time">Time</Label>
-                <Input
-                  id="todo-time"
-                  type="time"
-                  value={time}
-                  onChange={(event) => setTime(event.target.value)}
-                  disabled={saving}
-                />
-              </div>
-            </div>
-            {notesOpen ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="todo-notes">Notes</Label>
-                <Textarea
-                  id="todo-notes"
-                  autoFocus
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  disabled={saving}
-                  placeholder="Add a detail"
-                  maxLength={1200}
-                  className="min-h-22 resize-none"
-                />
-              </div>
-            ) : (
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="compact"
-                className="!px-0"
-                disabled={saving}
-                onClick={() => setNotesOpen(true)}
-              >
-                Add a note
-              </Button>
-            )}
-          </div>
-          <SheetFooter className="flex-row items-center justify-end gap-2 px-5 pt-5">
-            <Button
-              type="button"
-              variant="none"
-              effect="fill"
-              disabled={saving}
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              size="prominent"
-              disabled={saving || !title.trim()}
-              loading={saving}
-            >
-              Save
-            </Button>
-          </SheetFooter>
-        </form>
-      </SheetContent>
-    </Sheet>
-  );
-}
 
 function AddItemButton({
   disabled,
@@ -281,6 +117,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const [editorOpen, setEditorOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<TodoItem | null>(null);
+  const mutation = useRef(false);
+  const editTrigger = useRef<HTMLElement | null>(null);
   const [tasks, setTasks] = useState<TodoItem[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsLoaded, setItemsLoaded] = useState(false);
@@ -309,7 +148,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const liveTasks = useTodoLiveTasks({
     userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady, tasks,
   });
-  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError } = liveTasks;
+  const { pending: allPending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError } = liveTasks;
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const pending = allPending.filter(task => todoMatchesSource(task, sourceFilter));
   const gmail = useGmailConnectorStatus({
     userId,
     idTokenProvider: user ? idTokenProvider : null,
@@ -321,9 +162,9 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     return getCachedGmailReceipts(userId, receiptAccountKey);
   }, [receiptAccountKey, userId, writeReady]);
   const dueReceipts = useMemo(() => {
-    if (!cachedReceipts) return [];
+    if (!cachedReceipts || !["all", "gmail"].includes(sourceFilter)) return [];
     return extractDueReceipts(cachedGmailReceiptDisplayItems(cachedReceipts));
-  }, [cachedReceipts]);
+  }, [cachedReceipts, sourceFilter]);
   const loadItems = useCallback(async () => {
     const revision = ++itemsLoadRevision.current;
     if (!userId || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -362,7 +203,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     return () => { itemsLoadRevision.current += 1; };
   }, [loadItems]);
 
-  const completed = useMemo(() => completedTodoItems(tasks), [tasks]);
+  const completed = useMemo(() => completedTodoItems(tasks).filter(task => todoMatchesSource(task, sourceFilter)), [tasks, sourceFilter]);
   const today = localDateKey(new Date());
   const doneToday = completed.filter((task) => task.date === today).length;
   const totalToday =
@@ -375,14 +216,20 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     return result;
   };
 
-  const saveTask = async (input: EditableTodoFields) => {
+  const saveTask = async (input: TodoEditableFields) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
-    setSavingTaskId("new-item");
+    if (mutation.current) return;
+    mutation.current = true;
+    const editing = editingTask;
+    setSavingTaskId(editing?.id ?? "new-item");
 
-    const operation = createTodo(
-      { ...input, type: "manual" },
-      { userId, vaultKey, vaultOwnerToken },
-    ).then(({ task, result }) => ({ task, result: requireSaved(result) }));
+    const operation = editing
+      ? TodoListPkmService.update({ userId, vaultKey, vaultOwnerToken,
+          taskId: editing.id, task: editing, update: input }).then(result => ({
+          task: { ...editing, ...input, revision: (editing.revision ?? 0) + 1,
+            ...(editing.type === "automatic" ? { ownerOverrides: { ...editing.ownerOverrides, ...changedTodoFields(editing, input) } } : {}) }, result: requireSaved(result) }))
+      : createTodo({ ...input, type: "manual" }, { userId, vaultKey, vaultOwnerToken })
+          .then(({ task, result }) => ({ task: { ...task, revision: 1 }, result: requireSaved(result) }));
     void morphyToast.promise(operation, {
       loading: "Saving item…",
       success: "Item saved.",
@@ -391,17 +238,20 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
     try {
       const { task } = await operation;
       if (!isCurrent()) return;
-      setTasks((currentTasks) => [task, ...currentTasks]);
+      setTasks(currentTasks => [task, ...currentTasks.filter(item => item.id !== task.id)]);
       setEditorOpen(false);
     } catch {
-      // The shared promise toast owns the failure state.
+      throw new Error("Item could not be saved.");
     } finally {
+      mutation.current = false;
       if (isCurrent()) setSavingTaskId(null);
     }
   };
 
   const toggleTask = async (task: TodoItem, complete: boolean) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    if (mutation.current) return;
+    mutation.current = true;
     const nextStatus: "pending" | "done" = complete ? "done" : "pending";
     const optimistic: TodoItem = {
       ...task,
@@ -409,6 +259,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       completedAt: complete ? new Date().toISOString() : null,
       deletedAt: null,
       updatedAt: new Date().toISOString(),
+      revision: (task.revision ?? 0) + 1,
     };
     setSavingTaskId(task.id);
     setTasks((current) =>
@@ -438,12 +289,15 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           : current,
       );
     } finally {
+      mutation.current = false;
       if (isCurrent()) setSavingTaskId(null);
     }
   };
 
   const deleteTask = async (task: TodoItem) => {
     if (!writeReady || !userId || !vaultKey || !vaultOwnerToken) return;
+    if (mutation.current) return;
+    mutation.current = true;
     const tombstone: TodoItem = {
       ...task,
       status: "deleted",
@@ -480,11 +334,26 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
           : [task, ...current],
       );
     } finally {
+      mutation.current = false;
       if (isCurrent()) setSavingTaskId(null);
     }
   };
 
   const openCreate = () => {
+    setEditingTask(null);
+    setEditorOpen(true);
+  };
+  const closeEditor = () => {
+    if (mutation.current) return true;
+    setEditorOpen(false);
+    requestAnimationFrame(() => editTrigger.current?.focus());
+    return true;
+  };
+  useBackLayer("/one/todos", editorOpen ? 2 : 0, closeEditor);
+  const openEdit = (task: TodoItem, trigger?: HTMLButtonElement) => {
+    if (mutation.current || savingTaskId) return;
+    editTrigger.current = trigger ?? null;
+    setEditingTask(task);
     setEditorOpen(true);
   };
 
@@ -601,9 +470,10 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-6 pb-6">
+        {writeReady ? <TodoSourceFilter value={sourceFilter} onChange={setSourceFilter} /> : null}
         {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
           userId={userId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
-          evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading)}
+          onContinueMail={() => void liveTasks.continueMail?.()} evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading)}
           onSaved={() => void loadItems()} onRefresh={() => { void loadItems(); void liveTasks.refreshSources(); void agentFeed.retry(); void retryKyc(); calendar.refresh(); upcoming.refresh(); }}
         /> : null}
         {!writeReady ? (
@@ -634,6 +504,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             savingTaskId={savingTaskId}
             onToggle={toggleTask}
             onDelete={requestDelete}
+            onEdit={openEdit}
           />
         ) : itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
@@ -705,6 +576,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
                   savingTaskId={savingTaskId}
                   onToggle={toggleTask}
                   onDelete={requestDelete}
+                  onEdit={openEdit}
                 />
               ) : null}
             </div>
@@ -713,10 +585,11 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       </AppPageContentRegion>
 
       {writeReady ? (
-        <TodoAddItemSheet
+        <TodoItemEditor
           open={editorOpen}
+          task={editingTask}
           saving={savingTaskId !== null}
-          onOpenChange={setEditorOpen}
+          onOpenChange={(open) => { if (!open) closeEditor(); }}
           onSave={saveTask}
         />
       ) : null}

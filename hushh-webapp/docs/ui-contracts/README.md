@@ -40,6 +40,7 @@ owning implementation.
 | Profile Connectors | [Connectors](./profile-connectors.md): provider details, Drive files/packets/trust, custom tools, OAuth returns and legacy Mail/local CRM boundaries |
 | Referrals | [Referrals](./referrals.md): You, individual/Circle rankings, reward claims, every Circle Wars enrollment/create step, rules, native differences |
 | Feed | [Feed](./feed.md): history, every actionable family, payment/file-access sheets, briefing, notification controls and downstream destinations |
+| To-do | [To-do](./todos.md): nine source queues, owner edits, source context, filters, reminders and resumable Mail coverage |
 | Location | [Location](./location.md): actual mounted onboarding, Now/People/Links, sharing/Ask/review, SOS, Circles, maps, nearby/private check-in, public routes, every text/CTA and effective typography |
 | Mail | [Mail subagent](./mail.md): setup and OAuth, Overview/KYC/Receipts, exact copy and every CTA branch, private drafts and reviewed Send, mailbox/voice handoffs, API and response-field provenance, encrypted device snapshots, phone/desktop geometry and typography |
 | Calendar | [Calendar subagent](./calendar.md): onboarding and OAuth, Schedule/Invitations/Insights, every authored CTA and response branch, API fields and authority, conversation and recipient handoffs, phone/desktop geometry and fonts |

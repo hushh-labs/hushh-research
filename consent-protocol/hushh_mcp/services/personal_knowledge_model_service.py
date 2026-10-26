@@ -2569,6 +2569,9 @@ class PersonalKnowledgeModelService:
         location_finalize_authorization: LocationPkmFinalizeAuthorizationV1 | None = None,
     ) -> dict[str, Any]:
         """Commit ciphertext, metadata, events, and refresh jobs in one DB transaction."""
+        from hushh_mcp.services.todo_reminders import reminder_projection
+
+        todo_schedule = reminder_projection(domain, write_projections)
         if (
             normalized_mutation_plan
             and normalized_mutation_plan.confirmation_receipt.authorization_mode
@@ -2724,6 +2727,8 @@ class PersonalKnowledgeModelService:
                     mode="json"
                 ),
             }
+        if todo_schedule is not None:
+            event_rows[1]["metadata"]["todo_reminders_v1"] = todo_schedule
         projection_supplied = isinstance(write_projections, list) and any(
             isinstance(projection, dict)
             and str(projection.get("projection_type") or "").strip().lower()

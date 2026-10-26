@@ -47,6 +47,7 @@ class NudgeMessage:
     from_name: str
     subject: str
     received_at: datetime | None
+    sent_by_owner: bool = False
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class MeetingEvent:
     source: str = "invite"
     # Conferencing "join" link (Zoom / Google Meet / Teams / Webex), if found.
     meeting_url: str | None = None
+    ical_uid: str | None = None
 
 
 @dataclass(frozen=True)
@@ -91,6 +93,8 @@ class Nudge:
     starts_at: datetime | None = None
     # Conferencing "join" link for NUDGE_UPCOMING_MEETING; None when unavailable.
     meeting_url: str | None = None
+    ical_uid: str | None = None
+    meeting_source: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -103,6 +107,8 @@ class Nudge:
             "received_at": self.received_at.isoformat() if self.received_at else None,
             "starts_at": self.starts_at.isoformat() if self.starts_at else None,
             "meeting_url": self.meeting_url,
+            **({"ical_uid": self.ical_uid} if self.ical_uid else {}),
+            **({"meeting_source": self.meeting_source} if self.meeting_source else {}),
         }
 
 
@@ -145,7 +151,7 @@ def derive_needs_reply_nudges(
     user_email: str,
     now: datetime | None = None,
     limit: int = 10,
-    max_age_days: int = 30,
+    max_age_days: int | None = 30,
 ) -> list[Nudge]:
     """Derive "Needs a reply" nudges.
 
@@ -157,7 +163,7 @@ def derive_needs_reply_nudges(
     Results are sorted newest-first and capped at ``limit``.
     """
     reference = now or datetime.now(timezone.utc)
-    cutoff = reference - timedelta(days=max_age_days)
+    cutoff = reference - timedelta(days=max_age_days) if max_age_days is not None else None
     account = _normalize_email(user_email)
 
     nudges: list[Nudge] = []
@@ -166,12 +172,12 @@ def derive_needs_reply_nudges(
         if newest is None:
             continue
         # Last message is ours -> we already responded / are waiting on them.
-        if account and _normalize_email(newest.from_email) == account:
+        if newest.sent_by_owner or (account and _normalize_email(newest.from_email) == account):
             continue
         if is_automated_sender(newest.from_email):
             continue
         # Stale threads are not actionable nudges.
-        if newest.received_at is not None and newest.received_at < cutoff:
+        if cutoff is not None and newest.received_at is not None and newest.received_at < cutoff:
             continue
 
         name, email = (newest.from_name, _normalize_email(newest.from_email))
@@ -272,10 +278,15 @@ def parse_ics_event(ics_text: str, *, message_id: str, thread_id: str) -> Meetin
     organizer_name = ""
     organizer_email = ""
     conference_text = ""  # accumulate LOCATION / DESCRIPTION / URL / X-*-CONFERENCE
+    ical_uid = None
     for raw_line in _ics_unfold(ics_text or "").splitlines():
         line = raw_line.strip()
         upper = line.upper()
-        if upper.startswith("SUMMARY"):
+        if upper in {"STATUS:CANCELLED", "METHOD:CANCEL"}:
+            return None
+        if upper.startswith("UID:"):
+            ical_uid = _ics_line_value(line).strip()[:1024] or None
+        elif upper.startswith("SUMMARY"):
             summary = _ics_line_value(line).strip()
         elif upper.startswith("DTSTART"):
             starts_at = parse_ics_datetime(_ics_line_value(line))
@@ -313,6 +324,7 @@ def parse_ics_event(ics_text: str, *, message_id: str, thread_id: str) -> Meetin
         organizer_email=organizer_email,
         starts_at=starts_at,
         meeting_url=meeting_url,
+        ical_uid=ical_uid,
     )
 
 
@@ -417,6 +429,8 @@ def derive_upcoming_meeting_nudges(
                 received_at=event.received_at,
                 starts_at=event.starts_at,
                 meeting_url=event.meeting_url,
+                ical_uid=event.ical_uid,
+                meeting_source=event.source,
             )
         )
 

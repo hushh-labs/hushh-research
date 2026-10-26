@@ -374,3 +374,12 @@ describe("web system-notification click bridge", () => {
     });
   });
 });
+
+
+it("routes a task reminder to To-do without trusting the supplied URL", async () => {
+  expect(buildNotificationTapTarget({ type: "todo_reminder", request_url: "https://other.example" })).toBe("/one/todos");
+  await prepareFCMListeners();
+  mocks.serviceWorkerMessageListener?.({ data: { type: "hushh:fcm_notification_clicked", click_id: "todo-click",
+    url: "/one/feed", data: { type: "todo_reminder" } }, source: { postMessage: vi.fn() } } as unknown as MessageEvent);
+  expect(mocks.requestInternalAppNavigation).toHaveBeenLastCalledWith(expect.objectContaining({ href: "/one/todos" }));
+});

@@ -39,13 +39,34 @@ export type UseCalendarUpcomingEventsResult = {
   recovery: CalendarReadRecovery | null;
   loaded: boolean;
   refresh: () => void;
+  complete?: boolean;
 };
 
+/** Owner-only task context. This projection is never passed to chat. */
+export type TodoCalendarEvent = RedactedCalendarEvent & { context?: string; legacyId?: string | null; meetingRef?: string };
+
+async function todoEvent(raw: CalendarEventSummary): Promise<TodoCalendarEvent> {
+  const event = redactEvent(raw);
+  const people = [...new Set([
+    ...(raw.attendees ?? []).filter(person => !person.self).map(person => person.display_name || person.email),
+    ...(!raw.organizer?.self ? [raw.organizer?.displayName || raw.organizer?.email] : []),
+  ].filter((value): value is string => Boolean(value)))].slice(0, 12);
+  // Preserve legacy primary-calendar ids; other calendar/account records have
+  // distinct identities even when Google uses the same event id.
+  let id = raw.id;
+  if (id && ((raw.account_id && raw.account_id !== "default") || (raw.calendar_id && raw.calendar_id !== "primary"))) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([raw.account_id ?? "default", raw.calendar_id ?? "primary", id])));
+    id = `event_${[...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("")}`;
+  }
+  return { ...event, id: id ?? null, legacyId: raw.id,
+    ...(raw.ical_uid && raw.start?.dateTime ? { meetingRef: JSON.stringify([raw.ical_uid, new Date(raw.start.dateTime).toISOString()]) } : {}),
+    context: [people.length ? `With ${people.join(", ")}` : "Scheduled on your Calendar", raw.calendar_name, raw.account_email].filter(Boolean).join(" · ").slice(0, 1200) };
+}
+
 /**
- * The ONLY function permitted to read GoogleCalendarService.listEvents()'s
- * raw response. Redacts to title/start/end/status and a verified Google Meet
- * URL only. raw.description, raw.location, raw.attendees, and raw.html_link
- * must never leave this function.
+ * Chat receives only title/start/end/status and a verified Meet URL. The
+ * separate owner task projection may expose bounded participant labels.
+ * Neither projection includes message bodies, descriptions or raw links.
  */
 function googleMeetUrl(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
@@ -80,12 +101,20 @@ function redactEvent(raw: CalendarEventSummary): RedactedCalendarEvent {
  * needs vaultOwnerToken (see GoogleCalendarService.listEvents's doc
  * comment) -- a real simplification, not an oversight.
  */
-export function useCalendarUpcomingEvents({
+export function useCalendarUpcomingEvents(params: UseCalendarUpcomingEventsParams): UseCalendarUpcomingEventsResult {
+  return useCalendarEventProjection(params, redactEvent);
+}
+
+export function useTodoUpcomingEvents(params: UseCalendarUpcomingEventsParams): Omit<UseCalendarUpcomingEventsResult, "events"> & { events: TodoCalendarEvent[] } {
+  return useCalendarEventProjection(params, todoEvent);
+}
+
+function useCalendarEventProjection<T extends RedactedCalendarEvent>({
   userId,
   vaultOwnerToken,
   isConnected,
   windowHours = 48,
-}: UseCalendarUpcomingEventsParams): UseCalendarUpcomingEventsResult {
+}: UseCalendarUpcomingEventsParams, project: (event: CalendarEventSummary) => T | Promise<T>) {
   // A fresh marker is derived from the connection props without retaining a
   // vault token in state. A render with a new owner cannot display an old
   // snapshot even before the effect has invalidated its in-flight request.
@@ -100,12 +129,13 @@ export function useCalendarUpcomingEvents({
   const requestRef = useRef(0);
   const [snapshot, setSnapshot] = useState<{
     identity: symbol;
-    events: RedactedCalendarEvent[];
+    events: T[];
+    complete: boolean;
     loading: boolean;
     error: string | null;
     recovery: CalendarReadRecovery | null;
     loaded: boolean;
-  }>({ identity, events: [], loading: false, error: null, recovery: null, loaded: false });
+  }>({ identity, events: [], complete: false, loading: false, error: null, recovery: null, loaded: false });
   const canLoad = Boolean(isConnected && userId && vaultOwnerToken);
   const current = canLoad && snapshot.identity === identity;
 
@@ -124,7 +154,7 @@ export function useCalendarUpcomingEvents({
     ) return;
     const request = ++requestRef.current;
     setSnapshot({
-      identity, events: [], loading: true, error: null, recovery: null, loaded: false,
+      identity, events: [], complete: false, loading: true, error: null, recovery: null, loaded: false,
     });
     try {
       const now = new Date();
@@ -137,9 +167,12 @@ export function useCalendarUpcomingEvents({
       if (request !== requestRef.current || identityRef.current !== identity) {
         return;
       }
+      const events = await Promise.all((response.events ?? []).map(project));
+      if (request !== requestRef.current || identityRef.current !== identity) return;
       setSnapshot({
         identity,
-        events: (response.events ?? []).map(redactEvent),
+        events,
+        complete: response.has_more !== true && response.truncated !== true,
         loading: false,
         error: null,
         recovery: null,
@@ -152,6 +185,7 @@ export function useCalendarUpcomingEvents({
       setSnapshot({
         identity,
         events: [],
+        complete: false,
         loading: false,
         error: error instanceof GoogleCalendarError
           ? error.message : "Calendar details couldn’t load. Refresh to try again.",
@@ -159,7 +193,7 @@ export function useCalendarUpcomingEvents({
         loaded: true,
       });
     }
-  }, [identity, isConnected, userId, vaultOwnerToken, windowHours]);
+  }, [identity, isConnected, userId, vaultOwnerToken, windowHours, project]);
 
   useEffect(() => {
     if (canLoad && (!current || (!snapshot.loaded && !snapshot.loading))) void load();
@@ -171,6 +205,7 @@ export function useCalendarUpcomingEvents({
     error: current ? snapshot.error : null,
     recovery: current ? snapshot.recovery : null,
     loaded: current && snapshot.loaded,
+    complete: current && snapshot.complete,
     refresh: () => void load(),
   };
 }

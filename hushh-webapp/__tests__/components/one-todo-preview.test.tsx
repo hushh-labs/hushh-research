@@ -22,7 +22,7 @@ vi.mock("@/lib/services/todo-list-pkm-service", async original => {
 vi.mock("@/lib/feed/use-feed-actionables", () => ({ useFeedActionables: ({ enabled }: { enabled: boolean }) => ({ actionables: enabled ? mocks.actionables : [], loading: false, error: null, retry: mocks.retryFeed }) }));
 vi.mock("@/lib/feed/use-feed-briefing", () => ({ useFeedBriefing: ({ enabled }: { enabled: boolean }) => ({ pendingKyc: enabled ? mocks.kyc : null, kycLoading: false, kycError: false, retryKyc: mocks.retryKyc }) }));
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ connected: true, loaded: true, loading: false, error: null, refresh: mocks.retryCalendar }) }));
-vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({ useCalendarUpcomingEvents: ({ isConnected }: { isConnected: boolean }) => ({ events: isConnected ? mocks.events : [], loaded: !mocks.calendarLoading, loading: mocks.calendarLoading, error: mocks.calendarError, refresh: mocks.retryEvents }) }));
+vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({ useTodoUpcomingEvents: ({ isConnected }: { isConnected: boolean }) => ({ events: isConnected ? mocks.events : [], loaded: !mocks.calendarLoading, loading: mocks.calendarLoading, error: mocks.calendarError, refresh: mocks.retryEvents }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => ({ status: null }) }));
 vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => mocks.epoch, isVaultSessionEpochCurrent: (epoch: number) => epoch === mocks.epoch }));
 

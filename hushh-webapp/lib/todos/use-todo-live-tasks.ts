@@ -2,11 +2,11 @@
 
 import { useMemo } from "react";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
-import { useCalendarUpcomingEvents, type RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
+import { useTodoUpcomingEvents, type TodoCalendarEvent as RedactedCalendarEvent } from "@/lib/calendar/use-calendar-upcoming-events";
 import { useFeedActionables, type FeedActionable } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing, type FeedKycBriefing } from "@/lib/feed/use-feed-briefing";
 import { agentTodoInput, buildTodo, calendarTodoInput, isLiveAgentTodo, openTodoItems, type TodoItem } from "@/lib/services/todo-list-pkm-service";
-import { taskSort } from "@/lib/todos/todo-list-model";
+import { applyTodoOwnerOverrides, taskSort } from "@/lib/todos/todo-list-model";
 import { useTodoCapabilitySources } from "./use-todo-capability-sources";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import type { TaskCapability, TaskCoverage, TaskEvidence } from "./task-suggestion-model";
@@ -38,6 +38,7 @@ function calendarTask(
     title: event.title,
     start: event.start,
     conferenceUrl: event.conferenceUrl,
+    context: event.context,
   });
   return input ? buildTodo(input, start.toISOString()) : null;
 }
@@ -53,16 +54,25 @@ function mergeAutomaticTasks(
       .map((task) => [task.sourceId ?? task.id, task]),
   );
   const seen = new Set<string>();
+  const legacyCounts = new Map<string, number>();
+  for (const event of events) if (event.legacyId) legacyCounts.set(event.legacyId, (legacyCounts.get(event.legacyId) ?? 0) + 1);
   const projected = events.flatMap((event, index) => {
-    const fromCalendar = calendarTask(event, index);
-    if (!fromCalendar) return [];
+    if (event.legacyId) seen.add(event.legacyId);
+    let fromCalendar = calendarTask(event, index);
+    if (!fromCalendar) {
+      if (event.id) seen.add(event.id);
+      return [];
+    }
     const key = fromCalendar.sourceId ?? fromCalendar.id;
     seen.add(key);
-    const stored = savedAutomatic.get(key);
+    const legacy = event.legacyId && legacyCounts.get(event.legacyId) === 1 ? savedAutomatic.get(event.legacyId) : undefined;
+    const stored = savedAutomatic.get(key) ?? legacy;
+    if (legacy && event.legacyId) seen.add(event.legacyId);
+    if (legacy && !savedAutomatic.has(key)) fromCalendar = { ...fromCalendar, id: legacy.id, sourceId: legacy.sourceId };
     if (stored?.status === "done" || stored?.status === "deleted") return [];
     return [
       {
-        ...fromCalendar,
+        ...applyTodoOwnerOverrides(fromCalendar, stored),
         ...(stored
           ? {
               status: stored.status,
@@ -88,27 +98,47 @@ function mergeAutomaticTasks(
 function projectTodoTasks(
   tasks: TodoItem[],
   events: RedactedCalendarEvent[],
-  actionables: Pick<FeedActionable, "id" | "todo">[],
+  actionables: Pick<FeedActionable, "id" | "todo" | "title" | "description" | "person">[],
   pendingKyc: Pick<FeedKycBriefing, "count" | "workflowId"> | null,
   extra: TaskEvidence[],
 ): TodoItem[] {
     const saved = new Map(tasks.map((task) => [task.id, task]));
     const live = new Map<string, TodoItem>();
+    const groups = new Map<string, Set<string>>();
+    const groupVersions = new Map<string, string[]>();
+    const sourceContext = (item: typeof actionables[number]) => item.todo?.context || [item.person?.displayName || item.title, item.description].filter(value => typeof value === "string" && value !== item.todo?.title).join(" · ");
+    for (const item of actionables) if (item.todo?.groupKey) {
+      const ids = groupVersions.get(item.todo.groupKey) ?? [];
+      ids.push(item.todo.key || item.id);
+      groupVersions.set(item.todo.groupKey, ids);
+      const contexts = groups.get(item.todo.groupKey) ?? new Set<string>();
+      const context = sourceContext(item);
+      if (context) contexts.add(context);
+      groups.set(item.todo.groupKey, contexts);
+    }
+    const projectedGroups = new Set<string>();
     for (const item of actionables) {
       if (!item.todo) continue;
-      const input = agentTodoInput(item.id, item.todo);
+      const groupKey = item.todo.groupKey;
+      if (groupKey && projectedGroups.has(groupKey)) continue;
+      if (groupKey) projectedGroups.add(groupKey);
+      const context = groupKey ? [...(groups.get(groupKey) ?? [])].join("; ").slice(0, 1200) : sourceContext(item);
+      const input = agentTodoInput(item.id, { ...item.todo,
+        ...(groupKey ? { key: groupKey, sourceVersion: JSON.stringify([...new Set(groupVersions.get(groupKey))].sort()) } : {}), context });
       if (!input) continue;
       const task = buildTodo(input);
-      const status = saved.get(task.id)?.status;
-      if (status !== "done" && status !== "deleted") live.set(task.id, task);
+      const previous = saved.get(task.id);
+      const status = task.sourceVersion && task.sourceVersion !== previous?.sourceVersion ? "pending" : previous?.status;
+      if (status !== "done" && status !== "deleted") live.set(task.id, applyTodoOwnerOverrides(task, saved.get(task.id)));
     }
     for (const item of extra) {
       if (!item.pendingTitle) continue;
-      const input = agentTodoInput(item.key, { source: item.capability === "finance" ? "kai" : item.capability, title: item.pendingTitle, href: item.href });
+      if (item.meetingRef && events.some(event => event.meetingRef === item.meetingRef)) continue;
+      const input = agentTodoInput(item.key, { source: item.capability === "finance" ? "kai" : item.capability, title: item.pendingTitle, href: item.href, context: item.context, date: item.date, time: item.time });
       if (!input) continue;
       const task = buildTodo(input);
       const status = saved.get(task.id)?.status;
-      if (status !== "done" && status !== "deleted") live.set(task.id, task);
+      if (status !== "done" && status !== "deleted") live.set(task.id, applyTodoOwnerOverrides(task, saved.get(task.id)));
     }
     if (pendingKyc) {
       const input = agentTodoInput(`kyc:${pendingKyc.workflowId}`, {
@@ -122,7 +152,7 @@ function projectTodoTasks(
       if (input) {
         const task = buildTodo(input);
         const status = saved.get(task.id)?.status;
-        if (status !== "done" && status !== "deleted") live.set(task.id, task);
+        if (status !== "done" && status !== "deleted") live.set(task.id, applyTodoOwnerOverrides(task, saved.get(task.id)));
       }
     }
     return [
@@ -146,9 +176,9 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
   const agentFeed = useFeedActionables({ enabled, allPending: true });
   const { pendingKyc, kycLoading, kycError, retryKyc } = useFeedBriefing({ enabled, includeCalendar: false, includeNudges: false });
   const calendar = useCalendarConnectionStatus({ userId: enabled ? userId : null, idTokenProvider: enabled ? idTokenProvider : null });
-  const upcoming = useCalendarUpcomingEvents({ userId: enabled ? userId : null, vaultOwnerToken: enabled ? vaultOwnerToken : null, isConnected: enabled && calendar.connected, windowHours: 168 });
+  const upcoming = useTodoUpcomingEvents({ userId: enabled ? userId : null, vaultOwnerToken: enabled ? vaultOwnerToken : null, isConnected: enabled && calendar.connected, windowHours: 168 });
   const gmail = useGmailConnectorStatus({ userId: enabled ? userId : null, idTokenProvider: enabled ? idTokenProvider : null });
-  const extra = useTodoCapabilitySources({ enabled, userId, vaultOwnerToken, idTokenProvider, mailConnected: gmail.status?.connected === true && gmail.status.needs_reauth !== true, calendarConnected: calendar.connected, mailStatusKnown: Boolean(gmail.status) && !gmail.statusError, calendarStatusKnown: calendar.loaded && !calendar.error });
+  const extra = useTodoCapabilitySources({ enabled, userId, vaultOwnerToken, idTokenProvider, mailConnected: gmail.status?.connected === true && gmail.status.needs_reauth !== true, calendarConnected: calendar.connected, mailAccountKey: gmail.status?.google_sub || gmail.status?.google_email, mailStatusKnown: Boolean(gmail.status) && !gmail.statusError, calendarStatusKnown: calendar.loaded && !calendar.error });
   const evidence = useMemo(() => extra.reads.flatMap(read => read.evidence), [extra.reads]);
   const agentLoadError = agentFeed.error || agentFeed.progressError || kycError;
   const agentLoading = agentFeed.loading || agentFeed.progressLoading || kycLoading;
@@ -159,7 +189,7 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
     [tasks, upcoming.events, agentFeed.actionables, pendingKyc, evidence],
   );
   const coverage: TaskCoverage[] = ["finance", "location", "consent"].map(capability => ({ capability: capability as TaskCapability, count: pending.filter(task => task.sourceAgent && sourceCapabilities[task.sourceAgent] === capability).length, status: agentLoadError ? "unavailable" : capability === "consent" && agentFeed.inventoryIncomplete ? "incomplete" : "ready" }));
-  const allCoverage = [...coverage, ...extra.reads.map(read => read.coverage.capability === "calendar" ? { ...read.coverage, count: pending.filter(task => task.sourceAgent === "calendar").length, status: calendarReadError ? "unavailable" as const : read.coverage.status } : read.coverage)];
+  const allCoverage = [...coverage, ...extra.reads.map(read => read.coverage.capability === "calendar" ? { ...read.coverage, count: pending.filter(task => task.sourceAgent === "calendar").length, status: calendarReadError ? "unavailable" as const : calendar.connected && upcoming.loaded && upcoming.complete === false ? "incomplete" as const : read.coverage.status } : read.coverage)];
   const suggestionEvidence: TaskEvidence[] = evidence.map(item => ({ ...item }));
   for (const task of pending) {
     const capability = task.sourceAgent && sourceCapabilities[task.sourceAgent];
@@ -176,6 +206,6 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
     pending: enabled ? pending : [], agentFeed, retryKyc, calendar, upcoming,
     agentLoadError, agentLoading: enabled && agentLoading, calendarReadLoading, calendarReadError,
     evidence: suggestionEvidence, coverage: allCoverage, sourceLoading: extra.loading || agentLoading || calendarReadLoading,
-    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable" || source.status === "incomplete"), refreshSources: extra.refresh,
+    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable" || source.status === "incomplete"), refreshSources: extra.refresh, continueMail: extra.continueMail,
   };
 }

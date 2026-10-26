@@ -9,8 +9,9 @@ import { getOneCapability } from "@/lib/onboarding/one-capabilities";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 import type { TaskCapability, TaskCoverage, TaskEvidence } from "@/lib/todos/task-suggestion-model";
 import { walletCardRequestHref } from "@/lib/wallet/card-request";
+import { todoReminderLocalFields } from "@/lib/todos/reminder-schedule";
 
-export type CapabilityRead = { coverage: TaskCoverage; evidence: TaskEvidence[] };
+export type CapabilityRead = { coverage: TaskCoverage; evidence: TaskEvidence[]; cursor?: string | null };
 export type TaskReadContext = {
   userId: string; vaultOwnerToken: string; getIdToken: () => Promise<string>;
   isCurrent: () => boolean; mailConnected: boolean; calendarConnected: boolean;
@@ -36,7 +37,7 @@ async function readWallet(context: TaskReadContext): Promise<CapabilityRead> {
     if (!context.isCurrent()) throw new DOMException("Session changed", "AbortError");
     const next = await WalletCardAccessService.listRequests(context, cursor);
     for (const item of next.items) {
-      if (!seen.has(item.id)) rows.push({ ...evidence("wallet", `wallet:${item.id}`, "A connected person has a pending card access request.", "Review card access request"), href: walletCardRequestHref(item.id) });
+      if (!seen.has(item.id)) rows.push({ ...evidence("wallet", `wallet:${item.id}`, "A connected person has a pending card access request.", `Review ${item.requesterName || "a connection"}'s card access request`), context: "Wallet · Decide whether to share your card.", href: walletCardRequestHref(item.id) });
       seen.add(item.id);
     }
     if (!next.hasMore) return result("wallet", rows.length, rows);
@@ -53,19 +54,45 @@ async function readAdvisor(context: TaskReadContext, idToken: string): Promise<C
   const home = await RiaService.getHome(idToken, { userId: context.userId, force: true });
   const rows = home.needs_attention.flatMap(item => {
     const href = normalizeInternalRouteHref(item.href);
-    return href ? [{ ...evidence("ria", `ria:${item.id}`, item.title, item.next_action || item.title), href }] : [];
+    return href ? [{ ...evidence("ria", `ria:${item.id}`, item.title, item.next_action || item.title), href, context: [item.title, item.subtitle].filter(Boolean).join(" · ").slice(0, 1200) }] : [];
   });
   return result("ria", home.counts.needs_attention, rows, home.counts.needs_attention > rows.length ? "incomplete" : "ready");
 }
 
-async function readMail(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
+export async function readTodoMail(context: TaskReadContext, idToken: string, previous?: CapabilityRead): Promise<CapabilityRead> {
   if (!context.mailStatusKnown) return result("gmail", 0, [], "unavailable");
   if (!context.mailConnected) return result("gmail", 0, [], "not_connected");
-  const mail = await GmailReceiptsService.listNudges({ idToken, userId: context.userId, vaultOwnerToken: context.vaultOwnerToken, limit: 50 });
-  const rows = await Promise.all(mail.nudges.filter(row => row.type === "needs_reply").map(async row =>
-    evidence("gmail", `mail:${await sourceKey(context.userId, `${row.thread_id}:${row.message_id}`)}`, row.title)));
-  // This publisher scans recent threads, not the entire mailbox.
-  return result("gmail", rows.length, rows, "incomplete");
+  const [scan, recent] = await Promise.allSettled([
+    GmailReceiptsService.listNudges({ idToken, userId: context.userId, vaultOwnerToken: context.vaultOwnerToken,
+      scanAll: true, cursor: previous?.cursor, signal: context.signal, isCurrent: context.isCurrent }),
+    previous ? Promise.resolve(null) : GmailReceiptsService.listNudges({ idToken, userId: context.userId,
+      vaultOwnerToken: context.vaultOwnerToken, limit: 25, signal: context.signal, isCurrent: context.isCurrent }),
+  ]);
+  if (scan.status === "rejected") throw scan.reason;
+  const mail = scan.value;
+  if (!context.isCurrent()) throw new DOMException("Session changed", "AbortError");
+  const rows = await Promise.all(mail.nudges.filter(row => row.type === "needs_reply").map(async row => {
+    const sender = row.sender?.trim() || row.sender_email?.trim() || "the sender";
+    const subject = row.title.trim() || "the email";
+    return { ...evidence("gmail", `mail:${await sourceKey(context.userId, `${mail.account_email ?? ""}:${row.thread_id}:${row.message_id}`)}`,
+      subject, `Reply to ${sender}: ${subject}`),
+      context: `From ${sender}${row.sender_email && row.sender_email !== sender ? ` <${row.sender_email}>` : ""}${mail.account_email ? ` · To ${mail.account_email}` : ""}` };
+  }));
+  const recentMail = recent.status === "fulfilled" && recent.value?.account_email?.toLowerCase() === mail.account_email?.toLowerCase() ? recent.value : null;
+  const meetings = await Promise.all((recentMail?.nudges ?? []).filter(row => row.type === "upcoming_meeting" && row.starts_at && Date.parse(row.starts_at) > Date.now()).map(async row => {
+    const local = todoReminderLocalFields(row.starts_at!);
+    const title = `${row.meeting_source === "email" ? "Review meeting" : "Attend"}: ${row.title}`;
+    return { ...evidence("gmail", `mail-meeting:${await sourceKey(context.userId, `${mail.account_email}:${row.thread_id}:${row.starts_at}`)}`, row.title, title),
+      date: local.date, time: local.time,
+      context: `Email ${row.meeting_source === "email" ? "mentions a meeting" : "invitation"} from ${row.sender || row.sender_email || "the organizer"}. Verify the invitation details.`,
+      ...(row.ical_uid ? { meetingRef: JSON.stringify([row.ical_uid, new Date(row.starts_at!).toISOString()]) } : {}) };
+  }));
+  const allRows = [...new Map([...(previous?.evidence ?? []), ...rows, ...meetings].map(row => [row.key, row])).values()];
+  return { ...result("gmail", allRows.length, allRows, mail.coverage?.complete ? "ready" : "incomplete"),
+    cursor: mail.next_cursor ?? null, coverage: { capability: "gmail", count: allRows.length,
+      status: mail.coverage?.complete ? "ready" : "incomplete", scanned: mail.coverage?.scanned_threads,
+      canContinue: Boolean(mail.next_cursor), scanFailed: Boolean(mail.coverage?.failed_threads),
+      meetings: previous?.coverage.meetings ?? (recentMail && recentMail.meeting_scan?.status !== "unavailable" ? "recent" : "unavailable") } };
 }
 
 async function readInvitations(context: TaskReadContext, idToken: string): Promise<CapabilityRead> {
@@ -77,12 +104,16 @@ async function readInvitations(context: TaskReadContext, idToken: string): Promi
   return result("calendar", data.pending_count, rows, data.complete && data.pending_count <= rows.length ? "ready" : "incomplete");
 }
 
-function readMemory(context: TaskReadContext): CapabilityRead {
+async function readMemory(context: TaskReadContext): Promise<CapabilityRead> {
   const view = peekLiveMirror(context.userId);
   if (!view || view.ownerId !== context.userId || !isVaultSessionEpochCurrent(view.vaultEpoch)) return result("pkm", 0, [], "unavailable");
   const conflicts = view.conflicts?.length ?? 0;
   const changes = view.sources.reduce((count, source) => count + (source.pendingChanges ?? 0), 0);
-  const rows = conflicts || changes ? [evidence("pkm", `memory:${view.builtAt}`, `${conflicts} memory disagreements and ${changes} pending source updates need review.`)] : [];
+  const revision = JSON.stringify([
+    (view.conflicts ?? []).map(item => [item.predicate, item.claims.map(claim => [claim.source, claim.revision, claim.sourceUpdatedAt, claim.value]).sort()]).sort(),
+    view.sources.filter(source => source.pendingChanges).map(source => [source.id, source.contentRevision, source.pendingChanges]).sort(),
+  ]);
+  const rows = conflicts || changes ? [evidence("pkm", `memory:${await sourceKey(context.userId, revision)}`, `${conflicts} memory disagreements and ${changes} pending source updates need review.`, "Review Memory updates")] : [];
   return result("pkm", conflicts + changes, rows, view.inventoryComplete && view.sources.every(source => ["current", "conflict"].includes(source.state) && source.pendingChanges !== null && source.reason === null) ? "ready" : "incomplete");
 }
 
@@ -94,7 +125,7 @@ export async function readTodoCapabilities(context: TaskReadContext): Promise<Ca
   const tasks: [TaskCapability, () => Promise<CapabilityRead>][] = [
     ["messages", async () => { const count = await DirectMessagesService.unreadCount({ idToken }); return result("messages", count, count ? [evidence("messages", "messages:unread", `${count} unread messages across People and Circles.`)] : []); }],
     ["wallet", () => readWallet(context)], ["ria", () => readAdvisor(context, idToken)],
-    ["gmail", () => readMail(context, idToken)], ["calendar", () => readInvitations(context, idToken)],
+    ["gmail", () => readTodoMail(context, idToken)], ["calendar", () => readInvitations(context, idToken)],
     ["pkm", async () => readMemory(context)],
   ];
   const results = await Promise.allSettled(tasks.map(([, read]) => read()));

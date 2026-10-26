@@ -678,3 +678,43 @@ def test_chat_avatar_raster_budget_and_untrusted_url_rejection(monkeypatch):
     result = thumbnail("data:image/png;base64," + base64.b64encode(source.getvalue()).decode())
     assert result.startswith("data:image/jpeg;base64,")
     assert len(result) <= 1023
+
+
+def test_task_reminder_transport_expires_on_every_platform(monkeypatch):
+    from datetime import timedelta
+
+    from api.utils import fcm_messages
+
+    monkeypatch.setattr(fcm_messages.time, "time", lambda: 1000)
+    delivery_target = "installation"
+    for platform in ["web", "ios", "android"]:
+        message = build_push_message(
+            _MessagingStub,
+            token=delivery_target,
+            platform=platform,
+            data={"type": "todo_reminder", "reminder_expires_at": "1120"},
+            title="Task reminder",
+            body="Open your to-do list.",
+            request_url="/one/todos",
+            notification_tag="todo:opaque",
+            show_alert=True,
+        )
+        assert message.data["notification_presentation"] == "alert"
+        if platform == "web":
+            assert message.webpush.headers["TTL"] == "120"
+        elif platform == "ios":
+            assert message.apns.headers["apns-expiration"] == "1120"
+        else:
+            assert message.android.ttl == timedelta(seconds=120)
+    expired = build_push_message(
+        _MessagingStub,
+        token=delivery_target,
+        platform="web",
+        data={"type": "todo_reminder", "reminder_expires_at": "999"},
+        title="Task reminder",
+        body="Open your to-do list.",
+        request_url="/one/todos",
+        notification_tag="todo:opaque",
+        show_alert=True,
+    )
+    assert expired.data["notification_presentation"] == "silent"

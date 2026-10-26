@@ -9,6 +9,7 @@ import {
   Clock,
   ExternalLink,
   Mail,
+  Pencil,
   Receipt,
   Trash2,
 } from "@/components/icons";
@@ -188,11 +189,13 @@ export function TodoRow({
   saving,
   onToggle,
   onDelete,
+  onEdit,
 }: {
   task: TodoItem;
   saving: boolean;
   onToggle: (task: TodoItem, complete: boolean) => void;
   onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
+  onEdit?: (task: TodoItem, trigger?: HTMLButtonElement) => void;
 }) {
   const swipe = useRowSwipe({
     enabled: !saving,
@@ -227,6 +230,10 @@ export function TodoRow({
           {task.title}
         </MediumRowLabel>
         <div className="flex shrink-0 items-center">
+          {onEdit ? <ShellActionSurface className="h-11 w-11" aria-label={`Edit ${task.title}`}
+            disabled={saving} onClick={event => onEdit(task, event.currentTarget)}>
+            <Pencil className="size-4" aria-hidden="true" />
+          </ShellActionSurface> : null}
           <CircularCheckbox
             checked={task.status === "done"}
             disabled={saving}
@@ -299,6 +306,8 @@ export function TodoRow({
             ) : null}
           </div>
         ) : null}
+        {task.context ? <HelperText as="p" data-profile-role="description" className="col-span-2 mt-1 break-words [overflow-wrap:anywhere]">{task.context}</HelperText> : null}
+        {source === "calendar" && !task.link ? <Button asChild variant="none" effect="fade" size="compact" className="col-span-2 ml-auto min-h-11"><Link href="/one/calendar" aria-label={`Open ${task.title} in Calendar`}>Open Calendar</Link></Button> : null}
         {task.notes ? (
           <HelperText as="p" data-profile-role="description" className="col-span-2 mt-1 break-words [overflow-wrap:anywhere]">
             {task.notes}
@@ -500,12 +509,14 @@ export function TodoRows({
   dueReceipts = [],
   onToggle,
   onDelete,
+  onEdit,
 }: {
   tasks: TodoItem[];
   savingTaskId: string | null;
   dueReceipts?: DueReceiptItem[];
   onToggle: (task: TodoItem, complete: boolean) => void;
   onDelete: (task: TodoItem, trigger?: HTMLButtonElement) => void;
+  onEdit?: (task: TodoItem, trigger?: HTMLButtonElement) => void;
 }) {
   const groups = groupByDate(tasks);
   const anytimeGroup = groups.find((g) => g.id === "anytime");
@@ -543,9 +554,10 @@ export function TodoRows({
               <TodoRow
                 key={task.id}
                 task={task}
-                saving={savingTaskId === task.id}
+                saving={Boolean(savingTaskId)}
                 onToggle={onToggle}
                 onDelete={onDelete}
+                onEdit={onEdit}
               />
             ))}
           </SurfaceInset>
@@ -574,9 +586,10 @@ export function TodoRows({
               <TodoRow
                 key={task.id}
                 task={task}
-                saving={savingTaskId === task.id}
+                saving={Boolean(savingTaskId)}
                 onToggle={onToggle}
                 onDelete={onDelete}
+                onEdit={onEdit}
               />
             ))}
           </SurfaceInset>

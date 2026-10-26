@@ -89,6 +89,8 @@ export type CalendarEventSummary = {
 export type CalendarEventsResponse = {
   events: CalendarEventSummary[];
   time_zone?: string | null;
+  has_more?: boolean;
+  truncated?: boolean;
 };
 
 export type CalendarReadRecovery = "connect" | "reconnect" | "permission" | "retry";

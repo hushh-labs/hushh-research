@@ -5,7 +5,7 @@ import { readCardRequest } from "@/lib/wallet/card-request";
 import { z } from "zod";
 
 const pendingCardRequestsSchema = z.object({
-  items: z.array(z.object({ id: z.string().uuid(), createdAt: z.string(), expiresAt: z.string() }).strict()).max(100),
+  items: z.array(z.object({ id: z.string().uuid(), createdAt: z.string(), expiresAt: z.string(), requesterName: z.string().max(160).optional() }).strict()).max(100),
   hasMore: z.boolean(), nextCursor: z.string().uuid().nullable(),
 }).strict();
 

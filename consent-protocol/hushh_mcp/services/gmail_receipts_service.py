@@ -1590,7 +1590,9 @@ class GmailReceiptsService:
                 code="GMAIL_READ_PERMISSION_REQUIRED",
             )
 
-    async def read_grant_binding(self, *, user_id: str) -> tuple[str, ...] | None:
+    async def read_grant_binding(
+        self, *, user_id: str, include_generation: bool = False
+    ) -> tuple[str, ...] | None:
         """Observe the exact owner/account/row version before or after a private read.
 
         ``xmin`` also changes on unrelated token refresh or sync updates. Rejecting
@@ -1598,7 +1600,7 @@ class GmailReceiptsService:
         """
         await self.assert_read_ready(user_id=user_id)
         result = await self._execute_raw_async(
-            """SELECT google_sub, scope_csv, status, revoked, connected_at,
+            """SELECT google_sub, scope_csv, status, revoked, connected_at, send_grant_generation,
                       xmin::text AS grant_revision
                FROM kai_gmail_connections WHERE user_id = :user_id""",
             {"user_id": user_id},
@@ -1619,6 +1621,7 @@ class GmailReceiptsService:
             "gmail",
             str(row["google_sub"]),
             str(row["connected_at"]),
+            *((str(row.get("send_grant_generation") or 0),) if include_generation else ()),
             str(row["grant_revision"]),
         )
 
@@ -2648,6 +2651,7 @@ class GmailReceiptsService:
                     from_name=from_name or "",
                     subject=_clean_text(headers.get("subject")),
                     received_at=self._message_received_at(raw, headers),
+                    sent_by_owner="SENT" in (raw.get("labelIds") or []),
                 )
             )
         if not messages:
@@ -2656,7 +2660,13 @@ class GmailReceiptsService:
         return NudgeThread(thread_id=thread_id, messages=tuple(messages))
 
     async def list_nudges(
-        self, *, user_id: str, limit: int = _NUDGE_DEFAULT_LIMIT
+        self,
+        *,
+        user_id: str,
+        limit: int = _NUDGE_DEFAULT_LIMIT,
+        scan_all: bool = False,
+        cursor: str | None = None,
+        require_access=None,
     ) -> dict[str, Any]:
         """Derive inbox flashcard nudges ("Needs a reply") for the connected account.
 
@@ -2667,6 +2677,35 @@ class GmailReceiptsService:
         """
         from hushh_mcp.services.gmail_token_reads import list_nudges_with_token
 
+        if scan_all:
+            from hushh_mcp.services.gmail_followup_scan import scan_followup_page
+
+            initial_grant = await self.read_grant_binding(user_id=user_id, include_generation=True)
+            if initial_grant is None:
+                raise GmailApiError("Reconnect Mail before scanning.", status_code=403)
+            access_token = await self.get_read_access_token(user_id=user_id)
+            grant = await self.read_grant_binding(user_id=user_id, include_generation=True)
+            if grant is None:
+                raise GmailApiError("Reconnect Mail before scanning.", status_code=403)
+            if initial_grant[:-1] != grant[:-1]:
+                raise GmailApiError("Mail access changed. Restart the scan.", status_code=409)
+
+            async def require_current() -> None:
+                if require_access is not None:
+                    await require_access()
+                if await self.read_grant_binding(user_id=user_id, include_generation=True) != grant:
+                    raise GmailApiError("Mail access changed. Restart the scan.", status_code=409)
+
+            return await scan_followup_page(
+                self,
+                access_token=access_token,
+                user_id=user_id,
+                binding=list(grant[:-1]),
+                cursor=cursor,
+                require_current=require_current,
+            )
+        if cursor:
+            raise GmailApiError("A continuation requires a mailbox scan.", status_code=400)
         access_token, _row = await self._ensure_access_token(user_id=user_id)
         return await list_nudges_with_token(
             self, access_token=access_token, user_id=user_id, limit=limit

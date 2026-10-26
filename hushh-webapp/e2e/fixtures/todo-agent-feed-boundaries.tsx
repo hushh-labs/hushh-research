@@ -98,6 +98,7 @@ export function cachedGmailReceiptDisplayItems() {
 // This isolated fixture never contains Gmail receipts, so clearing is a no-op.
 export function clearCachedGmailReceipts() {}
 // Only the synthetic Feed task participates in this lifecycle fixture.
+export async function readTodoMail() { throw new Error("No Mail account in this fixture"); }
 export async function readTodoCapabilities() {
   return [];
 }
@@ -107,7 +108,7 @@ export async function todoSuggestionsAvailable() {
 export async function suggestTodoTasks() {
   throw new Error("This lifecycle fixture must never request model suggestions");
 }
-export function useCalendarUpcomingEvents() {
+export function useTodoUpcomingEvents() {
   return { events: [], loaded: false, loading: false, error: null, refresh: () => {} };
 }
 let domain: Record<string, unknown> = { _private: { tasks: [] } };

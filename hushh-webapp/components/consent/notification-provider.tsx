@@ -1437,6 +1437,7 @@ export function ConsentNotificationProvider({
                 payload.type === "connection_graph_changed";
               const preservesDomainType =
                 preservesConnectionType ||
+                payload.type === "todo_reminder" ||
                 payload.type === "information_request_updated" ||
                 payload.type === "answer_request_changed" ||
                 String(payload.type || "").startsWith("location_");
@@ -1772,6 +1773,26 @@ export function ConsentNotificationProvider({
         return;
       }
 
+      if (msgType === "todo_reminder") {
+        const expires = Number(data.reminder_expires_at);
+        if (document.visibilityState !== "visible" || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
+        if (!applicationOwnerId || data.user_id !== applicationOwnerId || !data.message_id ||
+          !Number.isFinite(expires) || expires * 1000 <= Date.now()) return;
+        const reminderKey = notificationEventDedupKey(msgType, data);
+        if (!reminderKey) return;
+        if (ingestedMessageIdsRef.current.has(reminderKey)) { detail.accepted = true; return; }
+        // A user-scheduled reminder is presented once per stable outbox id.
+        toast("Task reminder", { id: `todo-reminder:${data.message_id}`, description: "Open your to-do list.",
+          action: { label: "Open", onClick: () => router.push("/one/todos") } });
+        ingestedMessageIdsRef.current.add(reminderKey);
+        while (ingestedMessageIdsRef.current.size > 1000) {
+          const oldest = ingestedMessageIdsRef.current.values().next().value;
+          if (!oldest) break;
+          ingestedMessageIdsRef.current.delete(oldest);
+        }
+        detail.accepted = true;
+        return;
+      }
       if (msgType === "answer_request_changed") {
         if (
           !applicationOwnerId ||

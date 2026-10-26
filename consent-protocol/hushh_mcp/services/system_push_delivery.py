@@ -112,6 +112,10 @@ def _source(conn, event: dict) -> dict | None:
               OR (latest_envelope_id IS NOT NULL AND EXISTS (SELECT 1 FROM one_location_recipient_keys k
                 WHERE k.user_id=s.recipient_user_id AND k.key_id=s.recipient_key_id AND k.status='active')))
             FOR SHARE OF s"""
+    elif kind == "todo_reminder":
+        sql = """SELECT s.* FROM one_todo_reminder_schedules s WHERE id=:source
+            AND user_id=:user AND generation::TEXT=:revision AND due_at<=now()
+            AND due_at>now()-interval '15 minutes' FOR SHARE OF s"""
     elif kind == "location_request":
         sql = """SELECT s.* FROM one_location_access_requests s WHERE id=:source
             AND owner_user_id=:user AND status='pending'
@@ -134,6 +138,21 @@ def _source(conn, event: dict) -> dict | None:
 
 
 def _notification(conn, event: dict, source: dict) -> dict:
+    if event["source_kind"] == "todo_reminder":
+        return dict(
+            user_id=event["recipient_user_id"],
+            notification_type="todo_reminder",
+            title="Task reminder",
+            body="Open your to-do list.",
+            request_url="/one/todos",
+            notification_tag=f"todo-reminder:{source['id']}",
+            show_alert=True,
+            data={
+                "message_id": str(event["id"]),
+                "user_id": event["recipient_user_id"],
+                "reminder_expires_at": str(int(event["expires_at"].timestamp())),
+            },
+        )
     from hushh_mcp.services.one_location_agent_service import (
         OneLocationAgentService,
         _access_ask_summary,

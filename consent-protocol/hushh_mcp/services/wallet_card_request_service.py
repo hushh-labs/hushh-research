@@ -103,8 +103,10 @@ class WalletCardRequestService:
             rows = (
                 conn.execute(
                     text("""
-SELECT r.id,r.created_at,r.expires_at
+SELECT r.id,r.created_at,r.expires_at,
+ LEFT(COALESCE(NULLIF(identity.display_name,''),'A connection'),160) AS requester_name
 FROM wallet_card_requests r
+LEFT JOIN actor_identity_cache identity ON identity.user_id=r.requester_user_id
 JOIN messages m ON m.id=r.message_id AND m.sender_user_id=r.requester_user_id
 JOIN conversations c ON c.id=m.conversation_id
 WHERE r.target_user_id=:owner AND r.status='pending'
@@ -138,6 +140,7 @@ ORDER BY r.created_at DESC,r.id ASC LIMIT :row_limit
                         "id": str(row["id"]),
                         "createdAt": iso(row["created_at"]),
                         "expiresAt": iso(row["expires_at"]),
+                        "requesterName": row["requester_name"],
                     }
                     for row in rows[:limit]
                 ],
