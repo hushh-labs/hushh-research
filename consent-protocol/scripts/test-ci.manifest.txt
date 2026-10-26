@@ -1419,6 +1419,7 @@ tests/services/test_drive_financial_packet_large_recovery_postgres.py
 tests/services/test_drive_financial_search_reason_postgres.py
 tests/services/test_drive_financial_packet_rollout_postgres.py
 tests/services/test_drive_period_packet_loop_postgres.py
+tests/services/test_drive_period_packet_titles_postgres.py
 
 tests/services/test_drive_packet_catalog_postgres.py
 

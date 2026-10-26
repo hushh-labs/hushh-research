@@ -10,6 +10,7 @@ from psycopg2.extras import execute_values
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from hushh_mcp.services.drive_period_packet_contract import PacketPeriod
 from hushh_mcp.services.drive_period_packet_preview import snapshot_search
 from hushh_mcp.services.drive_request_discovery import discovery_evidence
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
@@ -420,8 +421,6 @@ async def test_capped_partial_preview_keeps_all_saved_pages_during_provider_fail
 async def test_scheduled_legacy_incomplete_recovery_is_once_only_and_respects_fences(
     reusable, monkeypatch, outcome
 ):
-    from hushh_mcp.services.drive_period_packet_contract import PacketPeriod
-
     service, head, planner, transport, identity, frozen = await seed_limited_financial(
         reusable, monkeypatch, incomplete=True
     )

@@ -9,6 +9,7 @@ from hushh_mcp.services.drive_document_facts_store import seal_evidence
 from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE
 from hushh_mcp.services.drive_live_reader import _open_url
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
+from hushh_mcp.services.drive_packet_display import packet_file_label
 from hushh_mcp.services.drive_period_packet_contract import PacketPeriod, current_year_periods
 from hushh_mcp.services.drive_request_discovery import discovery_evidence_matches
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -168,7 +169,7 @@ async def request_preview(store, *, user_id, packet_id, refresh=False):
 
 def document(source):
     return {
-        "name": source["name"],
+        "name": packet_file_label(source["name"]),
         "type": source.get("mimeType"),
         "pages": None,
         "period": None,
@@ -435,7 +436,11 @@ def _saved_page(store, searches, row, build, summary, user_id, cursor):
     return {
         **summary,
         "documents": [
-            {key: value for key, value in file.items() if key != "position"} for file in items[:25]
+            {
+                **{key: value for key, value in file.items() if key != "position"},
+                "name": packet_file_label(file["name"]),
+            }
+            for file in items[:25]
         ],
         "nextCursor": searches._cursor(user_id, identity, items[24]["position"])
         if len(items) > 25

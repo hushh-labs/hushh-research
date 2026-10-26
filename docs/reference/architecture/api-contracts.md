@@ -4475,7 +4475,10 @@ Frozen versions and completed purchases are not rewritten. No new index or conte
 assessment is introduced. A failed provider search cannot become a successful result.
 
 Provider file titles use the adapter's bounded UTF-8 metadata contract; the shorter
-caller-supplied exact-title query limit is not a file admission limit. A legacy
+caller-supplied exact-title query limit is not a file admission limit. Original
+names remain unchanged in encrypted source metadata. Packet display labels use
+the existing 255 UTF-16-unit browser limit, with an ellipsis for longer names.
+A legacy
 financial search marked incomplete without a typed reason can replay its frozen
 query once, preserving its job, original rows and positions. Due exhausted heads
 receive one migration claim only for their exact current-revision child. Replay
