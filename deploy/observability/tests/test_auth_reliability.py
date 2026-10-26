@@ -29,18 +29,26 @@ class AuthAvailabilityTest(unittest.TestCase):
         while "textPayload=~" in expression:
             expression = expression.split("textPayload=~", 1)[1]
             patterns.append(json.JSONDecoder().raw_decode(expression)[0])
+            if len(patterns) == 3:
+                break
         def matches(route, outcome):
             payload = json.dumps({"message": "request.summary", "route_template": route,
                                   "outcome_class": outcome}, separators=(",", ":"))
             return all(re.search(pattern, payload) for pattern in patterns)
         for route in ("/api/account/identity/refresh", "/api/account/phone/claim",
                       "/api/account/phone/uat-test/start", "/api/account/phone/uat-test/confirm",
-                      "/db/vault/bootstrap-state"):
+                      "/db/vault/bootstrap-state", "/api/account/phone/transfer/prepare",
+                      "/api/account/phone/transfer/confirm", "/api/account/phone/transfer/{transfer_id}"):
             self.assertTrue(matches(route, "server_error"))
             for outcome in ("success", "client_error", "expected_error"):
                 self.assertFalse(matches(route, outcome))
         self.assertFalse(matches("/api/account/delete", "server_error"))
         self.assertFalse(matches("/api/account/identity/refresh?token=private", "server_error"))
+        json_expression = metric["filter"].split("jsonPayload.route_template=~", 1)[1]
+        json_pattern = json.JSONDecoder().raw_decode(json_expression)[0]
+        for route in ("/api/account/phone/transfer/prepare", "/api/account/phone/transfer/confirm", "/api/account/phone/transfer/{transfer_id}"):
+            self.assertRegex(route, json_pattern)
+        self.assertIsNone(re.search(json_pattern, "/api/account/phone/transfer/confirm?token=private"))
         self.assertNotIn("labelExtractors", metric)
 
     def test_auth_reconciliation_is_disabled_by_default_bounded_and_idempotent(self):

@@ -161,6 +161,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
+          cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
+          git log -1 --diff-filter=A --format=%H -- \
+            consent-protocol/api/routes/document_delivery.py \
+            > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-deploy-scope.py "${RUNNER_TEMP}/release-tools/"
@@ -199,7 +203,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/managed_capability_proof.py"
           # Orchestration must remain current when rolling back to an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/drive"
-          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
+          for tool in resolve_prod_release_mode.py resolve_protected_document_release.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
             deploy_worker_service_prod.sh setup_work_drain_scheduler_prod.sh \
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
@@ -264,6 +268,7 @@ jobs:
             scripts/ci/managed_capability_proof.py
           mkdir -p deploy/drive
           cp "${RUNNER_TEMP}/release-tools/drive/"* deploy/drive/
+          cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py" \
             scripts/ops/sync_backend_runtime_secrets.py
           for tool in runtime_config_retention.py scope_commerce_runtime_policy.py shared_files_runtime_policy.py passkey_domain_policy.py upsert_gcp_secret.py; do
@@ -467,8 +472,20 @@ jobs:
             --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/prod-drive-feature-commit")" \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Resolve retained protected document maintenance
+        id: document-mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/drive/resolve_protected_document_release.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --environment production \
+            --target-sha "${{ github.event.inputs.sha }}" \
+            --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
+            --github-output "$GITHUB_OUTPUT" \
+            | tee /tmp/prod-protected-document-release.json
+
       - name: Verify production Drive prerequisites before mutation
-        if: steps.drive-mode.outputs.active == 'true' && steps.scope.outputs.deploy_backend == 'true'
+        if: (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
           DRIVE_OAUTH_VERIFIED: ${{ vars.GOOGLE_DRIVE_OAUTH_PROD_VERIFIED || 'false' }}
@@ -579,7 +596,7 @@ jobs:
           protocol-dir: ./consent-protocol
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -588,8 +605,21 @@ jobs:
             -o /usr/local/bin/cloud-sql-proxy
           chmod +x /usr/local/bin/cloud-sql-proxy
 
+      - name: Verify protected document reader and rollback compatibility
+        if: steps.document-mode.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" deploy/drive/resolve_protected_document_release.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --environment production \
+            --target-sha "${{ github.event.inputs.sha }}" \
+            --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
+            --verify-previous --json-output /tmp/prod-document-reader-compatibility.json
+          echo "HUSHH_DOCUMENT_READER_GUARD_REPORT=/tmp/prod-document-reader-compatibility.json" >> "$GITHUB_ENV"
+          echo "HUSHH_DOCUMENT_READER_ENVIRONMENT=production" >> "$GITHUB_ENV"
+
       - name: Attest production Drive database before secret sync
-        if: steps.drive-mode.outputs.active == 'true' && steps.scope.outputs.deploy_backend == 'true'
+        if: (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1020,7 +1050,7 @@ jobs:
               --release-environment production \
               --migration-mode replay
           )
-          if [ "${{ steps.drive-mode.outputs.active }}" = true ]; then
+          if [ "${{ steps.drive-mode.outputs.active }}" = true ] || [ "${{ steps.document-mode.outputs.configured }}" = true ]; then
             export ENVIRONMENT=production
             export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"
             (
@@ -1115,11 +1145,14 @@ jobs:
             exit 1
           fi
           DRIVE_SUBSTITUTIONS=",_BACKEND_RUNTIME_CONFIG_JSON_SECRET=${DRIVE_CANDIDATE_RUNTIME_SECRET}"
+          if grep -Fq '${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}' deploy/backend.cloudbuild.yaml; then
+            DRIVE_SUBSTITUTIONS+=",_PROTECTED_DOCUMENT_DELIVERY_ENABLED=${{ steps.document-mode.outputs.enabled || 'false' }}"
+          fi
           DRIVE_SUBSTITUTIONS+=",_CURATED_CONNECTOR_SECRETS=${{ steps.prod-curated-secrets.outputs.names }}"
           DRIVE_SUBSTITUTIONS+=",_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
           DRIVE_SUBSTITUTIONS+=",_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_PROD_ENABLED || 'true' }},_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_PROD_ENABLED || 'false' }},_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_PROD_ENABLED || 'false' }},_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_PROD_REVIEWED || 'false' }},_PKM_ANSWER_STRIPE_MODE=live,_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET,_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_PROD_SECRET || '' }},_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_PROD_ENABLED || 'false' }},_ANSWER_WORK_DRAIN_AUDIENCE=https://api.hushh.ai"
           DRIVE_SUBSTITUTIONS+=",_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true,_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
-          if [ "${{ steps.drive-mode.outputs.active }}" = "true" ]; then
+          if [ "${{ steps.drive-mode.outputs.active }}" = "true" ] || [ "${{ steps.document-mode.outputs.configured }}" = "true" ]; then
             DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=true,_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
           elif [ "${{ steps.prod-curated-secrets.outputs.enabled }}" = "true" ]; then
             DRIVE_SUBSTITUTIONS+=",_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
@@ -1192,6 +1225,7 @@ jobs:
           EXPECTED_SHA: ${{ github.event.inputs.sha }}
           EXPECTED_IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
           DRIVE_ENABLED: ${{ steps.drive-mode.outputs.active }}
+          DOCUMENT_DELIVERY_CONFIGURED: ${{ steps.document-mode.outputs.configured }}
           DRIVE_CANDIDATE_RUNTIME_SECRET: ${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}
         run: |
           set -euo pipefail
@@ -1260,6 +1294,15 @@ jobs:
                   "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL"
               ) == "gmail-personal-monitor-sched@hushh-pda.iam.gserviceaccount.com",
           }
+          if os.environ.get("DOCUMENT_DELIVERY_CONFIGURED") == "true":
+              checks["hosted_provider_and_custody_refs"] = all(
+                  secret_refs.get(name) == name for name in (
+                      "GOOGLE_DRIVE_OAUTH_CLIENT_ID", "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET",
+                      "GOOGLE_DRIVE_PICKER_API_KEY", "EXTERNAL_CONNECTOR_CREDENTIAL_KEY",
+                      "DRIVE_DOCUMENT_KEY_V1", "DRIVE_SHARING_KEY_V1",
+                      "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+                  )
+              )
           report = {
               "status": "ready" if all(checks.values()) else "blocked",
               "revision": expected_revision,
@@ -1512,7 +1555,7 @@ jobs:
 
       - name: Deploy and attest private production Drive worker
         id: deploy-drive-worker
-        if: steps.drive-mode.outputs.active == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success' && steps.verify-connected-systems.outcome == 'success'
+        if: (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success' && steps.verify-connected-systems.outcome == 'success'
         continue-on-error: true
         shell: bash
         env:
@@ -1522,7 +1565,9 @@ jobs:
           RELEASE_RUN_ID: ${{ github.run_id }}
           RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
           DRIVE_RUNTIME_CONFIG_SECRET: ${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}
-          ENABLE_PRODUCTION_DRIVE_LIVE: "true"
+          ENABLE_PRODUCTION_DRIVE_LIVE: ${{ steps.drive-mode.outputs.active }}
+          PROTECTED_DOCUMENT_MAINTENANCE: ${{ steps.document-mode.outputs.configured }}
+          PROTECTED_DOCUMENT_DELIVERY_ENABLED: ${{ steps.document-mode.outputs.enabled || 'false' }}
           DRIVE_REQUEST_PAYMENTS_PROD_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_PROD_ENABLED || 'false' }}
         run: |
           set -euo pipefail
@@ -1533,7 +1578,7 @@ jobs:
       # freshly built revision, then health-gate it, then auto-roll-back on failure.
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
-        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || steps.verify-connected-systems.outcome == 'success') && (steps.scope.outputs.deploy_backend != 'true' || steps.drive-mode.outputs.active != 'true' || steps.deploy-drive-worker.outcome == 'success')
+        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || steps.verify-connected-systems.outcome == 'success') && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && steps.document-mode.outputs.configured != 'true') || steps.deploy-drive-worker.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -1553,7 +1598,7 @@ jobs:
 
       - name: Quarantine production Drive jobs after disabling live Drive
         id: pause-drive-worker
-        if: steps.drive-mode.outputs.active != 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success'
+        if: steps.drive-mode.outputs.active != 'true' && steps.document-mode.outputs.configured != 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -1667,6 +1712,7 @@ jobs:
           PARITY_OUTCOME: ${{ steps.verify-parity.outcome }}
           CONNECTED_SYSTEMS_OUTCOME: ${{ steps.verify-connected-systems.outcome }}
           DRIVE_ENABLED: ${{ steps.drive-mode.outputs.active }}
+          DOCUMENT_DELIVERY_CONFIGURED: ${{ steps.document-mode.outputs.configured }}
           DRIVE_WORKER_OUTCOME: ${{ steps.deploy-drive-worker.outcome }}
           DRIVE_PAUSE_OUTCOME: ${{ steps.pause-drive-worker.outcome }}
           DRIVE_PAUSE_SNAPSHOT: ${{ steps.pause-drive-worker.outputs.snapshot }}
@@ -1727,10 +1773,10 @@ jobs:
           fi
           if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PARITY_OUTCOME" = "success" ] \
              && [ "$CONNECTED_SYSTEMS_OUTCOME" = "success" ]; then
-            if [ "$DRIVE_ENABLED" = "true" ] && [ "$DRIVE_WORKER_OUTCOME" != "success" ]; then
+            if { [ "$DRIVE_ENABLED" = "true" ] || [ "$DOCUMENT_DELIVERY_CONFIGURED" = "true" ]; } && [ "$DRIVE_WORKER_OUTCOME" != "success" ]; then
               drive_worker_failed=true
             fi
-            if [ "$DRIVE_ENABLED" != "true" ] && [ "$DRIVE_PAUSE_OUTCOME" != "success" ]; then
+            if [ "$DRIVE_ENABLED" != "true" ] && [ "$DOCUMENT_DELIVERY_CONFIGURED" != "true" ] && [ "$DRIVE_PAUSE_OUTCOME" != "success" ]; then
               drive_pause_failed=true
               backend_failure=true
             fi
@@ -2118,6 +2164,8 @@ jobs:
             /tmp/prod-runtime-secret-sync.json
             /tmp/prod-frontend-runtime-secret-sync.json
             /tmp/prod-runtime-parity.json
+            /tmp/prod-protected-document-release.json
+            /tmp/prod-document-reader-compatibility.json
             /tmp/prod-connected-systems-availability.json
             /tmp/prod-connected-systems.log
             /tmp/prod-backend-provenance.json

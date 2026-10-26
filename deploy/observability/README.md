@@ -160,7 +160,15 @@ auth policies and clears their channels. It does not delete monitoring history.
 
 `[Managed] Auth Service Failures` opens after at least three server failures in
 five minutes across identity refresh, phone claim/finalization, test-phone
-start/confirm and vault bootstrap. It uses existing `request.summary` route
+start/confirm, transfer prepare/confirm/status and vault bootstrap. Provider proof,
+unlink, recovery and verified-notice failures use the same content-free metric.
+For a phone transfer alert, inspect workflow/effect/notice states by opaque
+operation ID. `dispatched` and `uncertain` are not retry permission: drain the
+original worker and use the existing generation-bound mutation journal. A phone
+being absent in a provider read is not proof that an earlier POST has stopped.
+Never delete the previous account, clear the admission fence or replay an
+uncertain unlink to silence an incident. Existing account recovery remains the
+owner path while support resolves the uncertain receipt. It uses existing `request.summary` route
 templates and `server_error` outcomes, so invalid OTPs, ownership conflicts and
 ordinary client rate limits do not page. The incident aggregates revisions into
 one series and sends opening/recovery notices without repeat reminders. Keep

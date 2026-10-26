@@ -2944,6 +2944,64 @@
       }
     },
     {
+      "route": "/one/documents/open",
+      "page_file": "app/one/documents/open/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/consent/hosted-documents-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.documents.open",
+          "purpose": "Read and explicitly download approved encrypted document copies after One authentication, vault unlock and current recipient entitlement.",
+          "screen": "one_documents",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Preview is local display only. Download starts only after an explicit request; neither establishes payment or durable saving.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally without inventing a control."
+        }
+      },
+      "native": {
+        "route": "/one/documents/open",
+        "classification": "excluded-web-only",
+        "reason": "GAP, not a permanent exclusion. Initial hosted PDF preparation and recipient preview/download are qualified in supported browsers; nativeViewerEnabled remains false and the app offers browser handoff. Close this gap with actual iOS/Android encrypted-byte, PDF rendering, Save/Share cancellation and cache cleanup proof before native admission."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/email",
       "page_file": "app/one/email/page.tsx",
       "physical_page_exists": true,
@@ -9128,7 +9186,7 @@
         ]
       },
       "shell": {
-        "app_page_shell": false,
+        "app_page_shell": true,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
@@ -9781,7 +9839,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Phone verification completes only after the submitted code is accepted.",
+          "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
           "next_route": "/one/setup",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -9808,10 +9866,16 @@
       },
       "voice_action_contract_file": "app/register-phone/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
+        "phone_mandate.delete_previous",
+        "phone_mandate.recover",
         "phone_mandate.select_country",
         "phone_mandate.submit_code",
-        "phone_mandate.submit_number"
+        "phone_mandate.submit_number",
+        "phone_mandate.transfer_cancel",
+        "phone_mandate.transfer_confirm",
+        "phone_mandate.transfer_review"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -10933,5 +10997,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "fca3d66bee2c811956178c4d6e079a76443373c36771ddb5b40f3b0785654d16"
+  "content_sha256": "43154469b5c1704a026e0f632e635fa002e0a807596a623ec6d600541d69534f"
 }

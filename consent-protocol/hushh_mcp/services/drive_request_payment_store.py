@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.document_delivery.payment_integration import optional_payment_state
 from hushh_mcp.services.drive_owner_allowed import (
     DEFAULT_PRICE_CENTS,
     autoshare_owner_allow_authority,
@@ -88,6 +89,7 @@ def _record_new_owner_payout(
     settlement_method: str = "stripe_transfer",
 ) -> None:
     """Enroll only new orders, atomically with their immutable payment price."""
+    from hushh_mcp.services.document_delivery.finance import payout_admitted
     from hushh_mcp.services.drive_request_owner_payout_service import (
         DriveRequestOwnerPayoutService,
         payout_enabled,
@@ -95,7 +97,12 @@ def _record_new_owner_payout(
 
     if quoted_request or payout_enabled():
         if quoted_request:
-            if not payout_enabled():
+            if not payout_enabled() and not payout_admitted(
+                connection,
+                request_id=request_id,
+                owner_user_id=owner_user_id,
+                amount_cents=amount_cents,
+            ):
                 raise DriveSharingError("payout_unavailable")
             account = None
             if settlement_method != "hashcoins":
@@ -784,26 +791,9 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     "stripe_mode": configured_stripe_mode(),
                 },
             )
-            if not request["payment_required"] and (
-                order is None or order["status"] not in {"paid", "refunded"}
-            ):
-                private = DriveSharingCipher().open(
-                    request["request_envelope"],
-                    user_id=request["user_id"],
-                    resource_id=str(request["request_id"]),
-                    purpose="request",
-                )
-                return {
-                    "status": "not_required",
-                    "amountCents": 0,
-                    "currency": "usd",
-                    **(
-                        {"existingAccess": True}
-                        if request["status"] == "completed"
-                        and private.get("existing_access_delivery")
-                        else {}
-                    ),
-                }
+            initial = optional_payment_state(self, connection, request, order, requester_user_id)
+            if initial is not None:
+                return initial
             payout_enrolled = bool(order and order.get("payout_enrolled"))
             request_expired = (
                 request["status"]

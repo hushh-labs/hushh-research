@@ -1,3 +1,5 @@
+import { withQuery } from "./route-query";
+
 /**
  * Central route contract for the web + Capacitor app.
  * Keep every app-level navigation target here to avoid drift.
@@ -18,24 +20,6 @@ export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
 export type KaiMarketTab = "market" | "portfolio" | "analysis";
 export type KaiPortfolioSection =
   "holdings" | "allocation" | "performance" | "sources";
-
-function withQuery(
-  pathname: string,
-  entries: Record<string, string | null | undefined>,
-) {
-  const [basePath = pathname, existingQuery = ""] = pathname.split("?", 2);
-  const params = new URLSearchParams(existingQuery);
-
-  for (const [key, value] of Object.entries(entries)) {
-    const normalized = String(value ?? "").trim();
-    if (normalized) {
-      params.set(key, normalized);
-    }
-  }
-
-  const query = params.toString();
-  return query ? `${basePath}?${query}` : basePath;
-}
 
 /** Build every canonical Finance workspace URL from one path and explicit tab. */
 export function buildKaiMarketRoute(
@@ -218,6 +202,7 @@ export const ROUTES = {
   /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
   ONE_KYC: "/one/email",
   ONE_FILES: "/one/files",
+  ONE_DOCUMENTS_OPEN: "/one/documents/open",
   ONE_CAREER: "/one/career",
   /** Dedicated full-page weekly referral dashboard. `/one/profile/referrals` redirects here. */
   ONE_REFERRALS: "/one/referrals",

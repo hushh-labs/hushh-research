@@ -454,15 +454,17 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
 
   it.each([true, false])("requires backend persistence for a web phone replacement (available: %s)", async available => {
     mocks.firebaseUser = makeUser("account-owner", "+919000000001");
-    const verified = makeUser("account-owner", "+12025550101");
-    mocks.phoneReplacementConfirm.mockResolvedValue(verified);
-    if (!available) mocks.phoneFinalize.mockRejectedValue(new Error("Phone verification could not be saved"));
+    mocks.identityClaim.mockResolvedValue({ user_id: "account-owner", phone_number: "+12025550101", phone_verified: true });
+    if (!available) mocks.identityClaim.mockRejectedValue(new Error("Phone verification could not be saved"));
     render(<AuthProvider><SessionProbe /><RetainedPhoneProbe replacement /></AuthProvider>);
     await screen.findByText("Vault content for account-owner");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start retained phone" })); });
     fireEvent.click(screen.getByRole("button", { name: "Confirm current phone" }));
-    await waitFor(() => expect(mocks.phoneFinalize).toHaveBeenCalledWith(verified, "+12025550101"));
+    await waitFor(() => expect(mocks.identityClaim).toHaveBeenCalledWith(mocks.firebaseUser, "phone-id-token"));
     await waitFor(() => expect(screen.getByTestId("retained-phone-error")).toHaveTextContent(available ? "Saved" : "could not be saved"));
+    expect(mocks.phoneReplacementConfirm).not.toHaveBeenCalled();
+    expect(mocks.phoneFinalize).not.toHaveBeenCalled();
+    expect(mocks.firebaseUser?.phoneNumber).toBe("+919000000001");
   });
 
   it("repairs a provider-linked replacement after a backend outage without sending another OTP", async () => {

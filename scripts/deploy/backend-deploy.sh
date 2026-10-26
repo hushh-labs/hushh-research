@@ -74,6 +74,8 @@ source scripts/deploy/backend-drive-secret-settings.sh
 # missing substitution cannot enable a rollout or drop the drain's identity.
 _PKM_ANSWER_REQUESTS_ENABLED=""
 _answer_requests_seen=0
+_PROTECTED_DOCUMENT_DELIVERY_ENABLED=false
+_protected_documents_seen=0
 IFS=',' read -r -a _drive_work_pairs <<< "${_DRIVE_WORK_DRAIN_SETTINGS:?missing Drive work-drain settings}"
 for _pair in "${_drive_work_pairs[@]}"; do
   [[ "${_pair}" == *=* ]] || { echo "Invalid Drive work-drain settings." >&2; exit 1; }
@@ -93,6 +95,10 @@ for _pair in "${_drive_work_pairs[@]}"; do
       [[ "${_answer_requests_seen}" == "0" ]] || { echo "Duplicate answer requests flag." >&2; exit 1; }
       _answer_requests_seen=1
       _PKM_ANSWER_REQUESTS_ENABLED="${_value}" ;;
+    protected_documents)
+      [[ "${_protected_documents_seen}" == "0" ]] || { echo "Duplicate protected documents flag." >&2; exit 1; }
+      _protected_documents_seen=1
+      _PROTECTED_DOCUMENT_DELIVERY_ENABLED="${_value}" ;;
     answer_payments) _PKM_ANSWER_PAYMENTS_ENABLED="${_value}" ;;
     answer_composer) _PKM_ANSWER_COMPOSER_ENABLED="${_value}" ;;
     answer_live_provider_reviewed) _PKM_ANSWER_LIVE_PROVIDER_REVIEWED="${_value}" ;;
@@ -102,7 +108,8 @@ for _pair in "${_drive_work_pairs[@]}"; do
     *) echo "Drive work-drain settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_work_pairs[@]}" -ne $((16 + _answer_requests_seen)) ]] ||
+if [[ "${#_drive_work_pairs[@]}" -ne $((16 + _answer_requests_seen + _protected_documents_seen)) ]] ||
+  [[ "${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}" != "true" && "${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}" != "false" ]] ||
   [[ "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "true" && "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "false" ]]; then
@@ -431,6 +438,8 @@ append_optional_env "ACCOUNT_DELETION_CLEANUP_AUDIENCE" "${_ACCOUNT_DELETION_CLE
 append_optional_env "ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL" "${_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
 append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
+# Pin intake on this immutable revision; mutable runtime JSON cannot prove OFF.
+append_optional_env "PROTECTED_DOCUMENT_DELIVERY_ENABLED" "${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}"
 append_optional_env "DRIVE_WORK_DRAIN_ENABLED" "${_DRIVE_WORK_DRAIN_ENABLED}"
 append_optional_env "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED" "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}"
 append_optional_env "STRIPE_MODE" "${_STRIPE_MODE}"

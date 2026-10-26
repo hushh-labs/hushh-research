@@ -65,6 +65,56 @@ needs no cloud access (it is part of `repo-governance-check.sh`). A live read th
 GCP refuses is reported as `deploy_identity_unverifiable` with a non-zero exit — it
 is never recorded as a pass.
 
+The grant record also covers the existing production release gates, rather than
+exempting their bindings from the live comparison:
+
+| Recorded role | Existing workflow consumer |
+|---|---|
+| `roles/cloudsql.client` | Cloud SQL Auth Proxy connections for migration, producer qualification and activation |
+| `roles/cloudsql.viewer` | Backup/PITR posture and recent successful backup reads |
+| `roles/logging.viewer` | Fresh Scheduler `AttemptFinished` evidence for cleanup activation |
+| `projects/hushh-pda/roles/accountDeletionSchedulerOperator` | Cleanup Scheduler jobs get, list, create, update and run; locations list |
+| `projects/hushh-pda/roles/predeployBackupOperator` | Optional predeploy backup runs create, get and list |
+
+The two project custom roles are already provisioned in production. Their
+observed permissions are limited respectively to
+`cloudscheduler.jobs.{get,list,create,update,run}` plus
+`cloudscheduler.locations.list`, and
+`cloudsql.backupRuns.{create,get,list}`. Reconciliation records these existing
+bindings; it does not require new live grants. The provider still accepts only
+this repository's production environment on `main`, and the detector continues
+to reject every undeclared project role, including privilege escalation.
+See the [cleanup activation contract](../../docs/reference/operations/account-deletion-rollout.md#production-procedure)
+and [backup posture contract](../../docs/reference/operations/production-db-backup-and-recovery.md).
+
+## Drive prerequisite reads
+
+The fixed production Drive preflight also runs when a protected-document bucket
+is configured with intake off, because the private maintenance worker still
+needs provider and custody qualification. The canonical setup declares
+`productionDrivePrerequisiteReader` with exactly:
+
+- `apikeys.keys.list` for the reviewed Picker key's restrictions;
+- `apikeys.keys.getKeyString` for its in-memory comparison with the existing
+  Picker secret;
+- `resourcemanager.projects.getIamPolicy` for the runtime's Scheduler-run grant.
+
+These are project-level permissions. In particular, key-string read authority
+covers API keys in the production project; it is not restricted to the Picker
+key. The preflight reads only the fixed reviewed key, retains credential values
+in memory and never prints them. The role grants no key creation, update,
+deletion or IAM-policy mutation. Existing service-account reads are already
+covered by the exact runtime and Scheduler account bindings and are not added.
+
+Applying the reviewed canonical setup creates or updates this role and binds it
+only to the existing production deployer. It does not create another identity,
+change OIDC restrictions or grant UAT authority. The live identity verifier also
+compares the role's name, permissions, declared launch stage and deleted state
+with the declarations in that same setup script. Missing or extra permissions
+fail verification. `--record-only` remains cloud-free. Setup completion and live
+permission readback
+are separate evidence from a successful run of the real production preflight.
+
 ## Production image promotion
 
 For Dev to UAT, use the separate [UAT image promotion plan](#uat-image-promotion).

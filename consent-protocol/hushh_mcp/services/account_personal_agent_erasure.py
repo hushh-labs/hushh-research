@@ -204,6 +204,9 @@ def _azure_setup_has_no_effects(
 def assert_external_resources_absent(
     conn, *, params: dict[str, Any], table_exists: Callable, finalize_erasure: bool = False
 ) -> dict[str, bool]:
+    from hushh_mcp.services.phone_transfer_service import assert_erasure_ready
+
+    assert_erasure_ready(conn, params["user_id"], table_exists)
     table_presence, registry_row, byoc_row, lifecycle_row, migration_row = _read_locked_state(
         conn, params, table_exists
     )
@@ -277,4 +280,29 @@ def personal_agent_erasure_queries() -> dict:
         "personal_agent_cloud_removals": text(
             "DELETE FROM personal_agent_cloud_removals WHERE user_id = :user_id"
         ),
+    }
+
+
+async def cloud_cleanup_required_result(user_id: str) -> dict:
+    from hushh_mcp.services.account_service import PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE, logger
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    provider = None
+    try:
+        registry = PersonalAgentRegistryRepo()
+        owner = await registry.get(user_id)
+        provider = (owner or {}).get("deployment_target")
+        if provider not in {"user_gcp", "user_azure"} and owner:
+            from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
+
+            if await AzureTeardownStore(registry).can_offer_failed_setup_cleanup(user_id, owner):
+                provider = "user_azure"
+    except Exception as exc:
+        logger.warning("account_deletion.cloud_review_unavailable error=%s", type(exc).__name__)
+    return {
+        "success": False,
+        "account_deleted": False,
+        "error_code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+        "error": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+        "cleanup_provider": provider,
     }

@@ -187,14 +187,14 @@ jobs:
           }
 
       - name: Materialize automatic packaging credentials
-        if: inputs.cadence_origin != ''
+        if: inputs.cadence_origin != '' || inputs.marketing_version == ''
         run: |
           set -euo pipefail
           python3 -m pip install --quiet pyjwt cryptography
           bash scripts/ci/materialize-ios-asc-key.sh
       - name: Resolve automatic packaging before allocating macOS
         id: packaging
-        if: inputs.cadence_origin != ''
+        if: inputs.cadence_origin != '' || inputs.marketing_version == ''
         env:
           RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
         run: |

@@ -243,59 +243,30 @@ def _account_not_found_error() -> HTTPException:
 
 
 def _assert_account_not_deleted(uid: str) -> None:
-    """Fail closed before any authenticated handler can bootstrap user state."""
-    from hushh_mcp.services.account_deletion_lifecycle_service import (
-        AccountDeletionInProgressError,
-        AccountDeletionLifecycleService,
-    )
+    from api.utils.account_principal_policy import assert_account_not_deleted
 
-    try:
-        deleted = AccountDeletionLifecycleService.is_tombstoned(uid)
-    except AccountDeletionInProgressError:
-        raise HTTPException(
-            status_code=423,
-            detail={
-                "code": "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
-                "message": "Account deletion is in progress.",
-            },
-            headers={"Cache-Control": "private, no-store", "Retry-After": "2"},
-        ) from None
-    except Exception as exc:
-        logger.error(
-            "firebase.account_deletion_status_unavailable error=%s",
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "AUTH_SESSION_STATUS_UNAVAILABLE",
-                "message": "Authentication status is temporarily unavailable",
-            },
-            headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
-        ) from None
-    if deleted:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "AUTH_ACCOUNT_NOT_FOUND",
-                "account_lifecycle": "deleted",
-                "message": "Account information has been deleted",
-            },
-            headers={"Cache-Control": "private, no-store"},
-        )
+    assert_account_not_deleted(uid, logger=logger)
 
 
 def verify_firebase_bearer(
     authorization: Optional[str],
     *,
     check_revoked: bool = True,
+    require_independent_signin: bool = False,
 ) -> str:
     """Return the admitted application owner, preserving generation-zero UIDs."""
-    return verify_firebase_principal(authorization, check_revoked=check_revoked).owner_id
+    return verify_firebase_principal(
+        authorization,
+        check_revoked=check_revoked,
+        require_independent_signin=require_independent_signin,
+    ).owner_id
 
 
 def verify_firebase_principal(
-    authorization: Optional[str], *, check_revoked: bool = True
+    authorization: Optional[str],
+    *,
+    check_revoked: bool = True,
+    require_independent_signin: bool = False,
 ) -> AccountPrincipal:
     """Keep external authentication and immutable application ownership distinct.
 
@@ -313,6 +284,12 @@ def verify_firebase_principal(
 
     def resolve(claims: Mapping[str, Any]) -> str:
         nonlocal principal
+        from api.utils.account_principal_policy import (
+            admit_phone_principal,
+            require_independent_phone_signin,
+        )
+
+        require_independent_phone_signin(claims, required=require_independent_signin)
         try:
             if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
                 principal = AccountGenerationService.resolve_verified_identity(
@@ -336,6 +313,7 @@ def verify_firebase_principal(
                 detail={"code": "AUTH_SESSION_STATUS_UNAVAILABLE"},
                 headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
             ) from None
+        admit_phone_principal(principal.owner_id, claims)
         return principal.owner_id
 
     _verify_firebase_bearer(

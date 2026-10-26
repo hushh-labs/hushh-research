@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -105,6 +106,42 @@ def _retained_dev_inference_bridge(
     return {key: value}
 
 
+def _retained_document_delivery(
+    existing: dict[str, Any], *, project: str, environment: str
+) -> dict[str, Any]:
+    """Keep paid-copy storage reachable when new enrollment is switched off."""
+    enabled_key = "protected_document_delivery"
+    keys = (
+        "document_delivery_bucket",
+        "document_delivery_bucket_identity",
+    )
+    if not any(key in existing for key in (enabled_key, *keys)):
+        return {}
+    enabled = existing.get(enabled_key, False)
+    if isinstance(enabled, str) and enabled in {"true", "false"}:
+        enabled = enabled == "true"
+    if not isinstance(enabled, bool):
+        raise ValueError("Document delivery activation must be an explicit boolean")
+    values = {key: existing.get(key, "") for key in keys}
+    if not enabled and not any(values.values()):
+        return {enabled_key: False}
+    expected_project = {"uat": "hushh-pda-uat", "production": "hushh-pda"}.get(environment)
+    if (
+        expected_project is None
+        or project != expected_project
+        or existing.get("environment") != environment
+        or existing.get("google_cloud_project") != project
+    ):
+        raise ValueError("Document delivery belongs to a different environment and project")
+    if (
+        values[keys[0]] != f"{project}-document-delivery"
+        or not isinstance(values[keys[1]], str)
+        or not re.fullmatch(r"[0-9a-f]{64}", values[keys[1]])
+    ):
+        raise ValueError("Document delivery requires an explicit qualified storage binding")
+    return {enabled_key: enabled, **values}
+
+
 def retained_settings(
     existing: dict[str, Any], *, project: str, environment: str
 ) -> dict[str, Any]:
@@ -114,6 +151,7 @@ def retained_settings(
         **_retained_dev_inference_bridge(
             existing, project=project, environment=environment
         ),
+        **_retained_document_delivery(existing, project=project, environment=environment),
     }
     key = "auth_db_listener_isolation_enabled"
     if key in existing:

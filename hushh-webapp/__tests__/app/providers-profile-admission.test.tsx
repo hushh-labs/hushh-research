@@ -14,7 +14,6 @@ const unrelated: Array<[string, string[]]> = [
   ["@/components/connections/contact-invitation-session-provider", ["ContactInvitationSessionProvider"]],
   ["@/components/connections/azure-return-boot-recovery", ["AzureReturnBootRecovery"]],
   ["@/components/onboarding/initial-contacts-bridge", ["InitialContactsBridge"]],
-  ["@/lib/vault/vault-context", ["VaultProvider"]],
   ["@/lib/progress/step-progress-context", ["StepProgressProvider"]],
   ["@/components/app-ui/step-progress-bar", ["StepProgressBar"]],
   ["@/lib/cache/cache-context", ["CacheProvider"]],

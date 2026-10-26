@@ -37,6 +37,7 @@ def _no_leftover_tasks():
 async def test_the_claim_returns_while_the_attach_is_still_running(monkeypatch):
     service = ActorIdentityService()
     conn = _PhoneClaimFakeConnection()
+    conn.rows.pop("other-firebase-user-1234567890")  # Fresh number; this test owns resume timing.
     started, release = asyncio.Event(), asyncio.Event()
     resumed: list[tuple[str, str]] = []
 

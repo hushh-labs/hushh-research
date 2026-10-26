@@ -2181,7 +2181,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "Card request query opens an authenticated Dialog overlay. Back dismisses that review first. Add and Sharing unwind through the previous local tab and selected masked card before the authored Wallet parent; Cancel uses the same reset. A pending save consumes Back. Verified in wallet-workspace.layout.spec.ts and wallet-workspace.test.tsx."
+      "reason": "Card request query opens an authenticated Dialog overlay. Back dismisses that review first. Add is a sheet over the two local collections, My cards and Shared with me. Back and Cancel use the same draft reset and restore the previous selected masked card. Card details, Manage access, Wallet-wide access and sharing history unwind their local layers before the authored Wallet parent. A pending save consumes Back. Verified in wallet-workspace.layout.spec.ts and wallet-workspace.test.tsx."
     }
   },
   {
@@ -2651,7 +2651,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Phone verification completes only after the submitted code is accepted.",
+      "completionBoundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
       "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2664,7 +2664,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."
+      "reason": "Mandatory phone verification owns nested Back: transfer review returns to recovery choices, choices return to phone entry, and a dispatched transfer consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx."
     }
   },
   {
@@ -7860,5 +7860,54 @@
       "reason": "External recipient browser entry owns its own return path."
     },
     "persistentChrome": "none"
+  },
+  {
+    "route": "/one/documents/open",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/consent/hosted-documents-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.documents.open",
+      "purpose": "Read and explicitly download approved encrypted document copies after One authentication, vault unlock and current recipient entitlement.",
+      "screen": "one_documents",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Preview is local display only. Download starts only after an explicit request; neither establishes payment or durable saving.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/documents/open?ref=00000000-0000-4000-8000-000000000001",
+          "expected": {
+            "href": "/one/consent",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "reason": "The protected reader first closes its registered preview layer and clears decrypted bytes; the authored route parent is the access manager. No raw history fallback."
+    }
   }
 ]

@@ -20,6 +20,7 @@ from sqlalchemy import text
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore, DocumentReviewAuthority
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.document_delivery import status_integration
 from hushh_mcp.services.drive_document_store import (
     PROCESSING_DISCLOSURE_VERSION,
     DriveDocumentStore,
@@ -2173,6 +2174,8 @@ class DriveSharingStore(DriveDocumentStore):
             str(source.document_id) for source in approval.sources
         ):
             raise DriveSharingError("invalid_selection")
+        if self._open_request(request).get("document_delivery_version") == 1:
+            raise DriveSharingError("delivery_review_required")
         recipient = self._open_request(request)["recipient"]
         for source in sources:
             metadata = self._source_metadata(source)
@@ -2779,26 +2782,12 @@ class DriveSharingStore(DriveDocumentStore):
                 }
             recipient = row["recipient_user_id"] == user_id
             private = self._open_request(row)
+            hosted = status_integration.hosted_status(self, connection, row, user_id, private)
+            if hosted is not None:
+                return hosted
             setup = self._request_setup(connection, row, private)
-            payout_setup_relevant = bool(
-                row["payment_required"] is True
-                and row.get("settlement_method", "stripe_transfer") != "hashcoins"
-                and (
-                    (
-                        row["status"]
-                        in {"pending", "preparing", "review_ready", "approved", "partial"}
-                        and row["expires_at"] > datetime.now(UTC)
-                    )
-                    or row["owner_payout_status"]
-                    in {
-                        "awaiting_account",
-                        "due",
-                        "awaiting_delivery",
-                        "awaiting_fee",
-                        "awaiting_refund",
-                    }
-                )
-            )
+            payout_setup_relevant = status_integration.payout_setup_relevant(row)
+
             now = datetime.now(UTC)
             return {
                 **self._summary(row, recipient=recipient),

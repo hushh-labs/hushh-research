@@ -54,6 +54,8 @@ tests/services/test_connector_attempt_retention.py
 tests/test_drive_work_drain_routes.py
 tests/services/test_drive_work_wake.py
 tests/test_prod_drive_deploy_contract.py
+tests/test_prod_drive_prerequisite_diagnostics.py
+tests/test_protected_document_release_contract.py
 tests/test_drive_work_drain_scheduler_contract.py
 tests/test_drive_worker_server.py
 tests/test_drive_worker_revision_provenance.py
@@ -127,12 +129,19 @@ tests/services/test_drive_trusted_auto.py
 # exactly the in-period notes A may share, end to end on PostgreSQL.
 tests/services/test_drive_owner_meeting_notes_scenario.py
 tests/services/test_drive_request_payment.py
+tests/services/test_drive_request_payment_status.py
+tests/services/test_document_delivery.py
+tests/services/test_document_delivery_custody.py
+tests/services/test_document_delivery_commerce.py
+tests/services/test_document_delivery_recovery.py
+tests/services/test_document_delivery_lifecycle.py
 tests/services/test_drive_autoshare_pay_then_stream_postgres.py
 # Pay once, then stream: the real request pipeline against a fake Drive and
 # Stripe. Checkout opens mid-search, nothing is shared before payment, every
 # match is shared once after it, and every paid request settles exactly once.
 tests/services/test_drive_pay_stream_acceptance_postgres.py
 tests/test_drive_request_owner_payouts.py
+tests/test_drive_request_owner_payout_refund_states.py
 tests/test_stripe_connect_bank_payouts.py
 # Hashcoin liabilities and test-only redemption must run against real PostgreSQL.
 tests/test_hashcoin_wallet.py
@@ -1477,3 +1486,7 @@ tests/services/test_drive_packet_public_summary_postgres.py
 tests/test_drive_packet_public_summary_routes.py
 
 tests/test_consumer_consent_replay_postgres.py
+
+tests/test_phone_transfer_postgres.py
+
+tests/test_phone_transfer_authority.py

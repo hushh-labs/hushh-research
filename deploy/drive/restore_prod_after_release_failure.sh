@@ -46,9 +46,7 @@ if metadata.get("name") != os.environ["EXPECTED_REVISION"] or not any(
 ):
     raise SystemExit("Previous production Drive worker revision is not ready")
 '
-  gcloud run services update-traffic "${SERVICE}" \
-    --project="${PROJECT_ID}" --region="${REGION}" \
-    --to-revisions="${previous_revision}=100" --quiet
+  GCP_PROJECT_ID="${PROJECT_ID}" bash scripts/ci/cloudrun-rollback.sh "${SERVICE}" "${REGION}" "${previous_revision}"
   actual="$(gcloud run services describe "${SERVICE}" \
     --project="${PROJECT_ID}" --region="${REGION}" --format=json \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); t=(d.get("status") or {}).get("traffic") or []; r=[x.get("revisionName") for x in t if x.get("percent")==100]; print(r[0] if len(r)==1 else "")')"

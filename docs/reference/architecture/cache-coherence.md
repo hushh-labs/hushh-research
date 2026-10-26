@@ -55,6 +55,20 @@ Hussh frontend cache is split by sensitivity and runtime role:
 
 Every DB-backed mutation must still pass through `CacheSyncService` so views stay coherent without ad-hoc invalidation.
 
+## Protected document copies
+
+Hosted document terms, entitlement, packages and ciphertext use private/no-store
+requests. Decrypted PDF bytes, manifest and file keys stay in the current unlocked
+session; they are never written to CacheService, localStorage, sessionStorage or
+IndexedDB. Existing encrypted connector-key records in PKM retain historical keys
+needed by paid copies. A paid reader never silently creates a replacement key.
+
+The reader rechecks current entitlement before each preview/download and on focus.
+Expiry, vault/session change and unmount abort operations, clear decrypted bytes
+and canvas, and release the feature Back layer. Remote revoke fences future reads;
+bytes already returned or explicitly saved remain outside that guarantee. Hosted
+mutations notify the existing consent cache coordinator and refresh request views.
+
 ## Calendar invitation snapshots
 
 Calendar Invitations reuses memory-only `calendar_invitations_` snapshots for

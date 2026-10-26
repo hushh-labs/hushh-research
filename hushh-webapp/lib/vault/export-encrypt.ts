@@ -224,3 +224,27 @@ export async function wrapExportKeyForConnector(params: {
     connectorKeyId: params.connectorKeyId,
   };
 }
+
+/** Shared binary unwrap for the existing X25519-SHA256-AES-GCM connector profile. */
+export async function unwrapExportKeyForConnector(params: {
+  bundle: WrappedExportKeyBundle; connectorPrivateKey: string; connectorKeyId: string; additionalData?: string;
+}): Promise<Uint8Array> {
+  const { bundle } = params;
+  if (bundle.wrappingAlg !== "X25519-AES256-GCM" || bundle.connectorKeyId !== params.connectorKeyId)
+    throw new Error("document_key_unavailable");
+  const privateKey = await crypto.subtle.importKey("pkcs8", toArrayBuffer(base64ToBytes(params.connectorPrivateKey)), "X25519", false, ["deriveBits"]);
+  const sender = await crypto.subtle.importKey("raw", toArrayBuffer(base64ToBytes(bundle.senderPublicKey)), "X25519", false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "X25519", public: sender }, privateKey, 256));
+  const raw = new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBuffer(shared)));
+  shared.fill(0);
+  try {
+    const cipher = base64ToBytes(bundle.wrappedExportKey), tag = base64ToBytes(bundle.wrappedKeyTag);
+    if (cipher.length !== 32 || tag.length !== 16) throw new Error("document_key_invalid");
+    const combined = new Uint8Array(cipher.length + tag.length); combined.set(cipher); combined.set(tag, cipher.length);
+    const key = await crypto.subtle.importKey("raw", toArrayBuffer(raw), "AES-GCM", false, ["decrypt"]);
+    const opened = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: toArrayBuffer(base64ToBytes(bundle.wrappedKeyIv)),
+      ...(params.additionalData === undefined ? {} : { additionalData: new TextEncoder().encode(params.additionalData) }) }, key, toArrayBuffer(combined)));
+    if (opened.length !== 32) { opened.fill(0); throw new Error("document_key_invalid"); }
+    return opened;
+  } finally { raw.fill(0); }
+}
