@@ -441,8 +441,29 @@ def test_a_missing_record_fails_loudly() -> None:
     raise AssertionError("a missing record must raise, never yield an empty expectation")
 
 
+def test_backup_monitor_uses_production_main_and_read_only_identity() -> None:
+    import yaml
+
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/prod-cloudsql-backup-posture.yml").read_text()
+    )
+    job = workflow["jobs"]["backup-posture"]
+    assert job["environment"] == "production"
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    auth = next(step for step in job["steps"] if "google-github-actions/auth@" in step.get("uses", ""))
+    assert auth["with"]["service_account"] == "${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}"
+    assert any("google-github-actions/setup-gcloud@" in step.get("uses", "") for step in job["steps"])
+    setup = (REPO_ROOT / "deploy/iam/setup_production_backup_wif.sh").read_text()
+    assert "readonly PERMISSIONS=cloudsql.instances.get,cloudsql.backupRuns.list" in setup
+    assert "--env=production" in setup
+    assert "verify-deploy-identity-provenance.py" in setup
+    assert "roles/cloudsql.client" not in setup
+    assert "service-accounts keys create" not in setup
+
+
 def main() -> int:
     tests = [
+        test_backup_monitor_uses_production_main_and_read_only_identity,
         test_the_real_record_parses_and_interpolates,
         test_the_record_as_committed_is_coherent,
         test_record_only_never_reads_cloud_authority,

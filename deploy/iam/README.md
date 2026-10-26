@@ -174,3 +174,13 @@ deployment approval alone does not authorize these grants.
 The workflow stops on copy or permission failure before the migration fence.
 An explicit `backend_image_source=build-from-source` retains the ordinary build
 path while preserving exact-SHA Dev acceptance and all UAT release gates.
+
+## Scheduled backup monitoring
+
+`setup_production_backup_wif.sh` reuses this provider for the `production`
+environment on `main`. It provisions a separate `github-prod-backup-reader`
+identity with only `cloudsql.instances.get` and `cloudsql.backupRuns.list`, and
+sets the environment variable `GCP_BACKUP_SERVICE_ACCOUNT`. It cannot connect
+to the database, create/delete backups, deploy services or access runtime secrets.
+Run `Verify Production Backups` after configuration and inspect its JSON report;
+identity setup alone does not prove backup freshness or a successful restore drill.
