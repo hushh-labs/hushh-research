@@ -160,23 +160,7 @@ fi
 source deploy/drive/verify_hashcoin_config.sh "$PROJECT_ID"
 # Pack the related application flags to stay below Cloud Build's env cap.
 # Validate shape and booleans before any cloud mutation; never evaluate values.
-IFS=',' read -r -a _app_surface_pairs <<< "${_APP_SURFACE_SETTINGS:?missing application surface settings}"
-[[ "${#_app_surface_pairs[@]}" == 4 ]] || { echo "Application surface settings require four keys." >&2; exit 1; }
-_app_surface_seen="|"
-for _pair in "${_app_surface_pairs[@]}"; do
-  [[ "${_pair}" == *=* ]] || { echo "Invalid application surface setting." >&2; exit 1; }
-  _key="${_pair%%=*}"; _value="${_pair#*=}"
-  [[ "${_app_surface_seen}" != *"|${_key}|"* ]] || { echo "Duplicate application surface key." >&2; exit 1; }
-  _app_surface_seen+="${_key}|"
-  case "${_value}" in ""|true|false) ;; *) echo "Invalid application surface boolean." >&2; exit 1 ;; esac
-  case "${_key}" in
-    review) _APP_REVIEW_MODE="${_value}" ;;
-    wallet) _ONE_WALLET_CARD_ENABLED="${_value}" ;;
-    card_access) _WALLET_CARD_ACCESS_ENABLED="${_value}" ;;
-    phone_recovery) validate_phone_recovery_boolean "${_value}"; _AUTH_PHONE_RECOVERY_ENABLED="${_value}" ;;
-    *) echo "Unknown application surface key." >&2; exit 1 ;;
-  esac
-done
+source scripts/deploy/backend-app-surface-settings.sh
 # The account-deletion cleanup scheduler identity travels as one packed Cloud
 # Build entry (the step is at Cloud Build's 100-entry env cap). Both keys must be
 # present, even when empty, so a typo cannot silently drop the OIDC audience.
@@ -476,6 +460,7 @@ append_optional_env "WALLET_CARD_ACCESS_ENABLED" "${_WALLET_CARD_ACCESS_ENABLED}
 append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
 append_optional_env "AUTH_PHONE_RECOVERY_ENABLED" "${_AUTH_PHONE_RECOVERY_ENABLED}"
+append_optional_env "ACCOUNT_GENERATION_ADMISSION_ENABLED" "${_ACCOUNT_GENERATION_ADMISSION_ENABLED}"
 # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the proven
 # default. Ported from main 2026-09-02: the workflow passes it, this lane dropped it.
 append_optional_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"

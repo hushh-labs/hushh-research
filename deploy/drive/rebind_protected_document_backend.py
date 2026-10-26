@@ -104,3 +104,18 @@ def _replace_report(report_path: Path, report: dict) -> None:
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def restoration_mode(
+    mode: dict, *, project: str, target: str, verify_previous: bool
+) -> dict:
+    """Retain custody metadata while selecting the exact non-reader recovery."""
+    from runpy import run_path
+
+    if project != "hushh-pda" or verify_previous:
+        raise ValueError("Restoration requires its separately qualified baseline")
+    root = Path(__file__).resolve().parents[2]
+    run_path(str(root / "deploy/account-deletion/compatibility_restoration.py"))[
+        "qualify_source"
+    ](target)
+    return {**mode, "stored_enabled": mode["enabled"], "enabled": False}

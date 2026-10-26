@@ -76,7 +76,7 @@ Canonical pre-PR command:
 
 This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
 
-## Recorded production restoration — local integration checkpoint, 26 October 2026
+## Recorded production restoration — 26 October 2026
 
 Normal releases keep their exact application SHA and environment acceptance chain:
 Dev acceptance before UAT; UAT acceptance before production. A normal manually
@@ -95,11 +95,26 @@ disabled legacy Drive intake, no new capability activation and a governed manual
 operator. Credentials remain scoped to the production environment; Git push
 credentials are supplied only to the final trusted release-tagging step.
 
-**Not deployed or ready to dispatch:** source/receipt admission is integrated
-locally; the production workflow still needs the installed-schema, document
-writer barrier and compatible rollback branches joined before release. Do not
-use the recovery input until those checks and exact candidate validation pass.
-No historical migrations, Firebase rollback or fabricated UAT receipt is allowed.
+The recovery workflow joins both immutable image builds before lifecycle fences.
+Its database gate inspects the installed contract without replaying migrations;
+a transactional writer barrier drains prior document writers and rejects new
+issuance. Retained storage remains configured while its recovery worker
+maintenance is disabled only after that barrier is verified. Candidate readback
+requires phone recovery, WorkOS, replacement-generation admission, document
+issuance and document work drain to be explicitly off.
+
+An immutable, run-bound artifact records the original serving pair before any
+release mutation. Retries recover that pair and accept only the original
+revisions or this same run's candidate as current traffic. Rollback qualifies the
+original destinations even when the failing candidate is unhealthy. An
+unconfirmed cleanup restoration remains blocked in the release receipt. The
+document barrier stays while a non-reader serves; removing it requires a
+separately qualified reader activation.
+
+**Deployment remains unverified until its release receipt and serving readback
+pass.** Operations source, hosted recovery validation and live application
+restoration are separate outcomes. No historical migration replay, Firebase
+rollback or fabricated UAT receipt is allowed.
 
 The selective-promotion handoff remains preserved separately. Its branch-baseline
 and application-SHA/approval-SHA mapping are not active. Its maintenance draft

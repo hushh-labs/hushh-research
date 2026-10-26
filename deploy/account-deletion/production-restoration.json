@@ -23,5 +23,21 @@
   "services": [
     "consent-protocol",
     "hushh-webapp"
-  ]
+  ],
+  "previousServices": {
+    "consent-protocol": {
+      "revision": "consent-protocol-00302-fix",
+      "sha": "7d5546e471f2e168a898cd21c9abd7f1e8aaa9cc",
+      "image": "gcr.io/hushh-pda/consent-protocol@sha256:35b9f71ad4e71534f325f744c02e4c1c575a03c87fed7cae62acc749a7aa9374",
+      "runtimePrincipal": "consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com",
+      "deployRunId": "40286563192"
+    },
+    "hushh-webapp": {
+      "revision": "hushh-webapp-00158-tdv",
+      "sha": "7d5546e471f2e168a898cd21c9abd7f1e8aaa9cc",
+      "image": "gcr.io/hushh-pda/hushh-webapp@sha256:1a6833099725d4f1ea125831df03bd2595b61795c7aabea405e2fd949d74f402",
+      "runtimePrincipal": "hushh-webapp-runtime@hushh-pda.iam.gserviceaccount.com",
+      "deployRunId": "40282754754"
+    }
+  }
 }

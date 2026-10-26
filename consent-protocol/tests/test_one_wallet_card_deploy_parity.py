@@ -195,17 +195,17 @@ def test_uat_card_sharing_substitution_preserves_historical_deploys(
         ("review=,wallet=true,card_access=invalid", None),
         ("review=,wallet=true,wallet=false", None),
         ("review=,wallet=true,unknown=false", None),
+        ("review=,wallet=true,card_access=false,generation_admission=false", None),
+        (
+            "review=,wallet=true,card_access=false,phone_recovery=false,generation_admission=false",
+            "|true|false|false",
+        ),
         ("review=,wallet=true", None),
     ],
 )
 def test_application_flags_preserve_values_and_refuse_malformed_packing(packed, expected):
-    script = _read(REPO_ROOT / "scripts/deploy/backend-deploy.sh")
-    parser = script[
-        script.index("IFS=',' read -r -a _app_surface_pairs") : script.index(
-            "# The account-deletion cleanup scheduler identity"
-        )
-    ]
-    parser = _read(REPO_ROOT / "scripts/deploy/backend-phone-rollback.sh") + "\n" + parser
+    parser = _read(REPO_ROOT / "scripts/deploy/backend-phone-rollback.sh") + "\n"
+    parser += _read(REPO_ROOT / "scripts/deploy/backend-app-surface-settings.sh")
     result = subprocess.run(  # noqa: S603 - Repository parser, no cloud operations.
         [
             "bash",

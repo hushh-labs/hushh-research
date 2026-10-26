@@ -217,7 +217,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
           # The current YAML invokes extracted helpers even for an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/backend-deploy"
-          for tool in backend-deploy.sh backend-phone-rollback.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
+          for tool in backend-deploy.sh backend-phone-rollback.sh backend-app-surface-settings.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
             verify-managed-vertex-runtime.sh scope-commerce-secrets.sh pod-release-env.sh preserve-pod-release.py; do
             cp "scripts/deploy/${tool}" "${RUNNER_TEMP}/release-tools/backend-deploy/${tool}"
           done
@@ -280,6 +280,8 @@ jobs:
             deploy/account-deletion/verify_release_boundary.sql \
             deploy/account-deletion/compatibility_restoration.py \
             deploy/account-deletion/restoration_validation.py \
+            deploy/account-deletion/restoration_operation.py \
+            deploy/account-deletion/restoration_database.py \
             deploy/account-deletion/document_restoration_fence.py \
             deploy/account-deletion/production-restoration.json \
             "${RUNNER_TEMP}/release-tools/account-deletion/"
@@ -544,6 +546,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/phone-rollback
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then
+            python3 deploy/account-deletion/restoration_operation.py prepare \
+              --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
+              --plan /tmp/restoration-operation/acceptance.json --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
           gcloud auth configure-docker gcr.io --quiet
           python3 deploy/phone/plan.py prepare --run-id "${{ github.run_id }}" \
             --primary-sha "${{ inputs.sha }}" --enable-recovery "$ENABLE_PHONE_RECOVERY" \
@@ -551,12 +559,30 @@ jobs:
             --release-tools "${RUNNER_TEMP}/release-tools" \
             --output /tmp/phone-rollback/plan.json --github-output "$GITHUB_OUTPUT"
 
+      - name: Upload immutable recovery baseline
+        if: inputs.restoration_validation_run != '' && steps.phone-rollback-plan.outcome == 'success'
+        uses: actions/upload-artifact@v6
+        with:
+          name: production-restoration-operation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/restoration-operation/acceptance.json
+          if-no-files-found: error
+
+      - name: Bind recovery rollback guard
+        if: inputs.restoration_validation_run != '' && steps.phone-rollback-plan.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HUSHH_PRODUCTION_RESTORATION_PLAN=/tmp/restoration-operation/acceptance.json" >> "$GITHUB_ENV"
+          echo "HUSHH_PRODUCTION_RESTORATION_SHA=${{ inputs.sha }}" >> "$GITHUB_ENV"
+
       - name: Resolve retained protected document maintenance
         id: document-mode
         shell: bash
         run: |
           set -euo pipefail
-          python3 deploy/drive/resolve_protected_document_release.py \
+          restoration=()
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then restoration=(--production-restoration); fi
+          python3 deploy/drive/resolve_protected_document_release.py "${restoration[@]}" \
             --project "${{ env.GCP_PROJECT_ID }}" --environment production \
             --target-sha "${{ github.event.inputs.sha }}" \
             --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
@@ -564,7 +590,7 @@ jobs:
             | tee /tmp/prod-protected-document-release.json
 
       - name: Verify production Drive prerequisites before mutation
-        if: (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
+        if: inputs.restoration_validation_run == '' && (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
           DRIVE_OAUTH_VERIFIED: ${{ vars.GOOGLE_DRIVE_OAUTH_PROD_VERIFIED || 'false' }}
@@ -689,11 +715,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then
+            python3 deploy/account-deletion/restoration_operation.py document-report \
+              --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
+              --plan /tmp/restoration-operation/acceptance.json \
+              --reader-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
+              --document-mode /tmp/prod-protected-document-release.json \
+              --output /tmp/prod-document-reader-compatibility.json
+          else
           "${{ env.PROTOCOL_PYTHON }}" deploy/drive/resolve_protected_document_release.py \
             --project "${{ env.GCP_PROJECT_ID }}" --environment production \
             --target-sha "${{ github.event.inputs.sha }}" \
             --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
             --verify-previous --json-output /tmp/prod-document-reader-compatibility.json
+          fi
           echo "HUSHH_DOCUMENT_READER_GUARD_REPORT=/tmp/prod-document-reader-compatibility.json" >> "$GITHUB_ENV"
           echo "HUSHH_DOCUMENT_READER_ENVIRONMENT=production" >> "$GITHUB_ENV"
 
@@ -704,7 +739,7 @@ jobs:
             --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-before.json
 
       - name: Attest production Drive database before secret sync
-        if: (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
+        if: inputs.restoration_validation_run == '' && (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -742,61 +777,6 @@ jobs:
           set -euo pipefail
           python3 "${RUNNER_TEMP}/release-tools/verify-prod-places-readiness.py" \
             --project "${GCP_PROJECT_ID}"
-
-      - name: Sync canonical hosted runtime secrets
-        if: steps.scope.outputs.deploy_backend == 'true'
-        shell: bash
-        env:
-          PROD_CURATED_MCP_CONNECTORS: ${{ vars.CURATED_MCP_CONNECTORS_PROD || 'false' }}
-        run: |
-          set -euo pipefail
-          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
-            --project "${{ env.GCP_PROJECT_ID }}" \
-            --environment production \
-            --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --db-host "cloudsql-socket" \
-            --db-port "5432" \
-            --db-name "${{ env.PROD_DB_NAME }}" \
-            --db-unix-socket "${{ env.PROD_DB_UNIX_SOCKET }}" \
-            --cloudsql-instance-connection-name "${{ env.PROD_CLOUDSQL_INSTANCE }}" \
-            --consent-sse-enabled "false" \
-            --sync-remote-enabled "false" \
-            --developer-api-enabled "true" \
-            --remote-mcp-enabled "true" \
-            --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --obs-data-stale-ratio-threshold "0.25" \
-            --plaid-env "production" \
-            --plaid-client-name "Hushh Kai" \
-            --plaid-country-codes "US" \
-            --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
-            --plaid-redirect-path "/kai/plaid/oauth/return" \
-            --plaid-tx-history-days "730" \
-            --connections-panel-v2 "${{ steps.drive-mode.outputs.active }}" \
-            --google-drive-connection "${{ steps.drive-mode.outputs.active }}" \
-            --google-drive-live "${{ steps.drive-mode.outputs.active }}" \
-            --google-drive-picker "${{ steps.drive-mode.outputs.active }}" \
-            --drive-document-indexing "${{ steps.drive-mode.outputs.active }}" \
-            --drive-four-group-index "false" \
-            --drive-document-sharing "${{ steps.drive-mode.outputs.active }}" \
-            --google-drive-chat-reads "${{ steps.drive-mode.outputs.active }}" \
-            --connector-production-all-users "${{ steps.drive-mode.outputs.active }}" \
-            --curated-mcp-connectors "$PROD_CURATED_MCP_CONNECTORS" \
-            --production-drive-candidate-secret "${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}" \
-            --one-location-read-only-state-enabled "false" \
-            --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
-            --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \
-            --hushh-tech-client-enabled "false" \
-            --one-voice-mail-reply-enabled "false" \
-            --one-voice-mail-schedule-send-enabled "false" \
-            --one-voice-mail-drafts-enabled "false" \
-            --mail-scheduled-drain-enabled "false" \
-            --hushh-tech-allowed-consent-scopes "" \
-            --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
-            --one-location-nearby-presence-cohort "${{ github.event.inputs.nearby_check_in_cohort }}" \
-            --advisors-api-base-url "${{ vars.ADVISORS_API_BASE_URL || 'https://brokercheck.35.253.255.106.sslip.io' }}" \
-            --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || 'https://insurance-agents.34.61.69.175.sslip.io' }}" \
-            --one-places-directory-enabled "${{ vars.ONE_PLACES_DIRECTORY_ENABLED_PROD || 'true' }}" \
-            > /tmp/prod-runtime-secret-sync.json
 
       - name: Sync frontend hosted runtime secrets
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -938,6 +918,32 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
           echo "image_source=${BACKEND_IMAGE_SOURCE}" >> "$GITHUB_OUTPUT"
 
+      - name: Wait for frontend image and pin its digest
+        id: build-frontend-image
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+          FRONTEND_IMAGE_TAG: ${{ steps.start-frontend-image-build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          started_at="$(date +%s)"
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
+          image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --build-id "${FRONTEND_IMAGE_BUILD_ID}" \
+            --image-repository "${image_repository}" \
+            --image-tag "${FRONTEND_IMAGE_TAG}" \
+            --sha "${{ github.event.inputs.sha }}" \
+            --manifest-json /tmp/prod-frontend-image-manifest.json \
+            --json-output /tmp/prod-frontend-image.json)"
+          if [[ ! "${image_reference}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Frontend image did not pin to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+          echo "wait_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
+
       - name: Refuse an already failed frontend image before lifecycle migration
         id: check-frontend-image
         if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
@@ -956,9 +962,78 @@ jobs:
             --project "${{ env.GCP_PROJECT_ID }}" \
             --build-id "${FRONTEND_IMAGE_BUILD_ID}" --status-only
 
+      - name: Revalidate recovery baseline before runtime mutation
+        if: inputs.restoration_validation_run != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/account-deletion/restoration_operation.py verify \
+            --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
+            --plan /tmp/restoration-operation/acceptance.json
+
+      - name: Sync canonical hosted runtime secrets
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          PROD_CURATED_MCP_CONNECTORS: ${{ vars.CURATED_MCP_CONNECTORS_PROD || 'false' }}
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --environment production \
+            --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --db-host "cloudsql-socket" \
+            --db-port "5432" \
+            --db-name "${{ env.PROD_DB_NAME }}" \
+            --db-unix-socket "${{ env.PROD_DB_UNIX_SOCKET }}" \
+            --cloudsql-instance-connection-name "${{ env.PROD_CLOUDSQL_INSTANCE }}" \
+            --consent-sse-enabled "false" \
+            --sync-remote-enabled "false" \
+            --developer-api-enabled "true" \
+            --remote-mcp-enabled "true" \
+            --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
+            --obs-data-stale-ratio-threshold "0.25" \
+            --plaid-env "production" \
+            --plaid-client-name "Hushh Kai" \
+            --plaid-country-codes "US" \
+            --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
+            --plaid-redirect-path "/kai/plaid/oauth/return" \
+            --plaid-tx-history-days "730" \
+            --connections-panel-v2 "${{ steps.drive-mode.outputs.active }}" \
+            --google-drive-connection "${{ steps.drive-mode.outputs.active }}" \
+            --google-drive-live "${{ steps.drive-mode.outputs.active }}" \
+            --google-drive-picker "${{ steps.drive-mode.outputs.active }}" \
+            --drive-document-indexing "${{ steps.drive-mode.outputs.active }}" \
+            --drive-four-group-index "false" \
+            --drive-document-sharing "${{ steps.drive-mode.outputs.active }}" \
+            --google-drive-chat-reads "${{ steps.drive-mode.outputs.active }}" \
+            --connector-production-all-users "${{ steps.drive-mode.outputs.active }}" \
+            --curated-mcp-connectors "$PROD_CURATED_MCP_CONNECTORS" \
+            --production-drive-candidate-secret "${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}" \
+            --one-location-read-only-state-enabled "false" \
+            --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
+            --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \
+            --hushh-tech-client-enabled "false" \
+            --one-voice-mail-reply-enabled "false" \
+            --one-voice-mail-schedule-send-enabled "false" \
+            --one-voice-mail-drafts-enabled "false" \
+            --mail-scheduled-drain-enabled "false" \
+            --hushh-tech-allowed-consent-scopes "" \
+            --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
+            --one-location-nearby-presence-cohort "${{ github.event.inputs.nearby_check_in_cohort }}" \
+            --advisors-api-base-url "${{ vars.ADVISORS_API_BASE_URL || 'https://brokercheck.35.253.255.106.sslip.io' }}" \
+            --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || 'https://insurance-agents.34.61.69.175.sslip.io' }}" \
+            --one-places-directory-enabled "${{ vars.ONE_PLACES_DIRECTORY_ENABLED_PROD || 'true' }}" \
+            > /tmp/prod-runtime-secret-sync.json
+
       - name: Qualify current account lifecycle producer
         if: steps.scope.outputs.deploy_backend == 'true'
-        run: python3 deploy/account-deletion/activate_release.py --qualify-source "${{ github.event.inputs.sha }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode=--qualify-source
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then mode=--qualify-restoration-source; fi
+          python3 deploy/account-deletion/activate_release.py "$mode" "${{ inputs.sha }}"
 
       - name: Qualify uninterrupted account deletion
         id: account-deletion-fence-decision
@@ -1087,6 +1162,8 @@ jobs:
         id: predeploy-db-gate
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
+        env:
+          RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
         run: |
           set -euo pipefail
 
@@ -1147,6 +1224,11 @@ jobs:
               | tee /tmp/prod-account-deletion-fence-premigration.log
           fi
 
+          if [ -n "$RESTORATION_RUN" ]; then
+            "${{ env.PROTOCOL_PYTHON }}" deploy/account-deletion/restoration_database.py prepare \
+              --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
+              --output /tmp/prod-migration-release-manifest.json --github-output "$GITHUB_OUTPUT"
+          else
           (
             cd consent-protocol
             "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release \
@@ -1161,6 +1243,7 @@ jobs:
               "${{ env.PROTOCOL_PYTHON }}" scripts/ops/reconcile_google_drive_prod_connector.py --activate
               "${{ env.PROTOCOL_PYTHON }}" scripts/ops/reconcile_google_drive_prod_connector.py
             )
+          fi
           fi
           expected_fence_count=0
           if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ]; then
@@ -1178,7 +1261,7 @@ jobs:
           echo "tombstone_count=${tombstone_count}" >> "$GITHUB_OUTPUT"
 
       - name: Migration governance and DB drift gate
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: inputs.restoration_validation_run == '' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1219,7 +1302,7 @@ jobs:
             --report-path /tmp/db-migration-guard-report.json
 
       - name: Generate production migration release manifest
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: inputs.restoration_validation_run == '' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1257,10 +1340,15 @@ jobs:
           DRIVE_SUBSTITUTIONS+=",_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
           DRIVE_SUBSTITUTIONS+=",_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_PROD_ENABLED || 'true' }},_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_PROD_ENABLED || 'false' }},_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_PROD_ENABLED || 'false' }},_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_PROD_REVIEWED || 'false' }},_PKM_ANSWER_STRIPE_MODE=live,_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET,_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_PROD_SECRET || '' }},_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_PROD_SECRET || '' }},_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_PROD_ENABLED || 'false' }},_ANSWER_WORK_DRAIN_AUDIENCE=https://api.hushh.ai"
           DRIVE_SUBSTITUTIONS+=",_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true,_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+          drive_work_enabled=true
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then drive_work_enabled=false; fi
           if [ "${{ steps.drive-mode.outputs.active }}" = "true" ] || [ "${{ steps.document-mode.outputs.configured }}" = "true" ]; then
-            DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=true,_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
+            DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=${drive_work_enabled},_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
           elif [ "${{ steps.prod-curated-secrets.outputs.enabled }}" = "true" ]; then
             DRIVE_SUBSTITUTIONS+=",_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
+          fi
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then
+            DRIVE_SUBSTITUTIONS+=",_ACCOUNT_GENERATION_ADMISSION_ENABLED=false"
           fi
           # Same sizing as UAT: two gunicorn workers plus the E5 query leaf
           # outgrow the 1Gi default, and an out-of-memory kill drops every
@@ -1275,11 +1363,18 @@ jobs:
 
       - name: Revalidate actual phone rollback after backend deployment attempt
         id: phone-rollback-qualified
-        if: always() && steps.phone-rollback-plan.outcome == 'success' && steps.deploy-backend.outcome != 'skipped'
+        if: always() && steps.phone-rollback-plan.outcome == 'success' && (inputs.restoration_validation_run != '' || steps.deploy-backend.outcome != 'skipped')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then
+            python3 deploy/account-deletion/restoration_operation.py verify \
+              --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
+              --plan /tmp/restoration-operation/acceptance.json \
+              --output /tmp/phone-rollback/qualified.json --github-output "$GITHUB_OUTPUT"
+            exit 0
+          fi
           python3 deploy/phone/plan.py verify --run-id "${{ github.run_id }}" \
             --primary-sha "${{ inputs.sha }}" --plan /tmp/phone-rollback/plan.json \
             --output /tmp/phone-rollback/qualified.json --github-output "$GITHUB_OUTPUT"
@@ -1349,6 +1444,7 @@ jobs:
           BACKEND_CANDIDATE_URL: ${{ steps.backend-candidate-state.outputs.backend_candidate_url }}
           EXPECTED_SHA: ${{ github.event.inputs.sha }}
           EXPECTED_IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
+          RESTORATION_MODE: ${{ inputs.restoration_validation_run != '' && 'true' || 'false' }}
           DRIVE_ENABLED: ${{ steps.drive-mode.outputs.active }}
           DOCUMENT_DELIVERY_CONFIGURED: ${{ steps.document-mode.outputs.configured }}
           DRIVE_CANDIDATE_RUNTIME_SECRET: ${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}
@@ -1419,6 +1515,11 @@ jobs:
                   "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL"
               ) == "gmail-personal-monitor-sched@hushh-pda.iam.gserviceaccount.com",
           }
+          if os.environ.get("RESTORATION_MODE") == "true":
+              for key in ("AUTH_PHONE_RECOVERY_ENABLED", "WORKOS_SSO_ENABLED",
+                          "ACCOUNT_GENERATION_ADMISSION_ENABLED", "PROTECTED_DOCUMENT_DELIVERY_ENABLED",
+                          "DRIVE_WORK_DRAIN_ENABLED"):
+                  checks[f"recovery_{key.lower()}_off"] = env.get(key) == "false"
           if os.environ.get("DOCUMENT_DELIVERY_CONFIGURED") == "true":
               checks["hosted_provider_and_custody_refs"] = all(
                   secret_refs.get(name) == name for name in (
@@ -1453,32 +1554,6 @@ jobs:
             echo "Backend candidate tagged health probe failed." >&2
             exit 1
           fi
-
-      - name: Wait for frontend image and pin its digest
-        id: build-frontend-image
-        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
-        shell: bash
-        env:
-          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
-          FRONTEND_IMAGE_TAG: ${{ steps.start-frontend-image-build.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-          started_at="$(date +%s)"
-          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp"
-          image_reference="$(bash scripts/ci/await-prebuilt-image.sh \
-            --project "${{ env.GCP_PROJECT_ID }}" \
-            --build-id "${FRONTEND_IMAGE_BUILD_ID}" \
-            --image-repository "${image_repository}" \
-            --image-tag "${FRONTEND_IMAGE_TAG}" \
-            --sha "${{ github.event.inputs.sha }}" \
-            --manifest-json /tmp/prod-frontend-image-manifest.json \
-            --json-output /tmp/prod-frontend-image.json)"
-          if [[ ! "${image_reference}" =~ ^gcr\.io/${{ env.GCP_PROJECT_ID }}/hushh-webapp@sha256:[0-9a-f]{64}$ ]]; then
-            echo "Frontend image did not pin to an immutable sha256 digest." >&2
-            exit 1
-          fi
-          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
-          echo "wait_seconds=$(( $(date +%s) - started_at ))" >> "$GITHUB_OUTPUT"
 
       - name: Deploy frontend using Cloud Build
         id: deploy-frontend
@@ -1680,7 +1755,7 @@ jobs:
 
       - name: Deploy and attest private production Drive worker
         id: deploy-drive-worker
-        if: (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success' && steps.verify-connected-systems.outcome == 'success'
+        if: (steps.drive-mode.outputs.active == 'true' || (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) == 'true') && steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success' && steps.verify-connected-systems.outcome == 'success'
         continue-on-error: true
         shell: bash
         env:
@@ -1691,7 +1766,7 @@ jobs:
           RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
           DRIVE_RUNTIME_CONFIG_SECRET: ${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}
           ENABLE_PRODUCTION_DRIVE_LIVE: ${{ steps.drive-mode.outputs.active }}
-          PROTECTED_DOCUMENT_MAINTENANCE: ${{ steps.document-mode.outputs.configured }}
+          PROTECTED_DOCUMENT_MAINTENANCE: ${{ (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) }}
           PROTECTED_DOCUMENT_DELIVERY_ENABLED: ${{ steps.document-mode.outputs.enabled || 'false' }}
           DRIVE_REQUEST_PAYMENTS_PROD_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_PROD_ENABLED || 'false' }}
         run: |
@@ -1701,9 +1776,21 @@ jobs:
       # New revisions are deployed with --no-traffic (see _CLOUD_RUN_NO_TRAFFIC=true
       # above), so promotion is an explicit, reversible step: shift 100% to the
       # freshly built revision, then health-gate it, then auto-roll-back on failure.
+      - name: Verify recovery boundary immediately before traffic
+        if: inputs.restoration_validation_run != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/account-deletion/restoration_operation.py verify \
+            --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
+            --plan /tmp/restoration-operation/acceptance.json
+          "${{ env.PROTOCOL_PYTHON }}" deploy/account-deletion/restoration_database.py verify \
+            --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" --owned-proxy \
+            --output /tmp/prod-restoration-pretraffic-schema.json
+
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
-        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && steps.document-mode.outputs.configured != 'true') || steps.deploy-drive-worker.outcome == 'success')
+        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -1723,7 +1810,7 @@ jobs:
 
       - name: Quarantine production Drive jobs after disabling live Drive
         id: pause-drive-worker
-        if: steps.drive-mode.outputs.active != 'true' && steps.document-mode.outputs.configured != 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success'
+        if: steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -1838,7 +1925,7 @@ jobs:
           PARITY_OUTCOME: ${{ steps.verify-parity.outcome }}
           CONNECTED_SYSTEMS_OUTCOME: ${{ steps.verify-connected-systems.outcome }}
           DRIVE_ENABLED: ${{ steps.drive-mode.outputs.active }}
-          DOCUMENT_DELIVERY_CONFIGURED: ${{ steps.document-mode.outputs.configured }}
+          DOCUMENT_DELIVERY_CONFIGURED: ${{ (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) }}
           DRIVE_WORKER_OUTCOME: ${{ steps.deploy-drive-worker.outcome }}
           DRIVE_PAUSE_OUTCOME: ${{ steps.pause-drive-worker.outcome }}
           DRIVE_PAUSE_SNAPSHOT: ${{ steps.pause-drive-worker.outputs.snapshot }}
@@ -2057,6 +2144,11 @@ jobs:
           export PGDATABASE="${{ env.PROD_DB_NAME }}"
           export PGUSER="$DB_USER"
           export PGPASSWORD="$DB_PASSWORD"
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then
+            "${{ env.PROTOCOL_PYTHON }}" deploy/account-deletion/restoration_database.py verify \
+              --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
+              --output /tmp/prod-restoration-prerollback-schema.json
+          fi
           if [ "${{ steps.account-deletion-fence-decision.outputs.required }}" = "true" ] \
              || [ "${rollback_contract}" != "v201" ]; then
             psql --no-psqlrc \
@@ -2080,12 +2172,12 @@ jobs:
 
       - name: Roll back frontend revision
         id: rollback-frontend
-        if: always() && steps.classify.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.predeploy-state.outputs.frontend_revision != ''
+        if: always() && steps.classify.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) != ''
         shell: bash
         run: |
           set -euo pipefail
-          echo "Frontend runtime health gate failed; reverting traffic to predeploy revision ${{ steps.predeploy-state.outputs.frontend_revision }}"
-          bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+          echo "Frontend runtime health gate failed; reverting traffic to predeploy revision ${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) }}"
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) }}"
 
       - name: Restore production Drive worker after paired release failure
         id: rollback-drive-worker
@@ -2107,13 +2199,25 @@ jobs:
             --snapshot "${{ steps.pause-drive-worker.outputs.snapshot }}" \
             --worker-origin "${{ steps.pause-drive-worker.outputs.worker_origin }}"
 
+      - name: Restore cleanup only on the verified original recovery pair
+        id: restore-recovery-cleanup
+        if: always() && inputs.restoration_validation_run != '' && steps.classify.outputs.release_failed == 'true' && (steps.install-account-deletion-fence.outcome == 'success' || steps.install-account-deletion-fence.outcome == 'failure')
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/account-deletion/restoration_operation.py restore-cleanup \
+            --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" \
+            --plan /tmp/restoration-operation/acceptance.json
+
       - name: Activate tombstone-aware account deletion
         id: activate-account-deletion
         if: steps.classify.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          python3 deploy/account-deletion/activate_release.py \
+          restoration=()
+          if [ -n "${{ inputs.restoration_validation_run }}" ]; then restoration=(--production-restoration); fi
+          python3 deploy/account-deletion/activate_release.py "${restoration[@]}" \
             --project "${{ env.GCP_PROJECT_ID }}" --region "${{ env.GCP_REGION }}" \
             --backend-service "${{ env.BACKEND_SERVICE }}" \
             --backend-url "${{ env.CONSENT_API_PUBLIC_ORIGIN }}" \
@@ -2191,9 +2295,9 @@ jobs:
             fi
             if [ "${{ steps.classify.outputs.frontend_failure }}" = "true" ]; then
               ROLLBACK_REQUIRED=true
-              if [ "${{ steps.predeploy-state.outputs.frontend_revision }}" = "" ] \
+              if [ "${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) }}" = "" ] \
                  || [ "${{ steps.rollback-frontend.outcome }}" != "success" ] \
-                 || [ "${{ steps.final-state.outputs.frontend_serving }}" != "${{ steps.predeploy-state.outputs.frontend_revision }}" ]; then
+                 || [ "${{ steps.final-state.outputs.frontend_serving }}" != "${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) }}" ]; then
                 ROLLBACK_PROVEN=false
               fi
             fi
@@ -2207,6 +2311,12 @@ jobs:
               STATUS="rolled_back"
             fi
           fi
+          if [ -n "${{ inputs.restoration_validation_run }}" ] \
+             && [ "${{ steps.classify.outputs.release_failed }}" != "false" ] \
+             && { [ "${{ steps.install-account-deletion-fence.outcome }}" = success ] || [ "${{ steps.install-account-deletion-fence.outcome }}" = failure ]; } \
+             && [ "${{ steps.restore-recovery-cleanup.outcome }}" != success ]; then
+            STATUS=blocked
+          fi
           export STATUS
           python3 - <<'PY'
           import json
@@ -2219,7 +2329,7 @@ jobs:
               "scope": "${{ steps.scope.outputs.scope }}",
               "predeploy": {
                   "backend_revision": "${{ steps.predeploy-state.outputs.backend_revision }}",
-                  "frontend_revision": "${{ steps.predeploy-state.outputs.frontend_revision }}",
+                  "frontend_revision": "${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) }}",
               },
               "candidate": {
                   "backend_revision": "${{ steps.candidate-state.outputs.backend_revision }}",
@@ -2241,6 +2351,7 @@ jobs:
                   "passkey_domain_associations": "${{ steps.verify-passkey-associations.outcome }}",
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
+                  "recovery_cleanup_restoration": "${{ steps.restore-recovery-cleanup.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
               },
               "classification": {
@@ -2257,6 +2368,8 @@ jobs:
               },
           }
           predecessor = Path("/tmp/prod-predecessor-acceptance.json")
+          recovery = Path("/tmp/prod-restoration-validation.json")
+          payload["production_restoration"] = json.loads(recovery.read_text()) if recovery.exists() else None
           payload["predecessor_acceptance"] = (
               json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None
           )
@@ -2296,6 +2409,9 @@ jobs:
             /tmp/phone-rollback/
             /tmp/prod-predecessor-acceptance.json
             /tmp/prod-restoration-validation.json
+            /tmp/prod-restoration-pretraffic-schema.json
+            /tmp/prod-restoration-prerollback-schema.json
+            /tmp/prod-restoration-rollback-cleanup-*
             /tmp/prod-runtime-secret-sync.json
             /tmp/prod-frontend-runtime-secret-sync.json
             /tmp/prod-runtime-parity.json
@@ -2375,7 +2491,7 @@ jobs:
             fi
             if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
               echo "- Frontend URL: \`${{ steps.frontend-url.outputs.url }}\`"
-              echo "- Frontend predeploy revision: \`${{ steps.predeploy-state.outputs.frontend_revision || 'unknown' }}\`"
+              echo "- Frontend predeploy revision: \`${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) || 'unknown' }}\`"
               echo "- Frontend candidate revision: \`${{ steps.candidate-state.outputs.frontend_revision || 'n/a' }}\`"
               echo "- Frontend serving revision (final): \`${{ steps.final-state.outputs.frontend_serving || 'unknown' }}\`"
               echo "- Frontend health gate: \`${{ steps.health-frontend.outcome }}\`"
@@ -2432,7 +2548,7 @@ jobs:
           BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_serving }}
           FRONTEND_CURRENT: ${{ steps.final-state.outputs.frontend_serving }}
           BACKEND_ROLLBACK: ${{ steps.phone-rollback-qualified.outputs.revision }}
-          FRONTEND_ROLLBACK: ${{ steps.predeploy-state.outputs.frontend_revision }}
+          FRONTEND_ROLLBACK: ${{ (steps.phone-rollback-plan.outputs.frontend_revision || steps.predeploy-state.outputs.frontend_revision) }}
         run: |
           set -euo pipefail
           status="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
