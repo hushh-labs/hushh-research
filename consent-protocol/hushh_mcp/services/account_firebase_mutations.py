@@ -33,7 +33,7 @@ from hushh_mcp.services.account_generation_service import (
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
-Purpose = Literal["display_name", "welcome_marker"]
+Purpose = Literal["display_name", "welcome_marker", "phone_unlink"]
 _IDENTITY_ORIGIN = "https://identitytoolkit.googleapis.com"
 _RESPONSE_LIMIT = 32 * 1024
 
@@ -42,7 +42,7 @@ class FirebaseMutationTransportError(RuntimeError):
     """A remote mutation is unconfirmed; contains no provider body or values."""
 
 
-def _update_identity(app, firebase_uid: str, fields: dict[str, str]) -> None:
+def _update_identity(app, firebase_uid: str, fields: dict) -> None:
     """One physical administrator POST, using the supported Identity Platform API.
 
     Firebase Admin's default client retries mutation POSTs after read/status
@@ -52,7 +52,9 @@ def _update_identity(app, firebase_uid: str, fields: dict[str, str]) -> None:
     project = str(getattr(app, "project_id", ""))
     if not re.fullmatch(r"[a-z][a-z0-9-]{4,62}", project) or not 1 <= len(firebase_uid) <= 128:
         raise ValueError("identity mutation configuration invalid")
-    if set(fields) not in ({"displayName"}, {"customAttributes"}):
+    if set(fields) not in ({"displayName"}, {"customAttributes"}) and not (
+        set(fields) == {"deleteProvider"} and fields["deleteProvider"] == ["phone"]
+    ):
         raise ValueError("identity mutation fields invalid")
     with AuthorizedSession(app.credential.get_credential(), max_refresh_attempts=0) as session:
         session.trust_env = False
@@ -93,6 +95,32 @@ def set_welcome_claims(app, firebase_uid: str, claims: dict) -> None:
     _update_identity(app, firebase_uid, {"customAttributes": value})
 
 
+def has_independent_signin(user) -> bool:
+    return any(
+        getattr(provider, "provider_id", "")
+        in {"google.com", "apple.com", "password", "microsoft.com"}
+        for provider in (getattr(user, "provider_data", None) or [])
+    )
+
+
+def unlink_phone(app, firebase_uid: str, expected_phone: str) -> None:
+    from firebase_admin import auth
+
+    from api.utils.firebase_admin import assert_firebase_identity_mutation_allowed
+
+    assert_firebase_identity_mutation_allowed(app)
+    user = auth.get_user(firebase_uid, app=app)
+    if user.phone_number is None:
+        return
+    if user.phone_number != expected_phone:
+        raise FirebaseMutationTransportError("phone identity changed")
+    if not has_independent_signin(user):
+        raise FirebaseMutationTransportError("independent recovery required")
+    _update_identity(app, firebase_uid, {"deleteProvider": ["phone"]})
+    if auth.get_user(firebase_uid, app=app).phone_number is not None:
+        raise FirebaseMutationTransportError("phone unlink unconfirmed")
+
+
 @dataclass(frozen=True, slots=True)
 class FirebaseMutationPermit:
     operation_id: str
@@ -108,10 +136,65 @@ class FirebaseMutationResult(Generic[T]):
     settled: bool
 
 
+async def reserve_phone_unlink(
+    conn,
+    *,
+    owner_id: str,
+    identity_uid: str,
+    generation: int,
+    authority_project: str,
+    proof_owner_id: str,
+    reserve: bool = True,
+) -> FirebaseMutationPermit | None:
+    """Reserve the exact verified proof identity in the binding transaction.
+
+    Unlike a profile write, possession of the phone authorizes unlinking only
+    that credential. The caller holds all account lifecycle barriers and has
+    consumed the owner-bound, fresh-proof transfer intent.
+    """
+    if not re.fullmatch(r"[a-z][a-z0-9-]{4,62}", authority_project):
+        raise ValueError("identity mutation configuration invalid")
+    identity_hash = account_deletion_user_hash(identity_uid)
+    await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,199))", identity_hash)
+    current = await conn.fetchrow(
+        "SELECT generation,retired_at,owner_id FROM account_generations WHERE identity_hash=$1 ORDER BY generation DESC LIMIT 1",
+        identity_hash,
+    )
+    if (
+        current
+        and (
+            current["retired_at"] is not None
+            or current["generation"] != generation
+            or current["owner_id"] != proof_owner_id
+        )
+    ) or (not current and (generation != 0 or proof_owner_id != identity_uid)):
+        raise AccountGenerationRefused("identity_generation_changed")
+    if not reserve:
+        return None
+    permit = FirebaseMutationPermit(
+        str(uuid4()),
+        account_deletion_user_hash(owner_id),
+        identity_hash,
+        str(uuid4()),
+        identity_uid,
+    )
+    await conn.execute(
+        """INSERT INTO account_firebase_mutations
+        (operation_id,owner_hash,identity_hash,authority_project,purpose,settlement_nonce)
+        VALUES($1::uuid,$2,$3,$4,'phone_unlink',$5::uuid)""",
+        permit.operation_id,
+        permit.owner_hash,
+        identity_hash,
+        authority_project,
+        permit.settlement_nonce,
+    )
+    return permit
+
+
 def begin(
     owner_id: str, *, purpose: Purpose, authority_project: str
 ) -> FirebaseMutationPermit | None:
-    if purpose not in {"display_name", "welcome_marker"} or not re.fullmatch(
+    if purpose not in {"display_name", "welcome_marker", "phone_unlink"} or not re.fullmatch(
         r"[a-z][a-z0-9-]{4,62}", authority_project
     ):
         raise ValueError("identity mutation configuration invalid")
@@ -225,3 +308,21 @@ async def run(
 ) -> FirebaseMutationResult[T]:
     # Join dispatch, SDK call and receipt together even if HTTP is cancelled.
     return await settle_cleanup_database_call(_run, owner_id, purpose, authority_project, operation)
+
+
+def _execute_prepared(
+    permit: FirebaseMutationPermit, operation: Callable[[str], T]
+) -> FirebaseMutationResult[T]:
+    try:
+        value = operation(permit.firebase_uid)
+    except Exception:
+        settle(permit, "uncertain")
+        raise FirebaseMutationTransportError("identity mutation outcome unconfirmed") from None
+    settle(permit, "succeeded")
+    return FirebaseMutationResult(value, settled=True)
+
+
+async def run_prepared(
+    permit: FirebaseMutationPermit, operation: Callable[[str], T]
+) -> FirebaseMutationResult[T]:
+    return await settle_cleanup_database_call(_execute_prepared, permit, operation)

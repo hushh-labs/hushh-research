@@ -1467,10 +1467,8 @@ async def _account_deletion_cleanup_loop(interval_seconds: float) -> None:
 
 
 def start_account_deletion_cleanup_loop(
-    *,
-    interval_seconds: float = _CLEANUP_LOOP_INTERVAL_SECONDS,
+    *, interval_seconds: float = _CLEANUP_LOOP_INTERVAL_SECONDS
 ) -> asyncio.Task[None]:
-    return asyncio.create_task(
-        _account_deletion_cleanup_loop(max(1.0, float(interval_seconds))),
-        name="account-deletion-cleanup-worker",
-    )
+    from hushh_mcp.services.account_cleanup_runtime import start_cleanup_workers
+
+    return start_cleanup_workers(interval_seconds=interval_seconds)

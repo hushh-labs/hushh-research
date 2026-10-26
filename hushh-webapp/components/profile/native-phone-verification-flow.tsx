@@ -88,7 +88,7 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
     },
     commit: async event => {
       const model = live.current.model;
-      if (!model.current()) return { kind: "retained" };
+      if (!model.current() || model.conflict) return { kind: "retained" };
       if (event.intent === "send") await model.handleStartVerification();
       else if (event.intent === "verify") await model.handleConfirmVerification();
       else if (event.intent === "resend") await model.handleStartVerification(true, model.submittedPhoneNumber);
@@ -146,6 +146,16 @@ function NativePhoneScene({ model, destinationId, mode, onCancel, onFallback, on
     return () => { current = false; if (replica.current?.identity === identity) replica.current = null; void presentation.retire(); };
   }, [destinationId, model.ready, epoch, generation, presentationBlocked, active, plugin, actions, publish]);
   useLayoutEffect(() => { publish(); });
+  useEffect(() => {
+    if (!model.conflict) return;
+    const current = replica.current;
+    if (!current) return;
+    // Retire the native renderer before presenting the same feature model's
+    // conflict review in its existing web fallback. No OTP or proof is rebuilt.
+    void current.presentation.retire().then(retired => {
+      if (retired && replica.current === current && live.current.model.current()) live.current.onFallback();
+    });
+  }, [model.conflict]);
   useBackLayer(pathname, 100, () => {
     const current = replica.current;
     if (current?.backReleased) return false;

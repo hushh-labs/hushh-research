@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 424,
+  "expected_migration_version": 425,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -14,6 +14,7 @@
     "account_provider_cleanup_qualified",
     "account_provider_cleanup_revisions",
     "activate_reserved_wallet_cards",
+    "advance_phone_binding_revision",
     "append_live_memory_connector_event",
     "append_live_memory_source_hint",
     "approve_azure_erasure_plan",
@@ -131,6 +132,7 @@
     "guard_email_account_capture",
     "guard_hashcoin_direct_transfer",
     "guard_hashcoin_redemption",
+    "guard_pending_phone_transfer_erasure",
     "guard_personal_agent_cloud_removal",
     "guard_personal_agent_cloud_removal_history",
     "guard_personal_agent_erasure_archive",
@@ -397,6 +399,36 @@
       "surface",
       "user_id"
     ],
+    "account_phone_auth_fences": [
+      "identity_hash",
+      "phone_digest",
+      "revoked_at"
+    ],
+    "account_phone_transfers": [
+      "operation_id",
+      "user_id",
+      "previous_user_id",
+      "previous_revision",
+      "requester_revision",
+      "proof_identity_uid",
+      "proof_owner_id",
+      "proof_generation",
+      "unlink_required",
+      "authority_project",
+      "phone_digest",
+      "proof_digest",
+      "state",
+      "effect_state",
+      "notice_status",
+      "last_reconciled_at",
+      "mutation_id",
+      "mutation_nonce",
+      "created_at",
+      "expires_at",
+      "committed_at",
+      "completed_at",
+      "notice_dispatched_at"
+    ],
     "actor_identity_cache": [
       "created_at",
       "custom_photo_url",
@@ -409,7 +441,8 @@
       "photo_url",
       "source",
       "updated_at",
-      "user_id"
+      "user_id",
+      "phone_binding_revision"
     ],
     "actor_profiles": [
       "contact_discoverable",
@@ -4520,5 +4553,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 424
+  "expected_schema_head": 425
 }

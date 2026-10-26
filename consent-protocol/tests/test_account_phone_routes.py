@@ -425,3 +425,58 @@ def test_confirm_uat_test_phone_verification_rejects_wrong_code(monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "UAT_PHONE_TEST_INVALID_CODE"
+
+
+@pytest.mark.asyncio
+async def test_proof_provider_outage_is_not_an_invalid_code(monkeypatch, caplog):
+    from fastapi import HTTPException
+    from firebase_admin import auth as firebase_auth
+
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+
+    def outage(*_args, **_kwargs):
+        raise ConnectionError("synthetic-private-provider-body")
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", outage)
+    with pytest.raises(HTTPException) as refused:
+        await account._verify_phone_claim_id_token("synthetic-proof", transfer=True)
+    assert refused.value.status_code == 503
+    assert refused.value.detail["code"] == "PHONE_PROOF_SERVICE_UNAVAILABLE"
+    assert "proof_provider_unavailable" in caplog.text
+    assert "synthetic-private-provider-body" not in caplog.text
+
+
+@pytest.mark.parametrize("independent", [False, True])
+def test_unlink_preserves_other_credentials_and_requires_independent_recovery(
+    monkeypatch, independent
+):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin
+    from hushh_mcp.services import account_firebase_mutations as mutations
+
+    app = object()
+    phone = "+16505550101"
+    record = SimpleNamespace(
+        phone_number=phone,
+        provider_data=[SimpleNamespace(provider_id="google.com")] if independent else [],
+    )
+    get_user = Mock(side_effect=[record, SimpleNamespace(phone_number=None)])
+    post = Mock()
+    monkeypatch.setattr(
+        firebase_admin, "assert_firebase_identity_mutation_allowed", lambda _app: None
+    )
+    monkeypatch.setattr(auth, "get_user", get_user)
+    monkeypatch.setattr(mutations, "_update_identity", post)
+    if independent:
+        mutations.unlink_phone(app, "previous", phone)
+        post.assert_called_once_with(app, "previous", {"deleteProvider": ["phone"]})
+    else:
+        with pytest.raises(
+            mutations.FirebaseMutationTransportError, match="independent recovery required"
+        ):
+            mutations.unlink_phone(app, "previous", phone)
+        post.assert_not_called()

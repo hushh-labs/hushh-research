@@ -224,13 +224,18 @@ def request(body):
     )
 
 
+def _independent_owner(_authorization, *, require_independent_signin):
+    assert require_independent_signin is True
+    return "renewal-owner"
+
+
 async def test_route_renewal_db_outage_never_falls_back_to_initial_issuance(
     monkeypatch, owner_proof
 ):
     from api.routes import consent
 
     initial = AsyncMock()
-    monkeypatch.setattr(consent, "verify_firebase_bearer", lambda _: "renewal-owner")
+    monkeypatch.setattr(consent, "verify_firebase_bearer", _independent_owner)
     monkeypatch.setattr(consent, "_issue_or_reuse_vault_owner_token", initial)
     monkeypatch.setattr(
         consent.ConsentDBService,
@@ -250,7 +255,7 @@ async def test_route_explicit_unlock_keeps_existing_bootstrap_contract(monkeypat
     from api.routes import consent
 
     initial = AsyncMock(return_value={"token": "synthetic-result"})
-    monkeypatch.setattr(consent, "verify_firebase_bearer", lambda _: "renewal-owner")
+    monkeypatch.setattr(consent, "verify_firebase_bearer", _independent_owner)
     monkeypatch.setattr(consent, "_issue_or_reuse_vault_owner_token", initial)
     assert await consent.issue_vault_owner_token(request({"userId": "renewal-owner"})) == {
         "token": "synthetic-result"
@@ -263,7 +268,7 @@ async def test_route_acknowledges_only_validated_renewal(monkeypatch, owner_proo
 
     prior = owner_proof()
     renew = AsyncMock(return_value={"token": "synthetic-renewed"})
-    monkeypatch.setattr(consent, "verify_firebase_bearer", lambda _: "renewal-owner")
+    monkeypatch.setattr(consent, "verify_firebase_bearer", _independent_owner)
     monkeypatch.setattr(consent.ConsentDBService, "renew_vault_owner_token", renew)
     result = await consent.issue_vault_owner_token(
         request(

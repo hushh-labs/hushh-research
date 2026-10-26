@@ -20,13 +20,12 @@ from fastapi import Request
 FEATURE_FLAGS_HEADER = "x-feature-flags"
 
 # Reliability switches never grant authentication, consent, or fixture access.
-AUTH_RELIABILITY_FLAGS = frozenset(
-    {
-        "AUTH_PHONE_RECOVERY_ENABLED",
-        "AUTH_PHONE_SESSION_FENCING_ENABLED",
-        "AUTH_DB_LISTENER_ISOLATION_ENABLED",
-    }
-)
+AUTH_RELIABILITY_DEFAULTS = {
+    "AUTH_PHONE_RECOVERY_ENABLED": True,
+    "AUTH_PHONE_SESSION_FENCING_ENABLED": False,
+    "AUTH_DB_LISTENER_ISOLATION_ENABLED": False,
+}
+AUTH_RELIABILITY_FLAGS = frozenset(AUTH_RELIABILITY_DEFAULTS)
 _AUTH_TRACE_STAGES = frozenset(
     {"receive", "challenge", "provider", "identity", "persist", "response"}
 )
@@ -65,9 +64,9 @@ def _local_diagnostics_allowed() -> bool:
     return not any(os.getenv(name) for name in _HOSTED_RUNTIME_MARKERS)
 
 
-def request_feature_enabled(name: str, *, default: bool = False) -> bool:
+def request_feature_enabled(name: str, *, default: bool | None = None) -> bool:
     """Read an approved reliability flag once per request, with strict booleans."""
-    if name not in AUTH_RELIABILITY_FLAGS or type(default) is not bool:
+    if name not in AUTH_RELIABILITY_FLAGS or (default is not None and type(default) is not bool):
         raise ValueError("Unknown reliability flag or invalid default")
     overrides = _request_feature_overrides.get() or {}
     if name in overrides and _local_diagnostics_allowed():
@@ -75,7 +74,7 @@ def request_feature_enabled(name: str, *, default: bool = False) -> bool:
     values = _request_feature_values.get()
     raw = values[name] if values is not None else os.getenv(name)
     if raw is None or not raw.strip():
-        return default
+        return AUTH_RELIABILITY_DEFAULTS[name] if default is None else default
     # Malformed configuration fails closed, even for a default-on caller.
     return raw.strip().lower() == "true"
 

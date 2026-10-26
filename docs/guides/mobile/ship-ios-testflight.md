@@ -148,6 +148,10 @@ authority contract.
    only when you want the focused simulator App Intent/action gate in this
    release; the default is `false` because the full suite already runs in
    change-aware CI.
+   A blank manual `marketing_version` now uses the existing read-only live Apple
+   train resolver in Ubuntu preflight, before a macOS runner is allocated. Explicit
+   overrides keep their existing packaging-only scope. The same resolved version
+   flows into the app, extensions and upload receipt.
    When the committed marketing version is behind the intended tester version,
    supply `marketing_version` (`x.y.z`) after checking live Apple version history
    and concurrent uploads. This is packaging metadata only: the exact source SHA

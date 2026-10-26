@@ -8,7 +8,9 @@ import com.getcapacitor.JSObject
 import com.getcapacitor.PluginCall
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseException
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.PhoneAuthCredential
@@ -74,7 +76,7 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
         if (exchangeOwner == null) proof.signOut()
     }
 
-    fun start(call: PluginCall) = handler.post {
+    fun start(call: PluginCall, manualOnly: Boolean = false) = handler.post {
         val expected = call.getString("expectedUserId")
         val attempt = call.getString("attemptId")
         val phone = call.getString("phoneNumber")
@@ -106,12 +108,17 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
                         expire(op, (op.fence.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1))
                     }
                     override fun onVerificationCompleted(credential: PhoneAuthCredential) {
+                        if (manualOnly) {
+                            if (active(op) && op.fence.phase == DeletionPhoneProofFence.Phase.WAITING)
+                                finish(op, "phone_manual_sms_required")
+                            return
+                        }
                         // An instant result precedes codeSent. Later auto-retrieval leaves manual entry intact.
                         exchange(op, credential, DeletionPhoneProofFence.Phase.WAITING)
                     }
                     override fun onVerificationFailed(error: FirebaseException) {
                         if (active(op) && op.fence.phase == DeletionPhoneProofFence.Phase.WAITING)
-                            finish(op, "phone_verification_failed")
+                            finish(op, safeErrorCode(error))
                     }
                 }).build())
         } catch (_: Exception) { finish(op, "phone_verification_failed") }
@@ -121,7 +128,7 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
         val op = operation
         if (op == null || call.getString("attemptId") != op.fence.attemptId ||
             call.getString("expectedUserId") != op.fence.userId || !active(op)) {
-            call.reject("Request a new verification code.", "auth/session-expired")
+            call.reject("Request a new verification code.", "phone-verification-required")
             return@post
         }
         val code = call.getString("verificationCode") ?: ""
@@ -155,7 +162,7 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
 
     private fun expire(op: Operation, delay: Long) {
         op.timeout?.let(handler::removeCallbacks)
-        op.timeout = Runnable { if (operation === op) finish(op, "auth/session-expired") }
+        op.timeout = Runnable { if (operation === op) finish(op, "phone-verification-required") }
         handler.postDelayed(op.timeout!!, delay)
     }
 
@@ -180,7 +187,7 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
                         op.call = null
                         expire(op, (op.fence.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1))
                         reply?.reject("That code is incorrect.", "auth/invalid-verification-code")
-                    } else { finish(op, "phone_verification_failed"); drain(op) }
+                    } else { finish(op, safeErrorCode(result.exception)); drain(op) }
                 } else {
                     // A fresh exchange already issued this token; never restore or refresh a cached proof identity.
                     result.result!!.user!!.getIdToken(false).addOnCompleteListener { tokenResult ->
@@ -200,6 +207,17 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
                 }
             }
         } } catch (_: Exception) { finish(op, "phone_verification_failed"); drain(op) }
+    }
+
+    private fun safeErrorCode(error: Exception?): String {
+        if (error is FirebaseNetworkException) return "auth/network-request-failed"
+        return when ((error as? FirebaseAuthException)?.errorCode) {
+            "ERROR_SESSION_EXPIRED" -> "auth/code-expired"
+            "ERROR_TOO_MANY_REQUESTS" -> "auth/too-many-requests"
+            "ERROR_INVALID_APP_CREDENTIAL" -> "auth/invalid-app-credential"
+            "ERROR_CAPTCHA_CHECK_FAILED" -> "auth/captcha-check-failed"
+            else -> "phone_verification_failed"
+        }
     }
 
     private fun finish(op: Operation, error: String? = null) {

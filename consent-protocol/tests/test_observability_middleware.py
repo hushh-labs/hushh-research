@@ -242,6 +242,7 @@ def local_diagnostics(monkeypatch):
         "APP_RUNTIME_PROFILE",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AUTH_PHONE_RECOVERY_ENABLED", "false")
 
 
 @pytest.mark.feature_auth_reliability

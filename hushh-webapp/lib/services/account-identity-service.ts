@@ -1,5 +1,6 @@
 "use client";
 
+import { claimPhoneForOwner, transferPhoneForOwner } from "./account-phone-claim";
 import type { User } from "firebase/auth";
 import { getAuthSessionGeneration, snapshotValidatedAuthSessionOwner, snapshotValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
@@ -244,18 +245,28 @@ export class AccountIdentityService {
       return null;
     }
 
-    const response = await ApiService.claimAccountPhone(phoneIdToken, idToken, work.userId);
-    if (!identitySessionIsCurrent(work.userId, work.generation)) return null;
-    const identity = response.identity ?? null;
-    if (identity?.user_id !== work.userId) {
-      throw new Error("Phone verification could not be completed for this account.");
-    }
+    const identity = await claimPhoneForOwner(idToken, phoneIdToken, work.userId, () => identitySessionIsCurrent(work.userId, work.generation));
+    if (!identity) return null;
     // Write through so guards immediately see the newly verified phone.
     // A committed phone save outranks every read started before it completed,
     // including reads whose caller already timed out.
     work.sequence = ++identityWorkSequence;
     this.cacheIdentity(work.userId, identity, work);
     return identity;
+  }
+
+  static async transferCurrentUserPhone(user: User, proof: { token: string; transferId?: string; submitted?: boolean }, isCurrent: () => boolean): Promise<AccountIdentity> {
+    const work = beginUserIdentityWork(user);
+    const idToken = await user.getIdToken(true);
+    const assertCurrent = () => {
+      if (!work || !identitySessionIsCurrent(work.userId, work.generation) || !isCurrent())
+        throw new Error("Your account changed. Start phone verification again.");
+    };
+    assertCurrent();
+    const result = await transferPhoneForOwner(idToken, proof, work!.userId, assertCurrent);
+    work!.sequence = ++identityWorkSequence;
+    this.cacheIdentity(work!.userId, result, work!);
+    return result;
   }
 
   /**

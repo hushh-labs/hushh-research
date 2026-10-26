@@ -115,6 +115,8 @@ class IOSPackagingVersionTests(unittest.TestCase):
                         "synthetic",
                         "--issuer-id",
                         "synthetic",
+                        "--marketing-version",
+                        "1.4.1",
                         "--pbxproj",
                         str(project),
                     ]
