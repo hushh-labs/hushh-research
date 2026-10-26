@@ -179,7 +179,7 @@ async def prepare(
 ) -> dict[str, Any]:
     from api.middlewares.auth_reliability_trace import request_feature_enabled, request_trace_span
 
-    if not request_feature_enabled("AUTH_PHONE_RECOVERY_ENABLED", default=True):
+    if not request_feature_enabled("AUTH_PHONE_RECOVERY_ENABLED"):
         raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503)
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -437,7 +437,7 @@ async def confirm(
 ) -> dict[str, Any]:
     from api.middlewares.auth_reliability_trace import request_feature_enabled, request_trace_span
 
-    if not request_feature_enabled("AUTH_PHONE_RECOVERY_ENABLED", default=True):
+    if not request_feature_enabled("AUTH_PHONE_RECOVERY_ENABLED"):
         raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503)
     pool = await get_pool()
     async with pool.acquire() as conn:

@@ -23,6 +23,7 @@ def _build_app():
 @pytest.fixture
 def recorded_phone_loop(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.delenv("AUTH_PHONE_RECOVERY_ENABLED", raising=False)
     for key in (
         "HUSHH_DEPLOY_ENV",
         "APP_RUNTIME_PROFILE",
@@ -57,14 +58,15 @@ def recorded_phone_loop(monkeypatch):
 
 @pytest.mark.feature_auth_reliability
 @pytest.mark.trace_loop
-@pytest.mark.parametrize("enabled", [False, True], ids=["flag-off", "flag-on"])
+@pytest.mark.parametrize("enabled", [False, True, None], ids=["flag-off", "flag-on", "unset"])
 def test_recorded_phone_http_trace_loop_persists_exact_owner(recorded_phone_loop, enabled):
     """Exercise real challenge validation and HTTP routing with an isolated storage port."""
     app, identity = recorded_phone_loop
     headers = {
         "X-Trace-Id": "auth-loop-fixture-0001",
-        "X-Feature-Flags": f"AUTH_PHONE_RECOVERY_ENABLED={str(enabled).lower()}",
     }
+    if enabled is not None:
+        headers["X-Feature-Flags"] = f"AUTH_PHONE_RECOVERY_ENABLED={str(enabled).lower()}"
     with capture_request_trace_events() as events, TestClient(app) as client:
         started = time.perf_counter()
         start = client.post(
@@ -107,6 +109,7 @@ def test_recorded_phone_http_trace_loop_persists_exact_owner(recorded_phone_loop
         assert all(event["status"] == "ok" and event["duration_ms"] < 1000 for event in events)
         assert all(event["trace_id"] == headers["X-Trace-Id"] for event in events)
         assert all(
-            event["feature_flags"]["AUTH_PHONE_RECOVERY_ENABLED"] is enabled for event in events
+            event["feature_flags"]["AUTH_PHONE_RECOVERY_ENABLED"] is (enabled is not False)
+            for event in events
         )
         assert time.perf_counter() - started < 2
