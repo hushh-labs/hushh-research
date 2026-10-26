@@ -36,10 +36,37 @@ class PrerequisiteError(RuntimeError):
     """A diagnostic that never contains a credential or user identifier."""
 
 
+class PrerequisiteReadError(PrerequisiteError):
+    """A fixed operation diagnostic safe to preserve through secret reads."""
+
+
+def _read_operation(args: tuple[str, ...]) -> str:
+    operations = {
+        ("services", "api-keys", "list"): "picker_list",
+        ("services", "api-keys", "get-key-string"): "picker_key_compare",
+        ("secrets", "versions", "describe"): "secret_metadata_read",
+        ("secrets", "versions", "access"): "secret_value_read",
+    }
+    if args[:3] in operations:
+        return operations[args[:3]]
+    if args[:3] == ("iam", "service-accounts", "describe"):
+        accounts = {
+            RUNTIME_ACCOUNT: "runtime_account_get",
+            SCHEDULER_ACCOUNT: "scheduler_account_get",
+        }
+        return accounts.get(args[3] if len(args) > 3 else "", "unclassified_read")
+    if args[:2] == ("projects", "get-iam-policy"):
+        return "scheduler_policy_read"
+    return "unclassified_read"
+
+
 def _gcloud(*args: str) -> str:
     result = subprocess.run(["gcloud", *args], capture_output=True, text=True)
     if result.returncode:
-        raise PrerequisiteError("Production Drive prerequisite metadata is unavailable")
+        raise PrerequisiteReadError(
+            f"Production Drive prerequisite read failed: {_read_operation(args)}; "
+            f"exit_status={result.returncode}"
+        ) from None
     return result.stdout
 
 
@@ -66,6 +93,8 @@ def _secret(name: str) -> str:
             f"--secret={name}",
             f"--project={PROJECT}",
         ).strip()
+    except PrerequisiteReadError:
+        raise
     except (json.JSONDecodeError, PrerequisiteError) as exc:
         raise PrerequisiteError(f"Production Drive secret {name} is unavailable") from exc
     if not value:

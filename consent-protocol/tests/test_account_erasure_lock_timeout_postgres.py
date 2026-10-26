@@ -1015,7 +1015,7 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
     )
     await conn.execute(migration)
     await conn.execute(migration)
-    workos_migration = (ROOT / "db/migrations/426_workos_generation_memberships.sql").read_text()
+    workos_migration = (ROOT / "db/migrations/427_workos_generation_memberships.sql").read_text()
     await conn.execute(workos_migration)
     await conn.execute(workos_migration)
     for client_role in ("anon", "authenticated"):

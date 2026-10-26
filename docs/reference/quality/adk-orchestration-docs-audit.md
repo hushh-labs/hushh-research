@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 06:25 UTC
+## Current decision — 26 October 2026, 09:25 UTC
 
 **The application correction is accepted on Dev and UAT. Both clouds pass the new
 Browser image's component and encrypted-recovery checks. Installed-owner Browser
@@ -34,14 +34,17 @@ passed; actual serving revisions and digests were read back. No production chang
 or new Browser installation is claimed.
 
 The next checkpoint is [PR #8473](https://github.com/hushh-labs/hushh-research/pull/8473).
-Its local core passed in 21m49s; the latest Wallet/Gmail main changes were preserved
-through a normal merge and affected verification. Hosted protocol, database,
-governance and security checks passed. Integration's account-deletion cases passed
-in 2m28s, then Ubuntu dependency downloads from the preferred Azure mirror consumed
-over 15 minutes and exhausted the 20-minute job budget before document-browser
-tests began. The local continuation applies the existing Web/UAT mirror correction
-to that installer, without dropping either browser engine or changing test gates.
-This candidate has not been merged or deployed.
+Its combined `82aef94b9a` local core passed in 64m16s, and exact hosted
+[CI](https://github.com/hushh-labs/hushh-research/actions/runs/40294784031)
+passed. Integration now completes in 5m40s after correcting the preferred Ubuntu
+mirror; the prior attempt exhausted its 20-minute budget. Both browser engines
+and all security/lifecycle gates remain enabled.
+
+A concurrent main release introduced financial migration 426 during validation.
+The unshipped WorkOS migration moves to 427; main's financial SQL and the WorkOS
+SQL bodies remain byte-identical. The normal merge preserves both implementations.
+Combined replay and generation tests, regenerated contracts and a new exact-head
+hosted result are required before Admin landing. This candidate is not deployed.
 
 Read-only provider evidence now confirms no Directory Sync connections in the
 WorkOS environment whose webhook secret matches UAT. The local continuation removes
@@ -55,13 +58,13 @@ acceptance. Production Firebase identities were not mutated.
 
 | Boundary | Verified outcome | Remaining acceptance |
 |---|---|---|
-| Application | Dev backend `00252-cfk` / frontend `00216-vl7`; UAT backend `02588-kuw` / frontend `02172-s4l`; both source `c0bf05df4f`, 100% traffic | Next combined lifecycle candidate retains its own acceptance |
+| Application | Dev backend `00252-cfk` / frontend `00216-vl7`; UAT backend `02591-zod` / frontend `02172-s4l`; both source `c0bf05df4f`, 100% traffic | Next combined lifecycle candidate retains its own acceptance |
 | Browser image | Genuine source `7d5546e471`, digest `09d4ce51…d5deea`; controlled native execution passes on Cloud Run and Container Apps | Publish qualified compatibility metadata and install through exact owner approval |
 | Browser component | Both clouds pass research, responsive control, zero model observations during manual login, encrypted remember/restore, logout, Forget, one reviewed save and joined Stop | Actual owner HTTP takeover, reconnect and signed-in journeys; GitHub and broader sites remain unqualified |
 | Encrypted recovery | GCP predecessor `26bab163…061809` and Azure predecessor `6e57f251…eeac423` preserve identity, six records, consent, revocation and 245,763 exact file bytes on the new image | Installed active-work drain and recovery |
 | Installed owners | Azure Dev 30 update and Puppy/Gemma 12B response passed. GCP's original approved Dev 30/Files update now verifies image `6e57f251…eeac423` through its existing operation | Browser task reconciliation, active-work acceptance and current-image Files organization |
 | Fixed-term sharing | Temporary 97/1711 sandbox admission verified. Original 54/1711 secret and runtime restored through successful governed rollout, with both owner readbacks | Account 97 has zero funded balance and no funding lots; no purchase/funding was attempted. Request/access/revocation acceptance remains open |
-| Account generations | Isolated real-mail two-cycle proof preserves Firebase UID and refuses retired sessions | Public admission remains off; local WorkOS membership/journal hardening has focused and PostgreSQL evidence, while legacy coverage and actual provider qualification remain open |
+| Account generations | Isolated real-mail two-cycle proof preserves Firebase UID and refuses retired sessions | Public admission remains off; WorkOS membership/journal hardening, current legacy inventory and isolated provider transport have evidence; installed migration/drain and ordinary-provider acceptance remain open |
 | Cleanup | Browser qualification compute, temporary inference role, copied images and both recovery fixtures removed with provider absence receipts | Disposable Cloudflare site awaits connector reconnection for deletion; synthetic state only, with serving expiry |
 
 The stranded GCP update completed through its original approval and operation,
@@ -75,7 +78,7 @@ The next local candidate also closes the WorkOS email-based callback gap:
 verified exchange captures immutable directory attribution, delayed work retains its
 original generation, and provider writes use the existing dispatch/settlement journal.
 Held membership/profile tokens cannot reopen an offboarded work session. SSO-only
-organizations retain a bounded empty-directory path. Migration 426 is forward-only;
+organizations retain a bounded empty-directory path. Migration 427 is forward-only;
 these changes are not deployed or permission to activate public re-registration.
 The [SSO reference](../architecture/enterprise-sso-workos-adr.md) records legacy
 coverage and provider qualification still required.

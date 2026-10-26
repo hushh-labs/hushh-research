@@ -26,7 +26,7 @@ flowchart LR
 
 ## Status
 
-Baseline integration exists. The 26 October 2026 generation-bound hardening is local and unshipped: migration `426_workos_generation_memberships`, exact directory attribution, journalled provider writes and membership-bound admission. Public replacement admission remains disabled pending installed-schema, old-consumer drain and deployed acceptance. WorkOS stays on generation zero; the separate HushhTech compatibility guard remains. See the [current readiness memo](../quality/adk-orchestration-docs-audit.md).
+Baseline integration exists. The 26 October 2026 generation-bound hardening is local and unshipped: migration `427_workos_generation_memberships`, exact directory attribution, journalled provider writes and membership-bound admission. Public replacement admission remains disabled pending installed-schema, old-consumer drain and deployed acceptance. WorkOS stays on generation zero; the separate HushhTech compatibility guard remains. See the [current readiness memo](../quality/adk-orchestration-docs-audit.md).
 
 Read-only qualification on 26 October confirmed that UAT's actual WorkOS environment has no Directory Sync connections: its complete directory listing returned HTTP 200, and the same environment's webhook secret matched the retained configuration in memory. Existing SSO-created identities do not establish a Directory Sync integration. Dev has no configured WorkOS client. This permits ordinary-provider generation activation after its remaining release checks; it does not qualify Directory Sync. Unknown historical directory events remain retryable refusals rather than email-based owner discovery. Isolated `hushh-pda-uat` Firebase transport passed created/linked claim preservation, revocation timestamps and one physical mutation POST per case; both synthetic identities were removed with absence verification. No production identity was changed.
 
@@ -86,7 +86,7 @@ Claims are merged into the existing claim object, never written over it (`set_cu
 ## Minimum retained attribution
 
 WorkOS remains authoritative for organizations, DNS verification and connections.
-Migration 426 adds one hash-only membership relation to the existing local lifecycle.
+Migration 427 adds one hash-only membership relation to the existing local lifecycle.
 It contains no email, credentials, names or raw provider identifiers. Its immutable
 owner/generation attribution survives erasure so an old signed webhook cannot act
 on a replacement account with the same Firebase UID.

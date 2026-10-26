@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_live_reader import _open_url
 from hushh_mcp.services.drive_packet_contract import evidence_digest
+from hushh_mcp.services.drive_packet_display import packet_file_label
 from hushh_mcp.services.drive_period_packet_contract import (
     PERIOD_PACKET_POLICY,
     PERIOD_PACKET_PRICE_CENTS,
@@ -118,7 +119,7 @@ def project_packet(store, row, *, is_owner, owner_contents):
         for source in list((manifest or {}).get("source_metadata", {}).values())[:120]:
             documents.append(
                 {
-                    "name": source["name"],
+                    "name": packet_file_label(source["name"]),
                     "type": None,
                     "pages": None,
                     "period": None,
