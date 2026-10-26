@@ -15,6 +15,66 @@ private final class ZeroSafeAreaView: UIView {
 }
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testOwnedChoiceReadbackCannotRetireAnAttachedSheet() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let parent = UIViewController(), window = UIWindow(windowScene: scene)
+        window.rootViewController = parent; window.makeKeyAndVisible()
+        let shield = HushhSessionPrivacyShield()
+        shield.attach(to: parent.view)
+        let document = "public-owned-choice-\(UUID().uuidString)"
+        shield.observeDocument(document); shield.protectForAppInactive(); shield.markAppActive()
+        let released = expectation(description: "Isolated public fixture privacy release")
+        shield.completeSessionValidation(generation: shield.snapshot().generation, documentId: document, appIsActive: true) {
+            XCTAssertTrue($0); released.fulfill()
+        }
+        await fulfillment(of: [released], timeout: 3)
+        let choice = NativeOwnedChoiceCoordinator(privacyShield: shield)
+        choice.parent = { parent }; choice.available = { true }
+        choice.admitOwner = { _ in true }; choice.currentOwner = { _ in true }
+        var events = 0; choice.emit = { _ in events += 1 }
+        defer {
+            choice.retire(); window.isHidden = true; window.rootViewController = nil
+            if let host = previous?.rootViewController?.view { shield.attach(to: host) }
+            previous?.makeKeyAndVisible()
+        }
+        let identity: [String: Any] = ["documentId": document, "ownerEpoch": "public-owner", "ownerGeneration": 1,
+            "revision": 1, "visitId": "public-visit"]
+        var projection = identity
+        projection.merge(["privacyGeneration": shield.snapshot().generation, "updateSequence": 1,
+            "appearance": "light", "accentHex": "#007AFF", "foregroundHex": "#111111", "title": "Public choices",
+            "options": [["handle": "public-handle", "label": "Public option", "selected": true, "disabled": false]]]) { _, next in next }
+        let active = expectation(description: "Actual choice presentation completion")
+        let prepare = try XCTUnwrap(CAPPluginCall(callbackId: "public-prepare", methodName: "prepareOwnedChoice", options: projection,
+            success: { result, _ in
+                guard case let .dictionary(value)? = result?.resultData else { XCTFail("CHOICE_RECEIPT_MISSING"); active.fulfill(); return }
+                XCTAssertEqual(value["phase"] as? String, "active"); active.fulfill()
+            }, error: { _ in XCTFail("CHOICE_PREPARE_REFUSED"); active.fulfill() }))
+        choice.prepare(prepare); await fulfillment(of: [active], timeout: 3)
+        let controller = try XCTUnwrap(parent.presentedViewController)
+        var retirementCompleted = false, rejectedWhileAttached = false
+        let detached = expectation(description: "Actual choice disappearance")
+        let retire = try XCTUnwrap(CAPPluginCall(callbackId: "public-retire", methodName: "retireOwnedChoice", options: identity,
+            success: { _, _ in retirementCompleted = true; detached.fulfill() },
+            error: { _ in XCTFail("CHOICE_RETIRE_REFUSED"); detached.fulfill() }))
+        let read = try XCTUnwrap(CAPPluginCall(callbackId: "public-pending", methodName: "getOwnedChoiceState", options: identity,
+            success: { _, _ in XCTFail("Attached native sheet cannot report retirement") },
+            error: { _ in rejectedWhileAttached = true }))
+        choice.retire(retire)
+        // No actor yield: the UIKit dismissal completion has not run.
+        XCTAssertTrue(controller.presentingViewController === parent)
+        XCTAssertFalse(retirementCompleted); choice.readState(read); XCTAssertTrue(rejectedWhileAttached)
+        await fulfillment(of: [detached], timeout: 3)
+        XCTAssertNil(controller.presentingViewController); XCTAssertFalse(choice.coversPresentation)
+        var confirmed = false
+        let absent = try XCTUnwrap(CAPPluginCall(callbackId: "public-absent", methodName: "getOwnedChoiceState", options: identity,
+            success: { result, _ in
+                if case let .dictionary(value)? = result?.resultData { confirmed = value["phase"] as? String == "retired" }
+            }, error: { _ in XCTFail("CHOICE_ABSENCE_REFUSED") }))
+        choice.readState(absent); XCTAssertTrue(confirmed); XCTAssertEqual(events, 0)
+    }
+
     @MainActor func testNativeFeedbackReplacementRetainsItsBoundedHostAndOutsideTouches() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previous = scene.windows.first(where: \.isKeyWindow)

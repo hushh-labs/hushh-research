@@ -1,45 +1,6 @@
 import Capacitor
 import UIKit
 
-enum NativeDrawerQualificationPolicy {
-    // One build-time switch for the complete custom presentation: bootstrap,
-    // dock, chrome and drawers. Never swap renderers in a live document.
-    // The independently owned standard bottom navigation is unaffected.
-    static let customPresentationAllowed = true
-    static func admits(_ idiom: UIUserInterfaceIdiom, enabled: Bool, coherentShell: Bool) -> Bool {
-        switch idiom {
-        case .phone: return enabled
-        case .pad: return coherentShell
-        default: return false
-        }
-    }
-    static var deviceEligible: Bool {
-        guard customPresentationAllowed else { return false }
-        guard #available(iOS 26.0, *) else { return false }
-        return admits(UIDevice.current.userInterfaceIdiom, enabled: enabled, coherentShell: coherentShell)
-    }
-    static var coherentShell: Bool {
-        guard customPresentationAllowed else { return false }
-        #if HUSHH_NATIVE_SHELL_QUALIFICATION
-        // Explicit qualification binaries keep the selected renderer across
-        // manual launches. This does not enable ordinary Debug/Release builds.
-        return true
-        #elseif DEBUG
-        return ProcessInfo.processInfo.arguments.contains("--hushh-native-shell-qualification")
-        #else
-        return false
-        #endif
-    }
-    static var enabled: Bool {
-        guard customPresentationAllowed else { return false }
-        #if DEBUG
-        return coherentShell || ProcessInfo.processInfo.arguments.contains("--hushh-native-product-drawers-qualification")
-        #else
-        return coherentShell
-        #endif
-    }
-}
-
 /// Volatile private projections and confirmed choices only. This plugin never
 /// performs navigation, persistence, cryptography or provider/network operations.
 @objc(HushhNativeDrawersPlugin)
@@ -48,6 +9,10 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "HushhNativeDrawers"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareOwnedChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateOwnedChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireOwnedChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getOwnedChoiceState", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "applyFeedback", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retireFeedback", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "applyProfilePaymentsScene", returnType: CAPPluginReturnPromise),
@@ -110,6 +75,29 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var controllers = [String: NativeDrawerPresentationController]()
     private var retiringControllers = [ObjectIdentifier: NativeDrawerPresentationController]()
     private var form: NativeProfileOwnedForm?
+    @MainActor private lazy var ownedChoices: NativeOwnedChoiceCoordinator = {
+        let choice = NativeOwnedChoiceCoordinator()
+        choice.parent = { [weak self] in self?.bridge?.viewController }
+        choice.available = { [weak self] in
+            guard let self else { return false }
+            return self.supported && UIDevice.current.userInterfaceIdiom == .phone && self.form == nil &&
+                self.retiringForms.isEmpty && self.retiringControllers.isEmpty && self.workspace == nil &&
+                self.retiringWorkspaces.isEmpty && !self.controllers.values.contains { $0.coversUnderlyingPresentation }
+        }
+        choice.admitOwner = { [weak self] identity in
+            guard let self, self.supported, UIDevice.current.userInterfaceIdiom == .phone else { return false }
+            var session = self.sessionFence
+            guard session.admitOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) else { return false }
+            if !self.sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) {
+                self.retireAll(); self.leases.removeAll(); self.sessionFence = session
+            }
+            return true
+        }
+        choice.currentOwner = { [weak self] identity in self?.sessionFence.containsOwner(documentId: identity.documentId, ownerEpoch: identity.ownerEpoch, ownerGeneration: identity.ownerGeneration) == true }
+        choice.changed = { [weak self] in self?.reconcileIsolation() }
+        choice.emit = { [weak self] event in self?.notifyListeners("ownedChoice", data: event, retainUntilConsumed: false) }
+        return choice
+    }()
     @MainActor private lazy var feedback: NativeFeedbackPresentation = {
         let presenter = NativeFeedbackPresentation()
         presenter.ended = { [weak self] event in self?.notifyListeners("feedbackEnded", data: event, retainUntilConsumed: false) }
@@ -157,7 +145,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             HushhSessionPrivacyShield.shared.profilePresentationsConcealed = { [weak self] in
                 guard let self else { return false }
-                return self.form == nil && self.retiringForms.isEmpty && self.retiringControllers.isEmpty &&
+                return self.ownedChoices.concealed && self.form == nil && self.retiringForms.isEmpty && self.retiringControllers.isEmpty &&
                     self.workspace == nil && self.retiringWorkspaces.isEmpty &&
                     !self.controllers.values.contains { $0.coversUnderlyingPresentation }
             }
@@ -201,9 +189,15 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         if let privacyObserver { NotificationCenter.default.removeObserver(privacyObserver) }
         if let isolationObserver { NotificationCenter.default.removeObserver(isolationObserver) }
     }
+    @objc func prepareOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.prepare(call) } }
+    @objc func updateOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.update(call) } }
+    @objc func retireOwnedChoice(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.retire(call) } }
+    @objc func getOwnedChoiceState(_ call: CAPPluginCall) { DispatchQueue.main.async { [weak self] in self?.ownedChoices.readState(call) } }
+
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
+                "ownedChoices": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "privateFeedback": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "historyActions": self?.supported == true,
                 "profileMenuRows": self?.supported == true,
@@ -639,6 +633,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         else { completion() }
     }
     @MainActor private func retireAll() {
+        ownedChoices.retire()
         feedback.clear()
         retireWorkspacePresentation()
         retireProfileForm()
@@ -649,9 +644,9 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @MainActor private func reconcileIsolation() {
-        let formCovered = form?.coversPresentation == true || !retiringForms.isEmpty
+        let formCovered = ownedChoices.coversPresentation || form?.coversPresentation == true || !retiringForms.isEmpty
         for controller in controllers.values { controller.setFormCoverage(formCovered) }
-        let covered = controllers.values.contains { $0.coversUnderlyingPresentation } ||
+        let covered = ownedChoices.coversPresentation || controllers.values.contains { $0.coversUnderlyingPresentation } ||
             retiringControllers.values.contains { $0.coversUnderlyingPresentation } ||
             form?.coversPresentation == true || retiringForms.values.contains { $0.coversPresentation }
         container?.isolateForOwnedDrawer(covered)

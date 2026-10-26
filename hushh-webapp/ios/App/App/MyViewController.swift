@@ -120,7 +120,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // hook. Install against the final controller before WK creates the
         // document. This selects rendering, never operation/information authority.
         configuration.userContentController.addUserScript(WKUserScript(
-            source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false"),coherentShell:\(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false")})});",
+            source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false"),coherentShell:\(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false"),ownedChoices:\(eligible && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone ? "true" : "false")})});",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
         return super.webView(with: frame, configuration: configuration)
     }

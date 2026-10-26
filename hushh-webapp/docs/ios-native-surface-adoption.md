@@ -18,6 +18,28 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Shared overlay boundary — 2026-10-26
 
+The shared `Select` root now has a qualification-only private immediate-choice
+adapter (`NativeDrawers v1: ownedChoices`). Known plain-label compound options
+inherit it without route patches. The original Radix trigger, form registration,
+controlled value and reset owner remain mounted; only the owned popup is native.
+Feature values stay in React behind random presentation handles. Private labels
+exist only in volatile presentation models. Appearance updates retain the host.
+Selection is delivered once, after actual native dismissal, to the current
+committed callback; unchanged values do not repeat writes. Back, owner/privacy
+changes and capability failures retire the same lease before any web fallback.
+An attached opening/retiring sheet cannot report confirmed absence.
+
+Controlled opening, rich labels, custom event semantics, named groups and
+authored direction remain complete React presentations. Their exclusion is
+semantic, not route-specific. AlertDialog's busy/refused confirmation and rich
+Popover content require their own complete presentation contracts; they are not
+silently converted into immediate choices. This extension does not qualify those
+families or change ordinary Release/TestFlight admission, which remains off.
+Current evidence: nine shared Select/privacy contract cases, the existing native
+Chrome/Popover suites and plugin-contract mutation controls pass. Native Release
+compilation passes. The new UIKit retirement regression and adjacent alert test
+pass on iPhone; integrated route-picker device acceptance is pending.
+
 Overlay repair belongs to the shared primitive/presenter, not to Wallet or another
 route. `useNativeNavigationOverlayRef` now observes the registered primitive’s
 `data-state` and `hidden` lifecycle. A retained closed portal does not isolate the

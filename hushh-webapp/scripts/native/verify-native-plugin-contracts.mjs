@@ -100,9 +100,17 @@ function walkFiles(dir, predicate, out = []) {
 }
 
 function extractInterfaceMethods(checker, sourceFile, interfaceName) {
-  const declaration = sourceFile.statements.find(
+  let declaration = sourceFile.statements.find(
     (node) => ts.isInterfaceDeclaration(node) && node.name.text === interfaceName,
   );
+  if (!declaration) {
+    // A typed compatibility facade may import its transport interface. Follow
+    // that exact symbol, not a filename/name search that could hide drift.
+    let symbol = checker.getSymbolsInScope(sourceFile, ts.SymbolFlags.Type | ts.SymbolFlags.Alias)
+      .find(candidate => candidate.name === interfaceName);
+    if (symbol?.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+    declaration = symbol?.declarations?.find(ts.isInterfaceDeclaration);
+  }
   if (!declaration) return null;
   const contract = checker.getTypeAtLocation(declaration);
   const methods = new Set();
