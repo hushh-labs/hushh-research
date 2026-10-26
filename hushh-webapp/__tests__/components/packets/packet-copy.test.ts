@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buyerNotes, buyerPacketStatus, dayRangeLabel, ownerPacketStatus, ownerStatusLine } from "@/components/consent/packets/packet-copy";
+import { buyerNotes, buyerPacketStatus, dayRangeLabel, ownerDocumentCount, ownerPacketStatus, ownerStatusLine } from "@/components/consent/packets/packet-copy";
 import type { DiscoveryDrivePacket, DrivePacket } from "@/lib/services/drive-packet-service";
 
 // A synthetic listed packet, as a buyer's list receives it.
@@ -24,7 +24,7 @@ describe("@feature_drive_packets @trace_loop buyer packet words", () => {
     expect(buyerPacketStatus({ ...packet, coverageSummary: "Evidence is being prepared." }, null, "Avery").line).toBe("3 documents");
     expect(buyerPacketStatus({ ...packet, canRequest: false }, null, "Avery")).toEqual({ line: "Not available right now", tone: "paused" });
     expect(buyerPacketStatus(packet, { requestId: "r", existingAccess: false }, "Avery"))
-      .toEqual({ line: "Requested · Waiting for Avery", tone: "waiting" });
+      .toEqual({ line: "Request sent", tone: "waiting" });
     // Already having the files wins over anything else.
     expect(buyerPacketStatus({ ...packet, canRequest: false }, { requestId: "r", existingAccess: true }, "Avery"))
       .toEqual({ line: "You have these files", tone: "listed" });
@@ -48,12 +48,19 @@ describe("@feature_drive_packets @trace_loop buyer packet words", () => {
 });
 
 describe("@feature_drive_packets @trace_loop owner packet words", () => {
+  it("keeps a versioned but unmeasured owner count unknown without a preview", () => {
+    const unknown = { ...emptyDiscovery, documentCount: null, version: 1 };
+    expect(ownerDocumentCount(unknown)).toBeNull();
+    expect(ownerStatusLine(unknown)).not.toContain("0 files");
+    expect(ownerDocumentCount({ ...unknown, documentCount: 0 })).toBe("0 files");
+  });
+
   it.each(["empty", "unable_to_verify", "ready"] as const)("keeps an unsearched frozen %s sale separate from owner discovery", state => {
     const frozen: DiscoveryDrivePacket = { ...emptyDiscovery, category: "financial", state, freshness: "stale",
       preview: { status: "not_started", revision: 1, matched: null, complete: false, stale: true,
         updatedAt: null, errorCode: null } };
     expect(ownerPacketStatus(frozen)).toMatchObject({ word: "Not searched", tone: "waiting" });
-    expect(ownerPacketStatus(frozen).detail).toContain("automatically in the background");
+    expect(ownerPacketStatus(frozen).detail).toBe("Files appear when the search starts.");
     expect(ownerStatusLine(frozen)).not.toContain("0 documents");
     expect(ownerPacketStatus({ ...frozen, preview: { ...frozen.preview!, status: "queued" } }).word).toBe("Queued");
   });
@@ -63,33 +70,37 @@ describe("@feature_drive_packets @trace_loop owner packet words", () => {
       freshness: "stale", canRequest: true, preview: { status: "completed", revision: 2, matched: 0,
         complete: true, stale: false, updatedAt: "2026-10-25T10:00:00Z", errorCode: null } };
     expect(ownerPacketStatus(frozen).word).toBe("No matching files");
-    expect(ownerStatusLine(frozen)).toContain("0 documents");
-    const found = { ...frozen, preview: { ...frozen.preview!, matched: 33 } };
+    expect(ownerStatusLine(frozen)).toContain("0 files");
+    const found = { ...frozen, preview: { ...frozen.preview!, matched: 51,
+      tagging: { status: "completed" as const, policyVersion: "synthetic-labels", counts: { financial: 0, review: 2, other: 49, pending: 0 } } } };
     expect(ownerPacketStatus(found).word).toBe("Files found");
-    expect(ownerStatusLine(found)).toContain("33 documents");
+    expect(ownerStatusLine(found)).toContain("51 files");
     expect(buyerPacketStatus(found, null, "Avery").line).toBe("2 documents · July–August 2026");
+    expect(found.documentCount).toBe(2);
   });
 
   it("distinguishes an unmeasured search, partial matches, and a completed empty result", () => {
     const current: DiscoveryDrivePacket = { ...emptyDiscovery, version: 0, state: "building" };
     expect(ownerStatusLine(current)).not.toContain("0 documents");
+    expect(ownerStatusLine({ ...current, version: 1, documentCount: null })).not.toContain("0 files");
     expect(ownerPacketStatus(current).detail).not.toContain("period closes");
-    expect(ownerPacketStatus(current).detail).toContain("automatically in the background");
+    expect(ownerPacketStatus(current).detail).toBe("Files appear when the search starts.");
     const preview = { status: "completed" as const, revision: 0, matched: 0, complete: true, stale: false,
       updatedAt: "2026-10-24T10:00:00Z", errorCode: null };
     expect(ownerPacketStatus({ ...current, preview }).word).toBe("No matching files");
-    expect(ownerStatusLine({ ...current, preview })).toContain("0 documents");
+    expect(ownerStatusLine({ ...current, preview })).toContain("0 files");
     const unavailableSale = { ...emptyDiscovery, state: "ready" as const, freshness: "stale" as const,
       preview: { ...preview, matched: 33 } };
     expect(ownerPacketStatus(unavailableSale).word).toBe("Files found");
-    expect(ownerStatusLine(unavailableSale)).toContain("33 documents");
+    expect(ownerStatusLine(unavailableSale)).toContain("33 files");
     expect(unavailableSale.canList).toBe(false);
     const financial = { ...unavailableSale, category: "financial" as const };
-    expect(buyerNotes(financial).join(" ")).toContain("400 text characters");
+    expect(buyerNotes(financial).join(" ")).toContain("Labels can be incomplete");
     expect(buyerNotes(financial).join(" ")).not.toContain("contents were not read");
     expect(ownerPacketStatus({ ...emptyDiscovery, preview: { ...preview, matched: 12 } }).word).toBe("Files found");
-    expect(ownerStatusLine({ ...current, preview: { ...preview, status: "partial", matched: 12, complete: false } }))
-      .toContain("12 documents found so far");
+    const partial = { ...current, preview: { ...preview, status: "partial" as const, matched: 12, complete: false } };
+    expect(ownerStatusLine(partial)).toContain("12 files");
+    expect(ownerPacketStatus(partial).word).toBe("Files found so far");
   });
   // The owner's packets as the server sends them: a version that isn't ready is never "current".
   const owned: DrivePacket = { ...packet, listingRevision: 0, listingEnabled: false, canList: true, canRequest: false };

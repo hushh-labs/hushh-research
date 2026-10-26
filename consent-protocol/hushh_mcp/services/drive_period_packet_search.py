@@ -136,6 +136,18 @@ async def finish_search(store, job, build, state, *, logger):
             job["build"] = build
             await store.freeze(job, search_job_id=state["jobId"])
         else:
+            job["build"] = build
+            finalized_empty = (
+                bool(job.get("current_version"))
+                and job["category"] == "financial"
+                and state["matched"] <= 120
+                and period.closed(datetime.now(UTC))
+                and period.closed(datetime.fromisoformat(state["createdAt"]))
+                and await store.finalize_empty_sale(job, search_job_id=state["jobId"])
+            )
+            if finalized_empty:
+                logger.info("period_packet.finalization outcome=empty_sale_checked")
+                return "completed"
             await store.save_build(
                 job,
                 build,

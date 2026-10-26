@@ -54,6 +54,7 @@ export function isCheckingPlaceholder(packet: DrivePacket): boolean {
  * its title, so it takes its first file's name (the owner's own), or "New packet".
  */
 export function ownerPacketTitle(packet: DrivePacket): string {
+  if (packet.kind === "provider_discovery") return PACKET_CATEGORY_NAMES[packet.category];
   if (!isCheckingPlaceholder(packet)) return packet.title;
   const first = packet.contents ? sortedDocuments(packet.contents.documents)[0] : undefined;
   if (!first) return "New packet";
@@ -70,7 +71,7 @@ export function packetGaps(packet: DrivePacket): string[] {
   return packet.kind === "provider_discovery" ? [] : packet.gaps.filter(gap => !STATUS_GAPS.has(gap));
 }
 export const PACKET_CATEGORY_NAMES: Record<DrivePacketCategory, string> = {
-  financial: "Financial statements", bank: "Account statements", brokerage: "Brokerage", insurance: "Insurance",
+  financial: "Financial documents", bank: "Account statements", brokerage: "Brokerage", insurance: "Insurance",
 };
 export function categoryPeriods(packets: readonly DrivePacket[], category: DrivePacketCategory): DiscoveryDrivePacket[] {
   return packets.filter((packet): packet is DiscoveryDrivePacket => packet.kind === "provider_discovery" && packet.category === category)
@@ -85,7 +86,7 @@ export function packetPeriod(packet: DrivePacket): DrivePacketPeriod | null {
 
 export type OwnerPacketStatus = {
   word: "Ready to list" | "Listed" | "Not listed" | "Checking" | "Needs attention" | "Couldn’t check" | "Too large to list" | "Paused" | "Building" | "No shareable files" |
-    "Not searched" | "Queued" | "Searching" | "Results so far" | "Files found" | "No matching files";
+    "Not searched" | "Queued" | "Searching" | "Files found so far" | "Files found" | "No matching files";
   tone: PacketTone;
   detail: string;
   /** Lower sorts first: decisions, then live listings, then work in progress. */
@@ -95,14 +96,14 @@ export type OwnerPacketStatus = {
 export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
   if (packet.kind === "provider_discovery") {
     const preview = packet.preview;
-    if (preview?.status === "not_started") return { word: "Not searched", tone: "waiting", order: 4, detail: "Search results are prepared automatically in the background." };
-    if (preview?.status === "failed") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "The search couldn’t finish. Saved results are still available; refresh to retry." };
-    if (preview?.status === "searching") return { word: "Searching", tone: "waiting", order: 4, detail: "Searching your connected Google Drive. Results appear as they are saved." };
-    if (preview?.status === "queued") return { word: "Queued", tone: "waiting", order: 4, detail: "Your search is queued. You can leave this page." };
-    if (preview?.status === "partial") return { word: "Results so far", tone: "waiting", order: 4, detail: "These results are incomplete. Search continues in the background." };
-    if (preview?.complete && preview.matched === 0) return { word: "No matching files", tone: "paused", order: 3, detail: "Google Drive finished this search with no matching files for the selected dates." };
-    if (preview?.complete && (packet.state !== "ready" || packet.freshness !== "current")) return { word: "Files found", tone: "ready", order: 2, detail: "Your search results are available. The sale version is separate and isn’t ready to list." };
-    if (packet.state === "building") return { word: "Not searched", tone: "waiting", order: 4, detail: "Search results are prepared automatically in the background." };
+    if (preview?.status === "not_started") return { word: "Not searched", tone: "waiting", order: 4, detail: "Files appear when the search starts." };
+    if (preview?.status === "failed") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Saved files are still available. Refresh to try again." };
+    if (preview?.status === "searching") return { word: "Searching", tone: "waiting", order: 4, detail: "You can leave this page." };
+    if (preview?.status === "queued") return { word: "Queued", tone: "waiting", order: 4, detail: "You can leave this page." };
+    if (preview?.status === "partial") return { word: "Files found so far", tone: "waiting", order: 4, detail: "The search is still incomplete." };
+    if (preview?.complete && preview.matched === 0) return { word: "No matching files", tone: "paused", order: 3, detail: "Try another period." };
+    if (preview?.complete && (packet.state !== "ready" || packet.freshness !== "current")) return { word: "Files found", tone: "ready", order: 2, detail: "Sharing isn’t available yet." };
+    if (packet.state === "building") return { word: "Not searched", tone: "waiting", order: 4, detail: "Files appear when the search starts." };
     if (packet.state === "empty") return { word: "No shareable files", tone: "paused", order: 3, detail: "No files from this search are currently available to share." };
     if (packet.state === "unable_to_verify") return { word: "Couldn’t check", tone: "attention", order: 3, detail: "Files couldn’t be confirmed." };
     if (packet.freshness !== "current") return { word: "Paused", tone: "paused", order: 5, detail: "This packet isn’t available now." };
@@ -128,16 +129,29 @@ export function ownerPacketStatus(packet: DrivePacket): OwnerPacketStatus {
 
 /** "Ready to list · 3 documents · Jan–Jun 2026". */
 export function ownerStatusLine(packet: DrivePacket): string {
+  if (packet.kind === "provider_discovery") return [periodLabel(packetPeriod(packet)), ownerDocumentCount(packet)]
+    .filter(Boolean).join(" · ") || ownerPacketStatus(packet).word;
   return [ownerPacketStatus(packet).word, ownerDocumentCount(packet), periodLabel(packetPeriod(packet))]
     .filter(Boolean).join(" · ");
 }
 
 export function ownerDocumentCount(packet: DrivePacket): string | null {
   if (packet.kind !== "provider_discovery") return documentCount(packet.documentCount);
-  if (!packet.preview) return packet.version ? documentCount(packet.documentCount) : null;
+  const files = (count: number) => `${count.toLocaleString("en-US")} ${count === 1 ? "file" : "files"}`;
+  if (!packet.preview) return packet.version && packet.documentCount !== null ? files(packet.documentCount) : null;
   const preview = packet.preview;
   if (preview.matched === null) return null;
-  return `${preview.stale ? "Previously found: " : ""}${documentCount(preview.matched)}${preview.complete || preview.stale ? "" : " found so far"}`;
+  return files(preview.matched);
+}
+
+/** Discovery totals are search matches, independent of later file labels. */
+export function ownerPeriodTitle(packet: DrivePacket): string {
+  return [periodLabel(packetPeriod(packet)) ?? ownerPacketTitle(packet), ownerDocumentCount(packet)].filter(Boolean).join(" · ");
+}
+
+export function ownerPeriodStatusLine(packet: DrivePacket): string {
+  return [ownerPacketStatus(packet).word, packet.kind === "provider_discovery" && packet.preview?.stale ? "Previous results" : null]
+    .filter(Boolean).join(" · ");
 }
 
 /** A price shows only where it means something: listed, or ready to list. */
@@ -158,18 +172,26 @@ export function savedPacketRequest(packet: DrivePacket): BuyerPacketRequest | nu
     ? { requestId: packet.requestId, existingAccess: false, purchaseState: packet.purchaseState } : null;
 }
 
+/** A buyer buys the frozen packet membership, never the live search count. */
+export function buyerDocumentCount(packet: DrivePacket): string {
+  const count = packet.kind === "provider_discovery"
+    ? packet.saleDocumentCount === undefined ? packet.documentCount : packet.saleDocumentCount
+    : packet.documentCount;
+  return count === null ? "File count unavailable" : documentCount(count);
+}
+
 /** A buyer's one line for a packet: "3 documents · January to June 2026", or where their request stands. */
-export function buyerPacketStatus(packet: DrivePacket, request: BuyerPacketRequest | null, ownerName: string): { line: string; tone: PacketTone } {
+export function buyerPacketStatus(packet: DrivePacket, request: BuyerPacketRequest | null, _ownerName: string): { line: string; tone: PacketTone } {
   if (request?.existingAccess) return { line: "You have these files", tone: "listed" };
   if (request?.purchaseState === "delivered") return { line: "Files available", tone: "listed" };
-  if (request?.purchaseState === "paid") return { line: "Paid", tone: "waiting" };
-  if (request) return { line: `Requested · Waiting for ${ownerName}`, tone: "waiting" };
+  if (request?.purchaseState === "paid") return { line: "Sharing files", tone: "waiting" };
+  if (request) return { line: "Request sent", tone: "waiting" };
   if (packet.kind === "provider_discovery" && packet.state !== "ready") {
     const status = ownerPacketStatus(packet);
     return { line: status.word, tone: status.tone };
   }
   if (!packet.canRequest) return { line: "Not available right now", tone: "paused" };
-  return { line: [documentCount(packet.documentCount), buyerSummary(packet)].filter(Boolean).join(" · "), tone: "ready" };
+  return { line: [buyerDocumentCount(packet), buyerSummary(packet)].filter(Boolean).join(" · "), tone: "ready" };
 }
 
 // The server's note on a packet from a Drive that is not fully read yet.
@@ -178,7 +200,7 @@ const PARTIAL_DRIVE = "this is not a complete inventory of matching records.";
 /** What a packet may leave out, in plain words, for its buyers and for its owner's "What buyers see". */
 export function buyerNotes(packet: DrivePacket): string[] {
   if (packet.kind === "provider_discovery" && packet.category === "financial") return [
-    "To group Financial matches, Hussh reads a bounded prefix of supported files and gives the first 400 text characters to a classifier running on Hussh servers. Labels can be incomplete; every original stays in the owner's search results.",
+    "Search matches may include other files. Labels can be incomplete.",
   ];
   if (packet.kind === "provider_discovery") return [packet.state === "ready"
     ? "Files matched a Drive search. Their contents were not read."

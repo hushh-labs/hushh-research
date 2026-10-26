@@ -46,13 +46,36 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
   it("shows four owner category entrypoints before packets exist without starting preparation", async () => {
     state.packets.mockResolvedValue({ packets: [], nextCursor: null });
     render(<DrivePacketCatalog periodPackets />);
-    for (const name of ["Financial statements", "Account statements", "Brokerage", "Insurance"])
+    for (const name of ["Financial documents", "Account statements", "Brokerage", "Insurance"])
       expect(screen.getByRole("button", { name: `Open ${name}` })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open Brokerage" }));
     expect(screen.getByText("No packets yet")).toBeVisible();
     expect(screen.queryByRole("button", { name: /^Buy|List for/ })).toBeNull();
     await waitFor(() => expect(state.packets).toHaveBeenCalledOnce());
     expect(state.setProcessing).not.toHaveBeenCalled();
+  });
+  it("reopens a warm owner period immediately with the discovery count despite zero labeled or sale files", async () => {
+    const current: DrivePacket = { ...packet, kind: "provider_discovery", category: "financial", version: 0,
+      state: "building", documentCount: 51, saleDocumentCount: 0, periodStart: "2026-07-01", periodEnd: "2026-08-31", timezone: "UTC",
+      canList: false, canRequest: false, requestId: null, purchaseState: "none", preview: {
+        status: "completed", revision: 5, matched: 51, complete: true, stale: false, updatedAt: null, errorCode: null,
+        tagging: { status: "completed", counts: { financial: 0, review: 2, other: 49, pending: 0 }, policyVersion: "synthetic-labels" },
+      } };
+    state.packets.mockResolvedValue({ packets: [current], nextCursor: null });
+    const first = render(<DrivePacketCatalog periodPackets />);
+    await waitFor(() => expect(state.packets).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Open Financial documents" }));
+    await screen.findByRole("button", { name: /^Jul–Aug 2026 · 51 files/ });
+    first.unmount();
+    state.packets.mockRejectedValue(new Error("Warm memory must not depend on a new network read"));
+    render(<DrivePacketCatalog periodPackets />);
+    expect(screen.queryByText("Loading packets…")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open Financial documents" }));
+    expect(screen.getByRole("button", { name: /^Jul–Aug 2026 · 51 files/ })).toHaveTextContent("Files found");
+    await act(async () => undefined);
+    expect(state.packets).toHaveBeenCalledOnce();
+    expect(state.preparePreview).not.toHaveBeenCalled();
+    expect(state.listing).not.toHaveBeenCalled(); expect(state.request).not.toHaveBeenCalled();
   });
   it("uses the existing native packet page for categories and periods and retires old actions", async () => {
     const current = { kind: "provider_discovery", category: "bank", packetId: person, version: 0,
@@ -72,11 +95,11 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
       await act(async () => { await result.current.rows.get(row.id)!({ rowId: row.id } as NativeDrawerChoice); }); };
     await choose("Packets"); await choose("Account statements");
     expect(result.current.pages.map(page => page.id)).toEqual(["connectors", "connector-detail", "connector-packets"]);
-    expect(rows().map(row => row.label)).toEqual(["All categories", "Sep–Oct 2026", "Jul–Aug 2026"]);
+    expect(rows().map(row => row.label)).toEqual(["All categories", "Sep–Oct 2026", "Jul–Aug 2026 · 2 files"]);
     act(() => { expect(result.current.back()).toBe(true); });
     expect(rows().some(row => row.label === "Account statements")).toBe(true);
     await choose("Account statements");
-    const row = rows().find(row => row.label === "Jul–Aug 2026")!;
+    const row = rows().find(row => row.label === "Jul–Aug 2026 · 2 files")!;
     const retired = result.current.rows.get(row.id)!;
     rerender({ owner: "replacement" });
     await act(async () => { await retired({ rowId: row.id } as NativeDrawerChoice); });
@@ -94,13 +117,12 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
       preview: { status: "completed", revision: 0, matched: 33, complete: true, stale: false,
         updatedAt: null, errorCode: null, documents, nextCursor: "next", limited: false } };
     const sections = ownerPacketSections(current, null, () => true);
-    const rows = sections.filter(section => section.id.startsWith("matches-"))
-      .flatMap(section => section.rows ?? []);
+    const rows = sections.find(section => section.id === "inside")!.rows!.slice(0, documents.length);
     expect(rows).toHaveLength(documents.length);
     rows.forEach(row => row.onOpen!());
     expect(state.openExternal.mock.calls.map(call => call[0]).sort()).toEqual(documents.map(document => document.viewUrl).sort());
-    expect(sections.find(section => section.id === "matches-review")?.rows).toHaveLength(2);
-    expect(sections.find(section => section.id === "more-results")?.rows?.[0].title).toBe("29 more documents");
+    expect(sections.filter(section => section.title === "Files")).toHaveLength(1);
+    expect(sections.find(section => section.id === "inside")?.rows?.at(-1)?.title).toBe("29 more documents");
   });
   it("fences an original file action when its owner session retires", () => {
     let current = true;
@@ -124,20 +146,20 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
     state.packets.mockResolvedValue({ packets: [frozen, current, ...["financial", "brokerage", "insurance"].map((category, index) =>
       ({ ...current, category, packetId: `${index + 3}1111111-1111-4111-8111-111111111111` }))], nextCursor: null });
     render(<DrivePacketCatalog />);
-    for (const name of ["Financial statements", "Account statements", "Brokerage", "Insurance"])
+    for (const name of ["Financial documents", "Account statements", "Brokerage", "Insurance"])
       expect(await screen.findByRole("button", { name: `Open ${name}` })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open Account statements" }));
     const periods = screen.getAllByRole("button").filter(button => button.textContent?.includes("2026"));
     expect(periods.map(button => button.textContent)).toEqual([expect.stringContaining("Sep–Oct 2026"), expect.stringContaining("Jul–Aug 2026")]);
     fireEvent.click(periods[0]);
-    const building = await screen.findByRole("dialog", { name: current.title });
+    const building = await screen.findByRole("dialog", { name: current.category === "financial" ? "Financial documents" : "Account statements" });
     await waitFor(() => expect(building).toHaveTextContent("Files found"));
     expect(state.preparePreview).toHaveBeenCalledWith("private-token", person, expect.any(Function), false);
     expect(within(building).queryByRole("button", { name: /^List|Change price/ })).toBeNull();
     fireEvent.click(within(building).getByRole("button", { name: "Close detail panel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: /^Jul–Aug 2026/ }));
-    const closed = await screen.findByRole("dialog", { name: current.title });
+    const closed = await screen.findByRole("dialog", { name: current.category === "financial" ? "Financial documents" : "Account statements" });
     expect(within(closed).getByRole("button", { name: "List for $5" })).toBeEnabled();
     expect(within(closed).queryByRole("button", { name: "Change price" })).toBeNull();
     fireEvent.click(within(closed).getByRole("button", { name: "Close detail panel" }));
@@ -159,13 +181,13 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
         viewUrl: "https://drive.google.com/file/d/statement/view" }] };
     state.preview.mockResolvedValue(partial);
     render(<DrivePacketCatalog periodPackets />);
-    fireEvent.click(await screen.findByRole("button", { name: "Open Financial statements" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Financial documents" }));
     fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
-    const detail = await screen.findByRole("dialog", { name: current.title });
+    const detail = await screen.findByRole("dialog", { name: current.category === "financial" ? "Financial documents" : "Account statements" });
     expect(detail).not.toHaveTextContent("0 documents");
     await act(async () => resolve(partial));
     expect(detail).toHaveTextContent("Example statement.pdf");
-    expect(detail).toHaveTextContent("new sharing requires its owner");
+    expect(detail).toHaveTextContent("Only its owner can share this file.");
     expect(detail).toHaveTextContent("Couldn’t check");
     expect(state.request).not.toHaveBeenCalled(); expect(state.listing).not.toHaveBeenCalled();
     fireEvent.click(within(detail).getByRole("button", { name: "Close detail panel" }));
@@ -246,15 +268,15 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
     }) as typeof setInterval);
     try {
       render(<DrivePacketCatalog />);
-      fireEvent.click(await screen.findByRole("button", { name: "Open Financial statements" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Open Financial documents" }));
       fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
       await screen.findByText("statement-1");
       fireEvent.click(screen.getByRole("button", { name: "Load more files" }));
       await screen.findByText("statement-2");
       settled = true;
       await act(async () => { poll(); });
-      await screen.findByText("Financial (1 shown)");
-      expect(screen.getByText("Other matches (1 shown)")).toBeVisible();
+      await waitFor(() => expect(state.preview).toHaveBeenCalledTimes(4));
+      expect(screen.getAllByRole("heading", { name: "Files", exact: true })).toHaveLength(1);
       expect(screen.getByText("statement-1")).toBeVisible();
       expect(screen.getByText("statement-2")).toBeVisible();
       expect(screen.queryByRole("button", { name: "Load more files" })).toBeNull();
@@ -270,8 +292,8 @@ describe("@feature_drive_packets @trace_loop agent prepared packets", () => {
     render(<DrivePacketCatalog />);
     fireEvent.click(await screen.findByRole("button", { name: "Open Account statements" }));
     fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
-    const detail = await screen.findByRole("dialog", { name: current.title });
-    await within(detail).findByText(/Couldn’t load the latest search/);
+    const detail = await screen.findByRole("dialog", { name: current.category === "financial" ? "Financial documents" : "Account statements" });
+    await within(detail).findByText(/Couldn’t refresh files/);
     fireEvent.click(within(detail).getByRole("button", { name: "Close detail panel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: /^Sep–Oct 2026/ }));
@@ -338,9 +360,9 @@ it("@feature_drive_packets @trace_loop requests an idempotent freshness check wh
   state.preparePreview.mockResolvedValue({ status: "completed", revision: 0, matched: 2, complete: true, stale: false,
     updatedAt: new Date(Date.now() - 6 * 60_000).toISOString(), errorCode: null, documents: [], nextCursor: null, limited: false });
   render(<DrivePacketCatalog periodPackets />);
-  fireEvent.click(await screen.findByRole("button", { name: "Open Financial statements" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Open Financial documents" }));
   fireEvent.click(await screen.findByRole("button", { name: /^Sep–Oct 2026/ }));
-  const detail = await screen.findByRole("dialog", { name: current.title });
+  const detail = await screen.findByRole("dialog", { name: current.category === "financial" ? "Financial documents" : "Account statements" });
   await waitFor(() => expect(state.preparePreview).toHaveBeenCalledOnce());
   fireEvent.click(within(detail).getByRole("button", { name: "Close detail panel" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());

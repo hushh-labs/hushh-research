@@ -101,7 +101,7 @@
 .manage { --type-compact-button-label-size: 12px; --type-compact-button-label-line: 18px; padding: 8px 0; background: transparent; color: var(--muted-foreground); }
 .manage svg { width: 16px; height: 16px; }
 .manage > span:first-child { gap: 6px; }
-.relationship, .packets { min-width: 0; }
+.relationship { min-width: 0; }
 .relationship[data-voice-control-id="person-profile-cancel-connection"] { color: var(--foreground); }
 .section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .heading { margin: 0; }

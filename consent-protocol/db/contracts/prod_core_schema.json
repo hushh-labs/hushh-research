@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 427,
+  "expected_migration_version": 429,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -328,6 +328,7 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
+    "preserve_drive_financial_summary_hide",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -1493,6 +1494,8 @@
       "background_enabled",
       "connection_generation",
       "disclosure_version",
+      "financial_summary_enabled",
+      "financial_summary_revision",
       "revision",
       "updated_at",
       "user_id"
@@ -1622,6 +1625,7 @@
       "public_summary_revision",
       "public_summary_version",
       "revision",
+      "sale_finalization_revision",
       "tagging_next_at",
       "tagging_pending",
       "updated_at",
@@ -4565,5 +4569,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 427
+  "expected_schema_head": 429
 }

@@ -752,11 +752,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
     } else if (viewerProfile.relationship.status === "connected") {
       actions.push({ id: "request-card", label: "Request cards", actionId: "people.profile.request_card", purpose: "Review a request for this person to choose and share a card." });
       actions.push({ id: "remove-connection", label: "Remove connection", actionId: "people.profile.remove_connection", purpose: "End the social connection without silently changing consent." });
-      if (isVaultUnlocked && packetCatalogAvailable) actions.push({ id: "browse-packets", label: "Available packets", actionId: "people.profile.browse_packets", purpose: "View document packets this connection has made available to you." });
     }
-    actions.push({ id: "browse-financial-summaries", label: "Financial documents", actionId: "people.profile.browse_financial_summaries", purpose: "View this person’s published financial summaries." });
     return actions;
-  }, [viewerProfile, isVaultUnlocked, packetCatalogAvailable]);
+  }, [viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
     viewerProfile
@@ -929,10 +927,6 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               </>
             ) : null}
           footer={<>
-            {packets.privateTrigger}
-            {user ? (
-              <Button type="button" size="compact" variant="none" effect="fade" className={styles.packets} data-voice-control-id="person-profile-browse-financial-summaries" onClick={packets.browse}>Financial documents</Button>
-            ) : null}
             {viewerProfile ? (
               <>
                 <Button type="button" size="compact" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
