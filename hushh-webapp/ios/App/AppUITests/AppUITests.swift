@@ -5684,7 +5684,9 @@ final class AppUITests: XCTestCase {
                             let probe = app.buttons["native-vault-layout"].firstMatch
                             if let json = probe.value as? String, let data = json.data(using: .utf8),
                                let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
-                                print("WORKSPACE_CHOICE_ADMISSION bootstrap=\(packet["nativeChoiceBootstrap"]?.boolValue == true) ready=\(packet["nativeChoiceReady"]?.intValue ?? 0) presented=\(packet["nativeChoicePresented"]?.intValue ?? 0) blocked=\(packet["nativeChoiceBlocked"]?.intValue ?? 0) native_cancel=\(app.buttons["Cancel"].count > web.buttons["Cancel"].count)")
+                                let namedCancel = NSPredicate(format: "label == %@", "Cancel")
+                                let nativeCancel = app.buttons.matching(namedCancel).count > web.buttons.matching(namedCancel).count
+                                print("WORKSPACE_CHOICE_ADMISSION bootstrap=\(packet["nativeChoiceBootstrap"]?.boolValue == true) ready=\(packet["nativeChoiceReady"]?.intValue ?? 0) presented=\(packet["nativeChoicePresented"]?.intValue ?? 0) blocked=\(packet["nativeChoiceBlocked"]?.intValue ?? 0) native_cancel=\(nativeCancel)")
                             }
                             XCTFail("WORKSPACE_WALLET_CHOICE_NOT_NATIVE"); return
                         }
