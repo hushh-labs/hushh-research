@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-25.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-26.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -33,6 +33,16 @@ operation owner. Loading and settlement retain their renderer and host. Pending
 compatible admission coalesces the latest result; destination, form, owner and
 privacy changes retire it. Ordered identities reject stale expiry and dismissal.
 Private text remains memory-only; privacy retirement cancels timers and scrubs it.
+
+The two native public-fixture checks now pass on the physical iPhone in Release:
+retained hosting during banner replacement, bounded geometry/outside touch
+delivery, reordered expiry, and cancellation before first admission. The initial
+batch exposed retirement losing its tombstone when the first apply initialized
+the owner; capturing that owner at retirement corrects the reproduced failure.
+These native fixtures do not qualify the combined product's visual/keyboard/resume
+journey. The feedback suite now has its own bounded module, and scene-capability
+admission retains its existing public facade. Architecture fitness reports no
+new or worsened findings; the original ratchet was preserved.
 
 Profile's authored plain-text feedback uses this shared path. Rich messages and
 callback-authored outcomes are not automatically flattened into native metadata;
