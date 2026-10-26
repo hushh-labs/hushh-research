@@ -853,6 +853,24 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
           echo "image_source=${BACKEND_IMAGE_SOURCE}" >> "$GITHUB_OUTPUT"
 
+      - name: Refuse an already failed frontend image before lifecycle migration
+        id: check-frontend-image
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          # The workflow is main-owned; the helper comes from the candidate.
+          # Historical candidates retain the required final image join.
+          if ! grep -Fq -- '--status-only)' scripts/ci/await-prebuilt-image.sh; then
+            echo "::notice title=Frontend image status::This candidate predates the early check; retaining the final image join."
+            exit 0
+          fi
+          bash scripts/ci/await-prebuilt-image.sh \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --build-id "${FRONTEND_IMAGE_BUILD_ID}" --status-only
+
       - name: Qualify current account lifecycle producer
         if: steps.scope.outputs.deploy_backend == 'true'
         run: python3 deploy/account-deletion/activate_release.py --qualify-source "${{ github.event.inputs.sha }}"
@@ -1704,6 +1722,7 @@ jobs:
         if: always()
         shell: bash
         env:
+          FRONTEND_IMAGE_CHECK_OUTCOME: ${{ steps.check-frontend-image.outcome }}
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
           HEALTH_BACKEND: ${{ steps.health-backend.outcome }}
@@ -1829,6 +1848,14 @@ jobs:
           # failure must restore the paired backend before restoring those jobs.
           if [ "$release_failed" = "true" ] && [ -n "$DRIVE_PAUSE_SNAPSHOT" ]; then
             backend_failure=true
+          fi
+
+          # No lifecycle or serving mutation precedes the early image check.
+          # Keep the release failed without issuing a needless rollback.
+          if [ "$FRONTEND_IMAGE_CHECK_OUTCOME" = "failure" ]; then
+            release_failed=true
+            backend_failure=false
+            frontend_failure=false
           fi
 
           {
