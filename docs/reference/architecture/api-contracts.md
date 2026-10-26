@@ -4422,8 +4422,8 @@ reconciled with reads rather than automatically repeated.
 
 `features.drive_period_packets` admits the separate `DRIVE_PERIOD_PACKETS_ENABLED`
 capability in UAT. It does not enable the retired content collection, extraction,
-four-group classifier or legacy package builder. Current authorized owners receive
-Financial statements, Account statements, Brokerage and Insurance categories.
+four-group classifier or legacy package builder. Proactive enrollment currently
+prepares Financial statements; the other authored category templates are separate.
 Each category has an independent calendar-pair packet: January–February through
 November–December. Enrollment is bounded to elapsed/current pairs of the current
 year. Owners can search current pairs immediately; only final sale versions wait for closure.
@@ -4433,7 +4433,9 @@ Explicit background OFF, connector revocation, owner placement and account erasu
 remain execution fences. Default enrollment records a product policy, not an owner
 acceptance or permission grant.
 
-The existing Azure planner authors the search expression. The existing discovery
+Financial preparation uses the versioned `financial-records-v1` predefined query;
+it does not invoke Azure planning. Custom requests retain their Azure planner.
+The existing discovery
 compiler, Drive pagination and owner-search leases collect metadata without reading
 document bodies or running another content assessor. Only a complete closed search
 can freeze a packet; incomplete, failed and over-limit searches cannot authorize a sale.
@@ -4447,8 +4449,9 @@ and adds a discriminated `kind: "provider_discovery"` item with `category`,
 `periodStart`, `periodEnd`, `timezone`, server lifecycle state, fixed `priceCents:500`,
 and recipient-bound `requestId`/`purchaseState`. Unfrozen heads have version zero;
 frozen heads have version one. Owner-only contents contain bounded original links.
-Visitors receive only explicitly listed summaries under the existing connection
-audience, never unpurchased filenames or links.
+Visitors receive only summaries admitted by the owner's explicit listing audience,
+including separately authorized public summaries. Private filenames and links are
+never included in an unpurchased public summary. A connection remains required to request purchase.
 
 Owner preview uses `POST /sharing/packets/{id}/preview` with `{refresh:false}`
 on opening a period and `{refresh:true}` for an explicit refresh. It derives the
@@ -4469,7 +4472,16 @@ The last usable first 120 results are retained encrypted in the existing head bu
 envelope through retries and temporary-job expiry. A live job pages the full saved
 result set; an expired snapshot explicitly identifies any remaining uncached files.
 Frozen versions and completed purchases are not rewritten. No new index or content
-assessment is introduced. Azure failures cannot become a successful search result.
+assessment is introduced. A failed provider search cannot become a successful result.
+
+Provider file titles use the adapter's bounded UTF-8 metadata contract; the shorter
+caller-supplied exact-title query limit is not a file admission limit. A legacy
+financial search marked incomplete without a typed reason can replay its frozen
+query once, preserving its job, original rows and positions. Due exhausted heads
+receive one migration claim only for their exact current-revision child. Replay
+revalidates current owner/background authority, generation, origin and head lease.
+Continued incompleteness is `search_incomplete`, not completion or an empty result;
+the recorded replay marker survives later recovery paths.
 
 Listing and purchase use the existing `/sharing/packets/{id}/listing` and
 `/sharing/packets/{id}/requests` endpoints. The new admission cannot reactivate a
