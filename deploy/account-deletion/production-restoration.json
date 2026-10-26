@@ -9,7 +9,9 @@
   "authorityPolicySha256": "39ade7f9e38ca0409e2d8c4a2017f5014da41fb7030699aca8863a2c2d29b4ce",
   "requiredAbsentTables": [
     "account_phone_transfers",
-    "account_phone_auth_fences"
+    "account_phone_auth_fences",
+    "account_phone_recovery_continuations",
+    "account_device_actions"
   ],
   "requiredEmptyTables": [
     "document_delivery_contracts",

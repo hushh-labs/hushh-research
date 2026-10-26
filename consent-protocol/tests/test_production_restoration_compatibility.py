@@ -30,7 +30,12 @@ def _reviewed_record():
         "replacementAccounts": 0,
         "services": ["consent-protocol", "hushh-webapp"],
         "authorityPolicySha256": hashlib.sha256(policy.encode()).hexdigest(),
-        "requiredAbsentTables": ["account_phone_transfers", "account_phone_auth_fences"],
+        "requiredAbsentTables": [
+            "account_phone_transfers",
+            "account_phone_auth_fences",
+            "account_phone_recovery_continuations",
+            "account_device_actions",
+        ],
         "requiredEmptyTables": [
             "document_delivery_contracts",
             "document_delivery_financial_bindings",
@@ -50,6 +55,7 @@ def _reviewed_record():
         "database",
         "contract",
         "phone",
+        "phone_actions",
         "generation",
         "documents",
     ],
@@ -80,6 +86,8 @@ def test_production_restoration_requires_exact_source_and_read_only_compatible_s
             (1 if failure == "contract" else 2, True),
             ("account_phone_transfers" if failure == "phone" else None,),
             (None,),
+            (None,),
+            ("account_device_actions" if failure == "phone_actions" else None,),
             (failure == "generation",),
             (failure == "documents",),
             (False,),
@@ -236,3 +244,108 @@ def test_hosted_recovery_proof_refuses_incomplete_or_misattributed_authority(fai
             verify()
     else:
         verify()
+
+
+def test_document_restoration_fence_drains_real_writers_and_preserves_empty_cascades():
+    import threading
+    import time
+    from unittest.mock import patch
+
+    import psycopg2
+
+    from tests.pkm_conformance import postgres_harness
+
+    if postgres_harness.find_pg_bin() is None:
+        pytest.fail("Restoration writer barrier requires disposable PostgreSQL")
+    spec = importlib.util.spec_from_file_location(
+        "document_fence", ROOT / "deploy/account-deletion/document_restoration_fence.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    server = postgres_harness.TempPostgres()
+    writer = installer = observer = None
+    thread = None
+    try:
+        with patch.object(postgres_harness, "MIGRATIONS", []):
+            server.start()
+        dsn = f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}"
+        writer, installer, observer = [psycopg2.connect(dsn) for _ in range(3)]
+        with writer:
+            with writer.cursor() as cursor:
+                cursor.execute("CREATE TABLE drive_share_requests(id int PRIMARY KEY)")
+                cursor.execute(
+                    "CREATE TABLE document_delivery_contracts("
+                    "id int PRIMARY KEY REFERENCES drive_share_requests(id) ON DELETE CASCADE)"
+                )
+                for table in module.TABLES[1:]:
+                    cursor.execute(f"CREATE TABLE {table}(id int PRIMARY KEY)")
+                cursor.execute("INSERT INTO drive_share_requests VALUES(1),(2)")
+        with writer.cursor() as cursor:
+            cursor.execute("INSERT INTO document_delivery_contracts VALUES(1)")
+        outcomes = []
+
+        def install():
+            try:
+                outcomes.append(
+                    module.install(installer, source="a" * 40, run_id="12", database="postgres")
+                )
+            except module.Refused as exc:
+                outcomes.append(str(exc))
+
+        thread = threading.Thread(target=install)
+        thread.start()
+        deadline = time.monotonic() + 5
+        with observer.cursor() as cursor:
+            while time.monotonic() < deadline:
+                cursor.execute(
+                    "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=%s AND NOT granted)",
+                    (installer.get_backend_pid(),),
+                )
+                if cursor.fetchone()[0]:
+                    break
+                time.sleep(0.02)
+            else:
+                pytest.fail("Installer did not wait for the uncommitted writer")
+        writer.commit()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert outcomes == ["retained_documents_require_reader"]
+        with writer:
+            with writer.cursor() as cursor:
+                cursor.execute("DELETE FROM drive_share_requests WHERE id=1")
+        proof = module.install(installer, source="a" * 40, run_id="12", database="postgres")
+        assert proof["status"] == "installed"
+        assert (
+            module.install(installer, source="a" * 40, run_id="12", database="postgres")["status"]
+            == "confirmed"
+        )
+        with pytest.raises(module.Refused, match="another_operation"):
+            module.install(installer, source="a" * 40, run_id="13", database="postgres")
+        with pytest.raises(psycopg2.Error) as refused, writer, writer.cursor() as cursor:
+            cursor.execute("INSERT INTO document_delivery_contracts VALUES(2)")
+        assert refused.value.pgcode == "55000"
+        with writer, writer.cursor() as cursor:
+            cursor.execute("DELETE FROM drive_share_requests WHERE id=2")
+            assert cursor.rowcount == 1
+        with writer, writer.cursor() as cursor:
+            cursor.execute(f"DROP TRIGGER {module.TRIGGER} ON document_delivery_contracts")
+            cursor.execute(
+                f"CREATE TRIGGER {module.TRIGGER} BEFORE INSERT ON document_delivery_contracts "
+                f"FOR EACH STATEMENT WHEN(false) EXECUTE FUNCTION public.{module.FUNCTION}()"
+            )
+            cursor.execute(
+                f"ALTER TABLE document_delivery_contracts ENABLE ALWAYS TRIGGER {module.TRIGGER}"
+            )
+        with pytest.raises(module.Refused, match="registration_changed"):
+            module.install(installer, source="a" * 40, run_id="12", database="postgres")
+    finally:
+        if writer:
+            writer.rollback()
+        if thread and thread.is_alive():
+            if installer:
+                installer.cancel()
+            thread.join(timeout=5)
+        for connection in (writer, installer, observer):
+            if connection:
+                connection.close()
+        server.stop()

@@ -84,7 +84,12 @@ def qualify_schema(connection, record: dict, *, require_empty_documents: bool) -
         )
         require(
             record.get("requiredAbsentTables")
-            == ["account_phone_transfers", "account_phone_auth_fences"],
+            == [
+                "account_phone_transfers",
+                "account_phone_auth_fences",
+                "account_phone_recovery_continuations",
+                "account_device_actions",
+            ],
             "Phone compatibility boundary changed",
         )
         for table in record["requiredAbsentTables"]:

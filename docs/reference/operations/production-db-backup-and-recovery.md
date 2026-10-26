@@ -242,6 +242,18 @@ image/rollback verification. Empty tables alone do not prove that an older
 in-flight request cannot commit. Preserve the current database and its erasure
 receipts throughout application restoration.
 
+The prepared `document_restoration_fence.py` is the bounded operational writer
+barrier for this path. It locks all three empty document inventory tables,
+waits for prior writers, then installs insert-refusal triggers atomically. Empty
+cascade deletions remain available to account cleanup. A lost-response retry
+must match the original source/run and exact enabled trigger definitions;
+another operation or altered trigger is refused. This is operational database
+DDL, not a migration replay. It has disposable PostgreSQL evidence but is not
+yet wired into production deployment or installed there. Keep it in place while
+a non-reader serves; removal needs a separately qualified reader activation.
+The schema qualifier also refuses the phone-recovery tables introduced by
+migrations 425 and 431.
+
 ---
 
 ## Restore Drill Cadence
