@@ -142,8 +142,14 @@ def test_production_backend_config_stays_on_candidate_and_frontend_scope_skips_p
     assert "steps.scope.outputs.deploy_backend == 'true'" in places["if"]
     backend_sync = by_name["Sync canonical hosted runtime secrets"]
     frontend_sync = by_name["Sync frontend hosted runtime secrets"]
-    assert backend_sync["if"] == "steps.scope.outputs.deploy_backend == 'true'"
-    assert frontend_sync["if"] == "steps.scope.outputs.deploy_frontend == 'true'"
+    assert (
+        backend_sync["if"]
+        == "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true')"
+    )
+    assert (
+        frontend_sync["if"]
+        == "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true')"
+    )
     assert "sync_backend_runtime_secrets.py" in backend_sync["run"]
     assert "sync_frontend_runtime_secrets.py" not in backend_sync["run"]
     assert "sync_frontend_runtime_secrets.py" in frontend_sync["run"]
@@ -431,7 +437,25 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     git("commit", "-qm", "Old application target")
     old_sha = git("rev-parse", "HEAD")
     old_upload_policy = git("show", f"{old_sha}:.gcloudignore")
-    current_paths = production_release_tools(ROOT, old_paths)
+    current_paths = production_release_tools(ROOT, old_paths) + [
+        *(
+            f"scripts/ci/{name}"
+            for name in (
+                "uat-retention-maintenance.py",
+                "production_phone_receipt.py",
+                "production_phone_lease.py",
+                "production-capacity-bridge.py",
+                "production_capacity_bridge_contract.py",
+                "release_artifact_receipts.py",
+                "release_cadence.py",
+                "release_cadence_github.py",
+                "release_cadence_native.py",
+                "release_cadence_maintenance.py",
+            )
+        ),
+        "config/ci-governance.json",
+        "config/release-cadence.json",
+    ]
     for path in current_paths:
         write(path, (ROOT / path).read_text())
     registry = "consent-protocol/hushh_mcp/services/drive_prod_registry_provisioning.py"

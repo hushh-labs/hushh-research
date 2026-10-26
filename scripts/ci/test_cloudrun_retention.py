@@ -2093,9 +2093,9 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     return {"workflow_runs": runs}
                 job_calls.append(endpoint)
                 return saved if endpoint.startswith("runs/999/") else skipped
-
             with (
                 self.subTest(title=title),
+                mock.patch.object(MAINTENANCE.production_phone_lease, "assert_reconciled"),
                 mock.patch.object(MAINTENANCE, "api", side_effect=api),
                 mock.patch.object(MAINTENANCE, "trusted_checkpoint_run", return_value=True),
             ):

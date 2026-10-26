@@ -31,6 +31,11 @@ on:
         description: Verified release matching live traffic
         required: true
         type: string
+      qualified_cold_checkpoint_run_id:
+        description: Explicit production checkpoint reference; runtime-only qualification cannot advance rollback
+        required: false
+        default: ""
+        type: string
       apply:
         description: Apply eligible cleanup without waiting for drainage
         required: true
@@ -80,12 +85,16 @@ jobs:
         env:
           RELEASE_ENV: ${{ inputs.environment }}
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          COLD_CHECKPOINT_RUN_ID: ${{ inputs.qualified_cold_checkpoint_run_id }}
           CLOCK_EVENT_TYPE: ${{ github.event.action }}
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
           APPLY: ${{ inputs.apply }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = main || exit 1
+          if [[ -n "${COLD_CHECKPOINT_RUN_ID:-}" ]]; then
+            [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$CAPACITY_BRIDGE" != true && "$COLD_CHECKPOINT_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+          fi
           if [[ "$CAPACITY_BRIDGE" = true ]]; then
             [[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1
           fi
@@ -125,12 +134,14 @@ jobs:
         if: github.event_name == 'schedule' || github.event.action == 'capacity-maintenance-tick' || github.event.action == 'capacity-maintenance-tick-production' || inputs.environment == 'production'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          COLD_CHECKPOINT_RUN_ID: ${{ inputs.qualified_cold_checkpoint_run_id }}
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
         run: |
           flags=()
           if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
+            --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
             --state-dir "$RUNNER_TEMP/production-retention-source" "${flags[@]}"
 
   uat-maintenance:
@@ -251,12 +262,14 @@ jobs:
         id: locked-source
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          COLD_CHECKPOINT_RUN_ID: ${{ inputs.qualified_cold_checkpoint_run_id }}
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
         run: |
           flags=()
           if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --verify-source-only --release-run-id "$RELEASE_RUN_ID" \
+            --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
             --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"
       - name: Authenticate to production
         if: steps.locked-source.outputs.cleanup_ready == 'true'
@@ -275,6 +288,7 @@ jobs:
         if: steps.locked-source.outputs.cleanup_ready == 'true'
         env:
           RELEASE_RUN_ID: ${{ inputs.healthy_release_run_id }}
+          COLD_CHECKPOINT_RUN_ID: ${{ inputs.qualified_cold_checkpoint_run_id }}
           APPLY: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.apply }}
           CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}
         run: |
@@ -284,6 +298,7 @@ jobs:
           if [[ "$CAPACITY_BRIDGE" = true ]]; then flags+=(--force-inspection --production-capacity-bridge); fi
           python3 scripts/ci/uat-retention-maintenance.py --environment production \
             --release-run-id "$RELEASE_RUN_ID" \
+            --qualified-cold-checkpoint-run-id "$COLD_CHECKPOINT_RUN_ID" \
             --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"
       - name: Save production cleanup checkpoint
         if: always() && steps.locked-source.outputs.cleanup_ready == 'true' && steps.retention.outputs.checkpoint_ready == 'true'

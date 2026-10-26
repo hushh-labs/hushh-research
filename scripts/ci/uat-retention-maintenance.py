@@ -25,6 +25,8 @@ from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
 import release_artifact_receipts
+import production_phone_receipt
+import production_phone_lease
 
 retention = importlib.import_module("cloudrun-retention")
 capacity_bridge = importlib.import_module("production-capacity-bridge")
@@ -328,16 +330,7 @@ def verify_post_uat_hygiene_failure(repository: str, run: dict, release: dict) -
 
 
 def artifact_exists(repository: str, run_id: int, name: str) -> bool:
-    result = api(repository, f"runs/{run_id}/artifacts?per_page=100")
-    artifacts = result["artifacts"]
-    if result.get("total_count", len(artifacts)) != len(artifacts):
-        raise retention.UnsafeState("release artifact inventory is incomplete")
-    matches = [item for item in artifacts if item.get("name") == name]
-    if not matches:
-        return False
-    if len(matches) != 1 or matches[0].get("expired") is not False:
-        raise retention.UnsafeState("release artifact is expired or ambiguous")
-    return True
+    return release_artifact_receipts.artifact_exists(repository, run_id, name, api=api)
 
 
 def replayed_release_artifact(
@@ -371,18 +364,7 @@ download_replayed_uat_release = download_replayed_release
 
 
 def download(repository: str, run_id: int, name: str, directory: Path) -> None:
-    command(
-        "gh",
-        "run",
-        "download",
-        str(run_id),
-        "--repo",
-        repository,
-        "--name",
-        name,
-        "--dir",
-        str(directory),
-    )
+    release_artifact_receipts.download(repository, run_id, name, directory, command=command)
 
 
 def governed_dispatch(
@@ -839,6 +821,7 @@ def find_release(
     *,
     require_live: bool = True,
     environment: str = "uat",
+    on_phone_rollback=None,
 ) -> tuple[int, dict] | None:
     lane_config = LANES[environment]
     if requested:
@@ -919,23 +902,7 @@ def find_release(
             if requested:
                 raise retention.UnsafeState("source release artifact is not healthy")
             continue
-        for lane, service in (
-            ("backend", "consent-protocol"),
-            ("frontend", "hushh-webapp"),
-        ):
-            revision = release.get("final", {}).get(f"{lane}_revision", "")
-            pattern = rf"{service}-[a-z0-9-]+"
-            if not isinstance(revision, str) or not re.fullmatch(pattern, revision):
-                raise retention.UnsafeState(
-                    f"source release lacks a valid {lane} revision"
-                )
-            rollback = release.get("predeploy", {}).get(f"{lane}_revision") or ""
-            if rollback and (
-                not isinstance(rollback, str) or not re.fullmatch(pattern, rollback)
-            ):
-                raise retention.UnsafeState(
-                    f"source release has invalid {lane} rollback"
-                )
+        release_artifact_receipts.validate_revision_names(release)
         if environment == "uat" and release.get("scope") == "frontend":
             prove_frontend_inherited_backend(repository, run, release, directory)
         if cleanup_failed:
@@ -947,6 +914,15 @@ def find_release(
             or not require_live
             or live_release_matches(release, environment=environment)
         ):
+            if environment == "production" and isinstance(release.get("phone_rollback"), dict) and release["phone_rollback"].get("revision"):
+                original = {key: value for key, value in release.items() if not key.startswith("_maintenance_")}
+                anchor = production_phone_receipt.healthy_anchor(
+                    repository, run, original, lane_config, api=api, governed=governed_dispatch,
+                    timestamp=_github_timestamp, run_command=retention.run_command,
+                    timeout=min(retention.remaining_seconds(GITHUB_LOOKUP_SECONDS), (_LOOKUP_DEADLINE.get() or math.inf) - time.monotonic()),
+                )
+                if on_phone_rollback is not None:
+                    on_phone_rollback(anchor)
             return run_id, release
     return None
 
@@ -1547,7 +1523,7 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
 
 
 def release_protection_flags(
-    service: str, lane: str, release: dict, *, environment: str = "uat"
+    service: str, lane: str, release: dict, *, environment: str = "uat", phone_anchor=None
 ) -> list[str]:
     current = release["final"][f"{lane}_revision"]
     rollback = release.get("predeploy", {}).get(f"{lane}_revision", "")
@@ -1578,11 +1554,15 @@ def release_protection_flags(
             "bash", "scripts/ci/resolve-rollback-target.sh", environment, lane
         ).strip()
     present: set[str] = set()
-    if rollback or environment == "uat":
+    if rollback or environment == "uat" or phone_anchor is not None:
         revisions = retention.revision_state(
             service, LANES[environment]["project"], REGION
         )
         present = {item["metadata"]["name"] for item in revisions}
+    if phone_anchor is not None:
+        if environment != "production" or lane != "backend":
+            raise retention.UnsafeState("phone anchor is outside production backend authority")
+        rollback = production_phone_receipt.rollback_revision(phone_anchor, release, revisions)
     if rollback:
         if not retention.REVISION_RE.fullmatch(rollback):
             raise retention.UnsafeState("source predeploy revision is invalid")
@@ -1661,6 +1641,7 @@ def checkpoint(args, run_id, observed, pending, status):
             "pass_status": status,
             "pending_services": list(pending),
             **({"capacity_bridge": bridge} if bridge is not None else {}),
+            **({"phone_rollback_qualification": args.phone_anchor} if getattr(args, "phone_anchor", None) else {}),
         },
     )
     output = os.environ.get("GITHUB_OUTPUT")
@@ -1681,6 +1662,8 @@ SCOPED_TICK_TITLES = {
 
 
 def assert_checkpoint_publication(repository: str, environment: str) -> None:
+    if environment == "production":
+        production_phone_lease.assert_reconciled(repository, api=api, governed=governed_dispatch, timestamp=_github_timestamp, deadline=_LOOKUP_DEADLINE.get())
     name = (
         "UAT" if environment == "uat" else "Production"
     ) + " bounded revision cleanup"
@@ -1791,7 +1774,7 @@ def record_uat_cleanup_outcome(args: argparse.Namespace, outcome: str) -> None:
             stream.write(f"cleanup_outcome={outcome}\n")
 
 
-def maintenance_pass() -> int:
+def maintenance_cli():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-run-id", default="")
     parser.add_argument("--state-dir", type=Path, required=True)
@@ -1805,6 +1788,7 @@ def maintenance_pass() -> int:
         help="Inspect a new requested release or an explicit out-of-band change",
     )
     parser.add_argument("--environment", choices=tuple(LANES), default="uat")
+    parser.add_argument("--qualified-cold-checkpoint-run-id", default="")
     args = parser.parse_args()
     if args.production_capacity_bridge and (args.environment != "production" or not args.apply
             or args.verify_source_only or args.check_mutations or not args.force_inspection
@@ -1814,6 +1798,18 @@ def maintenance_pass() -> int:
         parser.error("source verification cannot apply cleanup")
     if args.release_run_id and not args.release_run_id.isdigit():
         parser.error("release run ID must be numeric")
+    if args.qualified_cold_checkpoint_run_id and (
+        args.environment != "production" or not re.fullmatch(r"[1-9][0-9]*", args.qualified_cold_checkpoint_run_id)
+        or not args.release_run_id or args.production_capacity_bridge
+        or os.getenv("GITHUB_EVENT_NAME") != "workflow_dispatch" or os.getenv("GITHUB_REF_NAME") != "main"
+    ):
+        parser.error("cold checkpoint requires explicit manual main production with a healthy serving release")
+    production_phone_receipt.refuse_advance_checkpoint(args.qualified_cold_checkpoint_run_id)
+    return args
+
+
+def maintenance_pass() -> int:
+    args = maintenance_cli()
     repository = os.environ["GITHUB_REPOSITORY"]
     lane_config = LANES[args.environment]
     args.state_dir.mkdir(parents=True, exist_ok=True)
@@ -1840,13 +1836,16 @@ def maintenance_pass() -> int:
                 stream.write("cleanup_ready=false\n")
         return 0
     with tempfile.TemporaryDirectory() as temporary:
+        phone_anchors = []
         found = find_release(
             repository,
             args.release_run_id,
             Path(temporary),
             require_live=not args.verify_source_only,
             environment=args.environment,
+            on_phone_rollback=phone_anchors.append,
         )
+    args.phone_anchor = phone_anchors[-1] if phone_anchors else None
     if args.verify_source_only:
         ready = found is not None
         output = os.environ.get("GITHUB_OUTPUT")
@@ -1915,7 +1914,8 @@ def maintenance_pass() -> int:
             )
             if lane:
                 flags += release_protection_flags(
-                    service, lane, release, environment=args.environment
+                    service, lane, release, environment=args.environment,
+                    phone_anchor=args.phone_anchor if lane == "backend" else None,
                 )
             if args.apply:
                 flags += [

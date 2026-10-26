@@ -244,13 +244,12 @@ def test_shared_dev_requires_lifecycle_activation_before_healthy_acceptance():
 )
 def test_every_release_retains_activation_failure_evidence(workflow, prefix):
     document = yaml.safe_load((ROOT / f".github/workflows/deploy-{workflow}.yml").read_text())
-    uploads = [
-        step
-        for step in document["jobs"]["deploy"]["steps"]
-        if "upload-artifact" in step.get("uses", "")
-    ]
+    required_if = "always()"
+    if workflow == "production":
+        required_if = f"env.PHONE_DEPLOY_PHASE != 'cold' && ({required_if})"
     assert any(
-        step.get("if") == "always()"
+        step.get("if") == required_if
+        and "upload-artifact" in step.get("uses", "")
         and any(
             path in step["with"]["path"]
             for path in [
@@ -258,7 +257,7 @@ def test_every_release_retains_activation_failure_evidence(workflow, prefix):
                 f"/tmp/{prefix}-account-deletion-*.json",  # noqa: S108 - workflow artifact path, never opened here
             ]
         )
-        for step in uploads
+        for step in document["jobs"]["deploy"]["steps"]
     )
 
 
@@ -1004,10 +1003,13 @@ def test_production_release_orders_image_fence_schema_runtime_and_activation() -
         "Resolve backend candidate revision",
         "Verify backend candidate readiness and exact-SHA provenance",
     ):
-        assert _production_step(name).get("if") == "steps.scope.outputs.deploy_backend == 'true'"
+        expected = "steps.scope.outputs.deploy_backend == 'true'"
+        if name != "Build and pin backend image before lifecycle migration":
+            expected = "env.PHONE_DEPLOY_PHASE != 'cold' && (" + expected + ")"
+        assert _production_step(name).get("if") == expected
     assert _production_step("Install fail-closed account deletion release fence").get("if") == (
-        "steps.scope.outputs.deploy_backend == 'true' && "
-        "steps.account-deletion-fence-decision.outputs.required == 'true'"
+        "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true' && "
+        "steps.account-deletion-fence-decision.outputs.required == 'true')"
     )
 
 
@@ -1166,8 +1168,8 @@ def test_production_backend_deploy_substitutions_are_declared_by_cloud_build() -
 def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None:
     activation = _production_step("Activate tombstone-aware account deletion")
     assert activation["if"] == (
-        "steps.classify.outputs.release_failed == 'false' && "
-        "steps.scope.outputs.deploy_backend == 'true'"
+        "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.classify.outputs.release_failed == 'false' && "
+        "steps.scope.outputs.deploy_backend == 'true')"
     )
     assert "python3 deploy/account-deletion/activate_release.py" in activation["run"]
     assert '--expected-sha "${{ github.event.inputs.sha }}"' in activation["run"]

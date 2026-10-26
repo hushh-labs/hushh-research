@@ -377,23 +377,28 @@ def test_reader_stage_regression_blocks_prepared_enable_before_output(release_pl
     assert not args.github_output.exists()
 
 
-def test_consumer_exception_pins_the_complete_reviewed_source_pair(release_plan, monkeypatch):
-    state = release_plan
-    receipt = state.compat.qualify_consumers(FALLBACK, PRIMARY)
-    assert set(receipt["source_sha256"]) == set(
-        state.compat.UNCHANGED + state.compat.REVIEWED_EXCEPTIONS
-    )
-    original = state.compat.run
-    changed = state.compat.REVIEWED_EXCEPTIONS[0]
+@pytest.mark.parametrize(
+    "changed",
+    (
+        "hushh_mcp/services/account_firebase_mutations.py",
+        *(f"api/routes/account_{route}.py" for route in ("phone_recovery", "device_revocation")),
+        "hushh_mcp/services/phone_recovery_state.py",
+        "hushh_mcp/services/device_action_service.py",
+        "db/migrations/428_phone_recovery_actions.sql",
+        "db/contracts/prod_core_schema.json",
+    ),
+)
+def test_consumer_drift_requires_qualification(release_plan, monkeypatch, changed):
+    original = release_plan.compat._source
 
-    def modified_source(command):
-        if command[-1] == f"{'e' * 40}:consent-protocol/{changed}":
+    def modified_source(sha, path):
+        if sha == "e" * 40 and path == changed:
             return b"unreviewed additional authority"
-        return original(command)
+        return original(PRIMARY if sha == "e" * 40 else sha, path)
 
-    monkeypatch.setattr(state.compat, "run", modified_source)
+    monkeypatch.setattr(release_plan.compat, "_source", modified_source)
     with pytest.raises(ValueError, match="consumer_change_unqualified"):
-        state.compat.qualify_consumers(FALLBACK, "e" * 40)
+        release_plan.compat.qualify_consumers(FALLBACK, "e" * 40)
 
 
 @pytest.fixture

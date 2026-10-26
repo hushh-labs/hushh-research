@@ -11,6 +11,19 @@ from qualify_image import run
 BASELINE = "c2a56386064f101799669a8d27a8d6af8198edec"
 REVIEWED = "25759339d32e2b5b1f8f84c0d922db8abbf9f956"
 UNCHANGED = (
+    "api/routes/account.py",
+    "api/routes/account_phone_recovery.py",
+    "api/routes/account_device_revocation.py",
+    "api/middlewares/auth_reliability_trace.py",
+    "api/utils/firebase_auth.py",
+    "api/utils/phone_claim_proof.py",
+    "hushh_mcp/services/phone_recovery_state.py",
+    "hushh_mcp/services/phone_recovery_continuation.py",
+    "hushh_mcp/services/device_action_service.py",
+    "hushh_mcp/services/device_action_proof.py",
+    "hushh_mcp/services/phone_test_transport.py",
+    "db/migrations/428_phone_recovery_actions.sql",
+    "db/contracts/prod_core_schema.json",
     "hushh_mcp/services/phone_transfer_service.py",
     "hushh_mcp/services/account_cleanup_runtime.py",
     "hushh_mcp/services/support_email_service.py",
@@ -36,7 +49,7 @@ def _source(sha: str, path: str) -> bytes:
 
 
 def qualify_consumers(fallback: str, primary: str) -> dict:
-    """Allow identical consumers or only the independently reviewed 425/427 pair.
+    """Require identical 428 consumers; retain only the reviewed 425/427 exception.
 
     The exception pins whole files, including the changed functions. It never
     ignores arbitrary SSO additions or excludes an authority-bearing module.

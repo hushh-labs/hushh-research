@@ -290,15 +290,10 @@ def test_no_cloud_build_step_exceeds_the_env_entry_cap() -> None:
 
 
 def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env() -> None:
-    """Ported from main during the 2026-09-02 sync, adapted to the extracted script.
+    """Every read reaches the extracted deploy, including packed cold-phase selection.
 
-    Main asserted this against an inline `for n in ...; do v="_${n}"; add_env` loop in
-    the build body. This branch moved that body into `scripts/deploy/backend-deploy.sh`
-    (the 10,000-character step-arg ceiling), so the same defect now takes a different
-    shape: the script reads `${_FOO}`, and Cloud Build only provides it when `_FOO` is
-    listed in the step's `env:` field. A name the script reads with no env entry
-    silently deploys nothing -- which is exactly what happened to the Gmail monitor
-    settings on main, and to `_HUSSH_GEMINI_TEXT_MODEL` on this branch until this sync.
+    Unwired substitutions silently deployed empty Gmail/model settings before this guard.
+    The phase shares its existing packed entry and defaults to the ordinary release.
     """
     root = Path(__file__).resolve().parents[2]
     script = (root / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
@@ -308,6 +303,11 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     config = _load("deploy/backend.cloudbuild.yaml")
     assert config is not None
     step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    assert config["substitutions"]["_PHONE_DEPLOY_PHASE"] == "standard"
+    assert any(
+        entry.startswith("_IMAGE_SETTINGS=") and entry.endswith("|${_PHONE_DEPLOY_PHASE}")
+        for entry in step["env"]
+    )
     assert step.get("args") == ["scripts/deploy/backend-deploy.sh"]
     provided = {entry.split("=", 1)[0] for entry in step.get("env") or []}
     for entry in step.get("env") or []:
