@@ -9186,7 +9186,7 @@
         ]
       },
       "shell": {
-        "app_page_shell": false,
+        "app_page_shell": true,
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
@@ -10997,5 +10997,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "40d466320a8b980abd44472fc2f2db7f61ddb1a4477e203452c21f8a79546ef0"
+  "content_sha256": "43154469b5c1704a026e0f632e635fa002e0a807596a623ec6d600541d69534f"
 }

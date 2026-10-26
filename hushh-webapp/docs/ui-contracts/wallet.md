@@ -1,15 +1,73 @@
 # Wallet UI contract
 
-Source base: `dcc4f611e39c80a0001df0ada3f47e85b445421e` (the requested
-24 October 2026 reference). The fetched `origin/main` advanced from
-`6e6563f32ed2360bdb008cc6daaf82e180b7e598` during measurement to
-`22507a43575a14badf29af4e77de7b34b249c725` at final review. Its 106
-changed paths since the reference have no direct overlap with this Wallet diff;
-the isolated branch was rebased onto that fetched main before publication.
-This contract records the presentation change in the isolated
-`ui/wallet-mounted-connect-alignment` checkout. Executable route, action,
-service, consent and PKM contracts remain with their existing owners. Browser
-and device evidence is distinguished from source inspection below.
+Current presentation (26 October 2026): two collections, **My cards** and
+**Shared with me**. Add opens an adaptive sheet; selecting a card opens its
+details with Share and Manage access. The existing service, consent, encrypted
+storage, recipient verification and reveal contracts remain authoritative.
+
+The older measurements below describe the preceding Connect-alignment change
+based on `dcc4f611e39c80a0001df0ada3f47e85b445421e`; they are historical evidence,
+not verification of this collection layout.
+
+## Save feedback and completion
+
+A valid submission closes Add immediately and displays an unsaved pending tile
+in My cards while the existing `WalletService.addCard` pipeline runs. Network
+validation, stable registration/draft identity, encryption, atomic PKM writes,
+confirmation receipts and Secrets filing remain in their existing services.
+The tile does not increase the saved-card count and cannot reveal, share or
+remove a card. A single workspace-owned operation prevents duplicate dispatch;
+Add is unavailable while that operation is unresolved.
+
+Only the confirmed receipt inserts a saved card. Completion preserves the
+current tab/selection. An uncertain result says “Save not confirmed”; explicit
+Retry uses the same in-memory input and draft ID, while Dismiss drops its local
+retry information. There is no automatic replay. Owner, key, owner-token,
+vault epoch, hidden-page and unmount boundaries retire retained input and stale
+UI callbacks. Retirement does not claim an already-dispatched write was
+cancelled; a later authoritative read reconciles accepted writes.
+
+The 26 October follow-up uses the existing `uat` runtime profile: localhost
+frontend with the deployed UAT backend. This avoids local cross-region database
+and missing-key configuration delays without changing the save API. A synthetic
+live save showed its pending tile at 587ms and the accepted saved card at
+8893ms; these are one diagnostic run, not production latency guarantees.
+
+## Loading contract
+
+Route suspense, introduction-preference reads, owned-card reads and received-card
+reads use the shared card-grid skeleton with the final responsive geometry.
+Recipient discovery uses avatar/name placeholders. Known card details remain
+visible while their design loads. Masked summaries and names can render before
+cosmetic artwork completes. Initial
+presentation progress is memory-only and follows the same owner/auth/vault/source
+fences as the final snapshot. Artwork display recovery has one 30-second total
+budget; form selection retains its existing shorter budget. Expired approvals
+never regain authority through a timeout. Failed recovery settles to a readable
+neutral card rather than an indefinite pending face.
+
+Share and Manage access open immediately from a selected card, including while
+access state is loading or unavailable. They compose the existing recipient
+search, selection, duration, encryption, stable request and grant operations.
+The final send stays disabled until the existing access check succeeds; failed
+checks show Retry inside the sheet and never fabricate access or send grants.
+
+Received history skips outgoing Profile eligibility. Focus and periodic refresh
+coalesce while a history request is running; owner/session changes and privacy
+hiding still abort it. Readiness errors remain distinct from an empty collection.
+The protected recipient viewer loads on demand and survives the verification
+popup's temporary visibility change, while vault/session changes retire it.
+
+Local diagnosis: the backend returned `503 WALLET_CARD_ACCESS_DISABLED` with
+all three required tables installed; its two Wallet feature flags were unset.
+Enable the existing local runtime flags to exercise sharing. Separately, observed
+artwork validation took 18–24 seconds, exceeding the previous 8-second display
+budget. The local runtime also exposed request-pool starvation: three LISTEN sessions
+plus Gmail scheduled synchronization occupied all four async slots. Gmail now
+uses the existing bounded dedicated-connection helper for its advisory lock;
+request capacity and lock cleanup have a regression check. Remote
+database/authentication latency remains a runtime concern; this
+presentation does not bypass those checks.
 
 ## Visual Context
 
@@ -23,10 +81,10 @@ handoffs to Connect, Profile, Feed, Messages, and One.
 | --- | --- | --- | --- |
 | One launcher → `/one/wallet` | Wallet entry and prewarm; route fallback “Loading cards…” | `components/wallet/wallet-entry-warmup.tsx`, `app/one/wallet/page.tsx` | Navigation through the existing One route; prewarm is not a secret read. |
 | `/one/wallet`, owner-local introduction | Loading, “All your cards in one place”, Continue, “Opening your wallet…”, persistence-error toast | `components/wallet/wallet-workspace.tsx` | Continue writes only the owner-local seen flag. Accepted persistence opens Cards; failure leaves Continue available. No consent or vault mutation. |
-| `/one/wallet`, Cards | Opening, feature-disabled, locked/Unlock, error/Try again, overview deck, selected card, metadata search from `q`, details, Remove confirmation | `wallet-workspace.tsx`, `wallet-card-browser.tsx`, `wallet-saved-card-details.tsx` | Tab and card selection are local; search only uses `q`. The shared Back layer unwinds request, nested/card/tab state before One. Keep card cancels removal; confirmed removal waits for the accepted encrypted PKM write. |
-| `/one/wallet`, Add | Ready form, scan/gallery/camera/crop, OCR review, validation, Save/Cancel, saving/error/accepted | `secure-card-add-form.tsx`, `wallet-card-scanner.tsx`, `wallet-live-card-capture.tsx`, `wallet-card-crop.tsx` | Scan/crop/OCR are local or OS-owned. Save uses the existing Wallet service and stable draft ID; Cancel and Back use the form's reset callback; a pending save consumes Back. |
+| `/one/wallet`, My cards | Opening, feature-disabled, locked/Unlock, error/Try again, payment-card grid, full-size One card previews (horizontal rail on phones), selected detail panel, metadata search from `q`, details, Remove confirmation | `wallet-workspace.tsx`, `wallet-card-browser.tsx`, `wallet-saved-card-details.tsx` | Tab and card selection are local; search only uses `q`. The shared Back layer unwinds request, nested/card/tab state before One. Keep card cancels removal; confirmed removal waits for the accepted encrypted PKM write. |
+| `/one/wallet`, Add sheet | Ready form, scan/gallery/camera/crop, OCR review, validation, Save/Cancel, saving/error/accepted | `secure-card-add-form.tsx`, `wallet-card-scanner.tsx`, `wallet-live-card-capture.tsx`, `wallet-card-crop.tsx` | Scan/crop/OCR are local or OS-owned. Save uses the existing Wallet service and stable draft ID; Cancel and Back use the form's reset callback; a valid submission closes Add and moves its pending status into the collection. |
 | `/one/wallet`, selected Sharing | Recipient picker, active grants, previous encrypted copies, Revoke | `wallet-saved-card-sharing.tsx` | Selected card/Profile grant authority and exact recipient/duration remain with card-access services. Closing a busy picker retires UI callbacks, not the dispatched operation. |
-| `/one/wallet`, Sharing tab | Outgoing/received histories, detail/revoke confirmation, active Wallet-wide consent Manage/revoke | `wallet-sharing.tsx`, `wallet-sharing-history.tsx` | History is metadata; wallet-wide consent has its own scopes and action owner. Keep sharing is no API call. Consent pending requests are fetched but their Review branch has no mounted row. |
+| `/one/wallet`, Shared with me / Wallet access | Received-card grid and protected viewer; Wallet access panel contains outgoing history and Wallet-wide consent Manage/revoke | `wallet-sharing.tsx`, `wallet-sharing-history.tsx` | History is metadata; wallet-wide consent has its own scopes and action owner. Keep sharing is no API call. Consent pending requests are fetched but their Review branch has no mounted row. |
 | `/one/wallet?card_request=id` | Request owner or requester Dialog, loading/error/retry, select/decline/withdraw/fulfil/expire/Done | `wallet-card-request-review.tsx` | Closing only clears `card_request`; exact response identity and role checks stay with the request service. |
 | Embedded Profile/NWS; `/one/wallet-card` | Profile bootstrap, intro/edit/preview/success/manage, QR and Apple Wallet actions | `components/wallet-card/wallet-card-workspace.tsx` and children | Embedded details add no route chrome; standalone route retains its authored parent. Public token publication is separate from temporary sharing. |
 | `/c/[token]`, `/r/[slug]` | Public Profile/NWS and referral token, QR/pass/link handoffs | `app/c/[token]`, `app/r/[slug]`, `components/wallet-card` | Public access uses its existing token rules and no signed-in Profile control. OS share and pass installation outcomes are external. |
@@ -49,7 +107,7 @@ retains its current reducer-only effect.
 
 | Role | Target CSS size / line / weight | Applicable Wallet text |
 | --- | --- | --- |
-| Workspace tab | 15 / 20 / 550 | Cards, Add, Sharing |
+| Workspace tab | 15 / 20 / 550 | My cards, Shared with me |
 | Full-page authoring title | 28 / 36 / 600 | Appropriate standalone setup heading only |
 | Section and secondary group | 14 / 22 / 600; 12 / 18 / 600 | Details, sharing groups, history |
 | Primary and supporting row | 14 / 21 / 550; 12 / 18 / 400 | Names, labels, help and status context |
@@ -116,7 +174,7 @@ accessible role, disabled and focus behavior unless a row says otherwise.
 | Selected temporary grant | Sharing; Share card; “Temporary access for your connections.”; Shared with; Retry; Loading shares… / No active shares; recipient/date/Revoke; Load more shares / Retry loading shares; Previously sent copies; “Sent copy · cannot be recalled”; Share Profile Card / Share card; “Share your selected profile details with your connections.” / “Share your full card number and details with selected connections.” | Picker opens mobile Sheet/desktop detail. Close retires callbacks and selected map, but dispatched sharing may continue. Direct per-card Revoke is immediate, unlike history revoke. Old encrypted copies are separate and irreversible. |
 | Selected grant picker | Search connections; Finding connections…; Retry connections; No connections found.; Search by name to find more connections.; Trusted Circle; “{N} of 20 connections selected. Share with up to 20 at a time.”; Access time (15 minutes / 1 hour / 2 hours); “People outside your Trusted Circle verify their identity before viewing. Security codes are never shared.”; Share with {N} / Sharing… | No select-all, public link or arbitrary recipient. Search is paged read; choices local. Share encrypts permitted details, keeps exact recipient/duration/request ID on retry; accepted grants refresh list. Unknown acknowledgement is reread/retry, never assumed success or cancelled by closing. |
 | Person request and `/one/wallet?card_request=id` | Request a card; Send request / Sending…; Cancel; Card request sent; Choose a card to share / Card request; Checking this request…; Retry; Card/Agent One Profile/payment choices; Checking your Profile Card… / Retry Profile Card; Access duration 15m/1h/2h; Share card / Sharing…; Decline / Withdraw request; Done; Card sent / Request declined / Request withdrawn / Request expired | Person dialog verifies connection/keys and stable request ID. Owner choice has no default. Closing only removes query; decline/withdraw call explicit role-owned endpoint. Busy close rejected. Terminal Done is local. Reopen/reread protects response identity and unknown retry. |
-| Sharing tab / wide consent | Shared cards; Cards shared with you; paged metadata/empty/error/retry; history status/dates/duration/trust/verification/activity; Back to sharing history; Revoke access; Keep sharing; Shared with; Card details / Card summary; Manage; “Stop sharing Wallet access?” | Outgoing active history revoke confirms and warns that viewed information cannot be taken back. Wide consent uses `attr.wallet.summary.*` and `attr.wallet.secrets.*`; active Manage only is reachable. Correction: “Card numbers and cardholder names. Saved security codes are not shared.” Pending Review/Approve/Decline JSX has no rendered entry. |
+| Wallet access / wide consent | Shared cards; Cards shared with you; paged metadata/empty/error/retry; history status/dates/duration/trust/verification/activity; Back to sharing history; Revoke access; Keep sharing; Shared with; Card details / Card summary; Manage; “Stop sharing Wallet access?” | Outgoing active history revoke confirms and warns that viewed information cannot be taken back. Wide consent uses `attr.wallet.summary.*` and `attr.wallet.secrets.*`; active Manage only is reachable. Correction: “Card numbers and cardholder names. Saved security codes are not shared.” Pending Review/Approve/Decline JSX has no rendered entry. |
 | Messages temporary grant / old copy | A card was shared with you. / You shared a card.; View card; browser-only notice; Shared card; Checking access…; Verify your identity to view this card.; Verify identity / Verifying…; remaining countdown; This access has ended. / currently unavailable; Hide; old copy View/Unlock/Opening; “Browsers cannot block screenshots or photos.” | Server time and expiry own lifetime; verification does not extend it. Recipient envelope decryption, sender binding and last-four-only recovery are separate. Native viewer is unavailable. Hidden/pagehide/focus/print/owner change retire plaintext; copy/cut/drag/context suppression is UI mitigation, not screenshot prevention. |
 | Anonymous `/wallet/open` | Open encrypted card; “Choose the file and enter its password. No account needed.”; Encrypted card file; Password; Reading file… / Opening… / Open card; “The file opens on this device. It is never uploaded.”; exact invalid-file/wrong-password toasts; Card number/Name on card/Card network/Expiry (MM/YY)/Issuing region; Hide card | File/password and decrypted fields remain memory-local. Wrong input keeps form; Hide/file change/background retire cleartext and password. No account, network, download, copy or exporter CTA. Envelope limit is 8 KiB. |
 | One chat widgets | Payment cards are not enabled in this environment.; Unlock your vault to work with your cards.; No cards are stored yet.; No stored card matches that reference. Ask for the card list first.; That card could not be decrypted on this device.; “Which card should I show? Use its nickname or last four digits.”; list rows and Reveal; compact Add; revealed Card number/Expires/optional Name on card, Copy..., Copied, Hides in {secondsLeft}s, Hide, Hidden again., Dismiss | One action gateway/high-risk confirmation owns Reveal. Tool-visible list is nickname/last-four metadata. Chat Add has no CVV. Reveal lasts 45s and hides on background; no PAN/CVV/PIN enters model messages. |

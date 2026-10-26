@@ -1,30 +1,49 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import styles from "./wallet-sharing.module.css";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "@/components/icons";
+import { ArrowLeft, CreditCard } from "@/components/icons";
 import { ProfilePaneAccountIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsGroup, SettingsRow, SettingsPresentationProvider, SettingsDetailPanel } from "@/components/profile/settings-ui";
 import { CardAccessUnavailableError, WalletCardAccessService, type CardSharingHistory, type CardSharingHistoryItem } from "@/lib/services/wallet-card-access-service";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
 import { WalletSavedCardSharing } from "./wallet-saved-card-sharing";
+import { WalletCollectionSkeleton } from "./wallet-collection-skeleton";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import browserStyles from "./wallet-card-browser.module.css";
+const WalletCardAccessMessage = lazy(() => import("./wallet-card-access-message").then(module => ({ default: module.WalletCardAccessMessage })));
 import { ROUTES } from "@/lib/navigation/routes";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 type State = { context: CardShareContext; page: CardSharingHistory; direction: string };
 const date = (value: string) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
-/** Small ledger in the existing Sharing tab; access remains server-authorized. */
-export function WalletSharingHistory({ ownerId, active, getContext, direction = "outgoing" }: {
+function SharedCardPreview({ item }: { item: CardSharingHistoryItem }) {
+  return <div className={styles.receivedFace} data-testid="wallet-received-card-preview" data-status={item.status}>
+    <span className={styles.receivedFaceTop}><span>{item.cardType === "profile" ? "Profile card" : "Shared card"}</span><CreditCard aria-hidden="true" className="size-6" /></span>
+    <strong>{item.displayLabel}</strong><small>Details protected</small>
+  </div>;
+}
+
+function accessLabel(item: CardSharingHistoryItem, serverNow: string) {
+  if (item.status !== "active") return item.status === "revoked" ? "Revoked" : "Expired";
+  const minutes = Math.ceil((Date.parse(item.expiresAt) - Date.parse(serverNow)) / 60_000);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes < 60 ? `${minutes} min left` : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""} left` : "Access ending";
+}
+
+/** History is display metadata; the existing recipient viewer authorizes every reveal. */
+export function WalletSharingHistory({ ownerId, active, getContext, direction = "outgoing", presentation = "list" }: {
   direction?: "outgoing" | "received";
+  presentation?: "list" | "cards";
   ownerId: string; active: boolean; getContext: (cardId: string) => CardShareContext | null;
 }) {
+  const [viewer, setViewer] = useState<{ ownerId: string; grantId: string; request: number } | null>(null);
   const [state, setState] = useState<State | null>(null);
   const [profile, setProfile] = useState<{ context: CardShareContext; cardId: string } | null>(null);
   const [failed, setFailed] = useState(false);
@@ -44,6 +63,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   const [opened, setOpened] = useState<{ id: string; cardType: string } | null>(null);
   const [selection, setSelection] = useState<CardSharingHistoryItem | null>(null);
   const pending = useRef<AbortController | null>(null);
+  const initialPending = useRef<AbortController | null>(null);
   const returnTarget = useRef<{ element: HTMLButtonElement; context: CardShareContext; activation: number } | null>(null);
   const detailBack = useRef<HTMLButtonElement | null>(null);
   const revokeButton = useRef<HTMLButtonElement | null>(null);
@@ -58,19 +78,19 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   loadedCount.current = retained?.page.items.length ?? 0;
   useBackLayer(ROUTES.ONE_WALLET, detail ? 2 : 0, () => { if (!busy) setOpened(null); return true; });
   useBackLayer(ROUTES.ONE_WALLET, selection && current ? 3 : 0, () => { if (!busy) setSelection(null); return true; });
-  useEffect(() => { setSelection(null); setOpened(null); setBusy(null); }, [active, ownerId, direction]);
+  useEffect(() => { setSelection(null); setOpened(null); setBusy(null); setViewer(null); }, [active, ownerId, direction]);
 
   useEffect(() => WalletCardAccessService.subscribe(ownerId, retry), [ownerId, retry]);
   useEffect(() => subscribeVaultSessionEpoch(() => {
     suspended.current = null; setUnavailable(false);
-    pending.current?.abort(); setState(null); setProfile(null); setOpened(null); setSelection(null); setRevision(value => value + 1);
+    initialPending.current?.abort(); initialPending.current = null; pending.current?.abort(); setState(null); setProfile(null); setOpened(null); setSelection(null); setViewer(null); setRevision(value => value + 1);
   }), []);
   useEffect(() => {
     const refresh = () => {
-      if (isSuspended(getContext(""))) return;
+      if (initialPending.current || pending.current || isSuspended(getContext(""))) return;
       if (document.visibilityState === "visible") setRevision(value => value + 1);
     };
-    const hide = () => { if (document.visibilityState === "hidden") { pending.current?.abort(); setState(null); setProfile(null); setOpened(null); setSelection(null); } else refresh(); };
+    const hide = () => { if (document.visibilityState === "hidden") { initialPending.current?.abort(); initialPending.current = null; pending.current?.abort(); setState(null); setProfile(null); setOpened(null); setSelection(null); } else refresh(); };
     window.addEventListener("focus", refresh); document.addEventListener("visibilitychange", hide);
     const timer = window.setInterval(refresh, 30_000);
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", hide); window.clearInterval(timer); };
@@ -83,6 +103,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
     if (isSuspended(context)) return;
     suspended.current = null; setUnavailable(false);
     const controller = new AbortController();
+    initialPending.current = controller;
     setFailed(false); setLoading(true);
     const refresh = async () => {
       const target = loadedCount.current;
@@ -105,11 +126,11 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       }
       setFailed(true);
     })
-      .finally(() => { if (!controller.signal.aborted && context.isCurrent()) setLoading(false); });
-    void WalletCardAccessService.profile(context, controller.signal).then(result => {
+      .finally(() => { if (initialPending.current === controller) initialPending.current = null; if (!controller.signal.aborted && context.isCurrent()) setLoading(false); });
+    if (direction === "outgoing") void WalletCardAccessService.profile(context, controller.signal).then(result => {
       if (!controller.signal.aborted && context.isCurrent()) setProfile(result.eligible && result.cardId ? { context, cardId: result.cardId } : null);
     }).catch(() => { if (!controller.signal.aborted && context.isCurrent()) setProfile(null); });
-    return () => { controller.abort(); pending.current?.abort(); pending.current = null; };
+    return () => { controller.abort(); if (initialPending.current === controller) initialPending.current = null; pending.current?.abort(); pending.current = null; };
   }, [ownerId, direction, revision, getContext, isSuspended]);
 
   const loadMore = useCallback(async () => {
@@ -165,6 +186,28 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
   };
   return <SettingsPresentationProvider density="compact"><section aria-label={direction === "outgoing" ? "Card sharing history" : "Received card history"} className={`space-y-3.5 ${styles.history}`}>
     {direction === "outgoing" && active && profile?.context.isCurrent() && profile.context.userId === ownerId ? <WalletSavedCardSharing card={{ cardId: profile.cardId }} getContext={getContext} disabled={Boolean(busy)} showHistory={false} /> : null}
+    {presentation === "cards" && direction === "received" ? <>
+      <h2 className="sr-only">Cards shared with you</h2>
+      <div className={browserStyles.cardGrid} aria-label="Cards shared with you">
+        {current?.page.items.filter(item => item.status === "active").map(item => <article key={`${item.cardType}:${item.id}`}>
+          <button type="button" className={styles.receivedCard} aria-label={`View ${item.displayLabel} from ${item.senderName}`} onClick={event => {
+            returnTarget.current = { element: event.currentTarget, context: current.context, activation: activation.current.revision };
+            setOpened({ id: item.id, cardType: item.cardType });
+          }}>
+            <SharedCardPreview item={item} />
+            <span className={styles.receivedCaption}><span className={styles.receivedAvatar} aria-hidden="true">{item.senderName.slice(0, 1)}</span><span><strong>From {item.senderName}</strong><small>{item.displayLabel}</small></span><span className={styles.accessStatus}>{accessLabel(item, current.page.serverNow)}</span></span>
+          </button>
+        </article>)}
+      </div>
+      {!current && !failed ? <WalletCollectionSkeleton /> : null}
+      {current && !current.page.items.some(item => item.status === "active") ? <div className={styles.receivedEmpty}><CreditCard aria-hidden="true" className="size-8" /><h3>No active shared cards</h3><p>{current.page.nextCursor ? "Load more to see earlier shares." : "Cards people share with you will appear here."}</p></div> : null}
+      {current?.page.items.some(item => item.status !== "active") ? <details className={styles.pastAccess}><summary>Past access <span>{current.page.items.filter(item => item.status !== "active").length}</span></summary><div className={browserStyles.cardGrid}>
+        {current.page.items.filter(item => item.status !== "active").map(item => <button type="button" key={`${item.cardType}:${item.id}`} className={styles.receivedCard} aria-label={`View ${item.displayLabel} from ${item.senderName}`} onClick={event => {
+          returnTarget.current = { element: event.currentTarget, context: current.context, activation: activation.current.revision };
+          setOpened({ id: item.id, cardType: item.cardType });
+        }}><SharedCardPreview item={item} /><span className={styles.receivedCaption}><span><strong>From {item.senderName}</strong><small>{item.displayLabel}</small></span><span className={styles.accessStatus} data-ended="true">{accessLabel(item, current.page.serverNow)}</span></span></button>)}
+      </div></details> : null}
+    </> : <>
     <SettingsGroup title={direction === "outgoing" ? `Shared cards${current?.page.recipientCount != null ? ` | ${current.page.recipientCount}` : ""}` : "Cards shared with you"}>
       {current?.page.items.map(item => <SettingsRow key={`${item.cardType}:${item.id}`} asChild icon={ProfilePaneAccountIcon} iconTone="transparent"
         title={direction === "outgoing" ? item.recipientName : item.senderName}
@@ -178,6 +221,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       {!current && !failed ? <SettingsRow title="Loading shared cards..." /> : null}
       {current && !current.page.items.length ? <SettingsRow title={direction === "outgoing" ? "No cards shared yet" : "No cards received yet"} /> : null}
     </SettingsGroup>
+    </>}
     {failed ? <div role="alert"><p className="ui-text-row-description">{unavailable ? "Card sharing is unavailable. Automatic refresh is paused." : "Could not refresh card sharing."}</p><Button variant="ghost" size="compact" className={presentationStyles.quietAction} onClick={retry}>Try again</Button></div> : null}
     {current?.page.nextCursor ? <div ref={end}><Button variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={loading} onClick={() => void loadMore()}>{loading ? "Loading more shares..." : moreFailed ? "Retry loading shares" : "Load more shares"}</Button></div> : null}
     <SettingsDetailPanel open={Boolean(detail)} onOpenChange={open => { if (!open && !busy) { setSelection(null); setOpened(null); } }}
@@ -188,6 +232,9 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
       bodyClassName="space-y-5"
       footer={detail && direction === "outgoing" && detail.status === "active" ? <Button ref={revokeButton} size="compact" variant="destructive" className={presentationStyles.modalAction} aria-label={`Revoke ${detail.displayLabel} shared with ${detail.recipientName}`} disabled={Boolean(busy)} onClick={() => { revoked.current = false; setSelection(detail); }}>Revoke access</Button> : undefined}>
       {detail ? <>
+        {presentation === "cards" ? <><SharedCardPreview item={detail} /><div className={styles.receivedDetailCaption}><span>From {detail.senderName}</span><span className={styles.accessStatus} data-ended={detail.status !== "active"}>{accessLabel(detail, current!.page.serverNow)}</span></div>
+          {detail.status === "active" ? <>{Capacitor.isNativePlatform() ? <p className="text-sm text-muted-foreground">Open this card in your browser to view its details.</p> : <Button className="w-full" onClick={() => setViewer(previous => ({ ownerId, grantId: detail.id, request: (previous?.request ?? 0) + 1 }))}>View card</Button>}</> : <p role="status" className="py-3 text-sm text-muted-foreground">{detail.status === "revoked" ? "The owner stopped sharing this card." : "This share has expired. Ask the sender for a new share."}</p>}
+        </> : null}
         <SettingsGroup title="Share details">
           <SettingsRow title="Status" description={detail.status === "revoked" ? "Revoked" : detail.status === "expired" ? "Expired" : "Active"} />
           <SettingsRow title="Shared" description={<time dateTime={detail.createdAt}>{date(detail.createdAt)}</time>} />
@@ -204,6 +251,7 @@ export function WalletSharingHistory({ ownerId, active, getContext, direction = 
         </SettingsGroup>
       </> : null}
     </SettingsDetailPanel>
+    {viewer?.ownerId === ownerId && active ? <Suspense fallback={<p role="status">Opening card…</p>}><WalletCardAccessMessage key={`${ownerId}:${viewer.grantId}`} grantId={viewer.grantId} compact hideTrigger openRequest={viewer.request} /></Suspense> : null}
     <AlertDialog open={Boolean(selection && current)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
       <AlertDialogContent className={`${profileStyles.accountDialog} ${presentationStyles.walletDialog}`} onCloseAutoFocus={event => {
         if (selection || !detail) { event.preventDefault(); return; }

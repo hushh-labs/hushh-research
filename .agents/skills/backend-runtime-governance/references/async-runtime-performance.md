@@ -112,6 +112,21 @@ Azure erasure trigger's refusal; never retry generic privilege failures or clear
 its history. The actual repository contention/erasure regression lives in
 `test_byoc_setup_job_azure_admission_postgres.py`.
 
+## Long-lived background locks must leave request capacity
+
+The local asyncpg pool has four slots. Legacy listener mode reserves three for
+LISTEN sessions; enabled listener isolation shares one. In legacy mode, a
+scheduled worker that holds the fourth slot while awaiting further
+queries can starve its own work and unrelated requests. Gmail scheduled
+reconciliation uses `db.connection.dedicated_connection` for its advisory lock,
+as market refresh does. Keep the lock/unlock lifetime unchanged and release the
+session on success, failure and cancellation. Dedicated callers share the
+existing process-wide ceiling of three; declare them in
+`consent-protocol/config/database_connection_limits.json` without raising that
+ceiling. The regression is
+`test_scheduled_sync_keeps_last_request_slot_and_releases_lock` in
+`consent-protocol/tests/test_market_advisory_lock_connection.py`.
+
 ## Caching Strategy: Cut Repeat Cost After The Loop Is Unblocked
 
 Offloading removes the freeze; caching removes repeat work. Layer caches from
