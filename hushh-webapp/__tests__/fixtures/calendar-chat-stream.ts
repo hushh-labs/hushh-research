@@ -1,5 +1,9 @@
 import result from "../../../consent-protocol/tests/fixtures/calendar/chat_proposal_result.json";
 
+export function calendarChatEvent(event: Record<string, unknown>): Uint8Array {
+  return new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+}
+
 export function calendarChatStream(delivery: "tool" | "state", toolResult: unknown = result) {
   const events: unknown[] = [{ type: "RUN_STARTED", threadId: "same-conversation", runId: "run-calendar" }];
   if (delivery === "tool") events.push(
