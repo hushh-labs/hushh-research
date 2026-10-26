@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from tests.helpers import deployment_cli
+from tests.helpers.phone_retirement_fixture import lifecycle_retirement_revisions
 
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
@@ -38,33 +39,17 @@ def _activation_module():
     return module
 
 
-def _activation_adapter(module, args, failure, monkeypatch):
-    candidate = {
-        "metadata": {
-            "name": "consent-protocol-current",
-            "labels": {
-                "deploy-sha": "b" * 40 if failure == "candidate" else args.expected_sha,
-                "github-run-id": "123",
-                "account-deletion-contract": "v201",
-            },
-        }
-    }
-    legacy = {
-        "metadata": {
-            "name": "consent-protocol-legacy",
-            "labels": {"deploy-sha": "c" * 40, "account-deletion-contract": "v201"},
-        }
-    }
-    service = {
-        "status": {
-            "traffic": [
-                {"revisionName": "consent-protocol-current", "percent": 100},
-                {"revisionName": "consent-protocol-legacy", "tag": "legacy-test"},
-            ]
-        }
-    }
+def _activation_adapter(module, args, failure, monkeypatch, *, phone_floor=False):
+    service, revisions = lifecycle_retirement_revisions(
+        args.expected_sha, invalid_candidate=failure == "candidate"
+    )
     calls, deleted = [], []
-    monkeypatch.setattr(module, "supports_current_contract", lambda sha: sha == args.expected_sha)
+    supported = {args.expected_sha: phone_floor, "d" * 40: False}
+    monkeypatch.setattr(
+        module,
+        "supports_current_contract",
+        lambda sha, rollback=False: sha in supported and (not rollback or supported[sha]),
+    )
     ticks = iter([0, 361])
     monkeypatch.setattr(module.time, "monotonic", lambda: next(ticks))
 
@@ -80,7 +65,11 @@ def _activation_adapter(module, args, failure, monkeypatch):
             return json.dumps(service)
         if argv[:4] == ["gcloud", "run", "revisions", "list"]:
             return json.dumps(
-                [candidate] + ([legacy] if not deleted or failure == "retirement" else [])
+                [
+                    row
+                    for row in revisions
+                    if row["metadata"]["name"] not in deleted or failure == "retirement"
+                ]
             )
         if argv[:4] == ["gcloud", "run", "revisions", "delete"]:
             deleted.append(argv[4])
@@ -107,8 +96,9 @@ def _activation_adapter(module, args, failure, monkeypatch):
 
 
 @pytest.mark.parametrize("failure", [None, "candidate", "database", "scheduler", "retirement"])
+@pytest.mark.parametrize("phone_floor", [False, True])
 def test_activation_requires_exact_candidate_database_delivery_and_legacy_retirement(
-    monkeypatch, tmp_path, failure
+    monkeypatch, tmp_path, failure, phone_floor
 ):
     module = _activation_module()
     args = SimpleNamespace(
@@ -124,7 +114,9 @@ def test_activation_requires_exact_candidate_database_delivery_and_legacy_retire
         fence_required=True,
         evidence_prefix=str(tmp_path / "activation"),
     )
-    calls, deleted = _activation_adapter(module, args, failure, monkeypatch)
+    calls, deleted = _activation_adapter(
+        module, args, failure, monkeypatch, phone_floor=phone_floor
+    )
     evidence = {"status": "blocked"}
     if failure:
         with pytest.raises((ValueError, RuntimeError)):
@@ -137,7 +129,13 @@ def test_activation_requires_exact_candidate_database_delivery_and_legacy_retire
         module.activate(args, evidence)
         assert evidence["status"] == "activated"
         assert evidence["scheduler"]["completion"]["http_status"] == 200
-        assert deleted == ["consent-protocol-legacy"]
+        assert deleted == ["consent-protocol-legacy"] + (
+            ["consent-protocol-prephone"] if phone_floor else []
+        )
+        assert evidence["retirement"]["phone_admission_floor_required"] is phone_floor
+        assert evidence["retirement"]["remaining_pre_phone425_count"] == (
+            0 if phone_floor else None
+        )
         retirement = next(
             i
             for i, call in enumerate(calls)
@@ -1201,8 +1199,8 @@ def test_production_pre_v201_rollback_requires_fence_and_empty_tombstones() -> N
     rollback = _production_step("Roll back backend revision")
     rollback_run = str(rollback.get("run") or "")
 
-    assert "steps.predeploy-state.outputs.backend_revision != ''" in str(rollback.get("if"))
-    assert 'rollback_revision="${{ steps.predeploy-state.outputs.backend_revision }}"' in (
+    assert "steps.phone-rollback-qualified.outputs.revision != ''" in str(rollback.get("if"))
+    assert 'rollback_revision="${{ steps.phone-rollback-qualified.outputs.revision }}"' in (
         rollback_run
     )
     assert "Cannot authorize rollback from ambiguous backend traffic" in rollback_run

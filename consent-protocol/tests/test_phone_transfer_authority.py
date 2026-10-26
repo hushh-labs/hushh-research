@@ -1,6 +1,8 @@
 """Owner-bound transfer and trusted-device authority regressions."""
 
 import asyncio
+import importlib.util
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,6 +14,7 @@ from api.routes import account
 from api.utils import firebase_auth as firebase_auth_module
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from tests.helpers.deployment_cli import cloudrun_revision
 
 pytestmark = pytest.mark.feature_auth_reliability
 
@@ -20,6 +23,14 @@ def _build_app():
     app = FastAPI()
     app.include_router(account.router)
     return app
+
+
+def _phone_deploy_module(name):
+    path = Path(__file__).resolve().parents[2] / "deploy/phone" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"phone_deploy_{name}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.mark.asyncio
@@ -70,6 +81,166 @@ def test_phone_proof_cannot_mint_owner_authority_but_social_signin_can(monkeypat
         verify_firebase_bearer("Bearer synthetic-social-proof", require_independent_signin=True)
         == "previous"
     )
+
+
+@pytest.mark.parametrize("bypass_reader", [False, True])
+def test_packaged_phone_reader_probe_rejects_an_admission_bypass(monkeypatch, bypass_reader):
+    from contextlib import nullcontext
+
+    from api.utils import account_principal_policy
+
+    root = Path(__file__).resolve().parents[2]
+    probe = _phone_deploy_module("reader_probe")
+    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "false")
+    if bypass_reader:
+        monkeypatch.setattr(account_principal_policy, "admit_phone_principal", lambda *_: None)
+    with pytest.raises(AssertionError) if bypass_reader else nullcontext():
+        verdict = probe.qualify(root / "consent-protocol")
+        assert verdict["retired"] == "AUTH_PHONE_ACCESS_REVOKED"
+        assert verdict["social"] == "admitted"
+
+
+@pytest.fixture
+def cold_deployment():
+    settings = [
+        "HUSHH_DEPLOY_ENV=production",
+        "ENVIRONMENT=production",
+        "GOOGLE_CLOUD_PROJECT=hushh-pda",
+        "AUTH_PHONE_RECOVERY_ENABLED=true",
+        "WORKOS_SSO_ENABLED=true",
+        "HUSHH_DEPLOY_RUN_ID=42",
+        "ACCOUNT_GENERATION_ADMISSION_ENABLED=false",
+        "DB_PORT=6543",
+    ]
+    command = [
+        "gcloud",
+        "run",
+        "deploy",
+        "consent-protocol",
+        "--no-traffic",
+        "--region=us-central1",
+        "--command=",
+        "--args=",
+        "--tag=account-deletion-42",
+        "--image=primary-image",
+        "--service-account=consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com",
+        "--set-env-vars=^|^" + "|".join(settings),
+        "--labels=account-deletion-contract=v201,deploy-env=production,github-run-id=42",
+        "--set-secrets=DB_PASSWORD=SYNTHETIC_DB_PASSWORD:latest",
+        "--memory=2Gi",
+        "--cpu=2",
+        "--concurrency=12",
+        "--min-instances=0",
+        "--max-instances=8",
+        "--vpc-connector=synthetic-prod",
+        "--add-cloudsql-instances=synthetic-prod",
+    ]
+    identity = {"sha": "a" * 40, "image": "gcr.io/hushh-pda/consent-protocol@sha256:" + "b" * 64}
+    return _phone_deploy_module("cold_fallback"), command, identity
+
+
+def test_cold_fallback_preserves_primary_bindings_without_enabling_phone_or_sso(cold_deployment):
+    module, command, identity = cold_deployment
+    original = command.copy()
+    result = module.cold_command(command, **identity)
+    changed = ("--image=", "--tag=", "--set-env-vars=", "--labels=")
+    assert [arg for arg in result if not arg.startswith(changed) and arg in original] == [
+        arg for arg in original if not arg.startswith(changed)
+    ]
+    assert command == original  # The enabled primary still consumes this original template.
+    assert result[-2:] == ["--project=hushh-pda", "--quiet"]
+    assert "--image=" + identity["image"] in result
+    assert "--tag=phone-rollback-42" in result
+    settings = next(arg for arg in result if arg.startswith("--set-env-vars="))
+    for setting in (
+        "AUTH_PHONE_RECOVERY_ENABLED=false",
+        "WORKOS_SSO_ENABLED=false",
+        "DB_PORT=6543",
+    ):
+        assert setting in settings.split("|")
+
+
+@pytest.mark.parametrize(
+    "before,after",
+    [
+        ("--command=", "--command=python"),
+        ("--args=", "--args=custom.py"),
+        (
+            "--service-account=consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com",
+            "--service-account=another-runtime@hushh-pda.iam.gserviceaccount.com",
+        ),
+        ("--no-traffic", None),
+        ("--set-secrets=", "--set-secrets=ACCOUNT_GENERATION_ADMISSION_ENABLED=GEN:latest,"),
+        ("ACCOUNT_GENERATION_ADMISSION_ENABLED=false", "ACCOUNT_GENERATION_ADMISSION_ENABLED=true"),
+    ],
+)
+def test_cold_fallback_refuses_an_unqualified_runtime_template(cold_deployment, before, after):
+    module, command, identity = cold_deployment
+    invalid = (
+        [arg for arg in command if arg != before]
+        if after is None
+        else [arg.replace(before, after) for arg in command]
+    )
+    with pytest.raises(ValueError, match="phone_fallback_"):
+        module.cold_command(invalid, **identity)
+
+
+@pytest.fixture
+def cold_revision(cold_deployment):
+    module, command, identity = cold_deployment
+    flags = dict(
+        arg[2:].split("=", 1) for arg in module.cold_command(command, **identity) if "=" in arg
+    )
+    revision = cloudrun_revision(
+        name="consent-protocol-cold", service="consent-protocol", sha=identity["sha"]
+    )
+    revision["metadata"]["labels"].update(
+        dict(pair.split("=", 1) for pair in flags["labels"].split(","))
+    )
+    revision["spec"]["serviceAccountName"] = flags["service-account"]
+    container = revision["spec"]["containers"][0]
+    container["image"] = identity["image"]
+    container["env"] = [
+        {"name": key, "value": value}
+        for key, value in (pair.split("=", 1) for pair in flags["set-env-vars"][3:].split("|"))
+    ]
+    revision["status"] = {
+        "imageDigest": identity["image"],
+        "conditions": [{"type": "Ready", "status": "True"}],
+    }
+    return _phone_deploy_module("revision_qualification"), revision, identity
+
+
+def test_cold_revision_qualifies_only_the_pinned_production_runtime(cold_revision):
+    module, revision, identity = cold_revision
+    module.qualify_runtime({})  # Omitted generation flag retains the qualified disabled default.
+    result = module.qualify_revision(revision, **identity, run_id="42")
+    assert result["revision"] == "consent-protocol-cold"
+    assert result["recovery"] is False and result["sso"] is False
+    revision["spec"]["serviceAccountName"] = "another-runtime@hushh-pda.iam.gserviceaccount.com"
+    with pytest.raises(ValueError, match="phone_fallback_revision_not_qualified"):
+        module.qualify_revision(revision, **identity, run_id="42")
+
+
+@pytest.mark.parametrize("change", ["command", "args", "generation_true", "generation_secret"])
+def test_cold_runtime_rejects_launcher_and_unprobed_generation_branches(cold_revision, change):
+    module, revision, identity = cold_revision
+    container = revision["spec"]["containers"][0]
+    if change.startswith("generation_"):
+        setting = {"name": "ACCOUNT_GENERATION_ADMISSION_ENABLED"}
+        if change == "generation_true":
+            setting["value"] = "true"
+        else:
+            setting["valueFrom"] = {"secretKeyRef": {"name": "synthetic", "key": "latest"}}
+        container["env"] = [
+            row for row in container["env"] if row["name"] != "ACCOUNT_GENERATION_ADMISSION_ENABLED"
+        ] + [setting]
+    else:
+        container[change] = ["custom-launcher"]
+    with pytest.raises(ValueError, match="phone_rollback_"):
+        module.qualify_runtime(container)
+    with pytest.raises(ValueError, match="phone_rollback_"):
+        module.qualify_revision(revision, **identity, run_id="42")
 
 
 def test_transfer_routes_require_current_owner_and_explicit_confirmation(monkeypatch):

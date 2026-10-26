@@ -88,7 +88,7 @@ def serving_candidate(service, revisions, *, expected_sha, expected_run):
     return name
 
 
-def legacy_inventory(service, revisions, candidate):
+def legacy_inventory(service, revisions, candidate, *, phone_floor=False):
     legacy = set()
     for row in revisions:
         metadata = row.get("metadata", {})
@@ -96,7 +96,7 @@ def legacy_inventory(service, revisions, candidate):
         if not re.fullmatch(r"[a-z0-9-]+", name):
             raise ValueError("invalid_revision_name")
         if labels.get("account-deletion-contract") != "v201" or not supports_current_contract(
-            labels.get("deploy-sha", "")
+            labels.get("deploy-sha", ""), rollback=phone_floor
         ):
             legacy.add(name)
     if candidate in legacy:
@@ -343,7 +343,8 @@ def verify_scheduler_delivery(args, evidence, retain, triggered):
 
 
 def retire_incompatible_revisions(args, evidence, service, revisions, candidate):
-    legacy, tags = legacy_inventory(service, revisions, candidate)
+    phone_floor = supports_current_contract(args.expected_sha, rollback=True)
+    legacy, tags = legacy_inventory(service, revisions, candidate, phone_floor=phone_floor)
     if tags:
         run(
             [
@@ -371,7 +372,7 @@ def retire_incompatible_revisions(args, evidence, service, revisions, candidate)
             ]
         )
     service, revisions, candidate = observe(args)
-    remaining, _ = legacy_inventory(service, revisions, candidate)
+    remaining, _ = legacy_inventory(service, revisions, candidate, phone_floor=phone_floor)
     if remaining:
         raise RuntimeError("legacy_provider_revisions_remain")
     evidence["retirement"] = {
@@ -379,6 +380,8 @@ def retire_incompatible_revisions(args, evidence, service, revisions, candidate)
         "retired_count": len(legacy),
         "remaining_pre_v201_count": 0,
         "remaining_pre_provider_v2_count": 0,
+        "phone_admission_floor_required": phone_floor,
+        "remaining_pre_phone425_count": 0 if phone_floor else None,
     }
     evidence["candidate_revision"] = candidate
 

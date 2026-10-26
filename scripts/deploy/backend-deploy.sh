@@ -24,12 +24,14 @@
 set -euo pipefail
 
 # Image selection travels together to remain within Cloud Build's env-entry cap.
-IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _SECRET_PREFIX _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
+IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _SECRET_PREFIX _PHONE_ROLLBACK_SHA _PHONE_ROLLBACK_IMAGE_REFERENCE _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
 if [[ "${_SKIP_IMAGE_BUILD}" != "true" && "${_SKIP_IMAGE_BUILD}" != "false" ]] ||
   [[ "${_BUILD_POD_IMAGE}" != "true" && "${_BUILD_POD_IMAGE}" != "false" ]] ||
   [[ -n "${_image_extra}" ]]; then
   echo "Invalid image settings." >&2; exit 1
 fi
+source scripts/deploy/backend-phone-rollback.sh
+validate_phone_rollback_image "${_PHONE_ROLLBACK_SHA}" "${_PHONE_ROLLBACK_IMAGE_REFERENCE}"
 
 source scripts/deploy/commerce-preview-bindings.sh
 
@@ -159,7 +161,7 @@ source deploy/drive/verify_hashcoin_config.sh "$PROJECT_ID"
 # Pack the related application flags to stay below Cloud Build's env cap.
 # Validate shape and booleans before any cloud mutation; never evaluate values.
 IFS=',' read -r -a _app_surface_pairs <<< "${_APP_SURFACE_SETTINGS:?missing application surface settings}"
-[[ "${#_app_surface_pairs[@]}" == 3 ]] || { echo "Application surface settings require three keys." >&2; exit 1; }
+[[ "${#_app_surface_pairs[@]}" == 4 ]] || { echo "Application surface settings require four keys." >&2; exit 1; }
 _app_surface_seen="|"
 for _pair in "${_app_surface_pairs[@]}"; do
   [[ "${_pair}" == *=* ]] || { echo "Invalid application surface setting." >&2; exit 1; }
@@ -171,6 +173,7 @@ for _pair in "${_app_surface_pairs[@]}"; do
     review) _APP_REVIEW_MODE="${_value}" ;;
     wallet) _ONE_WALLET_CARD_ENABLED="${_value}" ;;
     card_access) _WALLET_CARD_ACCESS_ENABLED="${_value}" ;;
+    phone_recovery) validate_phone_recovery_boolean "${_value}"; _AUTH_PHONE_RECOVERY_ENABLED="${_value}" ;;
     *) echo "Unknown application surface key." >&2; exit 1 ;;
   esac
 done
@@ -472,6 +475,7 @@ append_optional_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
 append_optional_env "WALLET_CARD_ACCESS_ENABLED" "${_WALLET_CARD_ACCESS_ENABLED}"
 append_optional_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
 append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
+append_optional_env "AUTH_PHONE_RECOVERY_ENABLED" "${_AUTH_PHONE_RECOVERY_ENABLED}"
 # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the proven
 # default. Ported from main 2026-09-02: the workflow passes it, this lane dropped it.
 append_optional_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"
@@ -1044,4 +1048,5 @@ if [[ -n "${_VPC_CONNECTOR}" ]]; then
   cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
 fi
 
+stage_phone_rollback "${_PHONE_ROLLBACK_SHA}" "${_PHONE_ROLLBACK_IMAGE_REFERENCE}" "${_DEPLOY_ENV}" "${PROJECT_ID}" "${_CLOUD_RUN_NO_TRAFFIC}" "${cmd[@]}"
 "${cmd[@]}"

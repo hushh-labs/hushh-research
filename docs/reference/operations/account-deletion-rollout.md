@@ -803,3 +803,30 @@ inputs. Infrastructure-only edits therefore run Protocol and Integration,
 including the required deletion pack. The path-contract regression rejects
 excluded lifecycle/runtime inputs. Live console or secret changes still require
 environment-bound runtime attestation; path selection is not deployed proof.
+
+### Staged phone-reader rollout
+
+Production phone recovery is enabled only after every retained backend revision
+qualifies for the strict 425 admission floor. The first rollout deploys the
+phone-aware candidate with `AUTH_PHONE_RECOVERY_ENABLED=false`, verifies the
+ordinary release, and retires pre-425 readers through the existing lifecycle
+activation. A subsequent backend release may enable recovery when the fresh
+revision inventory passes. `AUTH_PHONE_RECOVERY_PROD_ENABLED=false` remains the
+producer kill switch; it does not erase pending work or stop recovery consumers.
+
+Before the first rollout, `phone_rollback_sha` selects an independently accepted
+UAT backend source. Main-owned tooling verifies its packaged public admission
+chain without cloud credentials, pins the copied production image digest, and
+stages a zero-traffic reader with production bindings and recovery disabled.
+Exact source comparisons preserve phone dispatch, reconciliation and notices.
+The actual revision must pass runtime, health and generation-branch checks before
+creating the primary. The selected revision is revalidated before promotion and
+used by rollback, final classification and retention. Protected-document reader
+authority is independently checked before rebinding only that backend entry.
+
+WorkOS remains directly disabled from revision creation. The initial 427 rollout
+qualifier separately verifies complete issuer history and empty membership and
+SSO mutation authority. A missing history, unknown source or issued authority
+blocks this initial rollout; it does not authorize SSO activation or an older
+reader. Release artifacts retain the plan, exact image probe, selected revision
+and these aggregate checks without phone numbers, OTPs or owner identifiers.
