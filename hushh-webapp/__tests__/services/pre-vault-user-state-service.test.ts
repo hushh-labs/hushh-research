@@ -1,3 +1,5 @@
+import { act, renderHook } from "@testing-library/react";
+import { useSharedExperienceRecovery } from "@/hooks/use-shared-experience-recovery";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiJsonMock, getIdTokenMock, primeVerifiedPhoneHintMock } = vi.hoisted(
@@ -31,6 +33,7 @@ vi.mock("@/lib/services/account-identity-service", () => ({
 }));
 
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
 function deferred<T>() {
@@ -49,6 +52,35 @@ describe("PreVaultUserStateService.bootstrapState", () => {
     getIdTokenMock.mockReset();
     primeVerifiedPhoneHintMock.mockReset();
     window.localStorage.clear();
+  });
+
+  it("retires recovery presentation on invalidation and owner switch without network work", () => {
+    const cache = CacheService.getInstance();
+    const userId = "recovery-observer-owner";
+    const key = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId);
+    const { result, rerender, unmount } = renderHook(({ owner }) => useSharedExperienceRecovery(owner), { initialProps: { owner: userId } });
+    expect(result.current).toBe(false);
+    act(() => cache.set(key, { userId, sharedExperienceRecoveryEnabled: true }, CACHE_TTL.SESSION));
+    expect(result.current).toBe(true);
+    rerender({ owner: "another-recovery-owner" });
+    expect(result.current).toBe(false);
+    rerender({ owner: userId });
+    expect(result.current).toBe(true);
+    act(() => cache.invalidate(key));
+    expect(result.current).toBe(false);
+    expect(apiJsonMock).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("refreshes pre-recovery cached state once, then reuses the server policy", async () => {
+    const userId = "recovery-cache-owner";
+    const cache = CacheService.getInstance();
+    cache.set(CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId), { userId, hasVault: true }, CACHE_TTL.SESSION);
+    getIdTokenMock.mockResolvedValue("firebase-token");
+    apiJsonMock.mockResolvedValue({ userId, hasVault: true, sharedExperienceRecoveryEnabled: true });
+    await expect(PreVaultUserStateService.bootstrapState(userId)).resolves.toMatchObject({ sharedExperienceRecoveryEnabled: true });
+    await expect(PreVaultUserStateService.bootstrapState(userId)).resolves.toMatchObject({ sharedExperienceRecoveryEnabled: true });
+    expect(apiJsonMock).toHaveBeenCalledOnce();
   });
 
   it("coalesces concurrent cold reads before Firebase token resolution", async () => {

@@ -107,6 +107,8 @@ export type PreVaultUserState = {
   // "unknown" (older backend, or shadow lookup failed) so callers fall back to
   // their own identity read rather than treating it as unverified.
   phoneVerified: boolean | null;
+  /** Server-observed Shared/unplaced owner in the explicitly enabled recovery mode. */
+  sharedExperienceRecoveryEnabled?: boolean;
 };
 
 type BootstrapStateResponse = Partial<PreVaultUserState>;
@@ -241,6 +243,7 @@ function normalizeResponse(
   const status = (payload.vaultStatus || "placeholder") as VaultStatus;
   return {
     userId: String(payload.userId || userId),
+    sharedExperienceRecoveryEnabled: payload.sharedExperienceRecoveryEnabled === true,
     hasVault: resolveReportedHasVault(payload),
     vaultStatus: status,
     firstLoginAt: toMillis(payload.firstLoginAt),
@@ -408,7 +411,7 @@ export class PreVaultUserStateService {
     if (!options?.force) {
       const cached =
         CacheService.getInstance().get<PreVaultUserState>(cacheKey);
-      if (cached) {
+      if (cached && typeof cached.sharedExperienceRecoveryEnabled === "boolean") {
         return cached;
       }
       const inflight = bootstrapInflight.get(cacheKey);

@@ -17,7 +17,7 @@ import {
   CLOUD_CHECK_TIMEOUT_MS,
 } from "@/components/connections/byoc-cloud-setup-page";
 
-const fixture = vi.hoisted(() => ({ user: { uid: "uid-returning" }, savedHosting: false, completed: false, search: "", replace: vi.fn() }));
+const fixture = vi.hoisted(() => ({ user: { uid: "uid-returning" }, savedHosting: false, recovery: false, completed: false, search: "", replace: vi.fn() }));
 vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({ user: fixture.user, loading: false }),
 }));
@@ -36,7 +36,7 @@ vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
-    getCachedBootstrapState: () => fixture.savedHosting ? { setupCompleted: fixture.completed } : null,
+    getCachedBootstrapState: () => fixture.recovery ? { sharedExperienceRecoveryEnabled: true } : fixture.savedHosting ? { setupCompleted: fixture.completed } : null,
     bootstrapState: () => new Promise(() => {}),
     hasOneCloudProject: () => fixture.savedHosting,
   },
@@ -85,6 +85,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     vi.useFakeTimers();
     fixture.user = { uid: "uid-returning" };
     fixture.savedHosting = false;
+    fixture.recovery = false;
     fixture.search = ""; fixture.completed = false;
     fixture.replace.mockReset();
     publishValidatedAuthSessionPrincipal({ firebaseUid: fixture.user.uid, ownerId: fixture.user.uid, accountGeneration: 0 });
@@ -98,6 +99,17 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
   afterEach(() => {
     publishValidatedAuthSessionOwner(null);
     vi.useRealTimers();
+  });
+
+  it("replaces stale cloud entry with Shared setup before mounting provisioning", async () => {
+    fixture.recovery = true;
+    render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(fixture.replace).toHaveBeenCalledWith("/one/setup");
+    expect(mockAgentStatus).not.toHaveBeenCalled();
+    expect(mockStatus).not.toHaveBeenCalled();
+    expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
+    expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
   });
 
   it.each([false, undefined])("keeps Shared usable and refuses new cloud setup when availability is %s", async (featureEnabled) => {

@@ -6,6 +6,25 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
+**Production recovery exception — 26 October 2026:** the owner authorized a
+compatible full-application recovery to the pre-pod Shared-first experience.
+Source `904fbd215c` is the last pre-pod production release, but its backend
+revision was pruned and its cleanup behavior fails today's compatibility guard.
+Do not deploy that binary or roll back schema. The bounded correction uses
+current lifecycle/readers and explicit environment-local Shared recovery,
+preserving private assignments, pending setups, keys and erasure evidence.
+Its implementation and validation are in progress; production traffic has not
+been changed by this recovery. Normal private-agent development remains enabled
+where already admitted. Production/native automatic cadence remains disabled.
+
+Account-generation compatibility PR [#8473](https://github.com/hushh-labs/hushh-research/pull/8473)
+landed as `10022eba13` with exact-head hosted CI and landed smoke success.
+Financial migration 426 and WorkOS migration 427 were preserved in order.
+At 10:15 UTC, Dev and UAT still served `c2a5638606`, not that generation-aware
+revision. Production served application `7d5546e471`; its latest frontend/backend
+workflows were dispatched under `ankitkumarsingh1702`. Source completion does not
+establish installed-pod or replacement-generation acceptance.
+
 **Current surgical follow-up — 25 October 2026, 21:02 UTC:**
 [Continuity corrections #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
 landed as `2a74d28cd0` after exact CI and landed smoke. Dev run `40224453087`,

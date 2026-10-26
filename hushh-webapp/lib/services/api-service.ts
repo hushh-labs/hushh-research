@@ -1889,7 +1889,10 @@ export class ApiService {
     return response.json();
   }
 
-  static async selectSharedHosting(): Promise<{
+  static async selectSharedHosting(options?: {
+    recovery: true;
+    expectedOwnerId: string;
+  }): Promise<{
     hostingMode: "shared";
     nextStep: string;
   }> {
@@ -1900,7 +1903,7 @@ export class ApiService {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify(options ?? {}),
     });
     if (!response.ok) throw new Error("SHARED_SELECT_FAILED");
     return response.json();

@@ -58,6 +58,14 @@ describe("PostAuthRouteService", () => {
     refreshIdentityMock.mockReset();
   });
 
+  it.each([true, false])("uses the Shared setup entry only with server recovery policy: %s", async (enabled) => {
+    bootstrapStateMock.mockResolvedValue({ hasVault: false, setupCompleted: false, phoneVerified: true,
+      sharedExperienceRecoveryEnabled: enabled });
+    loadPendingOnboardingMock.mockResolvedValue(null);
+    await expect(PostAuthRouteService.resolveAfterLogin({ userId: "recovery-user", hostname: "one.hushh.ai" }))
+      .resolves.toBe(enabled ? ROUTES.ONE_SETUP : ROUTES.ONE_SETUP_CLOUD);
+  });
+
   it("initializes a missing fresh-account phone claim before requiring verification", async () => {
     bootstrapStateMock.mockResolvedValue({ hasVault: false, setupCompleted: false, phoneVerified: null });
     loadPendingOnboardingMock.mockResolvedValue(null);

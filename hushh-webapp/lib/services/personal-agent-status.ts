@@ -10,6 +10,7 @@ export type PersonalAgentStatus = {
   } | null;
   state?: string | null;
   featureEnabled?: boolean;
+  sharedExperienceRecoveryEnabled?: boolean;
   hushhId?: string | null;
   health?: string | null;
   lastSeenAt?: string | null;

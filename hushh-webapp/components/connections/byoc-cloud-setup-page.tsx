@@ -1,5 +1,6 @@
 "use client";
 
+import { useSharedExperienceRecovery } from "@/hooks/use-shared-experience-recovery";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -82,7 +83,20 @@ export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
 export function ByocCloudSetupPage() {
   const { user } = useAuth();
   const owner = snapshotValidatedAuthSessionPrincipal();
+  const sharedRecovery = useSharedExperienceRecovery(owner?.ownerId);
+  if (sharedRecovery) return <SharedSetupRecoveryEntry />;
   return <OwnerCloudSetupPage key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} />;
+}
+
+/** Replace stale cloud bookmarks without mounting provisioning or changing placement. */
+function SharedSetupRecoveryEntry() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
+  useEffect(() => {
+    router.replace(buildOneSetupRoute({ returnTo }));
+  }, [router, returnTo]);
+  return <p role="status" className="p-6 text-sm text-muted-foreground">Returning to your setup…</p>;
 }
 
 function OwnerCloudSetupPage({ user, owner }: {

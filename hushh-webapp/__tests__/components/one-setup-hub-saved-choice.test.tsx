@@ -1,9 +1,13 @@
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SetupHostingStep } from "@/components/onboarding/setup/setup-hosting-step";
 import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 
 const state = vi.hoisted(() => ({
+  getStatus: vi.fn(),
+  selectShared: vi.fn(),
+  push: vi.fn(),
   saved: false,
   choice: "hushh_managed_vertex" as "hushh_managed_vertex" | "byok_pending_vault",
   stagedGeminiKey: false,
@@ -42,7 +46,7 @@ vi.mock("@/lib/services/initial-contacts-onboarding-service", () => {
   };
 });
 vi.mock("@/lib/services/kai-profile-service", () => ({ resolveKaiOnboardingCompletion: () => false }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace, push: vi.fn(), prefetch: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace, push: state.push, prefetch: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/lib/firebase/auth-context", () => ({ useAuth: () => ({ user: state.user, userId: state.user.uid }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: state.unlocked, vaultKey: "vault-key", vaultOwnerToken: "vault-token" }) }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({ VaultUnlockDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">Set a lock</div> : null }));
@@ -65,7 +69,7 @@ vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityServi
   refreshCurrentUserIdentity: async () => ({ phoneVerified: true }),
   hasVerifiedPhone: () => true,
 } }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { getByocSetupStatus: async () => ({ status: "idle" }) } }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { getPersonalAgentStatus: state.getStatus, selectSharedHosting: state.selectShared, getByocSetupStatus: async () => ({ status: "idle" }) } }));
 vi.mock("@/lib/onboarding/use-capability-setup-states", () => ({ useCapabilitySetupStates: () => ({ byId: {}, isLoading: false, isEnriching: false }) }));
 vi.mock("@/components/dashboard/one-agent-presence", () => ({ OneAgentPresence: () => null }));
 vi.mock("@/components/profile/public-profile-discovery-card", () => ({ PublicProfileDiscoveryCard: () => null }));
@@ -95,6 +99,9 @@ vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurf
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: vi.fn() }));
 
 beforeEach(() => {
+  state.getStatus.mockReset();
+  state.selectShared.mockReset();
+  state.push.mockReset();
   state.saved = false;
   state.emailStatus = "loading";
   state.choice = "hushh_managed_vertex";
@@ -118,6 +125,23 @@ beforeEach(() => {
   });
 });
 describe("Setup saved AI choice", () => {
+  it.each(["unplaced", "pending"])("requires an explicit owner choice and refuses pending recovery: %s", async mode => {
+    state.getStatus.mockResolvedValue({ hostingMode: mode, sharedExperienceRecoveryEnabled: true });
+    state.selectShared.mockResolvedValue({});
+    render(<SetupHostingStep ownerId="owner" returnTo={null} sharedRecovery cloudComplete={false}
+      runtimeChoiceComplete={false} cloudSetupRunning={false} cloudSetupStageLabel="" />);
+    expect(state.selectShared).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Hussh" }));
+    if (mode === "pending") {
+      await screen.findByRole("alert");
+      expect(state.selectShared).not.toHaveBeenCalled();
+      expect(state.push).not.toHaveBeenCalled();
+    } else {
+      await waitFor(() => expect(state.selectShared).toHaveBeenCalledWith({ recovery: true, expectedOwnerId: "owner" }));
+      await waitFor(() => expect(state.push).toHaveBeenCalledOnce());
+    }
+  });
+
   it.each(["loading", "saving", "failed"] as const)("finishes independently of optional email state: %s", async (status) => {
     state.saved = true; state.unlocked = true; state.emailStatus = status;
     render(<OneSetupHub />);

@@ -38,6 +38,14 @@ function returnHandlingBankControls(): string[] {
 }
 
 describe("profile workspace duplication contract", () => {
+  it("hides private discovery only for confirmed Shared recovery without removing account controls", () => {
+    const normal = profileMenuGroups(false).flatMap(group => group.entries.map(entry => entry.id));
+    const recovered = profileMenuGroups(false, true).flatMap(group => group.entries.map(entry => entry.id));
+    expect(normal).toEqual(expect.arrayContaining(["hosting", "software-updates"]));
+    expect(recovered).toEqual(normal.filter(id => id !== "hosting" && id !== "software-updates"));
+    expect(recovered).toEqual(expect.arrayContaining(["security", "devices", "connectors", "sign-out"]));
+  });
+
   it("keeps One dashboard workspaces out of the Profile landing screen", () => {
     expect(profilePageSource).not.toContain(
       '<SettingsGroup title="Workspaces">',

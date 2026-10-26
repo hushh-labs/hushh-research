@@ -28,6 +28,31 @@ capability setup and Connect/Location contact acquisition unchanged.
 Canonical visual owner: [Quality and Design System Index](README.md). The setup
 journey's detailed visual map follows the guest invitation contract below.
 
+## Compatible Shared recovery
+
+An explicitly enabled, environment-bound `shared_experience_recovery_enabled`
+restores Shared-first discovery without rolling back schema or account cleanup.
+It defaults off. Bootstrap and setup-update responses expose
+`sharedExperienceRecoveryEnabled` only for server-observed Shared or unplaced
+owners; private, pending and unknown placements keep their existing routes.
+This metadata controls presentation, never content access or pod admission.
+
+An unplaced owner clicks **Continue with Hussh**. The existing
+`POST /api/one/runtime/shared/select` accepts the additive body
+`{"recovery": true, "expectedOwnerId": "<current application owner>"}`. It requires
+current owner authority, enabled recovery and a placement recheck under the
+existing provisioning lock. It cannot clear a pending setup. Legacy callers
+retain their existing contract. Existing Shared owners retain Files and keys.
+The recovery entry verifies the durable hosting marker before opening AI choice.
+
+Recovered Shared discovery omits pod Hosting/update controls, the private-agent
+card and Puppy selection. Direct cloud bookmarks replace into setup before
+mounting provisioning; private/pending/unknown owners keep their management and
+repair routes. Cache invalidation and owner changes retire old presentation.
+Deployment retains this explicit setting only within its matching project and
+environment. Activation follows exact-candidate verification and serving readback;
+it neither installs owner software nor enables re-registration.
+
 ## Guest introduction and invitation continuity
 
 Before sign-in, `/?invite=one`, `/circle/join?code=…`, and

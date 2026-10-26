@@ -40,8 +40,10 @@ export type ProfileMenuItem = (typeof PROFILE_MENU_GROUPS)[number]["entries"][nu
 export type ProfileMenuId = ProfileMenuItem["id"];
 export type ProfileMenuActions = Record<ProfileMenuId, () => void | Promise<void>>;
 
-export function profileMenuGroups(developerToolsAvailable: boolean) {
+export function profileMenuGroups(developerToolsAvailable: boolean, sharedRecovery = false) {
   return PROFILE_MENU_GROUPS.map(group => ({ ...group,
-    entries: group.entries.filter(entry => !("localOnly" in entry) || developerToolsAvailable),
+    entries: group.entries.filter(entry =>
+      (!sharedRecovery || !["hosting", "software-updates"].includes(entry.id)) &&
+      (!("localOnly" in entry) || developerToolsAvailable)),
   }));
 }

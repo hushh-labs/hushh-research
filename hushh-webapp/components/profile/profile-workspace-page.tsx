@@ -1,5 +1,6 @@
 "use client";
 
+import { useSharedExperienceRecovery } from "@/hooks/use-shared-experience-recovery";
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
@@ -567,6 +568,7 @@ function ProfilePageContent({
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
+  const sharedRecovery = useSharedExperienceRecovery(applicationOwnerId);
   const nativePortrait = useNativeProfilePortrait(applicationOwnerId ?? null, presentation === "native-page" && nativeMenuOpen);
   const voiceGetIdToken = useMemo(() => user?.getIdToken ? () => user.getIdToken() : null, [user]);
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
@@ -4651,7 +4653,7 @@ function ProfilePageContent({
     });
   }
 
-  const menuGroups = profileMenuGroups(canShowPkmAgentLab);
+  const menuGroups = profileMenuGroups(canShowPkmAgentLab, sharedRecovery);
   const menuActions: ProfileMenuActions = {
     hosting: () => updateProfileView({ panel: "hosting", detail: null }, "push"),
     "software-updates": () => updateProfileView({ panel: "software-updates", detail: null }, "push"),
