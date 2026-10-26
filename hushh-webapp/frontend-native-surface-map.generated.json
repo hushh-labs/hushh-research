@@ -9839,7 +9839,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Phone verification completes only after the submitted code is accepted.",
+          "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
           "next_route": "/one/setup",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -9866,10 +9866,16 @@
       },
       "voice_action_contract_file": "app/register-phone/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
+        "phone_mandate.delete_previous",
+        "phone_mandate.recover",
         "phone_mandate.select_country",
         "phone_mandate.submit_code",
-        "phone_mandate.submit_number"
+        "phone_mandate.submit_number",
+        "phone_mandate.transfer_cancel",
+        "phone_mandate.transfer_confirm",
+        "phone_mandate.transfer_review"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -10991,5 +10997,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "9a27c5b5ac71aacb6188fd6ccd8ee0da4b1015acebfe7326686901d506d64f2c"
+  "content_sha256": "40d466320a8b980abd44472fc2f2db7f61ddb1a4477e203452c21f8a79546ef0"
 }

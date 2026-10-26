@@ -251,7 +251,7 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
                     await conn.execute("DELETE FROM actor_profiles WHERE user_id=$1", owner)
             # The exact rollback remains blocked by any unsettled reservation.
             rollback = (
-                ROOT / "db/migrations/rollback/424_account_phone_transfers.rollback.sql"
+                ROOT / "db/migrations/rollback/425_account_phone_transfers.rollback.sql"
             ).read_text()
             with pytest.raises(asyncpg.RaiseError, match="reconciliation required"):
                 await conn.execute(rollback)
@@ -264,7 +264,7 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
             await conn.execute("DELETE FROM actor_identity_cache WHERE user_id='receiving-b'")
             await conn.execute("DELETE FROM actor_profiles WHERE user_id='receiving-b'")
             # Restore the isolated fixture for any later case.
-            await conn.execute((ROOT / "db/migrations/424_account_phone_transfers.sql").read_text())
+            await conn.execute((ROOT / "db/migrations/425_account_phone_transfers.sql").read_text())
     finally:
         await pool.close()
 

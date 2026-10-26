@@ -78,7 +78,7 @@ def database_url():
             files_sql,
         ):
             server.execute(constraint)
-        server.apply_file(ROOT / "db/migrations/424_account_phone_transfers.sql")
+        server.apply_file(ROOT / "db/migrations/425_account_phone_transfers.sql")
         yield f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}"
     finally:
         server.stop()

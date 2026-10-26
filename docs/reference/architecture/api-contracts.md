@@ -5318,7 +5318,7 @@ No provider expiry countdown is invented. Native provider error mapping follows
 wrong code, provider-expired code, missing local session, ownership conflict and
 provider outage remain distinct.
 
-Migration `424` holds short-lived transfer receipts and independent hash-only
+Migration `425` holds short-lived transfer receipts and independent hash-only
 retired-phone admission fences. Unsettled remote work blocks rollback; rollback
 removes its erasure trigger before the workflow table and retains security fences.
 The existing `AUTH_PHONE_RECOVERY_ENABLED` rollout flag and request-scoped auth
@@ -5331,5 +5331,5 @@ PostgreSQL concurrency/rollback proof, generated UI/native contracts, hosted CI,
 deployment schema/provider qualification, and physical-device real-SMS journeys.
 Passing an earlier lane does not declare a later lane complete. Release requires
 Identity Platform config-read permission, permitted identity mutation authority,
-qualified migration 424, existing alert delivery and real Web/iOS/Android SMS,
+qualified migration 425, existing alert delivery and real Web/iOS/Android SMS,
 resend, account-switch, outage and device-revocation rehearsals.
