@@ -10,6 +10,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
+from db.area_discovery_adoption import area_discovery_qualification_sql
 from hushh_mcp.services import area_discovery as service
 from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
 from hushh_mcp.services.area_discovery_policy import AreaDiscoveryError, postal_area, result_page
@@ -61,6 +62,23 @@ async def isolated_database(url):
             )
             await conn.execute(MIGRATION.read_text())
             await conn.execute(MIGRATION.read_text())
+            qualification = area_discovery_qualification_sql()
+            await conn.execute(qualification)
+            await conn.execute(
+                "ALTER TABLE account_deletion_tombstones DISABLE TRIGGER one_area_discovery_erasure"
+            )
+            with pytest.raises(asyncpg.RaiseError, match="Unqualified area discovery"):
+                await conn.execute(qualification)
+            await conn.execute(
+                "ALTER TABLE account_deletion_tombstones ENABLE TRIGGER one_area_discovery_erasure"
+            )
+            await conn.execute("""CREATE OR REPLACE FUNCTION public.erase_one_area_discovery()
+                RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public
+                AS $$ BEGIN RETURN NEW; END $$;""")
+            with pytest.raises(asyncpg.RaiseError, match="Unqualified area discovery"):
+                await conn.execute(qualification)
+            await conn.execute(MIGRATION.read_text())
+            await conn.execute(qualification)
             for uid in ["viewer", *(f"person-{i:02}" for i in range(10))]:
                 await conn.execute("INSERT INTO actor_profiles(user_id) VALUES($1)", uid)
                 await conn.execute(
