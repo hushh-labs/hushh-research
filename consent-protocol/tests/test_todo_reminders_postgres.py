@@ -14,7 +14,7 @@ from tests.services.test_system_push_delivery import add_devices, sql
 from tests.services.test_system_push_delivery import push_db as push_db
 
 ROOT = Path(__file__).resolve().parents[1]
-ROLLBACK_SQL = (ROOT / "db/migrations/rollback/430_one_todo_reminders.rollback.sql").read_text()
+ROLLBACK_SQL = (ROOT / "db/migrations/rollback/431_one_todo_reminders.rollback.sql").read_text()
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def todo_reminders(push_db):
     raw = db.engine.raw_connection()
     try:
         with raw.cursor() as cursor:
-            entry = build_manifest_entries(ROOT / "db/migrations", ("430_one_todo_reminders.sql",))[
+            entry = build_manifest_entries(ROOT / "db/migrations", ("431_one_todo_reminders.sql",))[
                 0
             ]
             cursor.execute(_replay_sql(entry))
@@ -113,7 +113,7 @@ def test_todo_reminders_deliver_only_when_due_and_refuse_active_rollback(
     )[0]
     with db.engine.begin() as conn:
         assert pushes._source(conn, dict(current)) is None  # Never alert early.
-    rollback = (ROOT / "db/migrations/rollback/430_one_todo_reminders.rollback.sql").read_text()
+    rollback = (ROOT / "db/migrations/rollback/431_one_todo_reminders.rollback.sql").read_text()
     with pytest.raises(Exception, match="active"):
         with db.engine.begin() as conn:
             conn.exec_driver_sql(rollback)
@@ -156,7 +156,7 @@ def test_todo_reminder_replay_preserves_live_schedules_leases_and_device_receipt
         ROOT / "db/migrations",
         (
             "361_system_push_outbox.sql",
-            "430_one_todo_reminders.sql",
+            "431_one_todo_reminders.sql",
         ),
     )
     raw = db.engine.raw_connection()

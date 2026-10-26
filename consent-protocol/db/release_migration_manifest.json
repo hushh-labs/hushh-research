@@ -366,7 +366,8 @@
     "427_workos_generation_memberships.sql",
     "428_financial_summary_owner_preference.sql",
     "429_drive_empty_sale_finalization.sql",
-    "430_one_todo_reminders.sql"
+    "430_one_area_discovery.sql",
+    "431_one_todo_reminders.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -777,6 +778,7 @@
     "427_workos_generation_memberships.sql": "rollback/427_workos_generation_memberships.rollback.sql",
     "428_financial_summary_owner_preference.sql": "rollback/428_financial_summary_owner_preference.rollback.sql",
     "429_drive_empty_sale_finalization.sql": "rollback/429_drive_empty_sale_finalization.rollback.sql",
-    "430_one_todo_reminders.sql": "rollback/430_one_todo_reminders.rollback.sql"
+    "430_one_area_discovery.sql": "rollback/430_one_area_discovery.rollback.sql",
+    "431_one_todo_reminders.sql": "rollback/431_one_todo_reminders.rollback.sql"
   }
 }

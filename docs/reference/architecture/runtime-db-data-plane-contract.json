@@ -2360,6 +2360,22 @@
       "expected_row_growth": "One row per retired identity/phone pair."
     },
     {
+      "id": "one_area_discovery",
+      "owner": "backend-api-contracts",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "one_area_discovery_preferences",
+        "one_area_discovery_search_budgets"
+      ],
+      "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated POST /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits.",
+      "retention_policy": "One current opt-in row per account. Off removes postal code, adult self-attestation and consent timestamps. Daily budget rows older than two days removed on that account next search; dormant accounts retain only their last bounded buckets until erasure.",
+      "deletion_behavior": "Actor-profile FK cascade, explicit account-service deletion and account-deletion tombstone trigger erase both tables; phone_orphan is excluded. No migration of old website discovery preferences or inferred permission.",
+      "trust_boundary": "No GPS, full address, DOB, private PKM, tokens or encryption keys. ZIP is intentionally queryable plaintext only with explicit consent; inclusion in a ZIP result implies area membership. Age is explicitly self-declared 18+, never verified. Disabled/deleted/unenrolled and unconsented accounts cannot contribute to the ten-person group floor. Results contain shared names and connection identifiers only; bounded pages and cross-instance daily rate limit. Browser roles revoked and RLS enabled.",
+      "plaintext_posture": "explicit_opt_in_coarse_area_and_consent_metadata",
+      "expected_row_growth": "One preference per account and at most three recent daily-budget rows per actively searching account; bounded deferred cleanup for dormant accounts."
+    },
+    {
       "id": "workos_generation_membership",
       "owner": "iam-consent-governance",
       "data_class": "personal_metadata",

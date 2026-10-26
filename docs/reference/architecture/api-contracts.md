@@ -2417,7 +2417,7 @@ suppressed after 15 minutes; device acceptance does not prove OS presentation.
 `POST /api/internal/system-push/drain` wakes the durable worker at scale zero.
 It accepts only Google OIDC with the exact environment audience and dedicated
 `system-push-drain` service account, and returns private/no-store counts. Release
-gate is owned by the deployment operator: apply migration 430, deploy the
+gate is owned by the deployment operator: apply migration 431, deploy the
 compatible backend/frontend, configure a minute HTTP POST wake-up, and verify an
 authenticated drain plus an end-to-end reminder before enabling this release.
 The operator must use these pinned identities; application code does not provision
@@ -5360,6 +5360,37 @@ warning. Standing-preference failures still fail visibly. Query budgets and
 latency targets require request-level runtime verification; batching alone does
 not prove those targets.
 
+### Opt-in area discovery (website caller; One app unchanged)
+
+`GET /api/one/area-discovery/me`, `PUT /api/one/area-discovery/me` and
+`POST /api/one/area-discovery/search` use Firebase owner
+identity and the existing One identity/vault enrollment. They expose no protected
+PKM information and require no new onboarding. The website proxies only these
+allowlisted paths through `/api/marketplace`.
+
+PUT accepts `enabled`, `postalCode`, `expectedRevision`, `consentVersion` and
+`adultConfirmed`. Enabling requires explicit version `one-area-discovery-v1`, a
+five-digit US ZIP, and a fresh explicit 18+ self-confirmation. This is not verified
+age. No date of birth leaves the encrypted profile. A stale revision returns409;
+clients refresh and require a new deliberate choice. Off does not require ZIP,
+adult confirmation, Firebase profile lookup or vault unlock; it removes searchable
+area and current consent/attestation timestamps. Owner identity authentication and
+account deletion barriers always apply.
+
+Search takes `{postalCode, page}` in a JSON body so the ZIP is absent from access-log URLs. It accepts no name, age or other narrowing filters. It returns only existing
+shared names, user identifiers and connection relationship labels. Opted-out,
+deleted, disabled, unnamed and unenrolled accounts cannot contribute to the floor
+of ten eligible *other* people, evaluated before pagination. Below the floor, the
+same empty suppressed response is used for zero through nine. Area matching is exact US ZIP; neighbouring-area expansion is not part of this contract. There are at most
+five 20-person pages, a 500-candidate work cap, and 30 searches per account/UTC day
+charged atomically in Postgres. No counts, ZIP values or private details appear
+in results. No export endpoint exists. Account identity lookup failures fail
+closed. Area opt-in is distinct from ordinary name search and GPS sharing.
+
+Consent rows are share-locked while projecting each response. Opt-out serializes
+with already admitted reads; every search starting after opt-out commits excludes
+the withdrawn row. Previously delivered names cannot be recalled. Existing One
+app contracts, name directory behavior, location grants and native UI are unchanged.
 
 ### Phone conflict recovery and trusted-device boundary
 

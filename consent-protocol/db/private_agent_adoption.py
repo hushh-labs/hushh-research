@@ -11,6 +11,8 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING, Callable
 
+from db.area_discovery_adoption import area_discovery_qualification_sql
+
 if TYPE_CHECKING:
     from db.migration_authority import MigrationManifestEntryV2
 
@@ -394,6 +396,7 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
         raise MigrationAuthorityError("Private-agent adoption inventory source shape changed")
     additions = "".join(f"('consent_audit','{spec[0]}')," for spec in GUARDS)
     additions += "('account_deletion_tombstones','account_shared_provider_authority'),"
+    additions += "('account_deletion_tombstones','one_area_discovery_erasure'),"
     block = f"DO $pod_414$\nBEGIN\n{inventory[0]}\nEND\n$pod_414$;"
     if entry.sql.count(block) != 1:
         raise MigrationAuthorityError("Private-agent adoption inventory block changed")
@@ -406,7 +409,11 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     qualified = block.replace(_ANCHOR, _ANCHOR + additions)
     if not entry.sql.rstrip().endswith("COMMIT;"):
         raise MigrationAuthorityError("Private-agent adoption transaction source changed")
-    guards = _qualification_sql() + _shared_authority_qualification_sql()
+    guards = (
+        _qualification_sql()
+        + _shared_authority_qualification_sql()
+        + area_discovery_qualification_sql()
+    )
     adapted = sql.replace(block, guards + qualified, 1)
     before_commit, commit = adapted.rsplit("COMMIT;", 1)
     return before_commit + guards + "COMMIT;" + commit
