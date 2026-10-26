@@ -13,6 +13,7 @@ const payload = getLocalMarketPreviewPayload();
 // Observed-shape sample series for the production index chart presentation.
 for (const row of payload.market_overview ?? []) {
   if (typeof row.value !== "number") continue;
+  row.as_of = "2026-10-21T14:00:00Z";
   const level = row.value;
   row.sparkline = [1.003, 1.001, 1.002, 1, 1.0005, 1].map(ratio => level * ratio);
   if (row.symbol === "^DJI") row.delta_pct = 0.02;
