@@ -10,11 +10,30 @@ from __future__ import annotations
 
 import json
 import hashlib
+import asyncio
+import importlib
 from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
+
+SOURCE_MODULES = (
+    "api.utils.firebase_auth",
+    "api.utils.account_principal_policy",
+    "api.routes.account",
+    "api.routes.account_phone_recovery",
+    "api.routes.account_device_revocation",
+    "hushh_mcp.services.phone_transfer_service",
+    "hushh_mcp.services.phone_transfer_authority",
+    "hushh_mcp.services.account_firebase_mutations",
+    "hushh_mcp.services.account_deletion_lifecycle_service",
+    "hushh_mcp.services.device_action_service",
+    "hushh_mcp.services.device_action_proof",
+    "hushh_mcp.services.phone_recovery_state",
+    "hushh_mcp.services.phone_recovery_continuation",
+    "hushh_mcp.runtime_settings",
+)
 
 
 _CASES = {
@@ -134,32 +153,44 @@ def _database_port(
 
 
 def application_modules(app_root: Path) -> dict:
-    from api.utils import account_principal_policy, firebase_auth
-    from hushh_mcp import runtime_settings
-    from hushh_mcp.services import (
-        account_deletion_lifecycle_service as lifecycle,
-        account_firebase_mutations,
-        phone_transfer_authority,
-        phone_transfer_service,
-    )
-
     modules = {
-        "api/utils/firebase_auth.py": firebase_auth,
-        "api/utils/account_principal_policy.py": account_principal_policy,
-        "hushh_mcp/services/phone_transfer_service.py": phone_transfer_service,
-        "hushh_mcp/services/phone_transfer_authority.py": phone_transfer_authority,
-        "hushh_mcp/services/account_firebase_mutations.py": account_firebase_mutations,
-        "hushh_mcp/services/account_deletion_lifecycle_service.py": lifecycle,
-        "hushh_mcp/runtime_settings.py": runtime_settings,
+        name.replace(".", "/") + ".py": importlib.import_module(name)
+        for name in SOURCE_MODULES
     }
     root = app_root.resolve()
     for path, module in modules.items():
         loaded = Path(module.__file__).resolve()
         if not loaded.is_relative_to(root) or loaded != (root / path).resolve():
             raise ValueError("phone_reader_module_origin_mismatch")
-    if phone_transfer_service.mutations is not account_firebase_mutations:
+    if modules["hushh_mcp/services/phone_transfer_service.py"].mutations is not modules[
+        "hushh_mcp/services/account_firebase_mutations.py"
+    ]:
         raise ValueError("phone_reader_mutation_module_mismatch")
     return modules
+
+
+def _qualify_device_action_reader(account) -> str:
+    from fastapi import HTTPException
+
+    async def missing_proof():
+        try:
+            await account.revoke_trusted_device(
+                device_id="synthetic-phone-reader-device",
+                firebase_uid="synthetic-phone-reader-owner",
+                payload=None,
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 403
+            assert exc.detail == {"code": "DEVICE_ACTION_PROOF_REQUIRED"}
+        else:
+            raise AssertionError("device_revocation_without_fresh_proof_admitted")
+
+    def no_effect(*_args, **_kwargs):
+        raise AssertionError("device_proof_probe_dispatched_a_mutation")
+
+    with patch.object(account, "_revoke_trusted_device", no_effect):
+        asyncio.run(missing_proof())
+    return "DEVICE_ACTION_PROOF_REQUIRED"
 
 
 def qualify(app_root: Path) -> dict[str, str]:
@@ -227,6 +258,9 @@ def qualify(app_root: Path) -> dict[str, str]:
                 assert status == 200 and principal.owner_id == owner
             assert queries == reads and sdk_calls == [False, True]
         results[name] = code
+    results["device_revoke_missing_proof"] = _qualify_device_action_reader(
+        modules["api/routes/account.py"]
+    )
     return results
 
 

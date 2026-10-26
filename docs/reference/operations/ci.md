@@ -722,12 +722,26 @@ and completed pass counts in the release receipt. A failed pass stops that
 rehearsal; it does not change the existing advisory rollback policy.
 
 UAT backend provider admission runs Azure and Vertex synthetic checks in parallel.
-Either complete application capability bundle (or both) may pass; neither
-passing blocks. The bundle includes streamed structured text, images, PDFs,
+Azure's complete application capability bundle must pass; Vertex results remain
+diagnostic and cannot replace Azure qualification. The bundle includes streamed structured text, images, PDFs,
 public search/source receipts, Location transcription/semantics, narration, Live
 audio with a function round trip, and application-compatible embeddings. Explicit
 PWM attribution/schema failures still block independently. Receipts bind the exact
 candidate image, runtime identity, provider generation and configuration.
+The one-request Azure readiness leaf records its failed stage, elapsed time and
+sanitized exception class. Transport deadlines and network failures retain their
+provider-unavailable classification; that classification does not make a failed
+readiness gate pass. An initial HTTP 200 cannot erase a later nonce, attribution,
+schema or capability failure. Existing deadlines and retry limits remain fixed.
+Actual bounded retries within the same verified execution retain the first
+failure and subsequent outcomes in the receipt. Only an observed failed attempt
+followed by success is marked `recovered_after_retry`; recovery does not establish
+a permanent fix. Separate GitHub reruns are separate evidence: retain the failed
+attempt's artifact and incident context rather than infer lineage from a later
+clean run. Repeated timeouts require incident follow-up. The existing observability
+provisioner owns a separate UAT release-job terminal-timeout policy at two events
+in ten minutes; configuration/readback and actual notification delivery are
+separate evidence. See [the Azure probe alert runbook](../../../deploy/observability/README.md#azure-release-probe-timeouts).
 The UAT artifact collector reads the exact successful backend Cloud Build ID from
 structured CLI output, then retrieves the successful aggregate step's receipt
 from Cloud Logging. It does not depend on streamed build stdout. Collection has

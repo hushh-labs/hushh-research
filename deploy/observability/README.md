@@ -93,6 +93,45 @@ Token exhaustion, unknown incomplete reasons and provider failures remain action
 `provider_code` projects a closed diagnostic vocabulary for structured SDK errors;
 provider messages and response bodies never enter the call log.
 
+## Azure release probe timeouts
+
+UAT reconciliation owns one counter and the enabled ERROR
+policy `[Managed] Azure Release Probe Repeated Timeouts`. The source deployment
+runs `azure-pwm-<build UUID>` jobs only in `hushh-pda-uat`, `us-central1`.
+The counter selects their structured terminal failures with
+`classification=provider_unavailable` and `error_type=TimeoutError` or
+`APITimeoutError`. Stage records, successful probes, schema/security failures and
+unrelated jobs do not count. Two terminal failures in ten minutes trigger one
+aggregated incident with opening/recovery notices. No model prompts, owner
+identifiers or custom metric labels are retained.
+
+Use the existing reconciler's narrow mode and repeat `--email` for each
+already-enabled, verified notification channel recipient:
+
+```bash
+python3 deploy/observability/reconcile_capacity.py \
+  --project hushh-pda-uat --release-probe-only \
+  --email "$AZURE_PROBE_EXISTING_ALERT_EMAIL"
+```
+
+This mode reconciles only the timeout metric and its policy using existing
+delivery channels. It requires no SQL instance and does not reconcile a dashboard.
+Other provisioner flags, SQL configuration, non-UAT projects and `--console-only`
+are rejected. The default run only prints a plan;
+missing, disabled or explicitly unverified channels refuse delivery setup.
+Review that only this metric and policy need creation before appending `--apply`,
+then read them back and require an unchanged second plan. Production, provider,
+auth and voice-only provisioner scopes retain their existing resources.
+
+Retain each exact failed build/execution receipt, failure stage, elapsed time and
+immutable source/image/configuration binding. Any authorized bounded retry uses
+the same verified commit. A passing retry records recovery and does not establish
+a permanent fix. Preserve serving traffic and every readiness, schema, security
+and provider gate; do not increase deadlines to obtain a passing check. The policy
+performs no retry. Log metrics begin at creation, and reconciled channel/policy
+configuration does not prove inbox delivery. Do not inject probe failures to
+prove notification delivery.
+
 ## One Voice provider and latency tracking
 
 The reconciler also owns two distribution log metrics in the **backend deployment

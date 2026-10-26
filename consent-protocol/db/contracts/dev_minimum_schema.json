@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 427,
+  "expected_migration_version": 428,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -359,6 +359,21 @@
       "updated_at",
       "user_id_hash"
     ],
+    "account_device_actions": [
+      "operation_id",
+      "user_id",
+      "device_id",
+      "continuation_id",
+      "phone_digest",
+      "binding_revision",
+      "generation",
+      "proof_event_digest",
+      "state",
+      "pod_binding_version",
+      "created_at",
+      "expires_at",
+      "dispatched_at"
+    ],
     "account_firebase_mutations": [
       "authority_project",
       "dispatched_at",
@@ -393,6 +408,17 @@
       "identity_hash",
       "phone_digest",
       "revoked_at"
+    ],
+    "account_phone_recovery_continuations": [
+      "operation_id",
+      "requester_user_id",
+      "target_user_id",
+      "action",
+      "phone_digest",
+      "binding_revision",
+      "generation",
+      "created_at",
+      "expires_at"
     ],
     "account_phone_transfers": [
       "operation_id",
@@ -4055,5 +4081,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 427
+  "expected_schema_head": 428
 }

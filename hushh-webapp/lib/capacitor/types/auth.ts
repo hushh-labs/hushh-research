@@ -8,7 +8,7 @@ export interface NativeGoogleContactsAuthorization {
 
 export interface NativeDeletionPhoneProofPlugin {
   /** Isolated, manually entered SMS proof; never links the primary identity. */
-  startPhoneVerificationProof(options: { expectedUserId: string; attemptId: string; phoneNumber: string }): Promise<{ attemptId: string; verificationId: string }>;
+  startPhoneVerificationProof(options: { expectedUserId: string; attemptId: string; phoneNumber: string; resendCode?: boolean }): Promise<{ attemptId: string; verificationId: string }>;
   confirmPhoneVerificationProof(options: { expectedUserId: string; attemptId: string; verificationCode: string }): Promise<{ attemptId: string; phoneIdToken: string }>;
   cancelPhoneVerificationProof(options: { attemptId: string }): Promise<void>;
   /** Deletion-only proof; never mutates or publishes the primary identity. */
@@ -16,6 +16,7 @@ export interface NativeDeletionPhoneProofPlugin {
     expectedUserId: string;
     attemptId: string;
     phoneNumber: string;
+    resendCode?: boolean;
   }): Promise<{ attemptId: string; verificationId?: string; phoneIdToken?: string }>;
   confirmPhoneDeletionVerification(options: {
     expectedUserId: string;

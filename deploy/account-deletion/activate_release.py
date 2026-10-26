@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 POLICY = "consent-protocol/config/account-deletion-authority.json"
 MIGRATION = "423_account_shared_provider_authority.sql"
 PHONE_MIGRATION = "425_account_phone_transfers.sql"
+PHONE_ACTION_MIGRATION = "428_phone_recovery_actions.sql"
 CONTRACT_SQL = """SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_trigger
  WHERE tgrelid='public.account_deletion_tombstones'::regclass
  AND tgname='account_shared_provider_authority' AND tgenabled='O' AND NOT tgisinternal)
@@ -58,7 +59,7 @@ def supports_current_contract(sha: str, *, rollback: bool = False) -> bool:
         return (
             policy.get("version") == 1
             and MIGRATION in migrations
-            and (not rollback or PHONE_MIGRATION in migrations)
+            and (not rollback or all(name in migrations for name in (PHONE_MIGRATION, PHONE_ACTION_MIGRATION)))
         )
     except (RuntimeError, ValueError):
         return False
@@ -382,6 +383,7 @@ def retire_incompatible_revisions(args, evidence, service, revisions, candidate)
         "remaining_pre_provider_v2_count": 0,
         "phone_admission_floor_required": phone_floor,
         "remaining_pre_phone425_count": 0 if phone_floor else None,
+        "remaining_pre_phone428_count": 0 if phone_floor else None,
     }
     evidence["candidate_revision"] = candidate
 
@@ -449,7 +451,7 @@ def main():
         rollback = sys.argv[1] == "--qualify-rollback-source"
         if not supports_current_contract(sys.argv[2], rollback=rollback):
             raise SystemExit(
-                "Target lacks the phone admission rollback contract (migration 425)"
+                "Target lacks the phone/device admission rollback contract (migration 428)"
                 if rollback
                 else "Target lacks the current account lifecycle producer contract"
             )

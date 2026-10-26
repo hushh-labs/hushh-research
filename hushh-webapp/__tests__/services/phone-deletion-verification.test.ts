@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockAuth, mockCapacitor, mockHushhAuth, mockPhoneAuthProvider,
   mockUpdatePhoneNumber, mockLinkWithCredential, mockSignInWithCredential, mockFirebaseAuthentication,
@@ -29,6 +29,57 @@ describe("AuthService deletion-only phone proof", () => {
     vi.resetAllMocks();
     mockCapacitor.isNativePlatform.mockReturnValue(true);
     mockAuth.currentUser = null;
+    mockHushhAuth.cancelPhoneDeletionVerification.mockResolvedValue(undefined);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("preserves the native SDK startup timeout code without calling it an expired OTP", async () => {
+    mockHushhAuth.startPhoneDeletionVerification.mockRejectedValue({ code: "phone-verification-start-timeout" });
+    await expect(AuthService.startPhoneDeletionVerification("+16505550100", undefined, {
+      expectedUserId: "owner", attemptId: "sdk-timeout",
+    })).rejects.toMatchObject({ code: "phone-verification-start-timeout" });
+  });
+
+  it("bounds a stalled deletion send and cancels its owned attempt without declaring the OTP expired", async () => {
+    vi.useFakeTimers();
+    mockHushhAuth.startPhoneDeletionVerification.mockReturnValueOnce(new Promise(() => {}));
+    const pending = AuthService.startPhoneDeletionVerification("+16505550100", undefined, {
+      expectedUserId: "owner", attemptId: "stalled-attempt",
+    });
+    const rejected = expect(pending).rejects.toMatchObject({ code: "phone-verification-start-timeout" });
+    await vi.advanceTimersByTimeAsync(120_000);
+    await rejected;
+    expect(mockHushhAuth.cancelPhoneDeletionVerification).toHaveBeenCalledWith({ attemptId: "stalled-attempt" });
+    mockHushhAuth.startPhoneDeletionVerification.mockResolvedValue({ attemptId: "next-attempt", verificationId: "next-attempt" });
+    await expect(AuthService.startPhoneDeletionVerification("+16505550100", undefined, {
+      expectedUserId: "owner", attemptId: "next-attempt", resendCode: true,
+    })).resolves.toEqual({ verificationId: "next-attempt" });
+    expect(mockHushhAuth.startPhoneDeletionVerification).toHaveBeenLastCalledWith({
+      expectedUserId: "owner", attemptId: "next-attempt", resendCode: true, phoneNumber: "+16505550100",
+    });
+    await AuthService.cancelPhoneDeletionVerification("next-attempt");
+  });
+
+  it("aborts a deletion send before codeSent and fences its late callback from the next attempt", async () => {
+    let resolve!: (value: any) => void;
+    mockHushhAuth.startPhoneDeletionVerification.mockReturnValueOnce(new Promise(value => { resolve = value; }));
+    const controller = new AbortController();
+    const pending = AuthService.startPhoneDeletionVerification("+16505550100", undefined, {
+      expectedUserId: "owner", attemptId: "retired-attempt", signal: controller.signal,
+    });
+    const rejected = expect(pending).rejects.toMatchObject({ code: "session_changed" });
+    controller.abort();
+    await rejected;
+    expect(mockHushhAuth.cancelPhoneDeletionVerification).toHaveBeenCalledWith({ attemptId: "retired-attempt" });
+    mockHushhAuth.startPhoneDeletionVerification.mockResolvedValue({ attemptId: "current-attempt", verificationId: "current-attempt" });
+    await expect(AuthService.startPhoneDeletionVerification("+16505550100", undefined, {
+      expectedUserId: "owner", attemptId: "current-attempt",
+    })).resolves.toEqual({ verificationId: "current-attempt" });
+    resolve({ attemptId: "retired-attempt", phoneIdToken: "stale-proof" });
+    await Promise.resolve();
+    mockHushhAuth.confirmPhoneDeletionVerification.mockResolvedValue({ attemptId: "current-attempt", phoneIdToken: "current-proof" });
+    await expect(AuthService.confirmPhoneDeletionVerification({ expectedUserId: "owner", attemptId: "current-attempt", verificationId: "current-attempt", verificationCode: "123456" })).resolves.toBe("current-proof");
+    expect(mockHushhAuth.startPhoneDeletionVerification.mock.calls[0][0]).not.toHaveProperty("signal");
   });
   it("sends deletion proof to an already-linked phone without changing its binding", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);

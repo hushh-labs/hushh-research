@@ -157,6 +157,8 @@ async def test_one_real_sdk_request_requires_exact_nonce_and_never_reports_it(mo
         "latency_ms": result["latency_ms"],
         "deployment": "synthetic-deployment",
         "error_class": None,
+        "stage": "response_validation",
+        "classification": "dependency_ok",
     }
     assert len(requests) == 1 and clients[0].is_closed()
     loader.assert_called_once_with()
@@ -186,6 +188,8 @@ async def test_http_success_or_parseable_text_alone_never_proves_readiness(monke
     result = await probe.run_probe()
     assert result["status"] == "unavailable" and result["error_class"] == "ReadinessResponseError"
     assert result["http_status"] == (201 if defect == "http_201" else 200)
+    assert result["stage"] == "response_validation"
+    assert result["classification"] == "candidate_misconfigured"
     assert len(requests) == 1 and clients[0].is_closed()
     assert PRIVATE not in json.dumps(result) and NONCE not in json.dumps(result)
 
@@ -199,6 +203,10 @@ async def test_provider_rejection_is_never_retried_or_echoed(monkeypatch, status
     result = await probe.run_probe()
     assert result["status"] == "unavailable" and result["http_status"] == status
     assert result["error_class"] in {"AuthenticationError", "RateLimitError", "InternalServerError"}
+    assert result["stage"] == "primary_http"
+    assert result["classification"] == (
+        "candidate_misconfigured" if status == 401 else "provider_unavailable"
+    )
     assert len(requests) == 1 and clients[0].is_closed()
     assert PRIVATE not in json.dumps(result) and TOKEN not in json.dumps(result)
 
@@ -215,6 +223,8 @@ async def test_total_deadline_cancels_request_and_closes_the_sdk_client(monkeypa
     requests, clients, *_ = wire(monkeypatch, handler, timeout_seconds=0.02)
     result = await probe.run_probe(timeout_seconds=0.02)
     assert result["status"] == "unavailable" and result["error_class"] == "TimeoutError"
+    assert result["stage"] == "primary_http" and result["classification"] == "provider_unavailable"
+    assert 0 < result["latency_ms"] < 1000
     assert cancelled.is_set() and len(requests) == 1 and clients[0].is_closed()
 
 
@@ -248,8 +258,21 @@ async def test_workload_identity_failure_never_dispatches_or_exposes_its_message
     result = await probe.run_probe()
     assert result["status"] == "unavailable" and result["error_class"] == "RuntimeError"
     assert result["http_status"] is None
+    assert result["stage"] == "federation" and result["classification"] == "candidate_misconfigured"
     assert PRIVATE not in json.dumps(result) and TOKEN not in json.dumps(result)
     forbidden.assert_not_called()
+
+
+async def test_connection_failure_keeps_transport_classification_without_retry(monkeypatch):
+    async def handler(request):
+        raise httpx.ConnectError(PRIVATE + TOKEN)
+
+    requests, clients, *_ = wire(monkeypatch, handler)
+    result = await probe.run_probe()
+    assert result["error_class"] == "APIConnectionError"
+    assert result["stage"] == "primary_http" and result["classification"] == "provider_unavailable"
+    assert len(requests) == 1 and clients[0].is_closed()
+    assert PRIVATE not in json.dumps(result) and TOKEN not in json.dumps(result)
 
 
 def test_cli_requires_opt_in_and_suppresses_sdk_chatter(monkeypatch, capsys):

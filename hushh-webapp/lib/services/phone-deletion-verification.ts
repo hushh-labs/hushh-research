@@ -12,7 +12,7 @@ import {
 import { app, auth } from "@/lib/firebase/config";
 import { HushhAuth } from "@/lib/capacitor";
 
-export type PhoneDeletionContext = { expectedUserId: string; attemptId: string };
+export type PhoneDeletionContext = { expectedUserId: string; attemptId: string; resendCode?: boolean; signal?: AbortSignal };
 export type PhoneClaimConfirmation = {
   verificationCode: string;
   verificationId?: string | null;
@@ -25,9 +25,36 @@ type NormalizeError = (error: unknown) => Error;
 const PHONE_CLAIM_APP_NAME = "hushh-phone-claim";
 const MANUAL_PROOF_PREFIX = "native-phone-proof:";
 let manualAttempt: (PhoneDeletionContext & { dispose: () => void; token?: string }) | null = null;
+const deletionCancellations = new Map<string, () => void>();
+
+/** One send budget covers native restore, previous cancellation and SDK dispatch. */
+export async function withNativePhoneProofStart<T>(
+  signal: AbortSignal | undefined,
+  start: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const cancelled = () => Object.assign(new Error("Your signed-in account changed. Start phone verification again."), { code: "session_changed" });
+  if (signal?.aborted) throw cancelled();
+  const controller = new AbortController();
+  let interrupt!: (error: Error) => void;
+  const stopped = new Promise<never>((_, reject) => { interrupt = reject; });
+  const abort = () => { controller.abort(); interrupt(cancelled()); };
+  signal?.addEventListener("abort", abort, { once: true });
+  const deadline = setTimeout(() => {
+    controller.abort();
+    interrupt(Object.assign(new Error("Sending the verification code took too long. Request a new code."), {
+      code: "phone-verification-start-timeout",
+    }));
+  }, 120_000);
+  try {
+    return await Promise.race([start(controller.signal), stopped]);
+  } finally {
+    clearTimeout(deadline);
+    signal?.removeEventListener("abort", abort);
+  }
+}
 
 /** Reuse the native isolated proof owner; no global Firebase link callbacks. */
-export async function startManualPhoneProof(phoneNumber: string, expectedUserId: string, signal?: AbortSignal): Promise<{ autoVerified: false; verificationId: string }> {
+export async function startManualPhoneProof(phoneNumber: string, expectedUserId: string, signal?: AbortSignal, resendCode = false, ownerSignal = signal): Promise<{ autoVerified: false; verificationId: string }> {
   const previous = manualAttempt;
   if (previous) {
     manualAttempt = null; previous.dispose();
@@ -35,16 +62,18 @@ export async function startManualPhoneProof(phoneNumber: string, expectedUserId:
   }
   if (signal?.aborted) throw new Error("session_changed");
   const attemptId = crypto.randomUUID();
+  const signals = [...new Set([signal, ownerSignal])];
+  const dispose = () => signals.forEach(value => value?.removeEventListener("abort", cancel));
   const cancel = () => {
     if (manualAttempt?.attemptId === attemptId) manualAttempt = null;
-    signal?.removeEventListener("abort", cancel);
+    dispose();
     void HushhAuth.cancelPhoneVerificationProof({ attemptId }).catch(() => undefined);
   };
-  manualAttempt = { expectedUserId, attemptId, dispose: () => signal?.removeEventListener("abort", cancel) };
-  signal?.addEventListener("abort", cancel, { once: true });
+  manualAttempt = { expectedUserId, attemptId, dispose };
+  signals.forEach(value => value?.addEventListener("abort", cancel, { once: true }));
   try {
-    const result = await HushhAuth.startPhoneVerificationProof({ expectedUserId, attemptId, phoneNumber });
-    if (manualAttempt?.attemptId !== attemptId || signal?.aborted || result.attemptId !== attemptId || result.verificationId !== attemptId)
+    const result = await HushhAuth.startPhoneVerificationProof({ expectedUserId, attemptId, phoneNumber, resendCode });
+    if (manualAttempt?.attemptId !== attemptId || signals.some(value => value?.aborted) || result.attemptId !== attemptId || result.verificationId !== attemptId)
       throw new Error("session_changed");
     return { autoVerified: false, verificationId: `${MANUAL_PROOF_PREFIX}${attemptId}` };
   } catch (error) { cancel(); throw error; }
@@ -63,16 +92,25 @@ export async function startDeletionPhoneProof(
   if (!normalizedPhoneNumber) throw new Error("phone_unavailable");
   try {
     if (Capacitor.isNativePlatform()) {
-      const result = await HushhAuth.startPhoneDeletionVerification({
-        ...context,
-        phoneNumber: normalizedPhoneNumber,
+      return await withNativePhoneProofStart(context.signal, async signal => {
+        const dispose = trackDeletionCancellation(context.attemptId, [signal, context.signal]);
+        try {
+          const result = await HushhAuth.startPhoneDeletionVerification({
+            expectedUserId: context.expectedUserId, attemptId: context.attemptId,
+            resendCode: context.resendCode, phoneNumber: normalizedPhoneNumber,
+          });
+          if (signal.aborted || context.signal?.aborted || result.attemptId !== context.attemptId)
+            throw new Error("session_changed");
+          if (result.phoneIdToken) { dispose(); return { phoneIdToken: result.phoneIdToken }; }
+          if (result.verificationId === context.attemptId)
+            return { verificationId: result.verificationId };
+          throw new Error("phone_verification_failed");
+        } catch (error) {
+          dispose();
+          void HushhAuth.cancelPhoneDeletionVerification({ attemptId: context.attemptId }).catch(() => undefined);
+          throw error;
+        }
       });
-      if (result.attemptId !== context.attemptId)
-        throw new Error("session_changed");
-      if (result.phoneIdToken) return { phoneIdToken: result.phoneIdToken };
-      if (result.verificationId === context.attemptId)
-        return { verificationId: result.verificationId };
-      throw new Error("phone_verification_failed");
     }
     const user = auth.currentUser;
     if (!user || user.uid !== context.expectedUserId) throw new Error("session_changed");
@@ -98,14 +136,16 @@ export async function confirmDeletionPhoneProof(
     return token;
   }
   try {
+    if (params.signal?.aborted) throw new Error("session_changed");
     const result = await HushhAuth.confirmPhoneDeletionVerification({
       expectedUserId: params.expectedUserId,
       attemptId: params.attemptId,
       verificationCode: params.verificationCode,
     });
-    if (result.attemptId !== params.attemptId)
+    if (params.signal?.aborted || result.attemptId !== params.attemptId)
       throw new Error("session_changed");
     if (!result.phoneIdToken) throw new Error("phone_verification_failed");
+    deletionCancellations.get(params.attemptId)?.();
     return result.phoneIdToken;
   } catch (error) {
     throw normalizeError(error);
@@ -113,8 +153,26 @@ export async function confirmDeletionPhoneProof(
 }
 
 export async function cancelDeletionPhoneProof(attemptId: string): Promise<void> {
+  deletionCancellations.get(attemptId)?.();
   if (Capacitor.isNativePlatform())
     await HushhAuth.cancelPhoneDeletionVerification({ attemptId });
+}
+
+/** Listener ownership is metadata only; the native helper owns proof validity. */
+function trackDeletionCancellation(attemptId: string, signals: (AbortSignal | undefined)[]): () => void {
+  deletionCancellations.get(attemptId)?.();
+  const unique = [...new Set(signals)];
+  const dispose = () => {
+    unique.forEach(signal => signal?.removeEventListener("abort", cancel));
+    if (deletionCancellations.get(attemptId) === dispose) deletionCancellations.delete(attemptId);
+  };
+  const cancel = () => {
+    dispose();
+    void HushhAuth.cancelPhoneDeletionVerification({ attemptId }).catch(() => undefined);
+  };
+  deletionCancellations.set(attemptId, dispose);
+  unique.forEach(signal => signal?.addEventListener("abort", cancel, { once: true }));
+  return dispose;
 }
 
 export async function mintPhoneClaimIdToken(

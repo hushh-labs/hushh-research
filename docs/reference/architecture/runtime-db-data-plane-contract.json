@@ -2334,13 +2334,15 @@
       "data_class": "workflow_state",
       "lifecycle_status": "release_schema_qualification",
       "exact_tables": [
-        "account_phone_transfers"
+        "account_phone_transfers",
+        "account_phone_recovery_continuations",
+        "account_device_actions"
       ],
-      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer and generation-bound Firebase mutation journal.",
-      "retention_policy": "Prepared intents expire after five minutes; completed workflow receipts prune after seven days on prepare. Unsettled effects remain until reconciled.",
-      "deletion_behavior": "Account erasure waits for unsettled committed provider work; completed or unconsumed workflow rows cascade on participant erasure. Hash-only admission fences remain independently.",
+      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer; opaque recovery continuations and single-use own-device action admission with independent owner authentication.",
+      "retention_policy": "Transfer prepared intents expire after five minutes and settled receipts prune after seven days. Recovery navigation expires after fifteen minutes. Device drafts expire after five minutes; completed hub receipts prune after seven days. Unknown dispatches retain consumed proof digests for reconciliation and never replay primary effects.",
+      "deletion_behavior": "Account erasure waits for unsettled transfer provider work; continuation and device-action metadata cascade on their owning participants. A requester deletion clears navigation but retains the target owner device-action receipt. Hash-only admission fences remain independently.",
       "plaintext_posture": "metadata_and_hashes_only",
-      "expected_row_growth": "At most five live prepared intents per claimant.",
+      "expected_row_growth": "At most five live recovery drafts or unsettled device actions per owner; completed device preparations limited to five per five-minute window; opportunistic cleanup removes at most one hundred expired rows per prepare.",
       "trust_boundary": "No OTP, phone number, bearer or previous-account private projection. Explicit confirmation, fresh manual SMS and binding revisions gate consumption."
     },
     {

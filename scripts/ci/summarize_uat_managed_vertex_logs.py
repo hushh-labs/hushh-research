@@ -15,46 +15,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from managed_capability_proof import (
+    ERROR_TYPES,
+    FIXED_PROBES,
+    PROBE_NAME,
+    _attempt_receipts,
+    _decision_fields,
+)
+
 MAX_INPUT_CHARS = 1024 * 1024
 RESULT_PREFIX = "managed_vertex_probe_result "
-CLASSIFICATIONS = frozenset(
-    {
-        "dependency_ok",
-        "provider_unavailable",
-        "candidate_misconfigured",
-        "application_broken",
-    }
-)
-ERROR_TYPES = frozenset(
-    {
-        "ClientError",
-        "ServerError",
-        "APIError",
-        "ResourceExhausted",
-        "ResourceExhaustedError",
-        "TimeoutError",
-        "ConnectionError",
-        "RuntimeError",
-        "ValueError",
-        "KeyError",
-        "LookupError",
-        "AttributeError",
-        "PermissionDenied",
-        "Unauthenticated",
-        "NotFound",
-        "InvalidArgument",
-        "GoogleAPICallError",
-        "ServiceUnavailable",
-        "DeadlineExceeded",
-    }
-)
-PROBE_NAME = re.compile(
-    r"(?:text|adk|one_chat|one_voice_live):gemini-[a-z0-9][a-z0-9._-]{0,95}"
-    r"@[a-z][a-z0-9-]{0,39}(?:,[a-z][a-z0-9-]{0,39}){0,7}\Z"
-)
-FIXED_PROBES = frozenset(
-    {"embedding", "location_command:audio", "location_command:semantics"}
-)
 GATE_PREFIXES = (
     "Required UAT runtime probe",
     "Required UAT runtime-identity probe",
@@ -89,45 +59,6 @@ def _entries(raw: str) -> list[dict[str, Any]]:
     if any(not isinstance(entry, dict) for entry in entries):
         raise ValueError("Invalid log entry")
     return entries
-
-
-def _decision_fields(value: dict[str, Any]) -> dict[str, Any]:
-    if (
-        type(value.get("ok")) is not bool
-        or value.get("classification") not in CLASSIFICATIONS
-    ):
-        raise ValueError("Invalid decision fields")
-    return {"ok": value["ok"], "classification": value["classification"]}
-
-
-def _attempt_receipts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list) or not 1 <= len(value) <= 2:
-        raise ValueError("Invalid probe attempts")
-    result = []
-    for attempt in value:
-        if not isinstance(attempt, dict):
-            raise ValueError("Invalid probe attempt")
-        elapsed = attempt.get("elapsed_ms")
-        if type(elapsed) is not int or not 0 <= elapsed <= 420000:
-            raise ValueError("Invalid probe duration")
-        clean = {**_decision_fields(attempt), "elapsed_ms": elapsed}
-        if "dispatched" in attempt:
-            if type(attempt["dispatched"]) is not bool:
-                raise ValueError("Invalid dispatch flag")
-            clean["dispatched"] = attempt["dispatched"]
-        if "resource_exhausted" in attempt:
-            if type(attempt["resource_exhausted"]) is not bool:
-                raise ValueError("Invalid attempt exhaustion flag")
-            clean["resource_exhausted"] = attempt["resource_exhausted"]
-        if "error_type" in attempt:
-            error_type = attempt["error_type"]
-            clean["error_type"] = (
-                error_type
-                if isinstance(error_type, str) and error_type in ERROR_TYPES
-                else "OtherError"
-            )
-        result.append(clean)
-    return result
 
 
 def summarize_receipt(raw: str) -> dict[str, Any]:

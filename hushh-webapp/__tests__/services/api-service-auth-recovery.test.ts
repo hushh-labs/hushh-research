@@ -26,6 +26,24 @@ function makeUnsignedToken(payload: Record<string, unknown>): string {
 beforeEach(() => { vi.clearAllMocks(); mockFetch.mockReset(); publishValidatedAuthSessionOwner(null); });
 afterEach(() => vi.restoreAllMocks());
 describe("ApiService authentication recovery", () => {
+  it.each([
+    ["UAT_PHONE_TEST_INVALID_CODE", false], ["AUTH_ACCOUNT_NOT_FOUND", true],
+  ] as const)("never replays device proof on 401 %s while preserving terminal auth", async (code, terminal) => {
+    publishValidatedAuthSessionPrincipal({firebaseUid: "user-1", ownerId: "user-1", accountGeneration: 0});
+    const user = {uid: "user-1"};
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(user as never);
+    vi.spyOn(ApiService, "getFirebaseToken").mockResolvedValue(makeUnsignedToken({sub: "user-1", version: 1}));
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(makeUnsignedToken({sub: "user-1", version: 2}));
+    mockFetch.mockResolvedValueOnce(jsonResponse({detail: {code}}, 401)).mockResolvedValueOnce(jsonResponse({state: "completed", success: true}));
+    const events = vi.spyOn(window, "dispatchEvent");
+    const response = await ApiService.revokeTrustedDevice("device-one", () => true,
+      {operation_id: "27b517dc-d694-44e3-a9be-ed8ae0484de2", confirmed: true, test_code: "123456"});
+    expect(response.status).toBe(401);
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    expect(events.mock.calls.filter(([event]) => event.type === AUTH_SESSION_INVALIDATED_EVENT)).toHaveLength(terminal ? 1 : 0);
+  });
+
   it("admits Browser only with its captured Firebase/application principal and session episode", async () => {
     const ownerId = "acct_" + "a".repeat(32);
     publishValidatedAuthSessionPrincipal({ firebaseUid: "user-1", ownerId, accountGeneration: 1 });

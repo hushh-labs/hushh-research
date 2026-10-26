@@ -33,6 +33,7 @@ import {
 import {
   AccountDeletionNotCompletedError,
   isReportedAccountDeletionFailure,
+  isLostVaultPrecommitError,
 } from "./delete-account-outcomes";
 export {
   ACCOUNT_DELETION_FAILED_CODE,
@@ -81,15 +82,6 @@ export const DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE =
 
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE =
   "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING";
-const LOST_VAULT_PRECOMMIT_CODES = new Set([
-  "ACCOUNT_DELETE_REAUTH_REQUIRED",
-  "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED",
-  "ACCOUNT_DELETE_PHONE_PROOF_INVALID",
-  "ACCOUNT_DELETE_METHOD_UNAVAILABLE",
-  "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE",
-  "ACCOUNT_DELETE_PHONE_BINDING_CONFLICT",
-  "PERSONAL_AGENT_DEPROVISION_REQUIRED",
-]);
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE =
   "Your private agent or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
 
@@ -199,6 +191,8 @@ export function accountDeletionErrorMessage(error: unknown): string {
 
 export function lostVaultDeletionErrorMessage(error: unknown): string {
   switch (apiErrorCode(error)) {
+    case "PHONE_RECOVERY_PREVIOUS_SIGN_IN_REQUIRED":
+      return "This recovery request ended. Go back and start again.";
     case "ACCOUNT_DELETE_REAUTH_REQUIRED":
       return "Your sign-in check expired. Verify again.";
     case "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED":
@@ -216,9 +210,6 @@ export function lostVaultDeletionErrorMessage(error: unknown): string {
   }
 }
 
-function isLostVaultPrecommitError(error: unknown): boolean {
-  return error instanceof ApiError && LOST_VAULT_PRECOMMIT_CODES.has(apiErrorCode(error) ?? "");
-}
 
 async function probeDeletionStatus(idToken: string, owner: AccountDeletionOwner): Promise<DeletionStatusProbe> {
   try {
@@ -366,6 +357,7 @@ export async function executeLostVaultAccountDeletion(params: {
   sessionUser: AccountDeletionSessionUser;
   firebaseIdToken: string;
   phoneIdToken?: string;
+  continuationId?: string;
   owner?: AccountDeletionOwner;
   /** The initiating UI/session can cancel until the destructive request starts. */
   isCurrent?: () => boolean;
@@ -380,6 +372,7 @@ export async function executeLostVaultAccountDeletion(params: {
     performDeletion: () => AccountService.deleteLostVaultAccount({
       firebaseIdToken: params.firebaseIdToken,
       phoneIdToken: params.phoneIdToken,
+      ...(params.continuationId ? { continuationId: params.continuationId } : {}),
       isCurrent: () => isValidatedAuthSessionOwnerCurrent(owner) && params.isCurrent?.() !== false,
     }),
     isKnownPrecommitError: isLostVaultPrecommitError,

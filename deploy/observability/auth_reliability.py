@@ -26,6 +26,8 @@ def selected_policies(args: argparse.Namespace) -> tuple[str, ...]:
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--release-probe-only", action="store_true",
+                        help="Manage only UAT Azure readiness timeout metrics and alerts")
     parser.add_argument("--auth-only", action="store_true",
                         help="Manage auth alerts and protected-list health metrics only")
     parser.add_argument("--enable-auth-alerts", action="store_true",
@@ -35,8 +37,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def validate_arguments(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.release_probe_only and (args.project != "hushh-pda-uat" or args.auth_only
+                                   or args.provider_only or args.voice_only or args.commerce_only
+                                   or args.include_commerce or args.sql_instance or args.console_only):
+        parser.error("--release-probe-only requires UAT, existing delivery channels and no other provisioner")
     if args.auth_only and (args.provider_only or args.voice_only or args.commerce_only
-                           or args.include_commerce or args.sql_instance):
+                           or args.include_commerce or args.sql_instance or args.release_probe_only):
         parser.error("--auth-only cannot be combined with other provisioners")
     if (args.enable_auth_alerts or args.enable_auth_heartbeat) and not args.auth_only:
         parser.error("auth enablement requires --auth-only")
@@ -55,12 +61,13 @@ def validate_channel(
 ) -> None:
     if len(matches) > 1:
         raise RuntimeError(f"Multiple email channels for {email}; resolve before applying")
-    if not args.auth_only:
+    if not args.auth_only and not args.release_probe_alerts:
         return
+    purpose = "Auth" if args.auth_only else "Release probe"
     if not matches:
-        raise RuntimeError("Auth delivery requires an existing email notification channel")
+        raise RuntimeError(f"{purpose} delivery requires an existing email notification channel")
     if matches[0].get("enabled") is False or matches[0].get("verificationStatus") == "UNVERIFIED":
-        raise RuntimeError("Auth delivery requires an enabled, verified notification channel")
+        raise RuntimeError(f"{purpose} delivery requires an enabled, verified notification channel")
 
 
 def configure_policy(

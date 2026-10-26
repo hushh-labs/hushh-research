@@ -284,15 +284,19 @@ def test_retry_requalifies_cold_rollback_after_failed_run(release_plan):
     assert not any(row[:2] == ["gh", "api"] for row in state.calls)
 
 
-def test_cold_plan_requires_independent_source_before_writing(release_plan):
+@pytest.mark.parametrize("same_source", [True, False])
+def test_cold_plan_requires_independent_source_before_writing(release_plan, same_source):
     state = release_plan
     state.args.current_json.write_text(
         json.dumps({"metadata": {"labels": {"deploy-sha": "d" * 40}}})
     )
     state.args.fallback_sha = FALLBACK
-    state.args.primary_sha = FALLBACK
-    with pytest.raises(ValueError, match="requires_independent_source"):
+    state.args.primary_sha = FALLBACK if same_source else "d" * 40
+    reason = "requires_independent_source" if same_source else "primary_lacks_current_admission"
+    with pytest.raises(ValueError, match=reason):
         state.plan.prepare(state.args)
+    if not same_source:
+        assert not state.calls
     assert not state.args.output.exists()
     assert not state.args.github_output.exists()
 

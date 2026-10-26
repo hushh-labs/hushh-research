@@ -33,6 +33,12 @@ class GoogleIdentityReauthenticationFenceTest {
         manual.settle()
         manual.retryCode()
         assertFalse(manual.current("owner", true, 104))
+        // Explicit resend may use its bounded SDK token after cancellation,
+        // while the cancelled operation itself can never publish another code.
+        assertTrue(manual.resendEligible("owner", true, 104))
+        assertFalse(manual.resendEligible("other", true, 104))
+        assertFalse(manual.resendEligible("owner", false, 104))
+        assertFalse(manual.resendEligible("owner", true, manual.deadline))
     }
 
     @Test fun driveFallbackAllowsDelayedCustomSchemeDelivery() {

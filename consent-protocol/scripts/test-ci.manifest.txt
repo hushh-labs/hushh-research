@@ -1491,3 +1491,9 @@ tests/test_consumer_consent_replay_postgres.py
 tests/test_phone_transfer_postgres.py
 
 tests/test_phone_transfer_authority.py
+
+# Phone recovery authority, packaged rollback reader, provider receipts and full UI/SQL journey.
+tests/test_phone_recovery_actions.py
+tests/test_phone_reader_probe.py
+tests/scripts/test_managed_provider_receipt.py
+tests/test_account_phone_browser.py

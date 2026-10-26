@@ -83,23 +83,6 @@ def test_phone_proof_cannot_mint_owner_authority_but_social_signin_can(monkeypat
     )
 
 
-@pytest.mark.parametrize("bypass_reader", [False, True])
-def test_packaged_phone_reader_probe_rejects_an_admission_bypass(monkeypatch, bypass_reader):
-    from contextlib import nullcontext
-
-    from api.utils import account_principal_policy
-
-    root = Path(__file__).resolve().parents[2]
-    probe = _phone_deploy_module("reader_probe")
-    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "false")
-    if bypass_reader:
-        monkeypatch.setattr(account_principal_policy, "admit_phone_principal", lambda *_: None)
-    with pytest.raises(AssertionError) if bypass_reader else nullcontext():
-        verdict = probe.qualify(root / "consent-protocol")
-        assert verdict["retired"] == "AUTH_PHONE_ACCESS_REVOKED"
-        assert verdict["social"] == "admitted"
-
-
 @pytest.fixture
 def cold_deployment():
     settings = [

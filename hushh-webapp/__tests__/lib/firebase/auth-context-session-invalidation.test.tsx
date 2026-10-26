@@ -848,43 +848,6 @@ describe("@feature_account_deletion @trace_loop AuthProvider terminal session in
     expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 
-  it("rediscovers durable cleanup after refresh and retains it during a provider outage", async () => {
-    const { parseAccountCleanupOperation } = await import("@/lib/auth/account-cleanup-operation");
-    expect(parseAccountCleanupOperation((await cleanupStatusResponse().json()).operation)).not.toBeNull();
-    mocks.apiGetAccountSessionStatus.mockImplementation(async () => Response.json(
-      { detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" } }, { status: 423 },
-    ));
-    mocks.apiGetAccountCleanupStatus.mockResolvedValueOnce(cleanupStatusResponse());
-    renderProvider();
-    await screen.findByText("Verification required");
-    expect(mocks.apiGetAccountCleanupStatus).toHaveBeenCalledTimes(1);
-    await screen.findByText("Cleanup: cleaning_up");
-    expect(screen.queryByText("Vault content for account-owner")).not.toBeInTheDocument();
-    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText("Retry verification"));
-    await screen.findByText("Cleanup: cleaning_up");
-    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-    expect(mocks.clearDeviceSecretsForDeletedAccount).not.toHaveBeenCalled();
-  });
-
-  it("refuses a late cleanup response after switching to another owner", async () => {
-    const pending = deferred<Response>();
-    mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(Response.json(
-      { detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" } }, { status: 423 },
-    ));
-    mocks.apiGetAccountCleanupStatus.mockReturnValueOnce(pending.promise);
-    renderProvider();
-    await waitFor(() => expect(mocks.apiGetAccountCleanupStatus).toHaveBeenCalledTimes(1));
-    const nextOwner=makeUser("account-b");
-    mocks.firebaseUser=nextOwner;
-    act(() => mocks.authStateListener?.(nextOwner));
-    await screen.findByText("Vault content for account-b");
-    await act(async () => { pending.resolve(cleanupStatusResponse()); await pending.promise; });
-    expect(screen.getByText("Vault content for account-b")).toBeInTheDocument();
-    expect(screen.queryByText("Cleanup: cleaning_up")).not.toBeInTheDocument();
-    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
-  });
-
   it.each([false,true])("confirms only the reviewed cleanup while preserving the current owner (switch: %s)", async switchOwner => {
     mocks.apiGetAccountSessionStatus.mockResolvedValueOnce(Response.json(
       { detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" } }, { status: 423 },

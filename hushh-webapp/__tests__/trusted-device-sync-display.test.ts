@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 
-const api = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn() }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { listTrustedDevices: api.list, revokeTrustedDeviceEverywhere: async (...args: unknown[]) => ({ hub: await api.revoke(...args), pod: { delivered: true, pending: null } }) } }));
+const api = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn(), readback: vi.fn() }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({uid: "device-owner"}) } }));
+vi.mock("@/lib/services/phone-recovery-service", () => ({ PhoneRecoveryService: {revocationStatus: api.readback} }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { listTrustedDevices: api.list, revokeTrustedDeviceEverywhere: async (...args: unknown[]) => ({ hub: (args[3] as { receipt?: Response })?.receipt ?? await api.revoke(...args), pod: { delivered: true, pending: null } }) } }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false }, registerPlugin: () => ({}) }));
+vi.mock("@/components/profile/use-device-revocation-proof", () => ({ useDeviceRevocationProof: () => ({ view: { codeSent: true }, ownsOperation: () => false, clear: vi.fn(async () => null), proof: async () => ({ operation_id: "proof-for-owner-test", confirmed: true, test_code: "synthetic" }) }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: null }) }));
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService } from "@/lib/services/cache-service";
@@ -28,14 +31,14 @@ describe("trusted-device operation owner", () => {
     publishValidatedAuthSessionOwner("device-owner");
     api.list.mockImplementation(async () => listed());
     let finish!: (value: Response) => void;
-    api.revoke.mockImplementation(async () => new Response(null, { status: 204 }));
+    api.revoke.mockImplementation(async () => Response.json({state: "completed", success: true, podBindingVersion: 0}));
     const view = renderHook(({ owner, enabled }) => useTrustedDevicesModel(owner, enabled),
       { initialProps: { owner: "device-owner", enabled: true } });
     await waitFor(() => expect(view.result.current.devices).toHaveLength(1));
     act(() => view.result.current.choose(device.device_id));
     await waitFor(() => expect(view.result.current.confirmation).not.toBeNull());
     const retainedConfirm = view.result.current.confirm;
-    act(() => view.result.current.cancel());
+    await act(async () => { await view.result.current.cancel(); });
     await act(async () => { await retainedConfirm(); });
     expect(api.revoke).not.toHaveBeenCalled();
     act(() => view.result.current.choose(device.device_id));
@@ -50,10 +53,10 @@ describe("trusted-device operation owner", () => {
     act(() => view.result.current.choose(device.device_id));
     let request!: Promise<void>;
     act(() => { request = view.result.current.confirm(); });
-    expect(api.revoke).toHaveBeenCalledOnce();
+    await waitFor(() => expect(api.revoke).toHaveBeenCalledOnce());
     publishValidatedAuthSessionOwner("other-owner");
     view.rerender({ owner: "other-owner", enabled: true });
-    await act(async () => { finish(new Response(null, { status: 204 })); await request; });
+    await act(async () => { finish(Response.json({state: "completed", success: true, podBindingVersion: 0})); await request; });
     expect(view.result.current.confirmation).toBeNull();
     expect(view.result.current.busy).toBe(false);
     expect(view.result.current.error).toBe("");
@@ -75,9 +78,11 @@ describe("trusted-device operation owner", () => {
     api.list.mockRejectedValueOnce(new Error("synthetic list failure"));
     await act(async () => { await view.result.current.refresh(); });
     expect(view.result.current.uncertain).toBe(true);
+    api.readback.mockResolvedValueOnce({operation_id: "proof-for-owner-test", state: "not_started"});
     await act(async () => { await view.result.current.refresh(); });
     expect(view.result.current.uncertain).toBe(false);
-    api.revoke.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    act(() => view.result.current.choose(device.device_id));
+    api.revoke.mockResolvedValueOnce(Response.json({state: "completed", success: true, podBindingVersion: 0}));
     api.list.mockRejectedValueOnce(new Error("synthetic list failure"));
     await act(async () => { await view.result.current.confirm(); });
     expect(api.revoke).toHaveBeenCalledTimes(2);
@@ -101,7 +106,7 @@ describe("trusted-device operation owner", () => {
     act(() => { oldRefresh = view.result.current.refresh(); });
     await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
     act(() => view.result.current.choose(device.device_id));
-    api.revoke.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    api.revoke.mockResolvedValueOnce(Response.json({state: "completed", success: true, podBindingVersion: 0}));
     let unlink!: Promise<void>;
     act(() => { unlink = view.result.current.confirm(); });
     await waitFor(() => expect(api.revoke).toHaveBeenCalledOnce());
@@ -111,6 +116,21 @@ describe("trusted-device operation owner", () => {
     expect(view.result.current.busy).toBe(false);
     expect(view.result.current.devices[0]?.status).toBe("revoked");
     expect(view.result.current.error).toBe("");
+  });
+
+  it("leaves another tab's prepared proof untouched during an ordinary list read", async () => {
+    publishValidatedAuthSessionOwner("device-owner");
+    api.list.mockResolvedValue(Response.json({devices: [device], pending_revocations: [{
+      operation_id: "27b517dc-d694-44e3-a9be-ed8ae0484de2", device_id: device.device_id, state: "prepared",
+    }]}));
+    const view = renderHook(() => useTrustedDevicesModel("device-owner", true));
+    await waitFor(() => expect(view.result.current.devices).toHaveLength(1));
+    expect(view.result.current.uncertain).toBe(false);
+    expect(view.result.current.verificationUnfinished).toBe(true);
+    expect(api.readback).not.toHaveBeenCalled(); expect(api.revoke).not.toHaveBeenCalled();
+    act(() => view.result.current.choose(device.device_id));
+    expect(view.result.current.confirmation?.device_id).toBe(device.device_id);
+    view.unmount();
   });
 
   it("does not join a retired visit's pending list when the same owner reopens", async () => {

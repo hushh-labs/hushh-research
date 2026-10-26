@@ -2661,10 +2661,14 @@
         {
           "href": "/register-phone",
           "expected": null
+        },
+        {
+          "href": "/register-phone?recovery=27b517dc-d694-44e3-a9be-ed8ae0484de2",
+          "expected": null
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: transfer review returns to recovery choices, choices return to phone entry, and a dispatched transfer consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: transfer review returns to recovery choices, choices return to phone entry, and a dispatched transfer consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {

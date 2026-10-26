@@ -557,6 +557,8 @@ export async function fetchWithWebTimeout(
 
 export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
+  /** An explicit action-proof operation reconciles by GET, never transport replay. */
+  authRefreshRetry?: "never";
   /** Lifecycle orchestration settles its own response before changing authentication. */
   accountLifecycleOwnsAuthOutcome?: boolean;
   /** Native HTTP returns binary bodies as base64; decode them before blob(). */
@@ -592,7 +594,7 @@ async function apiFetch(
   options: ApiFetchOptions = {},
   streaming = false,
 ): Promise<Response> {
-  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, accountLifecycleOwnsAuthOutcome, ...fetchOptions } = options;
+  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, responseType, accountLifecycleOwnsAuthOutcome, authRefreshRetry, ...fetchOptions } = options;
   if (accountLifecycleOwnsAuthOutcome && ![
     "/api/account/session-status", "/api/account/delete", "/api/account/delete-lost-vault",
     "/api/account/deletion-cleanup", "/api/account/registration-status", "/api/account/start-fresh",
@@ -877,7 +879,7 @@ async function apiFetch(
       return response;
     }
     if (
-      response.status === 401 &&
+      response.status === 401 && authRefreshRetry !== "never" &&
       !(await responseLooksLikeAuthServiceUnavailable(response))
     ) {
       const retryResponse = await retryWithFreshFirebaseToken();
@@ -2104,7 +2106,7 @@ export class ApiService {
     });
   }
 
-  static async revokeTrustedDevice(deviceId: string, isCurrentOwner?: () => boolean): Promise<Response> {
+  static async revokeTrustedDevice(deviceId: string, isCurrentOwner?: () => boolean, proof?: import("./phone-recovery-service").DeviceRevocationProof): Promise<Response> {
     const authToken = await this.getFirebaseToken();
     if (isCurrentOwner && !isCurrentOwner()) return new Response(null, { status: 409 });
     if (!authToken) {
@@ -2119,8 +2121,11 @@ export class ApiService {
       `/api/account/trusted-devices/${encodeURIComponent(deviceId)}`,
       {
         method: "DELETE",
+        authRefreshRetry: "never",
         isEffectCurrent: isCurrentOwner,
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
+        ...(proof ? { body: JSON.stringify(proof) } : {}),
+        signal: AbortSignal.timeout(30_000),
       },
     );
   }
@@ -4210,54 +4215,14 @@ export class ApiService {
     return response.json();
   }
 
-  static async revokeTrustedDeviceEverywhere(deviceId: string, expectedOwnerId?: string, isCurrentOwner: () => boolean = () => true): Promise<{
-    hub: Response;
-    pod:
-      | { delivered: true; pending: null }
-      | { delivered: false; pending: unknown }
-      | { delivered: false; pending: null; unpinned: true };
-  }> {
-    const ownerPod = await import("./owner-pod-endpoint");
+  static async revokeTrustedDeviceEverywhere(deviceId: string, expectedOwnerId?: string,
+    isCurrentOwner: () => boolean = () => true,
+    options?: { proof?: import("./phone-recovery-service").DeviceRevocationProof; receipt?: Response }
+  ): Promise<import("./trusted-device-settlement").DeviceRevocationSettlement> {
+    const { settleTrustedDeviceRevocation } = await import("./trusted-device-settlement");
     const uid = expectedOwnerId ?? snapshotValidatedAuthSessionPrincipal()?.ownerId;
-    let pod:
-      | { delivered: true; pending: null }
-      | { delivered: false; pending: unknown }
-      | { delivered: false; pending: null; unpinned: true } = {
-      delivered: false,
-      pending: null,
-      unpinned: true,
-    };
-    // Stop new grants first, then fence every grant already issued at the pod.
-    const hub = await ApiService.revokeTrustedDevice(deviceId, isCurrentOwner);
-    if (!hub.ok) return { hub, pod };
-    const receipt = await hub
-      .clone()
-      .json()
-      .catch(() => ({}));
-    const version = receipt.podBindingVersion;
-    if (!isCurrentOwner()) return { hub, pod: { delivered: false, pending: null } };
-    if (uid && (await ownerPod.loadPinnedEndpoint(uid).catch(() => null))) {
-      if (!isCurrentOwner()) return { hub, pod: { delivered: false, pending: null } };
-      if (!Number.isInteger(version) || version < 0) {
-        return { hub, pod: { delivered: false, pending: null } };
-      }
-      try {
-        const transport = await ApiService.ownerPodTransport();
-        if (!isCurrentOwner()) return { hub, pod: { delivered: false, pending: null } };
-        pod = await ownerPod.revokeAtPod(
-          uid,
-          deviceId,
-          transport,
-          {
-            atVersion: Math.max(1, version),
-          }
-        );
-      } catch {
-        // Hub receipt survives a failed pod revocation delivery.
-        pod = { delivered: false, pending: null };
-      }
-    }
-    return { hub, pod };
+    const hub = options?.receipt ?? await ApiService.revokeTrustedDevice(deviceId, isCurrentOwner, options?.proof);
+    return settleTrustedDeviceRevocation(hub, deviceId, uid, isCurrentOwner, () => ApiService.ownerPodTransport(), !!(options?.proof || options?.receipt));
   }
 
   private static async ownerPodTransport(): Promise<

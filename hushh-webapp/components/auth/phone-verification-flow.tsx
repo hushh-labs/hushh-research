@@ -1,5 +1,7 @@
 "use client";
 
+import { performPhoneRecovery } from "./use-phone-recovery-handoff";
+
 import { DEFAULT_COUNTRY_VALUE, DEFAULT_PHONE_COUNTRY_OPTION, E164_PHONE_PATTERN, PHONE_COUNTRY_OPTIONS, composePhoneNumber, derivePhoneFields, getCountryOption, getCountryOptionLabel, getMobileNumberLengthRange, getPhoneEntryError, getPhoneNumberValidationError, maskPhoneNumberForOtp, resolvePhoneInputChange } from "@/lib/auth/phone-input";
 import type { CountryPhoneOption } from "@/lib/constants/country-phone-options";
 import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
@@ -80,8 +82,9 @@ export type PhoneVerificationFlowProps = {
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmVerification: (otp: string) => Promise<User>;
   confirmTransfer?: () => Promise<User>;
-  recoverPreviousAccount?: () => Promise<void> | void;
-  deletePreviousAccount?: () => Promise<void> | void;
+  recoverPreviousAccount?: (phoneNumber: string) => Promise<void> | void;
+  deletePreviousAccount?: (phoneNumber: string) => Promise<void> | void;
+  revokePreviousAccountDevices?: (phoneNumber: string) => Promise<void> | void;
   onCompleted: (user?: User | null) => Promise<void> | void;
   onContinueExisting?: () => Promise<void> | void;
   onCancel?: () => void;
@@ -124,7 +127,7 @@ export function usePhoneVerificationFlow({
   confirmVerification,
   confirmTransfer,
   recoverPreviousAccount,
-  deletePreviousAccount,
+  deletePreviousAccount, revokePreviousAccountDevices,
   onCompleted,
   onContinueExisting,
   codePresentation = "default",
@@ -852,15 +855,11 @@ export function usePhoneVerificationFlow({
     } finally { phoneFlowInFlightRef.current = false; if (current()) setBusy(false); }
   }, [busy, conflict, confirmTransfer, current, changeStep, onCompleted, visit, entryRevision, transferEligible, phoneFlowInFlightRef, transferGuard]);
 
-  const recoverPrevious = useCallback(async (deleting: boolean) => {
+  const recoverPrevious = useCallback(async (deleting: boolean | "revoke") => {
     if (!current() || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current || transferPending) return;
-    const recover = deleting ? deletePreviousAccount : recoverPreviousAccount;
-    if (!recover) return;
-    phoneFlowInFlightRef.current = true; setBusy(true); setOperationError(null);
-    try { await recover(); }
-    catch { if (current()) setOperationError("Could not open account recovery. Please try again."); }
-    finally { phoneFlowInFlightRef.current = false; if (current()) setBusy(false); }
-  }, [current, busy, transferPending, deletePreviousAccount, recoverPreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision]);
+    const recover = deleting === "revoke" ? revokePreviousAccountDevices : deleting ? deletePreviousAccount : recoverPreviousAccount;
+    await performPhoneRecovery(recover, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError);
+  }, [current, busy, transferPending, revokePreviousAccountDevices, deletePreviousAccount, recoverPreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision, submittedPhoneNumber]);
 
   useLocalOnboardingActionHandler(
     "phone_mandate.submit_code",

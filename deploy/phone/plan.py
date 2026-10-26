@@ -195,6 +195,8 @@ def _readers_qualified() -> bool:
 
 
 def prepare(args) -> dict:
+    if not _source_supported(args.primary_sha):
+        raise ValueError("phone_rollback_primary_lacks_current_admission")
     current = json.loads(args.current_json.read_text())
     labels = (current.get("metadata") or {}).get("labels") or {}
     # A cold rollback belongs to a failed run, never a healthy production receipt.
@@ -239,6 +241,7 @@ def verify(args) -> dict:
         plan.get("schema_version") != 1
         or plan.get("run_id") != args.run_id
         or plan.get("primary_sha") != args.primary_sha
+        or not _source_supported(args.primary_sha)
         or not _source_supported(plan.get("source", ""))
         or probe.get("source") != plan.get("source")
         or probe.get("image") != plan.get("image")

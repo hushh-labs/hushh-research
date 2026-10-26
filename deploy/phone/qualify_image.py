@@ -25,6 +25,7 @@ EXPECTED = {
     "unavailable": "AUTH_SESSION_STATUS_UNAVAILABLE",
     "fence_unavailable": "AUTH_SESSION_STATUS_UNAVAILABLE",
     "social": "admitted",
+    "device_revoke_missing_proof": "DEVICE_ACTION_PROOF_REQUIRED",
 }
 
 
@@ -155,19 +156,13 @@ def qualify(sha: str, image: str) -> dict:
         raise ValueError("phone_image_must_be_one_executable_manifest")
     payload = probe(image)
     sources = payload.get("source_sha256")
-    if not isinstance(sources, dict) or len(sources) != 7:
+    expected_paths = {
+        name.replace(".", "/") + ".py"
+        for name in run_path(str(HERE / "reader_probe.py"))["SOURCE_MODULES"]
+    }
+    if not isinstance(sources, dict) or set(sources) != expected_paths:
         raise ValueError("phone_image_source_inventory_invalid")
     for name, digest in sources.items():
-        if name not in {
-            "api/utils/firebase_auth.py",
-            "api/utils/account_principal_policy.py",
-            "hushh_mcp/services/phone_transfer_service.py",
-            "hushh_mcp/services/phone_transfer_authority.py",
-            "hushh_mcp/services/account_firebase_mutations.py",
-            "hushh_mcp/services/account_deletion_lifecycle_service.py",
-            "hushh_mcp/runtime_settings.py",
-        }:
-            raise ValueError("phone_image_source_path_invalid")
         expected = hashlib.sha256(
             run(["git", "show", f"{sha}:consent-protocol/{name}"])
         ).hexdigest()

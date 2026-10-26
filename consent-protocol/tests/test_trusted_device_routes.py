@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -225,57 +226,15 @@ async def test_device_list_remains_available_when_rollout_is_disabled(
     monkeypatch.setattr(account, "TrustedDeviceService", _FakeTrustedDeviceService)
     monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
 
+    monkeypatch.setattr(
+        "hushh_mcp.services.device_action_service.pending_for_owner", AsyncMock(return_value=[])
+    )
     result = await account.list_trusted_devices(firebase_uid="user-1")
 
-    assert result == {"devices": [{"device_id": "tdv_recoverable", "status": "active"}]}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("already_revoked", [False, True])
-async def test_device_revocation_remains_available_when_rollout_is_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-    already_revoked: bool,
-) -> None:
-    async def _run_in_threadpool(function, **kwargs):
-        return function(**kwargs)
-
-    class _ConsentLedger:
-        async def get_active_internal_tokens(self, *_args, **_kwargs):
-            return []
-
-    monkeypatch.setattr(account, "trusted_devices_enabled", lambda: False)
-    monkeypatch.setattr(account, "TrustedDeviceService", _FakeTrustedDeviceService)
-    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
-    monkeypatch.setattr(
-        "hushh_mcp.services.consent_db.ConsentDBService",
-        _ConsentLedger,
-    )
-
-    if already_revoked:
-        monkeypatch.setattr(
-            _FakeTrustedDeviceService, "revoke_device", lambda self, **kwargs: False
-        )
-        monkeypatch.setattr(
-            _FakeTrustedDeviceService,
-            "device_status",
-            lambda self, **kwargs: {"status": "revoked"},
-            raising=False,
-        )
-
-    class _Registry:
-        async def get(self, user_id):
-            assert user_id == "user-1"
-            return {"backend_metadata": {"bindings": {"tdv_recoverable": {"version": 7}}}}
-
-    monkeypatch.setattr(
-        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
-        _Registry,
-    )
-    result = await account.revoke_trusted_device(
-        "tdv_recoverable",
-        firebase_uid="user-1",
-    )
-    assert result == {"success": True, "device_id": "tdv_recoverable", "podBindingVersion": 7}
+    assert result == {
+        "devices": [{"device_id": "tdv_recoverable", "status": "active"}],
+        "pending_revocations": [],
+    }
 
 
 @pytest.mark.asyncio

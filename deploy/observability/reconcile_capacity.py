@@ -48,6 +48,7 @@ METRICS = (
     "obs_agent_chat_terminal_count",
     "obs_agent_chat_no_answer_count",
     "obs_azure_model_error_count",
+    "obs_azure_release_probe_timeout_count",
 )
 VOICE_METRICS = ("obs_one_voice_latency_ms", "obs_one_voice_client_perf_ms")
 POLICIES = (
@@ -63,6 +64,7 @@ POLICIES = (
     "db-pool-wait-policy",
     "db-pool-timeout-policy",
     "sql-cpu-policy",
+    "azure-release-probe-timeout-policy",
 )
 PROVIDER_POLICIES = ("provider-errors-policy",)
 PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,61}[a-z0-9]$")
@@ -99,6 +101,9 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     _AUTH.validate_arguments(parser, args)
+    args.release_probe_alerts = args.project == "hushh-pda-uat" and not (
+        args.auth_only or args.provider_only or args.voice_only or args.commerce_only
+    )
     if args.commerce_only and args.voice_only:
         parser.error("--commerce-only and --voice-only select different provisioners")
     if args.provider_only and (args.voice_only or args.sql_instance or args.commerce_only or args.include_commerce):
@@ -106,7 +111,7 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
     if not PROJECT_RE.fullmatch(args.project):
         parser.error("--project must be a Google Cloud project ID")
     for key in ("sql_instance", "backend_service", "frontend_service", "dashboard_id"):
-        if key == "sql_instance" and (args.auth_only or args.provider_only or (args.commerce_only and not args.sql_instance)):
+        if key == "sql_instance" and (args.auth_only or args.provider_only or args.release_probe_only or (args.commerce_only and not args.sql_instance)):
             continue
         if not NAME_RE.fullmatch(getattr(args, key)):
             parser.error(f"--{key.replace('_', '-')} must be a resource name")
@@ -117,7 +122,7 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
         re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in args.email
     ):
         parser.error("--email must be an email address")
-    if not args.auth_only and not args.provider_only and not args.commerce_only:
+    if not args.auth_only and not args.provider_only and not args.commerce_only and not args.release_probe_only:
         try:
             _CAPACITY.sql_alert_thresholds(
                 json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
@@ -147,7 +152,7 @@ def run(*command: str, allow_missing: bool = False) -> Any:
 
 def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
     source = path.read_text()
-    thresholds = {} if args.auth_only or args.provider_only or args.commerce_only else _CAPACITY.sql_alert_thresholds(
+    thresholds = {} if args.auth_only or args.provider_only or args.commerce_only or args.release_probe_only else _CAPACITY.sql_alert_thresholds(
         json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()), args.project, args.sql_instance
     )
     substitutions = {
@@ -288,8 +293,22 @@ def reconcile_dashboard(args: argparse.Namespace) -> None:
             write_config(desired_dashboard, command)
 
 
+def selected_resources(args: argparse.Namespace) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    if args.release_probe_only:
+        return ("obs_azure_release_probe_timeout_count",), ("azure-release-probe-timeout-policy",)
+    metrics = _AUTH.METRICS if args.auth_only else () if args.provider_only or args.commerce_only else VOICE_METRICS if args.voice_only else METRICS
+    policies = _AUTH.selected_policies(args) if args.auth_only else ("scope-commerce-policy",) if args.commerce_only else PROVIDER_POLICIES if args.provider_only else POLICIES
+    if not args.release_probe_alerts:
+        metrics = tuple(name for name in metrics if name != "obs_azure_release_probe_timeout_count")
+        policies = tuple(name for name in policies if name != "azure-release-probe-timeout-policy")
+    if args.include_commerce and not args.commerce_only:
+        policies += ("scope-commerce-policy",)
+    return metrics, policies
+
+
 def reconcile(args: argparse.Namespace) -> None:
     project = args.project
+    metric_names, selected_policies = selected_resources(args)
     current_metrics = {} if args.provider_only else {
         item["name"].split("/")[-1]: item
         for item in run(
@@ -302,7 +321,6 @@ def reconcile(args: argparse.Namespace) -> None:
             "--format=json",
         )
     }
-    metric_names = _AUTH.METRICS if args.auth_only else () if args.provider_only or args.commerce_only else VOICE_METRICS if args.voice_only else METRICS
     for name in metric_names:
         desired = render(ROOT / "log-metrics" / f"{name}.json", args)
         current = current_metrics.get(name)
@@ -384,9 +402,6 @@ def reconcile(args: argparse.Namespace) -> None:
     by_name: dict[str, list[dict[str, Any]]] = {}
     for policy in policies:
         by_name.setdefault(policy["displayName"], []).append(policy)
-    selected_policies = _AUTH.selected_policies(args) if args.auth_only else ("scope-commerce-policy",) if args.commerce_only else PROVIDER_POLICIES if args.provider_only else POLICIES
-    if args.include_commerce and not args.commerce_only:
-        selected_policies += ("scope-commerce-policy",)
     for slug in selected_policies:
         desired = render(ROOT / "alerts" / f"{slug}.json.in", args)
         _AUTH.configure_policy(args, slug, desired)
@@ -459,7 +474,7 @@ def reconcile(args: argparse.Namespace) -> None:
                 ]
             write_config(desired, command)
 
-    if not args.auth_only:
+    if not args.auth_only and not args.release_probe_only:
         reconcile_dashboard(args)
 
 
