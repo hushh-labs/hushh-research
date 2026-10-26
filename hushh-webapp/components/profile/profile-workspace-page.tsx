@@ -37,7 +37,7 @@ import { useNativeVoiceProfile } from "./use-native-voice-profile";
 import { NativeSupportComposer } from "./native-support-composer";
 import { projectNativeProfileLegal } from "./profile-native-legal";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
-import { PROFILE_LABELS, useProfileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
+import { PROFILE_LABELS, useProfileMenuGroups, type ProfileMenuActions } from "./use-profile-menu";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
