@@ -8,6 +8,8 @@ import { OneMarketNewsCover } from "@/components/kai/cards/market-news-briefing"
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { SectionLabel } from "@/components/app-ui/typography";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
+import { StockQuoteHeader } from "./stock-quote-header";
+import type { StockQuoteLoader } from "@/lib/services/public-stock-quote";
 
 export type { StockHistoryLoader } from "@/components/kai/charts/stock-history-panel";
 const money = (value: number | null | undefined, compact = false) => typeof value === "number" && Number.isFinite(value)
@@ -17,12 +19,11 @@ const asOf = (value: string | null | undefined) => value && Number.isFinite(Date
   ? new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Unavailable";
 
 /** The shared sheet owns focus/dismissal; this body owns only the selected quote. */
-export function StockDetailContent({ row, facts, loadHistory, news = [] }: {
-  row: KaiHomeRenaissanceItem; facts?: KaiMarketCompanyFacts; loadHistory?: StockHistoryLoader; news?: KaiHomeNewsItem[];
+export function StockDetailContent({ row, facts, loadHistory, loadQuote, news = [] }: {
+  row: KaiHomeRenaissanceItem; facts?: KaiMarketCompanyFacts; loadHistory?: StockHistoryLoader; loadQuote?: StockQuoteLoader; news?: KaiHomeNewsItem[];
 }) {
   const symbol = row.quote_symbol || row.symbol;
   const companyNews = news.filter(item => [row.symbol, row.quote_symbol].some(ticker => ticker && ticker.toUpperCase() === item.symbol.trim().toUpperCase()) && /^https?:\/\//i.test(item.url)).slice(0, 4);
-  const change = row.change_pct;
   const financialFacts = [
     ["Market cap", money(facts?.market_cap ?? row.market_cap, true)],
     ["List tier", row.tier || "Unavailable"],
@@ -33,13 +34,7 @@ export function StockDetailContent({ row, facts, loadHistory, news = [] }: {
     ["Financial period end", facts?.financial_period_end || "Unavailable"],
   ];
   return <div className={cn(styles.detail, "space-y-6")}>
-    <div>
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <p className={styles.value}>{money(row.price)}</p>
-        {typeof change === "number" && Number.isFinite(change) ? <p className={cn("text-base font-semibold tabular-nums", change >= 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>{change >= 0 ? "+" : ""}{change.toFixed(2)}%</p> : null}
-      </div>
-      <p className="mt-2 text-xs leading-[18px] text-muted-foreground">USD · {row.quote_status === "unsupported" ? "Unsupported quote" : `Quoted ${asOf(row.as_of)}`}{row.degraded ? " · Delayed" : ""}</p>
-    </div>
+    <StockQuoteHeader row={row} loadQuote={loadQuote} />
     <StockHistoryPanel symbol={symbol} loadHistory={loadHistory} />
     <section aria-label="Company facts">
       <SectionLabel role="heading" aria-level={3}>Company facts</SectionLabel>

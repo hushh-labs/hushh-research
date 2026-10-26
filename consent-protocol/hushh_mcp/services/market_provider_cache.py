@@ -51,16 +51,22 @@ async def cached_market_provider_read(
         fetcher=fetcher,
         provider_identity=provider_identity,
         session_sensitive=price_sensitive,
+        quote_batch=request.operation == "quotes",
     )
 
 
-def _closed_public_price(key: str, moment: datetime) -> Any:
+def _quote_stale_view(value: Any, reason: str | None, *, batch: bool = False) -> Any:
+    if isinstance(value, dict) and "price" in value:
+        return {**value, "is_stale": True, "stale_reason": reason}
+    if batch and isinstance(value, dict):
+        return {symbol: _quote_stale_view(quote, reason) for symbol, quote in value.items()}
+    return value
+
+
+def _closed_public_price(key: str, moment: datetime, *, quote_batch: bool = False) -> Any:
     saved = market_insights_cache.peek(key)
     if saved and closed_price_snapshot_usable(saved.fetched_at, moment):
-        value = saved.value
-        if isinstance(value, dict) and "price" in value:
-            return {**value, "is_stale": True, "stale_reason": "market_closed"}
-        return value
+        return _quote_stale_view(saved.value, "market_closed", batch=quote_batch)
     raise MarketPriceRefreshPaused("market_closed_no_cached_price")
 
 
@@ -73,6 +79,7 @@ async def cached_public_information(
     fence: float | None = None,
     provider_identity: str = "SEC EDGAR",
     session_sensitive: bool = False,
+    quote_batch: bool = False,
 ) -> Any:
     now = time.time()
     moment = datetime.fromtimestamp(now, tz=timezone.utc)
@@ -104,7 +111,7 @@ async def cached_public_information(
         logger.warning("market_provider_cache_read_failed operation=%s", key)
 
     if closed:
-        return _closed_public_price(key, moment)
+        return _closed_public_price(key, moment, quote_batch=quote_batch)
 
     async def refresh() -> Any:
         requested_at = time.time()
@@ -138,6 +145,5 @@ async def cached_public_information(
         from hushh_mcp.services.market_provider_telemetry import record_provider_degradation
 
         record_provider_degradation(key)
-        if isinstance(result.value, dict) and "price" in result.value:
-            return {**result.value, "is_stale": True, "stale_reason": result.stale_reason}
+        return _quote_stale_view(result.value, result.stale_reason, batch=quote_batch)
     return result.value

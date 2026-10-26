@@ -24,6 +24,7 @@ def isolated_public_provider_cache(monkeypatch):
     monkeypatch.setattr(fetchers.time, "time", lambda: opened_at)
     monkeypatch.setattr(fetchers, "_MARKET_DATA_CACHE", {})
     monkeypatch.setattr(fetchers, "_MARKET_DATA_LOCKS", {})
+    monkeypatch.setattr(fetchers, "_PROVIDER_COOLDOWNS", {})
 
 
 def _valid_token(*_args, **_kwargs):
