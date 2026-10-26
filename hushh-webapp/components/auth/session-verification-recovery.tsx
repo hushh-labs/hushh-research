@@ -45,6 +45,10 @@ export function SessionVerificationRecovery({ onRetry, onSignOut }: {
   const [acceptLocalErasure, setAcceptLocalErasure] = useState(false);
   const epoch = useRef(0);
   const active = useRef<AbortController | null>(null);
+  const cancel = useCallback(() => {
+    ++epoch.current;
+    active.current?.abort();
+  }, []);
 
   const load = useCallback(async (review?: AccountCleanupOperation) => {
     const owner = snapshotValidatedAuthSessionOwner();
@@ -82,8 +86,8 @@ export function SessionVerificationRecovery({ onRetry, onSignOut }: {
   useEffect(() => {
     setOperation(null); setAcceptLocalErasure(false);
     void load();
-    return () => { ++epoch.current; active.current?.abort(); };
-  }, [load]);
+    return cancel;
+  }, [load, cancel]);
 
   const title = !operation ? "Reconnect to continue securely"
     : operation.state === "complete" ? "Your information has been deleted"

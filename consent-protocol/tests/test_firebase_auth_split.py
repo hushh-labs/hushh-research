@@ -238,7 +238,8 @@ def test_account_deletion_tombstone_maps_to_account_not_found(monkeypatch):
     assert exc.value.status_code == 401
     assert exc.value.detail == {
         "code": "AUTH_ACCOUNT_NOT_FOUND",
-        "message": "Account not found",
+        "account_lifecycle": "deleted",
+        "message": "Account information has been deleted",
     }
     assert exc.value.headers == {"Cache-Control": "private, no-store"}
 
@@ -466,7 +467,10 @@ def test_verify_firebase_bearer_certificate_fetch_returns_503(monkeypatch):
         verify_firebase_bearer("Bearer some-token")
 
     assert exc.value.status_code == 503
-    assert "temporarily unavailable" in exc.value.detail.lower()
+    assert exc.value.detail == {
+        "error_code": "AUTH_PROVIDER_UNAVAILABLE",
+        "message": "Authentication service temporarily unavailable",
+    }
 
 
 def test_verify_firebase_bearer_invalid_id_token_returns_401(monkeypatch):

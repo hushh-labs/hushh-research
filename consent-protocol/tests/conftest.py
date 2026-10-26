@@ -409,3 +409,18 @@ def registration_only_provider(tmp_path, monkeypatch):
         finally:
             manifest_module.clear_registration_spec_cache()
     manifest_module.clear_registration_spec_cache()
+
+
+@pytest.fixture
+def legacy_account_without_shared_files(monkeypatch: pytest.MonkeyPatch):
+    """Legacy account SQL inventories contain no provisioned Files resources.
+
+    Real erasure/key fences remain in the dedicated isolated PostgreSQL suite.
+    """
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.account_service import AccountService
+
+    monkeypatch.setattr(
+        AccountService, "_erase_shared_files_if_present", AsyncMock(return_value=None)
+    )

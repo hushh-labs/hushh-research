@@ -4,6 +4,7 @@ import json
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
@@ -12,13 +13,47 @@ from hushh_mcp.services.account_service import (
     TRANSACTIONAL_ACCOUNT_ERASURE_TABLES,
     AccountService,
 )
+from tests.helpers.account_commerce_erasure import (
+    commercial_erasure_port as commercial_erasure_port,
+)
+from tests.helpers.account_commerce_erasure import recording_connection as _db
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-@contextmanager
-def _db(conn):
-    yield conn
+pytestmark = pytest.mark.usefixtures("legacy_account_without_shared_files")
+
+
+async def _finalize_recorded_cleanup(service, monkeypatch, user_id, *, requested_target="both"):
+    """These table-order units begin at the already-qualified journal boundary.
+
+    Real admission, atomic settlement and stale claims are covered by the
+    disposable PostgreSQL erasure suite, not by this recording connection.
+    """
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    claim = journal.ProviderCleanupClaim(
+        user_id, "firebase-identity", str(uuid4()), str(uuid4()), {}, {}, requested_target
+    )
+    monkeypatch.setattr(journal, "is_ready", lambda observed: observed == claim)
+
+    def admit(connection, observed):
+        assert observed == claim
+        AccountDeletionLifecycleService._lock_user_ids_in_transaction(
+            connection, user_ids=(user_id,)
+        )
+
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
+
+    monkeypatch.setattr(journal, "begin_local_erasure", admit)
+    monkeypatch.setattr(journal, "settle_local_erasure", MagicMock())
+    return await service.finalize_provider_cleanup(claim)
+
+
+def _legacy_table_exists(_conn, table):
+    return table != "shared_files_storage"
 
 
 def _assert_wallet_grants_erased_before_sources(conn):
@@ -42,7 +77,7 @@ def test_delete_user_rows_if_table_exists_supports_pkm_data(monkeypatch):
     conn = MagicMock()
     params = {"user_id": "user_123"}
 
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     service._delete_user_rows_if_table_exists(conn, table_name="pkm_data", params=params)
 
@@ -67,7 +102,7 @@ def test_delete_user_rows_if_table_exists_skips_missing_table(monkeypatch):
 def test_delete_user_rows_if_table_exists_rejects_unsupported_table(monkeypatch):
     service = AccountService()
 
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     with pytest.raises(ValueError, match="Unsafe or unsupported cleanup table requested"):
         service._delete_user_rows_if_table_exists(
@@ -152,7 +187,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     @contextmanager
     def _committing_db():
         nonlocal committed
-        yield conn
+        with _db(conn):
+            yield conn
         committed = True
 
     def _capture_viewers(connection, **kwargs):
@@ -175,7 +211,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "hushh_mcp.services.connections_service._notify_connection_graph_changed", _notify
     )
 
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     def _delete_personal_agent_state(_conn, *, params, results):
         for table_name in (
@@ -190,7 +226,9 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     monkeypatch.setattr(service, "_delete_personal_agent_state", _delete_personal_agent_state)
 
     with patch("hushh_mcp.services.account_service.get_db_connection", side_effect=_committing_db):
-        result = await service._delete_full_account(
+        result = await _finalize_recorded_cleanup(
+            service,
+            monkeypatch,
             user_id,
             requested_target="both",
         )
@@ -238,26 +276,28 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     for table in ["circle_chat_messages", "circle_chat_recipients", "circle_chat_preferences"]:
         assert result["details"][table] is True
     assert result["details"]["account_deletion_tombstone"] is True
-    assert result["details"]["firebase_cleanup_intent_count"] == 1
+    assert result["details"]["firebase_cleanup_intent_count"] == 0
 
     _assert_wallet_grants_erased_before_sources(conn)
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
-    assert "INSERT INTO account_deletion_tombstones" in executed_sql
-    assert executed_sql.count("INSERT INTO account_deletion_tombstones") == 1
-    first_insert_offset = next(
+    assert "INSERT INTO account_deletion_tombstones" not in executed_sql
+    first_delete_call = next(
         index
         for index, call in enumerate(conn.execute.call_args_list)
-        if "INSERT INTO account_deletion_tombstones" in str(call.args[0])
+        if "DELETE FROM" in str(call.args[0])
     )
-    pre_insert_sql = "\n".join(
-        str(call.args[0]) for call in conn.execute.call_args_list[:first_insert_offset]
+    initial_calls = conn.execute.call_args_list[:first_delete_call]
+    initial_lock_sql = "\n".join(str(call.args[0]) for call in initial_calls)
+    assert (
+        "LOCK TABLE public.actor_profiles, public.vault_keys IN ROW EXCLUSIVE MODE"
+        in initial_lock_sql
     )
-    assert first_insert_offset == 3
-    assert pre_insert_sql.count("pg_advisory_xact_lock") == 3
-    assert conn.execute.call_args_list[0].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
-    first_delete_offset = executed_sql.index("DELETE FROM")
-    assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
+    assert initial_lock_sql.count("pg_advisory_xact_lock") == 3
+    fabric_lock = next(
+        call for call in initial_calls if "fabric_receipts:user_delete_123" in str(call)
+    )
+    assert fabric_lock.args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
     expected_fragments = [
         "DELETE FROM email_auth_challenges",
         "DELETE FROM email_auth_enrollments",
@@ -461,6 +501,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 def _mapped_result(row):
     result = MagicMock()
     result.mappings.return_value.first.return_value = row
+    result.first.return_value = row
     return result
 
 
@@ -469,7 +510,7 @@ def test_personal_agent_cleanup_blocks_provisioned_registry_and_byoc_without_par
 ):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     conn.execute.side_effect = [
         _mapped_result(
             {
@@ -499,6 +540,7 @@ def test_personal_agent_cleanup_blocks_provisioned_registry_and_byoc_without_par
             }
         ),
         _mapped_result({"present": True}),
+        _mapped_result(None),
         _mapped_result(None),
     ]
 
@@ -544,17 +586,12 @@ def test_personal_agent_cleanup_erases_only_demonstrably_unprovisioned_state(mon
         results=results,
     )
 
-    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
-    lifecycle_delete_index = next(
-        index for index, sql in enumerate(executed_sql) if "DELETE FROM pod_lifecycle_events" in sql
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert executed_sql.index("DELETE FROM pod_lifecycle_events") < executed_sql.index(
+        "DELETE FROM personal_agent_registry"
     )
-    registry_delete_index = next(
-        index
-        for index, sql in enumerate(executed_sql)
-        if "DELETE FROM personal_agent_registry" in sql
-    )
-    assert lifecycle_delete_index < registry_delete_index
-    assert not any("personal_agent_deletion_tombstones" in sql for sql in executed_sql)
+    assert "personal_agent_deletion_tombstones" not in executed_sql
+    assert "personal_agent_cloud_removed" not in executed_sql
     assert all(results.values())
 
 
@@ -605,6 +642,8 @@ def test_personal_agent_cleanup_is_a_noop_when_live_drift_tables_are_absent(monk
         "byoc_setup_jobs": True,
         "pod_lifecycle_events": True,
         "personal_agent_registry": True,
+        "personal_agent_cloud_removals": True,
+        "pod_migration_jobs": True,
         "personal_agent_external_resources_absent": True,
     }
 
@@ -612,10 +651,11 @@ def test_personal_agent_cleanup_is_a_noop_when_live_drift_tables_are_absent(monk
 def test_personal_agent_cleanup_fails_closed_for_orphaned_byoc_job(monkeypatch):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     conn.execute.side_effect = [
         _mapped_result(None),
         _mapped_result({"job": {"job_id": "job-123", "project_id": "project-123"}}),
+        _mapped_result(None),
         _mapped_result(None),
     ]
 
@@ -630,7 +670,8 @@ def test_personal_agent_cleanup_fails_closed_for_orphaned_byoc_job(monkeypatch):
     assert "DELETE FROM" not in executed_sql
 
 
-def test_personal_agent_cleanup_fails_closed_for_orphaned_lifecycle_row(monkeypatch):
+@pytest.mark.parametrize("registry", [None, {"registry": {"status": "unprovisioned"}}])
+def test_personal_agent_cleanup_fails_closed_for_orphaned_lifecycle_row(monkeypatch, registry):
     service = AccountService()
     conn = MagicMock()
     present = {"personal_agent_registry", "pod_lifecycle_events"}
@@ -640,7 +681,7 @@ def test_personal_agent_cleanup_fails_closed_for_orphaned_lifecycle_row(monkeypa
         lambda _conn, table_name: table_name in present,
     )
     conn.execute.side_effect = [
-        _mapped_result(None),
+        _mapped_result(registry),
         _mapped_result({"present": True}),
     ]
 
@@ -660,7 +701,7 @@ def test_personal_agent_cleanup_fails_closed_when_deprovision_is_already_pending
 ):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     conn.execute.side_effect = [
         _mapped_result(
             {
@@ -673,6 +714,7 @@ def test_personal_agent_cleanup_fails_closed_when_deprovision_is_already_pending
         _mapped_result(None),
         _mapped_result(None),
         _mapped_result((True,)),
+        _mapped_result(None),
     ]
 
     with pytest.raises(RuntimeError, match="EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"):
@@ -688,12 +730,14 @@ def test_personal_agent_cleanup_fails_closed_when_deprovision_is_already_pending
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("resource_table", ["personal_agent_registry", "pod_migration_jobs"])
 async def test_full_account_delete_returns_stable_external_resource_block_without_deletes(
     monkeypatch,
+    resource_table,
 ):
     service = AccountService()
     conn = MagicMock()
-    present = {"personal_agent_registry"}
+    present = {resource_table}
     monkeypatch.setattr(
         service,
         "_table_exists",
@@ -715,7 +759,7 @@ async def test_full_account_delete_returns_stable_external_resource_block_withou
     )
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account("user-123", requested_target="both")
+        result = await service._settle_full_account_transaction("user-123", requested_target="both")
 
     assert result["success"] is False
     assert result["account_deleted"] is False
@@ -742,7 +786,8 @@ async def test_full_delete_does_not_report_rollback_or_notification_failure_as_r
 
     @contextmanager
     def transaction():
-        yield conn
+        with _db(conn):
+            yield conn
         if rollback:
             raise RuntimeError("commit failed")
 
@@ -755,7 +800,9 @@ async def test_full_delete_does_not_report_rollback_or_notification_failure_as_r
         "hushh_mcp.services.connections_service._notify_connection_graph_changed",
         failed_notification,
     )
-    result = await service._delete_full_account("departing", requested_target="both")
+    result = await _finalize_recorded_cleanup(
+        service, monkeypatch, "departing", requested_target="both"
+    )
     assert result["success"] is not rollback
     assert result["account_deleted"] is not rollback
     assert notifications == ([] if rollback else [{"peer"}])
@@ -815,7 +862,7 @@ def test_one_referral_cleanup_fails_closed_on_partial_migration_shape(monkeypatc
 def test_one_referral_cleanup_removes_cross_account_links_before_attribution(monkeypatch):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     results: dict[str, bool] = {}
 
     service._delete_one_referral_graph(
@@ -844,7 +891,7 @@ def test_one_referral_cleanup_removes_cross_account_links_before_attribution(mon
 async def test_ria_persona_delete_removes_restricting_legacy_retirement_first(monkeypatch):
     service = AccountService()
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
         result = await service._delete_ria_persona(
@@ -908,7 +955,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     conn = MagicMock()
     user_id = "user_reset_123"
 
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
         result = await service.reset_account(user_id)
@@ -995,6 +1042,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
 
     # The account spine survives a reset: no DELETE touches identity or vault.
     spine_fragments = [
+        "DELETE FROM pod_migration_jobs",
+        "DELETE FROM webauthn_credentials",
         "DELETE FROM actor_profiles",
         "DELETE FROM actor_identity_cache",
         "DELETE FROM actor_verified_email_aliases",
@@ -1053,7 +1102,7 @@ def test_owned_circle_cleanup_preserves_relationship_order(monkeypatch):
         return MagicMock()
 
     conn.execute.side_effect = execute
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
 
     with (
         patch(
@@ -1186,7 +1235,7 @@ def _owned_circle_conn(monkeypatch, service, *, circle_rows):
         return MagicMock()
 
     conn.execute.side_effect = execute
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
     monkeypatch.setattr(
         "hushh_mcp.services.one_location_circle_service."
@@ -1324,7 +1373,7 @@ def test_owned_circle_cleanup_handles_owner_with_no_circles(monkeypatch):
 async def test_full_account_deletion_demotes_system_circle_before_deleting_it(monkeypatch):
     """End-to-end reproduction of the DELETE /api/account/delete regression."""
     service = AccountService()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
 
     def _skip_personal_agent_state(_conn, *, params, results):
@@ -1347,8 +1396,8 @@ async def test_full_account_deletion_demotes_system_circle_before_deleting_it(mo
     )
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account(
-            "user_with_system_circle", requested_target="both"
+        result = await _finalize_recorded_cleanup(
+            service, monkeypatch, "user_with_system_circle", requested_target="both"
         )
 
     assert result["success"] is True
@@ -1371,7 +1420,7 @@ async def test_full_account_deletion_demotes_system_circle_before_deleting_it(mo
 async def test_reset_account_demotes_system_circle_before_deleting_it(monkeypatch):
     """End-to-end reproduction of the POST /api/account/reset regression."""
     service = AccountService()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
 
     conn = _owned_circle_conn(
@@ -1398,6 +1447,8 @@ async def test_reset_account_demotes_system_circle_before_deleting_it(monkeypatc
     assert demote_index < delete_index
     # Reset keeps sign-in: the identity/vault spine is never deleted.
     spine_fragments = [
+        "DELETE FROM pod_migration_jobs",
+        "DELETE FROM webauthn_credentials",
         "DELETE FROM actor_profiles",
         "DELETE FROM vault_keys",
         "DELETE FROM vault_key_wrappers",
@@ -1409,7 +1460,7 @@ async def test_reset_account_demotes_system_circle_before_deleting_it(monkeypatc
 
 def _erasure_ready_service(monkeypatch):
     service = AccountService()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
     monkeypatch.setattr(
         service,
@@ -1422,34 +1473,70 @@ def _erasure_ready_service(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_provider_grants_are_released_only_after_the_erasure_commits(monkeypatch):
-    service = _erasure_ready_service(monkeypatch)
-    events: list[str] = []
+@pytest.mark.parametrize("outcome", ["prepared", "cloud_review", "database_failure"])
+async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+        PreparedProviderCleanup,
+    )
+    from hushh_mcp.services.account_service import PersonalAgentDeprovisioningRequiredError
+
+    service = AccountService()
+    events = []
+    connection = MagicMock()
+    # This unit covers preparation outcomes on the legacy generation-zero
+    # schema. The real SQL suite owns generation binding and retirement.
+    table_exists = service._table_exists
+    monkeypatch.setattr(
+        service,
+        "_table_exists",
+        lambda conn, name: False if name == "account_generations" else table_exists(conn, name),
+    )
 
     @contextmanager
-    def committing_db():
-        yield MagicMock()
+    def transaction():
+        with _db(connection):
+            yield connection
         events.append("committed")
 
-    async def release(snapshot):
-        events.append("released")
-        assert snapshot.user_id == "user_delete_123"
-        return {"status": "attempted", "google_connection": ["revoked"]}
-
+    prepared = PreparedProviderCleanup(str(uuid4()), "cleaning_up", 2)
+    prepare = MagicMock(return_value=prepared)
+    if outcome == "cloud_review":
+        prepare.side_effect = PersonalAgentDeprovisioningRequiredError("review")
+    elif outcome == "database_failure":
+        prepare.side_effect = RuntimeError("synthetic failure")
+    monkeypatch.setattr(
+        AccountDeletionLifecycleService, "prepare_provider_cleanup_in_transaction", prepare
+    )
+    monkeypatch.setattr("hushh_mcp.services.account_service.get_db_connection", transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.guard_answer_erasure", lambda *args, **kwargs: None
+    )
+    release = AsyncMock()
     monkeypatch.setattr(
         "hushh_mcp.services.account_service.release_provider_grants_after_erasure", release
     )
-    with patch(
-        "hushh_mcp.services.account_service.get_db_connection", return_value=committing_db()
-    ):
-        result = await service._delete_full_account("user_delete_123", requested_target="both")
-
-    assert result["success"] is True
-    assert events == ["committed", "released"]
-    assert result["details"]["provider_grant_release"] == {
-        "status": "attempted",
-        "google_connection": ["revoked"],
-    }
+    erasure = AsyncMock()
+    monkeypatch.setattr(service, "_settle_full_account_transaction", erasure)
+    result = await service._delete_full_account("owner-one", requested_target="investor")
+    prepare.assert_called_once()
+    assert prepare.call_args.kwargs["user_id"] == "owner-one"
+    assert prepare.call_args.kwargs["firebase_uid"] == "owner-one"
+    assert prepare.call_args.kwargs["requested_target"] == "investor"
+    if outcome == "prepared":
+        assert events == ["committed"]
+        assert result["cleanup_pending"] is True
+        assert result["cleanup_operation"]["id"] == prepared.cleanup_id
+    else:
+        assert result["error_code"] == (
+            PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
+            if outcome == "cloud_review"
+            else "ACCOUNT_DELETION_CLEANUP_UNAVAILABLE"
+        )
+    assert result["account_deleted"] is False
+    erasure.assert_not_awaited()
+    release.assert_not_awaited()
+    assert not any("DELETE FROM" in str(call.args[0]) for call in connection.execute.call_args_list)
 
 
 @pytest.mark.asyncio
@@ -1534,7 +1621,7 @@ async def test_uat_backend_erasure_preserves_external_authorities(monkeypatch):
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
         wrong_database = await service.erase_uat_backend_account("user_delete_123")
     assert wrong_database["success"] is False
-    assert conn.execute.call_count == 1
+    assert conn.execute.call_count == 2
     pending.assert_not_called()
     snapshot.assert_not_called()
     release.assert_not_awaited()
@@ -1607,7 +1694,9 @@ async def test_private_mcp_and_parent_scoped_rows_are_erased(monkeypatch):
     )
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account("user_delete_123", requested_target="both")
+        result = await _finalize_recorded_cleanup(
+            service, monkeypatch, "user_delete_123", requested_target="both"
+        )
 
     executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
     # Connector erasure owns private MCP registrations; they go only after the
@@ -1645,7 +1734,10 @@ class _FakePostgresError(Exception):
             "account deletion is temporarily unavailable during a lifecycle release",
             "ACCOUNT_DELETION_PAUSED",
         ),
-        ("generated account identity columns require an explicit deletion guard", None),
+        (
+            "generated account identity columns require an explicit deletion guard",
+            "ACCOUNT_DELETION_CLEANUP_UNAVAILABLE",
+        ),
     ],
 )
 async def test_release_fence_refusal_is_reported_as_paused(monkeypatch, message, expected_code):
@@ -1677,14 +1769,17 @@ def test_account_reset_erases_pending_connector_reviews_and_hosted_memory_intent
         service._delete_by_user_queries["live_memory_hosted_source_envelopes"]
     )
     conn = MagicMock()
-    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_table_exists", _legacy_table_exists)
     monkeypatch.setattr(service, "_clear_external_connector_data", lambda *_args, **_kwargs: None)
     results: dict[str, bool] = {}
     service._clear_user_data_tables(conn, "user_123", results)
     executed = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
     assert "DELETE FROM one_mcp_pending_calls" in executed
+    assert "DELETE FROM one_private_text_processing_approvals" in executed
+    assert "DELETE FROM actor_profiles" not in executed
     assert "DELETE FROM live_memory_hosted_pilot_grants" in executed
     assert "DELETE FROM live_memory_hosted_source_envelopes" in executed
     assert results.get("one_mcp_pending_calls") is True
+    assert results.get("one_private_text_processing_approvals") is True
     assert results.get("live_memory_hosted_pilot_grants") is True
     assert results.get("live_memory_hosted_source_envelopes") is True

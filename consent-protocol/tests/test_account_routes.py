@@ -781,6 +781,7 @@ def test_phone_session_cleanup_never_tombstones_an_existing_phone_only_account(m
         email = None
         provider_data = [_Provider()]
 
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
     monkeypatch.setattr(firebase_auth, "get_user", lambda *_args, **_kwargs: _User())
     monkeypatch.setattr(
         AccountDeletionLifecycleService,
@@ -1624,135 +1625,37 @@ def test_lost_vault_delete_accepts_matching_fresh_phone_and_reports_pending_iden
     assert response.json()["details"]["firebase_auth_user"] == "quarantined"
 
 
-def test_delete_firebase_auth_user_retries_once_before_success(monkeypatch):
-    from firebase_admin import auth as firebase_auth
-
-    delete_calls: list[tuple[str, object]] = []
-    sleep_calls: list[float] = []
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
-    firebase_app = SimpleNamespace(project_id="hushh-pda")
-
-    def _mock_delete_user(user_id: str, *, app: object):
-        delete_calls.append((user_id, app))
-        if len(delete_calls) == 1:
-            raise RuntimeError("temporary Firebase outage")
-
-    async def _mock_sleep(delay: float):
-        sleep_calls.append(delay)
-
-    monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", lambda: firebase_app)
-    monkeypatch.setattr(firebase_auth, "delete_user", _mock_delete_user)
-    monkeypatch.setattr(lifecycle_module.asyncio, "sleep", _mock_sleep)
-    monkeypatch.setattr(
-        AccountDeletionLifecycleService,
-        "record_cleanup_outcome",
-        lambda _self, **_kwargs: True,
-    )
-
-    status = asyncio.run(account._delete_firebase_auth_user("user_123"))
-
-    assert status == "deleted"
-    assert delete_calls == [("user_123", firebase_app), ("user_123", firebase_app)]
-    assert sleep_calls == [lifecycle_module._FIREBASE_DELETE_RETRY_DELAY_SECONDS]
-
-
-@pytest.mark.parametrize("setup_recovers", [True, False])
-def test_delete_firebase_setup_failure_settles_cleanup_intent(monkeypatch, setup_recovers):
+@pytest.mark.parametrize(
+    "environment,project",
+    [("production", "hushh-pda"), ("uat", "hushh-pda-uat"), ("uat", "hushh-pda")],
+)
+def test_full_account_cleanup_retains_uid_without_sdk_initialization_or_mutation(
+    monkeypatch, environment, project
+):
     from unittest.mock import MagicMock
 
     from firebase_admin import auth as firebase_auth
 
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
-    firebase_app = SimpleNamespace(project_id="hushh-pda")
-    setup_calls = []
-    outcomes = []
-
-    def initialize():
-        setup_calls.append(True)
-        if not setup_recovers or len(setup_calls) == 1:
-            raise ValueError("private credential setup detail")
-        return firebase_app
-
-    async def no_sleep(_delay):
-        return None
-
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod" if environment == "production" else "uat")
+    initialize = MagicMock(side_effect=RuntimeError("provider unavailable"))
     delete, disable, revoke = MagicMock(), MagicMock(), MagicMock()
     monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", initialize)
-    monkeypatch.setattr(lifecycle_module.asyncio, "sleep", no_sleep)
     monkeypatch.setattr(firebase_auth, "delete_user", delete)
     monkeypatch.setattr(firebase_auth, "update_user", disable)
     monkeypatch.setattr(firebase_auth, "revoke_refresh_tokens", revoke)
+    outcomes = []
     monkeypatch.setattr(
         AccountDeletionLifecycleService,
         "record_cleanup_outcome",
         lambda _self, **kwargs: outcomes.append(kwargs["attempt"]) or True,
     )
-
-    status = asyncio.run(account._delete_firebase_auth_user("user_123"))
-
-    assert len(outcomes) == 1
-    assert outcomes[0].outcome == status
-    if setup_recovers:
-        assert status == "deleted"
-        delete.assert_called_once_with("user_123", app=firebase_app)
-    else:
-        assert status == "quarantine_incomplete"
-        assert outcomes[0].failure_class == "ValueError"
-        delete.assert_not_called()
+    assert asyncio.run(account._delete_firebase_auth_user("user_123")) == "identity_retained"
+    assert len(outcomes) == 1 and outcomes[0].classification == "firebase_shared_identity_retained"
+    initialize.assert_not_called()
+    delete.assert_not_called()
     disable.assert_not_called()
     revoke.assert_not_called()
-
-
-def test_delete_firebase_auth_user_quarantines_after_bounded_failures(monkeypatch):
-    from firebase_admin import auth as firebase_auth
-
-    delete_calls: list[str] = []
-    disabled_users: list[str] = []
-    revoked_users: list[str] = []
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "prod")
-    firebase_app = SimpleNamespace(project_id="hushh-pda")
-
-    def _mock_delete_user(user_id: str, *, app: object):
-        assert app is firebase_app
-        delete_calls.append(user_id)
-        raise RuntimeError("persistent Firebase delete outage")
-
-    def _mock_update_user(user_id: str, *, disabled: bool, app: object):
-        assert disabled is True
-        assert app is firebase_app
-        disabled_users.append(user_id)
-
-    def _mock_revoke_refresh_tokens(user_id: str, *, app: object):
-        assert app is firebase_app
-        revoked_users.append(user_id)
-
-    async def _mock_sleep(_delay: float):
-        return None
-
-    monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", lambda: firebase_app)
-    monkeypatch.setattr(firebase_auth, "delete_user", _mock_delete_user)
-    monkeypatch.setattr(firebase_auth, "update_user", _mock_update_user)
-    monkeypatch.setattr(
-        firebase_auth,
-        "revoke_refresh_tokens",
-        _mock_revoke_refresh_tokens,
-    )
-    monkeypatch.setattr(lifecycle_module.asyncio, "sleep", _mock_sleep)
-    monkeypatch.setattr(
-        AccountDeletionLifecycleService,
-        "record_cleanup_outcome",
-        lambda _self, **_kwargs: True,
-    )
-
-    status = asyncio.run(account._delete_firebase_auth_user("user_123"))
-
-    assert status == "quarantined"
-    assert delete_calls == ["user_123", "user_123"]
-    assert disabled_users == ["user_123"]
-    assert revoked_users == ["user_123"]
 
 
 def test_delete_account_defaults_target_to_both(monkeypatch):
