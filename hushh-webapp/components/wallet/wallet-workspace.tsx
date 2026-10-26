@@ -370,7 +370,7 @@ export function WalletWorkspace() {
     context: NonNullable<ReturnType<typeof vaultContext>>;
   } | null>(null);
   useEffect(() => {
-    removalRef.current = null; setPendingRemoval(null); setRemoveTarget(null);
+    removalRef.current = null; setPendingRemoval(null);
     return () => {
       if (removalRef.current?.toastId !== undefined) morphyToast.dismiss(removalRef.current.toastId);
       removalRef.current = null;
@@ -610,7 +610,7 @@ export function WalletWorkspace() {
   vaultContextRef.current = vaultContext;
   useEffect(() => {
     setRemoveTarget(null);
-  }, [renderedOwnerId, vaultKey]);
+  }, [renderedOwnerId, vaultKey, vaultEpoch, authBlocked]);
 
   const refresh = useCallback(
     async (options?: { quiet?: boolean }) => {
