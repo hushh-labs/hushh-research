@@ -30,7 +30,7 @@ function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export function WalletSharing({ cardDetails = false, active = true, getHistoryContext }: { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null } = {}) {
+export function WalletSharing({ cardDetails = false, active = true, getHistoryContext, receivedHistory = true }: { cards?: WalletCardSummary[]; cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean; getHistoryContext?: (cardId: string) => CardShareContext | null; receivedHistory?: boolean } = {}) {
   const { user } = useAuth();
   const { vaultKey } = useVault();
   const actions = useConsentActions({ userId: user?.uid });
@@ -149,10 +149,10 @@ export function WalletSharing({ cardDetails = false, active = true, getHistoryCo
 
   return <div className={`${styles.content} ${presentationStyles.walletSurface} mx-auto w-full max-w-[820px] space-y-6 pb-4`} data-testid="wallet-sharing-content">
     {cardDetails ? <p className="text-xs text-muted-foreground">These recipients have Wallet-wide access, including this card.</p> : null}
-    {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Shared with", current.grants, true)}
+    {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Wallet-wide access", current.grants, true)}
     {!cardDetails && owner && getHistoryContext ? <>
       <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} />
-      <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} direction="received" />
+      {receivedHistory ? <WalletSharingHistory ownerId={owner} active={active} getContext={getHistoryContext} direction="received" /> : null}
     </> : null}
     <Dialog modal open={Boolean(selection && current && !current.error)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
       <DialogContent className={`${presentationStyles.walletDialog} max-h-[85dvh] overflow-y-auto sm:max-w-[420px]`} onCloseAutoFocus={event => { event.preventDefault(); reviewTrigger.current?.focus({ preventScroll: true }); }}>

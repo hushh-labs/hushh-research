@@ -9,7 +9,7 @@ type WalletFixture = {
 export async function openWalletSharingReview(page: Page, width: number, fixture: WalletFixture) {
   const errors = await fixture.open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true });
   await fixture.mount(page);
-  await page.getByRole("tab", { name: "Sharing", exact: true }).click();
+  await page.getByRole("button", { name: "Wallet access", exact: true }).click();
   const sharing = page.getByTestId("wallet-sharing-content");
   const history = sharing.getByRole("region", { name: "Card sharing history", exact: true });
   await history.getByRole("button", { name: "View Everyday •••• 4242 shared with Sample recipient", exact: true }).click();

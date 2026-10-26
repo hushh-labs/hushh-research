@@ -31,6 +31,8 @@ import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent }
 import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 
+import type { WalletCardPresentation, WalletArtworkRejection } from "@/lib/wallet/wallet-presentation-state";
+
 export const WALLET_DOMAIN = "wallet";
 
 export interface WalletCardSummary {
@@ -69,13 +71,13 @@ class WalletNetworkSessionChangedError extends Error {}
 const exactArtworkProofs = new WeakMap<WalletArtworkVariant, { userId: string; token: string; epoch: number; catalogVersion: string }>();
 
 /** One bounded operation on web and native; late completions lose authority. */
-async function artworkDeadline<T>(signal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+async function artworkDeadline<T>(signal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>, timeoutMs = 8000): Promise<T> {
   const controller = new AbortController();
   const cancel = () => controller.abort();
   if (signal?.aborted) cancel(); else signal?.addEventListener("abort", cancel, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => { controller.abort(); reject(new Error("Artwork unavailable.")); }, 8000);
+    timer = setTimeout(() => { controller.abort(); reject(new Error("Artwork unavailable.")); }, timeoutMs);
   });
   try { return await Promise.race([run(controller.signal), timeout]); }
   finally { clearTimeout(timer); signal?.removeEventListener("abort", cancel); controller.abort(); }
@@ -116,13 +118,7 @@ export interface WalletCardShareReceipt {
   recipientName: string; sentAt: string;
 }
 
-/** Owner-only display projection. Never pass this to agent/chat summary callers. */
-export interface WalletCardPresentation {
-  summary: WalletCardSummary;
-  cardholderName: string;
-  artwork?: WalletCardArtwork;
-}
-export interface WalletArtworkRejection { cardId: string; assetId: string; digest: string }
+export type { WalletCardPresentation, WalletArtworkRejection } from "@/lib/wallet/wallet-presentation-state";
 
 interface VaultContextParams {
   userId: string;
@@ -273,7 +269,7 @@ export class WalletService {
   }
 
   /** Approved network illustrations only; no bank inference or card identity on wire. */
-  static async networkArtwork(context: WalletNetworkContext, network: CardBrand, signal?: AbortSignal): Promise<{ catalogVersion: string; variants: WalletArtworkVariant[] }> {
+  static async networkArtwork(context: WalletNetworkContext, network: CardBrand, signal?: AbortSignal, timeoutMs = 8000): Promise<{ catalogVersion: string; variants: WalletArtworkVariant[] }> {
     if (network === "other") return { catalogVersion: "empty", variants: [] };
     return artworkDeadline(signal, async bounded => {
       const variants: WalletArtworkVariant[] = [];
@@ -287,7 +283,7 @@ export class WalletService {
         offset = page.nextOffset;
       }
       return { catalogVersion, variants };
-    });
+    }, timeoutMs);
   }
 
   static async resolveCardArtwork(context: WalletNetworkContext, input: WalletNetworkInput, signal?: AbortSignal): Promise<WalletArtworkResolution> {
@@ -442,7 +438,7 @@ export class WalletService {
   /** One decrypted read for the unlocked owner UI; credentials never leave this service. */
   static async listCardPresentations(
     params: VaultContextParams,
-    options?: { recoverArtwork?: boolean; failOnArtworkUnavailable?: boolean; onArtworkRejected?: (references: readonly WalletArtworkRejection[]) => void },
+    options?: { onCardsLoaded?: (rows: WalletCardPresentation[]) => void; recoverArtwork?: boolean; failOnArtworkUnavailable?: boolean; onArtworkRejected?: (references: readonly WalletArtworkRejection[]) => void },
   ): Promise<WalletCardPresentation[]> {
     const assertCurrent = networkSessionGuard(params); assertCurrent();
     const data = await this.loadDomain(params);
@@ -465,6 +461,9 @@ export class WalletService {
     }) : [];
     const savedReferences = catalogCards.map(row => row.artwork as Extract<WalletCardArtwork, { source: "catalog" }>);
     catalogCards.forEach(row => { row.artwork = { source: "neutral", version: 1 }; });
+    assertCurrent();
+    // Masked card details can paint while cosmetic approval is still pending.
+    options?.onCardsLoaded?.(presentations.map(row => ({ ...row })));
     if (catalogCards.length || recoverable.length) await artworkDeadline(undefined, async signal => {
       const assertDisplayCurrent = networkSessionGuard(params, signal);
       const downloads = new Set<Promise<void>>();
@@ -518,7 +517,7 @@ export class WalletService {
         while (nextNetwork < networks.length) {
           const network = networks[nextNetwork++]!;
           try {
-            const catalog = await this.networkArtwork(params, network, signal);
+            const catalog = await this.networkArtwork(params, network, signal, 30_000);
             const unavailable = new Set<string>();
             const images = new Map<string, Promise<Extract<WalletCardArtwork, { source: "catalog" }>>>();
             const reserved = new Map<string, number>();
@@ -564,7 +563,7 @@ export class WalletService {
           finally { signal.removeEventListener("abort", cancel); }
         }));
       }
-    }).catch(error => { assertCurrent(); if (options?.failOnArtworkUnavailable) throw error; });
+    }, 30_000).catch(error => { assertCurrent(); if (options?.failOnArtworkUnavailable) throw error; });
     assertCurrent();
     return presentations;
   }

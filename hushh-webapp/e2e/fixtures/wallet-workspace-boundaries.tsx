@@ -30,6 +30,8 @@ type Scenario = {
   networkCards?: boolean;
   locked?: boolean;
   delayMs?: number;
+  sharingStateDelayMs?: number;
+  saveDelayMs?: number;
   error?: boolean;
   profile?: WalletCardPayload;
   artworkGallery?: boolean;
@@ -120,7 +122,7 @@ export class WalletService {
     nickname: string; brand?: string; pan: string; cardholderName: string;
     cvv: string; pin?: string; expiryMonth: number; expiryYear: number; issuingRegion?: string;
   } }) {
-    await wait();
+    await new Promise(resolve => window.setTimeout(resolve, scenario().saveDelayMs ?? scenario().delayMs ?? 0));
     record("add");
     const saved: FixtureCard = {
       ...card,
@@ -206,6 +208,8 @@ const user = { uid: "fixture-owner", displayName: "Alex Rivera", metadata: { cre
 export const useEffectiveAvatarUrl = () => null;
 export const useReferralStream = () => ({ connected: true });
 export const useAuth = () => { publishValidatedAuthSessionOwner(user.uid); return { user, loading: false }; };
+// Layout proof must never start real provider authentication.
+export const AuthService = { reauthenticateIdentity: async () => { throw new Error("Identity verification is outside the layout fixture."); } };
 export const useVault = () => ({
   vaultKey: scenario().locked ? null : "fixture-vault-key",
   isVaultUnlocked: !scenario().locked,
@@ -255,6 +259,7 @@ let referralQrRotated = false;
 export const ApiService = {
   getDirectBackendUrl: () => "",
   apiFetch: async (requestPath: string, options?: { method?: string; body?: string }) => {
+    if (requestPath.startsWith("/api/one/wallet/card-access/cards/") && (!options?.method || options.method === "GET")) await new Promise(resolve => window.setTimeout(resolve, scenario().sharingStateDelayMs ?? 0));
     if (scenario().cardRequest && requestPath.startsWith("/api/one/wallet/card-access/requests/")) {
       return new Response(JSON.stringify({ id: "33333333-3333-4333-8333-333333333333", status: "pending", role: "owner", requesterPersonRef: "11111111-1111-4111-8111-111111111111", requesterName: "Test Recipient", ownerName: "Alex Rivera", createdAt: "2026-10-16T00:00:00Z", expiresAt: "2026-10-23T00:00:00Z" }), { headers: { "content-type": "application/json" } });
     }

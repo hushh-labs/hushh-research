@@ -95,3 +95,18 @@
 .cropHandle span { width: 18px; height: 18px; border: 3px solid white; border-radius: 50%; background: var(--app-accent); box-shadow: 0 1px 5px #0008; }
 .cropHandle:focus-visible { outline: 2px solid var(--app-accent); border-radius: 50%; }
 .cropHandle:active { cursor: grabbing; }
+
+.sheetForm { border:0; padding:0; border-radius:0; background:transparent; box-shadow:none; gap:20px; }
+.sheetPreview { max-width:260px; }
+.sheetForm .fields { gap:18px; }
+.sheetForm .row:first-child { grid-template-columns:1fr; }
+.sheetForm .row:last-child { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.sheetForm .field label { font-size:13px; line-height:20px; }
+.sheetForm .fieldIcon { display:none; }
+.sheetForm .scanHint { font-size:12px; }
+.sheetActions { width:100%; max-width:none; padding:0; }
+.sheetActions>div:first-child { gap:12px; }
+.sheetActions [data-action-priority="primary"] { flex:2; max-width:none; }
+.sheetActions [data-action-priority="secondary"] { flex:1; max-width:100px; }
+.sheetActions [data-action-priority="primary"] button { font-size:14px; line-height:20px; }
+@container wallet-form (min-width:460px) { .sheetActions { padding:0; } }

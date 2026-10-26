@@ -16,8 +16,8 @@ import styles from "./secure-card-add-form.module.css";
 import presentationStyles from "./wallet-connect-presentation.module.css";
 
 /** Raw capture exists only in this mounted owner surface and is released on exit. */
-export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, onRead, onBusyChange }: {
-  active: boolean; disabled: boolean; backRoute?: string; featured?: boolean; showPhotoActions?: boolean;
+export function WalletCardScanner({ active, disabled, backRoute, featured = false, showPhotoActions = true, compactControls = false, onRead, onBusyChange }: {
+  active: boolean; disabled: boolean; backRoute?: string; featured?: boolean; showPhotoActions?: boolean; compactControls?: boolean;
   onRead: (draft: CardScanDraft) => void; onBusyChange: (busy: boolean) => void;
 }) {
   const camera = useRef<HTMLInputElement>(null), gallery = useRef<HTMLInputElement>(null);
@@ -96,7 +96,7 @@ export function WalletCardScanner({ active, disabled, backRoute, featured = fals
         <span className={styles.scanAffordance} aria-hidden="true"><ProfilePaneScanIcon />Scan to add card</span>
       </button></div> : null}
       {showPhotoActions || featured ? <div className={styles.scanActions}>
-        {showPhotoActions ? <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={disabled || busy || !active} onClick={() => choose("camera")}>Take photo</Button> : null}
+        {showPhotoActions ? <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={disabled || busy || !active} onClick={() => choose("camera")}>{compactControls ? "Scan card" : "Take photo"}</Button> : null}
         <Button type="button" variant="ghost" size="compact" className={presentationStyles.quietAction} disabled={disabled || busy || !active} onClick={() => choose("photos")}>Choose from photos</Button>
       </div> : null}
     </> : <section aria-label="Crop card photo" className="flex flex-col gap-3">

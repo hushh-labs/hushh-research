@@ -6,6 +6,7 @@ vi.mock("@/lib/services/wallet-card-access-service", async (importOriginal) => (
 }));
 import { CardAccessUnavailableError } from "@/lib/services/wallet-card-access-service";
 vi.mock("@/components/wallet/wallet-saved-card-sharing", () => ({ WalletSavedCardSharing: ({ card }: { card: { cardId: string } }) => <button>Share {card.cardId}</button> }));
+vi.mock("@/components/wallet/wallet-card-access-message", () => ({ WalletCardAccessMessage: ({ grantId, openRequest }: { grantId: string; openRequest: number }) => <div data-testid="protected-recipient-viewer">{grantId}:{openRequest}</div> }));
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { promise: vi.fn() } }));
 import { WalletSharingHistory } from "@/components/wallet/wallet-sharing-history";
@@ -21,6 +22,37 @@ beforeEach(() => {
   mocks.history.mockResolvedValue(page(["First"])); mocks.revoke.mockResolvedValue({ revoked: true });
 });
 describe("Wallet's participant-scoped sharing ledger", () => {
+  it("does not cancel a slow received read on focus or polling and skips outgoing eligibility", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: ReturnType<typeof page>) => void;
+    mocks.history.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received" />);
+    const signal = mocks.history.mock.calls[0]![2] as AbortSignal;
+    await act(async () => { window.dispatchEvent(new Event("focus")); await vi.advanceTimersByTimeAsync(60_000); });
+    expect(mocks.history).toHaveBeenCalledTimes(1);
+    expect(signal.aborted).toBe(false);
+    expect(mocks.profile).not.toHaveBeenCalled();
+    await act(async () => finish(page(["First"])));
+    expect(screen.getByText("Owner")).toBeVisible();
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+  it("keeps the recipient verification owner mounted when history is hidden, and retires it with the vault session", async () => {
+    render(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received" presentation="cards" />);
+    fireEvent.click(await screen.findByRole("button", { name: "View VISA •••• 4242 from Owner" }));
+    expect(mocks.revoke).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "View card", exact: true }));
+    const viewer = await screen.findByTestId("protected-recipient-viewer");
+    expect(viewer).toHaveTextContent("First:1");
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    fireEvent(document, new Event("visibilitychange"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("protected-recipient-viewer")).toBe(viewer);
+    act(() => advanceVaultSessionEpoch());
+    expect(screen.queryByTestId("protected-recipient-viewer")).toBeNull();
+    visibility.mockRestore();
+  });
   it("preloads inactive history, retains pages across tabs, and discards late replies on session invalidation", async () => {
     mocks.history.mockResolvedValueOnce(page(["First"], "payment:cursor")).mockResolvedValueOnce(page(["Second"]));
     const view = render(<WalletSharingHistory ownerId="owner" active={false} getContext={getContext} />);
