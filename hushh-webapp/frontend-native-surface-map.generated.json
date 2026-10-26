@@ -9356,7 +9356,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.people.person_profile",
-          "purpose": "Review a person, request information, browse permitted document packets, and manage existing access.",
+          "purpose": "Review a person, view financial documents, request information, and manage existing access.",
           "screen": "one_person_profile",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -9366,8 +9366,7 @@
             "people.profile.review_information_request",
             "people.profile.cancel_connection_request",
             "people.profile.remove_connection",
-            "people.profile.manage_consent",
-            "people.profile.browse_packets"
+            "people.profile.manage_consent"
           ],
           "required_inputs": [],
           "recoveries": {
@@ -9407,8 +9406,6 @@
       },
       "voice_action_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
       "voice_action_contract_ids": [
-        "people.profile.browse_financial_summaries",
-        "people.profile.browse_packets",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
         "people.profile.manage_consent",
@@ -11002,5 +10999,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "576c59ca41cff44f4a4bb3ab51c4f0388ffbf62789d063277c931620205556fa"
+  "content_sha256": "2889fc45649c687a2fe5ea092570384d3a54643621f67d62f5c6ac41ac13cb3c"
 }

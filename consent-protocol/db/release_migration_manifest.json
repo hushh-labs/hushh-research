@@ -363,7 +363,9 @@
     "424_protected_one_document_delivery.sql",
     "425_account_phone_transfers.sql",
     "426_financial_search_incomplete_reason.sql",
-    "427_workos_generation_memberships.sql"
+    "427_workos_generation_memberships.sql",
+    "428_financial_summary_owner_preference.sql",
+    "429_drive_empty_sale_finalization.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -771,6 +773,8 @@
     "424_protected_one_document_delivery.sql": "rollback/424_protected_one_document_delivery.rollback.sql",
     "425_account_phone_transfers.sql": "rollback/425_account_phone_transfers.rollback.sql",
     "426_financial_search_incomplete_reason.sql": "rollback/426_financial_search_incomplete_reason.rollback.sql",
-    "427_workos_generation_memberships.sql": "rollback/427_workos_generation_memberships.rollback.sql"
+    "427_workos_generation_memberships.sql": "rollback/427_workos_generation_memberships.rollback.sql",
+    "428_financial_summary_owner_preference.sql": "rollback/428_financial_summary_owner_preference.rollback.sql",
+    "429_drive_empty_sale_finalization.sql": "rollback/429_drive_empty_sale_finalization.rollback.sql"
   }
 }

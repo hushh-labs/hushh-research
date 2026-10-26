@@ -64,6 +64,36 @@ async function closePage(page: HTMLElement) {
 const JARGON = /coverage|private agent|evidence|assessment|importance|verified|inventory/i;
 
 describe("a seller's packets, as a buyer sees them", () => {
+  it.each([7, null] as const)("uses frozen membership %s without advertising the live discovery count", async (saleDocumentCount) => {
+    const period = { ...base, packetId: id(4), kind: "provider_discovery", category: "financial", version: 1,
+      title: "Financial documents", documentCount: 51, saleDocumentCount, canRequest: saleDocumentCount !== null,
+      periodStart: "2026-07-01", periodEnd: "2026-08-31", timezone: "UTC", requestId: null, purchaseState: "none" };
+    state.packets.mockResolvedValue({ packets: [period], nextCursor: null });
+    render(<Catalog />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Financial documents" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Jul–Aug 2026/ }));
+    const page = await screen.findByRole("dialog", { name: "Financial documents" });
+    expect(within(page).getByText(saleDocumentCount === null ? "File count unavailable" : "7 documents")).toBeInTheDocument();
+    expect(within(page).queryByText(/51 documents/)).not.toBeInTheDocument();
+    if (saleDocumentCount === null) expect(within(page).queryByRole("button", { name: /^Request for/ })).not.toBeInTheDocument();
+    expect(state.request).not.toHaveBeenCalled(); expect(state.checkout).not.toHaveBeenCalled();
+  });
+  it("keeps existing receipts reachable without exposing hidden period offers", async () => {
+    const receipt = { ...base, packetId: id(4), kind: "provider_discovery", category: "financial", version: 1,
+      title: "Financial documents", documentCount: 51, saleDocumentCount: 7, canRequest: false, listingEnabled: false,
+      periodStart: "2026-07-01", periodEnd: "2026-08-31", timezone: "UTC", requestId: REQUEST, purchaseState: "paid" };
+    const hiddenOffer = { ...receipt, packetId: id(5), periodStart: "2026-09-01", periodEnd: "2026-10-31", requestId: null, purchaseState: "none" };
+    state.packets.mockResolvedValue({ packets: [receipt, hiddenOffer], nextCursor: null });
+    render(<DrivePacketCatalog ownerPersonRef={seller} ownerName="Avery" customPacketsOnly />);
+    const link = await screen.findByRole("link", { name: /Jul–Aug 2026/ });
+    expect(screen.getByRole("heading", { name: "Your requests" })).toBeInTheDocument();
+    expect(link.getAttribute("href")).toContain(encodeURIComponent(`document_share_request:${REQUEST}`));
+    expect(link).toHaveTextContent("Sharing files");
+    expect(screen.queryByText(/Sep–Oct 2026/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Other document packets" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Request for|Buy for/ })).not.toBeInTheDocument();
+    expect(state.request).not.toHaveBeenCalled(); expect(state.checkout).not.toHaveBeenCalled();
+  });
   it("restores a paid category-period receipt after remount without another purchase", async () => {
     const purchased = { kind: "provider_discovery", category: "bank", packetId: id(4), version: 1,
       listingRevision: 3, title: "Account statements", description: "Drive search matches", coverageSummary: "July–August 2026",
@@ -135,11 +165,11 @@ describe("a seller's packets, as a buyer sees them", () => {
     expect(state.request).toHaveBeenCalledOnce();
     expect(state.request).toHaveBeenCalledWith("private-token", "firebase-token", bank, expect.stringMatching(UUID), expect.any(Function));
     expect(within(page).getByRole("status")).toHaveTextContent("Request sent.");
-    expect(within(page).getByText("Requested · Waiting for Avery")).toBeInTheDocument();
+    expect(within(page).getByText("Request sent")).toBeInTheDocument();
     expect(section(page, "Price")).toHaveTextContent("You pay after Avery approves.");
     expect(within(page).queryByRole("button", { name: /^Buy/ })).toBeNull();
     await closePage(page);
-    expect(row("Example Bank statements")).toHaveTextContent("Requested · Waiting for Avery");
+    expect(row("Example Bank statements")).toHaveTextContent("Request sent");
     expect(state.checkout).not.toHaveBeenCalled();
     expect(state.listing).not.toHaveBeenCalled();
   });
@@ -294,6 +324,8 @@ describe("a seller's packets, as a buyer sees them", () => {
     const view = render(<Catalog />);
     expect(await screen.findByText("No packets yet")).toBeInTheDocument();
     view.unmount();
+    // A new vault session has no warm snapshot; exercise a cold read failure.
+    advanceVaultSessionEpoch();
     state.packets.mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce({ packets: [bank], nextCursor: "next" })
       .mockResolvedValueOnce({ packets: [bank, bills], nextCursor: null });

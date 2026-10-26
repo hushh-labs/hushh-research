@@ -116,6 +116,19 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 
 ## Ecosystem Contract Mapping
 
+### Financial packet scalar discovery
+
+Financial packet scalar summaries use the explicit default-ON product policy
+`drive-financial-summary-default-v1`, controlled by one vault-owner preference in
+`drive_live_preferences`. A recorded OFF hides all prepared and future periods,
+survives reconnect and does not change background preparation. Migration 428
+preserves legacy explicit hides without treating an untouched old default as a
+personal decision. Public profile and active source-generation gates still apply.
+The summary allowlist includes counts and period metadata only; filenames, Drive
+identifiers, links and contents remain private. An accepted connection, exact
+version owner approval, source permissions and purchase/delivery gates remain
+independent authorities. See [the owning summary contract](../one/drive-public-financial-summary.md).
+
 ### Google provider account binding
 
 The shared Google connection owns one verified provider subject per Hussh owner.
