@@ -109,7 +109,7 @@ class PublicModuleCache:
         provider_status = payload.get("provider_status")
         applies_to_key = (
             key.startswith("quotes:")
-            or key.startswith("indices:")
+            or key.startswith(("indices:", "picks:"))
             or key.startswith("home:")
             or key.startswith("home:baseline:")
             or key.startswith("home:personalized:")

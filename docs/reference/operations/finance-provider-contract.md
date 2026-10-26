@@ -133,26 +133,31 @@ fallback. Existing opening fences revalidate prices when regular trading resumes
 The price warmer sleeps until that opening; displayed closed status uses the
 offline calendar instead of fetching a provider status.
 
-### Shared index last close (2026-10-26)
+### Shared last close (2026-10-26)
 
-The four benchmark indices (`^GSPC`, `^IXIC`, `^DJI`, `^RUT`) are public and identical
-for every viewer, so they no longer ride inside each viewer's `quotes:` bundle. One
-shared entry, `indices:us:last-close:v1`, holds them, and Market loads it beside the
-viewer bundle, so a cold viewer entry cannot blank the index tiles. UAT logs from
-2026-10-26 showed that failure: a viewer who had not opened Market during the last
-session got empty indices while another viewer's baseline read was served.
+The four benchmark indices (`^GSPC`, `^IXIC`, `^DJI`, `^RUT`) and each public pick list
+are identical for every viewer, so their quotes no longer ride inside a viewer's own
+`quotes:` bundle. Two kinds of shared entry hold them: `indices:us:last-close:v1`, and
+`picks:us:<hash>:v1`, one per pick list, named by a hash of its symbols so every viewer
+of the same list reads the same entry. Market loads both beside the viewer bundle, which
+now keeps only holdings outside the pick list, so a cold viewer entry cannot blank the
+index tiles or the pick prices. UAT logs from 2026-10-26 showed that failure twice: a
+viewer who had not opened Market during the last session got empty indices and a pick
+list without prices while another viewer's baseline read was served.
 
-The entry is refreshed only during the regular session, on request and by the price
-warmer, which refreshes it first and outside the FMP call budget because the indices
-use the keyless Yahoo chart path. It is retained for at least seven days
-(`LAST_CLOSE_RETENTION_SECONDS`), independent of the session calendar. While the
-exchange is closed Market replays the saved entry with its original quote times,
-labels it `market_state: closed`, and makes no provider request. A refresh that
-resolves no index quote raises and keeps the previous snapshot; a partial result is
-saved and retried during the session. An entry older than the retention stays
-unavailable until trading resumes.
+An entry is refreshed only during the regular session, on request and by the price
+warmer. The warmer refreshes the indices and the default pick list first and outside the
+FMP call budget, each through one keyless Yahoo batch with no per-symbol fallbacks, so it
+adds no FMP or Finnhub requests; a viewer opening a pick list in session takes the usual
+per-symbol fallbacks for what the batch missed. Entries are retained for at least seven
+days (`LAST_CLOSE_RETENTION_SECONDS`), independent of the session calendar. While the
+exchange is closed Market replays the saved entry with its original quote times, labels
+the quotes `market_state: closed`, and makes no provider request. A refresh that resolves
+no quote raises and keeps the previous snapshot; a partial result is saved and retried
+during the session. An entry older than the retention stays unavailable until trading
+resumes, and so does a holding outside the pick list while the viewer's own entry is cold.
 
-The snapshot is the last quote saved during a session, not a post-close read, because
+A snapshot is the last quote saved during a session, not a post-close read, because
 closed hours still forbid provider requests. The warmer cadence bounds how far it can
 sit from the official close, and the quote time shown is the provider's.
 
