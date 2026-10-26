@@ -17,33 +17,45 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 01:30 UTC
+## Current decision — 26 October 2026, 04:00 UTC
 
-**Both application environments serve `79674242c9`; the newer Browser publication
-repair is on main and still needs deployment and installed acceptance.**
-[PR #8466](https://github.com/hushh-labs/hushh-research/pull/8466) landed as
-`6e28a65e0b` after local core (20m27s), exact hosted CI (21m54s) and landed smoke.
-It preserves the peer phone/database and encrypted-document changes.
-No source-only result is an installed-owner receipt.
+**The application correction is accepted on Dev and UAT. Both clouds pass the new
+Browser image's component and encrypted-recovery checks. Installed-owner Browser
+acceptance and safe account-generation rollout remain open.**
+
+[PR #8468](https://github.com/hushh-labs/hushh-research/pull/8468) landed as
+`7d5546e471` after the local core, exact hosted CI and landed smoke. Its Dev
+[release](https://github.com/hushh-labs/hushh-research/actions/runs/40258969686)
+and UAT [release](https://github.com/hushh-labs/hushh-research/actions/runs/40263257564)
+passed. Peer phone-transfer changes from main are preserved; Dev now serves
+`c0bf05df4f`. A subsequent peer UAT rollout is still running. No production change
+or new owner installation is claimed.
 
 | Boundary | Verified outcome | Remaining acceptance |
 |---|---|---|
-| Azure owner | Approved Dev 30/image `6e57f251…eeac423`; one complete Puppy/Gemma 12B response, then observed zero replicas | Browser takeover, login, reconnect and cloud session custody |
-| GCP owner | Approved Files queue, identity and IAM checkpoints | Held image handoff remains unconfirmed; preserve the operation and do not replay its exhausted queue continuation |
-| Browser components | Both clouds pass controlled research, responsive controls, suppressed login, remember/restore, logout, Forget, reviewed save and Stop | Actual owner HTTP journey; broad websites and GitHub remain unqualified |
-| Browser correction | [PR #8462](https://github.com/hushh-labs/hushh-research/pull/8462) landed as `eb855fbb57` through authorized Admin landing after exact-head CI and landed smoke; local core and 203 combined Browser/Files cases pass | Exact-image qualification and installation; earlier connected-executor window remains open |
-| Recovery | Predecessors preserve identity, six encrypted records, consent, revocation and 245,763 exact file bytes | Installed active-work drain/recovery |
-| Account generations | Isolated real-mail two-cycle proof with unchanged Firebase UID and retired-session refusal | Federated recovery is independent of email; public admission remains disabled pending deployment qualification. UAT retains an unqualified WorkOS offboarding consumer |
-| Information sharing | Existing fixed-term access; no recurring billing. Temporary Dev pair 97/1711 explicitly authorized, with original pair restoration required | Two-owner request/review/access/revocation; cohort change prepared but not applied |
-| Dev application | Both services serve `79674242c9` at 100%. Later run `40252726690` rolled back: frontend build exhausted Node's 2 GiB heap during TypeScript | Verify the builder-only 4 GiB heap correction, then deploy the new application/pod candidate |
-| UAT | Run `40247731598` accepted `79674242c9`; backend `02582-tuw` and frontend `02164-trp` serve 100%; schema, semantic and analytics acceptance passed | Promote the next accepted Dev application separately |
+| Application | Dev backend `00252-cfk` and frontend `00216-vl7`, source `c0bf05df4f`, 100% traffic; UAT accepted `7d5546e471` | Read back the later peer UAT rollout separately |
+| Browser image | Genuine source `7d5546e471`, digest `09d4ce51…d5deea`; controlled native execution passes on Cloud Run and Container Apps | Publish qualified compatibility metadata and install through exact owner approval |
+| Browser component | Both clouds pass research, responsive control, zero model observations during manual login, encrypted remember/restore, logout, Forget, one reviewed save and joined Stop | Actual owner HTTP takeover, reconnect and signed-in journeys; GitHub and broader sites remain unqualified |
+| Encrypted recovery | GCP predecessor `26bab163…061809` and Azure predecessor `6e57f251…eeac423` preserve identity, six records, consent, revocation and 245,763 exact file bytes on the new image | Installed active-work drain and recovery |
+| Installed owners | Azure Dev 30 update and Puppy/Gemma 12B response passed; idle return observed | Azure Browser task reconciliation; GCP's retained approved Files update is undergoing a configuration-only repair |
+| Fixed-term sharing | Temporary 97/1711 sandbox admission verified. Original 54/1711 secret and runtime restored through successful governed rollout, with both owner readbacks | Account 97 has zero funded balance and no funding lots; no purchase/funding was attempted. Request/access/revocation acceptance remains open |
+| Account generations | Isolated real-mail two-cycle proof preserves Firebase UID and refuses retired sessions | Public admission remains off; WorkOS offboarding needs immutable membership and captured-generation authority |
+| Cleanup | Browser qualification compute, temporary inference role, copied images and both recovery fixtures removed with provider absence receipts | Disposable Cloudflare site awaits connector reconnection for deletion; synthetic state only, with serving expiry |
 
-The failed Dev frontend build reached approximately 2,040 MiB before V8 heap
-exhaustion; it did not report a TypeScript diagnostic. The proposed Docker build
-command allows 4 GiB of old-space while preserving the existing two-worker limits,
-type checking and the runner's memory configuration. This is a per-process heap
-limit, not a total host-memory guarantee. A successful exact Cloud Build remains
-required before declaring the deployment repair verified.
+The frontend heap correction is verified on the real build host: Cloud Build
+`bc9973e1-e96a-44e0-88cc-9ab76c0528f9` passed TypeScript and 188 prerendered pages
+in approximately 5m44s. The builder permits 4 GiB of old-space; its worker bounds
+and the runtime image remain unchanged. The preceding failed build took 12m50s
+to be noticed after termination. Earlier failure detection is a measured CI
+improvement opportunity, not permission to remove deployment gates.
+
+Qualification remains bound to the exact image, host, Chromium mode and model
+transport. GCP used Gemini 3.7 Flash; Azure used the owner's verified
+`one-chat` GPT-5.6 Luna deployment. The qualification fixture and synthetic
+approvals do not establish a real owner journey. New peer pod-source changes
+must not be relabelled as part of this already qualified image.
+
+### Earlier correction evidence
 
 The canonical UAT reviewer has an explicit Shared choice, no pod registry row and
 no pending cloud job. Metadata-only headless verification of the older serving
