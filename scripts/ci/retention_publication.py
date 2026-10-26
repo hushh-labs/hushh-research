@@ -5,39 +5,15 @@ from __future__ import annotations
 import importlib
 import json
 import os
-import re
+import retention_preflight_evidence as evidence
 
 WORKFLOW = ".github/workflows/capacity-maintenance.yml"
 REPOSITORY = "hushh-labs/hushh-research"
 # Reviewed legacy owners publish checkpoint_ready before every provider mutation.
 # Their actual checkout, not the workflow run's head, selects this frozen proof.
-LEGACY_BLOBS = {
-    "scripts/ci/uat-retention-maintenance.py": (
-        "17b8ac515413c893efa980d3cd74301af09762ca",
-        88790,
-    ),
-    WORKFLOW: ("3345c20d2ec1f7d33e5665596af8878e9c9a538e", 13614),
-}
-REASONS = {
-    "Hosted maintenance stopped: Drive worker is not ready",
-    "Hosted maintenance stopped: Maintenance exited without publishing its checkpoint; operator reconciliation required",
-}
-LEGACY_STEPS = (
-    "Set up job",
-    "Checkout mutation tooling and rollback history",
-    "Start the five-minute cleanup budget",
-    "Recheck due source under the deployment lock",
-    "Authenticate to uat",
-    "Set up Cloud SDK",
-    "Prepare or finish eligible uat revision cleanup",
-    "Save uat cleanup checkpoint",
-    "Report cleanup independently of release health",
-    "Post Authenticate to uat",
-    "Post Checkout mutation tooling and rollback history",
-    "Complete job",
-)
-ANSI = re.compile(r"\x1b\[[0-9;]*m")
-RUNNER_WARNING = "##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: google-github-actions/auth@v2, google-github-actions/setup-gcloud@v2. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/"
+LEGACY_BLOBS = evidence.LEGACY_BLOBS
+LEGACY_STEPS = evidence._STEP_NAMES
+RUNNER_WARNING = evidence.RUNNER_WARNING
 
 
 def _require(owner, condition, message):
@@ -121,109 +97,35 @@ def _log(owner, job):
     return raw.decode("utf-8-sig")
 
 
-def _lines(owner, text, job):
-    started, completed = (
-        owner._github_timestamp(job.get(key)) for key in ("started_at", "completed_at")
-    )
-    rows = []
-    for line in text.splitlines():
-        timestamp, separator, body = line.partition(" ")
-        stamp = owner._github_timestamp(timestamp)
-        _require(
-            owner,
-            separator
-            and stamp is not None
-            and started is not None
-            and completed is not None
-            and started <= stamp <= completed
-            and (not rows or stamp >= rows[-1][0]),
-            "maintenance logs are incomplete or unordered",
-        )
-        rows.append((stamp, ANSI.sub("", body)))
-    finalized = bool(rows) and rows[-1][1] == "Cleaning up orphan processes"
-    if len(rows) >= 2 and rows[-1][1] == RUNNER_WARNING:
-        finalized = rows[-2][1] == "Cleaning up orphan processes"
-    _require(
-        owner,
-        rows and rows[0][1].startswith("Current runner version:") and finalized,
-        "maintenance runner finalization is unproved",
-    )
-    forbidden = (
-        "Unable to process file command",
-        "Invalid format",
-        "The operation was canceled",
-        "The operation was cancelled",
-        "checkpoint_ready=true",
-    )
-    _require(
-        owner,
-        not any(token in body for _, body in rows for token in forbidden),
-        "maintenance output or cancellation outcome is uncertain",
-    )
-    return rows
-
-
-def _checkout(owner, rows, step):
-    started, completed = (
-        owner._github_timestamp(step.get(key)) for key in ("started_at", "completed_at")
-    )
-    if completed is not None:
-        completed += owner.timedelta(
-            seconds=1
-        )  # Actions step times have second precision.
-    part = [
-        body
-        for stamp, body in rows
-        if started is not None
-        and completed is not None
-        and started <= stamp <= completed
-    ]
-    commands = [
-        i
-        for i, body in enumerate(part)
-        if body == "[command]/usr/bin/git log -1 --format=%H"
-    ]
-    _require(
-        owner,
-        len(commands) == 1 and commands[0] + 1 < len(part),
-        "maintenance actual checkout is unproved",
-    )
-    sha = part[commands[0] + 1]
-    _require(
-        owner,
-        bool(re.fullmatch(r"[0-9a-f]{40}", sha)),
-        "maintenance checkout SHA is invalid",
-    )
-    return sha
-
-
-def _source(owner, repository, checkout, workflow_sha):
-    bindings = {(path, checkout) for path in LEGACY_BLOBS} | {(WORKFLOW, workflow_sha)}
-    for path, sha in sorted(bindings):
-        digest, size = LEGACY_BLOBS[path]
-        value = json.loads(
+def _source(owner, repository, sha):
+    def read(path, revision):
+        return json.loads(
             owner.command(
                 "gh",
                 "api",
-                f"repos/{repository}/contents/{path}?ref={sha}",
+                f"repos/{repository}/contents/{path}?ref={revision}",
                 "--jq",
                 "{sha,size}",
             )
         )
-        _require(
-            owner,
-            value == {"sha": digest, "size": size},
-            "maintenance pre-mutation source is unknown",
-        )
+
+    first = read(evidence.OWNER, sha)
+    profile = evidence.SOURCE_PROFILES.get(first.get("sha"))
+    _require(owner, profile is not None, "maintenance pre-mutation source is unknown")
+    return {
+        path: first if path == evidence.OWNER else read(path, sha) for path in profile
+    }
 
 
-def _legacy_origin(owner, repository, run, number, job, steps, environment):
+def qualify(owner, repository, environment, run, job):
+    """Bound I/O only; the existing pure evidence owner makes the proof decision."""
+    if environment != "uat" or repository != REPOSITORY:
+        return None
+    number = run.get("run_attempt", 1)
     attempt = owner.api(repository, f"runs/{run['id']}/attempts/{number}")
     _require(
         owner,
-        attempt.get("status") == "completed"
-        and attempt.get("conclusion") == "failure"
-        and all(
+        all(
             attempt.get(key) == run.get(key)
             for key in (
                 "id",
@@ -234,42 +136,26 @@ def _legacy_origin(owner, repository, run, number, job, steps, environment):
                 "repository",
                 "head_repository",
             )
-        )
-        and attempt.get("run_attempt") == number,
+        ),
         "maintenance failed attempt origin changed",
     )
-    _require(
-        owner,
-        list(steps) == list(LEGACY_STEPS)
-        and type(run.get("id")) is int
-        and run["id"] > 0
-        and job.get("conclusion") == "failure"
-        and type(job.get("id")) is int
-        and job["id"] > 0
-        and bool(re.fullmatch(r"[0-9a-f]{40}", attempt.get("head_sha", "")))
-        and all(
-            job.get(key) == value
-            for key, value in {
-                "run_id": run["id"],
-                "run_attempt": number,
-                "head_sha": attempt["head_sha"],
-                "head_branch": "main",
-            }.items()
-        ),
-        "maintenance legacy job is not exactly bound",
-    )
-    for name, step in steps.items():
-        wanted = (
-            "failure"
-            if name == "Prepare or finish eligible uat revision cleanup"
-            else ("skipped" if name == "Save uat cleanup checkpoint" else "success")
-        )
-        _require(
-            owner,
-            step.get("status") == "completed" and step.get("conclusion") == wanted,
-            "maintenance legacy step finalization is unproved",
-        )
     _legacy_actor(owner, attempt, run, number, environment)
+    log = _log(owner, job)
+    checkout = evidence.actual_checkout(log, job)
+    _require(owner, checkout is not None, "maintenance runner or checkout is unproved")
+    blobs = _source(owner, repository, checkout)
+    workflow = json.loads(
+        owner.command(
+            "gh",
+            "api",
+            f"repos/{repository}/contents/{WORKFLOW}?ref={run['head_sha']}",
+            "--jq",
+            "{sha,size}",
+        )
+    )
+    return evidence.qualify_preflight_run(
+        repository, environment, attempt, job, log, blobs, workflow
+    )
 
 
 def _legacy_actor(owner, attempt, run, number, environment):
@@ -297,62 +183,6 @@ def _legacy_actor(owner, attempt, run, number, environment):
         ),
         "maintenance legacy actor is ungoverned",
     )
-
-
-def _legacy_no_effect(owner, repository, run, number, job, steps, environment):
-    """Only a complete frozen runner transcript proves the checkpoint barrier was not crossed."""
-    if environment != "uat" or repository != REPOSITORY:
-        return False
-    _legacy_origin(owner, repository, run, number, job, steps, environment)
-    rows = _lines(owner, _log(owner, job), job)
-    sha = _checkout(
-        owner, rows, steps["Checkout mutation tooling and rollback history"]
-    )
-    _source(owner, repository, sha, run["head_sha"])
-    cleanup = steps["Prepare or finish eligible uat revision cleanup"]
-    start, end = (
-        owner._github_timestamp(cleanup.get(key))
-        for key in ("started_at", "completed_at")
-    )
-    if end is not None:
-        end += owner.timedelta(seconds=1)
-    errors = [
-        body
-        for stamp, body in rows
-        if start is not None
-        and end is not None
-        and start <= stamp <= end
-        and body.startswith("Hosted maintenance stopped:")
-    ]
-    _require(
-        owner,
-        len(errors) == 1 and errors[0] in REASONS,
-        "maintenance pre-checkpoint failure is unproved",
-    )
-    _require(
-        owner,
-        sum(
-            body == "##[error]Process completed with exit code 1."
-            for stamp, body in rows
-            if start <= stamp <= end
-        )
-        == 1,
-        "maintenance command failure finalization is unproved",
-    )
-    print(
-        "maintenance_publication_proof="
-        + json.dumps(
-            {
-                "run_id": run["id"],
-                "attempt": number,
-                "job_id": job["id"],
-                "checkout_sha": sha,
-                "qualification": "no_provider_mutation",
-            },
-            sort_keys=True,
-        )
-    )
-    return True
 
 
 def _attempt(owner, repository, run, number, environment):
@@ -402,12 +232,19 @@ def _attempt(owner, repository, run, number, environment):
         return True
     if saved == "skipped" and attempt.get("conclusion") == "success":
         return False
+    proof = (
+        owner.guard_only_preflight_proof(
+            repository, environment, {**run, "run_attempt": number}, job
+        )
+        if saved == "skipped"
+        else None
+    )
     _require(
         owner,
-        saved == "skipped"
-        and _legacy_no_effect(owner, repository, run, number, job, steps, environment),
+        proof is not None,
         "Maintenance exited without publishing its checkpoint; operator reconciliation required",
     )
+    print("maintenance_publication_proof=" + json.dumps(proof, sort_keys=True))
     return False
 
 
@@ -469,3 +306,81 @@ def begin(owner, args, repository, run_id):
         )
         owner.checkpoint(args, run_id, observed, pending, "in_progress")
     return observed, services, pending
+
+
+def completion_receipt(owner, directory, environment):
+    """Validate a saved checkpoint without advancing its authority or clocks."""
+    receipt = directory / "completed.json"
+    if receipt.is_symlink():
+        raise owner.retention.UnsafeState("cleanup completion receipt is a symlink")
+    if not receipt.exists():
+        return None
+    if not receipt.is_file():
+        raise owner.retention.UnsafeState(
+            "cleanup completion receipt is not a regular file"
+        )
+    completed = json.loads(receipt.read_text())
+    if (
+        not isinstance(completed, dict)
+        or completed.get("schema_version") != 1
+        or completed.get("environment") != environment
+        or completed.get("project") != owner.LANES[environment]["project"]
+        or type(completed.get("observed_run_id")) is not int
+        or type(completed.get("release_run_id")) is not int
+        or completed["observed_run_id"] < 1
+        or completed["release_run_id"] < 1
+    ):
+        raise owner.retention.UnsafeState(f"invalid {environment} completion receipt")
+    status = completed.get("pass_status", "complete")
+    if status not in {"complete", "in_progress", "deferred", "unresolved"}:
+        raise owner.retention.UnsafeState("invalid cleanup checkpoint status")
+    if status != "complete":
+        if (
+            completed.get("checkpoint_version") != 2
+            or not isinstance(completed.get("pending_services"), list)
+            or not set(completed["pending_services"]).issubset(
+                owner.LANES[environment]["services"]
+            )
+        ):
+            raise owner.retention.UnsafeState("invalid partial cleanup checkpoint")
+    return completed
+
+
+def preflight(owner, args, repository):
+    found = owner.production_retention_context.find_source(
+        owner, args, repository, require_live=False
+    )
+    if args.verify_source_only:
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with owner.Path(output).open("a") as stream:
+                stream.write(f"cleanup_ready={str(found is not None).lower()}\n")
+        return None
+    if found is None:
+        print("No eligible release artifact (or NO_OP source); no cleanup authorized.")
+        owner.record_uat_cleanup_outcome(args, "no_live_source")
+        return None
+    run_id, release = found
+    args.pending_context = release.get("_maintenance_pending_retirement")
+    publication = importlib.import_module("retention_publication")
+    if not getattr(args, "_restored_checkpoint_ready", False):
+        args.preflight = publication.begin(owner, args, repository, run_id)
+    if not owner.live_release_matches(release, environment=args.environment):
+        print(
+            f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
+        )
+        owner.record_uat_cleanup_outcome(args, "no_live_source")
+        return None
+    if getattr(args, "_restored_checkpoint_ready", False):
+        args.preflight = publication.begin(owner, args, repository, run_id)
+    return found
+
+
+def preserve(owner, args):
+    """Republish restored custody unchanged before any due/source/health lookup."""
+    if owner.completion_receipt(args.state_dir, args.environment) is not None:
+        (args.state_dir / "README.txt").write_text(
+            f"{args.environment} drain evidence; never deployment authority.\n"
+        )
+        owner.checkpoint_ready()
+        args._restored_checkpoint_ready = True

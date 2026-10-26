@@ -1,7 +1,6 @@
 """Startup/readiness contract for the isolated, scanner-equipped ingress."""
 
 import asyncio
-import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -93,7 +92,7 @@ async def test_worker_waits_for_scanner_then_only_becomes_ready(monkeypatch, tmp
     monkeypatch.setattr(worker.asyncio, "sleep", sleep)
     async with worker.lifespan(worker.app):
         assert await worker.ready() == {"status": "ready"}
-    query.assert_awaited_once_with()
+    query.assert_awaited_once_with(timeout=170)
     assert check_ready.await_count == 3
     sleep.assert_awaited_once_with(3)
 
@@ -114,38 +113,44 @@ async def test_worker_readiness_fails_closed_when_scanner_degrades(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_worker_retries_cold_model_timeout_and_requires_scanner_attestation(
-    monkeypatch, tmp_path, caplog
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
+async def test_worker_keeps_one_cold_admission_child_and_requires_scanner_attestation(
+    monkeypatch, tmp_path
 ):
     import server_drive_worker as worker
+    from hushh_mcp.services import drive_document_processor as processor
 
-    caplog.set_level(logging.INFO, logger=worker.__name__)
-    query = AsyncMock(
-        side_effect=[DriveReadError("processing_timeout", retryable=True), [0.0] * 384]
-    )
+    async def cold_child(*_args, timeout, **_kwargs):
+        # A 120s cold initialization cannot finish in the former 100s child.
+        # Restarting it repeats that work with only ~80s of startup left.
+        await asyncio.sleep(0)
+        if timeout < 120:
+            raise DriveReadError("processing_timeout", retryable=True)
+        return {"profile": processor.PROFILE, "embedding": [1.0] + [0.0] * 383}
+
+    child = AsyncMock(side_effect=cold_child)
     check_ready = AsyncMock()
     monkeypatch.setattr(worker, "BAKED_MODEL_DIR", str(tmp_path))
-    monkeypatch.setattr(worker.IsolatedDocumentEmbedding, "admit", query)
+    monkeypatch.setattr(processor, "_private_process", child)
     monkeypatch.setattr(worker.ClamAvScanner, "check_ready", check_ready)
     async with worker.lifespan(worker.app):
-        assert query.await_count == 2
+        child.assert_awaited_once()
+        assert child.await_args.args[:2] == ("embedding", "admit")
+        assert child.await_args.kwargs["timeout"] == 170
         check_ready.assert_awaited_once()
-    assert (
-        caplog.messages.count(
-            "drive_worker_startup stage=embedding outcome=retry reason=processing_timeout"
-        )
-        == 1
-    )
 
 
 @pytest.mark.asyncio
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
 @pytest.mark.parametrize(
     "errors",
     [
         [DriveReadError("processor_unavailable")],
         [DriveReadError("processing_timeout")],
         [DriveReadError("processor_unavailable", retryable=True)],
-        [DriveReadError("processing_timeout", retryable=True)] * 2,
+        [DriveReadError("processing_timeout", retryable=True)],
     ],
 )
 async def test_worker_model_failures_never_admit(monkeypatch, tmp_path, errors):
@@ -163,6 +168,8 @@ async def test_worker_model_failures_never_admit(monkeypatch, tmp_path, errors):
 
 
 @pytest.mark.asyncio
+@pytest.mark.feature_drive_packets
+@pytest.mark.trace_loop
 @pytest.mark.parametrize("blocked_stage", ["embedding", "scanner"])
 async def test_worker_total_budget_cancels_unfinished_readiness(
     monkeypatch, tmp_path, blocked_stage
@@ -171,7 +178,7 @@ async def test_worker_total_budget_cancels_unfinished_readiness(
 
     cancelled = asyncio.Event()
 
-    async def never_ready(*_args):
+    async def never_ready(*_args, **_kwargs):
         try:
             await asyncio.Event().wait()
         finally:
@@ -197,7 +204,7 @@ async def test_worker_timeout_waits_for_async_child_cleanup(monkeypatch, tmp_pat
     release_cleanup = asyncio.Event()
     reaped = asyncio.Event()
 
-    async def model(*_args):
+    async def model(*_args, **_kwargs):
         try:
             await asyncio.Event().wait()
         finally:
@@ -259,7 +266,7 @@ async def test_worker_overlaps_readiness_but_joins_both_before_admission(
         async with worker.lifespan(worker.app):
             admitted.set()
 
-    async def model(*_args):
+    async def model(*_args, **_kwargs):
         await check("embedding")
 
     async def scanner():
@@ -293,14 +300,14 @@ async def test_worker_failure_cancels_and_settles_sibling(monkeypatch, tmp_path,
     sibling_started = asyncio.Event()
     sibling_settled = asyncio.Event()
 
-    async def blocked(*_args):
+    async def blocked(*_args, **_kwargs):
         sibling_started.set()
         try:
             await asyncio.Event().wait()
         finally:
             sibling_settled.set()
 
-    async def failed(*_args):
+    async def failed(*_args, **_kwargs):
         await sibling_started.wait()
         raise RuntimeError("synthetic admission failure")
 
@@ -336,7 +343,7 @@ async def test_worker_hard_failure_disarms_deadline_before_child_cleanup(monkeyp
         deadlines.append(deadline)
         return deadline
 
-    async def model(*_args):
+    async def model(*_args, **_kwargs):
         started.set()
         try:
             await asyncio.Event().wait()

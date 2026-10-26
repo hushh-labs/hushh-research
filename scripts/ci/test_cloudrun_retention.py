@@ -3397,7 +3397,7 @@ class MaintenanceAuthorityTest(EarlyCheckpointCases, ExistingPublicationCases, L
                         self.assertEqual(MAINTENANCE.main(), 0)
                         find_release.assert_not_called()
                         self.assertEqual(run.call_count, 0)
-                    self.assertEqual(output.read_text(), "cleanup_ready=false\n")
+                    self.assertEqual(output.read_text(), ("checkpoint_ready=true\n" if apply else "") + "cleanup_ready=false\n")
                     self.assertEqual(
                         json.loads((state_dir / "consent-protocol.json").read_text())[
                             "not_before"

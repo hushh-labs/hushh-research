@@ -1305,6 +1305,10 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     raise retention.UnsafeState("no completed deployment observation")
 
 
+def completion_receipt(directory: Path, environment: str) -> dict | None:
+    return importlib.import_module("retention_publication").completion_receipt(sys.modules[__name__], directory, environment)
+
+
 def maintenance_due(
     repository: str,
     directory: Path,
@@ -1316,33 +1320,8 @@ def maintenance_due(
     """Inspect only changed, unfinished or due retention receipts."""
     if restore:
         restore_state(repository, directory, environment=environment)
-    receipt = directory / "completed.json"
-    if not receipt.exists():
-        return True
-    completed = json.loads(receipt.read_text())
-    if (
-        not isinstance(completed, dict)
-        or completed.get("schema_version") != 1
-        or completed.get("environment") != environment
-        or completed.get("project") != LANES[environment]["project"]
-        or type(completed.get("observed_run_id")) is not int
-        or type(completed.get("release_run_id")) is not int
-        or completed["observed_run_id"] < 1
-        or completed["release_run_id"] < 1
-    ):
-        raise retention.UnsafeState(f"invalid {environment} completion receipt")
-    status = completed.get("pass_status", "complete")
-    if status not in {"complete", "in_progress", "deferred", "unresolved"}:
-        raise retention.UnsafeState("invalid cleanup checkpoint status")
-    if status != "complete":
-        if (
-            completed.get("checkpoint_version") != 2
-            or not isinstance(completed.get("pending_services"), list)
-            or not set(completed["pending_services"]).issubset(
-                LANES[environment]["services"]
-            )
-        ):
-            raise retention.UnsafeState("invalid partial cleanup checkpoint")
+    completed = completion_receipt(directory, environment)
+    if completed is None or completed.get("pass_status", "complete") != "complete":
         return True
     observed = latest_deploy_observation(repository, environment)
     if (
@@ -1574,6 +1553,10 @@ def checkpoint(args, run_id, observed, pending, status):
             **({"staged_worker_qualification": args.worker_anchor["context"]} if isinstance(getattr(args, "worker_anchor", None), dict) else {}),
         },
     )
+    checkpoint_ready()
+
+
+def checkpoint_ready() -> None:
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with Path(output).open("a") as stream:
@@ -1589,6 +1572,20 @@ SCOPED_TICK_TITLES = {
     "uat": "Capacity Maintenance tick (uat)",
     "production": "Capacity Maintenance tick (production)",
 }
+
+
+def guard_only_preflight_proof(repository: str, environment: str, run: dict, job: dict) -> dict | None:
+    """Compatibility facade; only the existing pure evidence owner qualifies a proof."""
+    try:
+        return importlib.import_module("retention_publication").qualify(
+            sys.modules[__name__], repository, environment, run, job
+        )
+    except (retention.UnsafeState, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        return None
+
+
+def preflight_release(args: argparse.Namespace, repository: str) -> tuple[int, dict] | None:
+    return importlib.import_module("retention_publication").preflight(sys.modules[__name__], args, repository)
 
 
 def assert_checkpoint_publication(repository: str, environment: str) -> None:
@@ -1684,6 +1681,7 @@ def maintenance_pass() -> int:
     if args.apply:
         assert_checkpoint_publication(repository, args.environment)
         restore_state(repository, args.state_dir, environment=args.environment)
+        importlib.import_module("retention_publication").preserve(sys.modules[__name__], args)
     args.operational_anchor = production_retention_context.load_operational(sys.modules[__name__], args)
     args.worker_anchor = production_retention_context.worker(sys.modules[__name__], args, repository)
     if (
@@ -1702,31 +1700,11 @@ def maintenance_pass() -> int:
             with Path(output).open("a") as stream:
                 stream.write("cleanup_ready=false\n")
         return 0
-    found = production_retention_context.find_source(
-        sys.modules[__name__], args, repository, require_live=False
-    )
-    if args.verify_source_only:
-        ready = found is not None
-        output = os.environ.get("GITHUB_OUTPUT")
-        if output:
-            with Path(output).open("a") as stream:
-                stream.write(f"cleanup_ready={str(ready).lower()}\n")
-        return 0
+    found = preflight_release(args, repository)
     if found is None:
-        print("No eligible release artifact (or NO_OP source); no cleanup authorized.")
-        record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     run_id, release = found
-    args.pending_context = release.get("_maintenance_pending_retirement")
-    observation, service_settings, pending = importlib.import_module("retention_publication").begin(
-        sys.modules[__name__], args, repository, run_id
-    )
-    if not live_release_matches(release, environment=args.environment):
-        print(
-            f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
-        )
-        record_uat_cleanup_outcome(args, "no_live_source")
-        return 0
+    observation, service_settings, pending = args.preflight
     # An empty marker makes a completed pass supersede stale earlier artifacts.
     (args.state_dir / "README.txt").write_text(
         f"{args.environment} drain evidence; never deployment authority.\n"

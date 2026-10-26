@@ -11,6 +11,7 @@ import tempfile
 from unittest import mock
 
 import retention_publication as publication
+import retention_preflight_evidence as evidence
 
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
@@ -175,6 +176,15 @@ def legacy_fixture():
         (0, "Current runner version: '2.330.0'"),
         (1, "[command]/usr/bin/git log -1 --format=%H"),
         (1, "a" * 40),
+        *[
+            (6, body)
+            for body in [
+                "##[group]Run set -euo pipefail",
+                *evidence._PREPARE_COMMAND,
+                "  APPLY: true",
+                "##[endgroup]",
+            ]
+        ],
         (6, "Hosted maintenance stopped: Drive worker is not ready"),
         (7, "##[error]Process completed with exit code 1."),
         (20, "Cleaning up orphan processes"),
@@ -193,7 +203,9 @@ class LegacyPublicationCases:
         with self.assertRaises(MAINTENANCE.retention.UnsafeState):
             self.proof(run, job, raw + suffix + b"##[warning]unknown runner outcome")
 
-    def proof(self, run, job, raw, *, older=None, source=None, latest=None):
+    def proof(
+        self, run, job, raw, *, older=None, source=None, latest=None, profile=None
+    ):
         published = {**run, "id": 50, "status": "completed", "conclusion": "success"}
         published_job = copy.deepcopy(job)
         for step in published_job["steps"]:
@@ -221,7 +233,7 @@ class LegacyPublicationCases:
 
         def command(*args):
             path = args[2].split("/contents/", 1)[1].split("?ref=", 1)[0]
-            digest, size = publication.LEGACY_BLOBS[path]
+            digest, size = (profile or publication.LEGACY_BLOBS)[path]
             return json.dumps(source or {"sha": digest, "size": size})
 
         reader = importlib.import_module("verify-predecessor-acceptance")
@@ -313,6 +325,66 @@ class LegacyPublicationCases:
         with self.assertRaises(MAINTENANCE.retention.UnsafeState):
             self.proof(run, job, raw, older=older)
 
+    def test_new_reviewed_owner_requires_import_closure_and_guard_only_failure(self):
+        run, job, raw = legacy_fixture()
+        profile = evidence.SOURCE_PROFILES["34050aa25db19afe6004d97fdc76bda7de9c6471"]
+        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+            self.proof(run, job, raw, profile=profile)
+        raw = raw.replace(
+            b"Hosted maintenance stopped: Drive worker is not ready",
+            evidence._DIAGNOSTIC.encode(),
+        )
+        self.proof(run, job, raw, profile=profile)
+        broken = copy.deepcopy(profile)
+        broken["scripts/ci/retention_preflight_evidence.py"] = ("f" * 40, 7541)
+        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+            self.proof(run, job, raw, profile=broken)
+
+    def test_new_profile_accepts_only_one_exact_observer_record_in_either_stream_order(
+        self,
+    ):
+        run, job, raw = legacy_fixture()
+        profile = evidence.SOURCE_PROFILES["34050aa25db19afe6004d97fdc76bda7de9c6471"]
+        raw = raw.replace(
+            b"Hosted maintenance stopped: Drive worker is not ready",
+            evidence._DIAGNOSTIC.encode(),
+        )
+        proof = {
+            "schema": "retention_guard_only_failure.v1",
+            "environment": "uat",
+            "run_id": 789,
+            "job_id": 790,
+            "run_attempt": 1,
+            "source_sha": "c738ff0b975d9a326664f9af356eea2dc7d90125",
+            "script_blob": evidence.AUDITED_SOURCE_BLOBS[evidence.OWNER],
+            "workflow_blob": evidence.AUDITED_SOURCE_BLOBS[evidence.WORKFLOW],
+        }
+
+        def insert(record, before=False):
+            body = json.dumps({"guard_only_reconciliation": record}).encode()
+            pair = (
+                [body, evidence._DIAGNOSTIC.encode()]
+                if before
+                else [evidence._DIAGNOSTIC.encode(), body]
+            )
+            return raw.replace(
+                evidence._DIAGNOSTIC.encode(), b"\n2026-10-27T00:00:06Z ".join(pair)
+            )
+
+        for before in (False, True):
+            self.proof(run, job, insert(proof, before), profile=profile)
+        for key, value in (
+            ("source_sha", "f" * 40),
+            ("script_blob", "f" * 40),
+            ("run_attempt", 2),
+            ("extra", True),
+        ):
+            with (
+                self.subTest(key=key),
+                self.assertRaises(MAINTENANCE.retention.UnsafeState),
+            ):
+                self.proof(run, job, insert({**proof, key: value}), profile=profile)
+
     def test_latest_success_or_current_rerun_does_not_clear_failed_prior_attempt(self):
         for current in (False, True):
             run, job, raw = legacy_fixture()
@@ -338,39 +410,52 @@ class LegacyPublicationCases:
                 self.proof(run, job, raw, latest=latest)
 
 
+def restored_bridge():
+    return {
+        "version": 1,
+        "project": "hushh-pda",
+        "service": "consent-protocol",
+        "status": "intent",
+        "requested": True,
+        "revision": "consent-protocol-cap-" + "a" * 16,
+        "sourceFingerprint": "a" * 64,
+        "serviceControlsFingerprint": "b" * 64,
+        "sourceRevision": "consent-protocol-source",
+        "displacedLatestRevision": "consent-protocol-old",
+        "traffic": [],
+        "pins": {
+            "RUNTIME": {
+                "version": "projects/hushh-pda/secrets/runtime/versions/1",
+                "unchangedSinceSource": True,
+            }
+        },
+    }
+
+
 class EarlyCheckpointCases:
-    def test_health_failure_publishes_unfinished_checkpoint_preserving_restored_intents(
+    def test_health_failure_preserves_restored_checkpoint_and_intents(
         self,
     ):
-        bridge = {
-            "version": 1,
-            "project": "hushh-pda",
-            "service": "consent-protocol",
-            "status": "intent",
-            "requested": True,
-            "revision": "consent-protocol-cap-" + "a" * 16,
-            "sourceFingerprint": "a" * 64,
-            "serviceControlsFingerprint": "b" * 64,
-            "sourceRevision": "consent-protocol-source",
-            "displacedLatestRevision": "consent-protocol-old",
-            "traffic": [],
-            "pins": {
-                "RUNTIME": {
-                    "version": "projects/hushh-pda/secrets/runtime/versions/1",
-                    "unchangedSinceSource": True,
-                }
-            },
-        }
+        bridge = restored_bridge()
         with tempfile.TemporaryDirectory() as temporary:
             state = pathlib.Path(temporary)
             output = state / "output"
             inherited = b'{"pending_mutation":{"action":"delete","revisions":["old"]}}'
+            prior = {
+                "schema_version": 1,
+                "checkpoint_version": 2,
+                "environment": "uat",
+                "project": "hushh-pda-uat",
+                "release_run_id": 9,
+                "observed_run_id": 20,
+                "pass_status": "unresolved",
+                "pending_services": ["consent-protocol"],
+                "capacity_bridge": bridge,
+            }
 
             def restore(*_args, **_kwargs):
                 (state / "consent-protocol.json").write_bytes(inherited)
-                (state / "completed.json").write_text(
-                    json.dumps({"capacity_bridge": bridge})
-                )
+                (state / "completed.json").write_text(json.dumps(prior))
 
             with (
                 mock.patch.dict(
@@ -406,13 +491,8 @@ class EarlyCheckpointCases:
                     MAINTENANCE.main()
             self.assertIs(source.call_args.kwargs["require_live"], False)
             checkpoint = json.loads((state / "completed.json").read_text())
-            self.assertEqual(checkpoint["pass_status"], "in_progress")
-            self.assertEqual(checkpoint["release_run_id"], 123)
-            self.assertEqual(checkpoint["observed_run_id"], 124)
-            self.assertEqual(
-                set(checkpoint["pending_services"]),
-                set(MAINTENANCE.LANES["uat"]["services"]),
-            )
+            self.assertEqual((state / "completed.json").read_text(), json.dumps(prior))
+            self.assertTrue((state / "README.txt").is_file())
             self.assertEqual(checkpoint["capacity_bridge"], bridge)
             self.assertEqual((state / "consent-protocol.json").read_bytes(), inherited)
             self.assertIn("checkpoint_ready=true", output.read_text())
