@@ -128,7 +128,9 @@ async def test_long_title_originals_reach_http_preview_frozen_catalog_and_cache(
         packet = next(
             item for item in catalog["packets"] if item["packetId"] == str(head["packet_id"])
         )
-        assert packet["documentCount"] == 25 and len(packet["contents"]["documents"]) == 25
+        assert packet["documentCount"] == 26
+        assert packet["saleDocumentCount"] == 25
+        assert len(packet["contents"]["documents"]) == 25
         assert all(
             len(item["name"].encode("utf-16-le")) <= 510 for item in packet["contents"]["documents"]
         )

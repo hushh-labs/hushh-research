@@ -29,7 +29,7 @@ describe("@feature_drive_packets @trace_loop owner profile visibility", () => {
     await waitFor(() => expect(toggle).toBeEnabled());
     expect(toggle).toBeChecked();
     expect(screen.getAllByRole("switch")).toHaveLength(1);
-    expect(screen.getByText(/Files stay private until you approve a request/)).toBeInTheDocument();
+    expect(screen.getByText("Financial packet details only. Files stay private.", { exact: true })).toBeInTheDocument();
     state.visibility.mockImplementation(async (_token, guard) => { guard(); return { ...preference, enabled: false, revision: 1 }; });
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).not.toBeChecked());
