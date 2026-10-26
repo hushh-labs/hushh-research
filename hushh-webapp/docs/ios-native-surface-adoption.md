@@ -24,6 +24,8 @@ inherit it without route patches. The original Radix trigger, form registration,
 controlled value and reset owner remain mounted; only the owned popup is native.
 Feature values stay in React behind random presentation handles. Private labels
 exist only in volatile presentation models. Appearance updates retain the host.
+Family capability is fixed at mount; owner authorization is checked on the user's
+open action, so a form preloaded before unlock is not permanently demoted to web.
 Selection is delivered once, after actual native dismissal, to the current
 committed callback; unchanged values do not repeat writes. Back, owner/privacy
 changes and capability failures retire the same lease before any web fallback.
@@ -35,7 +37,7 @@ semantic, not route-specific. AlertDialog's busy/refused confirmation and rich
 Popover content require their own complete presentation contracts; they are not
 silently converted into immediate choices. This extension does not qualify those
 families or change ordinary Release/TestFlight admission, which remains off.
-Current evidence: nine shared Select/privacy contract cases, the existing native
+Current evidence: ten shared Select/privacy contract cases, the existing native
 Chrome/Popover suites and plugin-contract mutation controls pass. Native Release
 compilation passes. The new UIKit retirement regression and adjacent alert test
 pass on iPhone; integrated route-picker device acceptance is pending.

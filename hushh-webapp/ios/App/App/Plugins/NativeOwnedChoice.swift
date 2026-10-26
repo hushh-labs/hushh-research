@@ -104,6 +104,8 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
             }.listStyle(.insetGrouped)
         }.tint(Color(uiColor: model.accent))
             .background(Color(uiColor: .systemGroupedBackground))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("native-owned-choice")
     }
 }
 

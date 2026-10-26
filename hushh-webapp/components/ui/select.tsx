@@ -8,17 +8,17 @@ import { cn } from "@/lib/utils"
 import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 import { useNativeOverlayCollisionPadding } from "@/lib/capacitor/native-presentation-regions"
 import { nativeOwnedChoicesEnabled } from "@/lib/capacitor/native-presentation-policy"
-import { captureNativeDrawerOwner } from "@/lib/capacitor/native-drawer-owner"
 import { collectImmediateChoices } from "@/lib/capacitor/native-choice-items"
 import { NativeChoiceTriggerContext } from "@/lib/capacitor/use-native-owned-choice"
 import { NativeChoiceController, type NativeChoiceControl } from "@/lib/capacitor/native-choice-controller"
-import { isSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression"
 
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
   const { value: authoredValue, onValueChange, open, onOpenChange } = props
-  const [native] = React.useState(() => nativeOwnedChoicesEnabled() && !isSessionChromeSuppressed() && !!captureNativeDrawerOwner() &&
+  // The trigger/form renderer stays React. Freeze family capability here;
+  // authorize each popup on its user intent, after auth/vault restoration.
+  const [native] = React.useState(() => nativeOwnedChoicesEnabled() &&
     props.open === undefined && props.onOpenChange === undefined && props.defaultOpen !== true && props.dir === undefined &&
     immediateChoices(props.children) !== null)
   const [localValue, setLocalValue] = React.useState(props.defaultValue ?? "")

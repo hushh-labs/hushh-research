@@ -17,8 +17,8 @@ vi.mock("@/lib/capacitor/native-control-appearance", () => ({
   readNativeControlAppearance: () => ({ appearance: "light", accentHex: "#007AFF", foregroundHex: "#111111" }),
 }));
 vi.mock("@/lib/capacitor/native-drawer-owner", () => ({
-  captureNativeDrawerOwner: () => ({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1 }),
-  createNativePresentationIdentity: () => ({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: ++runtime.revision }),
+  captureNativeDrawerOwner: () => runtime.current ? ({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1 }) : null,
+  createNativePresentationIdentity: () => runtime.current ? ({ documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1, revision: ++runtime.revision }) : null,
   nativeDrawerOwnerIsCurrent: () => runtime.current,
 }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({
@@ -66,6 +66,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("shared Select native presentation", () => {
+  it("authorizes a popup after owner restoration without replacing its preloaded form", async () => {
+    runtime.current = false;
+    const view = render(<form><Field /></form>);
+    const trigger = screen.getByRole("combobox", { name: "Visibility" });
+    runtime.current = true;
+    view.rerender(<form><Field /></form>);
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await waitFor(() => expect(runtime.prepare).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Visibility" })).toBe(trigger);
+  });
   it("cancels pending capability admission through Back without reopening or dispatching", async () => {
     const capabilities = deferred<{ ownedChoices: boolean }>();
     runtime.capabilities.mockReturnValueOnce(capabilities.promise);
