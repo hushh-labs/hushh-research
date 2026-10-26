@@ -25,7 +25,7 @@ describe("Wallet card browser", () => {
     document.body.appendChild(root);
     const committedPages: string[] = [];
     root.scrollTo = vi.fn(() => {
-      committedPages.push(root.textContent || "");
+      committedPages.push(document.body.textContent || "");
       root.scrollTop = 0;
     });
     const view = render(<WalletCardBrowser cards={[]} selectedCardId={null} onSelect={() => {}} onOverview={() => {}} onAdd={() => {}} onRemove={() => {}} busyCardId={null} details={null} dockHost={null} />, { container: root });
@@ -40,7 +40,7 @@ describe("Wallet card browser", () => {
   });
   it("unwinds the selected card before leaving Wallet and releases the handler when inactive", () => {
     const { dock, host, unmount, rerender, props } = setup();
-    fireEvent.click(dock.getByRole("button", { name: "Open Agent One Profile" }));
+    fireEvent.click(dock.getByRole("button", { hidden: true, name: "Open Agent One Profile" }));
     const childBack = vi.fn(() => true);
     const releaseChild = registerBackLayer({ pathname: "/one/wallet", depth: 2, back: childBack });
     try {
@@ -53,7 +53,7 @@ describe("Wallet card browser", () => {
     expect(screen.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
     expect(screen.queryByText("Live profile controls")).toBeNull();
     expect(unwindBackLayer("/one/wallet")).toBe(false);
-    fireEvent.click(dock.getByRole("button", { name: "Open Agent One Profile" }));
+    fireEvent.click(dock.getByRole("button", { hidden: true, name: "Open Agent One Profile" }));
     rerender(<WalletCardBrowser {...props} active={false} />);
     expect(unwindBackLayer("/one/wallet")).toBe(false);
     unmount(); host.remove();
@@ -72,16 +72,16 @@ describe("Wallet card browser", () => {
 
   it("opens actual Agent One controls without selecting payment records or showing fake banking activity", () => {
     const { props, dock, host, unmount } = setup();
-    fireEvent.click(dock.getByRole("button", { name: "Open Agent One Referral" }));
+    fireEvent.click(dock.getByRole("button", { hidden: true, name: "Open Agent One Referral" }));
     expect(screen.getByText("Live referral controls")).toBeVisible();
     expect(screen.queryByRole("region", { name: "Card finances" })).toBeNull();
     expect(props.onSelect).toHaveBeenCalledWith("agent-one-referral");
     expect(props.onRemove).not.toHaveBeenCalled();
     expect(screen.queryByTestId("wallet-demo-activity")).toBeNull();
     expect(screen.queryByText("Payment")).toBeNull();
-    fireEvent.click(dock.getByRole("button", { name: "Open Agent One Profile" }));
+    fireEvent.click(dock.getByRole("button", { hidden: true, name: "Open Agent One Profile" }));
     expect(screen.getByText("Live profile controls")).toBeVisible();
-    fireEvent.click(dock.getByRole("button", { name: "All (3)" }));
+    fireEvent.click(dock.getByRole("button", { hidden: true, name: "All (3)" }));
     expect(screen.queryByText("Live profile controls")).toBeNull();
     fireEvent.click(dock.getByRole("button", { name: "Add a card" }));
     expect(props.onAdd).toHaveBeenCalledOnce();
@@ -91,16 +91,16 @@ describe("Wallet card browser", () => {
   it("keeps Agent One cards when a payment card is added and keeps payment details protected", () => {
     const card: WalletCardSummary = { cardId: "saved-card", nickname: "My card", brand: "visa", last4: "9876", expiryMonth: 5, expiryYear: 2030, issuingRegion: "IN", createdAt: "" };
     const { props, dock, host, unmount, rerender } = setup([card], card.cardId);
-    expect(dock.getByRole("button", { name: "Open Agent One Profile" })).toBeInTheDocument();
-    fireEvent.click(dock.getByRole("button", { name: "Open My card, ending 9876" }));
+    expect(dock.getByRole("button", { hidden: true, name: "Open Agent One Profile" })).toBeInTheDocument();
+    fireEvent.click(dock.getByRole("button", { hidden: true, name: "Open My card, ending 9876" }));
     expect(props.onSelect).toHaveBeenCalledWith("saved-card");
-    expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
+    expect(within(screen.getByTestId("wallet-selected-card")).getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
     expect(screen.getByText("Protected details action")).toBeVisible();
     expect(screen.queryByText("Card recipients")).toBeNull();
-    fireEvent.click(dock.getByRole("button", { name: "Open Agent One Profile" }));
+    fireEvent.click(dock.getByRole("button", { hidden: true, name: "Open Agent One Profile" }));
     rerender(<WalletCardBrowser {...props} selectedCardId={null} />);
     expect(screen.getByText("Live profile controls")).toBeVisible();
-    fireEvent.click(dock.getByRole("button", { name: "All (4)" }));
+    fireEvent.click(dock.getByRole("button", { hidden: true, name: "All (4)" }));
     expect(screen.queryByText("Protected details action")).toBeNull();
     expect(screen.queryByText("Live profile controls")).toBeNull();
     unmount(); host.remove();

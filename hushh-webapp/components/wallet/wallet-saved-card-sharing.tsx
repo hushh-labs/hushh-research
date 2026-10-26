@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ProfilePaneAccountIcon, ProfilePaneInviteIcon, ProfilePaneSecurityIcon } from "@/components/profile/profile-pane-icons";
+import { ProfilePaneAccountIcon, ProfilePaneInviteIcon, ProfilePaneSecurityIcon, ProfilePaneCardIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsDetailPanel, SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
+import { cardNetworkLabel } from "./card-network-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -23,10 +26,13 @@ import presentationStyles from "./wallet-connect-presentation.module.css";
 // Present the existing API limit before the owner submits their selection.
 const MAX_CARD_SHARE_RECIPIENTS = 20;
 
-export function WalletSavedCardSharing({ card, getContext, disabled, showHistory = true }: {
-  card: Pick<WalletCardSummary, "cardId">; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean;
+export function WalletSavedCardSharing({ card, getContext, disabled, showHistory = true, compact = false }: {
+  card: Pick<WalletCardSummary, "cardId"> & Partial<WalletCardSummary>; getContext: (cardId: string) => CardShareContext | null; disabled: boolean; showHistory?: boolean; compact?: boolean;
 }) {
   const isProfile = card.cardId.startsWith("profile_");
+  const [manageOpen, setManageOpen] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
+  const manageTrigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [recipients, setRecipients] = useState<CardAccessRecipient[]>([]);
@@ -57,9 +63,11 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
     setOpen(false); setQuery(""); setSelected({}); setRecipients([]); setBusy(false);
   }, []);
   useBackLayer(ROUTES.ONE_WALLET, open ? 3 : 0, () => { close(); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, compact && manageOpen ? 2 : 0, () => { if (!busy) setManageOpen(false); return true; });
+  useBackLayer(ROUTES.ONE_WALLET, compact && revokeTarget ? 4 : 0, () => { if (!busy) setRevokeTarget(null); return true; });
   const currentCopies = copies?.cardId === card.cardId && copies.current() ? copies.receipts : [];
-  useBackLayer(ROUTES.ONE_WALLET, copiesOpen && currentCopies.length ? 2 : 0, () => { setCopiesOpen(false); return true; });
-  useEffect(() => { close(); setState(null); attempt.current = null; }, [card.cardId, getContext, close]);
+  useBackLayer(ROUTES.ONE_WALLET, copiesOpen && currentCopies.length ? compact ? 3 : 2 : 0, () => { setCopiesOpen(false); return true; });
+  useEffect(() => { close(); setManageOpen(false); setRevokeTarget(null); setState(null); attempt.current = null; }, [card.cardId, getContext, close]);
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -185,25 +193,20 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
       await WalletCardAccessService.revoke(context, id);
       if (context.isCurrent()) {
         setState(previous => previous ? { ...previous, grants: previous.grants.map(grant => grant.id === id ? { ...grant, status: "revoked" } : grant) } : previous);
+        setRevokeTarget(null);
         morphyToast.success("Access revoked.");
       }
     } catch { if (context.isCurrent()) morphyToast.error("Could not revoke access. Try again."); }
     finally { if (context.isCurrent()) setBusy(false); }
   };
-  return <SettingsPresentationProvider separatorInset density="compact">
-    <section className={`${profileStyles.walletContent} ${presentationStyles.walletSurface} space-y-4`} aria-label="Card sharing">
-      <SettingsGroup title="Sharing">
-        <SettingsRow icon={ProfilePaneInviteIcon} iconTone="transparent" title="Share card"
-          description="Temporary access for your connections."
-          chevron onClick={() => setOpen(true)} disabled={disabled || busy || stateFailed || !state} />
-        {stateFailed ? <SettingsRow title="Retry" description={unavailable ? "Card sharing is temporarily unavailable." : "Could not load sharing. Check your connection."} onClick={() => setRevision(value => value + 1)} /> : null}
-      </SettingsGroup>
+  const sharingHistory = <>
       {showHistory ? <SettingsGroup title="Shared with">
         {state?.grants.length ? state.grants.map(grant => <SettingsRow key={grant.id} icon={ProfilePaneAccountIcon} iconTone="transparent"
           title={grant.recipientName} description={<span>
+            {compact ? <span className="block">{grant.status === "active" ? `Access ends ${new Date(grant.expiresAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : grant.status === "revoked" ? "Revoked" : "Expired"}</span> : null}
             {grant.createdAt ? <time className="block" dateTime={grant.createdAt}>Shared {new Date(grant.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time> : null}
           </span>}
-          trailing={grant.status === "active" ? <Button variant="destructive" size="compact" disabled={busy} onClick={() => void revoke(grant.id)}>Revoke</Button> : undefined} />)
+          trailing={grant.status === "active" ? <Button variant="destructive" size="compact" disabled={busy} onClick={() => compact ? setRevokeTarget(grant.id) : void revoke(grant.id)}>Revoke</Button> : undefined} />)
           : <SettingsRow icon={ProfilePaneAccountIcon} iconTone="transparent" title={stateFailed ? "Could not load shared access." : state ? "No active shares" : "Loading shares…"} />}
       </SettingsGroup> : null}
       {showHistory && state?.nextCursor ? <div ref={historyEnd} className="px-2 py-2" aria-live="polite">
@@ -219,14 +222,40 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
           </SettingsGroup>
         </AccordionContent></AccordionItem>
       </Accordion> : null}
-      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title={isProfile ? "Share Profile Card" : "Share card"} description={isProfile ? "Share your selected profile details with your connections." : "Share your full card number and details with selected connections."}
+  </>;
+  const sharingFeedback = stateFailed ? <div role="alert" className="space-y-2 text-sm text-muted-foreground">
+    <p>{unavailable ? "Card sharing is temporarily unavailable." : "Could not check card sharing."}</p>
+    <Button variant="secondary" size="compact" disabled={busy} onClick={() => setRevision(value => value + 1)}>Retry sharing</Button>
+  </div> : !state ? <p role="status" className="text-sm text-muted-foreground">Checking card sharing…</p> : null;
+  return <SettingsPresentationProvider separatorInset density="compact">
+    <section className={`${profileStyles.walletContent} ${presentationStyles.walletSurface} space-y-4`} aria-label="Card sharing">
+      {compact ? <div className={styles.cardActions}>
+        <Button className="w-full" size="standard" disabled={disabled || busy} onClick={() => setOpen(true)}><ProfilePaneInviteIcon className="size-4" />Share card</Button>
+        <Button ref={manageTrigger} variant="secondary" size="standard" className="w-full" disabled={disabled || busy} onClick={() => setManageOpen(true)}>Manage access{state ? <span className={styles.shareCount}>{state.grants.filter(grant => grant.status === "active").length}{state.nextCursor ? "+" : ""}</span> : null}</Button>
+      </div> : <SettingsGroup title="Sharing">
+        <SettingsRow icon={ProfilePaneInviteIcon} iconTone="transparent" title="Share card"
+          description="Temporary access for your connections."
+          chevron onClick={() => setOpen(true)} disabled={disabled || busy} />
+        {stateFailed ? <SettingsRow title="Retry" description={unavailable ? "Card sharing is temporarily unavailable." : "Could not load sharing. Check your connection."} onClick={() => setRevision(value => value + 1)} /> : null}
+      </SettingsGroup>}
+      {compact ? <SettingsDetailPanel open={manageOpen} onOpenChange={value => { if (!busy) setManageOpen(value); }} title="Manage access" description="Choose who can keep viewing this card." headerTextOverflow="wrap"
+        surfaceClassName={`${styles.accessSurface} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={styles.accessBody} desktopMaxWidth="520px" desktopMaxWidthClassName="sm:!max-w-[520px]"
+        onCloseAutoFocus={event => { event.preventDefault(); manageTrigger.current?.focus({ preventScroll: true }); }}
+        footer={<Button className="w-full" disabled={disabled || busy} onClick={() => setOpen(true)}>Share with someone else</Button>}>
+          {sharingFeedback}
+          <div className="space-y-5">{sharingHistory}</div>
+          <p className={styles.privacyNote}>Revoking stops future access. Details already copied or captured can’t be recalled.</p>
+      </SettingsDetailPanel> : sharingHistory}
+      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title={isProfile ? "Share Profile Card" : "Share card"} description={isProfile ? "Choose who can see your selected profile details." : "Choose who can view this card and for how long."}
 
-        mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={`${styles.accessSurface} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={styles.accessBody}
-        footer={<div className="mx-auto w-full max-w-[244px]"><Button variant="secondary" size="compact" className={`w-full ${presentationStyles.quietAction}`} disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button></div>}>
+        mobilePresentation="fullscreen" desktopMaxWidth="520px" desktopMaxWidthClassName="sm:!max-w-[520px]" surfaceClassName={`${styles.accessSurface} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={styles.accessBody}
+        footer={<div className="w-full"><Button size="standard" className="w-full" disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button></div>}>
         <div className="space-y-4">
+          <div className={styles.cardSummary}><ProfilePaneCardIcon className="size-7" /><div><strong>{isProfile ? "Profile card" : card.nickname || (card.brand ? cardNetworkLabel(card.brand) : "Your card")}{card.last4 ? ` · •••• ${card.last4}` : ""}</strong><span>Share with your connections</span></div></div>
+          {sharingFeedback}
           <Input aria-label="Search connections" placeholder="Search connections" value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
-          <div className="max-h-64 overflow-y-auto" aria-label="Connections">
-            {loading ? <p role="status">Finding connections…</p> : failed ? <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-sm leading-[21px]">
+          <div className={styles.recipientList} aria-label="Connections">
+            {loading ? <div role="status" aria-label="Finding connections"><span className="sr-only">Finding connections…</span>{[0, 1, 2].map(index => <div key={index} className="flex min-h-14 items-center gap-3 px-3 py-2"><Skeleton className="size-8 rounded-full" /><Skeleton className="h-4 w-40" /></div>)}</div> : failed ? <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-sm leading-[21px]">
               <Avatar className="size-8"><AvatarImage src={recipient.photoUrl || undefined} alt="" /><AvatarFallback>{recipient.displayName.slice(0, 1)}</AvatarFallback></Avatar>
               <span className="min-w-0 flex-1 break-words">{recipient.displayName}{recipient.trusted ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><ProfilePaneSecurityIcon size={14} />Trusted Circle</span> : null}</span>
               <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy || (selectedCount >= MAX_CARD_SHARE_RECIPIENTS && !selected[recipient.personRef])}
@@ -237,9 +266,14 @@ export function WalletSavedCardSharing({ card, getContext, disabled, showHistory
           </div>
           <p role="status" className="text-xs text-muted-foreground">{selectedCount} of {MAX_CARD_SHARE_RECIPIENTS} connections selected. Share with up to {MAX_CARD_SHARE_RECIPIENTS} at a time.</p>
           <fieldset><legend className="mb-2 text-[15px] leading-[22px] font-medium">Access time</legend><div className="flex flex-wrap gap-2">{([15, 60, 120] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes === 15 ? "15 minutes" : minutes === 60 ? "1 hour" : "2 hours"}</Button>)}</div></fieldset>
-          <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing. Security codes are never shared.</p>
+          <p className="text-xs text-muted-foreground">{isProfile ? "Only your selected profile details are shared." : "Shares the full card number, name, network and expiry. CVV and PIN are never shared."}</p>
+          <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing.</p>
         </div>
       </SettingsDetailPanel>
+      <AlertDialog open={Boolean(revokeTarget)} onOpenChange={value => { if (!value && !busy) setRevokeTarget(null); }}><AlertDialogContent className={presentationStyles.walletDialog}>
+        <AlertDialogHeader><AlertDialogTitle>Revoke this card share?</AlertDialogTitle><AlertDialogDescription>This stops future access for {state?.grants.find(grant => grant.id === revokeTarget)?.recipientName}. Details already viewed cannot be recalled.</AlertDialogDescription></AlertDialogHeader>
+        <AlertDialogFooter><AlertDialogCancel disabled={busy}>Keep sharing</AlertDialogCancel><AlertDialogAction disabled={busy} onClick={event => { event.preventDefault(); if (revokeTarget) void revoke(revokeTarget); }}>Revoke access</AlertDialogAction></AlertDialogFooter>
+      </AlertDialogContent></AlertDialog>
     </section>
   </SettingsPresentationProvider>;
 }

@@ -31,7 +31,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 
-from db.connection import get_pool
+from db.connection import dedicated_connection, get_pool
 from db.db_client import get_db
 from hushh_mcp.agents.email.runtime import (
     EMAIL_RECEIPT_EXTRACTOR_SCHEMA,
@@ -5020,8 +5020,8 @@ class GmailReceiptsService:
     async def _run_scheduled_sync_with_lock(self) -> None:
         lock_key = 0x4B414947  # stable integer lock key
         try:
-            pool = await get_pool()
-            async with pool.acquire() as conn:
+            # Keep scheduled reconciliation off request capacity, including legacy LISTEN mode.
+            async with dedicated_connection() as conn:
                 acquired = await conn.fetchval("SELECT pg_try_advisory_lock($1)", lock_key)
                 if not acquired:
                     return

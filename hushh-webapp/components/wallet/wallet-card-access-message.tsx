@@ -14,7 +14,7 @@ import { useSharedCardPrivacy } from "@/lib/wallet/use-shared-card-privacy";
 import { normalizePublicWalletCard, PublicWalletCardView } from "@/components/wallet-card/public-card-view";
 
 /** A message reference is untrusted. Only the authenticated server response authorizes a view. */
-export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { grantId: string; senderIsViewer?: boolean }) {
+export function WalletCardAccessMessage({ grantId, senderIsViewer = false, compact = false, openRequest = 0, hideTrigger = false }: { grantId: string; senderIsViewer?: boolean; compact?: boolean; openRequest?: number; hideTrigger?: boolean }) {
   // Native capture protection is not yet a scoped viewer capability. Keep that
   // surface unavailable instead of presenting CSS as screenshot prevention.
   const nativeViewerUnavailable = Capacitor.isNativePlatform();
@@ -31,6 +31,11 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
   const view = result && result.owner === user?.uid && result.grant === grantId ? result : null;
   const close = () => { epoch.current += 1; setOpen(false); setResult(null); setBusy(false); setFailed(false); };
   useEffect(() => { epoch.current += 1; setResult(null); setOpen(false); setBusy(false); }, [user?.uid, grantId]);
+  // A Wallet history action may open the same protected viewer. The viewer
+  // stays mounted independently while the identity popup backgrounds history.
+  useEffect(() => {
+    if (openRequest && !senderIsViewer && !nativeViewerUnavailable) { setFailed(false); setOpen(true); }
+  }, [openRequest, senderIsViewer, nativeViewerUnavailable]);
   useSharedCardPrivacy(boundary => {
     if (boundary === "focus") { focused.current = true; setRefreshKey(value => value + 1); return; }
     if (boundary === "blur") focused.current = false;
@@ -98,9 +103,9 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
   const card = open && remaining > 0 && view?.data.status === "active" ? view.data.card : undefined;
   const profile = open && remaining > 0 && view?.data.status === "active" && view.data.profileCard ? normalizePublicWalletCard({ ...view.data.profileCard, updatedAt: view.data.profileCard.updatedOn }) : null;
   return <div data-messages-wallet className="space-y-2 print:hidden">
-    <p className="text-sm leading-[21px] font-medium">{senderIsViewer ? "You shared a card." : "A card was shared with you."}</p>
-    {!senderIsViewer && !nativeViewerUnavailable ? <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => { setFailed(false); setOpen(true); }}>View card</Button> : null}
-    {!senderIsViewer && nativeViewerUnavailable ? <p className="text-[13px] leading-[18px]">Open Messages in your browser to view this card.</p> : null}
+    {!compact ? <p className="text-sm leading-[21px] font-medium">{senderIsViewer ? "You shared a card." : "A card was shared with you."}</p> : null}
+    {!hideTrigger && !senderIsViewer && !nativeViewerUnavailable ? <Button variant="secondary" size="compact" className={compact ? "w-full" : presentationStyles.quietAction} onClick={() => { setFailed(false); setOpen(true); }}>View card</Button> : null}
+    {!hideTrigger && !senderIsViewer && nativeViewerUnavailable ? <p className="text-[13px] leading-[18px]">{compact ? "Open this card in your browser to view its details." : "Open Messages in your browser to view this card."}</p> : null}
     <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Shared card" mobilePresentation="sheet" surfaceClassName={`${profileStyles.walletContent} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog} messages-wallet-access-panel print:hidden`} desktopMaxWidth="820px" contentClassName="!bg-[color:var(--app-glass-surface)] backdrop-blur-[var(--blur-standard)] [&_[data-slot=dialog-header]]:text-center [&_[data-slot=dialog-header]>div]:justify-center [&_[data-slot=dialog-header]>div>div]:text-center" bodyClassName="text-center">
       <SettingsPresentationProvider density="compact" separatorInset>
         <div className="select-none" onCopy={event => event.preventDefault()} onCut={event => event.preventDefault()} onDragStart={event => event.preventDefault()} onContextMenu={event => event.preventDefault()}>

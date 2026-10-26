@@ -8,6 +8,7 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type FormEvent } from "react";
 import { toast } from "sonner";
+import { createPortal } from "react-dom";
 import {
   ProfilePaneAccountIcon,
   ProfilePaneCalendarIcon,
@@ -66,6 +67,9 @@ export interface SecureCardAddFormProps {
   /** Legacy host flag; approved network illustrations are assigned on save. */
   artworkEnabled?: boolean;
   scanInToolbar?: boolean;
+  /** Wallet sheet presentation; validation and submission remain shared with chat. */
+  inSheet?: boolean;
+  footerHost?: HTMLElement | null;
   /** Enabled only by owner Wallet Add, never by the chat entry widget. */
   collectSecurityCode?: boolean;
   /** Mask entered details when a mounted draft is in an inactive tab. */
@@ -76,7 +80,7 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, collectSecurityCode = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkContext, compact, showIntroduction = true, scanEnabled = true, scanInToolbar = false, collectSecurityCode = false, active = true, initialNickname, initialPan, inSheet = false, footerHost }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   useBackLayer(backRoute ?? "", backRoute && active && onCancel ? 2 : 0, () => {
@@ -257,7 +261,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
     }
   };
 
-  const scanner = scanEnabled ? <WalletCardScanner backRoute={backRoute} key={ownerKey} active={draftVisible} disabled={submitting} featured={scanInToolbar && !scanReading} showPhotoActions={!scanInToolbar || Boolean(scanReading)} onBusyChange={setScanning} onRead={(draft) => {
+  const scanner = scanEnabled ? <WalletCardScanner backRoute={backRoute} key={ownerKey} active={draftVisible} disabled={submitting} compactControls={inSheet} featured={scanInToolbar && !inSheet && !scanReading} showPhotoActions={inSheet || !scanInToolbar || Boolean(scanReading)} onBusyChange={setScanning} onRead={(draft) => {
         setScanReading(draft);
         if (draft.fields.pan && (!edited.current.pan || !pan.trim())) setPan(draft.fields.pan);
         if (draft.fields.expiry && (!edited.current.expiry || !expiry.trim())) setExpiry(formatCardExpiryInput(draft.fields.expiry));
@@ -265,11 +269,21 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
         setNetwork(""); setErrors([]);
       }} /> : null;
 
+  const formActions = (
+      <FlowActionGroup
+        className={cn(styles.actions, inSheet && styles.sheetActions)}
+        separateSecondary={false}
+        primary={<Button type="submit" form={`${id}-form`} size="prominent" disabled={submitting || scanning || networkLoading || !draftVisible} data-testid="secure-card-save">{submitting ? "Saving…" : inSheet ? "Save card" : "Add to Wallet"}</Button>}
+        secondary={onCancel ? <Button type="button" variant="ghost" size="prominent" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
+      />
+  );
+
   return (
     <>
-    {scanInToolbar ? <div className="mb-3.5">{scanner}</div> : null}
+    {scanInToolbar && !inSheet ? <div className="mb-3.5">{scanner}</div> : null}
     <form
-      className={cn(styles.form, compact && styles.compact)}
+      id={`${id}-form`}
+      className={cn(styles.form, compact && styles.compact, inSheet && styles.sheetForm)}
       aria-label="Add a card"
       data-testid="secure-card-add-form"
       onSubmit={handleSubmit}
@@ -280,11 +294,11 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
         <h2 className={TYPOGRAPHY_CLASSNAMES.sectionTitle}>Add your card</h2>
         <p>Enter the details printed on your card.</p>
       </div> : null}
-      {!scanInToolbar ? scanner : null}
       {draftVisible && scanReading ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText} data-testid="wallet-scan-field-status">{(["pan", "cardholderName", "expiry"] as const).map(key => `${key === "pan" ? "Number" : key === "expiry" ? "Expiry" : "Name"}: ${edited.current[key] ? "edited" : scanReading.states[key].replace("_", " ")}`).join(" · ")}</p> : null}
-      {draftVisible && (scanReading || digits.length >= 12) ? <div className="mx-auto w-full max-w-[26.5rem]">
-        <WalletCardFace cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.slice(-4), expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
+      {draftVisible && (inSheet || scanReading || digits.length >= 12) ? <div className={cn("mx-auto w-full max-w-[26.5rem]", inSheet && styles.sheetPreview)}>
+        <WalletCardFace placeholder={inSheet} cardholderName={cardholderName} summary={{ cardId: "draft", nickname: "", brand, last4: digits.length >= 4 ? digits.slice(-4) : "", expiryMonth: Number(expiry.split("/")[0]) || 0, expiryYear: Number(expiry.split("/")[1]) || 0, issuingRegion, createdAt: "" }} />
       </div> : null}
+      {!scanInToolbar || inSheet ? scanner : null}
       <fieldset disabled={submitting || scanning || !draftVisible} className={styles.fields}>
         {showIntroduction ? <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p> : null}
         <div className={styles.row}>
@@ -384,12 +398,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, backRoute, getNetworkCon
           {errors.map((code) => <li id={`${id}-${code}`} key={code}>{ERROR_COPY[code] ?? "Check your card details."}</li>)}
         </ul>
       ) : null}
-      <FlowActionGroup
-        className={styles.actions}
-        separateSecondary={false}
-        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || networkLoading || !draftVisible} data-testid="secure-card-save">{submitting ? "Saving…" : "Add to Wallet"}</Button>}
-        secondary={onCancel ? <Button type="button" variant="ghost" size="prominent" className="bg-transparent hover:bg-transparent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
-      />
+      {footerHost ? createPortal(formActions, footerHost) : formActions}
     </form>
     </>
   );
