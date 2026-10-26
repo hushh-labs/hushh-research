@@ -19,10 +19,13 @@ evidence, not admission or release claims for the latest implementation.
 ### Root-worktree Profile completion candidate — 2026-10-25
 
 The root worktree supersedes the retired ADK checkout as the active source.
-Main `7d5546e471` is integrated at `850b35a5c1`, after the earlier integrations
-of `79674242c9` and `6e28a65e0b`. The latest team change affects Docker delivery
-and its readiness memo, not the tested native/application owners. Preservation
-checks found no dropped team content; preserve subsequent peer changes.
+Main `c0bf05df4f` is integrated at `d827eccece`, after the earlier integrations
+of `79674242c9`, `6e28a65e0b` and `7d5546e471`. Of the latest 104 team-changed
+paths, 103 match main exactly. The remaining Profile workspace combines the
+team's pending-phone-transfer Close guard with the retained connector Back
+owner. Phone verification and authentication changed, so this merge needs a
+new combined build; earlier device results do not qualify those changes.
+Preservation checks found no dropped team content; preserve subsequent peer changes.
 Profile and Chat are **partially native**, not completely qualified. The
 authored roster now contains 15 ordinary destinations, plus guarded Developer
 tools and Sign out. Older 13-destination runs cannot cover the expanded roster.
@@ -64,10 +67,12 @@ without replacing that moving trigger. Calendar date inputs already use the
 platform form control; no glass overlay is needed merely to open a native picker.
 Mail/Consent/Wallet route tabs remain deliberate retained families.
 
-The installed UAT-backed local Release qualification binary contains native
-source `308d9791c4` and web source `34a843252a`, version 1.4.1 (69), on iPhone
+The installed UAT-backed local Release qualification binary is source
+`a3e0bd4b69`, version 1.4.1 (69), on iPhone
 16e/iOS 27.2 Beta. Its 1,753 runtime files match the prepared bundle; Finder
 metadata is excluded. Dependency pins and deep code signing were checked.
+Its native code is unchanged from `308d9791c4`; resource sealing changed the
+signed executable digest. This does not substitute for the new merge's build.
 UAT was observed serving `7266b4d2e9` before this run. Normal passphrase unlock passes.
 The older dev Pricing 503 and old UAT principal-contract failure are historical,
 not the current editor/readiness result. This is not a TestFlight release.
@@ -105,14 +110,23 @@ Draft, editor and single-WebView comparisons remain process-only. The connector
 callback is now placed in its existing family module and the pane Back module;
 the same regression moves to the existing route-motion suite. All 132 focused
 checks pass, and the architecture ratchet reports no new or worsened findings.
+The reorganized `a3e0bd4b69` candidate also passes the actual Connectors catalog,
+provider/link/custom editors, Drive review and final return to Profile.
 The visible-page-only interaction policy retains its failing-before/passing-after
 native host evidence. Retained connector loading/error/Retry preserves the single
 feature controller, including routine token-renewal and reopen continuity.
 
 Rendered transitions, accessibility and three physical Release performance runs
-need their own evidence. The existing measurement path records metrics but does
-not by itself enforce the requested hitch/frame ceilings; a functional XCTest
-pass is not performance acceptance. Credentials remain process-only, raw private
+need their own evidence. Three measurement iterations returned zero frame counts
+despite positive FPS; no hitch/frame ceiling is accepted from those samples.
+Instruments sees the phone offline while CoreDevice and XCTest work. A bounded
+all-process Animation Hitches probe lost its device session; the owned collector
+was stopped and its unusable trace removed. This is a separate profiling-transport
+failure, not a lost XCTest grant or proof of an SDK defect.
+First-entry whole-value XCUI typing also remains intermittently incomplete with
+public text; an unproven preparation change was discarded. Normal warm
+whole-value reviewer unlock passes and incomplete entries are never submitted.
+Credentials remain process-only, raw private
 results are destroyed and reviewer records are unchanged. XCTest authorization
 is observed, not guaranteed to persist.
 
