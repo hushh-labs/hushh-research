@@ -58,6 +58,8 @@ At 1024px and wider, the holding sheet is centered with a 1120px maximum width:
 value and price history sit left, facts and individual entries sit right. A single
 scroll area retains the existing footer and dismissal owner. Mobile stays stacked
 with the same text sizes; cash and CUSIP positions leave no empty chart column.
+The shared 44px close control sits in the company header row, centered with the
+logo/name block and aligned to the same right inset as the content.
 
 Holdings browse as one derived position per compatible security, source, account,
 currency and position side. The position retains its original entries; edits and
@@ -167,3 +169,14 @@ and 1440px in Chromium/WebKit and both themes. TypeScript, scoped lint and
 regenerated Back/Search verification pass on the combined source. The history
 transport case lives in the existing authentication recovery suite (five cases
 pass), keeping the large generic API test module within its ratchet.
+
+## Market quote presentation
+
+Market observation times use the existing local-date formatter, so index tiles,
+index details and movers follow the viewer's device timezone and locale. Market
+keeps three Movers and three Losers slots. Each uses a valid provider observation;
+a missing rank is a noninteractive `Quote unavailable` row, never a synthetic
+company or percentage. Matching observation times share one line; differing
+times stay with their rows. Market omits cache labels while preserving actual
+quote times, delayed/closed/unavailable states and the underlying cache policy.
+Stocks detail and Portfolio source/history disclosures retain their own wording.

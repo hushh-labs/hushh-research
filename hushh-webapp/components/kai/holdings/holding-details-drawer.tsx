@@ -1,6 +1,8 @@
 "use client";
 
-import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { XIcon } from "@/components/icons";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
@@ -87,11 +89,11 @@ export function HoldingDetailsDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent showCloseButton className={cn(financeStyles.detail, financeStyles.holdingSheet, "border-border/70 bg-background")}>
+      <DrawerContent className={cn(financeStyles.detail, financeStyles.holdingSheet, "border-border/70 bg-background")}>
         <div className="min-h-0 overflow-y-auto overscroll-contain">
-          <DrawerHeader className="flex-row items-center gap-3 px-5 pb-2 pr-16 text-left">
+          <DrawerHeader className="flex-row items-center gap-3 px-5 pb-2 text-left">
             {holding ? <SymbolAvatar symbol={holding.symbol} name={holding.name} isCash={holding.isCash} size="lg" /> : null}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
             <DrawerTitle className="ui-text-navigation-title text-left text-foreground">
               {holding?.symbol || "Holding Details"}
             </DrawerTitle>
@@ -99,6 +101,11 @@ export function HoldingDetailsDrawer({
               {holding?.name || "Select a holding"}
             </DrawerDescription>
             </div>
+            <DrawerClose asChild>
+              <ShellActionSurface variant="icon" className="h-11 w-11" aria-label="Close">
+                <XIcon className="size-4" aria-hidden="true" />
+              </ShellActionSurface>
+            </DrawerClose>
           </DrawerHeader>
 
           <div className={cn(financeStyles.holdingLayout, hasHistory && financeStyles.holdingWithHistory)}>

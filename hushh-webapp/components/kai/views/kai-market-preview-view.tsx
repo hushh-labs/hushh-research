@@ -94,10 +94,7 @@ const THEME_ICON_MAP: Array<{ test: RegExp; icon: LucideIcon }> = [
 ];
 
 function formatMarketQuoteTime(value: string | null | undefined): string {
-  const timestamp = value ? Date.parse(value) : NaN;
-  return Number.isFinite(timestamp)
-    ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(timestamp)
-    : "Time unavailable";
+  return formatLocalDateTime(value, { hour: "numeric", minute: "2-digit" }) ?? "Time unavailable";
 }
 
 const oneMarketRootClassName = cn(
@@ -340,12 +337,12 @@ export function OneMarketIndexStrip({
       {metrics.map((metric) => (
         <button key={metric.id || metric.label} type="button"
           onClick={() => onMetricSelect(metric)}
-          aria-label={`${metric.label}: ${metric.value}, ${metric.delta}, ${metric.quoteStatus}. Open details`}
+          aria-label={`${[`${metric.label}: ${metric.value}`, metric.delta, metric.quoteStatus].filter(Boolean).join(", ")}. Open details`}
           className="grid min-h-[76px] min-w-0 grid-cols-[minmax(0,1fr)_40px_minmax(6rem,auto)] items-center gap-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:flex sm:flex-col sm:items-stretch sm:gap-0 sm:px-4 sm:first:pl-0 sm:last:pr-0">
           <span className="min-w-0">
             <span className={cn("block text-foreground", marketBriefingStyles.indexLabel)}>{metric.label}</span>
             <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-              {!sharedStatus ? <span>{metric.quoteStatus}{metric.quotedAt ? " · " : ""}</span> : null}
+              {!sharedStatus && metric.quoteStatus ? <span>{metric.quoteStatus}{metric.quotedAt ? " · " : ""}</span> : null}
               {metric.quotedAt ? <time dateTime={metric.quotedAt} title={formatOverviewAsOf(metric.quotedAt)}>
                 {formatMarketQuoteTime(metric.quotedAt)}
               </time> : sharedStatus ? "Time unavailable" : null}
@@ -360,7 +357,7 @@ export function OneMarketIndexStrip({
         </button>
       ))}
     </div>
-    {sharedStatus ? <p className="border-t border-border/50 pt-3 text-xs leading-5 text-muted-foreground">{sharedStatus === "Cached" ? "Cached quotes" : sharedStatus}</p> : null}
+    {sharedStatus ? <p className="border-t border-border/50 pt-3 text-xs leading-5 text-muted-foreground">{sharedStatus}</p> : null}
     </div>
   );
 }
@@ -372,23 +369,21 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
     { key: "lose", title: "Losers", rows: groups.lose.slice(0, 3) },
   ] as const;
   const shown = columns.flatMap((column) => column.rows);
-  const sharedCached = shown.length > 0 && shown.every((row) => row.degraded);
   const commonAsOf = shown[0]?.asOf ?? null;
   const sharedTime = shown.length > 0 && shown.every((row) => row.asOf === commonAsOf);
-  const ranks = Math.max(1, ...columns.map((column) => column.rows.length));
   return (
     <div>
       <div className="grid grid-cols-2 gap-4">
         {columns.map(({ key, title }) => <h3 key={key} id={`${id}-${key}`} className={marketBriefingStyles.groupLabel}>{title}</h3>)}
       </div>
       <div className="divide-y divide-border/50">
-        {Array.from({ length: ranks }, (_, rank) => (
+        {Array.from({ length: 3 }, (_, rank) => (
           <div key={rank} className="grid grid-cols-2 items-stretch gap-4" data-market-mover-pair>
             {columns.map(({ key, title, rows }) => {
               const row = rows[rank];
-              if (!row) return rank === 0
-                ? <p key={key} className="py-4 text-sm text-muted-foreground">No {title.toLowerCase()} available.</p>
-                : <span key={key} aria-hidden="true" />;
+              if (!row) return <p key={key} data-market-mover-empty
+                aria-label={`${title} ${rank + 1}: Quote unavailable`}
+                className="flex min-h-12 items-center py-3 text-sm text-muted-foreground">Quote unavailable</p>;
               return <button key={`${key}:${row.symbol}`} type="button" aria-describedby={`${id}-${key}`}
                 onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
                 className="flex min-h-12 min-w-0 w-full flex-col items-stretch gap-1 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
@@ -400,14 +395,14 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
                   <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="float-left mr-1 mt-px h-4 w-4 rounded-full [&_img]:h-4 [&_img]:w-4" />
                   {row.companyName}
                 </span>
-                {!sharedTime || (!sharedCached && row.degraded) ? <span className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{!sharedCached && row.degraded ? "Cached" : formatMarketQuoteTime(row.asOf)}</span> : null}
+                {!sharedTime ? <time dateTime={row.asOf || undefined} className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
               </button>;
             })}
           </div>
         ))}
       </div>
-      {sharedCached || sharedTime ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
-        {[sharedCached ? "Cached quotes" : null, sharedTime ? (commonAsOf ? formatOverviewAsOf(commonAsOf) : "Quote time unavailable") : null].filter(Boolean).join(" · ")}
+      {sharedTime ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
+        <time dateTime={commonAsOf || undefined}>{commonAsOf ? formatOverviewAsOf(commonAsOf) : "Quote time unavailable"}</time>
       </p> : null}
     </div>
   );
@@ -571,9 +566,9 @@ function indexQuoteStatus(
   const age = Date.now() - quotedAt;
   if (row.is_delayed || (row.market_state === "open" && age > 10 * 60 * 1000))
     return "Delayed";
-  if (row.degraded) return "Cached";
   if (!Number.isFinite(quotedAt)) return "Time unavailable";
   if (row.market_state === "closed") return "Market closed";
+  if (row.degraded) return "";
   return age > 10 * 60 * 1000 ? "Snapshot" : "Latest quote";
 }
 
