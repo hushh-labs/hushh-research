@@ -268,3 +268,43 @@ def test_retry_phase_accepts_only_this_operations_partial_promotion(operation, f
             op.module["qualify_plan"](plan, **op.args)
     else:
         assert op.module["qualify_plan"](plan, **op.args) == op.record
+
+
+@pytest.mark.parametrize("recovery", ["true", "false"])
+@pytest.mark.parametrize("failed_service", ["backend", "frontend"])
+def test_recovery_health_failure_rolls_back_the_pair_and_preserves_normal_scope(
+    tmp_path, recovery, failed_service
+):
+    import os
+    import subprocess
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    step = next(
+        step for step in workflow["jobs"]["deploy"]["steps"] if step.get("id") == "classify"
+    )
+    output = tmp_path / "output"
+    values = {key: "success" for key in step["env"]}
+    values.update(
+        RECOVERY_MODE=recovery,
+        DEPLOY_BACKEND="true",
+        DEPLOY_FRONTEND="true",
+        DRIVE_ENABLED="false",
+        DOCUMENT_DELIVERY_CONFIGURED="false",
+        DRIVE_PAUSE_SNAPSHOT="",
+        DRIVE_WORKER_OUTCOME="skipped",
+        GITHUB_OUTPUT=str(output),
+    )
+    values["HEALTH_" + failed_service.upper()] = "failure"
+    result = subprocess.run(  # noqa: S603 -- actual authored classifier, no cloud operations.
+        ["bash", "-euc", step["run"]],
+        env={**os.environ, **values},
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    observed = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert observed[failed_service + "_failure"] == "true"
+    other = "frontend" if failed_service == "backend" else "backend"
+    assert observed[other + "_failure"] == ("true" if recovery == "true" else "false")
+    assert observed["release_failed"] == "true"

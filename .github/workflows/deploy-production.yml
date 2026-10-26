@@ -1916,6 +1916,7 @@ jobs:
         if: always()
         shell: bash
         env:
+          RECOVERY_MODE: ${{ inputs.restoration_validation_run != '' && 'true' || 'false' }}
           FRONTEND_IMAGE_CHECK_OUTCOME: ${{ steps.check-frontend-image.outcome }}
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
@@ -2040,6 +2041,14 @@ jobs:
           # failure must restore the paired backend before restoring those jobs.
           if [ "$release_failed" = "true" ] && [ -n "$DRIVE_PAUSE_SNAPSHOT" ]; then
             backend_failure=true
+          fi
+
+          # Recovery restores a compatible pair, including a one-sided health
+          # or scheduler failure after both services were promoted.
+          if [ "$RECOVERY_MODE" = true ] \
+             && { [ "$backend_failure" = true ] || [ "$frontend_failure" = true ]; }; then
+            backend_failure=true
+            frontend_failure=true
           fi
 
           # No lifecycle or serving mutation precedes the early image check.
