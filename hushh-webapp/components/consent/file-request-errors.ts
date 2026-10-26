@@ -10,7 +10,7 @@ export const IDENTITY_REQUIRED = new Set([
 /** Plain words for a file or packet request that did not go through; `fallback` covers anything unknown. */
 export function fileRequestError(
   code: string,
-  fallback = "Couldn't confirm it was sent. Send again. It won't be sent twice.",
+  fallback = "Couldn't confirm sending. Try again.",
 ): string {
   if (IDENTITY_REQUIRED.has(code))
     return "Add a Google account once to receive original files.";
@@ -34,6 +34,11 @@ export function fileRequestError(
     case "sharing_unavailable":
     case "connector_unavailable":
       return "File requests aren't available for this connection yet.";
+    case "delivery_unavailable":
+    case "delivery_schema_unavailable":
+      return "Secure One links are unavailable. Try again later.";
+    case "delivery_actor_not_supported":
+      return "Secure One links support personal requests. Choose Google Drive to request as a verified RIA.";
     case "connection_required":
       return "You need an active connection with this person.";
     case "request_changed":
