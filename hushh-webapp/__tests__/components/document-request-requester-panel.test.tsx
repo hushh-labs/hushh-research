@@ -34,6 +34,7 @@ vi.mock("@/lib/services/drive-request-requester-service", () => ({
 }));
 
 import { DocumentRequestRequesterPanel } from "@/components/consent/document-request-requester-panel";
+import { OneCopyService } from "@/lib/services/one-copy-service";
 import { DriveSharingError } from "@/lib/services/drive-sharing-service";
 
 const REQUEST_ID = "44444444-4444-4444-8444-444444444444";
@@ -89,6 +90,24 @@ describe("DocumentRequestRequesterPanel recovery row", () => {
   beforeEach(() => {
     state.reviewRequest.mockReset();
     state.token = "vault-token";
+  });
+
+  it("keeps one original Drive row and one same-session One locator without copy polling", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://one.invalid");
+    const copyRead = vi.spyOn(OneCopyService, "status");
+    try {
+      render(<DocumentRequestRequesterPanel requestId={REQUEST_ID} status={{ ...STATUS, oneCopyRequested: true }}
+        delivery={{ status: "approved", files: [{ name: "Statement.pdf", status: "shared", revocationStatus: null,
+          grantId: "grant", managed: true, openUrl: "https://drive.google.com/file/d/source/view", manageInGoogle: false }] }}
+        context={null} locked={false} surface="sheet" onCancel={vi.fn()} onChanged={vi.fn()} />);
+      expect(screen.getAllByText("Statement.pdf")).toHaveLength(1);
+      expect(screen.getAllByRole("link", { name: "Open in Google Drive" })).toHaveLength(1);
+      const locator = screen.getByRole("link", { name: "Open One link", exact: true });
+      expect(locator).toHaveAttribute("href", `/one/documents/open?ref=${REQUEST_ID}&delivery=background`);
+      expect(locator).not.toHaveAttribute("target", "_blank");
+      expect(screen.queryByRole("button", { name: "Preview", exact: true })).not.toBeInTheDocument();
+      expect(copyRead).not.toHaveBeenCalled();
+    } finally { copyRead.mockRestore(); vi.unstubAllEnvs(); }
   });
 
   it("shows no charge instead of an old final quote after existing-access completion", () => {

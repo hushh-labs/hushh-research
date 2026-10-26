@@ -317,11 +317,14 @@ class DriveBulkShareWorker:
                 args["resource_key"] = file["resourceKey"]
             stage = "inspect"
             evidence = file.get("discoveryEvidence")
+            from hushh_mcp.services.drive_request_discovery import DISCOVERY_PROVIDER_RESULTS_POLICY
+
             await self.adapter.inspect_shareable(
                 **args,
                 metadata_period=(
                     {**evidence["period"], "date_basis": evidence["date_basis"]}
                     if evidence is not None
+                    and evidence.get("policy") != DISCOVERY_PROVIDER_RESULTS_POLICY
                     else None
                 ),
                 expected_version=file.get("sourceVersion", "1"),

@@ -33,10 +33,13 @@ from hushh_mcp.services.drive_owner_search_store import (
     validate_reusable_packet,
 )
 from hushh_mcp.services.drive_request_discovery import (
-    DISCOVERY_DELIVERY_POLICY,
+    candidate_metadata,
     compile_discovery_queries,
     discovery_delivery,
     discovery_evidence,
+    provider_date_coverage,
+    provider_results_only,
+    semantic_checkpoint,
 )
 from hushh_mcp.services.drive_request_review_policy import (
     AUTOSHARE_SELECTION_POLICY,
@@ -1837,6 +1840,7 @@ class DriveOwnerSearchService:
         semantic_search=False,
         semantic_model_binding=None,
         discovery_delivery_enabled=False,
+        provider_results_only_enabled=False,
     ):
         """Start or resume the owner-approved request's durable metadata search.
 
@@ -1861,6 +1865,9 @@ class DriveOwnerSearchService:
             authority_mode not in {"owner", "trusted_auto", "agent_package"}
             or type(v1_live_request) is not bool
             or type(autoshare) is not bool
+            or type(provider_results_only_enabled) is not bool
+            or provider_results_only_enabled
+            and not discovery_delivery_enabled
             or planner_fallback is not None
             and (
                 not isinstance(planner_fallback, dict)
@@ -1887,7 +1894,6 @@ class DriveOwnerSearchService:
         query = purpose["purpose"]
         plan = _v1_meeting_note_plan(plan, purpose, v1_live_request=v1_live_request)
         from hushh_mcp.services.drive_request_search_contract import validated_request_semantics
-        from hushh_mcp.services.drive_request_semantic_plan import semantic_plan_digest
 
         semantic_plan, semantic_model_binding, semantic_policy = validated_request_semantics(
             plan,
@@ -1985,27 +1991,13 @@ class DriveOwnerSearchService:
                 "query_index": 0,
                 "request_origin_id": request_id,
                 "request_revision": request_revision,
-                **(
-                    {
-                        "semantic_plan": semantic_plan,
-                        "semantic_plan_digest": semantic_plan_digest(semantic_plan),
-                        "semantic_assessment_policy": semantic_policy,
-                        **(
-                            {"semantic_model_binding": semantic_model_binding}
-                            if semantic_model_binding is not None
-                            else {}
-                        ),
-                        **(
-                            {"discovery_delivery_policy": DISCOVERY_DELIVERY_POLICY}
-                            if discovery_delivery_enabled
-                            else {}
-                        ),
-                        "semantic_pending": [],
-                        "semantic_seen": [],
-                        "semantic_purpose": purpose,
-                    }
-                    if semantic_plan is not None
-                    else {}
+                **semantic_checkpoint(
+                    semantic_plan,
+                    binding=semantic_model_binding,
+                    policy=semantic_policy,
+                    purpose=purpose,
+                    delivery=discovery_delivery_enabled,
+                    provider_results=provider_results_only_enabled,
                 ),
                 "evidence_route": route["kind"],
                 **({"provider_packet": True} if provider_packet else {}),
@@ -2086,6 +2078,7 @@ class DriveOwnerSearchService:
                     else "title_date_then_created_then_modified"
                     if autoshare_dates
                     else "title_date_then_created_or_modified",
+                    **provider_date_coverage(provider_results_only_enabled, semantic_plan),
                     "contentPeriodVerified": False,
                     "folderDiscovery": "none_direct_originals"
                     if direct_originals or discovery_delivery_enabled
@@ -2335,6 +2328,8 @@ class DriveOwnerSearchService:
         )
 
         def period_matches(match):
+            if provider_results_only(checkpoint):
+                return True  # The frozen Google query owns membership, including dates.
             semantic = checkpoint.get("semantic_plan")
             if semantic is not None:
                 basis = semantic["date_basis"]
@@ -2458,17 +2453,23 @@ class DriveOwnerSearchService:
                 else:
                     _counter(checkpoint, "excludedFolderTopicCount")
                 continue
-            if _v1_unsupported_candidate(checkpoint, kind, match["mime_type"]):
+            if not provider_results_only(checkpoint) and _v1_unsupported_candidate(
+                checkpoint, kind, match["mime_type"]
+            ):
                 incomplete = True
                 _counter(checkpoint, "unsupportedCandidateCount")
                 continue
-            if not _request_candidate_kind_matches(checkpoint, kind, match["mime_type"]):
+            if not provider_results_only(checkpoint) and not _request_candidate_kind_matches(
+                checkpoint, kind, match["mime_type"]
+            ):
                 _counter(checkpoint, "excludedByKindCount")
                 continue
-            if not _filename_candidate(checkpoint, match):
+            if not provider_results_only(checkpoint) and not _filename_candidate(checkpoint, match):
                 _counter(checkpoint, "excludedByFilenameCount")
                 continue
-            if not _note_candidate(checkpoint, match, folder_scoped=folder_scoped):
+            if not provider_results_only(checkpoint) and not _note_candidate(
+                checkpoint, match, folder_scoped=folder_scoped
+            ):
                 _counter(checkpoint, "excludedByNoteTypeCount")
                 continue
             if (
@@ -2488,34 +2489,14 @@ class DriveOwnerSearchService:
                 _counter(checkpoint, "excludedByDateCount")
                 continue
             files.append(
-                {
-                    "id": match["file_id"],
-                    "name": match["name"],
-                    "mimeType": match["mime_type"],
-                    "modifiedTime": match["modified_time"],
-                    "createdTime": match["created_time"],
-                    **(
-                        {
-                            "sourceVersion": str(source.get("version", "")),
-                            **{
-                                key: source[key]
-                                for key in ("owners", "sharingUser")
-                                if key in source
-                            },
-                        }
-                        if checkpoint.get("semantic_plan") is not None
-                        else {}
-                    ),
-                    **(
-                        {"shortcutName": match["shortcut_name"]}
-                        if match.get("shortcut_name")
-                        else {}
-                    ),
-                    **({"resourceKey": key} if key else {}),
-                    "openUrl": match["open_url"],
-                    **_shareability(source),
-                    **evidence,
-                }
+                candidate_metadata(
+                    checkpoint,
+                    match,
+                    source,
+                    resource_key=key,
+                    shareability=_shareability(source),
+                    evidence=evidence,
+                )
             )
         return files, incomplete
 
@@ -3070,7 +3051,7 @@ class DriveOwnerSearchService:
                 )
             logger.info(
                 "drive_search.delivery policy=%s content_assessment=not_applicable files=%d",
-                DISCOVERY_DELIVERY_POLICY,
+                checkpoint["discovery_delivery_policy"],
                 len(files),
             )
         elif checkpoint.get("semantic_plan") is not None:

@@ -144,6 +144,7 @@ export function useFileRequest({
           ...(clean.accessDays === undefined ? {} : { accessDays: clean.accessDays }),
           ...(clean.requesterActorType === undefined ? {} : { requesterActorType: clean.requesterActorType }),
           ...(clean.reason === undefined ? {} : { reason: clean.reason }),
+          ...(clean.oneCopyRequested ? { oneCopyRequested: true, activityAccepted: true, activityDisclosureVersion: "one-document-activity-v1" as const } : {}),
           purpose: {
             purpose: clean.purpose, periodStart: clean.periodStart, periodEnd: clean.periodEnd,
           } },

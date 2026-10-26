@@ -388,46 +388,6 @@
       "state_exposure": []
     },
     {
-      "action_id": "document.hosted.choose_receive_through",
-      "label": "Choose document delivery method",
-      "meaning": "The requester manually chooses Google Drive, a secure One link, or both in the file request form. This changes only the draft delivery method: it grants no access to owner files, authorizes no hosted copy and submits no request. Secure One delivery also requires the separate activity disclosure; Drive delivery still requires the existing requester identity proof.",
-      "aliases": [],
-      "search_keywords": [
-        "documents",
-        "delivery method",
-        "Google Drive",
-        "secure One link"
-      ],
-      "reachability": {
-        "routes": [
-          "/people/[personRef]"
-        ],
-        "screens": [
-          "one_person_profile"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "The file request form is open for an accepted connection, the requester is signed in with an unlocked vault, and hosted delivery readiness is enabled for this request."
-        ]
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "vault_owner_token",
-        "manual_user_execution"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "execution_target": {
-        "status": "unwired",
-        "reason": "The requester must choose the delivery method directly in the visible request form; choosing does not grant owner-file authority or hosted-copy consent.",
-        "intended_handler": "RequestFilesButton"
-      },
-      "control_ids": [
-        "document-hosting-receive-through"
-      ],
-      "state_exposure": []
-    },
-    {
       "action_id": "document.hosted.open_link",
       "label": "Open protected One link",
       "meaning": "Opens the request-bound HTTPS One reader after final owner approval. The link grants no access, contains no file key, and still requires the approved recipient One account and unlocked vault.",
@@ -449,7 +409,8 @@
         "intended_handler": "HostedDocumentPanel"
       },
       "control_ids": [
-        "document-hosting-open-link"
+        "document-hosting-open-link",
+        "document-copy-open-link"
       ],
       "state_exposure": []
     },
@@ -502,6 +463,211 @@
       },
       "control_ids": [
         "document-hosting-load-activity"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.preview",
+      "label": "Preview One copy",
+      "meaning": "Displays an approved PDF copy in a safe canvas with a visual watermark. Original bytes are unchanged; this does not save a file.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-preview"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.download",
+      "label": "Download original",
+      "meaning": "Downloads the original file only after an explicit click and a fresh entitlement check. Native uses the existing system share sheet; cancellation does not mean saved.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-download"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.close_preview",
+      "label": "Back to files",
+      "meaning": "Closes the document preview and clears its readable bytes before returning to the file list. Also cancels the pending One access confirmation without revoking access.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-close-preview",
+        "document-copy-cancel-revoke"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.refresh",
+      "label": "Refresh One copy",
+      "meaning": "Reads current copy preparation and access status without creating another request or payment. The owner can open, refresh or paginate the private activity list. Requested previews and completed transfers do not prove display or saving.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-refresh",
+        "document-copy-activity",
+        "document-copy-refresh-activity",
+        "document-copy-more-activity"
+      ],
+      "state_exposure": []
+    },
+    {
+      "action_id": "document.copy.revoke",
+      "label": "Stop One access",
+      "meaning": "The owner confirms stopping hosted One access. Drive access and files already saved are separate.",
+      "aliases": [],
+      "search_keywords": [
+        "documents",
+        "One copy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/consent",
+          "/one/documents/open"
+        ],
+        "screens": [
+          "consents",
+          "one_documents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Signed-in participant with an unlocked vault and a current request; original Drive request and payment remain authoritative."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The visible file control owns current entitlement, explicit consent and memory cleanup.",
+        "intended_handler": "BackgroundDocumentFiles"
+      },
+      "control_ids": [
+        "document-copy-revoke",
+        "document-copy-confirm-revoke"
       ],
       "state_exposure": []
     }

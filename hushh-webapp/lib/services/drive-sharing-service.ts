@@ -30,6 +30,7 @@ import {
 } from "@/lib/services/drive-search-service";
 
 export type SharingStatus = DocumentRequestSetup & {
+  oneCopyRequested?: boolean;
   requestId: string;
   status: string;
   revision: number;
@@ -78,6 +79,9 @@ export type SharingDecision = Record<string, unknown> & {
   payment?: RequesterPaymentView | null;
 };
 export type DocumentRequestDraft = {
+  oneCopyRequested?: boolean;
+  activityAccepted?: boolean;
+  activityDisclosureVersion?: "one-document-activity-v1";
   ownerPersonRef: string;
   clientRequestId: string;
   /** Optimistic guard for the quote the requester saw before sending. */
@@ -136,6 +140,7 @@ export function validDocumentRequestTerms(
   );
 }
 export type SharingReview = DocumentRequestSetup & {
+  oneCopyRequested?: boolean;
   agentPackage?: AgentDocumentPackage;
   /** Live request evaluation lane; packet catalog requests use the legacy package view. */
   v1LiveRequest?: boolean;
@@ -233,6 +238,7 @@ export type OwnerDocumentPayout = {
   status: OwnerDocumentPayoutStatus;
 };
 export type SharingAllowInput = {
+  oneCopyAccepted?: boolean;
   revision: number;
   amountCents: number | null;
 } & ({ packageRevision: number; packageDigest: string } |
@@ -1138,6 +1144,7 @@ export class DriveSharingService {
     id(draft.clientRequestId);
     if (
       !firebaseToken ||
+      (draft.oneCopyRequested === true && (draft.activityAccepted !== true || draft.activityDisclosureVersion !== "one-document-activity-v1")) ||
       (draft.expectedQuoteVersion !== undefined && draft.expectedQuoteVersion !== null &&
         (!Number.isSafeInteger(draft.expectedQuoteVersion) || draft.expectedQuoteVersion < 0)) ||
       (draft.accessDays !== undefined &&
@@ -1201,6 +1208,7 @@ export class DriveSharingService {
       revision: revision(result.revision),
       status: string(result.status, 80),
       direction: result.direction,
+      ...(typeof result.oneCopyRequested === "boolean" ? { oneCopyRequested: result.oneCopyRequested } : {}),
       ...(result.delivery && typeof result.delivery === "object" && ["one", "both"].includes((result.delivery as Record<string, unknown>).receiveThrough as string) ? { hostedDelivery: true as const } : {}),
       ...(typeof result.outcomeReason === "string" && ["no_matching_files", "matching_files_unshareable"].includes(result.outcomeReason)
         ? { outcomeReason: result.outcomeReason as SharingStatus["outcomeReason"] } : {}),
@@ -1455,6 +1463,7 @@ export class DriveSharingService {
       revision: revision(result.revision),
       status: string(result.status, 80),
       recipientEmail: string(result.recipientEmail, 320),
+      ...(typeof result.oneCopyRequested === "boolean" ? { oneCopyRequested: result.oneCopyRequested } : {}),
       purpose: {
         purpose: string(purpose.purpose),
         periodStart:
@@ -1848,6 +1857,7 @@ export class DriveSharingService {
       ...(hasPackage ? { packageRevision: input.packageRevision, packageDigest: input.packageDigest } : {}),
       ...(input.amountCents === null ? {} : { amountCents: input.amountCents }),
       confirmed: true,
+      ...(input.oneCopyAccepted === true ? { oneCopyAccepted: true } : {}),
     });
     if (id(result.requestId) !== requestId)
       throw new DriveSharingError("invalid_response");

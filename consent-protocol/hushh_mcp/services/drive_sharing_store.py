@@ -20,7 +20,7 @@ from sqlalchemy import text
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore, DocumentReviewAuthority
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
-from hushh_mcp.services.document_delivery import status_integration
+from hushh_mcp.services.document_delivery import background_consent, status_integration
 from hushh_mcp.services.drive_document_store import (
     PROCESSING_DISCLOSURE_VERSION,
     DriveDocumentStore,
@@ -831,10 +831,11 @@ class DriveSharingStore(DriveDocumentStore):
                 and row["owner_allowed_at"] is None
                 and owner_allowed_marker(private) is None
             )
-        return self._awaiting_owner_decision(
-            row, private, now
-        ) and not self._trusted_recipient_current(
-            connection, row["user_id"], row["recipient_user_id"]
+        return self._awaiting_owner_decision(row, private, now) and (
+            background_consent.requested(private)
+            or not self._trusted_recipient_current(
+                connection, row["user_id"], row["recipient_user_id"]
+            )
         )
 
     @staticmethod
@@ -1481,10 +1482,12 @@ class DriveSharingStore(DriveDocumentStore):
                 "agentPackageRequired": private.get("agent_package_required") is True,
                 "packageAllowed": package_allow_marker(private) is not None,
                 "v1LiveRequest": private.get("v1_live_request") is True,
+                **background_consent.projection(private),
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
                 "semanticSearch": semantic_search_request(private),
-                "discoveryDelivery": private.get("semantic_search_policy_version") == 2
+                "providerResultsOnly": private.get("semantic_search_policy_version") == 3,
+                "discoveryDelivery": private.get("semantic_search_policy_version") in (2, 3)
                 and semantic_search_request(private),
                 "semanticModelBinding": private.get("semantic_model_binding"),
                 "reusablePacket": private.get("reusable_packet"),
@@ -1506,6 +1509,9 @@ class DriveSharingStore(DriveDocumentStore):
         access_days: int | None = None,
         requester_profile: dict | None = None,
         reason: str = "",
+        one_copy_requested: bool = False,
+        activity_accepted: bool = False,
+        activity_disclosure: str | None = None,
     ) -> dict:
         """B's authenticated identity must be verified by the service before calling.
 
@@ -1552,8 +1558,12 @@ class DriveSharingStore(DriveDocumentStore):
             type(expected_quote_version) is not int or expected_quote_version < 0
         ):
             raise DriveSharingError("invalid_argument")
+        from hushh_mcp.services.document_delivery.background_consent import request_terms
+
+        copy_terms = request_terms(one_copy_requested, activity_accepted, activity_disclosure)
         request_id = str(uuid4())
         payload = {
+            **copy_terms,
             "purpose": purpose.model_dump(),
             **({"reason": reason} if reason else {}),
             **({"requester_profile": requester_profile} if requester_profile else {}),
@@ -1577,7 +1587,8 @@ class DriveSharingStore(DriveDocumentStore):
             "request",
             base_digest_terms
             + ([{"accessDays": access_days}] if access_days is not None else [])
-            + persona_digest_terms,
+            + persona_digest_terms
+            + ([copy_terms] if copy_terms else []),
         )
         # A pre-deploy retry may now carry the HTTP default period. Reuse its
         # original terms only when every old binding still matches and it has
@@ -1592,12 +1603,14 @@ class DriveSharingStore(DriveDocumentStore):
         def request_matches(row):
             return row["user_id"] == owner_user_id and (
                 row["request_digest"] == digest
-                or row.get("requested_access_days") is None
+                or not copy_terms
+                and row.get("requested_access_days") is None
                 and access_days in (None, 30)
                 and requester_profile is None
                 and not reason
                 and row["request_digest"] == legacy_digest
-                or access_days is None
+                or not copy_terms
+                and access_days is None
                 and row.get("requested_access_days") == 30
                 and row["request_digest"] == default_access_digest
             )
@@ -1682,6 +1695,7 @@ class DriveSharingStore(DriveDocumentStore):
             trusted_auto = bool(
                 (not agent_package or v1_live_request)
                 and not owner_initiated
+                and not one_copy_requested
                 and not selected_files_review
                 and connector_feature_enabled("google_drive_chat_reads", owner_user_id)
                 and self._trusted_recipient_current(connection, owner_user_id, recipient.user_id)
@@ -2792,6 +2806,7 @@ class DriveSharingStore(DriveDocumentStore):
             return {
                 **self._summary(row, recipient=recipient),
                 "direction": "outgoing" if recipient else "incoming",
+                **background_consent.projection(private),
                 **request_outcome_view(row, owner=not recipient),
                 # Waiting in the durable queue with no search yet; never "paused".
                 **queue_view(request_queued_since(row, now), now),
@@ -3236,13 +3251,13 @@ class DriveSharingStore(DriveDocumentStore):
         amount_cents: int | None,
         package_revision: int | None = None,
         package_digest: str | None = None,
+        one_copy_accepted: bool = False,
     ) -> dict:
-        """The owner's Allow for one request from outside their Trusted circle.
+        """Allow this request at the owner's price and existing settlement terms.
 
-        Re-seals the request with the marker a Trusted request receives at
-        creation, plus the owner's price. The same background search, payment
-        and sharing then run, and each step still rechecks the active
-        connection. Allow keeps the revision and emits no event.
+        New combined requests require explicit copy consent, including Trusted
+        recipients. Historical and Drive-only requests retain their own policy.
+        The same search, checkout and grant queue run after this transaction.
         """
         self._sharing_admission(user_id)
         if amount_cents is not None and not valid_owner_price_cents(amount_cents):
@@ -3253,7 +3268,7 @@ class DriveSharingStore(DriveDocumentStore):
             self._participant_gate(connection, user_id, identity)
             DriveLivePreferences(db=self.db).live_active(connection, user_id=user_id)
             row = self._related_request(connection, user_id, identity)
-            private = self._open_request(row)
+            private = background_consent.allow_private(self, connection, row, one_copy_accepted)
             allowed = owner_allowed_marker(private)
             if allowed is not None:
                 # A repeated tap or a retry after a lost response; never a new

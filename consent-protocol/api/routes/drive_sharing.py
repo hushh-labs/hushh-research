@@ -151,11 +151,19 @@ class CreateRequest(StrictRequest):
     reason: str = Field(default="", max_length=500)
     timeZone: str | None = Field(default=None, min_length=1, max_length=64)
     expectedQuoteVersion: int | None = Field(default=None, ge=0, strict=True)
+    oneCopyRequested: StrictBool = False
+    activityAccepted: StrictBool = False
+    activityDisclosureVersion: Literal["one-document-activity-v1"] | None = None
 
     @model_validator(mode="after")
     def one_owner_target(self):
         if (self.ownerUserId is None) == (self.ownerPersonRef is None):
             raise ValueError("Specify one owner target.")
+        if self.oneCopyRequested and (
+            not self.activityAccepted
+            or self.activityDisclosureVersion != "one-document-activity-v1"
+        ):
+            raise ValueError("Explicit activity disclosure acceptance required.")
         if self.requesterActorType == "ria" and not self.reason.strip():
             raise ValueError("A verified RIA must give a reason.")
         return self
@@ -237,6 +245,7 @@ class BulkShareCreateRequest(StrictRequest):
 
 
 class AllowRequest(DecisionRequest):
+    oneCopyAccepted: StrictBool = False
     packageRevision: int | None = Field(default=None, strict=True, ge=1)
     packageDigest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     # Whole US dollars as cents. Required only for a paid request; the store
@@ -475,6 +484,15 @@ async def create_request(
         reason=body.reason.strip(),
         request_time_zone=body.timeZone,
         expected_quote_version=body.expectedQuoteVersion,
+        **(
+            {
+                "one_copy_requested": True,
+                "activity_accepted": True,
+                "activity_disclosure": body.activityDisclosureVersion,
+            }
+            if body.oneCopyRequested
+            else {}
+        ),
     )
 
 
@@ -1051,6 +1069,7 @@ async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_ow
         request_id=str(request_id),
         revision=body.revision,
         amount_cents=body.amountCents,
+        **({"one_copy_accepted": True} if body.oneCopyAccepted else {}),
         **(
             {"package_revision": body.packageRevision, "package_digest": body.packageDigest}
             if body.packageRevision is not None or body.packageDigest is not None
