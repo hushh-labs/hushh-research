@@ -16,17 +16,41 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Shared overlay boundary — 2026-10-26
+
+Overlay repair belongs to the shared primitive/presenter, not to Wallet or another
+route. `useNativeNavigationOverlayRef` now observes the registered primitive’s
+`data-state` and `hidden` lifecycle. A retained closed portal does not isolate the
+shell; an existing isolation token survives its own finite exit motion. Reopen,
+replacement and unmount invalidate older completions. Nodes without an authored
+state keep the existing mount/unmount contract, including the Popover scrim.
+This reads presentation state only, never DOM-inferred actions or protected values.
+
+| Shared family | Owner and renderer boundary |
+| --- | --- |
+| Dialog, AlertDialog, Sheet, Drawer, Popover, Select, DropdownMenu | Existing React primitives share native-shell isolation and retirement. This is lifecycle handling, not native conversion. |
+| Bounded public action/choice lists | Explicit semantic adapter and owned native presenter; existing feature callbacks remain authoritative. A moving trigger must not be replaced by a stationary native control. |
+| Private or rich Wallet forms and confirmations | Existing feature validation/consent/security owners; adopt a complete private scene or retain the complete React presentation. Never bridge arbitrary React children or protected values through public NativeChrome metadata. |
+| Native Profile menus/editors and transient feedback | Existing acknowledged NativeDrawers scene and owned feedback presenter, with document/owner/revision/privacy fences. |
+| Unconverted React content overlapping foreground native chrome | Requires a presentation-owner handoff. CSS z-index cannot cross the WebView/UIKit sibling boundary; registry isolation alone does not prove correct visual layering. |
+
+The retained-overlay regression fails before the lifecycle fix. Nearest navigation
+and Popover tests pass; iPhone Wallet layer acceptance is not established by those
+tests. Do not enable another family or claim a native Wallet conversion from this
+change. Shared-family qualification includes nested selection, dismissal, return
+focus and touch recovery, with the same WebView/session and no duplicate editor.
+
 ### Integrated source and physical rehearsal — 2026-10-26
 
 | Boundary | Current evidence |
 | --- | --- |
-| Source preservation | Main `2dc3da0ff9` was preserved at `b8b09f6a5b`: 91/92 incoming paths match exactly; the workflow retains both Main policy and five native test filters. Document Request, Finance/Plaid and Todo recovery are preserved through `1456a79b52`. Main `43b3625301` is integrated at `9efa3fd6b6`: 85/86 incoming paths match exactly; the native connector adapter preserves both Main’s packet controls and retained native owner/admission guards. |
-| Verification | Canonical core passed at `e9d3432220`: 23,882 protocol and 1,479 database tests plus web/package/integration. At `b8b09f6a5b`, 168 affected backend and 199 web tests plus canonical affected stages pass; exact-head PR CI run `40371825312` succeeds. At `eb7a969044`, Document Request custody/web (12/64), Plaid/Finance (69/21) and canonical affected stages pass; the final Todo delta passes 15 tests. The newer packet integration and boxed promise-toast retirement correction require combined verification before landing. |
-| Native Profile | Installed `e9d3432220` traversed all 15 destinations across an interrupted run and successful remaining-destination recovery. The snapshot failure is retained, not called an uninterrupted pass. No reviewer saves; session/WebView checks passed on completed journeys. |
-| Current physical build | Both qualification and ordinary flag-OFF `b8b09f6a5b` Release payloads/signatures/UAT settings were verified: 1,765 packaged files each. Ordinary `1456a79b52` App/runner installation and launch succeeded over Wi-Fi. Protected ordinary-device qualification remains unproven. |
-| Native qualification | `b8` agent switching completed nine cycles before a snapshot interruption; the separate History action journey lacks an actionable fixture. Neither result is a ten-cycle pass. Visual/accessibility, mutation and three-run physical frame acceptance remain open. |
-| Tools and privacy | Supported pairing reconnect restored Wi-Fi uploads. Matching Xcode 27.2 passed public whole-value input and normal reviewer unlock. Raw credential/test/crash reports were removed; only sanitized metadata remains. Historical PID 4116 crash data does not diagnose the later PID 5042 interruption. Later ordinary public input probes deliver 5/8 characters even with matching tools; fixtures are cleared and private Unlock is not submitted. |
-| Simulator | The ordinary flag-OFF Release installs, launches and passes guest admission on the existing headless iPhone 16e simulator. It has no authenticated reviewer session; protected journeys are not qualified. Simulator test-product mode is not physical attach-only or frame evidence. |
+| Source preservation | Main `ffc159cb69` is integrated at `2c6c24785d`: 24/25 incoming paths match exactly; the document test harness retains Main’s session-generation/committed-recovery fix plus bounded diagnostics. Production web/native inputs remain identical to installed `a76e8b17b6`. |
+| Verification | Canonical core passed at `e9d3432220`; subsequent affected stages remain source-bound. At `a76`, 81 backend/migration and 164 web tests plus canonical affected stages pass. CI `40391305123` exposed two WebKit failures: the document fixture fix now comes from Main; the scroll gate’s invalid zero-start assumption is corrected, with old-code failure and six passing width/engine cases. Combined `2c6c24785d` secret/governance, area backend, UI-contract/typecheck and four Chromium/WebKit document-delivery cases pass; hosted exact-head CI remains required before landing. |
+| Native Profile | Installed `a76` passes both warm batches across all 15 destinations, including nested editors, Invite and Legal. Normal reviewer unlock succeeds through whole-value input. No account mutations; session/WebView continuity passes. |
+| Current physical build | Qualification and ordinary flag-OFF `a76` Release payloads/signatures/UAT settings verify all 1,765 packaged files. The local qualification App and original matching runner are installed over Wi-Fi. Ordinary builds remain separate. |
+| Functional qualification | `a76` passes ten One/Puppy cycles, ten background/resume cycles plus Control Center touch recovery, real native haptics feedback with preference restoration, and three bottom-chrome scroll/reversal cycles with keyboard/draft continuity. History actions still need an authorized fixture; visual/accessibility and three-run physical frame acceptance remain open. |
+| Tools and privacy | Matching Xcode 27.2 passes both public whole-value samples and normal reviewer unlock on the current qualification build. Earlier ordinary secure-field AX length mismatches remain unexplained. An isolated public-only reveal diagnostic was never entered on the successful probe; private input guards were unchanged. Raw credential results were removed. |
+| Simulator | Earlier `b8` ordinary guest admission supports diagnosis only. The owned simulator is shut down; no protected or physical-frame acceptance is inferred. |
 
 Ordinary custom-native Release/TestFlight admission remains **off**. A standard
 Instruments 27.2 trace exports, but current semantic motion capture is not

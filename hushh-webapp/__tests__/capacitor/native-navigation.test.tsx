@@ -198,6 +198,39 @@ describe("native navigation presentation boundary", () => {
     view.unmount();
   });
 
+  it("isolates a retained overlay only through its visible lifetime and ignores a superseded exit", async () => {
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    function RetainedOverlay({ open }: { open: boolean }) {
+      return <div data-testid="retained-overlay" data-state={open ? "open" : "closed"}
+        ref={useNativeNavigationOverlayRef<HTMLDivElement>()} />;
+    }
+    const overlay = render(<RetainedOverlay open={false} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(lastState().interactionEnabled).toBe(true);
+    overlay.rerender(<RetainedOverlay open />);
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(false));
+    const node = overlay.getByTestId("retained-overlay");
+    await act(async () => { node.hidden = true; });
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(true));
+    await act(async () => { node.hidden = false; });
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(false));
+    let finishExit!: () => void;
+    const finished = new Promise<void>(resolve => { finishExit = resolve; });
+    node.getAnimations = () => [{ finished, playState: "running",
+      effect: { target: node, getComputedTiming: () => ({ iterations: 1 }) } } as unknown as Animation];
+    overlay.rerender(<RetainedOverlay open={false} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(lastState().interactionEnabled).toBe(false);
+    overlay.rerender(<RetainedOverlay open />);
+    await act(async () => { finishExit(); await finished; });
+    expect(lastState().interactionEnabled).toBe(false);
+    node.getAnimations = () => [];
+    overlay.rerender(<RetainedOverlay open={false} />);
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(true));
+    overlay.unmount(); view.unmount();
+  });
+
   it("keeps native tabs materially present beneath a whole native drawer without the legacy clipping protocol", async () => {
     vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 3, columnLayout: true, supported: true, wholeNativeDrawers: true, interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
