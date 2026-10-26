@@ -12,7 +12,7 @@ BEGIN
   AND NOT EXISTS(SELECT 1 FROM pg_trigger WHERE
    tgrelid='public.account_deletion_tombstones'::regclass AND tgname='one_area_discovery_erasure')
  THEN RETURN; END IF;
- SELECT t.*,p.prosecdef,p.proconfig,p.prosrc,p.proowner,p.proleakproof,
+ SELECT t.*,p.prosecdef,p.proconfig,p.prosrc,p.proowner,p.proleakproof,p.prolang,
   p.provolatile,p.prorettype,n.nspname AS function_schema INTO installed
  FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
  JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -27,6 +27,7 @@ BEGIN
   OR installed.tgfoid IS DISTINCT FROM to_regprocedure('public.erase_one_area_discovery()')::oid
   OR installed.prosecdef OR installed.proleakproof OR installed.provolatile<>'v'
   OR installed.prorettype<>'pg_catalog.trigger'::regtype
+  OR installed.prolang IS DISTINCT FROM (SELECT oid FROM pg_language WHERE lanname='plpgsql')
   OR installed.proowner IS DISTINCT FROM
    (SELECT relowner FROM pg_class WHERE oid='public.account_deletion_tombstones'::regclass)
   OR installed.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, public']::text[]
