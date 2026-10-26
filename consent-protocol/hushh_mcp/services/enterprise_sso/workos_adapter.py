@@ -90,6 +90,14 @@ class SsoProfile:
     first_name: str | None = None
     last_name: str | None = None
     name: str | None = None  # a full name, for IdPs that send no first/last split
+    connection_id: str | None = None
+    idp_id: str | None = None
+
+
+@dataclass(frozen=True)
+class DirectoryMembership:
+    directory_id: str
+    user_id: str
 
 
 @dataclass(frozen=True)
@@ -125,6 +133,8 @@ class WorkOSPort(Protocol):
     ) -> str: ...
 
     def exchange_code(self, code: str) -> SsoProfile: ...
+
+    def directory_membership(self, profile: SsoProfile) -> DirectoryMembership | None: ...
 
 
 class WorkOSSdkAdapter:
@@ -239,7 +249,65 @@ class WorkOSSdkAdapter:
             first_name=str(getattr(profile, "first_name", None) or "").strip() or None,
             last_name=str(getattr(profile, "last_name", None) or "").strip() or None,
             name=str(getattr(profile, "name", None) or "").strip() or None,
+            connection_id=str(getattr(profile, "connection_id", None) or "").strip() or None,
+            idp_id=str(getattr(profile, "idp_id", None) or "").strip() or None,
         )
+
+    def directory_membership(self, profile: SsoProfile) -> DirectoryMembership | None:
+        """Correlate WorkOS's exact same-organization IdP identifier, never email.
+
+        WorkOS documents this SSO/Directory Sync identity-linking rule. Incomplete
+        listings and multiple matches cannot establish attribution. An IdP with
+        inconsistent SSO/SCIM identifiers needs explicit configuration/qualification.
+        """
+        if not profile.organization_id:
+            raise EnterpriseSsoError("sso_directory_binding_required", 503)
+        try:
+            sdk = self._sdk()
+            directories = sdk.directory_sync.list_directories(
+                organization_id=profile.organization_id, limit=100
+            )
+            if getattr(directories.list_metadata, "after", None):
+                raise EnterpriseSsoError("sso_directory_binding_required", 503)
+            if not directories.data:
+                # Preserve SSO-only organizations and the built-in Test IdP.
+                # An API failure or an unmatched existing directory is never empty.
+                return None
+            if not profile.connection_id or not profile.idp_id:
+                raise EnterpriseSsoError("sso_directory_binding_required", 503)
+            connection = sdk.sso.get_connection(profile.connection_id)
+            if (
+                connection.organization_id != profile.organization_id
+                or self._state_value(connection.state) != "active"
+            ):
+                raise EnterpriseSsoError("sso_directory_binding_required", 503)
+            found = []
+            for directory in directories.data:
+                if (
+                    directory.organization_id != profile.organization_id
+                    or self._state_value(directory.state) != "linked"
+                ):
+                    continue
+                users = sdk.directory_sync.list_users(
+                    directory=directory.id, idp_id=profile.idp_id, limit=2
+                )
+                if getattr(users.list_metadata, "after", None):
+                    raise EnterpriseSsoError("sso_directory_binding_required", 503)
+                for user in users.data:
+                    if (
+                        user.organization_id == profile.organization_id
+                        and user.directory_id == directory.id
+                        and user.idp_id == profile.idp_id
+                        and self._state_value(user.state) == "active"
+                    ):
+                        found.append(DirectoryMembership(str(directory.id), str(user.id)))
+            if len(found) != 1:
+                raise EnterpriseSsoError("sso_directory_binding_required", 503)
+            return found[0]
+        except EnterpriseSsoError:
+            raise
+        except Exception:
+            raise EnterpriseSsoError("sso_provider_unavailable", 502) from None
 
 
 def verify_webhook_signature(

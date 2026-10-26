@@ -9871,6 +9871,7 @@
         "phone_mandate.delete_previous",
         "phone_mandate.recover",
         "phone_mandate.select_country",
+        "phone_mandate.send_real_sms",
         "phone_mandate.submit_code",
         "phone_mandate.submit_number",
         "phone_mandate.transfer_cancel",
@@ -10997,5 +10998,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "43154469b5c1704a026e0f632e635fa002e0a807596a623ec6d600541d69534f"
+  "content_sha256": "5eb6f1f1575a30de99063dce51a38d4d1d6a0e6a027b049ce3881701d9010a5a"
 }

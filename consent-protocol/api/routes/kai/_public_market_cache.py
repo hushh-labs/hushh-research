@@ -7,8 +7,10 @@ from typing import Any, Callable
 
 from hushh_mcp.services.market_history_policy import daily_history_cache_window
 from hushh_mcp.services.market_refresh_policy import (
+    LAST_CLOSE_RETENTION_SECONDS,
     MarketPriceRefreshPaused,
     closed_price_snapshot_usable,
+    last_close_snapshot_usable,
     market_price_refresh_scope,
     price_cache_retention_seconds,
     us_market_session_opened_at,
@@ -27,6 +29,9 @@ class PublicModuleCache:
     safe_float: Callable
     refresh_prefixes: tuple[str, ...]
     sensitive_prefixes: tuple[str, ...]
+    # Shared price entries kept past the last session: they are price modules, so a
+    # closed exchange never refreshes them, and they replay for the retention window.
+    last_close_prefixes: tuple[str, ...] = ()
 
     async def read(
         self,
@@ -40,10 +45,13 @@ class PublicModuleCache:
     ) -> tuple[Any, bool, int, str, bool]:
         now_ts = self.clock()
         moment = datetime.fromtimestamp(now_ts, tz=timezone.utc)
-        price_module = key.startswith(self.refresh_prefixes)
+        last_close = key.startswith(self.last_close_prefixes)
+        price_module = last_close or key.startswith(self.refresh_prefixes)
         closed = price_module and not self.is_open()
         if key.startswith(self.sensitive_prefixes):
             stale_ttl_seconds = price_cache_retention_seconds(stale_ttl_seconds, moment)
+        if last_close:
+            stale_ttl_seconds = max(stale_ttl_seconds, LAST_CLOSE_RETENTION_SECONDS)
         # Tighten the fresh window during US market hours and relax it when closed,
         # for price-sensitive modules. Stale TTL is preserved so degradation and
         # serve-stale-while-revalidate behavior are unchanged.
@@ -57,7 +65,7 @@ class PublicModuleCache:
             fresh_ttl_seconds, fresh_after_ts = daily_history_cache_window(moment)
 
         hit, store, l2_entry = await self.lookup(
-            key, now_ts, moment, closed, fresh_ttl_seconds, fresh_after_ts
+            key, now_ts, moment, closed, fresh_ttl_seconds, fresh_after_ts, last_close
         )
         if hit is not None:
             return hit
@@ -101,6 +109,7 @@ class PublicModuleCache:
         provider_status = payload.get("provider_status")
         applies_to_key = (
             key.startswith("quotes:")
+            or key.startswith(("indices:", "picks:"))
             or key.startswith("home:")
             or key.startswith("home:baseline:")
             or key.startswith("home:personalized:")
@@ -127,7 +136,14 @@ class PublicModuleCache:
                         return True
         return False
 
-    async def lookup(self, key, now_ts, moment, closed, fresh_ttl_seconds, fresh_after_ts):
+    async def lookup(
+        self, key, now_ts, moment, closed, fresh_ttl_seconds, fresh_after_ts, last_close=False
+    ):
+        def usable(fetched_at: float) -> bool:
+            if last_close:
+                return last_close_snapshot_usable(fetched_at, now_ts)
+            return closed_price_snapshot_usable(fetched_at, moment)
+
         existing_l1 = self.cache.peek(key)
         if (
             not closed
@@ -176,17 +192,14 @@ class PublicModuleCache:
         # Seed stale L2 into L1 so L1 stale-on-error can serve fallback.
         if (
             l2_entry
-            and (
-                l2_entry.is_stale_servable(now_ts)
-                or (closed and closed_price_snapshot_usable(l2_entry.updated_at_ts, moment))
-            )
+            and (l2_entry.is_stale_servable(now_ts) or (closed and usable(l2_entry.updated_at_ts)))
             and (existing_l1 is None or l2_entry.updated_at_ts > existing_l1.fetched_at)
         ):
             self.cache.seed_entry(key, l2_entry.payload, l2_entry.updated_at_ts)
 
         if closed:
             saved = self.cache.peek(key)
-            if saved and closed_price_snapshot_usable(saved.fetched_at, moment):
+            if saved and usable(saved.fetched_at):
                 tier = (
                     "postgres"
                     if l2_entry and saved.fetched_at == l2_entry.updated_at_ts

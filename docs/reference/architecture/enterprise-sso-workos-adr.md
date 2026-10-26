@@ -2,7 +2,7 @@
 
 ## Visual Context
 
-Canonical visual owner: [Architecture Index](README.md). This ADR adds one federation front door in front of the existing Firebase authority; it does not add a second token verifier or any table.
+Canonical visual owner: [Architecture Index](README.md). This ADR adds one federation front door in front of the existing Firebase authority; Firebase remains the token verifier. The local lifecycle retains generation-bound attribution and provider-write receipts.
 
 ```mermaid
 flowchart LR
@@ -12,33 +12,38 @@ flowchart LR
   api["consent-protocol<br/>/api/auth/sso/*"]
   fb["Firebase Auth<br/>token verifier and account store"]
   routes["Existing routes<br/>verify_firebase_bearer"]
+  lifecycle["Local lifecycle<br/>immutable membership hashes<br/>generation + mutation receipts"]
 
   idp --> workos --> web --> api
   api -->|"who owns this domain?"| workos
   api -->|"custom token, minimal claims"| fb
   fb --> routes
   workos -. "dsync.user.* webhook" .-> api
-  api -. "claim, then end access" .-> fb
+  api --> lifecycle
+  lifecycle -. "captured owner / single dispatch" .-> fb
+  routes -->|"membership admission"| lifecycle
 ```
 
 ## Status
 
-Proposed. Two decisions are explicitly open (see [Open decisions](#open-decisions)).
+Baseline integration exists. The 26 October 2026 generation-bound hardening is local and unshipped: migration `427_workos_generation_memberships`, exact directory attribution, journalled provider writes and membership-bound admission. Public replacement admission remains disabled pending installed-schema, old-consumer drain and deployed acceptance. WorkOS stays on generation zero; the separate HushhTech compatibility guard remains. See the [current readiness memo](../quality/adk-orchestration-docs-audit.md).
+
+Read-only qualification on 26 October confirmed that UAT's actual WorkOS environment has no Directory Sync connections: its complete directory listing returned HTTP 200, and the same environment's webhook secret matched the retained configuration in memory. Existing SSO-created identities do not establish a Directory Sync integration. Dev has no configured WorkOS client. This permits ordinary-provider generation activation after its remaining release checks; it does not qualify Directory Sync. Unknown historical directory events remain retryable refusals rather than email-based owner discovery. Isolated `hushh-pda-uat` Firebase transport passed created/linked claim preservation, revocation timestamps and one physical mutation POST per case; both synthetic identities were removed with absence verification. No production identity was changed.
 
 ## Context
 
-- Auth today is Firebase ID tokens only: `api/utils/firebase_auth.py::verify_firebase_bearer`, enforced by `api/middleware.py::require_firebase_auth`. No SAML/OIDC enterprise login exists.
+- Baseline authentication uses Firebase ID tokens: `api/utils/firebase_auth.py::verify_firebase_bearer`, enforced by `api/middleware.py::require_firebase_auth`. The WorkOS routes add enterprise federation through that same verifier.
 - Authorization is DB-driven (`ria_profiles`, `RIAIAMService.require_ria_verified`). `ria_firms` carries FINRA/SEC identity only and has no tenant or IdP fields.
 - Vault keys are client-side BYOK. Possession of an authenticated session never unlocks a vault; the passphrase does.
-- Hussh has no WorkOS integration today. Enterprise customers need SAML/OIDC per organization, domain-based org discovery, Directory Sync (SCIM) deprovisioning, and a way to onboard without Hussh staff editing records. This ADR covers that integration only; which roles an enterprise user later holds (for example an advisor actor) is unchanged and out of scope.
+- The original requirement was enterprise federation alongside existing sign-in methods. Enterprise customers need SAML/OIDC per organization, domain-based org discovery, Directory Sync (SCIM) deprovisioning, and a way to onboard without Hussh staff editing records. This ADR covers that integration only; which roles an enterprise user later holds (for example an advisor actor) is unchanged and out of scope.
 
 ## Decision
 
 1. **WorkOS is a federation front door, not an authority over sessions.** Firebase remains the only verifier of session tokens. WorkOS proves "this person authenticated at this org's IdP"; the backend converts that into a Firebase custom token. No route accepts a WorkOS token.
 2. **WorkOS is the authority for organizations, domains and connections.** Hussh is the WorkOS customer. Any organization that exists in our WorkOS account, has a DNS-verified domain and has not had its SSO switched off can sign its people in; WorkOS itself refuses anyone without a usable connection. Nobody registers an organization or a domain on the Hussh side.
-3. **Firebase is the authority for accounts, and there is no table.** Which WorkOS person an account belongs to, and whether they were deprovisioned, are custom claims on the Firebase user.
+3. **External identity and application ownership are separate.** Firebase claims preserve sign-in compatibility. The local account-generation authority and immutable membership hashes bind delayed callbacks to their original owner; they never discover a replacement by email.
 4. **SSO never grants roles.** A successful exchange establishes identity only. It does not create or advance `ria_profiles.verification_status`, does not mint consent, and does not unlock a vault.
-5. **Webhooks are the deprovision channel.** Directory Sync deletion or deactivation drives the deprovision below. Every step is idempotent, so redelivery and replay are harmless.
+5. **Webhooks are the deprovision channel.** Exact captured directory membership selects the original owner. The existing Firebase mutation journal retains dispatch, settlement and uncertain outcomes before replacement enrollment can proceed.
 6. **Feature-flagged, default off.** Rollback is the flag; Firebase sign-in is untouched.
 
 ## Organizations and domains
@@ -54,7 +59,9 @@ Proposed. Two decisions are explicitly open (see [Open decisions](#open-decision
 
 | Concept | Where it lives |
 |---|---|
-| Firebase UID | Firebase; all existing tables key on it |
+| Firebase UID | External Firebase identity; generation-zero application owners preserve that identifier |
+| Application owner | Environment-local account generation; retained callbacks never resolve the newest owner |
+| Directory attribution | Hash-only `account_workos_memberships` rows, captured by verified SSO exchange |
 | WorkOS org id, WorkOS user id | Custom claims `workosOrgId`, `workosUserId` on the Firebase user |
 | How the account came to exist | Claim `workosOrigin`: `created` (SSO made it) or `linked` (it already existed) |
 | Deprovisioned | Claim `workosDeprovisionedAt`; plus Firebase `disabled` for `created` accounts |
@@ -62,7 +69,7 @@ Proposed. Two decisions are explicitly open (see [Open decisions](#open-decision
 
 Claims are merged into the existing claim object, never written over it (`set_custom_user_claims` replaces the whole object, and `hushhWelcomeMailAt` already lives there).
 
-**What we keep from the IdP profile.** The WorkOS profile id, its organization, the email, and the name (first and last, or a full name when the IdP sends no split). Groups, roles, raw attributes and the WorkOS access token are not read. The name is written to Firebase `displayName` only when the account has none, so a name the person chose, or one a Google or Apple sign-in already gave the account, is never replaced, and later changes at the IdP do not follow. It passes the same rules as the name editor in the app (2-60 characters, no links or handles); a name that fails them is dropped. Failing to save a name never blocks sign-in.
+**What we keep from the IdP profile.** The WorkOS profile id, organization, connection and IdP identifiers, email and name (first and last, or a full name when the IdP sends no split). Groups, roles, raw attributes and the WorkOS access token are not read. The name is written to Firebase `displayName` only when the account has none, so a name the person chose, or one a Google or Apple sign-in already gave the account, is never replaced, and later changes at the IdP do not follow. It passes the same rules as the name editor in the app (2-60 characters, no links or handles); a name that fails them is dropped. Failing to save a name never blocks sign-in.
 
 **Resolving the account on exchange**
 
@@ -72,50 +79,55 @@ Claims are merged into the existing claim object, never written over it (`set_cu
 
 **Why the UID is derived, and unkeyed.** Two simultaneous first sign-ins then create one account, and a work email that changes at the IdP still reaches the same account. It is not keyed with a secret on purpose: rotating a secret must never move people to new, empty accounts. A UID is an identifier, not a credential; signing in still needs a token only this service can mint.
 
-**Custom token claims.** Minimal: `auth_provider=workos` and `workos_org_id`. The token must **not** carry `hushh_review_mint` (that claim is the review-lane containment marker in `firebase_auth.py`). Roles and entitlements are never claims; they stay DB-driven.
+**Custom token claims.** `auth_provider=workos`, `workos_org_id`, captured owner/lane and a profile hash; directory-backed exchanges also carry the exact membership hash. Admission checks retained attribution on every request, including a custom token redeemed after offboarding. SSO-only organizations retain generation-zero support only after a successful complete empty directory listing; errors and unmatched existing directories are refusals. An existing membership fence survives directory removal. The token must **not** carry `hushh_review_mint` (that claim is the review-lane containment marker in `firebase_auth.py`). Roles and entitlements are never claims; they stay DB-driven.
 
 **Email and aliases.** No change to `actor_identity_service.py` is needed: the account is created in Firebase with the IdP-asserted email, and the existing identity sync reads the email from the Firebase user record. The IdP email is never written to the alias tables.
 
-## Why there is no table
+## Minimum retained attribution
 
-An earlier draft added four tables (organizations, domains, identity links, webhook ledger). Once WorkOS became the authority for organizations and domains, each had a replacement and the schema became pure cost: a migration on a shared database, a version-pinned contract that gates every deploy, number collisions with concurrent migrations, a rollback that is unusable after any account tombstone, and an erasure path to maintain.
+WorkOS remains authoritative for organizations, DNS verification and connections.
+Migration 427 adds one hash-only membership relation to the existing local lifecycle.
+It contains no email, credentials, names or raw provider identifiers. Its immutable
+owner/generation attribution survives erasure so an old signed webhook cannot act
+on a replacement account with the same Firebase UID.
 
-| Would have been stored | Instead |
-|---|---|
-| Allowed organizations and their domains | WorkOS, asked at sign-in |
-| Which account is which WorkOS person | Claims on the Firebase user, plus the derived UID |
-| Deprovisioned state | A claim, plus Firebase `disabled` |
-| Webhook event ids | Not needed: handlers are idempotent and the signature window is 180 s |
-| Rows to clean on account erasure | None. Deleting the Firebase account removes everything |
+A verified exchange correlates the profile's connection and organization, then
+requires one active Directory Sync user with the exact IdP identifier in a complete
+listing. Missing or ambiguous correlation requires review; email never supplies
+webhook authority. WorkOS documents this [identity-linking rule](https://workos.com/docs/authkit/identity-linking).
+IdPs with inconsistent SSO/SCIM identifiers need their own qualified mapping.
 
-**What this gives up**
+A complete empty directory listing preserves SSO-only organizations and the Test
+IdP. These sessions carry a signed profile hash; subsequent captured offboarding
+fences held tokens too. Existing attribution is reused only for the same active
+owner and origin. Uncaptured historical directory events remain retryable and
+require reviewed recovery. Neither an empty current directory nor this schema
+establishes historical membership coverage.
 
-- No SQL view of SSO people per organization, so no seat counts or offboarding reports except through Firebase and the WorkOS dashboard.
-- An account that was *linked* (it existed before SSO) is found by email. If that person's work email later changes at the IdP, they get a new derived account instead of reaching the old one. Accounts SSO *created* are unaffected.
-- After a person deletes their account, SSO will not recreate it (the tombstone blocks the derived UID). They are told to contact support.
-- One account belongs to one organization in v1.
-
-If a customer needs reporting or the linked-account case matters, add an identity-link table then, behind the same service interface.
+No organization/domain mirror or separate webhook event ledger is introduced.
+The existing generation and Firebase mutation authorities own retirement and
+uncertain dispatch. Replacement enrollment through WorkOS remains unsupported;
+Google, Apple, Microsoft and purpose-bound email recovery retain their own proof
+contracts. One account belongs to one organization in this version.
 
 ## Deprovision semantics
 
 On `dsync.user.deleted`, or `dsync.user.updated` with `state: inactive` (WorkOS has no separate deactivation event; this is how a deactivation arrives):
 
-1. Find the Firebase user by the event's email. It is ours only if its `workosOrgId` claim is the event's organization. Anyone else is left alone.
-2. Set `workosDeprovisionedAt` **first**, so any new SSO sign-in is refused even if a later step fails.
-3. Then it depends on how the account came to exist:
-   - **`created`** (SSO made it for their work): disable the Firebase user and revoke refresh tokens through `AccountDeletionLifecycleService.quarantine_firebase_identity`, a thin public entry to the quarantine the deletion cleanup already uses, then revoke every active consent grant with `ConsentLifecycleService.revoke_all_active_grants`.
-   - **`linked`** (a personal account that already existed): revoke refresh tokens only. The person's own account, vault and grants are not the employer's to disable, and they can still sign in with their usual method. They can no longer sign in through the organization.
-4. If a step cannot finish, the webhook answers `503` so WorkOS redelivers.
-5. Do **not** delete any account or data. Encrypted data remains passphrase-protected ciphertext. We make **no claim** that a vault is "locked" or "destroyed" by deprovision, because BYOK means key custody was never ours.
+1. Resolve the signed organization, directory and directory-user identifiers against immutable captured attribution. Event email is ignored. Unknown membership returns a retryable refusal; a retired generation is acknowledged without affecting its replacement.
+2. Persist local offboarding before the provider call. Membership-bearing and profile-bearing tokens cannot regain admission by redeeming an earlier custom token.
+3. Reserve the existing generation-bound Firebase mutation permit. Recheck provider organization/profile/origin inside that operation. Send one no-retry `accounts:update` containing the deprovision marker and `validSince`; add `disableUser` only for SSO-created identities. Preserve unrelated claims.
+4. For `created` identities, revoke active consent grants by the captured application owner. For `linked` personal accounts, preserve independent sign-in, vault and grants. The work sign-in remains refused.
+5. Uncertain provider outcomes remain journalled and block replacement enrollment. A generic exception or HTTP status never proves rejection. Closing a request cannot abandon its provider thread.
+6. Do not delete an account or its information as an offboarding shortcut. Vault keys remain under their existing custody. Shared-production Firebase mutation restrictions remain mandatory in dev/UAT.
 
-**Timing.** Already-issued Firebase ID tokens stop being accepted within about a minute: `verify_firebase_bearer` caches a positive revocation check for at most 60 seconds (`_REVOCATION_CACHE_TTL_SECONDS`).
+**Timing.** New membership/profile-bearing tokens also check local admission. Legacy tokens without those bindings retain provider revocation and are an explicit rollout-coverage gap. Provider revocation for already-issued tokens is cached for at most a minute: `verify_firebase_bearer` caches a positive revocation check for at most 60 seconds (`_REVOCATION_CACHE_TTL_SECONDS`).
 
 **Known limitations in this version.**
 
-- Reactivation is manual. A person the IdP later reactivates stays deprovisioned until an operator clears the claim.
+- Reactivation requires reviewed identity-lifecycle recovery. Clearing a Firebase claim alone cannot remove immutable local offboarding evidence.
 - `dsync.deleted` (a whole directory removed) is acknowledged and ignored. Removing a directory is not the same as removing its users from the IdP.
-- A deprovision event only reaches someone who has signed in via SSO at least once, and is matched by the email on the event.
+- A deprovision event needs a previously captured directory relationship. Historical Firebase claims alone do not establish it; missing evidence must not be backfilled from email.
 - A deprovisioned `linked` account keeps working with its personal sign-in methods. That is intended.
 - The signed `state` expires and is bound to the org, but it is not bound to a browser. The client must compare the returned `state` with the value it stored before redirecting (login-CSRF defense); the server cannot do that for it.
 
@@ -146,7 +158,7 @@ Web is the v1 surface. Native (system-browser plus deep-link return) is deferred
 |---|---|
 | "SSO proves they work at the customer, so grant them roles" | SSO proves identity only. Roles and verification status stay DB-driven and unchanged by this integration. |
 | "Accept the WorkOS token directly and skip Firebase" | Two verifiers means two revocation systems. Firebase stays the single decision-maker. |
-| "Match by email, it's the same person" | Only for a domain WorkOS verified for that org by DNS, and only into a verified account. Otherwise it is account takeover. |
+| "Match by email, it's the same person" | Fresh sign-in may link a verified account under the verified-domain rules. Delayed webhooks must use immutable directory attribution, never email. |
 | "Any organization is welcome, so skip the domain check" | The domain check is what stops one org's IdP from asserting another company's addresses. Open signup keeps it. |
 | "Deprovision should disable the account" | Only for accounts SSO created. A personal account that was merely linked is the person's own. |
 | "Deprovision should lock the vault" | BYOK: the passphrase is client-held. We revoke sessions and, for created accounts, consent, and say exactly that. |
@@ -155,7 +167,7 @@ Web is the v1 surface. Native (system-browser plus deep-link return) is deferred
 
 - **Who runs WorkOS.** Hussh is the WorkOS customer and each enterprise is a WorkOS Organization connected to its own IdP (confirmed by the founder). Customers are not WorkOS tenants of their own, so no foreign OIDC issuer is trusted.
 - **Any organization can sign up.** There is no pre-registration. WorkOS's verified domains and connections decide.
-- **No database schema** for this feature (see above).
+- **No organization/domain mirror.** Generation-safe offboarding retains only the attribution and mutation evidence described above.
 
 ## Open decisions
 

@@ -33,13 +33,19 @@ from hushh_mcp.services.account_generation_service import (
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
-Purpose = Literal["display_name", "welcome_marker", "phone_unlink"]
+Purpose = Literal[
+    "display_name", "welcome_marker", "phone_unlink", "sso_claims", "sso_create", "sso_offboarding"
+]
 _IDENTITY_ORIGIN = "https://identitytoolkit.googleapis.com"
 _RESPONSE_LIMIT = 32 * 1024
 
 
 class FirebaseMutationTransportError(RuntimeError):
     """A remote mutation is unconfirmed; contains no provider body or values."""
+
+
+class FirebaseMutationRejected(RuntimeError):
+    """Explicit local refusal before a provider mutation is sent."""
 
 
 def _update_identity(app, firebase_uid: str, fields: dict) -> None:
@@ -52,9 +58,12 @@ def _update_identity(app, firebase_uid: str, fields: dict) -> None:
     project = str(getattr(app, "project_id", ""))
     if not re.fullmatch(r"[a-z][a-z0-9-]{4,62}", project) or not 1 <= len(firebase_uid) <= 128:
         raise ValueError("identity mutation configuration invalid")
-    if set(fields) not in ({"displayName"}, {"customAttributes"}) and not (
-        set(fields) == {"deleteProvider"} and fields["deleteProvider"] == ["phone"]
-    ):
+    if set(fields) not in (
+        {"displayName"},
+        {"customAttributes"},
+        {"customAttributes", "validSince"},
+        {"customAttributes", "validSince", "disableUser"},
+    ) and not (set(fields) == {"deleteProvider"} and fields["deleteProvider"] == ["phone"]):
         raise ValueError("identity mutation fields invalid")
     with AuthorizedSession(app.credential.get_credential(), max_refresh_attempts=0) as session:
         session.trust_env = False
@@ -194,9 +203,14 @@ async def reserve_phone_unlink(
 def begin(
     owner_id: str, *, purpose: Purpose, authority_project: str
 ) -> FirebaseMutationPermit | None:
-    if purpose not in {"display_name", "welcome_marker", "phone_unlink"} or not re.fullmatch(
-        r"[a-z][a-z0-9-]{4,62}", authority_project
-    ):
+    if purpose not in {
+        "display_name",
+        "welcome_marker",
+        "phone_unlink",
+        "sso_claims",
+        "sso_create",
+        "sso_offboarding",
+    } or not re.fullmatch(r"[a-z][a-z0-9-]{4,62}", authority_project):
         raise ValueError("identity mutation configuration invalid")
     owner_hash = account_deletion_user_hash(owner_id)
     with get_db_connection() as conn:
@@ -219,12 +233,15 @@ def begin(
             # Deployment must drain these consumers before enabling enrollment.
             if (
                 installed is not False
+                or purpose.startswith("sso_")
                 or re.fullmatch(r"acct_[0-9a-f]{32}", owner_id)
                 or (os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true")
             ):
                 raise AccountGenerationRefused("generation_schema_unavailable")
             return None
         firebase_uid = AccountGenerationService.identity_in_transaction(conn, owner_id)
+        if purpose.startswith("sso_") and firebase_uid != owner_id:
+            raise AccountGenerationRefused("sso_replacement_enrollment_unsupported")
         identity_hash = account_deletion_user_hash(firebase_uid)
         conn.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:identity,199))"),
@@ -285,6 +302,10 @@ def _run(
     permit = begin(owner_id, purpose=purpose, authority_project=authority_project)
     try:
         value = operation(permit.firebase_uid if permit else owner_id)
+    except FirebaseMutationRejected:
+        if permit:
+            settle(permit, "rejected")
+        raise
     except Exception:
         if permit:
             try:

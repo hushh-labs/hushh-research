@@ -2263,6 +2263,16 @@
       "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
       "primary_access_path": "transient WebAuthn challenge issue/consume during a registration or authentication ceremony (flag-off; migration parked)"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "account_workos_memberships"
+      ],
+      "id": "workos_generation_membership",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Verified SSO exchange captures original generation-zero attribution; Firebase admission checks signed membership/profile references. Signed Directory Sync callbacks resolve the captured organization/directory/person hash, never email or the latest owner."
     }
   ],
   "database_retirements": [
@@ -7132,21 +7142,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "6a7cbc71edeb570aafe6d563bfcfa6e1f9a984a73f1594bf14ea5e201522af38",
+    "action_gateway": "b42ad915d8e6cba50f095441db6fbc4cff8172f3cab6fc955f6fcfecad6baa6c",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "e03613baa7f170dce28b8d653853e7eefe37a03b12bad400a990cbf1c7308c0b",
+    "data_plane": "8b7c2ede3d91f5aef6086aab2526782dfe733424239fc1b39e85d556178723b2",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "69584fe9db71100558c021153c3b24c99711a4197aea21c94743f256a403f76d",
     "route_layout": "70797338bdab9648b22a77d38f19f43049bfcf00fd7ebe910778fbe457b2f09f",
-    "surface_map": "92ec5a001e4e16c2b9c4bd34ceda5dda1953228f03885b5e2b73b37fd2a785ef",
+    "surface_map": "9c52b1335ff5ed3242fa30a856aa359512434fdf67a61197537b39e92450c2f8",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 304,
+    "actions": 305,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
@@ -7154,6 +7164,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 161,
     "semantic_routes": 17,
-    "table_families": 136
+    "table_families": 137
   }
 }

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { User } from "firebase/auth";
 
-const { refreshShadow, writeIdentity, claimPhone, uploadAvatar, phoneTransfer } = vi.hoisted(() => ({ refreshShadow: vi.fn(), writeIdentity: vi.fn(), claimPhone: vi.fn(), uploadAvatar: vi.fn(), phoneTransfer: vi.fn() }));
+const { refreshShadow, writeIdentity, claimPhone, uploadAvatar, phoneTransfer, phoneTestStart } = vi.hoisted(() => ({ refreshShadow: vi.fn(), writeIdentity: vi.fn(), claimPhone: vi.fn(), uploadAvatar: vi.fn(), phoneTransfer: vi.fn(), phoneTestStart: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { refreshAccountIdentityShadow: refreshShadow, claimAccountPhone: claimPhone, uploadAvatar, phoneTransferRequest: phoneTransfer, createSession: vi.fn().mockResolvedValue(undefined) },
+  ApiService: { refreshAccountIdentityShadow: refreshShadow, claimAccountPhone: claimPhone, uploadAvatar, phoneTransferRequest: phoneTransfer, startUatPhoneTestVerification: phoneTestStart, createSession: vi.fn().mockResolvedValue(undefined) },
 }));
 vi.mock("@/lib/services/api-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/api-client")>(),
@@ -25,11 +25,19 @@ describe("account identity session admission", () => {
     refreshShadow.mockReset();
     writeIdentity.mockReset();
     claimPhone.mockReset(); phoneTransfer.mockReset();
-    uploadAvatar.mockReset();
+    uploadAvatar.mockReset(); phoneTestStart.mockReset();
     AccountIdentityService.invalidateCachedIdentity("owner-a");
     AccountIdentityService.invalidateCachedIdentity("owner-b");
   });
   afterEach(() => publishValidatedAuthSessionOwner(null));
+
+  it.each(["network", "typed"])("@feature_auth_reliability propagates test-start %s failure without permitting fallback", async kind => {
+    const failure = kind === "network" ? new TypeError("offline") : new ApiError("Unavailable", 503,
+      { detail: { code: "PHONE_TEST_IDENTITY_UNAVAILABLE" } });
+    phoneTestStart.mockRejectedValueOnce(failure);
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("owner-token") } as unknown as User;
+    await expect(AccountIdentityService.startUatTestPhoneVerification(user, "+12025550101")).rejects.toBe(failure);
+  });
 
   it("keeps an avatar save eligible during token refresh and reconciles its delayed old phone snapshot", async () => {
     publishValidatedAuthSessionOwner("owner-a");
@@ -268,6 +276,36 @@ describe("account identity session admission", () => {
 
 describe("owner-bound phone transfer response loss", () => {
   afterEach(() => publishValidatedAuthSessionOwner(null));
+  it.each(["confirm", "status"])("@feature_auth_reliability preserves shared-auth refusal during %s without replaying confirmation", async phase => {
+    publishValidatedAuthSessionOwner("owner-a");
+    phoneTransfer.mockReset();
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("primary-token") } as unknown as User;
+    const proof = { token: "memory-only-phone-proof", transferId: "opaque-intent", submitted: phase === "status" };
+    const refusal = new ApiError("Phone transfer is unavailable in this environment.", 403,
+      { detail: { code: "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE" } });
+    phoneTransfer.mockRejectedValueOnce(refusal);
+    await expect(AccountIdentityService.transferCurrentUserPhone(user, proof, () => true)).rejects.toBe(refusal);
+    expect(proof.submitted).toBe(true);
+    phoneTransfer.mockRejectedValueOnce(new TypeError("status response lost"));
+    await expect(AccountIdentityService.transferCurrentUserPhone(user, proof, () => true)).rejects.toMatchObject({
+      status: 503, payload: { code: "PHONE_TRANSFER_IN_PROGRESS" },
+    });
+    expect(phoneTransfer.mock.calls.map(call => call[0])).toEqual([phase === "confirm" ? "confirm" : "opaque-intent", "opaque-intent"]);
+    expect(phoneTransfer.mock.calls[1]).toHaveLength(2);
+  });
+
+  it("@feature_auth_reliability keeps an unrelated 403 behind the unknown-outcome status fence", async () => {
+    publishValidatedAuthSessionOwner("owner-a");
+    phoneTransfer.mockReset();
+    const user = { uid: "owner-a", getIdToken: vi.fn().mockResolvedValue("primary-token") } as unknown as User;
+    const proof = { token: "memory-only-phone-proof", transferId: "opaque-intent", submitted: false };
+    phoneTransfer.mockRejectedValueOnce(new ApiError("Forbidden", 403, { code: "OTHER_REFUSAL" }));
+    await expect(AccountIdentityService.transferCurrentUserPhone(user, proof, () => true)).rejects.toMatchObject({
+      status: 503, payload: { code: "PHONE_TRANSFER_IN_PROGRESS" },
+    });
+    expect(proof.submitted).toBe(true);
+  });
+
   it("retains the intent after lost confirmation and only reads status on retry", async () => {
     publishValidatedAuthSessionOwner("owner-a");
     phoneTransfer.mockReset();

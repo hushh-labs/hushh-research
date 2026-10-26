@@ -415,9 +415,7 @@ export class AccountIdentityService {
       return null;
     }
 
-    return ApiService.startUatPhoneTestVerification(phoneNumber, idToken).catch(
-      () => null
-    );
+    return ApiService.startUatPhoneTestVerification(phoneNumber, idToken);
   }
 
   static async confirmUatTestPhoneVerification(
