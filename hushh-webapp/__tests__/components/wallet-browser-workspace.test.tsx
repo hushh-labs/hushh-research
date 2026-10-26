@@ -308,13 +308,14 @@ describe("Wallet video browser workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
     await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledWith(expect.objectContaining({ cardId: "card_1" })));
   });
-  it.each(["owner", "lock"])("cancels a pending removal after a %s change", async (change) => {
+  it.each(["owner", "lock", "epoch"])("cancels a pending removal after a %s change", async (change) => {
     const view = await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", hidden: true }));
     fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     expect(await screen.findByTestId("one-wallet-remove-confirm")).toBeVisible();
     if (change === "owner") authMock.user = { uid: "user_2" };
-    else vaultMock.locked = true;
+    else if (change === "lock") vaultMock.locked = true;
+    else act(() => advanceVaultSessionEpoch());
     view.rerender(<WalletWorkspace />);
     await waitFor(() => expect(screen.queryByTestId("one-wallet-remove-confirm")).toBeNull());
     expect(serviceMock.deleteCard).not.toHaveBeenCalled();
