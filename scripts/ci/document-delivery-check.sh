@@ -11,8 +11,8 @@ echo '== Protected documents: real browser, SQL, signed payment, preview, downlo
   # Qualify actual PDF rendering and downloads in Chromium and Safari's engine.
   # The ordinary Web lanes retain ownership of the broad layout matrix.
   if [ "${CI:-}" = "true" ]; then
-    # Match the browser/UAT lanes: this preferred mirror can spend the entire
-    # job budget downloading dependencies. Preserve signed archive fallbacks.
+    # Match the existing Web/UAT installer: retain signed official fallbacks,
+    # without the slow preferred mirror that exhausted this lane's job budget.
     if [ -f /etc/apt/apt-mirrors.txt ]; then
       sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
     fi

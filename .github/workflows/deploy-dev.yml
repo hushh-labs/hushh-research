@@ -557,6 +557,24 @@ jobs:
             --json-output /tmp/dev-backend-image.json)"
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
 
+      - name: Refuse an already failed frontend image before lifecycle migration
+        id: check-frontend-image
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.start-frontend-image-build.outputs.prebuilt == 'true'
+        shell: bash
+        env:
+          FRONTEND_IMAGE_BUILD_ID: ${{ steps.start-frontend-image-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          # The workflow is main-owned; the helper comes from the candidate.
+          # Historical candidates retain the required final image join.
+          if ! grep -Fq -- '--status-only)' scripts/ci/await-prebuilt-image.sh; then
+            echo "::notice title=Frontend image status::This candidate predates the early check; retaining the final image join."
+            exit 0
+          fi
+          bash scripts/ci/await-prebuilt-image.sh \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --build-id "${FRONTEND_IMAGE_BUILD_ID}" --status-only
+
       - name: Install Cloud SQL Auth Proxy
         if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
@@ -1208,6 +1226,7 @@ jobs:
         id: classify-dev-release
         shell: bash
         env:
+          FRONTEND_IMAGE_CHECK_OUTCOME: ${{ steps.check-frontend-image.outcome }}
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
           PARITY_ATTEMPT_1: ${{ steps.verify-parity-1.outcome }}
@@ -1355,6 +1374,12 @@ jobs:
               append_unique(blocking, ["commerce_preview_unverified"])
               backend_failure = os.environ.get("DEPLOY_BACKEND") == "true"
               frontend_failure = os.environ.get("DEPLOY_FRONTEND") == "true"
+
+          if os.environ.get("FRONTEND_IMAGE_CHECK_OUTCOME") == "failure":
+              append_unique(blocking, ["frontend_image_build_failed"])
+              # This check precedes lifecycle and serving mutations.
+              backend_failure = False
+              frontend_failure = False
 
           blocking = list(dict.fromkeys(blocking))
           release_failed = bool(blocking)

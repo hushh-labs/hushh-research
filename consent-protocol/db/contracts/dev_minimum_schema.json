@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 425,
+  "expected_migration_version": 427,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -144,6 +144,7 @@
     "guard_project_grant_setup_admission",
     "guard_wallet_card_access_grant",
     "guard_wallet_card_request",
+    "guard_workos_generation_membership",
     "insert_personal_agent_renewal",
     "install_account_deletion_write_guards",
     "install_account_generation_update_guards",
@@ -417,6 +418,17 @@
       "committed_at",
       "completed_at",
       "notice_dispatched_at"
+    ],
+    "account_workos_memberships": [
+      "binding_hash",
+      "created_at",
+      "generation",
+      "identity_hash",
+      "membership_hash",
+      "offboarded_at",
+      "origin",
+      "owner_hash",
+      "profile_hash"
     ],
     "actor_identity_cache": [
       "created_at",
@@ -4043,5 +4055,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 425
+  "expected_schema_head": 427
 }

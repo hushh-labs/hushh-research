@@ -1,4 +1,4 @@
-"""One recorded replay of a legacy capped financial preview, retaining originals."""
+"""Recorded recovery of legacy financial previews, retaining all saved originals."""
 
 from sqlalchemy import text
 
@@ -40,12 +40,17 @@ def _recover_locked(searches, connection, job):
         and row["matched"] == 10000
     )
     provider_failed = row["status"] == "failed" and row["error_code"] == "provider_unavailable"
-    if not (capped or provider_failed):
+    incomplete = (
+        row["status"] == "limited" and row["incomplete_search"] and row["error_code"] is None
+    )
+    if not (capped or provider_failed or incomplete):
         return None
     frozen = searches._checkpoint(row)
     if not financial_discovery_checkpoint(frozen):
         return None
     if capped and frozen.get("financial_limit_recovery"):
+        return None
+    if incomplete and frozen.get("financial_incomplete_recovery"):
         return None
     periods = DrivePeriodPacketStore(db=searches.db)
     head = periods.current_period_head(
@@ -65,7 +70,9 @@ def _recover_locked(searches, connection, job):
         {"user": job["user_id"], "id": row["job_id"]},
     ).scalar_one():
         raise DriveReadError("search_in_progress")
-    checkpoint = _recovery_checkpoint(row, frozen, provider_failed=provider_failed)
+    checkpoint = _recovery_checkpoint(
+        row, frozen, provider_failed=provider_failed, incomplete=incomplete
+    )
     updated = searches._row(
         connection,
         """UPDATE drive_owner_search_jobs SET status='queued', error_code=NULL,
@@ -81,10 +88,17 @@ def _recover_locked(searches, connection, job):
             ),
         },
     )
+    if incomplete:
+        connection.execute(
+            text(
+                "UPDATE drive_packet_heads SET attempts=0 WHERE packet_id=:id AND lease_id=:lease"
+            ),
+            {"id": job["packet_id"], "lease": job["lease_id"]},
+        )
     return searches._view(updated)
 
 
-def _recovery_checkpoint(row, frozen, *, provider_failed):
+def _recovery_checkpoint(row, frozen, *, provider_failed, incomplete=False):
     # Old code advanced a provider token even when its page was only partly
     # saved. Replaying the frozen query is safe; resuming that token is not.
     # Stable job/file digests deduplicate all retained rows and positions.
@@ -106,6 +120,8 @@ def _recovery_checkpoint(row, frozen, *, provider_failed):
             "request_explicit_dates",
             "request_owner_review_required",
             "requested_period",
+            "financial_limit_recovery",
+            "financial_incomplete_recovery",
         )
         if key in frozen
     }
@@ -122,9 +138,13 @@ def _recovery_checkpoint(row, frozen, *, provider_failed):
         drive_index=0,
         seen_tokens=[],
         drive_tokens=[],
-        financial_limit_recovery={
+    )
+    marker = "financial_incomplete_recovery" if incomplete else "financial_limit_recovery"
+    checkpoint.setdefault(
+        marker,
+        {
             "version": 1,
-            "reason": "legacy_result_limit",
+            "reason": "legacy_incomplete_search" if incomplete else "legacy_result_limit",
             "retained_count": row["matched"],
             "previous_pages": row["pages_scanned"],
         },

@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 US_MARKET_OPEN_CACHE_TTL_SECONDS = 120
 US_MARKET_CLOSED_CACHE_TTL_SECONDS = 1_800
+LAST_CLOSE_RETENTION_SECONDS = 7 * 24 * 60 * 60
 PRICE_MARKET_OPERATIONS = frozenset(
     {"quote", "quotes", "intraday", "session_history", "movers", "most_active", "sector_rotation"}
 )
@@ -96,6 +97,11 @@ def closed_price_snapshot_usable(fetched_at: float, now: datetime | None = None)
         if window and window[1] <= moment.timestamp():
             return window[0] <= fetched_at <= moment.timestamp()
     return False
+
+
+def last_close_snapshot_usable(fetched_at: float, now_ts: float) -> bool:
+    """A shared last-close entry outlives the session calendar and is replaced at the next open."""
+    return now_ts - fetched_at <= LAST_CLOSE_RETENTION_SECONDS
 
 
 def provider_quote_cache_ttl_seconds(

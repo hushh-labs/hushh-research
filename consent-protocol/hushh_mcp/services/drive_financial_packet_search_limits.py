@@ -15,6 +15,49 @@ MAX_TOKEN_HISTORY_BYTES = 64 * 1024
 _AUTHORIZED = object()
 
 
+def legacy_incomplete_packets(connection, *, user_id):
+    """Due hints for exact current children, never authority to replay a job.
+
+    Pre-fix incomplete searches had no typed reason and exhausted head retries.
+    Compute their existing revision identity in Python, without a second SQL
+    implementation of search_client_id or accepting a later stale child.
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from hushh_mcp.services.drive_financial_packet_query import QUERY_VERSION
+    from hushh_mcp.services.drive_period_packet_contract import current_year_periods
+    from hushh_mcp.services.drive_period_packet_preview import search_client_id
+
+    rows = connection.execute(
+        text("""SELECT h.packet_id,h.revision,j.client_request_id
+        FROM drive_packet_heads h JOIN drive_owner_search_jobs j
+          ON j.user_id=h.user_id AND j.period_packet_id=h.packet_id
+          AND j.connection_generation=h.connection_generation
+        WHERE h.user_id=:user AND h.packet_kind='provider_discovery'
+          AND h.category='financial' AND h.predefined_query_version=:template
+          AND h.period_start=ANY(CAST(:period_starts AS date[]))
+          AND h.dirty AND h.attempts=8 AND h.next_at<=clock_timestamp()
+          AND h.error_code='search_incomplete'
+          AND j.status='limited' AND j.incomplete_search AND j.error_code IS NULL"""),
+        {
+            "user": user_id,
+            "template": QUERY_VERSION,
+            "period_starts": [
+                period.start for period in current_year_periods(datetime.now(UTC), "UTC")
+            ],
+        },
+    ).mappings()
+    return list(
+        {
+            str(row["packet_id"])
+            for row in rows
+            if str(row["client_request_id"]) == search_client_id(row)
+        }
+    )
+
+
 def financial_discovery_checkpoint(checkpoint) -> bool:
     """A strict provenance descriptor; this alone grants no larger limit."""
     origin = checkpoint.get("period_packet_origin")

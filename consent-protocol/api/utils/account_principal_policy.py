@@ -5,6 +5,46 @@ from typing import Any, Mapping
 from fastapi import HTTPException
 
 
+def admit_workos_principal(owner_id: str, claims: Mapping[str, Any], *, lane: str) -> None:
+    """Keep late WorkOS custom tokens inside their captured membership and lane."""
+    if claims.get("auth_provider") != "workos":
+        return
+    if claims.get("workosDeprovisionedAt"):
+        raise HTTPException(status_code=403, detail={"code": "AUTH_WORKOS_DEPROVISIONED"})
+    key = claims.get("hussh_workos_membership")
+    profile = claims.get("hussh_workos_profile")
+    if key is None and profile is None:
+        # Legacy generation-zero tokens retain Firebase revocation. Public
+        # replacement admission remains gated on legacy membership qualification.
+        return
+    binding = key if key is not None else profile
+    if (
+        not isinstance(binding, str)
+        or len(binding) != 71
+        or not binding.startswith("sha256:")
+        or claims.get("hussh_account_owner") != owner_id
+        or claims.get("hussh_account_lane") != lane
+    ):
+        raise HTTPException(status_code=401, detail={"code": "AUTH_WORKOS_MEMBERSHIP_REQUIRED"})
+    try:
+        from hushh_mcp.services.enterprise_sso.membership import SqlMembershipStore
+
+        store = SqlMembershipStore()
+        active = (
+            store.admit(key, owner_id)
+            if key is not None
+            else store.admit_profile(profile, owner_id)
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "AUTH_SESSION_STATUS_UNAVAILABLE"},
+            headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
+        ) from None
+    if not active:
+        raise HTTPException(status_code=403, detail={"code": "AUTH_WORKOS_DEPROVISIONED"})
+
+
 def require_independent_phone_signin(claims: Mapping[str, Any], *, required: bool) -> None:
     if required and (claims.get("firebase") or {}).get("sign_in_provider") == "phone":
         raise HTTPException(
