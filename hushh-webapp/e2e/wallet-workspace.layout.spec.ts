@@ -31,7 +31,7 @@ test.beforeAll(async () => {
   ({ css, script, walletHero } = await buildWalletWorkspaceFixture(process.cwd()));
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; cardsPending?: boolean; sharingStatePending?: boolean; saveDelayMs?: number; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean; walletWideDetails?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; cardsPending?: boolean; sharingStatePending?: boolean; saveDelayMs?: number; deletePending?: boolean; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean; walletWideDetails?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -242,9 +242,9 @@ for (const width of [393, 1440]) {
   });
 }
 
-for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440, 10], [320, 0], [390, 0], [430, 0], [768, 0], [1440, 0], [390, 1], [390, 2], [390, 3], [390, 5]]) {
+for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440, 10], [320, 0], [390, 0], [430, 0], [768, 0], [1440, 0], [390, 1], [1440, 1], [390, 2], [390, 3], [390, 5]]) {
   test(`Cards grid preserves three One cards and ${count} payment cards at ${width}px`, async ({ page }, testInfo) => {
-    const errors = await open(page, width, !count && width !== 768 ? "dark" : "light", { cards: count }, { height: 844, shell: true });
+    const errors = await open(page, width, !count && width !== 768 ? "dark" : "light", { cards: count, deletePending: count === 1 }, { height: 844, shell: true });
     await mount(page);
     const collection = page.getByTestId("wallet-card-browser");
     await expect(collection).toBeVisible();
@@ -297,8 +297,21 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
       await expect(selected.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
       await expect(selected.getByRole("region", { name: "Saved card details" })).not.toContainText(/PIN|CVC/);
       expect(await page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("reveal:")))).toEqual([]);
-      await selected.getByRole("button", { name: "All cards", exact: true }).click();
-      await expect(cards.first()).toBeFocused();
+      if (count === 1) {
+        await selected.getByRole("button", { name: "Remove card", exact: true }).click();
+        await page.getByTestId("one-wallet-remove-confirm-action").click();
+        await expect(selected).toBeHidden();
+        await expect(cards).toHaveCount(0);
+        await expect(collection).toBeFocused();
+        expect(await page.evaluate(() => (window.__walletEvents ?? []).filter(event => event.startsWith("deleted:")))).toEqual([]);
+        await page.screenshot({ path: testInfo.outputPath(`wallet-remove-pending-${width}.png`) });
+        await page.evaluate(() => { window.__walletScenario!.deletePending = false; window.dispatchEvent(new Event("wallet-fixture:delete-ready")); });
+        await expect(collection.getByRole("button", { name: "Agent One Profile", exact: true })).toBeEnabled();
+        await expect(cards).toHaveCount(0);
+      } else {
+        await selected.getByRole("button", { name: "All cards", exact: true }).click();
+        await expect(cards.first()).toBeFocused();
+      }
     }
     await page.getByTestId("one-wallet-add").click();
     await expect(page.getByTestId("secure-card-add-form")).toBeVisible();

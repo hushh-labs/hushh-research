@@ -506,7 +506,7 @@ describe("WalletWorkspace at scale", () => {
     const deleteSuccess = source.indexOf('action: "card_deleted", result: "success"');
     const deleteCatch = source.indexOf("} catch (error) {", deleteSuccess);
     const deleteError = source.indexOf('action: "card_deleted", result: "error"', deleteCatch);
-    const deleteRefresh = source.indexOf("await refresh(", deleteError);
+    const deleteRefresh = source.indexOf("void refresh(", deleteError);
     expect(deleteSuccess).toBeGreaterThan(-1);
     expect(deleteCatch).toBeGreaterThan(deleteSuccess);
     expect(deleteError).toBeGreaterThan(deleteCatch);
@@ -616,9 +616,13 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
     await waitFor(() => expect(finishDelete).toBeTypeOf("function"));
+    await waitFor(() => expect(screen.queryByTestId("wallet-selected-card")).toBeNull());
+    expect(document.querySelector('[data-wallet-card-id="card_0"]')).toBeNull();
     expect(screen.getAllByRole("button", { name: "Add a card", hidden: true }).filter(button => button !== screen.getByTestId("one-wallet-add")).every(button => button.hasAttribute("disabled"))).toBe(true);
-    expect(screen.getByRole("button", { name: "All (7)", hidden: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "All (6)", hidden: true })).toBeDisabled();
     authMock.user = { uid: "user_2" };
+    view.rerender(<WalletWorkspace />);
+    authMock.user = { uid: "user_1" };
     view.rerender(<WalletWorkspace />);
     await act(async () => finishDelete());
 
