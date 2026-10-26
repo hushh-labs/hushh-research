@@ -40,6 +40,7 @@ FIELDS = {
     "periodEnd",
     "timezone",
     "documentCount",
+    "saleDocumentCount",
     "countBasis",
     "complete",
     "updatedAt",
@@ -81,7 +82,11 @@ async def publish(service, head, *, enabled=True, revision=0, version=0):
     )
 
 
-async def test_explicit_publication_exposes_only_scalar_summary_and_saved_preview(
+def selected(page, head):
+    return next(item for item in page["packets"] if item["packetId"] == str(head["packet_id"]))
+
+
+async def test_default_publication_exposes_only_scalar_summary_and_saved_preview(
     reusable, monkeypatch, caplog
 ):
     runtime, head, person, service = await prepared(reusable, monkeypatch)
@@ -89,7 +94,10 @@ async def test_explicit_publication_exposes_only_scalar_summary_and_saved_previe
     async def read():
         return await service.list_public_summaries(viewer_user_id="stranger", person_ref=person)
 
-    assert (await read())["packets"] == []
+    initial = await read()
+    with runtime.store.db.engine.connect() as c:
+        prepared_count = c.exec_driver_sql("SELECT count(*) FROM drive_packet_heads").scalar_one()
+    assert len(initial["packets"]) == prepared_count
     assert (await publish(service, head))["enabled"]
     with monkeypatch.context() as scoped:
         scoped.setattr(
@@ -99,7 +107,7 @@ async def test_explicit_publication_exposes_only_scalar_summary_and_saved_previe
         )
         caplog.set_level("INFO", logger="drive_packet_public_summary")
         with audit_context("packet-summary-trace"):
-            item = (await read())["packets"][0]
+            item = selected(await read(), head)
     assert set(item) == FIELDS and item["documentCount"] is None
     assert item["viewerAction"] == "connect" and item["availability"] == "preparing"
     events = [
@@ -107,12 +115,12 @@ async def test_explicit_publication_exposes_only_scalar_summary_and_saved_previe
         for record in caplog.records
         if record.name == "drive_packet_public_summary"
     ]
-    assert len(events) == 1
+    assert len(events) == prepared_count
     assert "viewer_state=none version=0 action=connect" in events[0]
     assert f"request_tag={correlation_tag('packet-summary-trace')}" in events[0]
     assert "drive_op=none" not in events[0] and "stranger" not in events[0]
     await completed_preview(runtime, str(head["packet_id"]))
-    item = (await read())["packets"][0]
+    item = selected(await read(), head)
     assert item["documentCount"] == 26 and item["complete"]
     assert item["countBasis"] == "discovery_matches" and item["priceCents"] == 500
     assert "preview-file" not in str(item) and "Example statement" not in str(item)
@@ -122,21 +130,20 @@ async def test_explicit_publication_exposes_only_scalar_summary_and_saved_previe
         await publish(service, head, revision=0)
 
 
-async def test_publication_does_not_follow_freeze_and_frozen_count_is_sale_count(
+async def test_owner_policy_follows_freeze_with_discovery_and_sale_counts_separate(
     reusable, monkeypatch
 ):
     runtime, head, person, service = await prepared(reusable, monkeypatch, historical=True)
     await publish(service, head)
     await completed_preview(runtime, str(head["packet_id"]))
-    assert (await service.list_public_summaries(viewer_user_id="stranger", person_ref=person))[
-        "packets"
-    ] == []
-    await publish(service, head, revision=1, version=1)
-    item = (await service.list_public_summaries(viewer_user_id="stranger", person_ref=person))[
-        "packets"
-    ][0]
+    item = selected(
+        await service.list_public_summaries(viewer_user_id="stranger", person_ref=person), head
+    )
     assert (
-        item["version"] == 1 and item["countBasis"] == "sale_files" and item["documentCount"] == 25
+        item["version"] == 1
+        and item["countBasis"] == "discovery_matches"
+        and item["documentCount"] == 26
+        and item["saleDocumentCount"] == 25
     )
     assert item["complete"] and set(item) == FIELDS
 
@@ -164,8 +171,8 @@ async def test_current_publication_denied_after_authority_change_and_can_be_with
     else:
         result = await service.list_public_summaries(viewer_user_id="stranger", person_ref=person)
         if change == "background":
-            assert len(result["packets"]) == 1 and set(result["packets"][0]) == FIELDS
-            assert result["packets"][0]["availability"] == "unavailable"
+            assert result["packets"] and all(set(item) == FIELDS for item in result["packets"])
+            assert all(item["availability"] == "unavailable" for item in result["packets"])
         else:
             assert result["packets"] == []
     monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "false")
@@ -242,9 +249,10 @@ async def test_document_request_actions_require_current_connection(
     )
 
     async def action():
-        return (await service.list_public_summaries(viewer_user_id="recipient", person_ref=person))[
-            "packets"
-        ][0]["viewerAction"]
+        return selected(
+            await service.list_public_summaries(viewer_user_id="recipient", person_ref=person),
+            head,
+        )["viewerAction"]
 
     # Pending document approval is not a pending connection handshake.
     assert await action() == "view_request"
@@ -410,7 +418,9 @@ async def test_paused_background_allows_explicit_saved_summary_but_not_processin
         )
     await publish(service, head)
     result = await service.list_public_summaries(viewer_user_id="stranger", person_ref=person)
-    assert len(result["packets"]) == 1 and result["packets"][0]["availability"] == "unavailable"
+    assert result["packets"] and all(
+        item["availability"] == "unavailable" for item in result["packets"]
+    )
     with pytest.raises(DriveReadError, match="background_preparation_required"):
         await runtime.preview(user_id="owner", packet_id=str(head["packet_id"]))
     runtime.planner.assert_not_awaited()
@@ -433,7 +443,7 @@ async def test_owner_withdrawal_receipts_survive_cold_access_loss(reusable, monk
     with runtime.store.db.engine.begin() as c:
         if state == "paused":
             c.exec_driver_sql(
-                "INSERT INTO drive_live_preferences(user_id,connection_generation,background_enabled) VALUES ('owner',1,FALSE)"
+                "INSERT INTO drive_live_preferences(user_id,connection_generation,background_enabled) VALUES ('owner',1,FALSE) ON CONFLICT(user_id) DO UPDATE SET background_enabled=FALSE"
             )
         elif state == "revoked":
             c.exec_driver_sql("UPDATE user_external_connector_connections SET status='revoked'")
@@ -454,7 +464,7 @@ async def test_owner_withdrawal_receipts_survive_cold_access_loss(reusable, monk
         runtime.store, "_build", lambda *_a: pytest.fail("management read decrypted build")
     )
     result = await service.list_publications(user_id="owner")
-    item = result["packets"][0]
+    item = selected(result, head)
     assert set(item) == {
         "packetId",
         "currentVersion",
@@ -466,7 +476,7 @@ async def test_owner_withdrawal_receipts_survive_cold_access_loss(reusable, monk
     }
     assert item["publicSummary"] == {
         "enabled": True,
-        "version": 0,
+        "version": 1 if state == "version" else 0,
         "revision": 1,
         "disclosure": DISCLOSURE,
     }

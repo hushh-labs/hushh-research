@@ -40,9 +40,12 @@ Set these in the backend runtime profile:
 - `PLAID_ENV=sandbox`
 - `PLAID_CLIENT_ID=...`
 - `PLAID_SECRET=...`
-- `PLAID_CLIENT_NAME=Hussh Kai`
+- `PLAID_CLIENT_NAME=Agent One`
 - `PLAID_COUNTRY_CODES=US`
 - `PLAID_REDIRECT_PATH=/one/kai/plaid/oauth/return`
+
+Existing profiles that still supply `Hushh Kai` or `Hussh Kai` are normalized to
+`Agent One` by the shared Plaid configuration; custom display names remain configurable.
 
 `APP_FRONTEND_ORIGIN` must match the active frontend origin for the current profile.
 

@@ -28,13 +28,21 @@ def _clear_plaid_env(monkeypatch) -> None:
         monkeypatch.delenv(key, raising=False)
 
 
-def test_from_env_ignores_placeholder_webhook_and_derives_from_https_frontend(monkeypatch):
+@pytest.mark.parametrize(
+    "client_name", [None, "Hushh Kai", "Hussh Kai", "  HUSHH KAI  ", "Custom app"]
+)
+def test_from_env_ignores_placeholder_webhook_and_derives_from_https_frontend(
+    monkeypatch, client_name
+):
     _clear_plaid_env(monkeypatch)
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://one.hushh.ai")
     monkeypatch.setenv("PLAID_WEBHOOK_URL", "https://<your-tunnel>/api/kai/plaid/webhook")
 
+    if client_name is not None:
+        monkeypatch.setenv("PLAID_CLIENT_NAME", client_name)
     config = PlaidRuntimeConfig.from_env()
 
+    assert config.client_name == ("Custom app" if client_name == "Custom app" else "Agent One")
     assert config.webhook_url == "https://one.hushh.ai/api/kai/plaid/webhook"
 
 

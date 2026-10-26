@@ -1,4 +1,4 @@
-"""Explicitly published scalar packet summaries; never private packet access."""
+"""Owner-controlled scalar packet summaries; never private packet access."""
 
 from uuid import UUID
 
@@ -6,7 +6,15 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
-from hushh_mcp.services.drive_period_packet_reader import period_purchases_enabled
+from hushh_mcp.services.drive_packet_public_preferences import (
+    SUMMARY_POLICY,
+    read_preference,
+    set_preference,
+)
+from hushh_mcp.services.drive_period_packet_reader import (
+    packet_count_projection,
+    period_purchases_enabled,
+)
 from hushh_mcp.services.drive_period_packet_store import DrivePeriodPacketStore
 from hushh_mcp.services.drive_telemetry import correlation_tag, drive_logger, drive_operation
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -18,13 +26,9 @@ logger = drive_logger("drive_packet_public_summary")
 
 def owner_public_summary(row):
     return {
-        "enabled": bool(row.get("public_summary_enabled"))
-        and row.get("public_summary_version") == row["current_version"]
-        and row.get("public_summary_generation") == row["connection_generation"],
-        "revision": row.get("public_summary_revision", 0),
-        "version": row.get("public_summary_version")
-        if row.get("public_summary_version") is not None
-        else row["current_version"],
+        "enabled": row.get("financial_summary_enabled", True),
+        "revision": row.get("financial_summary_revision", 0),
+        "version": row["current_version"],
         "disclosure": DISCLOSURE,
     }
 
@@ -84,14 +88,7 @@ def _project(row, viewer, purchases, relationship, processing_ready):
         "periodStart": row["period_start"].isoformat(),
         "periodEnd": row["period_end"].isoformat(),
         "timezone": row["period_timezone"],
-        "documentCount": row["document_count"] if frozen else row["preview_document_count"],
-        "countBasis": "sale_files" if frozen else "discovery_matches",
-        "complete": True if frozen else row["preview_complete"],
-        "updatedAt": (
-            row["version_updated_at"] if frozen else row["preview_updated_at"]
-        ).isoformat()
-        if (row["version_updated_at"] if frozen else row["preview_updated_at"])
-        else None,
+        **packet_count_projection(row),
         "priceCents": 500,
         "currency": "USD",
         "availability": "ready"
@@ -137,6 +134,40 @@ class DrivePacketPublicSummaryService:
         self.store = store or DrivePeriodPacketStore()
         self.require_owner = require_owner
 
+    async def _owner(self):
+        if self.require_owner is None:
+            raise DriveReadError("owner_authority_required")
+        await self.require_owner()
+
+    @drive_operation()
+    async def get_preference(self, *, user_id):
+        """Read the owner choice without starting work or requiring source access."""
+        await self._owner()
+        result = await self.store._transaction(lambda c: read_preference(self.store, c, user_id))
+        await self._owner()
+        return result
+
+    @drive_operation()
+    async def set_preference(self, *, user_id, enabled, expected_revision, disclosure):
+        await self._owner()
+        if (
+            type(enabled) is not bool
+            or type(expected_revision) is not int
+            or expected_revision < 0
+            or disclosure != SUMMARY_POLICY
+        ):
+            raise DriveReadError("invalid_argument")
+        result = await self.store._transaction(
+            lambda c: set_preference(self.store, c, user_id, enabled, expected_revision)
+        )
+        await self._owner()
+        logger.info(
+            "packet_summary.preference outcome=%s revision=%d",
+            "visible" if result["enabled"] else "hidden",
+            result["revision"],
+        )
+        return result
+
     @drive_operation(job_key="packet_id")
     async def set_public_summary(
         self, *, user_id, packet_id, enabled, version, expected_revision, disclosure
@@ -166,7 +197,12 @@ class DrivePacketPublicSummaryService:
         return result
 
     def _set(self, connection, user, packet, enabled, version, revision):
+        """Compatibility packet route writes the one owner preference."""
         lock_connection_graph_users(connection, user_ids=[user])
+        # The old period disclosure cannot turn a saved owner OFF into ON for
+        # every period. That broader choice uses the current owner policy route.
+        if enabled and not read_preference(self.store, connection, user)["enabled"]:
+            raise DriveReadError("review_changed")
         if enabled and not connector_feature_enabled("drive_period_packets", user):
             raise DriveReadError("connector_unavailable")
         active = (
@@ -180,8 +216,6 @@ class DrivePacketPublicSummaryService:
         )
         if not row:
             raise DriveReadError("packet_unavailable")
-        if row["public_summary_revision"] != revision:
-            raise DriveReadError("listing_changed")
         if enabled:
             if (
                 row["connection_generation"] != active["connection_generation"]
@@ -193,24 +227,16 @@ class DrivePacketPublicSummaryService:
                 )
             ):
                 raise DriveReadError("packet_unavailable")
-        changed = self.store._row(
+        preference = set_preference(
+            self.store,
             connection,
-            """UPDATE drive_packet_heads SET
-            public_summary_enabled=:enabled,public_summary_revision=public_summary_revision+1,
-            public_summary_version=CASE WHEN :enabled THEN :version ELSE public_summary_version END,
-            public_summary_generation=CASE WHEN :enabled THEN connection_generation ELSE public_summary_generation END,
-            public_summary_disclosure=CASE WHEN :enabled THEN :disclosure ELSE public_summary_disclosure END,
-            public_summary_accepted_at=CASE WHEN :enabled THEN clock_timestamp() ELSE public_summary_accepted_at END
-            WHERE packet_id=:id AND user_id=:user RETURNING *""",
-            {
-                "id": row["packet_id"],
-                "user": user,
-                "enabled": enabled,
-                "version": version,
-                "disclosure": DISCLOSURE,
-            },
+            user,
+            enabled,
+            revision,
+            locked=True,
+            live_generation=active["connection_generation"] if active else None,
         )
-        return owner_public_summary(changed)
+        return {**preference, "version": row["current_version"], "disclosure": DISCLOSURE}
 
     @drive_operation()
     async def list_publications(self, *, user_id, cursor=None):
@@ -221,13 +247,16 @@ class DrivePacketPublicSummaryService:
         after = str(UUID(cursor)) if cursor else None
 
         def operation(connection):
+            preference = read_preference(self.store, connection, user_id)
+            if not preference["enabled"]:
+                return {"packets": [], "nextCursor": None}
             rows = list(
                 connection.execute(
                     text("""SELECT packet_id,current_version,
               connection_generation,period_start,period_end,period_timezone,
               public_summary_enabled,public_summary_revision,public_summary_version,public_summary_generation
               FROM drive_packet_heads WHERE user_id=:user AND packet_kind='provider_discovery'
-              AND category='financial' AND public_summary_enabled
+              AND category='financial'
               AND (:after IS NULL OR packet_id>CAST(:after AS uuid)) ORDER BY packet_id LIMIT 26"""),
                     {"user": user_id, "after": after},
                 ).mappings()
@@ -241,7 +270,11 @@ class DrivePacketPublicSummaryService:
                         "periodStart": row["period_start"].isoformat(),
                         "periodEnd": row["period_end"].isoformat(),
                         "timezone": row["period_timezone"],
-                        "publicSummary": {**owner_public_summary(row), "enabled": True},
+                        "publicSummary": {
+                            **preference,
+                            "version": row["current_version"],
+                            "disclosure": DISCLOSURE,
+                        },
                     }
                     for row in rows[:25]
                 ],
@@ -270,6 +303,8 @@ class DrivePacketPublicSummaryService:
                 return {"packets": [], "nextCursor": None}
             try:
                 lock_connection_graph_users(connection, user_ids=[profile["user_id"]])
+                if not read_preference(self.store, connection, profile["user_id"])["enabled"]:
+                    return {"packets": [], "nextCursor": None}
                 active = self.store.live_active(
                     connection, user_id=profile["user_id"], read_only=True
                 )
@@ -325,7 +360,4 @@ _PUBLIC_ROWS = """SELECT h.packet_id,h.user_id,h.current_version,h.period_start,
  AND r.access_stop_requested_at IS NULL AND r.status IN ('pending','preparing','review_ready','approved','completed','partial')
  AND (r.expires_at>clock_timestamp() OR r.status IN ('approved','completed','partial')) ORDER BY r.created_at DESC LIMIT 1) buyer ON TRUE
  WHERE h.user_id=:owner AND h.packet_kind='provider_discovery' AND h.category='financial'
- AND h.public_summary_enabled AND h.public_summary_version=h.current_version
- AND h.public_summary_generation=h.connection_generation AND h.public_summary_disclosure='drive-packet-public-summary-v1'
- AND h.public_summary_accepted_at IS NOT NULL
  AND (:after IS NULL OR h.packet_id>CAST(:after AS uuid)) ORDER BY h.packet_id LIMIT 26"""
