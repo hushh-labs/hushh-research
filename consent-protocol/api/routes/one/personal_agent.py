@@ -31,7 +31,7 @@ from api.routes.one.personal_agent_cloud import (
     router as _cloud_lifecycle_router,
 )
 from api.routes.one.pod_capabilities import observed_ai_selection
-from hushh_mcp.runtime_settings import personal_agent_enabled
+from hushh_mcp.runtime_settings import personal_agent_enabled, shared_experience_recovery_enabled
 from hushh_mcp.services.account_personal_agent_erasure import (
     PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE as PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
 )
@@ -572,6 +572,8 @@ async def resolve_personal_agent_status(
     # degraded answer there as well: claim nothing you did not read.
     state = "none" if row is None else _STATE_BY_REGISTRY_STATUS.get(status, _DEFAULT_STATE)
     result: dict = {"state": state, "featureEnabled": personal_agent_enabled()}
+    if shared_experience_recovery_enabled():
+        result["sharedExperienceRecoveryEnabled"] = True
     hushh_id = (row or {}).get("hushh_id")
     if hushh_id:
         result["hushhId"] = hushh_id

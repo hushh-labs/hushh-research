@@ -107,6 +107,43 @@ def test_listener_isolation_rollback_survives_the_deployment_writer(monkeypatch,
 
 
 @pytest.mark.parametrize(
+    "environment,candidate,value",
+    [("dev", False, False), ("uat", False, True), ("production", True, True)],
+)
+def test_shared_recovery_survives_environment_local_deployment_writer(
+    monkeypatch, plg_runtime_sync, environment, candidate, value
+):
+    writes, target = _write_configuration(
+        monkeypatch,
+        plg_runtime_sync,
+        environment,
+        candidate,
+        {"shared_experience_recovery_enabled": value},
+    )
+    assert json.loads(writes[target])["shared_experience_recovery_enabled"] is value
+
+
+def test_shared_recovery_cannot_cross_environments(plg_runtime_sync):
+    retained = plg_runtime_sync._runtime_config_retention["retained_settings"]
+    with pytest.raises(ValueError, match="different environment"):
+        retained(
+            {
+                "environment": "dev",
+                "google_cloud_project": "hushh-pda-dev",
+                "shared_experience_recovery_enabled": True,
+            },
+            project="hushh-pda",
+            environment="production",
+        )
+    assert (
+        retained({}, project="hushh-pda", environment="production").get(
+            "shared_experience_recovery_enabled", False
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize(
     ("environment", "candidate", "stored", "expected"),
     [
         ("uat", False, {}, (False, False, False, False, False)),

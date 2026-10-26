@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, SecretStr
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one.runtime_placement import (
+    SharedHostingSelectionRequest,
     _require_unassigned_byoc,
     observe_managed_cloud,
     require_byoc_setup_enabled,
@@ -804,11 +805,20 @@ async def select_hosted_cloud(
 async def select_shared_hosting(
     request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
+    body: SharedHostingSelectionRequest | None = None,
 ) -> SharedHostingSelectResponse:
     """Record the explicit Shared choice (``runtime_placement.select_shared``)."""
-    from api.routes.one.runtime_placement import select_shared
+    from api.routes.one.runtime_placement import select_shared, select_shared_recovery
 
-    await select_shared(firebase_uid)
+    if body is not None and body.recovery:
+        if body.expected_owner_id != firebase_uid:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "SHARED_RECOVERY_OWNER_CHANGED"},
+            )
+        await select_shared_recovery(firebase_uid)
+    else:
+        await select_shared(firebase_uid)
     return SharedHostingSelectResponse(
         hostingMode="shared",
         nextStep="Choose how your agent reaches a model next.",

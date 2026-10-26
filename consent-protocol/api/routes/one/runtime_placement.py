@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import HTTPException
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from hushh_mcp.services.placement_observation import PlacementReader, read_optional_placement
 
@@ -17,6 +18,15 @@ if TYPE_CHECKING:
     from hushh_mcp.services.user_cloud_service import UserCloud
 
 logger = logging.getLogger(__name__)
+
+
+class SharedHostingSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recovery: StrictBool = False
+    expected_owner_id: str | None = Field(
+        default=None, alias="expectedOwnerId", min_length=1, max_length=128
+    )
 
 
 def require_byoc_setup_enabled() -> None:
@@ -91,9 +101,7 @@ async def select_shared(user_id: str) -> None:
     Shared. A begun own-cloud setup whose sign-in never came back is only an intent,
     so choosing Shared clears it; any real placement or setup job is preserved.
     """
-    from api.routes.one import runtime
     from hushh_mcp.services import byoc_setup_intent
-    from hushh_mcp.services.owner_hosting_choice import HostingChoiceRepo
 
     mode = await _placement(user_id)
     if mode == "pending":
@@ -103,6 +111,13 @@ async def select_shared(user_id: str) -> None:
             raise _hosting_unavailable() from exc
         if cleared:
             mode = await _placement(user_id)
+    await _commit_shared_choice(user_id, mode)
+
+
+async def _commit_shared_choice(user_id: str, mode: str) -> None:
+    from api.routes.one import runtime
+    from hushh_mcp.services.owner_hosting_choice import HostingChoiceRepo
+
     if mode == "unknown":
         raise _hosting_unavailable()
     if mode not in {"shared", "unplaced"}:
@@ -123,6 +138,35 @@ async def select_shared(user_id: str) -> None:
                 "We could not save your choice. Nothing changed; try again.",
             ) from exc
     await runtime._write_cloud_setup_marker(user_id)
+
+
+async def select_shared_recovery(user_id: str) -> None:
+    """Honor an explicit Shared recovery click without cancelling another setup.
+
+    Both provider setup starts use the same placement lock. Re-observe inside it:
+    a stale Shared-first screen cannot clear a consent intent or adopt a private home.
+    Existing Shared libraries do not move or need a new hosting decision.
+    """
+    from hushh_mcp.runtime_settings import shared_experience_recovery_enabled
+    from hushh_mcp.services.pod_files.contracts import FilesRefused
+    from hushh_mcp.services.shared_files.registry import protect_placement_change
+
+    if not shared_experience_recovery_enabled():
+        raise _refuse(404, "SHARED_RECOVERY_UNAVAILABLE", "Shared setup is unavailable.")
+    mode = await _placement(user_id)
+    if mode == "shared":
+        await _commit_shared_choice(user_id, mode)
+        return
+    if mode != "unplaced":
+        await _commit_shared_choice(user_id, mode)  # Refuses without clearing an intent.
+        return
+    try:
+        async with protect_placement_change(user_id):
+            await _commit_shared_choice(user_id, await _placement(user_id))
+    except FilesRefused as exc:
+        raise _refuse(
+            exc.status, exc.code, "Your existing Files and cloud setup are unchanged."
+        ) from None
 
 
 def _hosting_unavailable() -> HTTPException:
@@ -167,7 +211,7 @@ def setup_status_fields(row: dict) -> dict[str, Any]:
     }
 
 
-__all__ = ["attach_blocked", "select_shared", "setup_status_fields"]
+__all__ = ["attach_blocked", "select_shared", "select_shared_recovery", "setup_status_fields"]
 
 
 async def _require_unassigned_byoc(user_id: str) -> None:

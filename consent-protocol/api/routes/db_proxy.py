@@ -254,6 +254,7 @@ class VaultBootstrapStateResponse(BaseModel):
     # mandate. None means "unknown" (e.g. shadow lookup failed); the client then
     # falls back to its own identity read rather than treating it as unverified.
     phoneVerified: bool | None = None
+    sharedExperienceRecoveryEnabled: bool = False
 
 
 class VaultPreStateUpdateRequest(BaseModel):
@@ -452,6 +453,8 @@ async def vault_bootstrap_state(
                 type(identity_error).__name__,
             )
 
+        from hushh_mcp.services.shared_experience_recovery import shared_recovery_for_owner
+
         return VaultBootstrapStateResponse(
             userId=user_id,
             hasVault=has_vault,
@@ -481,6 +484,7 @@ async def vault_bootstrap_state(
             onboardingCallbackAttemptId=state.get("onboardingCallbackAttemptId"),
             onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
             phoneVerified=phone_verified,
+            sharedExperienceRecoveryEnabled=await shared_recovery_for_owner(user_id),
         )
     except ValueError as exc:
         if str(exc) == "stale onboarding journey":
@@ -540,6 +544,8 @@ async def vault_pre_vault_state(
         )
         has_vault = await service.check_vault_exists(user_id, ensure_entry=False)
 
+        from hushh_mcp.services.shared_experience_recovery import shared_recovery_for_owner
+
         return VaultBootstrapStateResponse(
             userId=user_id,
             hasVault=has_vault,
@@ -568,6 +574,7 @@ async def vault_pre_vault_state(
             onboardingCallbackState=state.get("onboardingCallbackState"),
             onboardingCallbackAttemptId=state.get("onboardingCallbackAttemptId"),
             onboardingJourneyUpdatedAt=state.get("onboardingJourneyUpdatedAt"),
+            sharedExperienceRecoveryEnabled=await shared_recovery_for_owner(user_id),
         )
     except ValueError as exc:
         if str(exc) == "stale onboarding journey":
