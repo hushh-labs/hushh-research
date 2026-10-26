@@ -70,8 +70,12 @@ def fixture():
 
 
 class GuardOnlyEvidenceTest(unittest.TestCase):
-    def qualify(self, run, job, log, blobs, *, environment="uat", repository="org/repo"):
-        return evidence.qualify_guard_only_run(repository, environment, run, job, log, blobs)
+    def qualify(
+        self, run, job, log, blobs, *, environment="uat", repository="org/repo"
+    ):
+        return evidence.qualify_guard_only_run(
+            repository, environment, run, job, log, blobs
+        )
 
     def test_exact_guard_failure_returns_identifiers_without_private_content(self):
         output, errors = StringIO(), StringIO()
@@ -107,7 +111,9 @@ class GuardOnlyEvidenceTest(unittest.TestCase):
         ):
             with self.subTest(diagnostic=diagnostic):
                 self.assertIsNone(
-                    self.qualify(run, job, log.replace(evidence._DIAGNOSTIC, diagnostic), blobs)
+                    self.qualify(
+                        run, job, log.replace(evidence._DIAGNOSTIC, diagnostic), blobs
+                    )
                 )
 
     def test_source_and_checkout_pins_are_independently_required(self):
@@ -128,10 +134,14 @@ class GuardOnlyEvidenceTest(unittest.TestCase):
                 elif defect == "checkout_sha":
                     log = log.replace(evidence.AUDITED_SOURCE_SHA, "a" * 40)
                 elif defect == "checkout_adjacency":
-                    log = log.replace(evidence._CHECKOUT_COMMAND, evidence._CHECKOUT_COMMAND + "\n")
+                    log = log.replace(
+                        evidence._CHECKOUT_COMMAND, evidence._CHECKOUT_COMMAND + "\n"
+                    )
                 elif defect == "duplicate_checkout":
                     line = next(
-                        line for line in log.splitlines() if evidence._CHECKOUT_COMMAND in line
+                        line
+                        for line in log.splitlines()
+                        if evidence._CHECKOUT_COMMAND in line
                     )
                     log = log.replace(line, line + "\n" + line)
                 elif defect == "missing_script":
@@ -144,6 +154,19 @@ class GuardOnlyEvidenceTest(unittest.TestCase):
                     )
                     blobs[path] = "a" * 40
                 self.assertIsNone(self.qualify(run, job, log, blobs))
+
+    def test_pinned_intervening_sources_still_require_matching_checkout_and_blobs(self):
+        for source in evidence.AUDITED_SOURCE_SHAS:
+            with self.subTest(source=source):
+                run, job, log, blobs = fixture()
+                run["head_sha"] = job["head_sha"] = source
+                if source != evidence.AUDITED_SOURCE_SHA:
+                    self.assertIsNone(self.qualify(run, job, log, blobs))
+                log = log.replace(evidence.AUDITED_SOURCE_SHA, source)
+                self.assertEqual(
+                    self.qualify(run, job, log, blobs)["source_sha"], source
+                )
+                self.assertIsNone(self.qualify(run, job, log, {}))
 
     def test_attempt_identity_steps_and_repo_are_fail_closed(self):
         for defect in (
@@ -217,16 +240,21 @@ class GuardOnlyEvidenceTest(unittest.TestCase):
             log.replace("  APPLY: true", "  APPLY: false"),
             log.replace(evidence._EXIT, "##[error]Process completed with exit code 2."),
             log.replace(
-                evidence._DIAGNOSTIC, "PRIVATE_SYNTHETIC_SENTINEL\n" + evidence._DIAGNOSTIC
+                evidence._DIAGNOSTIC,
+                "PRIVATE_SYNTHETIC_SENTINEL\n" + evidence._DIAGNOSTIC,
             ),
-            log.replace(evidence._DIAGNOSTIC, evidence._DIAGNOSTIC + "\n" + evidence._DIAGNOSTIC),
+            log.replace(
+                evidence._DIAGNOSTIC, evidence._DIAGNOSTIC + "\n" + evidence._DIAGNOSTIC
+            ),
             log.replace(evidence._JOB, "Foreign job"),
         ]
         output, errors = StringIO(), StringIO()
         with redirect_stdout(output), redirect_stderr(errors):
             for candidate in candidates:
                 self.assertIsNone(self.qualify(run, job, candidate, blobs))
-            self.assertIsNone(self.qualify(run, job, log, blobs, environment="production"))
+            self.assertIsNone(
+                self.qualify(run, job, log, blobs, environment="production")
+            )
         self.assertEqual(output.getvalue() + errors.getvalue(), "")
 
 

@@ -1702,8 +1702,8 @@ def guard_only_preflight_proof(
     repository: str, environment: str, run: dict, job: dict
 ) -> dict | None:
     """Qualify only the immutable, reviewed historical guard-before-mutation source."""
-    source = retention_preflight_evidence.AUDITED_SOURCE_SHA
-    if environment != "uat" or run.get("head_sha") != source:
+    source = run.get("head_sha")
+    if environment != "uat" or not isinstance(source, str) or source not in retention_preflight_evidence.AUDITED_SOURCE_SHAS:
         return None
     try:
         log = command(

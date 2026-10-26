@@ -13,6 +13,13 @@ import re
 from typing import Any
 
 AUDITED_SOURCE_SHA = "f454c67bceefa9829c6825a65d907f8cdd4e6069"
+AUDITED_SOURCE_SHAS = frozenset(
+    {
+        AUDITED_SOURCE_SHA,
+        "2c720061b7a711ded7d3f822f67c72d73d98e6e2",
+        "c738ff0b975d9a326664f9af356eea2dc7d90125",
+    }
+)
 # Verified with git show <sha>:<path> | git hash-object --stdin. In this source,
 # --apply calls assert_checkpoint_publication before restore_state or mutations.
 AUDITED_SOURCE_BLOBS = {
@@ -62,7 +69,9 @@ def _steps_match(job: dict[str, Any]) -> bool:
         return False
     numbers = []
     for step, name in zip(steps, _STEP_NAMES, strict=True):
-        conclusion = "failure" if name == _PREPARE else "skipped" if name == _SAVE else "success"
+        conclusion = (
+            "failure" if name == _PREPARE else "skipped" if name == _SAVE else "success"
+        )
         if (
             not isinstance(step, dict)
             or step.get("name") != name
@@ -76,7 +85,7 @@ def _steps_match(job: dict[str, Any]) -> bool:
     return numbers == sorted(set(numbers))
 
 
-def _log_matches(log: str) -> bool:
+def _log_matches(log: str, source_sha: str) -> bool:
     if not isinstance(log, str) or not log or len(log) > MAX_LOG_BYTES:
         return False
     try:
@@ -106,14 +115,19 @@ def _log_matches(log: str) -> bool:
     if set(records) != set(_STEP_NAMES) - {_SAVE}:
         return False
     checkout = records[_CHECKOUT]
-    positions = [index for index, content in enumerate(checkout) if content == _CHECKOUT_COMMAND]
-    if len(positions) != 1 or checkout[positions[0] + 1 : positions[0] + 2] != [AUDITED_SOURCE_SHA]:
+    positions = [
+        index for index, content in enumerate(checkout) if content == _CHECKOUT_COMMAND
+    ]
+    if len(positions) != 1 or checkout[positions[0] + 1 : positions[0] + 2] != [
+        source_sha
+    ]:
         return False
     prepare = records[_PREPARE]
     if (
         prepare[:7] != ["##[group]Run set -euo pipefail", *_PREPARE_COMMAND]
         or prepare.count("##[endgroup]") != 1
-        or [line for line in prepare if line.startswith("  APPLY:")] != ["  APPLY: true"]
+        or [line for line in prepare if line.startswith("  APPLY:")]
+        != ["  APPLY: true"]
     ):
         return False
     return (
@@ -143,8 +157,9 @@ def qualify_guard_only_run(
         or run.get("path") != ".github/workflows/capacity-maintenance.yml"
         or run.get("head_branch") != "main"
         or run.get("event") not in ("repository_dispatch", "workflow_dispatch")
-        or run.get("head_sha") != AUDITED_SOURCE_SHA
-        or job.get("head_sha") != AUDITED_SOURCE_SHA
+        or not isinstance(run.get("head_sha"), str)
+        or run["head_sha"] not in AUDITED_SOURCE_SHAS
+        or job.get("head_sha") != run.get("head_sha")
         or run.get("status") != "completed"
         or run.get("conclusion") != "failure"
         or job.get("name") != _JOB
@@ -161,11 +176,12 @@ def qualify_guard_only_run(
         # A later guard-only attempt cannot account for an earlier lost checkpoint.
         or run["run_attempt"] != 1
         or any(
-            not isinstance(run.get(key), dict) or run[key].get("full_name") != repository
+            not isinstance(run.get(key), dict)
+            or run[key].get("full_name") != repository
             for key in ("repository", "head_repository")
         )
         or not _steps_match(job)
-        or not _log_matches(log)
+        or not _log_matches(log, run["head_sha"])
     ):
         return None
     return {
@@ -174,7 +190,9 @@ def qualify_guard_only_run(
         "run_id": run["id"],
         "job_id": job["id"],
         "run_attempt": run["run_attempt"],
-        "source_sha": AUDITED_SOURCE_SHA,
+        "source_sha": run["head_sha"],
         "script_blob": AUDITED_SOURCE_BLOBS["scripts/ci/uat-retention-maintenance.py"],
-        "workflow_blob": AUDITED_SOURCE_BLOBS[".github/workflows/capacity-maintenance.yml"],
+        "workflow_blob": AUDITED_SOURCE_BLOBS[
+            ".github/workflows/capacity-maintenance.yml"
+        ],
     }
