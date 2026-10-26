@@ -1,6 +1,6 @@
 BEGIN;
 
-CREATE TABLE one_todo_reminder_schedules (
+CREATE TABLE IF NOT EXISTS one_todo_reminder_schedules (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
  user_id TEXT NOT NULL REFERENCES actor_profiles(user_id) ON DELETE CASCADE,
  task_ref UUID NOT NULL,
@@ -24,7 +24,7 @@ ALTER TABLE system_push_outbox ADD CONSTRAINT system_push_outbox_source_kind_che
 -- The existing PKM compare-and-swap transaction inserts this event only after
 -- accepting the encrypted write. A failed schedule rolls back that same write.
 -- Strip the transient timing projection from the retained audit event.
-CREATE FUNCTION project_one_todo_reminders() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION project_one_todo_reminders() RETURNS trigger AS $$
 DECLARE snapshot JSONB; item JSONB; wanted UUID[] := ARRAY[]::UUID[];
  source UUID; version BIGINT; due TIMESTAMPTZ; task UUID;
 BEGIN
@@ -69,11 +69,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path=public,pg_temp;
 REVOKE ALL ON FUNCTION project_one_todo_reminders() FROM PUBLIC;
-CREATE TRIGGER one_todo_reminders_committed BEFORE INSERT ON pkm_events
- FOR EACH ROW EXECUTE FUNCTION project_one_todo_reminders();
 
 -- Reset/erase of the encrypted domain removes its operational reminder state.
-CREATE FUNCTION erase_one_todo_reminders() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION erase_one_todo_reminders() RETURNS trigger AS $$
 BEGIN
  IF OLD.domain = 'one_todos' THEN
   DELETE FROM system_push_outbox WHERE source_kind='todo_reminder' AND recipient_user_id=OLD.user_id;
@@ -83,7 +81,29 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path=public,pg_temp;
 REVOKE ALL ON FUNCTION erase_one_todo_reminders() FROM PUBLIC;
-CREATE TRIGGER one_todo_reminders_erased AFTER DELETE ON pkm_manifests
- FOR EACH ROW EXECUTE FUNCTION erase_one_todo_reminders();
+-- Canonical replay must preserve live schedules and hot-table trigger objects.
+-- Create missing triggers and refuse drift rather than replacing installed ones.
+DO $$
+DECLARE spec RECORD; installed RECORD; relation REGCLASS;
+BEGIN
+ FOR spec IN SELECT * FROM (VALUES
+  ('one_todo_reminders_committed','pkm_events','BEFORE INSERT','project_one_todo_reminders',7),
+  ('one_todo_reminders_erased','pkm_manifests','AFTER DELETE','erase_one_todo_reminders',9)
+ ) AS definitions(name,table_name,events,function_name,trigger_type) LOOP
+  relation := format('public.%I',spec.table_name)::REGCLASS;
+  SELECT * INTO installed FROM pg_trigger
+   WHERE tgrelid=relation AND tgname=spec.name AND NOT tgisinternal;
+  IF NOT FOUND THEN
+   EXECUTE format('CREATE TRIGGER %I %s ON public.%I FOR EACH ROW EXECUTE FUNCTION public.%I()',
+    spec.name,spec.events,spec.table_name,spec.function_name);
+  ELSIF installed.tgfoid <> format('public.%I()',spec.function_name)::REGPROCEDURE::OID
+   OR installed.tgtype <> spec.trigger_type OR installed.tgenabled <> 'O'
+   OR installed.tgqual IS NOT NULL OR installed.tgnargs <> 0
+   OR installed.tgattr::TEXT <> '' OR installed.tgconstraint <> 0
+   OR installed.tgoldtable IS NOT NULL OR installed.tgnewtable IS NOT NULL THEN
+   RAISE EXCEPTION 'Task reminder trigger has unexpected definition: %',spec.name;
+  END IF;
+ END LOOP;
+END $$;
 DO $$ BEGIN PERFORM public.install_account_deletion_write_guards(); END $$;
 COMMIT;

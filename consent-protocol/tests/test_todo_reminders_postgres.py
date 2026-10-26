@@ -122,6 +122,60 @@ def test_todo_reminders_deliver_only_when_due_and_refuse_active_rollback(
     assert db.sse[-1][1]["title"] == "Task reminder"
 
 
+def test_todo_reminder_replay_preserves_live_schedules_leases_and_device_receipts(todo_reminders):
+    db, items, due = todo_reminders
+    project(db, items)
+    add_devices(db)
+    sql(db, "UPDATE system_push_outbox SET status='leased',lease_id=gen_random_uuid()")
+    sql(
+        db,
+        """INSERT INTO system_push_device_deliveries(event_id,device_id)
+        SELECT o.id,d.device_id FROM system_push_outbox o CROSS JOIN user_push_installations d LIMIT 1""",
+    )
+    schedules = sql(db, "SELECT * FROM one_todo_reminder_schedules")
+    outbox = sql(db, "SELECT * FROM system_push_outbox")
+    receipts = sql(db, "SELECT * FROM system_push_device_deliveries")
+    trigger_query = "SELECT oid,tgname FROM pg_trigger WHERE tgname IN ('one_todo_reminders_committed','one_todo_reminders_erased') ORDER BY tgname"
+    triggers = sql(db, trigger_query)
+    entries = build_manifest_entries(
+        ROOT / "db/migrations",
+        (
+            "361_system_push_outbox.sql",
+            "428_one_todo_reminders.sql",
+        ),
+    )
+    raw = db.engine.raw_connection()
+    try:
+        with raw.cursor() as cursor:
+            for _ in range(2):
+                for entry in entries:
+                    cursor.execute(_replay_sql(entry))
+        raw.commit()
+    finally:
+        raw.close()
+    assert sql(db, "SELECT * FROM one_todo_reminder_schedules") == schedules
+    assert sql(db, "SELECT * FROM system_push_outbox") == outbox
+    assert sql(db, "SELECT * FROM system_push_device_deliveries") == receipts
+    assert sql(db, trigger_query) == triggers
+    project(db, [{**items[0], "due_at": (due + timedelta(hours=1)).isoformat()}])
+    assert sql(db, "SELECT generation FROM one_todo_reminder_schedules")[0]["generation"] == 2
+    assert (
+        sql(db, "SELECT status FROM system_push_outbox WHERE id=:id", {"id": outbox[0]["id"]})[0][
+            "status"
+        ]
+        == "suppressed"
+    )
+    sql(db, "ALTER TABLE pkm_events DISABLE TRIGGER one_todo_reminders_committed")
+    raw = db.engine.raw_connection()
+    try:
+        with raw.cursor() as cursor:
+            with pytest.raises(Exception, match="Task reminder trigger has unexpected definition"):
+                cursor.execute(_replay_sql(entries[-1]))
+    finally:
+        raw.rollback()
+        raw.close()
+
+
 def test_todo_reminder_rollback_fences_concurrent_writes(todo_reminders):
     db, items, due = todo_reminders
     rollback = ROLLBACK_SQL
