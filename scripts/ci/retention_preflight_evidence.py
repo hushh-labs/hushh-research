@@ -1,7 +1,7 @@
 """Qualify one reviewed historical checkpoint-guard failure, without authority.
 
 The caller supplies the latest authenticated run/job, its bounded official job
-log, and Git blob IDs resolved at AUDITED_SOURCE_SHA. This module performs no
+log, and Git blob IDs resolved at its explicit reviewed source SHA. This module performs no
 I/O and never returns log text, credentials, a checkpoint, or mutation authority.
 Unknown evidence remains a refusal; the ordinary checkpoint guard still owns
 all other failures and the caller must continue checking older maintenance.
@@ -14,19 +14,22 @@ from datetime import datetime, timedelta
 from typing import Any
 
 AUDITED_SOURCE_SHA = "f454c67bceefa9829c6825a65d907f8cdd4e6069"
-AUDITED_SOURCE_SHAS = frozenset(
-    {
-        AUDITED_SOURCE_SHA,
-        "2c720061b7a711ded7d3f822f67c72d73d98e6e2",
-        "c738ff0b975d9a326664f9af356eea2dc7d90125",
-    }
-)
 # Verified with git show <sha>:<path> | git hash-object --stdin. In this source,
 # --apply calls assert_checkpoint_publication before restore_state or mutations.
 AUDITED_SOURCE_BLOBS = {
     "scripts/ci/uat-retention-maintenance.py": "17b8ac515413c893efa980d3cd74301af09762ca",
     ".github/workflows/capacity-maintenance.yml": "3345c20d2ec1f7d33e5665596af8878e9c9a538e",
 }
+_SOURCE_BLOB_PROFILES = {
+    AUDITED_SOURCE_SHA: AUDITED_SOURCE_BLOBS,
+    "2c720061b7a711ded7d3f822f67c72d73d98e6e2": AUDITED_SOURCE_BLOBS,
+    "c738ff0b975d9a326664f9af356eea2dc7d90125": AUDITED_SOURCE_BLOBS,
+    "dce2e32866b6ff7369b58e6695b599e57c946ad7": {
+        "scripts/ci/uat-retention-maintenance.py": "34050aa25db19afe6004d97fdc76bda7de9c6471",
+        ".github/workflows/capacity-maintenance.yml": "3345c20d2ec1f7d33e5665596af8878e9c9a538e",
+    },
+}
+AUDITED_SOURCE_SHAS = frozenset(_SOURCE_BLOB_PROFILES)
 MAX_LOG_BYTES = 2 * 1024 * 1024
 _JOB = "UAT bounded revision cleanup"
 _CHECKOUT = "Checkout mutation tooling and rollback history"
@@ -63,6 +66,12 @@ _PREPARE_COMMAND = (
 _TIMESTAMP = re.compile(r"^\ufeff?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z (.*)$")
 _STYLE = re.compile(r"(?:\x1b|\^\[)\[[0-9;]*m")
 _RAW_LINE = re.compile(r"^\ufeff?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$")
+
+
+def expected_source_blobs(source_sha: object) -> dict[str, str] | None:
+    """Return an independent copy of an explicit reviewed profile, or refuse."""
+    profile = _SOURCE_BLOB_PROFILES.get(source_sha) if isinstance(source_sha, str) else None
+    return dict(profile) if profile is not None else None
 
 
 def _utc(value: object) -> datetime | None:
@@ -237,7 +246,7 @@ def qualify_guard_only_run(
         or not isinstance(run, dict)
         or not isinstance(job, dict)
         or not isinstance(source_blobs, dict)
-        or source_blobs != AUDITED_SOURCE_BLOBS
+        or source_blobs != expected_source_blobs(run.get("head_sha"))
         or run.get("path") != ".github/workflows/capacity-maintenance.yml"
         or run.get("head_branch") != "main"
         or run.get("event") not in ("repository_dispatch", "workflow_dispatch")
@@ -274,6 +283,6 @@ def qualify_guard_only_run(
         "job_id": job["id"],
         "run_attempt": run["run_attempt"],
         "source_sha": run["head_sha"],
-        "script_blob": AUDITED_SOURCE_BLOBS["scripts/ci/uat-retention-maintenance.py"],
-        "workflow_blob": AUDITED_SOURCE_BLOBS[".github/workflows/capacity-maintenance.yml"],
+        "script_blob": source_blobs["scripts/ci/uat-retention-maintenance.py"],
+        "workflow_blob": source_blobs[".github/workflows/capacity-maintenance.yml"],
     }

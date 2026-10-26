@@ -154,6 +154,7 @@ class GuardOnlyEvidenceTest(unittest.TestCase):
                 if source != evidence.AUDITED_SOURCE_SHA:
                     self.assertIsNone(self.qualify(run, job, log, blobs))
                 log = log.replace(evidence.AUDITED_SOURCE_SHA, source)
+                blobs = evidence.expected_source_blobs(source)
                 self.assertEqual(self.qualify(run, job, log, blobs)["source_sha"], source)
                 self.assertIsNone(self.qualify(run, job, log, {}))
 
@@ -271,6 +272,7 @@ class RawEvidenceTest(unittest.TestCase):
             run, job, log, blobs = raw_fixture()
             run["head_sha"] = job["head_sha"] = source
             log = log.replace(evidence.AUDITED_SOURCE_SHA, source)
+            blobs = evidence.expected_source_blobs(source)
             # Raw logs can contain real ANSI colors, CRLF and tabs in env values.
             log = log.replace("^[[", "\x1b[").replace("\n", "\r\n")
             log = log.replace("PRIVATE_SYNTHETIC_SENTINEL", "PRIVATE\tSYNTHETIC_SENTINEL")
@@ -280,6 +282,31 @@ class RawEvidenceTest(unittest.TestCase):
             self.assertNotIn("PRIVATE", json.dumps(proof))
             self.assertTrue(evidence.raw_log_matches(log, job, source))
         self.assertEqual(output.getvalue() + errors.getvalue(), "")
+
+    def test_explicit_source_profiles_cannot_be_substituted_or_extended(self):
+        new_source = "dce2e32866b6ff7369b58e6695b599e57c946ad7"
+        new_profile = evidence.expected_source_blobs(new_source)
+        self.assertNotEqual(new_profile, evidence.AUDITED_SOURCE_BLOBS)
+        for source in evidence.AUDITED_SOURCE_SHAS:
+            with self.subTest(source=source):
+                run, job, log, _ = raw_fixture()
+                run["head_sha"] = job["head_sha"] = source
+                log = log.replace(evidence.AUDITED_SOURCE_SHA, source)
+                wrong_profile = (
+                    evidence.AUDITED_SOURCE_BLOBS if source == new_source else new_profile
+                )
+                self.assertIsNone(self.qualify(run, job, log, wrong_profile))
+        for unknown in (None, [], "a" * 40):
+            self.assertIsNone(evidence.expected_source_blobs(unknown))
+        run, job, log, blobs = raw_fixture()
+        run["head_sha"] = job["head_sha"] = "a" * 40
+        log = log.replace(evidence.AUDITED_SOURCE_SHA, "a" * 40)
+        self.assertIsNone(self.qualify(run, job, log, blobs))
+        new_profile.clear()
+        self.assertEqual(
+            evidence.expected_source_blobs(new_source)["scripts/ci/uat-retention-maintenance.py"],
+            "34050aa25db19afe6004d97fdc76bda7de9c6471",
+        )
 
     def test_raw_checkout_and_prepare_require_api_windows(self):
         for step_name in (evidence._CHECKOUT, evidence._PREPARE):
