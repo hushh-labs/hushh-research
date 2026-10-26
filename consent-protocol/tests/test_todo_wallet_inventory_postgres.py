@@ -27,12 +27,20 @@ def test_pending_task_inventory_is_owner_scoped_paged_metadata_only(incoming_req
     second = requests.create("charu", target, str(uuid.uuid4()))
     page = requests.list_pending("alice", limit=1)
     assert page["hasMore"] is True
-    assert set(page["items"][0]) == {"id", "createdAt", "expiresAt"}
+    assert set(page["items"][0]) == {"id", "createdAt", "expiresAt", "requesterName"}
     assert page["items"][0]["id"] == second["id"]
+    assert page["items"][0]["requesterName"] == "Charu"
+    with db.engine.begin() as conn:
+        conn.execute(
+            text("UPDATE actor_identity_cache SET display_name=:name WHERE user_id='charu'"),
+            {"name": "A" * 200},
+        )
+    assert requests.list_pending("alice", limit=1)["items"][0]["requesterName"] == "A" * 160
     # A resolved anchor remains usable without making that request visible.
     requests.decide("alice", second["id"], "declined")
     following = requests.list_pending("alice", cursor=page["nextCursor"], limit=1)
     assert [row["id"] for row in following["items"]] == [first["id"]]
+    assert following["items"][0]["requesterName"] == "Rupman"
     assert following["hasMore"] is False
     assert requests.list_pending("bob")["items"] == []
     with pytest.raises(WalletCardAccessError, match="NOT_FOUND"):

@@ -63,7 +63,7 @@ const SHEET_CONSUMERS = [
   "components/one-location/redesign/circles/circle-grow-actions.tsx",
   "components/one-location/redesign/circles/named-circle-flows.tsx",
   "components/profile/profile-avatar-editor.tsx",
-  "components/todos/todo-list-page.tsx",
+  "components/todos/todo-item-editor.tsx",
   "components/ui/sidebar.tsx",
   "lib/morphy-ux/ui/task-surfaces.tsx",
 ] as const;
@@ -72,6 +72,7 @@ describe("the shared bottom sheet stays shared", () => {
   it("still has exactly the consumers this change was checked against", () => {
     const discovered = ["app", "components", "lib"].flatMap(root =>
       readdirSync(path.join(REPO_ROOT, root), { recursive: true, encoding: "utf8" })
+        .map(file => file.split(path.sep).join("/"))
         .filter(file => file.endsWith(".tsx") && !file.includes("__tests__/") && !file.endsWith(".test.tsx"))
         .map(file => `${root}/${file}`)
         .filter(file => /from\s+["']@\/components\/ui\/sheet["']/.test(sourceOf(file))),
@@ -131,10 +132,9 @@ describe("the shared bottom sheet stays shared", () => {
         )) {
           if (match[1]) continue;
           const px = maxWidthPx(match[2]);
-          // The complete inventory exposes one pre-existing Todo cap. Keep
-          // that measured legacy baseline while blocking narrower/new caps;
-          // its phone/desktop transport is outside this task migration.
-          const legacyMinimum = consumer === "components/todos/todo-list-page.tsx" ? 576 : 640;
+          // The shared To-do editor retains its measured 576px baseline.
+          // Other phone sheet consumers must stay at 640px or wider.
+          const legacyMinimum = consumer === "components/todos/todo-item-editor.tsx" ? 576 : 640;
           if (px !== null && px < legacyMinimum) {
             offenders.push(`${consumer} → ${match[0]} (${px}px)`);
           }

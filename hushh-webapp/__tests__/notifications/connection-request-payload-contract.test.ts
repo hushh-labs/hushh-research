@@ -39,6 +39,10 @@ const FCM_SERVICE_TS = fs.readFileSync(
   path.resolve(__dirname, "../../lib/notifications/fcm-service.ts"),
   "utf8",
 );
+const FCM_TAP_TARGETS_TS = fs.readFileSync(
+  path.resolve(__dirname, "../../lib/notifications/notification-tap-targets.ts"),
+  "utf8",
+);
 
 function pythonStringConstant(source: string, name: string): string {
   const match = new RegExp(`^${name}\\s*=\\s*"([^"]*)"`, "m").exec(source);
@@ -121,7 +125,9 @@ describe("connection-request notification: payload field contract", () => {
     // Web toast target.
     expect(PROVIDER_TSX).toContain('String(data.request_id || "").trim()');
     // Native tap target.
-    expect(FCM_SERVICE_TS).toContain(
+    expect(FCM_SERVICE_TS).toContain('from "./notification-tap-targets"');
+    expect(FCM_SERVICE_TS).toContain("buildNotificationTapTarget(");
+    expect(FCM_TAP_TARGETS_TS).toContain(
       'String(data?.request_id || "").trim()',
     );
   });
@@ -129,7 +135,7 @@ describe("connection-request notification: payload field contract", () => {
   it("declares no data-map key the client silently ignores", () => {
     // A field the server pays to send and nobody reads is how `requester_label`
     // came to exist on the SSE payload alone for so long without being noticed.
-    const consumed = `${PROVIDER_TSX}\n${FCM_SERVICE_TS}`;
+    const consumed = `${PROVIDER_TSX}\n${FCM_SERVICE_TS}\n${FCM_TAP_TARGETS_TS}`;
     for (const key of pythonClientDataKeys()) {
       expect(consumed, `no client reads the "${key}" data field`).toContain(key);
     }

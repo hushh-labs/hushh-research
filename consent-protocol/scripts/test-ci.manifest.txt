@@ -262,6 +262,7 @@ tests/services/test_connections_service.py
 tests/services/test_push_notifications.py
 tests/services/test_system_push_delivery.py
 tests/test_fcm_messages.py
+tests/test_document_notification_payload_contract.py
 tests/test_system_push_drain_routes.py
 tests/test_gmail_nudges.py
 tests/services/test_gmail_followup_scan.py

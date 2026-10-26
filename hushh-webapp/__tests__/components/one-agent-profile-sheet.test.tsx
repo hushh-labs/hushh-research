@@ -85,7 +85,7 @@ vi.mock("@/lib/services/todo-list-pkm-service", async original => {
 vi.mock("@/lib/feed/use-feed-actionables", () => ({ useFeedActionables: () => ({ actionables: [], loading: false, retry: vi.fn() }) }));
 vi.mock("@/lib/feed/use-feed-briefing", () => ({ useFeedBriefing: () => ({ pendingKyc: null, kycLoading: false, retryKyc: vi.fn() }) }));
 vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => ({ connected: false, loaded: true, refresh: vi.fn() }) }));
-vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({ useCalendarUpcomingEvents: () => ({ events: [], loaded: true, refresh: vi.fn() }) }));
+vi.mock("@/lib/calendar/use-calendar-upcoming-events", () => ({ useTodoUpcomingEvents: () => ({ events: [], loaded: true, refresh: vi.fn() }) }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
     status: { connected: true, google_email: "test@example.com" },
