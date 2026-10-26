@@ -242,9 +242,9 @@ for (const width of [393, 1440]) {
   });
 }
 
-for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440, 10], [390, 0], [390, 1], [390, 2], [390, 3], [390, 5]]) {
-  test(`Cards grid preserves three One cards and ${count} payment cards at ${width}px`, async ({ page }) => {
-    const errors = await open(page, width, "light", { cards: count }, { height: 844, shell: true });
+for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440, 10], [320, 0], [390, 0], [430, 0], [768, 0], [1440, 0], [390, 1], [390, 2], [390, 3], [390, 5]]) {
+  test(`Cards grid preserves three One cards and ${count} payment cards at ${width}px`, async ({ page }, testInfo) => {
+    const errors = await open(page, width, !count && width !== 768 ? "dark" : "light", { cards: count }, { height: 844, shell: true });
     await mount(page);
     const collection = page.getByTestId("wallet-card-browser");
     await expect(collection).toBeVisible();
@@ -261,6 +261,34 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
       expect(box.left).toBeGreaterThanOrEqual(0);
       expect(box.right).toBeLessThanOrEqual(width);
       expect(Math.abs(box.ratio - ISO_RATIO)).toBeLessThan(.01);
+    }
+    if (!count) {
+      const empty = collection.getByText("No payment cards yet", { exact: true });
+      const helper = collection.getByText("Add a card to keep its details close.", { exact: true });
+      const add = collection.getByRole("button", { name: "Add a payment card", exact: true });
+      const [titleBox, helperBox, addBox] = await Promise.all([empty.boundingBox(), helper.boundingBox(), add.boundingBox()]);
+      expect(helperBox!.y - titleBox!.y - titleBox!.height).toBeGreaterThanOrEqual(8);
+      expect(addBox!.y - helperBox!.y - helperBox!.height).toBeGreaterThanOrEqual(12);
+      expect(addBox!.height).toBeGreaterThanOrEqual(44);
+      const oneCards = collection.getByRole("region", { name: "Your One cards", exact: true });
+      const rows = oneCards.getByRole("button");
+      const rowBoxes = await rows.evaluateAll(elements => elements.map(element => {
+        const row = element.getBoundingClientRect();
+        const art = element.querySelector('[data-agent-card]')!.getBoundingClientRect();
+        return { top: row.top, bottom: row.bottom, height: row.height, artWidth: art.width, artRatio: art.width / art.height, overflow: element.scrollWidth > element.clientWidth + 1 };
+      }));
+      for (const row of rowBoxes) {
+        expect(row.height).toBeGreaterThanOrEqual(44);
+        expect(Math.abs(row.artRatio - ISO_RATIO)).toBeLessThan(.01);
+        expect(row.overflow).toBe(false);
+        if (width < 768) { expect(row.height).toBeLessThanOrEqual(120); expect(row.artWidth).toBeLessThanOrEqual(96); }
+      }
+      if (width < 768) for (let index = 1; index < rowBoxes.length; index++) expect(rowBoxes[index].top - rowBoxes[index - 1].bottom).toBeGreaterThanOrEqual(8);
+      await page.screenshot({ path: testInfo.outputPath(`wallet-empty-${width}.png`), fullPage: true });
+      await oneCards.getByRole("button", { name: "Agent One Profile", exact: true }).click();
+      await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
+      await page.getByRole("button", { name: "All cards", exact: true }).click();
+      await expect(oneCards.getByRole("button", { name: "Agent One Profile", exact: true })).toBeFocused();
     }
     if (count) {
       await cards.first().click();

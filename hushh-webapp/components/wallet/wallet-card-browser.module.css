@@ -101,6 +101,10 @@
 /* Collections share one geometry; the selected record uses the shared detail surface. */
 .browser,.browser[data-mode="all"] { max-width:none; margin:0; padding:0; border:0; background:transparent; box-shadow:none; }
 .collection { min-width:0; }
+.emptyCollection { display:flex; flex-direction:column; align-items:center; gap:8px; padding:28px 20px; border:1px dashed var(--app-separator); border-radius:var(--app-card-radius-feature); text-align:center; }
+.emptyCollection>p { font-size:16px; line-height:24px; font-weight:600; }
+.emptyCollection>span { max-width:280px; color:var(--app-secondary-label); font-size:13px; line-height:20px; }
+.emptyCollection>button { margin-top:8px; max-width:100%; }
 .cardGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px 24px; }
 .cardTile { min-width:0; }
 .cardOpen { display:block; width:100%; padding:0; border:0; background:transparent; text-align:left; cursor:pointer; border-radius:var(--app-card-radius-feature); }
@@ -110,11 +114,14 @@
 .cardCaption strong,.oneCardOpen strong { display:block; font-size:14px; line-height:21px; font-weight:600; }
 .cardCaption small,.oneCardOpen small { display:block; margin-top:3px; font-size:12px; line-height:18px; color:var(--app-secondary-label); }
 .cardCaption>svg,.oneCardOpen>svg { flex-shrink:0; color:var(--app-secondary-label); }
-.oneCards { margin-top:32px; padding-top:24px; border-top:1px solid var(--app-separator); }
+.oneCards { margin-top:28px; padding-top:24px; border-top:1px solid var(--app-separator); }
+.oneCards>.sectionHeading { flex-wrap:wrap; gap:4px 12px; margin-bottom:16px; }
 .oneCardGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-.oneCardOpen { display:block; min-width:0; padding:0; border:0; border-radius:var(--app-card-radius-feature); background:transparent; text-align:left; cursor:pointer; }
-.oneCardCaption { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 2px 0; }
+.oneCardOpen { display:block; min-width:0; padding:12px; border:1px solid var(--app-card-border-standard); border-radius:var(--app-card-radius-feature); background:var(--app-card-surface-default-solid); text-align:left; cursor:pointer; }
+.oneCardOpen:hover:not(:disabled) { border-color:var(--app-secondary-label); }
+.oneCardCaption { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 2px 2px; }
 .oneCardCaption>span { min-width:0; flex:1; }
+.oneCardCaption strong,.oneCardCaption small { overflow-wrap:anywhere; }
 .oneCardCaption>svg { flex-shrink:0; color:var(--app-secondary-label); }
 .oneCardArt { display:block; width:100%; overflow:hidden; pointer-events:none; }
 .oneCardArt>div { width:100%; }
@@ -127,8 +134,11 @@
 }
 @media(max-width:767px) {
   .cardGrid { gap:24px 16px; }
-  .oneCardGrid { display:flex; overflow-x:auto; gap:16px; padding:6px 6px 12px; margin-inline:-6px; scroll-snap-type:x proximity; scrollbar-width:thin; }
-  .oneCardOpen { flex:0 0 min(280px,85%); scroll-snap-align:start; }
+  .oneCards { margin-top:24px; padding-top:20px; }
+  .oneCardGrid { grid-template-columns:minmax(0,1fr); gap:10px; }
+  .oneCardOpen { display:grid; grid-template-columns:88px minmax(0,1fr); align-items:center; gap:14px; min-height:88px; padding:12px; }
+  .oneCardCaption { padding:0; gap:8px; }
+  .emptyCollection { padding:24px 16px; }
 }
 @media(max-width:560px) {
   .cardGrid { grid-template-columns:1fr; }
