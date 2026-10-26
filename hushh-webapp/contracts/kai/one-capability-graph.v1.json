@@ -41062,6 +41062,154 @@
     },
     {
       "aliases": [
+        "Retry quote",
+        "retry quote",
+        "reload stock price"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.stock.quote.retry",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Retries the public quote for the currently opened stock after its quote read failed. Retains the previous observed quote and never derives a spot quote from daily history.",
+      "execution": {
+        "binding_ref": "semantic_action:analysis_stock_quote_retry",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "analysis_stock_quote_retry"
+        }
+      },
+      "goal_id": "goal.market.stock.quote.retry",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry quote",
+      "navigation": {
+        "fallback": "analysis_stock_quote_retry",
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "stock",
+        "quote",
+        "retry",
+        "price"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Go Back",
         "go back",
         "back"
@@ -49681,7 +49829,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "a7f9321f0eb86a0c47b5c7086346e78be56c32b77c70777fdf06a188bdafee16",
+      "projection_digest": "6a0ed3ae131a012b0ac2e48ced7c150977a09407bf970f2ab2b0e04bb90f5f83",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49700,7 +49848,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "452f4b1f355c3a73",
+      "source_revision": "9e9f9aaa362c179f",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51218,7 +51366,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "452f4b1f355c3a73",
+    "source_revision": "9e9f9aaa362c179f",
     "web": {
       "actions": [
         {
@@ -51261,7 +51409,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "a4c12697edc039e1741fdecb37924c7319c5ed788b4903d00832904e81c20ab9",
+      "projection_digest": "17b8df943bd8c0482365bcc16b4282e83d86766d7a6365ec2e6c8146ea669fbe",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51280,7 +51428,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "452f4b1f355c3a73",
+      "source_revision": "9e9f9aaa362c179f",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52837,7 +52985,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "452f4b1f355c3a73",
+  "revision": "9e9f9aaa362c179f",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -53332,6 +53480,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
         "route.kai_home"
@@ -53501,6 +53650,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.analysis_history",
         "route.back",
@@ -53528,6 +53678,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.analysis_history",
         "route.back",
@@ -53555,6 +53706,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.analysis_history",
         "route.back",
@@ -53582,6 +53734,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
         "route.kai_home"
@@ -54816,9 +54969,17 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:market.stock.quote.retry"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/kai",
+      "screens:screen:/one/kai?tab=analysis",
+      "screens:screen:/one/kai?tab=analysis&focus=active",
+      "screens:screen:/one/kai?tab=analysis&view=history",
+      "screens:screen:/one/kai?tab=portfolio"
+    ],
     "compatible": [],
     "deprecated": [],
     "from_revision": "fed9c40b9bb74ea8",
@@ -57130,18 +57291,18 @@
     "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "7943622420bbdd841c9667d5fe79c66adc662754dfec3b6de54b08e2e2e4084c",
+    "kai_action_gateway": "a15ef27401abb851953444fc8fc0d51fdb2d2adddb166f47ce4aa7c4a2d055e6",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "route_orchestration_index": "ebe0ebe56dcee625d5d9113b19a770821e503e0890ac877837d6aa9d26fb8931",
+    "route_orchestration_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "452f4b1f355c3a73",
+  "source_revision": "9e9f9aaa362c179f",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "452f4b1f355c3a73",
+    "current_graph_revision": "9e9f9aaa362c179f",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -57218,6 +57379,7 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -57499,6 +57661,7 @@
           "3b4a692078832301",
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
+          "452f4b1f355c3a73",
           "45be718cd9891cd4",
           "49f1882f17ca746a",
           "4be733c76f5be2bb",
@@ -57580,6 +57743,7 @@
           "35982be19f859840",
           "3b4a692078832301",
           "43c428db7505bdee",
+          "452f4b1f355c3a73",
           "45be718cd9891cd4",
           "4be733c76f5be2bb",
           "4d911004af4b252b",
@@ -57922,6 +58086,7 @@
           "43c428db7505bdee",
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
+          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -58266,6 +58431,7 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -58602,6 +58768,7 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -58938,6 +59105,7 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",
@@ -59272,6 +59440,7 @@
           "43efe9fb3a1513f1",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "452f4b1f355c3a73",
           "454780a997b07892",
           "45be718cd9891cd4",
           "463b7d0356056f19",

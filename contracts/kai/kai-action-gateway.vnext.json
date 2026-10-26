@@ -48,6 +48,7 @@
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/consent/hosted-document-panel.voice-action-contract.json",
     "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
+    "hushh-webapp/components/kai/cards/stock-quote-header.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-market-news-page.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-portfolio-detail-page.voice-action-contract.json",
@@ -1350,6 +1351,38 @@
         "docs/reference/kai/kai-action-gateway-vnext.md"
       ],
       "contract_file": "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "kai",
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ],
+          "routes": [
+            "/one/kai?tab=analysis"
+          ],
+          "screens": [
+            "kai_analysis"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
+        }
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_stock_quote",
+      "surface_title": "Kai Stock quote",
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/cards/stock-quote-header.voice-action-contract.json",
       "defaults": {
         "speaker_persona": "kai",
         "reachability": {
@@ -32190,6 +32223,108 @@
             "type": "action",
             "action_id": "analysis.confirm_preview",
             "label": "Start Debate from Preview",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "market.stock.quote.retry",
+      "surface_id": "kai_stock_quote",
+      "label": "Retry quote",
+      "aliases": [
+        "retry quote",
+        "reload stock price"
+      ],
+      "search_keywords": [
+        "stock",
+        "quote",
+        "retry",
+        "price"
+      ],
+      "meaning": "Retries the public quote for the currently opened stock after its quote read failed. Retains the previous observed quote and never derives a spot quote from daily history.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "analysis_stock_quote_retry"
+      },
+      "control_ids": [
+        "analysis_stock_quote_retry"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.market.stock.quote.retry",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "market.stock.quote.retry",
+            "label": "Retry quote",
             "failure_behavior": "stop"
           }
         ],

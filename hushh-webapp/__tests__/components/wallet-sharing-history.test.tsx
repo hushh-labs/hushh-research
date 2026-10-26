@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ history: vi.fn(), revoke: vi.fn(), profile: vi.fn(), subscribe: vi.fn(), current: true }));
 vi.mock("@/lib/services/wallet-card-access-service", async (importOriginal) => ({
@@ -14,7 +14,7 @@ import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const context = { userId: "owner", vaultKey: "memory-only", vaultOwnerToken: "consent", getIdToken: async () => "identity", isCurrent: () => mocks.current };
 const getContext = () => context;
-const item = (id: string) => ({ id, cardId: "card_1", cardType: "payment", displayLabel: "VISA •••• 4242", recipientName: id, senderName: "Owner", createdAt: "2026-10-12T10:00:00Z", expiresAt: "2026-10-12T10:15:00Z", durationMinutes: 15, status: "active", trustedCircle: false, verificationMethod: "identity_reauthentication", verifiedAt: null, revokedAt: null, lastAccessedAt: "2026-10-12T10:01:00Z", activity: [{ event: "SHARE_CREATED", at: "2026-10-12T10:00:00Z", actor: "owner", outcome: "recorded" }] });
+const item = (id: string) => ({ id, cardId: "card_1", cardType: "payment", displayLabel: "VISA •••• 4242", last4: "4242", recipientName: id, senderName: "Owner", createdAt: "2026-10-12T10:00:00Z", expiresAt: "2026-10-12T10:15:00Z", durationMinutes: 15, status: "active", trustedCircle: false, verificationMethod: "identity_reauthentication", verifiedAt: null, revokedAt: null, lastAccessedAt: "2026-10-12T10:01:00Z", activity: [{ event: "SHARE_CREATED", at: "2026-10-12T10:00:00Z", actor: "owner", outcome: "recorded" }] });
 const page = (ids: string[], cursor: string | null = null) => ({ items: ids.map(item), hasMore: Boolean(cursor), nextCursor: cursor, serverNow: "2026-10-12T10:02:00Z" });
 beforeEach(() => {
   vi.clearAllMocks(); mocks.current = true;
@@ -22,6 +22,15 @@ beforeEach(() => {
   mocks.history.mockResolvedValue(page(["First"])); mocks.revoke.mockResolvedValue({ revoked: true });
 });
 describe("Wallet's participant-scoped sharing ledger", () => {
+  it("masks malformed summary digits and uses generic branding for an unknown label", async () => {
+    mocks.history.mockResolvedValue({ ...page([]), items: [{ ...item("First"), displayLabel: "Personal nickname", last4: "4242424242424242" }] });
+    render(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received" presentation="cards" />);
+    const face = await screen.findByTestId("wallet-card-face");
+    expect(within(face).getByRole("img", { name: "Card", exact: true })).toBeVisible();
+    expect(face).not.toHaveTextContent("4242");
+    expect(face).toHaveAttribute("data-revealed", "false");
+    expect(screen.queryByTestId("protected-recipient-viewer")).toBeNull();
+  });
   it("does not cancel a slow received read on focus or polling and skips outgoing eligibility", async () => {
     vi.useFakeTimers();
     let finish!: (value: ReturnType<typeof page>) => void;
@@ -40,7 +49,15 @@ describe("Wallet's participant-scoped sharing ledger", () => {
   });
   it("keeps the recipient verification owner mounted when history is hidden, and retires it with the vault session", async () => {
     render(<WalletSharingHistory ownerId="owner" active getContext={getContext} direction="received" presentation="cards" />);
-    fireEvent.click(await screen.findByRole("button", { name: "View VISA •••• 4242 from Owner" }));
+    const tile = await screen.findByRole("button", { name: "View VISA •••• 4242 from Owner" });
+    const face = within(tile).getByTestId("wallet-card-face");
+    expect(face).toHaveAttribute("data-revealed", "false");
+    expect(face).toHaveTextContent("4242");
+    expect(face).toHaveTextContent("Cardholder");
+    expect(face).toHaveTextContent("••/••");
+    expect(face).not.toHaveTextContent("00/0");
+    expect(screen.queryByTestId("protected-recipient-viewer")).toBeNull();
+    fireEvent.click(tile);
     expect(mocks.revoke).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "View card", exact: true }));
     const viewer = await screen.findByTestId("protected-recipient-viewer");

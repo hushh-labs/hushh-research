@@ -19,7 +19,10 @@ export function WalletAccessCardDetails({ grantId, data }: { grantId: string; da
   const [unlock, setUnlock] = useState(false);
   const [failed, setFailed] = useState(false);
   const [opened, setOpened] = useState<{ scope: string; key: string; card: SharedPaymentCard } | null>(null);
-  const scope = JSON.stringify([user?.uid, grantId, data.encryptedCard, data.senderUserId, data.card]);
+  // Polling can return the same metadata in a different JSON property order.
+  // Only changed values invalidate the in-memory reveal.
+  const scope = JSON.stringify([user?.uid, grantId, data.encryptedCard, data.senderUserId,
+    data.card?.brand, data.card?.last4, data.card?.expiryMonth, data.card?.expiryYear, data.card?.issuingRegion]);
   const current = useRef({ scope, vaultKey });
   current.current = { scope, vaultKey };
   const tokenGetter = useRef(getVaultOwnerToken);
