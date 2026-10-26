@@ -104,6 +104,10 @@ another reviewer store or a privileged app-unlock route.
 6. If one journey stops a family batch, account for its remaining steps as not
    reached. Restore through authored Back/Chat, verify admission, and run only
    those isolated journeys. Never hide the original failure with a green retry.
+   Register restoration before the first route or overlay change, including
+   admission failures; verify the resulting warm destination instead of assuming
+   a cleanup tap succeeded. Retained native pages may share control identifiers:
+   resolve the current eligible destination, not an arbitrary global first match.
 7. Require the requested family/test identity and its observed completion receipt,
    not merely exit zero or a passing count: an incorrectly selected generic smoke
    does not prove the requested workspace. Record exact candidate/runtime, actions reached, assertions, exclusions and

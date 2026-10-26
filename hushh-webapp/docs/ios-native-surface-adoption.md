@@ -61,14 +61,18 @@ without replacing that moving trigger. Calendar date inputs already use the
 platform form control; no glass overlay is needed merely to open a native picker.
 Mail/Consent/Wallet route tabs remain deliberate retained families.
 
-The installed local Release qualification binary is `e211246c5f`, version
+The installed local Release qualification binary is `c85bde954a`, version
 1.4.1 (69), on iPhone 16e/iOS 27.2 Beta. Its 1,737 exported web files match the
 installed bundle; committed dependency pins and code signing were checked.
-Later changes through `edef3cea5e` affect the runner or documentation, not that
-product payload. Normal launch without diagnostic arguments and canonical
-passphrase unlock pass. This is a local candidate, not a TestFlight release.
+Its web payload is unchanged from `e211246c5f`; the native correction admits
+touch and accessibility only on the visible retained Profile destination.
+The existing native stack regression fails on the old covered-root policy and
+passes with the correction, including inverse eligibility after Back; both
+focused host tests pass on the physical iPhone. Canonical passphrase unlock
+also passes. Normal launch without diagnostic arguments was separately proved
+on `e211246c5f`. This is a local candidate, not a TestFlight release.
 
-Current warm-session evidence covers Account confirmation cancellation, Phone
+Warm-session evidence on `e211246c5f` covers Account confirmation cancellation, Phone
 keyboard/return without sending, Payments activity/filter, Memory's sources,
 sharing and private readers, World Model research/sources/editor return, and
 Security's Vault-method/protected-editor cancellation. Profile is full-height
@@ -78,11 +82,15 @@ trust; its root-return assertion exposed an offscreen-row assumption in the
 runner and needs completion after that correction. SwiftUI virtualizes roster
 headings, so their offscreen absence is not a missing-destination failure.
 
-This candidate explicitly uses the **dev replica**, serving `c927b76281`.
-UAT serves `24545d1dc2`, whose account-session response lacks the current owner
-and generation contract and cannot qualify this client. Dev's document-sharing
+This candidate explicitly uses the **dev replica**. Initial readback showed
+`c927b76281`; a later readback found dev at `79674242c9` and UAT at `7266b4d2e9`.
+The earlier UAT `24545d1dc2` response lacked the current owner/generation
+contract; that historical failure must be revalidated after the rollout, not
+reported as the current blocker. Dev's observed document-sharing
 flag is off; Request pricing correctly receives HTTP 503 and its editor remains
-unqualified. Provider readiness, remaining destinations, rendered transitions,
+unqualified. Private-host/provider-specific configuration deliberately retains
+the complete React handoff; a missing shared-runtime native editor there is not
+a passed native conversion. Remaining destination returns, rendered transitions,
 accessibility and three physical Release performance runs still require their
 own evidence. Dev results do not establish UAT or distribution acceptance.
 Credentials remain process-only; raw private results are destroyed and reviewer

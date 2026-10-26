@@ -2173,10 +2173,10 @@ final class AppUITests: XCTestCase {
         var returnedToChat = false
         // Register recovery before the first route change. Feed admission can
         // fail too; that must not strand the next warm journey on another route.
-        defer {
+        addTeardownBlock {
             if !returnedToChat {
-                perfTapNav(app, label: "Chat")
-                let restored = waitForAdmittedControl(editor)
+                self.perfTapNav(app, label: "Chat")
+                let restored = self.waitForAdmittedControl(editor)
                 print("NATIVE_BOTTOM_SCROLL_RETURN attempted=true restored=\(restored)")
                 XCTAssertTrue(restored, "NATIVE_BOTTOM_SCROLL_CHAT_RECOVERY_FAILED")
                 if restored { XCTAssertTrue((editor.value as? String) == initialDraft, "NATIVE_BOTTOM_SCROLL_RECOVERY_CHANGED_DRAFT") }
@@ -4627,6 +4627,19 @@ final class AppUITests: XCTestCase {
                 app.navigationBars["Profile"].exists && !(nativeAccountBack.exists && nativeAccountBack.isHittable)
             return close.exists && close.isHittable && menu.exists && menu.isHittable && rootNavigation
         }
+        func scrollProfileReading(upwards: Bool) {
+            // AX may report a scroll container's content extent. Keep the
+            // entire physical gesture inside its visible reading viewport.
+            let viewport = menu.frame.intersection(app.frame.insetBy(dx: 0, dy: app.frame.height * 0.1))
+            guard !viewport.isNull, viewport.height > 100 else { return }
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let lower = origin.withOffset(CGVector(dx: viewport.midX - app.frame.minX,
+                dy: viewport.minY + viewport.height * 0.75 - app.frame.minY))
+            let upper = origin.withOffset(CGVector(dx: viewport.midX - app.frame.minX,
+                dy: viewport.minY + viewport.height * 0.35 - app.frame.minY))
+            (upwards ? lower : upper).press(forDuration: 0.01, thenDragTo: upwards ? upper : lower,
+                withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
         func revealRosterRow(_ control: XCUIElement) -> Bool {
             let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in rootIsAdmitted() }, object: app)
             guard XCTWaiter.wait(for: [restored], timeout: 10) == .completed else {
@@ -4640,7 +4653,7 @@ final class AppUITests: XCTestCase {
                 for _ in 0..<6 {
                     if control.exists && control.isHittable && control.isEnabled { return true }
                     guard rootIsAdmitted() else { return false }
-                    if upwards { menu.swipeUp(velocity: .slow) } else { menu.swipeDown(velocity: .slow) }
+                    scrollProfileReading(upwards: upwards)
                 }
             }
             return control.exists && control.isHittable && control.isEnabled
@@ -4649,7 +4662,7 @@ final class AppUITests: XCTestCase {
             for _ in 0..<5 {
                 if control.exists && control.isHittable && control.isEnabled { return true }
                 guard menu.exists && menu.isHittable && nativeAccountBack.exists else { return false }
-                if upwards { menu.swipeUp(velocity: .slow) } else { menu.swipeDown(velocity: .slow) }
+                scrollProfileReading(upwards: upwards)
             }
             return waitForAdmittedControl(control)
         }
@@ -4687,18 +4700,16 @@ final class AppUITests: XCTestCase {
         // Destination traversal below proves the authored roster. Offscreen
         // section headings are virtualized by SwiftUI and are not an
         // interaction contract or evidence that a destination is missing.
-        guard revealRosterRow(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
-        XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
-        XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
-        XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
+        if startIndex <= destinations.firstIndex(of: "account")! {
+            guard revealRosterRow(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
+            XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
+            XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
+            XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
+        }
         print("PROFILE_BATCH_STEP stage=root_ready")
         for id in admittedDestinations {
             let destination = root(id)
-            for _ in 0..<5 {
-                if destination.exists && destination.isHittable { break }
-                menu.swipeUp()
-            }
-            guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
+            guard revealRosterRow(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             let previousPaneSample = publicPaneGeometry()?.sample ?? 0
             print("PROFILE_BATCH_STEP stage=destination_tap")
             destination.tap()
@@ -5040,11 +5051,20 @@ final class AppUITests: XCTestCase {
             }
             if id == "devices", ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
                 let refresh = app.buttons["native-profile-row-devices-refresh"].firstMatch
-                guard waitForAdmittedControl(nativeAccountBack), revealProfileRow(refresh, upwards: true) else {
+                guard waitForAdmittedControl(nativeAccountBack), app.navigationBars["Trusted devices"].exists, refresh.exists else {
+                    let scrolls = app.scrollViews.matching(identifier: "native-profile-menu-scroll").allElementsBoundByIndex
+                    print("PROFILE_DEVICES_READ_STATE destination=\(app.navigationBars["Trusted devices"].exists) root=\(app.navigationBars["Profile"].exists) refresh=\(refresh.exists) enabled=\(refresh.exists && refresh.isEnabled) back=\(nativeAccountBack.exists && nativeAccountBack.isHittable) scrolls=\(min(16, scrolls.count)) hittable=\(min(16, scrolls.filter { $0.isHittable }.count))")
                     XCTFail("PROFILE_NATIVE_DEVICES_NOT_ADMITTED"); return
                 }
                 XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 0,
                     "PROFILE_NATIVE_DEVICES_DUPLICATE_WEB_BODY")
+                // Refresh can follow fifty devices and their Puppy actions.
+                // This read-only admission test does not invoke it; qualify
+                // the visible reading/Back owner without demanding that an
+                // unrelated bottom-of-list button be on screen.
+                scrollProfileReading(upwards: true)
+                scrollProfileReading(upwards: false)
+                guard waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_DEVICES_SCROLL_LOST_BACK"); return }
                 // Read-only reviewer journey. Real unlink outcomes are covered
                 // only by explicitly disposable UAT fixture qualification.
                 // This roster entry goes directly from Profile to Devices.
