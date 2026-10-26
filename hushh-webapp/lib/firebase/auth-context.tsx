@@ -14,6 +14,8 @@
 
 "use client";
 
+import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
+
 import React, {
   createContext,
   useContext,
@@ -31,7 +33,7 @@ import { NativeAuthRestoreEpoch } from "./native-auth-restore-epoch";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
-import { ApiError, apiErrorCode } from "@/lib/services/api-client";
+import { apiErrorCode } from "@/lib/services/api-client";
 import { createPhoneVerificationRecovery } from "@/lib/auth/phone-verification-recovery";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
@@ -179,13 +181,13 @@ interface AuthContextType {
   // Methods
   startPhoneVerification: (
     phoneNumber: string,
-    options?: { resendCode?: boolean },
+    options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneVerification: (otp: string) => Promise<User>;
   confirmPhoneTransfer: () => Promise<User>;
   startPhoneReplacement: (
     phoneNumber: string,
-    options?: { resendCode?: boolean },
+    options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneReplacement: (otp: string) => Promise<User>;
   signOut: (options?: {
@@ -1823,7 +1825,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const startPhoneVerification = useCallback(
     async (
       phone: string,
-      options?: { resendCode?: boolean },
+      options?: { resendCode?: boolean; transport?: "sms" },
     ): Promise<{ autoVerified: boolean; user?: User | null }> => {
       return await (async () => {
         const capturedPrincipal = principalRef.current;
@@ -1845,34 +1847,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ReturnType<typeof AuthService.startPhoneLinkVerification>
         > | null = null;
         try {
-          const retainedUser = await confirmRetainedNativePhone(phone, expectedUid, expectedPhoneEpoch);
+          const retainedUser = options?.transport === "sms" ? null : await confirmRetainedNativePhone(phone, expectedUid, expectedPhoneEpoch);
           requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
           if (retainedUser) {
             applyAuthUser(retainedUser, capturedPrincipal);
             phoneVerificationOwnerRef.current = null;
             return { autoVerified: true, user: retainedUser };
           }
-          // UAT phone-test allowlist path (fixed OTP, no SMS) — attempt on BOTH
-          // web AND native so test numbers work in the iOS app. The backend gates
-          // it to ENVIRONMENT=uat + the configured allowlist, so prod / non-listed
-          // numbers come back ineligible and fall through to real Firebase below.
-          if (!useLocalDevPhoneVerification) {
+          // Automatic SMS fallback needs an explicit successful non-test result.
+          // An explicit SMS choice starts a new proof, never a test-code transfer.
+          if (!useLocalDevPhoneVerification && options?.transport !== "sms") {
             const uatPhoneTest =
               await AccountIdentityService.startUatTestPhoneVerification(
                 userRef.current,
                 phone,
               );
             requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
-            if (isNative && uatPhoneTest?.reason === "phone_test_number_in_use") {
-              throw new ApiError("A shared test code cannot transfer a number. Recover the previous account or use another number.", 409, { code: "PHONE_TEST_NUMBER_IN_USE" });
-            }
-            if (isNative && (
-              !uatPhoneTest?.success ||
-              (uatPhoneTest.eligible && !uatPhoneTest.verification_id) ||
-              (!uatPhoneTest.eligible && uatPhoneTest.reason !== "uat_phone_test_not_configured_or_not_allowlisted")
-            )) {
-              throw new Error("Phone verification is temporarily unavailable. Please try again.");
-            }
+            requireUsablePhoneTestStart(uatPhoneTest);
             if (uatPhoneTest?.eligible && uatPhoneTest.verification_id) {
               result = {
                 autoVerified: false,
@@ -1882,7 +1873,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
 
           if (!result) {
-            const { linkedUser, allowLinkedPhoneProof } = await phoneRecovery.recoverLinkedPhoneForStart(
+            const { linkedUser, allowLinkedPhoneProof } = options?.transport === "sms"
+              ? { linkedUser: null, allowLinkedPhoneProof: true }
+              : await phoneRecovery.recoverLinkedPhoneForStart(
               phone, expectedUid, expectedPhoneEpoch,
             );
             if (linkedUser) {
@@ -1953,7 +1946,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const startPhoneReplacement = useCallback(
     async (
       phone: string,
-      options?: { resendCode?: boolean },
+      options?: { resendCode?: boolean; transport?: "sms" },
     ): Promise<{ autoVerified: boolean; user?: User | null }> => {
       const capturedPrincipal = principalRef.current;
       const expectedUid = userRef.current?.uid;
@@ -1972,14 +1965,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         ReturnType<typeof AuthService.startPhoneReplacementVerification>
       >;
       try {
-        const retainedUser = await confirmRetainedNativePhone(phone, expectedUid, expectedPhoneEpoch);
+        const retainedUser = options?.transport === "sms" ? null : await confirmRetainedNativePhone(phone, expectedUid, expectedPhoneEpoch);
         requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
         if (retainedUser) {
           applyAuthUser(retainedUser, capturedPrincipal);
           phoneVerificationOwnerRef.current = null;
           return { autoVerified: true, user: retainedUser };
         }
-        const { linkedUser, allowLinkedPhoneProof } = await phoneRecovery.recoverLinkedPhoneForStart(phone, expectedUid, expectedPhoneEpoch);
+        const { linkedUser, allowLinkedPhoneProof } = options?.transport === "sms"
+          ? { linkedUser: null, allowLinkedPhoneProof: true }
+          : await phoneRecovery.recoverLinkedPhoneForStart(phone, expectedUid, expectedPhoneEpoch);
         if (linkedUser) {
           applyAuthUser(linkedUser, capturedPrincipal);
           phoneVerificationOwnerRef.current = null;

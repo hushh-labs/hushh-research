@@ -418,9 +418,14 @@ def test_referral_v2_replay_accepts_only_an_intact_later_lineage(referral_replay
 
 
 @pytest.mark.parametrize(
-    "filename", ("289_one_referral_program_settings_v2.sql", "338_one_referral_usd_catalogue.sql")
+    "filename",
+    (
+        "289_one_referral_program_settings_v2.sql",
+        "338_one_referral_usd_catalogue.sql",
+        "425_account_phone_transfers.sql",
+    ),
 )
-def test_referral_replay_rejects_changed_published_source(filename):
+def test_replay_rejects_changed_published_source(filename):
     entry = build_manifest_entries(
         Path(__file__).resolve().parents[1] / "db/migrations",
         (filename,),

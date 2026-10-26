@@ -725,12 +725,16 @@ permit cleanup mutations; routing deleted identities to that code can recreate
 state outside the intended bridge.
 
 Backend traffic rollback additionally requires the target revision's exact
-`deploy-sha` to pass the preserved current activation tool's `--qualify-source`
+`deploy-sha` to pass the preserved current activation tool's `--qualify-rollback-source`
 check. A `v201` label alone is insufficient: some such revisions erase Files
 before reaching the SQL fence. The shared rollback helper enforces source
 qualification for Dev, UAT, production and late Drive-worker rollback; missing,
 unavailable or legacy source refuses the traffic mutation. An already-serving
-no-op is not compatibility proof. Keep the installed fence on release failure.
+no-op is not compatibility proof. This rollback check also requires migration 425
+in the target source manifest, preserving retired-phone admission. It refuses
+pre-phone sources even when phone state appears empty; the current lifecycle does
+not prove phone-writer quiescence. Initial producer admission still uses the
+separate `--qualify-source` check. Keep the installed fence on release failure.
 
 Never drop a non-empty tombstone table. A code rollback leaves the additive
 schema and triggers in place. Schema rollback is limited to an unused migration

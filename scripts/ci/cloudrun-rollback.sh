@@ -51,9 +51,9 @@ if [[ "$SERVICE" == "consent-protocol" ]]; then
     inspect+=("--project=$PROJECT")
   fi
   rollback_sha="$("${inspect[@]}")"
-  # v201 alone does not prove Files/provider effects obey the release fence.
+  # Bootstrap producer admission remains separate from the conservative phone floor.
   python3 "$REPO_ROOT/deploy/account-deletion/activate_release.py" \
-    --qualify-source "$rollback_sha"
+    --qualify-rollback-source "$rollback_sha"
 fi
 
 cmd=(

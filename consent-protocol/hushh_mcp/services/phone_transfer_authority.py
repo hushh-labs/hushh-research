@@ -49,6 +49,7 @@ def refuse(code: str, status: int = 409) -> HTTPException:
                 "PHONE_TRANSFER_STALE": "This transfer has changed. Request a fresh SMS code and try again.",
                 "PHONE_TRANSFER_REAL_SMS_REQUIRED": "Use a real SMS verification code to transfer this number.",
                 "PHONE_TRANSFER_PROVIDER_UNAVAILABLE": "Number transfer is temporarily unavailable. Check its progress before starting again.",
+                "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE": "Phone transfer is unavailable in this environment. Recover your previous account or use another number.",
                 "PHONE_TRANSFER_RECOVERY_REQUIRED": "Recover the previous account before changing its only sign-in method.",
             }.get(code, "Phone verification could not be completed. Please retry."),
         },
@@ -74,19 +75,10 @@ def require_fresh_sms_claims(claims: dict[str, Any], phone: str) -> None:
         or not 0 <= time.time() - stamp <= 300
     ):
         raise refuse("PHONE_TRANSFER_STALE", 401)
-    from hushh_mcp.services.phone_test_transport import _parse_phone_test_numbers
-
-    configured = set().union(
-        *(
-            _parse_phone_test_numbers(os.getenv(key, ""))
-            for key in (
-                "HUSHH_UAT_PHONE_TEST_NUMBERS",
-                "UAT_PHONE_TEST_NUMBERS",
-                "HUSHH_PROD_PHONE_TEST_NUMBERS",
-            )
-        )
-    )
-    if phone in configured or os.getenv("FIREBASE_AUTH_EMULATOR_HOST"):
+    # Server fixed-code eligibility does not identify the transport used for this
+    # separately verified Firebase proof. check_provider rejects actual Firebase
+    # fictional numbers before either transfer preparation or confirmation writes.
+    if os.getenv("FIREBASE_AUTH_EMULATOR_HOST"):
         raise refuse("PHONE_TRANSFER_REAL_SMS_REQUIRED", 403)
 
 
@@ -94,7 +86,10 @@ def check_provider(app: Any, phone: str, proof_uid: str) -> bool:
     """Check mutation authority and provider test configuration before any move."""
     from firebase_admin import auth
 
-    from api.utils.firebase_admin import assert_firebase_identity_mutation_allowed
+    from api.utils.firebase_admin import (
+        SharedFirebaseIdentityRetained,
+        assert_firebase_identity_mutation_allowed,
+    )
 
     try:
         assert_firebase_identity_mutation_allowed(app)
@@ -156,6 +151,8 @@ def check_provider(app: Any, phone: str, proof_uid: str) -> bool:
             finally:
                 response.close()
         return independent_signin
+    except SharedFirebaseIdentityRetained:
+        raise refuse("PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE", 403) from None
     except HTTPException:
         raise
     except Exception:

@@ -390,6 +390,15 @@ Every hosted deployment must prove:
 7. bounded rollback result when an authority failure requires it;
 8. terminal workflow status and uploaded release evidence.
 
+Backend traffic rollback uses `activate_release.py --qualify-rollback-source`:
+the exact source must declare account policy v1 and migrations 423 and 425.
+Migration 425 is the conservative source floor for retired-phone admission.
+Pre-phone backend rollback is refused even when phone state appears empty;
+the existing release lifecycle does not prove phone-transfer quiescence.
+Initial producer admission still uses `--qualify-source` and migration 423, so
+upgrading a pre-phone producer remains possible. Source qualification does not
+replace schema, runtime health, provider-settlement or device acceptance proof.
+
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
 rehearsal or reviewer BYOK proof is required. Paid candidate PKM evaluation and RIA live-model checks retain the explicit
