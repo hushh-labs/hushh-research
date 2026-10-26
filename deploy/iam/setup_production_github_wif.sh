@@ -16,6 +16,14 @@ readonly BACKEND_ARTIFACT_REPOSITORY="gcr.io"
 readonly BACKEND_ARTIFACT_LOCATION="us"
 readonly ATTRIBUTE_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref"
 readonly ATTRIBUTE_CONDITION="assertion.sub == 'repo:${GITHUB_REPOSITORY}:environment:${GITHUB_ENVIRONMENT}' && assertion.ref == 'refs/heads/main'"
+readonly PREREQUISITE_READ_ROLE_ID="productionDrivePrerequisiteReader"
+readonly PREREQUISITE_READ_ROLE="projects/${PROD_PROJECT_ID}/roles/${PREREQUISITE_READ_ROLE_ID}"
+readonly PREREQUISITE_READ_ROLE_STAGE="GA"
+readonly -a PREREQUISITE_READ_PERMISSIONS=(
+  "apikeys.keys.list"
+  "apikeys.keys.getKeyString"
+  "resourcemanager.projects.getIamPolicy"
+)
 
 readonly -a DEPLOY_PROJECT_ROLES=(
   "roles/cloudbuild.builds.editor"
@@ -30,7 +38,37 @@ readonly -a DEPLOY_PROJECT_ROLES=(
   "roles/storage.admin"
   "projects/${PROD_PROJECT_ID}/roles/accountDeletionSchedulerOperator"
   "projects/${PROD_PROJECT_ID}/roles/predeployBackupOperator"
+  "${PREREQUISITE_READ_ROLE}"
 )
+
+configure_prerequisite_read_role() {
+  local permissions existing_role
+  permissions="$(IFS=,; printf '%s' "${PREREQUISITE_READ_PERMISSIONS[*]}")"
+  if ! existing_role="$(gcloud iam roles list --project="${PROD_PROJECT_ID}" \
+    --filter="name=${PREREQUISITE_READ_ROLE}" --format='value(name)' 2>/dev/null)"; then
+    echo "Unable to inspect the production prerequisite read role." >&2
+    return 1
+  fi
+  local role_action
+  case "${existing_role}" in
+    '') role_action=create ;;
+    "${PREREQUISITE_READ_ROLE}") role_action=update ;;
+    *) echo "Unexpected production prerequisite role metadata." >&2; return 1 ;;
+  esac
+  # API-key string reads disclose project key material. This is deliberately
+  # separate from write/grant authority and bound only to the fixed deployer.
+  if ! gcloud iam roles "${role_action}" "${PREREQUISITE_READ_ROLE_ID}" \
+    --project="${PROD_PROJECT_ID}" \
+    --title="Production Drive prerequisite reader" \
+    --description="Read API keys and project IAM policy for production deploy prerequisite checks." \
+    --permissions="${permissions}" \
+    --stage="${PREREQUISITE_READ_ROLE_STAGE}" \
+    --quiet \
+    --format=none >/dev/null 2>&1; then
+    echo "Unable to configure the production prerequisite read role." >&2
+    return 1
+  fi
+}
 
 add_project_role_binding() {
   local deploy_role="$1"
@@ -135,6 +173,8 @@ gcloud iam service-accounts add-iam-policy-binding "${RUNTIME_SERVICE_ACCOUNT_EM
   --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT_EMAIL}" \
   --quiet \
   --format=none
+
+configure_prerequisite_read_role
 
 for deploy_role in "${DEPLOY_PROJECT_ROLES[@]}"; do
   add_project_role_binding "${deploy_role}"
