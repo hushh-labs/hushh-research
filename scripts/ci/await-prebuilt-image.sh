@@ -23,6 +23,9 @@
 #   await-prebuilt-image.sh --project P --build-id ID --image-repository R \
 #     --image-tag T --sha S --manifest-json FILE --json-output FILE \
 #     [--timeout-seconds N] [--poll-seconds N]
+#   await-prebuilt-image.sh --project P --build-id ID --status-only
+# The status-only form performs one read, with no log stream, wait or image lookup.
+# Pending work may continue; the deploy lane must still perform its final join.
 set -euo pipefail
 
 usage() {
@@ -38,9 +41,11 @@ manifest_json=""
 json_output=""
 timeout_seconds="2400"
 poll_seconds="10"
+status_only=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --status-only) status_only=true; shift ;;
     --project) project="${2:-}"; shift 2 ;;
     --build-id) build_id="${2:-}"; shift 2 ;;
     --image-repository) image_repository="${2:-}"; shift 2 ;;
@@ -55,7 +60,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-for required in project build_id image_repository image_tag sha manifest_json json_output; do
+required_fields="project build_id"
+if [ "${status_only}" != true ]; then
+  required_fields="${required_fields} image_repository image_tag sha manifest_json json_output"
+fi
+for required in ${required_fields}; do
   if [ -z "${!required}" ]; then
     echo "Missing required --${required//_/-}." >&2
     exit 2
@@ -65,6 +74,19 @@ if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
   echo "Refusing to wait on '${build_id}': not a Cloud Build id." >&2
   exit 2
 fi
+# This is an early refusal, not acceptance of an unfinished image. Unknown
+# states and provider read failures stop the release before lifecycle mutations.
+if [ "${status_only}" = true ]; then
+  status="$(gcloud builds describe "${build_id}" --project="${project}" --format='value(status)')"
+  case "${status}" in
+    SUCCESS|QUEUED|PENDING|WORKING) printf '%s\n' "${status}"; exit 0 ;;
+    *)
+      echo "Image build ${build_id} finished with status '${status:-unknown}', not SUCCESS." >&2
+      echo "Its full log: gcloud builds log ${build_id} --project=${project}" >&2
+      exit 1 ;;
+  esac
+fi
+
 if [[ ! "${image_repository}" =~ ^gcr\.io/[a-z][a-z0-9-]{4,28}[a-z0-9]/[a-z0-9._/-]+$ ]]; then
   echo "Refusing image repository '${image_repository}': expected gcr.io/<project>/<image>." >&2
   exit 2

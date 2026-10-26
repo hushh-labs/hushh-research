@@ -184,7 +184,7 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
     ? "Your current work is finishing before the update is installed."
     : update.failed
       ? "The update outcome could not be verified. Check again while recovery continues."
-      : update.available === true
+      : update.available === true && update.offerable
         ? "An update is ready. Choose Update now in Feed when you are ready."
         : null;
   // Where it lives, kept as a tooltip rather than two more lines on the screen.

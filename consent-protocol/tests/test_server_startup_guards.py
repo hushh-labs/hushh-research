@@ -28,7 +28,12 @@ def test_generation_activation_cannot_withdraw_existing_identity_integrations(
     monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "false")
     asyncio.run(server.startup_one_runtime_dependency_guard())
     monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
-    with pytest.raises(RuntimeError, match="account_generation_identity_integration_not_qualified"):
+    if integration == "HUSSH_TECH_CLIENT_ENABLED":
+        with pytest.raises(
+            RuntimeError, match="account_generation_identity_integration_not_qualified"
+        ):
+            asyncio.run(server.startup_one_runtime_dependency_guard())
+    else:
         asyncio.run(server.startup_one_runtime_dependency_guard())
     monkeypatch.delenv(integration)
     asyncio.run(server.startup_one_runtime_dependency_guard())

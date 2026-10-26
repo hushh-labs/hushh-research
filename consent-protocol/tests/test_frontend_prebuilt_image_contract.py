@@ -10,7 +10,6 @@ regression shows up as a behaviour change rather than a missing string.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -24,6 +23,7 @@ import pytest
 import yaml
 
 from tests.helpers.deployment_cli import frontend_deploy_script
+from tests.helpers.deployment_cli import manifest_index as _manifest_index
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_BUILD = ROOT / "deploy" / "frontend.cloudbuild.yaml"
@@ -681,33 +681,9 @@ def test_combined_mode_still_deploys_the_tag_it_built(tmp_path: Path) -> None:
 # --- await-prebuilt-image.sh ---------------------------------------------------
 
 
-def _manifest_index() -> tuple[str, str, str]:
-    child = "sha256:" + "c" * 64
-    manifest = json.dumps(
-        {
-            "schemaVersion": 2,
-            "mediaType": "application/vnd.oci.image.index.v1+json",
-            "manifests": [
-                {
-                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                    "digest": "sha256:" + "b" * 64,
-                    "size": 10,
-                    "platform": {"os": "unknown", "architecture": "unknown"},
-                    "annotations": {"vnd.docker.reference.type": "attestation-manifest"},
-                },
-                {
-                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
-                    "digest": child,
-                    "size": 10,
-                    "platform": {"os": "linux", "architecture": "amd64"},
-                },
-            ],
-        }
-    )
-    return manifest, "sha256:" + hashlib.sha256(manifest.encode()).hexdigest(), child
-
-
-def _await(tmp_path: Path, statuses: list[str], build_id: str = BUILD_ID):
+def _await(
+    tmp_path: Path, statuses: list[str], build_id: str = BUILD_ID, *, status_only: bool = False
+):
     manifest, index_digest, child = _manifest_index()
     repository = "gcr.io/hushh-pda-uat/hushh-webapp"
     status_file = tmp_path / "statuses"
@@ -733,6 +709,8 @@ def _await(tmp_path: Path, statuses: list[str], build_id: str = BUILD_ID):
         f"--manifest-json '{tmp_path / 'manifest.json'}' "
         f"--json-output '{tmp_path / 'image.json'}' --poll-seconds 0"
     )
+    if status_only:
+        command += " --status-only"
     return _run(guards + command), f"{repository}@{child}"
 
 
@@ -752,6 +730,32 @@ def test_await_fails_closed_on_any_non_success(tmp_path: Path, terminal: str) ->
     assert result.returncode == 1
     assert result.stdout.strip() == ""
     assert "not SUCCESS" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "SUCCESS",
+        "QUEUED",
+        "PENDING",
+        "WORKING",
+        "FAILURE",
+        "CANCELLED",
+        "TIMEOUT",
+        "INTERNAL_ERROR",
+        "",
+    ],
+)
+def test_early_image_check_never_waits_or_resolves_an_image(tmp_path: Path, status: str) -> None:
+    result, _ = _await(tmp_path, [status, "SUCCESS"], status_only=True)
+    allowed = status in {"SUCCESS", "QUEUED", "PENDING", "WORKING"}
+    assert result.returncode == (0 if allowed else 1), result.stderr
+    assert result.stdout.strip() == (status if allowed else "")
+    assert "streamed-log" not in result.stderr
+    assert not (tmp_path / "image.json").exists()
+    assert not (tmp_path / "manifest.json").exists()
+    # A terminal failure must not be hidden by polling the next successful state.
+    assert (tmp_path / "statuses").read_text() == "SUCCESS\n"
 
 
 def test_await_rejects_a_value_that_is_not_a_build_id(tmp_path: Path) -> None:
@@ -784,6 +788,7 @@ def test_lane_overlaps_the_web_build_and_keeps_the_deploy_position(lane: str) ->
         "Sync canonical hosted runtime secrets",
         "Start frontend image build in parallel",
         "Build and pin backend image before lifecycle migration",
+        "Refuse an already failed frontend image before lifecycle migration",
         "Deploy backend using Cloud Build",
         "Wait for frontend image and pin its digest",
         "Deploy frontend using Cloud Build",
