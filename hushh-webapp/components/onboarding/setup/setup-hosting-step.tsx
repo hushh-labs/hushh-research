@@ -1,18 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useSharedExperienceRecovery } from "@/hooks/use-shared-experience-recovery";
+
+import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@/lib/firebase/auth-context";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
-import { buildOneSetupCloudRoute, buildOneSetupConnectionsRoute } from "@/lib/navigation/routes";
+import { buildOneSetupCloudRoute, buildOneSetupConnectionsRoute, buildOneSetupRoute, resolveOneSetupReturnTo } from "@/lib/navigation/routes";
 import { Cloud } from "@/components/icons";
 import { SetupNavigationTile } from "./capability-setup-tile";
 import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
 import {
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
+  snapshotValidatedAuthSessionPrincipal,
 } from "@/lib/auth/session-owner";
 
 /** An owner click, never an automatic placement fallback or a navigation side effect. */
@@ -95,4 +99,30 @@ export function SetupHostingStep({ ownerId, returnTo, sharedRecovery, cloudCompl
     statusTone={cloudComplete && runtimeChoiceComplete ? undefined : "required"}
     isCurrent={!cloudComplete || !runtimeChoiceComplete} isComplete={cloudComplete && runtimeChoiceComplete}
   />;
+}
+
+export type CloudSetupOwnerProps = {
+  user: ReturnType<typeof useAuth>["user"];
+  owner: ReturnType<typeof snapshotValidatedAuthSessionPrincipal>;
+};
+
+/** Branch before mounting cloud management; retire the child on owner/generation changes. */
+export function SharedSetupRecoveryEntry({ render: CloudSetup }: {
+  render: ComponentType<CloudSetupOwnerProps>;
+}) {
+  const { user } = useAuth();
+  const owner = snapshotValidatedAuthSessionPrincipal();
+  return useSharedExperienceRecovery(owner?.ownerId) ? <SharedSetupRecoveryRedirect /> :
+    <CloudSetup key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} />;
+}
+
+/** Replace stale cloud bookmarks without mounting provisioning or changing placement. */
+function SharedSetupRecoveryRedirect() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
+  useEffect(() => {
+    router.replace(buildOneSetupRoute({ returnTo }));
+  }, [router, returnTo]);
+  return <p role="status" className="p-6 text-sm text-muted-foreground">Returning to your setup…</p>;
 }

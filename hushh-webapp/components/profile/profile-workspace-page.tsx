@@ -1,6 +1,5 @@
 "use client";
 
-import { useSharedExperienceRecovery } from "@/hooks/use-shared-experience-recovery";
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
@@ -38,7 +37,7 @@ import { useNativeVoiceProfile } from "./use-native-voice-profile";
 import { NativeSupportComposer } from "./native-support-composer";
 import { projectNativeProfileLegal } from "./profile-native-legal";
 import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
-import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
+import { PROFILE_LABELS, useProfileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { PaymentsAndEarnings } from "@/components/consent/payments-and-earnings";
 import { useProfileVaultMethodsModel } from "./use-profile-vault-methods-model";
@@ -568,7 +567,7 @@ function ProfilePageContent({
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
-  const sharedRecovery = useSharedExperienceRecovery(applicationOwnerId);
+  const menuGroups = useProfileMenuGroups(canShowPkmAgentLab, applicationOwnerId);
   const nativePortrait = useNativeProfilePortrait(applicationOwnerId ?? null, presentation === "native-page" && nativeMenuOpen);
   const voiceGetIdToken = useMemo(() => user?.getIdToken ? () => user.getIdToken() : null, [user]);
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
@@ -4653,7 +4652,6 @@ function ProfilePageContent({
     });
   }
 
-  const menuGroups = profileMenuGroups(canShowPkmAgentLab, sharedRecovery);
   const menuActions: ProfileMenuActions = {
     hosting: () => updateProfileView({ panel: "hosting", detail: null }, "push"),
     "software-updates": () => updateProfileView({ panel: "software-updates", detail: null }, "push"),

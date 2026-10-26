@@ -1,3 +1,4 @@
+import { useSharedExperienceRecovery } from "@/hooks/use-shared-experience-recovery";
 import { PROFILE_ICONS } from "@/components/icons/profile-icons";
 import { LEGAL_DOCUMENTS } from "@/lib/legal/legal-documents";
 
@@ -46,4 +47,8 @@ export function profileMenuGroups(developerToolsAvailable: boolean, sharedRecove
       (!sharedRecovery || !["hosting", "software-updates"].includes(entry.id)) &&
       (!("localOnly" in entry) || developerToolsAvailable)),
   }));
+}
+
+export function useProfileMenuGroups(developerToolsAvailable: boolean, ownerId: string | null | undefined) {
+  return profileMenuGroups(developerToolsAvailable, useSharedExperienceRecovery(ownerId));
 }

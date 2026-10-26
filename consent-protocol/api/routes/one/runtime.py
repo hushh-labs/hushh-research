@@ -18,6 +18,7 @@ from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one.runtime_placement import (
     SharedHostingSelectionRequest,
+    SharedHostingSelectResponse,
     _require_unassigned_byoc,
     observe_managed_cloud,
     require_byoc_setup_enabled,
@@ -707,11 +708,6 @@ async def _reserve_pending_agent_record(user_id: str) -> bool:
         return False
 
 
-class SharedHostingSelectResponse(BaseModel):
-    hostingMode: str
-    nextStep: str
-
-
 class HostedCloudSelectResponse(BaseModel):
     deploymentTarget: str
     # The claim the hosted tier is allowed to make, returned by the server so the
@@ -808,17 +804,9 @@ async def select_shared_hosting(
     body: SharedHostingSelectionRequest | None = None,
 ) -> SharedHostingSelectResponse:
     """Record the explicit Shared choice (``runtime_placement.select_shared``)."""
-    from api.routes.one.runtime_placement import select_shared, select_shared_recovery
+    from api.routes.one.runtime_placement import select_shared_request
 
-    if body is not None and body.recovery:
-        if body.expected_owner_id != firebase_uid:
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "SHARED_RECOVERY_OWNER_CHANGED"},
-            )
-        await select_shared_recovery(firebase_uid)
-    else:
-        await select_shared(firebase_uid)
+    await select_shared_request(firebase_uid, body)
     return SharedHostingSelectResponse(
         hostingMode="shared",
         nextStep="Choose how your agent reaches a model next.",

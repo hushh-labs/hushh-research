@@ -29,6 +29,20 @@ class SharedHostingSelectionRequest(BaseModel):
     )
 
 
+class SharedHostingSelectResponse(BaseModel):
+    hostingMode: str
+    nextStep: str
+
+
+async def select_shared_request(user_id: str, body: SharedHostingSelectionRequest | None) -> None:
+    if body is not None and body.recovery:
+        if body.expected_owner_id != user_id:
+            raise HTTPException(status_code=409, detail={"code": "SHARED_RECOVERY_OWNER_CHANGED"})
+        await select_shared_recovery(user_id)
+    else:
+        await select_shared(user_id)
+
+
 def require_byoc_setup_enabled() -> None:
     """Reader schema availability never authorizes owner-cloud mutations."""
     from hushh_mcp.runtime_settings import personal_agent_enabled

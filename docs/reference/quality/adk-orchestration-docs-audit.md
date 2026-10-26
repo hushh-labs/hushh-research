@@ -52,7 +52,7 @@ The local correction retains current schema, cleanup journals, tombstones,
 placement and issued-document readers. Default-off, environment-bound recovery
 changes Shared/unplaced presentation only; it never moves a private or pending
 owner. An explicit owner-bound Shared choice rechecks placement under the
-provisioning lock. Nearest checks pass (233 backend, 149 frontend); the old
+provisioning lock. Nearest checks pass (233 backend, 148 frontend); the old
 selection negative control detects pending-setup cancellation. Checkpoints
 `6d5f26efbf` and `201cd60998` preserve the implementation. Fresh main `bee8c8acdc`
 is integrated normally; final generated contracts, frozen validation and the

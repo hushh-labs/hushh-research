@@ -396,11 +396,8 @@ export class PreVaultUserStateService {
    * reconcile against the backend in the background when needed.
    */
   static getCachedBootstrapState(userId: string): PreVaultUserState | null {
-    return (
-      CacheService.getInstance().get<PreVaultUserState>(
-        CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId),
-      ) ?? null
-    );
+    const key = CACHE_KEYS.PRE_VAULT_BOOTSTRAP(userId);
+    return CacheService.getInstance().get<PreVaultUserState>(key) ?? null;
   }
 
   static async bootstrapState(
