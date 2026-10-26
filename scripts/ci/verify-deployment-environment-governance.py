@@ -32,6 +32,7 @@ PRODUCTION_MANUAL_DISPATCH_USERS = [
     # production-dispatch grant is stated twice or not at all.
     "msainani",
     "ankitkumarsingh1702",
+    "DamriaNeelesh",
     "imsharukhan",
 ]
 
