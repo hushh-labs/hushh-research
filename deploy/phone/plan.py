@@ -196,7 +196,13 @@ def _readers_qualified() -> bool:
 
 def prepare(args) -> dict:
     current = json.loads(args.current_json.read_text())
-    chosen = _existing(current, args.output.parent)
+    labels = (current.get("metadata") or {}).get("labels") or {}
+    # A cold rollback belongs to a failed run, never a healthy production receipt.
+    # An explicit source restages independently; it does not reuse that revision.
+    restage = args.fallback_sha and labels.get("deploy-source") == (
+        "deploy-production-phone-rollback"
+    )
+    chosen = None if restage else _existing(current, args.output.parent)
     if chosen is None:
         chosen = _independent(args.fallback_sha, args.release_tools, args.output.parent)
     elif args.fallback_sha:

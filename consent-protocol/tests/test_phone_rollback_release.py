@@ -270,6 +270,20 @@ def test_recovery_activation_requires_all_retained_readers_and_explicit_enable(
     assert f"recovery_enabled={str(enabled).lower()}\n" in state.args.github_output.read_text()
 
 
+def test_retry_requalifies_cold_rollback_after_failed_run(release_plan):
+    state = release_plan
+    labels = state.revision["metadata"]["labels"]
+    labels["deploy-source"] = "deploy-production-phone-rollback"
+    labels["github-run-id"] = "40"
+    state.args.current_json.write_text(json.dumps(state.revision))
+    state.args.fallback_sha = FALLBACK
+    prepared = state.plan.prepare(state.args)
+    assert prepared["mode"] == "cold"
+    assert prepared["predecessor"]["sha"] == FALLBACK
+    assert any("verify-predecessor-acceptance.py" in row[1] for row in state.calls)
+    assert not any(row[:2] == ["gh", "api"] for row in state.calls)
+
+
 def test_cold_plan_requires_independent_source_before_writing(release_plan):
     state = release_plan
     state.args.current_json.write_text(
