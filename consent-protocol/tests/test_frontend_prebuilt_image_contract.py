@@ -376,21 +376,31 @@ def _verify_receipt_logo_image_build(tmp_path, values, template, expected, artif
 
 
 def _verify_receipt_logo_run(expected: str) -> None:
-    """Execute Docker's build shell while keeping a blank logo truly unset."""
+    """Execute the build shell with bounded heap and unchanged optional-logo semantics."""
     dockerfile = (ROOT / "hushh-webapp" / "Dockerfile").read_text()
     assert "ARG NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE\n" in dockerfile
+    # A build-only limit must never become the production server's environment.
+    assert not re.search(r"^(?:ENV|ARG)\s+NODE_OPTIONS(?:[=\s]|$)", dockerfile, re.MULTILINE)
     run = re.search(r"^RUN if .*?npm run build$", dockerfile, re.MULTILINE | re.DOTALL)
     assert run is not None
     npm_guards = (
         "npm() { "
         'if [ "$1 $2" != "run build" ]; then return 95; fi; '
+        '[ "$NODE_OPTIONS" = "--max-old-space-size=4096" ] || return 96; '
         'if [ -n "$TEST_EXPECTED_TEMPLATE" ]; then '
         '[ "$NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE" = "$TEST_EXPECTED_TEMPLATE" ]; '
         'else [ "${NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE+x}" != x ]; fi; };\n'
     )
     next_build = _run(
-        npm_guards + run.group(0).removeprefix("RUN "),
-        env={"NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE": expected, "TEST_EXPECTED_TEMPLATE": expected},
+        npm_guards
+        + run.group(0).removeprefix("RUN ")
+        + '\nbuild_rc=$?; [ "$build_rc" = 0 ] || exit "$build_rc"; '
+        + '[ "$NODE_OPTIONS" = "--max-old-space-size=2048" ]',
+        env={
+            "NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE": expected,
+            "TEST_EXPECTED_TEMPLATE": expected,
+            "NODE_OPTIONS": "--max-old-space-size=2048",
+        },
     )
     assert next_build.returncode == 0, next_build.stdout + next_build.stderr
 
