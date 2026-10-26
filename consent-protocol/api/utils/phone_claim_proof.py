@@ -34,7 +34,7 @@ async def _decode(normalized_token: str, app_factory, run_in_threadpool):
         ) from exc
     except Exception as exc:
         from firebase_admin import exceptions as firebase_errors
-        from requests.exceptions import RequestException
+        from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
         if isinstance(
             exc,
