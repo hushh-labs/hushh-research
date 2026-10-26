@@ -140,7 +140,7 @@ def _source(conn, event: dict) -> dict | None:
 
 def _notification(conn, event: dict, source: dict) -> dict:
     if event["source_kind"] == "todo_reminder":
-        return todo_reminder_notification(event, source)
+        return dict(todo_reminder_notification(event, source))
     from hushh_mcp.services.one_location_agent_service import (
         OneLocationAgentService,
         _access_ask_summary,

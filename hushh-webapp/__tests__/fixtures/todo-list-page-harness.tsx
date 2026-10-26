@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
 import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
 
-export const mocks = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => ({
   user: { uid: "todo-owner", getIdToken: vi.fn() },
   unlocked: true,
   actionables: [] as FeedActionable[],
@@ -20,6 +20,8 @@ export const mocks = vi.hoisted(() => ({
     },
   ],
 }));
+
+export { mocks };
 
 vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.extraReads, loading: false, error: false, refresh: vi.fn() }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({

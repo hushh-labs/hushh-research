@@ -20,6 +20,13 @@ export type TodoWriteParams = {
 
 type MutableTodoFields = TodoEditableFields;
 
+function assertCurrentSourceVersion(rendered: TodoItem, stored?: TodoItem) {
+  if (stored && rendered.sourceVersion !== stored.sourceVersion &&
+      (rendered.revision ?? 0) !== (stored.revision ?? 0)) {
+    throw new Error("This item changed on another device. Refresh before changing it.");
+  }
+}
+
 function privateDomainData(
   current: Record<string, unknown>,
   tasks: TodoItem[],
@@ -182,6 +189,7 @@ export const TodoListPkmService = {
       `one_todo_list:status:${params.task.id}:${params.status}:${updatedAt}`,
       (current) => {
         const stored = current.tasks.find((task) => task.id === params.task.id);
+        assertCurrentSourceVersion(params.task, stored);
         const latest =
           (params.task.sourceVersion && params.task.sourceVersion !== stored?.sourceVersion ? params.task : stored) ??
           (params.task.type === "automatic" ? params.task : null);
@@ -210,6 +218,7 @@ export const TodoListPkmService = {
       "one_todo_list_owner_confirmed_remove",
       `one_todo_list:remove:${params.task.id}:${updatedAt}`,
       (current) => {
+        assertCurrentSourceVersion(params.task, current.tasks.find(task => task.id === params.task.id));
         const found = current.tasks.some((task) => task.id === params.task.id);
         if (!found && params.task.type === "automatic") {
           return [

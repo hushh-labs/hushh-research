@@ -30,7 +30,7 @@ def verify_scheduler_token(token: str, audience: str) -> dict:
     def bounded(*args, **kwargs):
         return transport(*args, **{**kwargs, "timeout": 4})
 
-    return id_token.verify_oauth2_token(token, bounded, audience)
+    return dict(id_token.verify_oauth2_token(token, bounded, audience))
 
 
 async def require_scheduler(request: Request) -> None:

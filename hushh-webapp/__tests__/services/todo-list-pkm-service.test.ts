@@ -332,6 +332,26 @@ describe("TodoListPkmService", () => {
       createdAt: task.createdAt,
     });
   });
+  it.each(["complete", "remove"])("rejects stale grouped-source %s without overwriting another device's edits", async (action) => {
+    const save = mockSuccessfulWrite();
+    const rendered = { ...task, type: "automatic" as const, sourceAgent: "drive" as const, sourceVersion: '["old"]', revision: 1 };
+    const latest = { ...rendered, sourceVersion: '["new"]', title: "Owner correction", notes: "Keep newer notes", revision: 2 };
+    if (action === "complete") await TodoListPkmService.setStatus({ ...persistence, task: rendered, status: "done" });
+    else await TodoListPkmService.remove({ ...persistence, task: rendered });
+    const build = save.mock.calls[0]![0].build;
+    await expect(build({ ...coordinatorContext, currentDomainData: { _private: { tasks: [latest] } } }))
+      .rejects.toThrow("Refresh before changing it.");
+    // A freshly projected queue keeps the saved revision until its first write.
+    const prior = { ...latest, sourceVersion: '["prior"]' };
+    const fresh = { ...latest, sourceVersion: rendered.sourceVersion };
+    if (action === "complete") await TodoListPkmService.setStatus({ ...persistence, task: fresh, status: "done" });
+    else await TodoListPkmService.remove({ ...persistence, task: fresh });
+    const plan = await save.mock.calls.at(-1)![0].build({ ...coordinatorContext, currentDomainData: { _private: { tasks: [prior] } } });
+    expect(readTodoListState(plan.domainData).tasks[0]).toMatchObject({
+      title: latest.title, notes: latest.notes, sourceVersion: rendered.sourceVersion,
+      status: action === "complete" ? "done" : "deleted", revision: 3,
+    });
+  });
   it("changing one task preserves all large legacy records beyond the former display cap", async () => {
     const save = mockSuccessfulWrite();
     const rows = Array.from({ length: 401 }, (_, i) => ({
