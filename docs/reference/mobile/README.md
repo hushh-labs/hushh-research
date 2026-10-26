@@ -85,6 +85,30 @@ users' default methods are unchanged. Follow
 [physical reviewer preflight](../../../.agents/skills/mobile-parity-audit/references/physical-reviewer-preflight.md)
 for device authorization and artifact handling.
 
+## Background Location Sharing
+
+The native apps publish recipient-encrypted updates for active private grants
+through one app-level `BackgroundLocationPublisherBridge`, independently of voice readiness.
+The reachable Share confirmation and Location Settings expose the background
+option. It defaults off and requires a visible disclosure acceptance before the
+OS background permission upgrade. Its owner-scoped intent is memory-only: closing
+the app requires fresh acceptance. A system permission by itself never starts
+publishing. Android's ongoing notification includes Stop sharing; retained stop
+events clear the web intent when JavaScript resumes.
+
+Each native publisher applies the owner's precise/approximate preference before
+encryption and tags the envelope with `metadata.precision` and
+`publicationContext: private_background`. Approximate uses the same deterministic
+0.01-degree grid and 1 km accuracy floor as the web publisher. SOS grants remain
+precise. Vault loss, opt-out, pause, revocation and expiry stop eligible updates;
+no owner token or coordinate is persisted by the native publisher.
+
+Source and synthetic transport tests do not constitute store approval or device
+journey evidence. Google Play additionally requires the location declaration and
+an actual Android demonstration of disclosure, OS permission, background updates,
+and Stop. Keep that review evidence bound to the tested candidate; do not use a
+mock interface or describe an uncommitted Play edit as a released build.
+
 ## Native Authentication Settlement
 
 - `AuthProvider` is the only React publication authority for native identity.

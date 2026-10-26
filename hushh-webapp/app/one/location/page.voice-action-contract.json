@@ -20,20 +20,194 @@
   },
   "actions": [
     {
+      "action_id": "location.background_review",
+      "label": "Review background location sharing",
+      "meaning": "Review native background-sharing disclosure.",
+      "aliases": [
+        "review background location sharing"
+      ],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner must be using the native app with this visible control; permission requires the current disclosure."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Background access requires the visible human consent control and device permission prompt.",
+        "intended_handler": "BackgroundShareToggle"
+      },
+      "control_ids": [
+        "one-location-background-sharing-toggle"
+      ],
+      "state_exposure": [
+        "background sharing preference and device permission status only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/one-location/background-share-toggle.tsx"
+      ]
+    },
+    {
+      "action_id": "location.background_accept",
+      "label": "Allow background location sharing",
+      "meaning": "The owner accepts disclosure and requests OS background access.",
+      "aliases": [
+        "allow background location sharing"
+      ],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner must be using the native app with this visible control; permission requires the current disclosure."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Background access requires the visible human consent control and device permission prompt.",
+        "intended_handler": "BackgroundShareToggle"
+      },
+      "control_ids": [
+        "one-location-background-sharing-accept"
+      ],
+      "state_exposure": [
+        "background sharing preference and device permission status only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/one-location/background-share-toggle.tsx"
+      ]
+    },
+    {
+      "action_id": "location.background_cancel",
+      "label": "Cancel background location sharing",
+      "meaning": "Dismiss disclosure; leave background sharing off.",
+      "aliases": [
+        "cancel background location sharing"
+      ],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner must be using the native app with this visible control; permission requires the current disclosure."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Background access requires the visible human consent control and device permission prompt.",
+        "intended_handler": "BackgroundShareToggle"
+      },
+      "control_ids": [
+        "one-location-background-sharing-cancel"
+      ],
+      "state_exposure": [
+        "background sharing preference and device permission status only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/one-location/background-share-toggle.tsx"
+      ]
+    },
+    {
       "action_id": "location.review_notifications",
       "label": "Check Location notification settings",
       "meaning": "Review Location alerts.",
-      "aliases": ["location notifications", "SMS alert sound", "Save My Soul notifications"],
-      "search_keywords": ["notifications", "sound", "alerts", "SMS", "push"],
-      "reachability": {"routes": ["/one/location"], "screens": ["one_location"], "hidden_navigable": false, "navigation_prerequisites": []},
-      "guard_ids": ["auth_signed_in"],
+      "aliases": [
+        "location notifications",
+        "SMS alert sound",
+        "Save My Soul notifications"
+      ],
+      "search_keywords": [
+        "notifications",
+        "sound",
+        "alerts",
+        "SMS",
+        "push"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
-      "execution_target": {"status": "wired", "path": "route", "target": "/one/location?action=settings"},
-      "control_ids": ["one-location-notification-recovery"],
-      "state_exposure": ["device notification registration", "device alert and sound settings"]
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=settings"
+      },
+      "control_ids": [
+        "one-location-notification-recovery"
+      ],
+      "state_exposure": [
+        "device notification registration",
+        "device alert and sound settings"
+      ]
     },
     {
       "action_id": "location.open_now",

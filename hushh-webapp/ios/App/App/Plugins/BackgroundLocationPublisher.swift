@@ -10,11 +10,30 @@ private final class BackgroundPublishRedirectPolicy: NSObject, URLSessionTaskDel
     }
 }
 
+enum BackgroundLocationPrecision: String {
+    case precise, approximate
+    func point(location: CLLocation, capturedAt: String) -> [String: Any] {
+        // Match JS Math.round rather than Swift's negative-half rounding.
+        func snap(_ value: Double) -> Double { floor(floor(value / 0.01 + 0.5) * 0.01 * 1e6 + 0.5) / 1e6 }
+        let accuracy = location.horizontalAccuracy.isFinite && location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : 0
+        let reportedAccuracy: Any = self == .approximate ? max(1000, accuracy) : (location.horizontalAccuracy.isFinite && location.horizontalAccuracy >= 0 ? location.horizontalAccuracy as Any : NSNull())
+        var point: [String: Any] = [
+            "latitude": self == .approximate ? snap(location.coordinate.latitude) : location.coordinate.latitude,
+            "longitude": self == .approximate ? snap(location.coordinate.longitude) : location.coordinate.longitude,
+            "accuracyM": reportedAccuracy,
+            "capturedAt": capturedAt, "sourcePlatform": "ios", "precision": rawValue
+        ]
+        if self == .approximate { point["drive"] = NSNull() }
+        return point
+    }
+}
+
 struct BackgroundShareGrantNative {
     let grantId: String
     let recipientKeyId: String
     let recipientPublicKeyJwk: [String: Any]
     let expiresAtMs: Double?
+    let precision: BackgroundLocationPrecision
 }
 
 struct BackgroundShareSessionNative {
@@ -108,22 +127,15 @@ final class BackgroundLocationPublisher {
         lastPublishedAt = now
 
         let capturedAt = iso.string(from: location.timestamp)
-        let pointDict: [String: Any] = [
-            "latitude": location.coordinate.latitude,
-            "longitude": location.coordinate.longitude,
-            "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
-            "capturedAt": capturedAt,
-            "sourcePlatform": "ios"
-        ]
-        guard let pointJSON = try? JSONSerialization.data(withJSONObject: pointDict) else { return }
-
         for grant in session.grants where grantIsActive(grant.grantId, in: session) {
+            guard let pointJSON = try? JSONSerialization.data(withJSONObject: grant.precision.point(location: location, capturedAt: capturedAt)) else { continue }
             guard let envelope = try? LocationEnvelopeCrypto.encrypt(
                 pointJSON: pointJSON,
                 recipientPublicKeyJwk: grant.recipientPublicKeyJwk,
                 recipientKeyId: grant.recipientKeyId,
                 capturedAt: capturedAt,
-                sourcePlatform: "ios"
+                sourcePlatform: "ios",
+                precision: grant.precision.rawValue
             ) else { continue }
             post(envelope: envelope, grantId: grant.grantId, session: session)
         }

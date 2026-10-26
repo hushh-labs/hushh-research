@@ -4299,6 +4299,9 @@
         "location.add_emergency_contact",
         "location.add_to_circle",
         "location.approve_request",
+        "location.background_accept",
+        "location.background_cancel",
+        "location.background_review",
         "location.change_share_duration",
         "location.checkout_nearby",
         "location.confirm_nearby_check_in",
@@ -10997,5 +11000,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "40d466320a8b980abd44472fc2f2db7f61ddb1a4477e203452c21f8a79546ef0"
+  "content_sha256": "ee45bf4b9a8aff3495a71e0058e576f33736af88b561f674d1ae6d7caac53e6d"
 }

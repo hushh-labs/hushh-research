@@ -7,12 +7,28 @@ final class StubProtocol: URLProtocol {
     static let lock = NSLock()
     static var responses: [Int] = []
     static var requestCount = 0
+    static var envelopes: [[String: Any]] = []
     static let delivered = DispatchSemaphore(value: 0)
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock()
         Self.requestCount += 1
+        var body = request.httpBody
+        if body == nil, let stream = request.httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var bytes = [UInt8](repeating: 0, count: 4096)
+            var collected = Data()
+            while stream.hasBytesAvailable {
+                let count = stream.read(&bytes, maxLength: bytes.count)
+                if count <= 0 { break }
+                collected.append(bytes, count: count)
+            }
+            body = collected
+        }
+        if let body = body,
+           let decoded = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+           let envelope = decoded["envelope"] as? [String: Any] { Self.envelopes.append(envelope) }
         let status = Self.responses.isEmpty ? 200 : Self.responses.removeFirst()
         Self.lock.unlock()
         if status == -1 { Self.delivered.signal(); return }
@@ -39,19 +55,47 @@ func settle(_ condition: () -> Bool) {
     while !condition() && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
     require(condition(), "publisher callback did not settle")
 }
-let key = P256.KeyAgreement.PrivateKey().publicKey.x963Representation
+let privateKey = P256.KeyAgreement.PrivateKey()
+let key = privateKey.publicKey.x963Representation
 let jwk: [String: Any] = ["kty": "EC", "crv": "P-256",
     "x": LocationEnvelopeCrypto.base64url(key.subdata(in: 1..<33)),
     "y": LocationEnvelopeCrypto.base64url(key.subdata(in: 33..<65))]
-func session(expiresAtMs: Double? = nil) -> BackgroundShareSessionNative {
+func session(expiresAtMs: Double? = nil, precision: BackgroundLocationPrecision = .precise) -> BackgroundShareSessionNative {
     BackgroundShareSessionNative(vaultOwnerToken: "synthetic-test-token", backendBaseUrl: "https://fixture.invalid", grants: [
-        BackgroundShareGrantNative(grantId: "synthetic-grant", recipientKeyId: "synthetic-key", recipientPublicKeyJwk: jwk, expiresAtMs: expiresAtMs)
+        BackgroundShareGrantNative(grantId: "synthetic-grant", recipientKeyId: "synthetic-key", recipientPublicKeyJwk: jwk, expiresAtMs: expiresAtMs, precision: precision)
     ], minMoveMeters: 0, minIntervalMs: 0)
 }
 let config = URLSessionConfiguration.ephemeral
 config.protocolClasses = [StubProtocol.self]
 let publisher = BackgroundLocationPublisher(urlSession: URLSession(configuration: config))
 let point = CLLocation(latitude: 0, longitude: 0)
+
+// Decrypt the actual transport envelope, proving coarsening precedes encryption.
+for precision in [BackgroundLocationPrecision.approximate, .precise] {
+    publisher.start(session: session(precision: precision))
+    publisher.handle(location: CLLocation(coordinate: CLLocationCoordinate2D(latitude: 12.34456, longitude: -12.345), altitude: 0, horizontalAccuracy: 8, verticalAccuracy: 0, timestamp: Date()))
+    require(StubProtocol.delivered.wait(timeout: .now() + 3) == .success, "precision envelope missing")
+    settle { !StubProtocol.envelopes.isEmpty }
+    StubProtocol.lock.lock()
+    let envelope = StubProtocol.envelopes.last!
+    StubProtocol.lock.unlock()
+    require(envelope["publicationContext"] as? String == "private_background", "background context missing")
+    require((envelope["metadata"] as? [String: Any])?["precision"] as? String == precision.rawValue, "precision metadata missing")
+    let sender = envelope["senderEphemeralPublicKeyJwk"] as! [String: String]
+    var raw = Data([0x04]); raw.append(LocationEnvelopeCrypto.base64urlDecode(sender["x"]!)!); raw.append(LocationEnvelopeCrypto.base64urlDecode(sender["y"]!)!)
+    let shared = try privateKey.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: raw))
+    let aes = shared.withUnsafeBytes { SymmetricKey(data: Data($0)) }
+    let ct = LocationEnvelopeCrypto.base64urlDecode(envelope["ciphertext"] as! String)!
+    let box = try AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: LocationEnvelopeCrypto.base64urlDecode(envelope["iv"] as! String)!), ciphertext: ct.dropLast(16), tag: ct.suffix(16))
+    let decoded = try JSONSerialization.jsonObject(with: AES.GCM.open(box, using: aes)) as! [String: Any]
+    require(decoded["precision"] as? String == precision.rawValue, "encrypted precision missing")
+    require(decoded["latitude"] as? Double == (precision == .approximate ? 12.34 : 12.34456), "latitude not coarsened before encryption")
+    require(decoded["longitude"] as? Double == (precision == .approximate ? -12.34 : -12.345), "negative boundary disagrees with JS")
+    require(decoded["accuracyM"] as? Double == (precision == .approximate ? 1000 : 8), "accuracy floor wrong")
+    publisher.stop()
+}
+Thread.sleep(forTimeInterval: 0.05)
+StubProtocol.lock.lock(); StubProtocol.requestCount = 0; StubProtocol.envelopes = []; StubProtocol.lock.unlock()
 
 // Expiration is enforced natively even if JavaScript is suspended.
 publisher.start(session: session(expiresAtMs: 1))

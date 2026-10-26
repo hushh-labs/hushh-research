@@ -5443,6 +5443,465 @@
     },
     {
       "aliases": [
+        "Review background location sharing",
+        "review background location sharing"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.background_review",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Review native background-sharing disclosure.",
+      "execution": {
+        "binding_ref": "render:location.background_review",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.location.background_review",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review background location sharing",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Allow background location sharing",
+        "allow background location sharing"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.background_accept",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner accepts disclosure and requests OS background access.",
+      "execution": {
+        "binding_ref": "render:location.background_accept",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.location.background_accept",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Allow background location sharing",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Cancel background location sharing",
+        "cancel background location sharing"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "location.background_cancel",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Dismiss disclosure; leave background sharing off.",
+      "execution": {
+        "binding_ref": "render:location.background_cancel",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.location.background_cancel",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Cancel background location sharing",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Check Location notification settings",
         "location notifications",
         "SMS alert sound",
@@ -46442,7 +46901,7 @@
   "mcp_compatible": true,
   "model_projections": {
     "location": {
-      "brain_revision": "9fbfa6367de772a4b1ff4585",
+      "brain_revision": "0688170031991a66847a3471",
       "capabilities": [
         {
           "candidate_id": "location.accept_circle_invite",
@@ -46560,6 +47019,51 @@
             }
           ],
           "semantic_boundary": "Approves the named people's pending requests to see your location, starting a share for each -- multiple people can be named in one turn, e.g. 'Alice and Bob'. It only acts on requests already waiting; it never invites someone new. A bare 'approve' or 'accept' with no name and no circle invite in view means this; if a circle invite is what's actually pending, call accept_circle_invite instead.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.background_accept",
+          "capability_id": "location.background_accept",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Allow background location sharing",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Human-only native disclosure and OS permission; the private agent cannot execute this control.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.background_cancel",
+          "capability_id": "location.background_cancel",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Cancel background location sharing",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Human-only native disclosure and OS permission; the private agent cannot execute this control.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.background_review",
+          "capability_id": "location.background_review",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Review background location sharing",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Human-only native disclosure and OS permission; the private agent cannot execute this control.",
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
@@ -47969,6 +48473,51 @@
           "verified_success_boundary": "navigation_settlement_not_product_success"
         },
         {
+          "candidate_id": "location.background_accept",
+          "capability_id": "location.background_accept",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Allow background location sharing",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Human-only native disclosure and OS permission; the private agent cannot execute this control.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.background_cancel",
+          "capability_id": "location.background_cancel",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Cancel background location sharing",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Human-only native disclosure and OS permission; the private agent cannot execute this control.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
+          "candidate_id": "location.background_review",
+          "capability_id": "location.background_review",
+          "confirmation_class": "none",
+          "disposition": "NAVIGATE",
+          "entity_types": [],
+          "feature_group_id": "sharing",
+          "intent": "Review background location sharing",
+          "interaction_class": "navigation",
+          "kind": "action",
+          "outcome": "NAVIGATE",
+          "public_slot_types": [],
+          "semantic_boundary": "Human-only native disclosure and OS permission; the private agent cannot execute this control.",
+          "verified_success_boundary": "navigation_settlement_not_product_success"
+        },
+        {
           "candidate_id": "location.change_share_duration",
           "capability_id": "location.change_share_duration",
           "confirmation_class": "none",
@@ -49313,7 +49862,7 @@
         }
       ],
       "known_unbound_implementation_count": 77,
-      "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
+      "package_digest": "adef48bdaa76246643e7544139f8157d66b4bafef095ea2b71947090aec4331c",
       "package_id": "location.brain",
       "package_version": 2,
       "schema_version": "one.location_brain_catalog.v1",
@@ -49378,7 +49927,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "8415787d717d2e87d45b0ea32d14c05b68d878c94e13860d56a35be27e21aff5",
+      "projection_digest": "6da31a9c820f1bd75087328c9798b4033a6038acb81ff50ea47c227528e0c001",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49392,12 +49941,12 @@
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
-        "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
+        "location_knowledge_package": "adef48bdaa76246643e7544139f8157d66b4bafef095ea2b71947090aec4331c",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
+        "service_knowledge_packages": "f118725584d9800c19f81f8cf3174360bab4f6779a117271e4c05d89dc573fa7"
       },
-      "source_revision": "4be733c76f5be2bb",
+      "source_revision": "3d65fba44850f84c",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -50915,7 +51464,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4be733c76f5be2bb",
+    "source_revision": "3d65fba44850f84c",
     "web": {
       "actions": [
         {
@@ -50958,7 +51507,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "15ee9b94611006e8038e6300c47de1bd5a56d593652e4a0fc8c8ef48e0d1465f",
+      "projection_digest": "aa63870e1fda71b91254fa67d8b482bef1f5522270ff899f42c24b6ba23f269a",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50972,12 +51521,12 @@
         "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
-        "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
+        "location_knowledge_package": "adef48bdaa76246643e7544139f8157d66b4bafef095ea2b71947090aec4331c",
         "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-        "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
+        "service_knowledge_packages": "f118725584d9800c19f81f8cf3174360bab4f6779a117271e4c05d89dc573fa7"
       },
-      "source_revision": "4be733c76f5be2bb",
+      "source_revision": "3d65fba44850f84c",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52534,7 +53083,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4be733c76f5be2bb",
+  "revision": "3d65fba44850f84c",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -54509,18 +55058,21 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.recover",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
+      "actions:location.background_accept",
+      "actions:location.background_cancel",
+      "actions:location.background_review"
     ],
     "breaking": [],
-    "changed": [],
-    "compatible": [],
+    "changed": [
+      "brains:location",
+      "services:service.location",
+      "workflows:workflow.setup.location"
+    ],
+    "compatible": [
+      "workflows:workflow.setup.location"
+    ],
     "deprecated": [],
-    "from_revision": "35982be19f859840",
+    "from_revision": "4be733c76f5be2bb",
     "migrated": [],
     "removed": []
   },
@@ -55291,6 +55843,9 @@
         "location.add_emergency_contact",
         "location.add_to_circle",
         "location.approve_request",
+        "location.background_accept",
+        "location.background_cancel",
+        "location.background_review",
         "location.change_share_duration",
         "location.chat.turn",
         "location.checkout_nearby",
@@ -56151,6 +56706,18 @@
           "disposition": "NAVIGATE"
         },
         {
+          "capability_id": "location.background_accept",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.background_cancel",
+          "disposition": "NAVIGATE"
+        },
+        {
+          "capability_id": "location.background_review",
+          "disposition": "NAVIGATE"
+        },
+        {
           "capability_id": "location.change_share_duration",
           "disposition": "NAVIGATE"
         },
@@ -56427,7 +56994,7 @@
       "catalog_coverage": {
         "all_discovered_capabilities_classified": true,
         "blocked_endpoint_count": 77,
-        "declared_capability_count": 73
+        "declared_capability_count": 76
       },
       "completion": {
         "claim_policy": "verified_persisted_state_only",
@@ -56537,9 +57104,9 @@
       ],
       "kind": "service",
       "knowledge_package": {
-        "brain_revision": "9fbfa6367de772a4b1ff4585",
+        "brain_revision": "0688170031991a66847a3471",
         "catalog_status": "complete_and_compiled",
-        "package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
+        "package_digest": "adef48bdaa76246643e7544139f8157d66b4bafef095ea2b71947090aec4331c",
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2"
@@ -56829,18 +57396,18 @@
     "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "6a7cbc71edeb570aafe6d563bfcfa6e1f9a984a73f1594bf14ea5e201522af38",
+    "kai_action_gateway": "f91378c3cec18326382a35c556e24a9501468242104aa69db0abe2c33a90b96f",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
-    "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
+    "location_knowledge_package": "adef48bdaa76246643e7544139f8157d66b4bafef095ea2b71947090aec4331c",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "route_orchestration_index": "69584fe9db71100558c021153c3b24c99711a4197aea21c94743f256a403f76d",
-    "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
+    "service_knowledge_packages": "f118725584d9800c19f81f8cf3174360bab4f6779a117271e4c05d89dc573fa7"
   },
-  "source_revision": "4be733c76f5be2bb",
+  "source_revision": "3d65fba44850f84c",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4be733c76f5be2bb",
+    "current_graph_revision": "3d65fba44850f84c",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -56923,6 +57490,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -57195,6 +57763,7 @@
           "43efe9fb3a1513f1",
           "45be718cd9891cd4",
           "49f1882f17ca746a",
+          "4be733c76f5be2bb",
           "4d911004af4b252b",
           "4f5bda58994aac11",
           "53c411e01494034b",
@@ -57270,6 +57839,7 @@
           "3b4a692078832301",
           "43c428db7505bdee",
           "45be718cd9891cd4",
+          "4be733c76f5be2bb",
           "4d911004af4b252b",
           "4f5bda58994aac11",
           "53c411e01494034b",
@@ -57612,6 +58182,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
           "4f5bda58994aac11",
@@ -57951,6 +58522,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58282,6 +58854,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58613,6 +59186,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58858,7 +59432,7 @@
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "0771acb921eb2e35924fdb845b87c93ff4919bd3dd6092ae95d9c760aeab61c9",
+        "workflow_digest": "b17751da0ba066595c2e64f8646b6a2f4b053d3c0df7283b347e7efa1fb0fda7",
         "workflow_id": "workflow.setup.location",
         "workflow_version": 2
       },
@@ -58942,6 +59516,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -62611,6 +63186,9 @@
           "location.add_emergency_contact",
           "location.add_to_circle",
           "location.approve_request",
+          "location.background_accept",
+          "location.background_cancel",
+          "location.background_review",
           "location.change_share_duration",
           "location.chat.turn",
           "location.checkout_nearby",
@@ -62683,7 +63261,7 @@
         "package_id": "location.brain",
         "package_version": 2,
         "schema_version": "one.service_knowledge_package.v2",
-        "source_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4"
+        "source_digest": "adef48bdaa76246643e7544139f8157d66b4bafef095ea2b71947090aec4331c"
       },
       "knowledge_projection": {
         "allowed_fact_keys": [
@@ -62906,7 +63484,7 @@
           }
         ],
         "initial_step_id": "location.onboarding.preflight",
-        "knowledge_package_digest": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
+        "knowledge_package_digest": "adef48bdaa76246643e7544139f8157d66b4bafef095ea2b71947090aec4331c",
         "knowledge_package_id": "location.brain",
         "knowledge_package_version": 2,
         "migrations": [

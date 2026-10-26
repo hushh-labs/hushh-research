@@ -157,8 +157,8 @@ describe("Privacy Policy and Terms of Use pages", () => {
   it("discloses the separate Azure/Bing research opt-in and Bing privacy boundary", () => {
     const privacy = LEGAL_DOCUMENTS.privacy;
     const text = plainText(privacy);
-    expect(privacy.version).toBe("2.11");
-    expect(privacy.lastUpdated).toBe("2026-10-22");
+    expect(privacy.version).toBe("2.12");
+    expect(privacy.lastUpdated).toBe("2026-10-26");
     expect(text).toContain("Hussh selects Microsoft Azure AI or Google Gemini as the primary processor");
     expect(text).toContain("before any output");
     expect(text).toContain("No model-settings toggle or personal pilot approval is required or created");

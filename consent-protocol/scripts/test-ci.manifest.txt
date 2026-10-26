@@ -543,6 +543,7 @@ tests/test_agent_stage_skips_are_visible.py
 
 # Location command semantics, retirement and atomic recovery lifecycle.
 tests/operons/location/test_location_command.py
+tests/operons/location/test_location_capability_projection.py
 tests/test_location_command_routes.py
 tests/test_location_command_workflow.py
 tests/test_one_location_named_circle_routes.py

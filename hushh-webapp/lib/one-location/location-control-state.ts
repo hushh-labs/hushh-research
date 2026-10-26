@@ -2,6 +2,8 @@ import type { AutoApproveScope } from "@/lib/one-location/types";
 
 export type { AutoApproveScope } from "@/lib/one-location/types";
 
+export const BACKGROUND_SHARING_DISCLOSURE_VERSION = 1;
+
 /**
  * Non-coordinate state shared by every One Location control surface.
  *
@@ -26,6 +28,9 @@ export type OneLocationControlState = {
    */
   autoApproveEnabledAt: string | null;
   paused: boolean;
+  /** Session-only device opt-in; app relaunch requires fresh disclosure acceptance. */
+  backgroundSharingEnabled: boolean;
+  backgroundDisclosureVersion: number | null;
   selfPreviewEnabled: boolean;
   nearbyPresenceActive: boolean;
   nearbyCheckedInAt: string | null;
@@ -44,6 +49,8 @@ const EMPTY_STATE: OneLocationControlState = {
   autoApproveScope: null,
   autoApproveEnabledAt: null,
   paused: false,
+  backgroundSharingEnabled: false,
+  backgroundDisclosureVersion: null,
   selfPreviewEnabled: false,
   nearbyPresenceActive: false,
   nearbyCheckedInAt: null,
@@ -55,6 +62,14 @@ const listenersByUser = new Map<
   Set<(state: OneLocationControlState) => void>
 >();
 let storageListenerInstalled = false;
+
+/** Device intent never replaces recipient grants, vault authority or OS permission. */
+export function hasBackgroundSharingConsent(
+  state: Pick<OneLocationControlState, "backgroundSharingEnabled" | "backgroundDisclosureVersion">,
+): boolean {
+  return state.backgroundSharingEnabled === true &&
+    state.backgroundDisclosureVersion === BACKGROUND_SHARING_DISCLOSURE_VERSION;
+}
 
 function cloneState(state: OneLocationControlState): OneLocationControlState {
   return { ...state };
@@ -162,6 +177,8 @@ export function updateOneLocationControlState(
     autoApproveScope: null,
     autoApproveEnabledAt: null,
     paused,
+    backgroundSharingEnabled: hasBackgroundSharingConsent(updated),
+    backgroundDisclosureVersion: hasBackgroundSharingConsent(updated) ? BACKGROUND_SHARING_DISCLOSURE_VERSION : null,
     selfPreviewEnabled: !paused && Boolean(updated.selfPreviewEnabled),
     nearbyPresenceActive,
     nearbyCheckedInAt: nearbyPresenceActive ? updated.nearbyCheckedInAt : null,
@@ -188,7 +205,7 @@ export function subscribeOneLocationControlState(
   };
 }
 
-/** Clear volatile activity mirrors while retaining user preferences. */
+/** Clear activity and background opt-in while retaining the pause preference. */
 export function clearOneLocationControlRuntime(
   userId: string | null | undefined,
 ): void {

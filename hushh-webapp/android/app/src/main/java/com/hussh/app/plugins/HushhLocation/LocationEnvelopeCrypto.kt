@@ -47,7 +47,9 @@ internal object LocationEnvelopeCrypto {
                 .put("senderEphemeralPublicKeyJwk", JSONObject().put("kty", "EC").put("crv", "P-256")
                     .put("x", encode(coordinate(pub.w.affineX))).put("y", encode(coordinate(pub.w.affineY))))
                 .put("capturedAt", point.getString("capturedAt")).put("sourcePlatform", "android")
-                .put("metadata", JSONObject().put("payload", "coordinate_envelope").put("plaintext", false))
+                .put("publicationContext", "private_background")
+                .put("metadata", JSONObject().put("payload", "coordinate_envelope").put("plaintext", false)
+                    .put("precision", point.getString("precision")))
         } finally { secret.fill(0) }
     }
 }

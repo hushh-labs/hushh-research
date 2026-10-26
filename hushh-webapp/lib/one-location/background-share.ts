@@ -1,3 +1,5 @@
+import { resolvePublishPrecision, type LocationPublishPrecision } from "@/lib/location/coarsen";
+import { BACKGROUND_SHARING_DISCLOSURE_VERSION } from "@/lib/one-location/location-control-state";
 import type {
   BackgroundShareGrant,
   BackgroundShareSession,
@@ -16,6 +18,7 @@ import type {
  * native plugin, which reproduces the ECIES envelope offline.
  */
 export function buildBackgroundShareSession(params: {
+  precision: LocationPublishPrecision;
   activeGrants: OneLocationGrant[];
   recipients: OneLocationRecipient[];
   vaultOwnerToken: string;
@@ -36,12 +39,14 @@ export function buildBackgroundShareSession(params: {
     if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
     grants.push({
       grantId: grant.id,
+      precision: resolvePublishPrecision({ preference: params.precision, purpose: grant.shareKind }),
       ...(expiresAtMs !== undefined ? { expiresAtMs } : {}),
       recipientKeyId: recipient.keyId,
       recipientPublicKeyJwk: recipient.publicKeyJwk,
     });
   }
   return {
+    disclosureVersion: BACKGROUND_SHARING_DISCLOSURE_VERSION,
     vaultOwnerToken: params.vaultOwnerToken,
     backendBaseUrl: params.backendBaseUrl,
     minMoveMeters: params.minMoveMeters,

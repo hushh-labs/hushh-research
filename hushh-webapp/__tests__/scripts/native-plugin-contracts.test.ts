@@ -1,13 +1,18 @@
 /** @vitest-environment jsdom */
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createNativePluginVerifier } from "../../scripts/native/verify-native-plugin-contracts.mjs";
 
 describe("native plugin contract verifier", () => {
+  const verifier = createNativePluginVerifier(process.cwd());
+  afterAll(() => verifier.dispose());
+  beforeAll(() => {
+    expect(verifier.verify().failures).toEqual([]);
+  });
   it("keeps the actual passive vault probe outside private input and action authority", () => {
     const source = readFileSync(path.join(process.cwd(), "ios/App/App/NativeTestSupport.swift"), "utf8");
     const script = source.slice(source.indexOf("final class NativeVaultLayoutProbe"))
@@ -61,6 +66,7 @@ describe("native plugin contract verifier", () => {
         cwd: process.cwd(),
         encoding: "utf8",
         stdio: "pipe",
+        timeout: 15_000,
       }),
     ).not.toThrow();
   });
@@ -85,36 +91,16 @@ describe("native plugin contract verifier", () => {
       diagnostic: "missing method(s): contractNegativeControl",
     },
   ])("rejects inherited/indexed contract drift: $diagnostic", ({ file, before, after, diagnostic }) => {
-    // A disposable overlay runs the actual verifier without changing source or
-    // duplicating the native trees. Only the mutated TypeScript file is copied.
-    const appRoot = process.cwd();
-    const overlay = mkdtempSync(path.join(tmpdir(), "hushh-native-contract-"));
-    const linkEntries = (source: string, target: string, omit: string) => {
-      mkdirSync(target, { recursive: true });
-      for (const entry of readdirSync(source)) {
-        if (entry !== omit) symlinkSync(path.join(source, entry), path.join(target, entry));
-      }
-    };
-    try {
-      linkEntries(appRoot, overlay, "lib");
-      linkEntries(path.join(appRoot, "lib"), path.join(overlay, "lib"), "capacitor");
-      const ports = path.join(appRoot, "lib/capacitor");
-      linkEntries(ports, path.join(overlay, "lib/capacitor"), file);
-      const source = readFileSync(path.join(ports, file), "utf8");
-      expect(source).toContain(before);
-      writeFileSync(path.join(overlay, "lib/capacitor", file), source.replace(before, after));
-      let failure: { status?: number; stderr?: string } | undefined;
-      try {
-        execFileSync(process.execPath, [path.join(appRoot, "scripts/native/verify-native-plugin-contracts.mjs")], {
-          cwd: overlay, encoding: "utf8", stdio: "pipe",
-        });
-      } catch (error) {
-        failure = error as typeof failure;
-      }
-      expect(failure?.status).toBe(1);
-      expect(failure?.stderr).toContain(diagnostic);
-    } finally {
-      rmSync(overlay, { recursive: true, force: true });
-    }
+    // Exercise the same verifier and native observations as the CLI. In-memory
+    // overrides reuse unchanged ASTs instead of spawning a cold typechecker per
+    // mutation; no gate, diagnostic, or test timeout is relaxed.
+    const relativePath = `lib/capacitor/${file}`;
+    const source = readFileSync(path.join(process.cwd(), relativePath), "utf8");
+    expect(source).toContain(before);
+    const result = verifier.verify(new Map([[relativePath, source.replace(before, after)]]));
+    expect(result.failures).not.toEqual([]);
+    expect(result.failures.join("\n")).toContain(diagnostic);
+    // A negative control cannot contaminate the next check's real source.
+    expect(verifier.verify().failures).toEqual([]);
   });
 });

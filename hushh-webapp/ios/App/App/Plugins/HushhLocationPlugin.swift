@@ -43,7 +43,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         self?.stopUpdatingIfIdle()
         DispatchQueue.main.async {
             guard let self, !self.backgroundPublisher.isActive else { return }
-            self.notifyListeners("backgroundShareStopped", data: [:])
+            self.notifyListeners("backgroundShareStopped", data: [:], retainUntilConsumed: true)
         }
     })
 
@@ -269,6 +269,10 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         DispatchQueue.main.async {
             self.backgroundPublisher.stop(notify: false)
             self.stopUpdatingIfIdle()
+            guard call.getInt("disclosureVersion") == 1 else {
+                call.resolve(["started": false, "reason": "disclosure-required"])
+                return
+            }
             guard self.manager.authorizationStatus == .authorizedAlways else {
                 call.resolve(["started": false, "reason": "always-permission-required"])
                 return
@@ -292,13 +296,15 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
                 guard
                     let grantId = g["grantId"] as? String,
                     let keyId = g["recipientKeyId"] as? String,
-                    let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
+                    let jwk = g["recipientPublicKeyJwk"] as? [String: Any],
+                    let rawPrecision = g["precision"] as? String,
+                    let precision = BackgroundLocationPrecision(rawValue: rawPrecision)
                 else { return nil }
                 if let rawExpiry = g["expiresAtMs"] {
                     guard let expiry = rawExpiry as? Double, expiry.isFinite,
                           expiry > Date().timeIntervalSince1970 * 1000 else { return nil }
                 }
-                return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk, expiresAtMs: g["expiresAtMs"] as? Double)
+                return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk, expiresAtMs: g["expiresAtMs"] as? Double, precision: precision)
             }
             guard !grants.isEmpty else {
                 call.resolve(["started": false, "reason": "no-grants"])

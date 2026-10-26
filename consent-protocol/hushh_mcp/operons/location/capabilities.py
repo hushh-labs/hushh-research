@@ -61,6 +61,7 @@ def semantic_catalog(catalog: dict[str, dict[str, Any]]) -> list[dict[str, Any]]
     execution step and target repeat its ID and review route; sending all of
     that for every action makes the managed semantics request miss its deadline.
     Keep exceptional workflows and boundaries, and never drop an action.
+    Omitted inputs means none; nonempty input contracts remain intact.
     """
 
     def action_semantics(entry: dict[str, Any]) -> dict[str, Any]:
@@ -69,10 +70,12 @@ def semantic_catalog(catalog: dict[str, dict[str, Any]]) -> list[dict[str, Any]]
         result = {
             "action_id": action_id,
             "meaning": entry.get("meaning") or entry.get("label"),
-            "inputs": (entry.get("goal") or {}).get("required_inputs", []),
             "command": command,
             "policy": entry.get("execution_policy"),
         }
+        inputs = (entry.get("goal") or {}).get("required_inputs", [])
+        if inputs:
+            result["inputs"] = inputs
         boundaries = entry.get("semantic_boundaries")
         if boundaries is not None:
             result["boundaries"] = boundaries

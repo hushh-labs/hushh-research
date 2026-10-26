@@ -26,7 +26,9 @@ import javax.crypto.spec.SecretKeySpec
 /** Synthetic native execution only: interceptor prevents every external request. */
 @RunWith(AndroidJUnit4::class)
 class BackgroundLocationPublisherTest {
-    @Test fun publisherProducesDecryptableEnvelopeAndStopsOnUnauthorized() {
+    @Test fun publisherProducesDecryptableEnvelopeAndStopsOnUnauthorized() = verifyPrecision(BackgroundPrecision.PRECISE)
+    @Test fun approximateCoordinatesAreCoarsenedBeforeEncryption() = verifyPrecision(BackgroundPrecision.APPROXIMATE)
+    private fun verifyPrecision(precision: BackgroundPrecision) {
         val pair = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
         var posted: JSONObject? = null
         val sent = CountDownLatch(1)
@@ -44,8 +46,8 @@ class BackgroundLocationPublisherTest {
         val publisher = BackgroundLocationPublisher(client) { stopped.countDown() }
         try {
             publisher.start(BackgroundSession("synthetic-only", "https://publisher.invalid".toHttpUrl(),
-                listOf(BackgroundGrant("synthetic-grant", "synthetic-key", pair.public as ECPublicKey, null)), 0.0, 1000, "synthetic-owner"))
-            publisher.handle(Location("synthetic").apply { latitude = 0.0; longitude = 0.0; time = 1000 })
+                listOf(BackgroundGrant("synthetic-grant", "synthetic-key", pair.public as ECPublicKey, null, precision)), 0.0, 1000, "synthetic-owner"))
+            publisher.handle(Location("synthetic").apply { latitude = 12.34456; longitude = -12.345; accuracy = 8f; time = 1000 })
             assertTrue(sent.await(5, TimeUnit.SECONDS))
             assertTrue(stopped.await(5, TimeUnit.SECONDS))
             assertFalse(publisher.isActive())
@@ -58,7 +60,13 @@ class BackgroundLocationPublisherTest {
             cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(secret, "AES"), GCMParameterSpec(128, iv))
             val plaintext = cipher.doFinal(Base64.decode(envelope.getString("ciphertext"), Base64.URL_SAFE))
             val point = JSONObject(String(plaintext, Charsets.UTF_8))
-            assertEquals(0.0, point.getDouble("latitude"), 0.0)
+            val approximate = precision == BackgroundPrecision.APPROXIMATE
+            assertEquals(if (approximate) 12.34 else 12.34456, point.getDouble("latitude"), 0.0)
+            assertEquals(if (approximate) -12.34 else -12.345, point.getDouble("longitude"), 0.0)
+            assertEquals(if (approximate) 1000.0 else 8.0, point.getDouble("accuracyM"), 0.0)
+            assertEquals(precision.wire, point.getString("precision"))
+            assertEquals(precision.wire, envelope.getJSONObject("metadata").getString("precision"))
+            assertEquals("private_background", envelope.getString("publicationContext"))
             assertEquals("android", point.getString("sourcePlatform"))
             secret.fill(0)
         } finally { publisher.stop(); client.dispatcher.executorService.shutdownNow() }

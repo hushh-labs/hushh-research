@@ -411,6 +411,7 @@ jobs:
               - 'hushh-webapp/lib/kai/actions/voice-surface-activity.tsx'
               - 'hushh-webapp/lib/kai/actions/voice-surface-metadata.ts'
               - 'hushh-webapp/lib/legal/legal-documents.ts'
+              - 'hushh-webapp/lib/legal/location-privacy.ts'
               - 'hushh-webapp/lib/legal/private-text-disclosure.ts'
               - 'hushh-webapp/lib/morphy-ux/**'
               - 'hushh-webapp/lib/navigation/back-layers.ts'

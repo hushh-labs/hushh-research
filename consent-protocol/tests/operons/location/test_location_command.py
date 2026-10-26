@@ -78,7 +78,7 @@ def test_semantic_catalog_preserves_all_authored_choices_after_compaction():
             continue
         item = indexed[action_id]
         assert item["meaning"] == (owner.get("meaning") or owner.get("label"))
-        assert item["inputs"] == owner["goal"]["required_inputs"]
+        assert item.get("inputs", []) == owner["goal"]["required_inputs"]
         assert item["command"] == (owner.get("command") or {})
         assert item["policy"] == owner["execution_policy"]
         if owner.get("semantic_boundaries") is not None:

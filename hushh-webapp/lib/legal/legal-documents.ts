@@ -9,6 +9,7 @@
 // on this branch. Change the code and this text together. When the text
 // changes, bump `version` and `lastUpdated`.
 
+import { LOCATION_PRIVACY_SECTION } from "./location-privacy";
 import { UAT_MANAGED_TEXT_DISCLOSURE } from "./private-text-disclosure";
 
 export type LegalDocumentType = "privacy" | "terms";
@@ -50,9 +51,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-10-16";
 const LAST_UPDATED_LABEL = "October 16, 2026";
 const VERSION = "2.4";
-const PRIVACY_LAST_UPDATED = "2026-10-22";
-const PRIVACY_LAST_UPDATED_LABEL = "October 22, 2026";
-const PRIVACY_VERSION = "2.11";
+const PRIVACY_LAST_UPDATED = "2026-10-26";
+const PRIVACY_LAST_UPDATED_LABEL = "October 26, 2026";
+const PRIVACY_VERSION = "2.12";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -210,35 +211,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       ),
     ],
   },
-  {
-    id: "location",
-    title: "Location",
-    blocks: [
-      h("Approximate location with a request"),
-      p(
-        "If your device already allows One to use your location, One includes an approximate position, rounded on your device to about one kilometre, with a chat request so it can answer questions like “what’s the weather here”. One does not show a permission prompt for this; if location is off, it may tell you how to turn it on. Our servers keep it in memory for a few minutes to finish that request, and it is not written to our database or to our logs as a location. The AI model receives the rounded position, and if One uses it to answer, that answer is saved in your encrypted chat history like any other reply.",
-      ),
-      h("Live location sharing"),
-      p(
-        "You can share your live location with people you choose, either for a set time of up to 24 hours or, with people you trust, until you stop. Each update is encrypted on your device to the recipient’s device key, so we cannot read it in storage. We can see who is sharing with whom and when. To show the recipient an address or travel time, their app sends the position they received to our servers, which look it up with Google Maps Platform without storing it. Updates from a share that has ended are removed by a scheduled cleanup, and all of them are deleted when you delete your account.",
-      ),
-      p(
-        "If you join a circle, you are connected with its other members, and members can invite people they are connected to.",
-      ),
-      h("Emergency alerts"),
-      p(
-        "If you send a Save My Soul alert, from the app or with Siri, One shares your live location with the emergency contacts you chose, who must be One users, for eight hours, and notifies them. It also emails them: your device sends your precise position to our servers, which send an email containing your coordinates, a map link, and any note you added. Our servers do not store or log that position, but the email stays in your contacts’ inboxes, and deleting your account cannot recall it.",
-      ),
-      h("Public location links"),
-      p(
-        "If you create a public location link, the position shown on that link is stored readable so anyone with the link can see it. A link lasts up to two hours, and its record is removed within about half a day after it expires or you stop it. People who open your link can leave you their name, phone number, and a message. We store the phone number as a hashed code with its last four digits and may use it to recognize a One account, along with a hashed code of their device and network to prevent abuse.",
-      ),
-      h("Nearby"),
-      p(
-        "Where available, you can check in at a place. Picking a place sends your position to Google Maps Platform. While you are checked in, other people checked in within about 500 metres can see your display name and the place, and can ask to connect with you. Check-ins are removed within about half a day after they end, and the encrypted record of the visit is deleted after seven days. A rating you give is stored with your account and the place and, once enough people have rated it, counts toward an anonymous public average that never shows who rated.",
-      ),
-    ],
-  },
+  LOCATION_PRIVACY_SECTION,
   {
     id: "google-services",
     title: "Gmail, Google Calendar, Google Drive, and Google Contacts",

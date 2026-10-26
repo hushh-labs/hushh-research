@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import { LocationCommandProvider } from "@/components/agent/location-command-provider";
 import { LocationCommandDeviceBridge } from "@/components/one-location/onboarding/location-command-device-bridge";
+import { BackgroundLocationPublisherBridge } from "@/components/location/background-location-publisher-bridge";
 import { LocationPublisherBridge } from "@/components/location/location-publisher-bridge";
 import { LocationUpdatesStepBridge } from "@/components/location/location-updates-step-bridge";
 import { RequestReviewStepBridge } from "@/components/connections/request-review-step-bridge";
@@ -39,6 +40,7 @@ export function AgentOwnerGate({ children }: { children: ReactNode }) {
       <VoiceSessionProvider enabled={live}>
         <OneVoiceMailDraftBridge />
         <CalendarVoiceChatBridge />
+        <BackgroundLocationPublisherBridge />
         {live ? (
           <>
             <LocationPublisherBridge />

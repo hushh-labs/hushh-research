@@ -283,6 +283,8 @@ import {
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
 import {
+  BACKGROUND_SHARING_DISCLOSURE_VERSION,
+  hasBackgroundSharingConsent,
   deriveLocationEnabled,
   readOneLocationControlState,
   updateOneLocationControlState,
@@ -429,8 +431,6 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
-import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
-import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
 import { locationPreviewFreshness } from "@/lib/one-location/freshness";
 import { selectAutoApprovableRequests } from "@/lib/one-location/auto-approve-requests";
@@ -439,7 +439,6 @@ import {
   DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS,
   DRIVE_ETA_MIN_RECOMPUTE_MOVE_METERS,
 } from "@/lib/one-location/eta-recompute";
-import { getApiBaseUrl } from "@/lib/services/api-service";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
 import { useContactInvitations } from "@/lib/contacts/use-contact-invitations";
 import { createContactGraphReconciler } from "@/lib/contacts/reconcile-contact-graph";
@@ -2420,7 +2419,6 @@ export function OneLocationAgentPageContent({
   );
   const [liveShareDurationSaving, setLiveShareDurationSaving] = useState(false);
   // Opt-in: keep publishing location while the app is backgrounded (native only).
-  const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
   // redesign hub can close the 2-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
@@ -2797,6 +2795,14 @@ export function OneLocationAgentPageContent({
       readLocationWorkspaceMemory(auth.userId),
     );
   const locationControl = useOneLocationControlState(auth.userId);
+  const backgroundShareEnabled = hasBackgroundSharingConsent(locationControl);
+  const setBackgroundShareEnabled = useCallback((enabled: boolean) => {
+    updateOneLocationControlState(auth.userId, (current) => ({
+      ...current,
+      backgroundSharingEnabled: enabled,
+      backgroundDisclosureVersion: enabled ? BACKGROUND_SHARING_DISCLOSURE_VERSION : null,
+    }));
+  }, [auth.userId]);
   // Synchronous mirror of "this device may publish right now", read inside the
   // async publish loops between awaits so a pause takes effect immediately
   // rather than at the next render.
@@ -7084,49 +7090,7 @@ export function OneLocationAgentPageContent({
     return () => window.clearInterval(interval);
   }, [visibleReceivedGrantKey, liveViewPollBlocked, setGrantViewErrors]);
 
-  // Keep native background publishing in sync with the opt-in toggle + grants.
-  // Web returns { started:false } and this is a no-op there.
-  useEffect(() => {
-    if (isWeb()) return;
-    const listener = HushhLocation.addListener("backgroundShareStopped", () => setBackgroundShareEnabled(false));
-    return () => {
-      void listener.then((handle) => handle.remove());
-      void OneLocationService.stopBackgroundShare();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!vaultOwnerToken) {
-      void OneLocationService.stopBackgroundShare();
-      return;
-    }
-    const session = buildBackgroundShareSession({
-      activeGrants: activeOwnerGrants,
-      recipients,
-      vaultOwnerToken,
-      backendBaseUrl: getApiBaseUrl(),
-      minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
-      minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
-    });
-    let current = true;
-    void syncBackgroundShare({
-      enabled: backgroundShareEnabled && !locationControl.paused,
-      session,
-    }).then((started) => {
-      if (current && backgroundShareEnabled && !locationControl.paused && !started) {
-        setBackgroundShareEnabled(false);
-      }
-    }).catch(() => { if (current) setBackgroundShareEnabled(false); });
-    return () => {
-      current = false;
-    };
-  }, [
-    backgroundShareEnabled,
-    activeOwnerGrants,
-    locationControl.paused,
-    recipients,
-    vaultOwnerToken,
-  ]);
+  // The app-level BackgroundLocationPublisherBridge owns native publishing across navigation.
 
   const handleRevoke = useCallback(
     async (grantId: string) => {
@@ -11280,6 +11244,7 @@ export function OneLocationAgentPageContent({
       clearMyLocationPreview,
       nearbyCheckInAvailable,
       vaultOwnerToken,
+      setBackgroundShareEnabled,
     ]);
 
   const handleResumeMyLocation = useCallback(() => {
@@ -14199,6 +14164,11 @@ export function OneLocationAgentPageContent({
   const locationHubVm: LocationHubViewModel = {
     userId: auth.userId ?? null,
     canShare,
+    backgroundSharing: {
+      enabled: backgroundShareEnabled,
+      onEnabledChange: setBackgroundShareEnabled,
+      requestAlwaysAuthorization: () => HushhLocation.requestAlwaysAuthorization(),
+    },
     savedPlacesBanner: {
       visible: Boolean(savedPlacesVaultSession &&
         savedPlacesAvailability?.session === savedPlacesVaultSession &&

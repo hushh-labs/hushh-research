@@ -17,7 +17,8 @@ enum LocationEnvelopeCrypto {
         recipientPublicKeyJwk: [String: Any],
         recipientKeyId: String,
         capturedAt: String,
-        sourcePlatform: String
+        sourcePlatform: String,
+        precision: String
     ) throws -> [String: Any] {
         guard
             let xB64 = recipientPublicKeyJwk["x"] as? String,
@@ -56,7 +57,8 @@ enum LocationEnvelopeCrypto {
             "senderEphemeralPublicKeyJwk": ephemJwk,
             "capturedAt": capturedAt,
             "sourcePlatform": sourcePlatform,
-            "metadata": ["payload": "coordinate_envelope", "plaintext": false]
+            "publicationContext": "private_background",
+            "metadata": ["payload": "coordinate_envelope", "plaintext": false, "precision": precision]
         ]
     }
 
