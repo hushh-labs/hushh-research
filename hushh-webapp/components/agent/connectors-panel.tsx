@@ -96,7 +96,7 @@ import { CustomConnectorsSettings, type CustomConnectorSettingsModel } from "@/c
 import { PrivateOwnerConnectorsPanel } from "@/components/connections/private-owner-connectors-panel";
 import { connectorAccessPurpose } from "@/lib/agent/connector-access-copy";
 import { CatalogConnectorDetails } from "@/components/agent/catalog-connector-details";
-import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
+import { useConnectorPlacement } from "./use-connector-placement";
 
 type Props = {
   open: boolean;
@@ -379,20 +379,20 @@ export function ConnectorsPanel(props: Props) {
   const { vaultOwnerToken, vaultKey, getVaultKey, getVaultOwnerToken } = useVault();
   const customAccessIsCurrent = useCallback(() => Boolean(vaultKey && typeof getVaultKey === "function" && typeof getVaultOwnerToken === "function" &&
     getVaultKey() === vaultKey && getVaultOwnerToken()), [getVaultKey, getVaultOwnerToken, vaultKey]);
-  const [resolvedPlacement, setPlacement] = useState<{ owner: string; mode: 'shared' | 'private' | 'unavailable' } | null>(null);
-  const placement = resolvedPlacement?.owner === user?.uid ? resolvedPlacement?.mode : null;
-  useEffect(() => {
-    let active = true;
-    if (!props.open || !user?.uid) return;
-    void ownerContentIsPrivate().then((privateAgent) => {
-      if (active) setPlacement({ owner: user.uid, mode: privateAgent ? 'private' : 'shared' });
-    }, () => { if (active) setPlacement({ owner: user.uid, mode: 'unavailable' }); });
-    return () => { active = false; };
-  }, [props.open, user?.uid]);
+  const { placement, refresh: retryPlacement } = useConnectorPlacement(props.open, user?.uid ?? null, applicationOwnerId ?? null);
   if (placement !== 'shared') {
     if (!props.open) return null;
-    if (placement === null) return <p role="status" className="p-4 text-sm">Checking where your agent runs…</p>;
-    if (placement === 'unavailable') return <p role="status" className="p-4 text-sm">Your agent's hosting could not be verified. Try again.</p>;
+    if (placement === null || placement === 'unavailable') {
+      const webBody = <div className="p-4 text-sm"><p role="status">{placement === null
+        ? "Checking where your agent runs…" : "Your agent's hosting could not be verified. Try again."}</p>
+        {placement === 'unavailable' ? <Button variant="outline" onClick={() => void retryPlacement()}>Retry</Button> : null}</div>;
+      // The retained owner is hidden; every state must reach its authored
+      // presentation port rather than disappearing inside that hidden subtree.
+      return props.render ? props.render({ nativeComplete: true, selectedConnector: null, detail: null, custom: null,
+        catalog: { query: "", search: () => undefined, show: () => undefined,
+          status: placement === null ? "loading" : "unavailable", groups: [], retry: retryPlacement },
+        confirmation: null, webBody }) : webBody;
+    }
     return <PrivateOwnerConnectorsPanel key={`${user?.uid}:${Boolean(vaultOwnerToken)}`} {...props} />;
   }
   const ownerKey = `${applicationOwnerId ?? "signed-out"}:${Boolean(vaultOwnerToken)}`;

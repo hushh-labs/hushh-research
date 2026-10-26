@@ -150,6 +150,26 @@ describe("supported connector catalog", () => {
     expect(screen.queryByText('Connected · reading only')).not.toBeInTheDocument();
   });
 
+  it("publishes retained hosting failure and retries without replacing the connector owner", async () => {
+    const { RetainedProfileConnectors } = await vi.importActual<typeof import("@/components/profile/profile-connectors-section")>("@/components/profile/profile-connectors-section");
+    state.privatePlacement.mockRejectedValueOnce(new Error("synthetic placement refusal"));
+    const changeConnector = vi.fn();
+    function RetainedHarness() {
+      const [model, publish] = React.useState<ConnectorsPanelPresentation>();
+      return <><RetainedProfileConnectors open connectorId={null} onConnectorChange={changeConnector} publish={publish} />
+        <main>{model?.webBody}</main></>;
+    }
+    const view = render(<RetainedHarness />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("hosting could not be verified"));
+    expect(state.overview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(state.overview).toHaveBeenCalledTimes(1));
+    expect(state.privatePlacement).toHaveBeenCalledTimes(2);
+    view.rerender(<RetainedHarness />);
+    expect(state.privatePlacement).toHaveBeenCalledTimes(2);
+    expect(state.overview).toHaveBeenCalledTimes(1);
+  });
+
   it("explains app access alongside the existing guarded disconnect action", async () => {
     state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
     render(<ConnectorsPanel open surface="profile" showAccessDetails {...callbacks} />);
