@@ -147,36 +147,46 @@ export function OneSetupHub() {
   const phoneVerified =
     phoneState.userId === (ownerId ?? null) &&
     phoneState.phone === "complete";
+  const resolvePhoneVerification = useCallback(async (): Promise<boolean> => {
+    if (!ownerId) throw new Error("Account identity is unavailable.");
+    // Reset preserves identity. Use the shared bootstrap's verified claim after
+    // local cleanup; an empty best-effort refresh must not downgrade that proof.
+    const cached = AccountIdentityService.peekCachedIdentity(ownerId);
+    if (cached && !cached.isStale && typeof cached.data.phone_verified === "boolean") {
+      return AccountIdentityService.hasVerifiedPhone(cached.data);
+    }
+    // A stale identity must be revalidated; an older bootstrap hint cannot
+    // override a phone transfer or revocation recorded by the identity owner.
+    if (!cached) {
+      const bootstrap = await PreVaultUserStateService.bootstrapState(ownerId).catch(() => null);
+      if (bootstrap?.phoneVerified === true) return true;
+    }
+    const identity = await AccountIdentityService.refreshCurrentUserIdentity(user, {
+      force: true,
+      requireSuccess: true,
+    });
+    if (!identity || typeof identity.phone_verified !== "boolean") {
+      throw new Error("Unable to check phone verification. Please try again.");
+    }
+    return AccountIdentityService.hasVerifiedPhone(identity);
+  }, [user, ownerId]);
   useEffect(() => {
     if (!ownerId) {
       setPhoneState({ userId: null, phone: "required" });
       return;
     }
     let active = true;
-    const cached = AccountIdentityService.peekCachedIdentity(ownerId)?.data;
-    setPhoneState({
-      userId: ownerId,
-      phone: AccountIdentityService.hasVerifiedPhone(cached)
-        ? "complete"
-        : "loading",
-    });
-    void AccountIdentityService.refreshCurrentUserIdentity(user)
-      .then((identity) => {
+    setPhoneState({ userId: ownerId, phone: "loading" });
+    void resolvePhoneVerification()
+      .then((verified) => {
         if (!active) return;
-        setPhoneState({
-          userId: ownerId,
-          phone: AccountIdentityService.hasVerifiedPhone(identity)
-            ? "complete"
-            : "required",
-        });
+        setPhoneState({ userId: ownerId, phone: verified ? "complete" : "required" });
       })
       .catch(() => {
-        if (active) setPhoneState({ userId: ownerId, phone: "required" });
+        if (active) setFinalizationError("Unable to check phone verification. Please try again.");
       });
-    return () => {
-      active = false;
-    };
-  }, [user, ownerId]);
+    return () => { active = false; };
+  }, [ownerId, resolvePhoneVerification]);
   const returnTo = useMemo(() => {
     const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
     if (!raw) return null;
@@ -625,11 +635,8 @@ export function OneSetupHub() {
         : runtimeChoiceComplete;
       let phoneConfirmed = phoneVerified;
       if (!phoneConfirmed) {
-        const identity =
-          await AccountIdentityService.refreshCurrentUserIdentity(user, {
-            force: true,
-          }).catch(() => null);
-        phoneConfirmed = AccountIdentityService.hasVerifiedPhone(identity);
+        phoneConfirmed = await resolvePhoneVerification();
+        setFinalizationError(null);
         setPhoneState({
           userId: ownerId,
           phone: phoneConfirmed ? "complete" : "required",
@@ -733,6 +740,7 @@ export function OneSetupHub() {
         routeAfter: resolveFinalizedSetupTarget(),
       };
     } catch {
+      if (!phoneVerified) setFinalizationError("Unable to check phone verification. Please try again.");
       // The finalizer retains its visible failure state. Return a terminal
       // action result so button and voice callers do not leak a rejected promise.
       return {
