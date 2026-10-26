@@ -312,13 +312,14 @@ export function CalendarAgentPage({
   const reconcileUnsettledPopup = async (input: {
     operationOwnerId: string;
     accessLevel: "read" | "manage";
+    additional: boolean;
     callbackRecorded: boolean;
     expired: boolean;
   }) => {
     const currentStatus = await refresh().catch(() => null);
     if (identityRef.current !== identity || activeOwnerIdRef.current !== input.operationOwnerId) return;
     if (
-      currentStatus?.connected &&
+      !input.additional && currentStatus?.connected &&
       (input.accessLevel !== "manage" ||
         currentStatus.access_level === "manage")
     ) {
@@ -357,6 +358,7 @@ export function CalendarAgentPage({
       : createGoogleOAuthPopupAttempt("calendar", {
           ownerId: operationOwnerId,
           accessLevel,
+          calendarAdditional: additional,
         });
     const popup = attempt ? openGoogleOAuthPopup(attempt) : null;
     setBusy(true);
@@ -457,6 +459,7 @@ export function CalendarAgentPage({
           createGoogleOAuthPopupAttempt("calendar", {
             ownerId: operationOwnerId,
             accessLevel,
+            calendarAdditional: additional,
           });
         if (!persistGoogleOAuthSameWindowAttempt(sameWindow)) {
           throw new Error(
@@ -513,6 +516,7 @@ export function CalendarAgentPage({
         await reconcileUnsettledPopup({
           operationOwnerId,
           accessLevel,
+          additional,
           callbackRecorded: Boolean(callbackSettlement),
           expired: finished === "expired",
         });
