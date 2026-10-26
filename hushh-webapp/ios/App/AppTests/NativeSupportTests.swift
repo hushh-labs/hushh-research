@@ -1637,6 +1637,15 @@ final class NativeSupportTests: XCTestCase {
             "Nested pages must keep the same Back geometry for their own children")
         repeatedBackTitleWrites = 0; repeatedTitleWrites = 0; repeatedBarTintWrites = 0
         repeatedTintWrites = 0; repeatedStyleWrites = 0
+        var interactionWrites = 0, accessibilityWrites = 0
+        let barInteraction = envelopeNavigation.navigationBar.observe(\.isUserInteractionEnabled, options: [.new]) { _, _ in interactionWrites += 1 }
+        let pageInteraction = accountController.view.observe(\.isUserInteractionEnabled, options: [.new]) { _, _ in interactionWrites += 1 }
+        let barAccessibility = envelopeNavigation.navigationBar.observe(\.accessibilityElementsHidden, options: [.new]) { _, _ in accessibilityWrites += 1 }
+        let pageAccessibility = accountController.view.observe(\.accessibilityElementsHidden, options: [.new]) { _, _ in accessibilityWrites += 1 }
+        defer {
+            barInteraction.invalidate(); pageInteraction.invalidate()
+            barAccessibility.invalidate(); pageAccessibility.invalidate()
+        }
         for sequence in 4...6 {
             var content = privateDrawerState(update: sequence, backEnabled: true)
             content.surfaceOpen = true; content.profileStack = account.profileStack
@@ -1646,6 +1655,8 @@ final class NativeSupportTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(34))
             controller.view.layoutIfNeeded()
             capturePublicHeader("refresh-\(sequence)")
+            XCTAssertEqual(interactionWrites, 0, "Compatible refresh must not rewrite native interaction eligibility")
+            XCTAssertEqual(accessibilityWrites, 0, "Compatible refresh must not rewrite native accessibility eligibility")
             XCTAssertTrue(controller.model.profileNavigationController === envelopeNavigation)
             XCTAssertTrue(envelopeNavigation.viewControllers.first === rootController)
             XCTAssertTrue(envelopeNavigation.visibleViewController === accountController)
@@ -1657,6 +1668,20 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(repeatedBarTintWrites, 0, "Compatible refreshes must not reapply navigation tint")
         XCTAssertEqual(repeatedTintWrites, 0, "Compatible content refreshes must not reapply the ancestor material tint")
         XCTAssertEqual(repeatedStyleWrites, 0, "Compatible content refreshes must not reapply the ancestor appearance")
+        controller.model.interactionEnabled = false
+        envelopeNavigation.reconcile()
+        XCTAssertFalse(envelopeNavigation.navigationBar.isUserInteractionEnabled)
+        XCTAssertTrue(envelopeNavigation.navigationBar.accessibilityElementsHidden)
+        XCTAssertFalse(accountController.view.isUserInteractionEnabled)
+        XCTAssertTrue(accountController.view.accessibilityElementsHidden)
+        controller.model.interactionEnabled = true
+        envelopeNavigation.reconcile()
+        XCTAssertTrue(envelopeNavigation.navigationBar.isUserInteractionEnabled)
+        XCTAssertFalse(envelopeNavigation.navigationBar.accessibilityElementsHidden)
+        XCTAssertTrue(accountController.view.isUserInteractionEnabled)
+        XCTAssertFalse(accountController.view.accessibilityElementsHidden)
+        XCTAssertGreaterThanOrEqual(interactionWrites, 4, "Quarantine and readmission must still update both native owners")
+        XCTAssertGreaterThanOrEqual(accessibilityWrites, 4, "The observations must detect real accessibility isolation changes")
         let originalBackTitle = rootNavigationItem.backButtonTitle
         repeatedBackTitleWrites = 0
         rootNavigationItem.backButtonTitle = originalBackTitle
