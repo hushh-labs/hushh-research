@@ -104,9 +104,11 @@ describe("hosted document payout and link boundaries", () => {
     expect(screen.getByRole("button", { name: "Approve these prepared copies and final terms" })).toBeEnabled();
     expect(screen.queryByRole("checkbox", { name: /Selected original.pdf/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
-    await waitFor(() => expect(state.sourceSelection).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("Selected original.pdf · PDF")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve these prepared copies and final terms" })).toBeEnabled();
+    await waitFor(() => {
+      expect(state.sourceSelection).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("Selected original.pdf · PDF")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Approve these prepared copies and final terms" })).toBeEnabled();
+    });
   });
   it("rejects source files bound to another terms revision", async () => {
     state.terms.mockResolvedValue(terms({ status: "requested", files: [] }));
