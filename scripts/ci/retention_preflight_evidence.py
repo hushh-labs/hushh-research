@@ -221,6 +221,7 @@ SOURCE_PROFILES = {
     },
 }
 RUNNER_WARNING = "##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: google-github-actions/auth@v2, google-github-actions/setup-gcloud@v2. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/"
+REPORT_GROUP = '##[group]Run echo "Cleanup: ${CLEANUP_OUTCOME:-failed}. This is not a deployment-capacity or release-health result." >> "$GITHUB_STEP_SUMMARY"'
 
 
 def _stamp(value):
@@ -296,8 +297,26 @@ def actual_checkout(log, job):
     return sha if re.fullmatch(r"[0-9a-f]{40}", sha) else None
 
 
+def _prepare_segment(rows, job):
+    report = job["steps"][8]
+    start, end = (_stamp(report.get(key)) for key in ("started_at", "completed_at"))
+    begin = _stamp(job["steps"][6].get("started_at"))
+    markers = [
+        (index, at) for index, (at, body) in enumerate(rows) if body == REPORT_GROUP
+    ]
+    if not (
+        begin
+        and start
+        and end
+        and len(markers) == 1
+        and start <= markers[0][1] <= end + timedelta(seconds=1)
+    ):
+        return []
+    return [body for at, body in rows[: markers[0][0]] if at >= begin]
+
+
 def _raw_failure(rows, job, profile):
-    prepare = _step_rows(rows, job["steps"][6])
+    prepare = _prepare_segment(rows, job)
     commands = ["##[group]Run set -euo pipefail", *_PREPARE_COMMAND]
     positions = [i for i in range(len(prepare)) if prepare[i : i + 7] == commands]
     if len(positions) != 1 or prepare.count("  APPLY: true") != 1:
@@ -313,9 +332,13 @@ def _raw_failure(rows, job, profile):
         body for _, body in rows if body.startswith("Hosted maintenance stopped:")
     ]
     errors = [body for _, body in rows if "##[error]" in body]
-    terminal = len(tail) >= 2 and tail[0] in reasons and tail[1] == _EXIT
-    if profile == "34050aa25db19afe6004d97fdc76bda7de9c6471" and _EXIT in tail:
-        before_exit = tail[: tail.index(_EXIT)]
+    terminal = len(tail) == 2 and tail[0] in reasons and tail[-1] == _EXIT
+    if (
+        profile == "34050aa25db19afe6004d97fdc76bda7de9c6471"
+        and tail
+        and tail[-1] == _EXIT
+    ):
+        before_exit = tail[:-1]
         # Frozen stdout may flush its one observer record after stderr's failure.
         terminal = (
             1 <= len(before_exit) <= 2

@@ -258,5 +258,72 @@ class GuardOnlyEvidenceTest(unittest.TestCase):
         self.assertEqual(output.getvalue() + errors.getvalue(), "")
 
 
+class TerminalSegmentTest(unittest.TestCase):
+    def test_post_exit_output_is_never_discarded_before_pinned_report_boundary(self):
+        from retention_publication_cases import legacy_fixture
+
+        for digest in evidence.SOURCE_PROFILES:
+            run, job, raw = legacy_fixture()
+            if digest != evidence.AUDITED_SOURCE_BLOBS[evidence.OWNER]:
+                raw = raw.replace(
+                    b"Hosted maintenance stopped: Drive worker is not ready",
+                    evidence._DIAGNOSTIC.encode(),
+                )
+            profile = {
+                path: {"sha": sha, "size": size}
+                for path, (sha, size) in evidence.SOURCE_PROFILES[digest].items()
+            }
+
+            def qualify(candidate):
+                return evidence.qualify_preflight_run(
+                    evidence.REPOSITORY,
+                    "uat",
+                    run,
+                    job,
+                    candidate.decode(),
+                    profile,
+                    profile[evidence.WORKFLOW],
+                )
+
+            self.assertIsNotNone(qualify(raw))
+            for suffix in ("unexpected output", '{"guard_only_reconciliation":{}}'):
+                changed = raw.replace(
+                    evidence._EXIT.encode(),
+                    (evidence._EXIT + "\n2026-10-27T00:00:07Z " + suffix).encode(),
+                )
+                with self.subTest(profile=digest, suffix=suffix):
+                    self.assertIsNone(qualify(changed))
+            self.assertIsNone(
+                qualify(
+                    raw.replace(
+                        evidence.REPORT_GROUP.encode(),
+                        b"##[group]Run unknown next step",
+                    )
+                )
+            )
+
+    def test_report_group_time_overlap_does_not_hide_prepare_output(self):
+        from retention_publication_cases import legacy_fixture
+
+        run, job, raw = legacy_fixture()
+        job["steps"][8]["started_at"] = "2026-10-27T00:00:07Z"
+        raw = raw.replace(b"2026-10-27T00:00:08Z ", b"2026-10-27T00:00:07.5Z ")
+        profile = {
+            path: {"sha": sha, "size": size}
+            for path, (sha, size) in evidence.LEGACY_BLOBS.items()
+        }
+        self.assertIsNotNone(
+            evidence.qualify_preflight_run(
+                evidence.REPOSITORY,
+                "uat",
+                run,
+                job,
+                raw.decode(),
+                profile,
+                profile[evidence.WORKFLOW],
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

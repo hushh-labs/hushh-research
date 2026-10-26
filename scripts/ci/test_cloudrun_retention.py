@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-from retention_publication_cases import EarlyCheckpointCases, ExistingPublicationCases, LegacyPublicationCases
+from retention_publication_cases import ExistingPublicationCases, LegacyPublicationCases
 
 from test_release_artifact_receipts import (
     ReplayedProductionReleaseArtifactTest as ReplayedProductionReleaseArtifactTest,
@@ -430,7 +430,7 @@ class RetentionSafetyTest(unittest.TestCase):
         )
 
 
-class MaintenanceAuthorityTest(EarlyCheckpointCases, ExistingPublicationCases, LegacyPublicationCases, unittest.TestCase):
+class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases, unittest.TestCase):
     def production_cleanup_failure(self):
         run = {
             **self.trusted_source(123, "deploy-production.yml"),
@@ -1904,7 +1904,7 @@ class MaintenanceAuthorityTest(EarlyCheckpointCases, ExistingPublicationCases, L
 
         run = {
             **self.trusted_source(123, "capacity-maintenance.yml"),
-            "status": "in_progress",
+            "status": "in_progress", "updated_at": "2026-10-14T20:00:01Z",
             "conclusion": None,
         }
         steps = [
@@ -1926,7 +1926,7 @@ class MaintenanceAuthorityTest(EarlyCheckpointCases, ExistingPublicationCases, L
             "jobs": [
                 {
                     "name": "UAT bounded revision cleanup",
-                    "status": "completed",
+                    "status": "completed", "completed_at": "2026-10-14T20:00:01Z",
                     "conclusion": "success",
                     "steps": steps,
                 },
@@ -1972,7 +1972,7 @@ class MaintenanceAuthorityTest(EarlyCheckpointCases, ExistingPublicationCases, L
 
         def api(_repository, endpoint):
             if endpoint.startswith("workflows/"):
-                return {"workflow_runs": [run]}
+                return {"workflow_runs": [run], "total_count": 1}
             if endpoint.startswith("artifacts?"):
                 return {"artifacts": [artifact]}
             if "/attempts/1/jobs?" in endpoint:

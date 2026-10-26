@@ -193,8 +193,16 @@ def _attempt(owner, repository, run, number, environment):
     legacy = (
         "UAT" if environment == "uat" else "Production"
     ) + " revision maintenance (no drain wait)"
-    if any(row.get("name") == legacy for row in rows):
-        return True
+    historical = [row for row in rows if row.get("name") == legacy]
+    if historical:
+        _require(
+            owner,
+            number == 1
+            and len(historical) == 1
+            and historical[0].get("status") == "completed",
+            "pre-policy maintenance rerun requires reconciliation",
+        )
+        return _publication_time(owner, historical[0], historical[0])
     selected = [row for row in rows if row.get("name") == name]
     _require(owner, len(selected) <= 1, "maintenance cleanup job is ambiguous")
     if not selected:
@@ -229,7 +237,9 @@ def _attempt(owner, repository, run, number, environment):
             owner.trusted_checkpoint_run(repository, run, environment),
             "maintenance checkpoint source is untrusted",
         )
-        return True
+        return _publication_time(
+            owner, steps[f"Save {environment} cleanup checkpoint"], job
+        )
     if saved == "skipped" and attempt.get("conclusion") == "success":
         return False
     proof = (
@@ -248,47 +258,113 @@ def _attempt(owner, repository, run, number, environment):
     return False
 
 
-def assert_published(owner, repository, environment):
-    """Keep all attempts before a published boundary; a newer no-effect failure clears nothing."""
-    other = owner.SCOPED_TICK_TITLES["production" if environment == "uat" else "uat"]
+def _publication_time(owner, saved, job):
+    completed = owner._github_timestamp(saved.get("completed_at"))
+    finished = owner._github_timestamp(job.get("completed_at"))
+    _require(
+        owner,
+        completed is not None and finished is not None and completed <= finished,
+        "maintenance publication chronology is unproved",
+    )
+    return completed
+
+
+def _inventory(owner, repository):
+    """Finish bounded metadata discovery before any checkpoint can end the walk."""
+    collected, seen, total = [], set(), None
     for page in range(1, 11):
         result = owner.api(
             repository,
             f"workflows/capacity-maintenance.yml/runs?branch=main&per_page=100&page={page}",
         )
         runs = result.get("workflow_runs")
-        _require(owner, isinstance(runs, list), "maintenance history is invalid")
-        for run in sorted(runs, key=lambda item: item["id"], reverse=True):
-            if (
-                run.get("path") != WORKFLOW
-                or run.get("head_branch") != "main"
-                or (run.get("repository") or {}).get("full_name") != repository
-                or (run.get("head_repository") or {}).get("full_name") != repository
-            ):
-                continue
-            if (
-                run.get("event") == "repository_dispatch"
-                and run.get("display_title") == other
-            ):
-                continue
-            count = run.get("run_attempt", 1)
+        count = result.get("total_count")
+        _require(
+            owner,
+            type(count) is int
+            and 0 <= count < 1000
+            and (total is None or total == count)
+            and isinstance(runs, list)
+            and len(runs) == min(100, count - len(collected)),
+            "maintenance history is incomplete; reconciliation required",
+        )
+        total = count
+        for run in runs:
             _require(
                 owner,
-                type(count) is int and 1 <= count <= 10,
-                "maintenance attempt inventory exceeds bounded lookup",
+                isinstance(run, dict)
+                and type(run.get("id")) is int
+                and run["id"] > 0
+                and run["id"] not in seen,
+                "maintenance history identity is ambiguous",
             )
-            published = False
-            for number in range(count, 0, -1):
-                published = (
-                    _attempt(owner, repository, run, number, environment) or published
-                )
-            if published:
-                return
-        if len(runs) < 100:
-            return
+            seen.add(run["id"])
+            collected.append(run)
+        if len(collected) == total:
+            return collected
     raise owner.retention.UnsafeState(
-        "maintenance checkpoint history exceeds bounded inventory"
+        "maintenance history exceeds bounded inventory; reconciliation required"
     )
+
+
+def assert_published(owner, repository, environment):
+    """Inspect executions that can follow the exact published Save boundary, regardless of run ID."""
+    other = owner.SCOPED_TICK_TITLES["production" if environment == "uat" else "uat"]
+    relevant = []
+    for run in _inventory(owner, repository):
+        if (
+            run.get("path") != WORKFLOW
+            or run.get("head_branch") != "main"
+            or (run.get("repository") or {}).get("full_name") != repository
+            or (run.get("head_repository") or {}).get("full_name") != repository
+        ):
+            continue
+        if (
+            run.get("event") == "repository_dispatch"
+            and run.get("display_title") == other
+        ):
+            continue
+        updated = owner._github_timestamp(run.get("updated_at"))
+        _require(
+            owner,
+            updated is not None
+            and run.get("status")
+            in {
+                "completed",
+                "in_progress",
+                "queued",
+                "requested",
+                "waiting",
+                "pending",
+            },
+            "maintenance execution chronology is unproved",
+        )
+        relevant.append((updated, run))
+    boundary = None
+    for updated, run in sorted(
+        relevant, key=lambda row: (row[0], row[1]["id"]), reverse=True
+    ):
+        if (
+            boundary is not None
+            and run.get("status") == "completed"
+            and updated < boundary
+        ):
+            continue
+        count = run.get("run_attempt", 1)
+        _require(
+            owner,
+            type(count) is int and 1 <= count <= 10,
+            "maintenance attempt inventory exceeds bounded lookup",
+        )
+        for number in range(count, 0, -1):
+            published = _attempt(owner, repository, run, number, environment)
+            if published:
+                _require(
+                    owner,
+                    run.get("status") != "completed" or published <= updated,
+                    "maintenance publication exceeds execution chronology",
+                )
+                boundary = max(boundary, published) if boundary else published
 
 
 def begin(owner, args, repository, run_id):

@@ -5,9 +5,6 @@ import copy
 import importlib
 import io
 import json
-import pathlib
-import sys
-import tempfile
 from unittest import mock
 
 import retention_publication as publication
@@ -17,10 +14,27 @@ MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
 class ExistingPublicationCases:
+    def test_exact_thousand_run_search_cap_is_not_complete_history(self):
+        rows = [{"id": number} for number in range(1, 1001)]
+
+        def api(_repository, endpoint):
+            page = int(endpoint.rsplit("=", 1)[1])
+            return {
+                "total_count": 1000,
+                "workflow_runs": rows[(page - 1) * 100 : page * 100],
+            }
+
+        with (
+            mock.patch.object(MAINTENANCE, "api", side_effect=api),
+            self.assertRaises(MAINTENANCE.retention.UnsafeState),
+        ):
+            publication._inventory(MAINTENANCE, "org/repo")
+
     def test_publication_guard_accepts_newer_checkpoint_but_rejects_missing_upload(
         self,
     ):
         run = self.trusted_source(123, "capacity-maintenance.yml")
+        run["updated_at"] = "2026-10-14T20:00:01Z"
 
         def inventory(saved):
             return {
@@ -29,6 +43,7 @@ class ExistingPublicationCases:
                     {
                         "name": "UAT bounded revision cleanup",
                         "status": "completed",
+                        "completed_at": "2026-10-14T20:00:01Z",
                         "steps": [
                             {
                                 "name": "Prepare or finish eligible uat revision cleanup",
@@ -37,6 +52,7 @@ class ExistingPublicationCases:
                             {
                                 "name": "Save uat cleanup checkpoint",
                                 "conclusion": saved,
+                                "completed_at": "2026-10-14T20:00:00Z",
                             },
                         ],
                     }
@@ -49,7 +65,10 @@ class ExistingPublicationCases:
                 mock.patch.object(
                     MAINTENANCE,
                     "api",
-                    side_effect=[{"workflow_runs": [run]}, inventory(saved)],
+                    side_effect=[
+                        {"workflow_runs": [run], "total_count": 1},
+                        inventory(saved),
+                    ],
                 ),
                 mock.patch.object(
                     MAINTENANCE, "trusted_checkpoint_run", return_value=True
@@ -70,6 +89,7 @@ class ExistingPublicationCases:
                 **self.trusted_source(run_id, "capacity-maintenance.yml"),
                 "event": "repository_dispatch",
                 "display_title": title,
+                "updated_at": "2026-10-14T20:01:00Z",
             }
 
         checkpoint = tick(999, "Capacity Maintenance tick (production)")
@@ -79,6 +99,7 @@ class ExistingPublicationCases:
                 {
                     "name": "Production bounded revision cleanup",
                     "status": "completed",
+                    "completed_at": "2026-10-14T20:00:01Z",
                     "steps": [
                         {
                             "name": "Prepare or finish eligible production revision cleanup",
@@ -87,6 +108,7 @@ class ExistingPublicationCases:
                         {
                             "name": "Save production cleanup checkpoint",
                             "conclusion": "success",
+                            "completed_at": "2026-10-14T20:00:00Z",
                         },
                     ],
                 }
@@ -112,7 +134,11 @@ class ExistingPublicationCases:
 
             def api(_repository, endpoint, runs=runs, job_calls=job_calls):
                 if endpoint.startswith("workflows/capacity-maintenance.yml/runs"):
-                    return {"workflow_runs": runs}
+                    page = int(endpoint.rsplit("=", 1)[1])
+                    return {
+                        "workflow_runs": runs[(page - 1) * 100 : page * 100],
+                        "total_count": len(runs),
+                    }
                 job_calls.append(endpoint)
                 return saved if endpoint.startswith("runs/999/") else skipped
 
@@ -144,6 +170,7 @@ def legacy_fixture():
         "actor": {"login": "ankitkumarsingh1702"},
         "status": "completed",
         "conclusion": "failure",
+        "updated_at": "2026-10-27T00:00:20Z",
     }
     steps = []
     for index, name in enumerate(publication.LEGACY_STEPS):
@@ -187,6 +214,7 @@ def legacy_fixture():
         ],
         (6, "Hosted maintenance stopped: Drive worker is not ready"),
         (7, "##[error]Process completed with exit code 1."),
+        (8, evidence.REPORT_GROUP),
         (20, "Cleaning up orphan processes"),
     ]
     raw = "\n".join(
@@ -206,8 +234,15 @@ class LegacyPublicationCases:
     def proof(
         self, run, job, raw, *, older=None, source=None, latest=None, profile=None
     ):
-        published = {**run, "id": 50, "status": "completed", "conclusion": "success"}
+        published = {
+            **run,
+            "id": 50,
+            "status": "completed",
+            "conclusion": "success",
+            "updated_at": "2026-10-27T00:00:10Z",
+        }
         published_job = copy.deepcopy(job)
+        published_job["completed_at"] = "2026-10-27T00:00:10Z"
         for step in published_job["steps"]:
             step["conclusion"] = "success"
         calls = []
@@ -215,7 +250,7 @@ class LegacyPublicationCases:
         def api(_repository, endpoint):
             calls.append(endpoint)
             if endpoint.startswith("workflows/"):
-                return {"workflow_runs": [run, published]}
+                return {"workflow_runs": [run, published], "total_count": 2}
             if endpoint == "runs/123/attempts/1":
                 return {
                     **run,
@@ -408,92 +443,3 @@ class LegacyPublicationCases:
                 self.assertRaises(MAINTENANCE.retention.UnsafeState),
             ):
                 self.proof(run, job, raw, latest=latest)
-
-
-def restored_bridge():
-    return {
-        "version": 1,
-        "project": "hushh-pda",
-        "service": "consent-protocol",
-        "status": "intent",
-        "requested": True,
-        "revision": "consent-protocol-cap-" + "a" * 16,
-        "sourceFingerprint": "a" * 64,
-        "serviceControlsFingerprint": "b" * 64,
-        "sourceRevision": "consent-protocol-source",
-        "displacedLatestRevision": "consent-protocol-old",
-        "traffic": [],
-        "pins": {
-            "RUNTIME": {
-                "version": "projects/hushh-pda/secrets/runtime/versions/1",
-                "unchangedSinceSource": True,
-            }
-        },
-    }
-
-
-class EarlyCheckpointCases:
-    def test_health_failure_preserves_restored_checkpoint_and_intents(
-        self,
-    ):
-        bridge = restored_bridge()
-        with tempfile.TemporaryDirectory() as temporary:
-            state = pathlib.Path(temporary)
-            output = state / "output"
-            inherited = b'{"pending_mutation":{"action":"delete","revisions":["old"]}}'
-            prior = {
-                "schema_version": 1,
-                "checkpoint_version": 2,
-                "environment": "uat",
-                "project": "hushh-pda-uat",
-                "release_run_id": 9,
-                "observed_run_id": 20,
-                "pass_status": "unresolved",
-                "pending_services": ["consent-protocol"],
-                "capacity_bridge": bridge,
-            }
-
-            def restore(*_args, **_kwargs):
-                (state / "consent-protocol.json").write_bytes(inherited)
-                (state / "completed.json").write_text(json.dumps(prior))
-
-            with (
-                mock.patch.dict(
-                    "os.environ",
-                    {"GITHUB_REPOSITORY": "org/repo", "GITHUB_OUTPUT": str(output)},
-                ),
-                mock.patch.object(
-                    sys, "argv", ["maintenance", "--state-dir", str(state), "--apply"]
-                ),
-                mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
-                mock.patch.object(MAINTENANCE, "restore_state", side_effect=restore),
-                mock.patch.object(MAINTENANCE, "maintenance_due", return_value=True),
-                mock.patch.object(
-                    MAINTENANCE,
-                    "find_release",
-                    return_value=(123, {"status": "healthy"}),
-                ) as source,
-                mock.patch.object(
-                    MAINTENANCE, "latest_deploy_observation", return_value=124
-                ),
-                mock.patch.object(
-                    MAINTENANCE,
-                    "live_release_matches",
-                    side_effect=MAINTENANCE.retention.UnsafeState(
-                        "Drive worker is not ready"
-                    ),
-                ),
-                mock.patch.object(MAINTENANCE, "run_retention") as mutate,
-            ):
-                with self.assertRaisesRegex(
-                    MAINTENANCE.retention.UnsafeState, "Drive worker"
-                ):
-                    MAINTENANCE.main()
-            self.assertIs(source.call_args.kwargs["require_live"], False)
-            checkpoint = json.loads((state / "completed.json").read_text())
-            self.assertEqual((state / "completed.json").read_text(), json.dumps(prior))
-            self.assertTrue((state / "README.txt").is_file())
-            self.assertEqual(checkpoint["capacity_bridge"], bridge)
-            self.assertEqual((state / "consent-protocol.json").read_bytes(), inherited)
-            self.assertIn("checkpoint_ready=true", output.read_text())
-            mutate.assert_not_called()

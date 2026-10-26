@@ -47,7 +47,96 @@ def saved_checkpoint(status, pending):
     return receipt, intent
 
 
-class PreflightCheckpointTest(unittest.TestCase):
+def restored_bridge():
+    return {
+        "version": 1,
+        "project": "hushh-pda",
+        "service": "consent-protocol",
+        "status": "intent",
+        "requested": True,
+        "revision": "consent-protocol-cap-" + "a" * 16,
+        "sourceFingerprint": "a" * 64,
+        "serviceControlsFingerprint": "b" * 64,
+        "sourceRevision": "consent-protocol-source",
+        "displacedLatestRevision": "consent-protocol-old",
+        "traffic": [],
+        "pins": {
+            "RUNTIME": {
+                "version": "projects/hushh-pda/secrets/runtime/versions/1",
+                "unchangedSinceSource": True,
+            }
+        },
+    }
+
+
+class EarlyCheckpointCases:
+    def test_health_failure_preserves_restored_checkpoint_and_intents(
+        self,
+    ):
+        bridge = restored_bridge()
+        with tempfile.TemporaryDirectory() as temporary:
+            state = pathlib.Path(temporary)
+            output = state / "output"
+            inherited = b'{"pending_mutation":{"action":"delete","revisions":["old"]}}'
+            prior = {
+                "schema_version": 1,
+                "checkpoint_version": 2,
+                "environment": "uat",
+                "project": "hushh-pda-uat",
+                "release_run_id": 9,
+                "observed_run_id": 20,
+                "pass_status": "unresolved",
+                "pending_services": ["consent-protocol"],
+                "capacity_bridge": bridge,
+            }
+
+            def restore(*_args, **_kwargs):
+                (state / "consent-protocol.json").write_bytes(inherited)
+                (state / "completed.json").write_text(json.dumps(prior))
+
+            with (
+                mock.patch.dict(
+                    "os.environ",
+                    {"GITHUB_REPOSITORY": "org/repo", "GITHUB_OUTPUT": str(output)},
+                ),
+                mock.patch.object(
+                    sys, "argv", ["maintenance", "--state-dir", str(state), "--apply"]
+                ),
+                mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
+                mock.patch.object(MAINTENANCE, "restore_state", side_effect=restore),
+                mock.patch.object(MAINTENANCE, "maintenance_due", return_value=True),
+                mock.patch.object(
+                    MAINTENANCE,
+                    "find_release",
+                    return_value=(123, {"status": "healthy"}),
+                ) as source,
+                mock.patch.object(
+                    MAINTENANCE, "latest_deploy_observation", return_value=124
+                ),
+                mock.patch.object(
+                    MAINTENANCE,
+                    "live_release_matches",
+                    side_effect=MAINTENANCE.retention.UnsafeState(
+                        "Drive worker is not ready"
+                    ),
+                ),
+                mock.patch.object(MAINTENANCE, "run_retention") as mutate,
+            ):
+                with self.assertRaisesRegex(
+                    MAINTENANCE.retention.UnsafeState, "Drive worker"
+                ):
+                    MAINTENANCE.main()
+            self.assertIs(source.call_args.kwargs["require_live"], False)
+            checkpoint = json.loads((state / "completed.json").read_text())
+            self.assertEqual((state / "completed.json").read_text(), json.dumps(prior))
+            self.assertTrue((state / "README.txt").is_file())
+            self.assertEqual(checkpoint["capacity_bridge"], bridge)
+            self.assertEqual((state / "consent-protocol.json").read_bytes(), inherited)
+            self.assertIn("checkpoint_ready=true", output.read_text())
+            mutate.assert_not_called()
+
+
+class PreflightCheckpointTest(EarlyCheckpointCases, unittest.TestCase):
     def test_preflight_failure_preserves_publishable_checkpoint_and_pending_intent(
         self,
     ):
@@ -248,13 +337,15 @@ class PublicationHistoryRecoveryTest(unittest.TestCase):
                 "head_branch": "main",
                 "repository": {"full_name": repository},
                 "head_repository": {"full_name": repository},
+                "updated_at": "2026-10-27T00:00:20Z",
+                "status": "completed",
             }
             for number in (3, 2, 1)
         ]
 
         def inventory(_repository, endpoint):
             if endpoint.startswith("workflows/"):
-                return {"workflow_runs": runs}
+                return {"workflow_runs": runs, "total_count": len(runs)}
             number = int(endpoint.split("/")[1])
             return {
                 "total_count": 1,
@@ -298,6 +389,102 @@ class PublicationHistoryRecoveryTest(unittest.TestCase):
                 # A matching run ID alone cannot exempt an active rerun/attempt.
                 with self.assertRaises(MAINTENANCE.retention.UnsafeState):
                     MAINTENANCE.assert_checkpoint_publication(repository, "uat")
+
+
+class ExecutionChronologyTest(unittest.TestCase):
+    def history(self, updated, *, active=False, inventory_defect=None):
+        base = {
+            "path": ".github/workflows/capacity-maintenance.yml",
+            "head_branch": "main",
+            "repository": {"full_name": "org/repo"},
+            "head_repository": {"full_name": "org/repo"},
+            "status": "completed",
+            "run_attempt": 1,
+        }
+        newer = {**base, "id": 200, "updated_at": "2026-10-27T00:00:20Z"}
+        older = {
+            **base,
+            "id": 100,
+            "run_attempt": 2,
+            "updated_at": updated,
+            "status": "in_progress" if active else "completed",
+        }
+        saved = {
+            "name": "UAT bounded revision cleanup",
+            "status": "completed",
+            "completed_at": "2026-10-27T00:00:20Z",
+            "steps": [
+                {
+                    "name": "Prepare or finish eligible uat revision cleanup",
+                    "conclusion": "success",
+                },
+                {
+                    "name": "Save uat cleanup checkpoint",
+                    "conclusion": "success",
+                    "completed_at": "2026-10-27T00:00:10Z",
+                },
+            ],
+        }
+        missing = {
+            **saved,
+            "status": "in_progress" if active else "completed",
+            "steps": [
+                {
+                    "name": "Prepare or finish eligible uat revision cleanup",
+                    "conclusion": "failure",
+                },
+                {"name": "Save uat cleanup checkpoint", "conclusion": "failure"},
+            ],
+        }
+        calls = []
+
+        def api(_repository, endpoint):
+            calls.append(endpoint)
+            if endpoint.startswith("workflows/"):
+                rows = [newer, newer if inventory_defect == "duplicate" else older]
+                count = (
+                    1001
+                    if inventory_defect == "overflow"
+                    else 3
+                    if inventory_defect == "truncated"
+                    else 2
+                )
+                return {"total_count": count, "workflow_runs": rows}
+            return {
+                "total_count": 1,
+                "jobs": [saved if endpoint.startswith("runs/200/") else missing],
+            }
+
+        with (
+            mock.patch.object(MAINTENANCE, "api", side_effect=api),
+            mock.patch.object(MAINTENANCE, "trusted_checkpoint_run", return_value=True),
+        ):
+            MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
+        return calls
+
+    def test_older_id_rerun_after_or_equal_to_publication_cannot_hide_behind_newer_id(
+        self,
+    ):
+        for updated in ("2026-10-27T00:00:25Z", "2026-10-27T00:00:10Z", None):
+            with (
+                self.subTest(updated=updated),
+                self.assertRaises(MAINTENANCE.retention.UnsafeState),
+            ):
+                self.history(updated)
+        with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "still active"):
+            self.history("2026-10-27T00:00:05Z", active=True)
+        calls = self.history("2026-10-27T00:00:05Z")
+        self.assertFalse(any(endpoint.startswith("runs/100/") for endpoint in calls))
+
+    def test_metadata_inventory_must_be_complete_unique_and_bounded_before_any_anchor(
+        self,
+    ):
+        for defect in ("duplicate", "overflow", "truncated"):
+            with (
+                self.subTest(defect=defect),
+                self.assertRaises(MAINTENANCE.retention.UnsafeState),
+            ):
+                self.history("2026-10-27T00:00:05Z", inventory_defect=defect)
 
 
 if __name__ == "__main__":
