@@ -18,30 +18,21 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Integrated source and physical rehearsal — 2026-10-26
 
-Candidate `e9d3432220` includes main `f6ed17d3c2` and passes canonical core:
-23,882 protocol tests, 1,479 database tests, web-core, package and integration.
-All 1,764 packaged files, signatures and UAT settings were verified. App and
-matching runner installed over Wi-Fi after reconnecting the existing pairing;
-ordinary launch and attach-only admission passed. Matching Xcode 27.2 passed
-the public whole-value input probe and normal reviewer unlock. Credentials and
-private test-result bundles were not retained.
+| Boundary | Current evidence |
+| --- | --- |
+| Source preservation | Main `2dc3da0ff9` was preserved at `b8b09f6a5b`: 91/92 incoming paths match exactly; the workflow retains both Main policy and five native test filters. Main `3b9fc70f61` Document Request recovery is subsequently integrated at `be107c0778`, without native-source changes. |
+| Verification | Canonical core passed at `e9d3432220`: 23,882 protocol and 1,479 database tests plus web/package/integration. At `b8b09f6a5b`, 168 affected backend and 199 web tests plus canonical affected stages pass; exact-head PR CI run `40371825312` succeeds. The newer combined tree requires refreshed Back/Search review and affected document checks before landing. |
+| Native Profile | Installed `e9d3432220` traversed all 15 destinations across an interrupted run and successful remaining-destination recovery. The snapshot failure is retained, not called an uninterrupted pass. No reviewer saves; session/WebView checks passed on completed journeys. |
+| Current physical build | Both qualification and ordinary flag-OFF `b8b09f6a5b` Release payloads/signatures/UAT settings were verified: 1,765 packaged files each. Ordinary App/runner installation succeeded over Wi-Fi; its launch is blocked by the phone's OS lock. |
+| Native qualification | `b8` agent switching completed nine cycles before a snapshot interruption; the separate History action journey lacks an actionable fixture. Neither result is a ten-cycle pass. Visual/accessibility, mutation and three-run physical frame acceptance remain open. |
+| Tools and privacy | Supported pairing reconnect restored Wi-Fi uploads. Matching Xcode 27.2 passed public whole-value input and normal reviewer unlock. Raw credential/test/crash reports were removed; only sanitized metadata remains. Historical PID 4116 crash data does not diagnose the later PID 5042 interruption. |
+| Simulator | The ordinary flag-OFF Release installs, launches and passes guest admission on the existing headless iPhone 16e simulator. It has no authenticated reviewer session; protected journeys are not qualified. Simulator test-product mode is not physical attach-only or frame evidence. |
 
-The preceding installed `d70c40fd01` passed two warm batches across all 15
-Profile destinations, including Invite pane containment, nested editors and
-Legal readers, with a single WebView/session and no reviewer saves. The full
-`e9d3432220` traversal is in progress; those older receipts do not qualify it.
-
-Main advanced again to `2dc3da0ff9`; integration `3538c13cce` preserves 91 of
-92 incoming paths exactly. The remaining workflow retains both main's release
-policy and five existing native path-filter entries. Native source is unchanged;
-the newer combined source requires affected verification and exact-head CI.
-The earlier push stopped at freshness rather than overwriting team work.
-
-Ordinary custom-native Release/TestFlight admission remains **off**. Visual,
-accessibility, mutation and three-run physical frame acceptance remain separate
-from these functional receipts. Xcode/Instruments 27.2 is installed alongside the
-original tools; a standard 30-second trace exports, but semantic motion capture
-is not yet qualified. No merge, UAT deployment or native distribution is implied.
+Ordinary custom-native Release/TestFlight admission remains **off**. A standard
+Instruments 27.2 trace exports, but current semantic motion capture is not
+qualified. Flag-OFF delivery uses the existing release gates separately from
+native-default qualification. No merge, UAT deployment, native distribution,
+production or public App Store outcome is implied by these receipts.
 
 ### Owned native feedback candidate — 2026-10-26
 

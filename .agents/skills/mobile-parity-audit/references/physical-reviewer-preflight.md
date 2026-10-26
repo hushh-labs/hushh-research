@@ -35,6 +35,13 @@ another reviewer store or a privileged app-unlock route.
    the existing pairing, recheck the authenticated service and make one bounded
    transfer attempt appropriate to the artifact size. Install the app and matching
    runner serially; verify both receipts before launch or attach-only testing.
+   Recheck device lock after a mid-run snapshot/session failure before diagnosing
+   an app crash or retrying input. An automation grant does not keep the phone
+   unlocked indefinitely. Bind crash evidence to the current PID/build/time;
+   an older report cannot explain a new interruption.
+   `UseDestinationArtifacts` is physical-iOS-only. Simulator runs use Xcode's
+   standard test-product paths; observe process/document identity instead of
+   claiming attach-only continuity from that configuration.
 3. Inspect this Xcode version's `devicectl device settings --help` before claiming
    a supported authorization or unlock command. Do not infer one from permission
    to operate the device or from the possession of its passcode.
