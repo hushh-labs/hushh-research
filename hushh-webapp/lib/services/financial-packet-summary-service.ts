@@ -3,11 +3,14 @@ import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import type { PacketGuard } from "@/lib/services/drive-packet-service";
 
 export const PUBLIC_PACKET_DISCLOSURE = "drive-packet-public-summary-v1";
+export const PACKET_PROFILE_VISIBILITY_DISCLOSURE = "drive-financial-summary-default-v1";
+export type PacketProfileVisibility = { enabled: boolean; revision: number; disclosure: typeof PACKET_PROFILE_VISIBILITY_DISCLOSURE };
 export type PacketPublicSummary = { enabled: boolean; revision: number; version: number; disclosure: typeof PUBLIC_PACKET_DISCLOSURE };
 export type PacketPublication = { packetId: string; currentVersion: number; title: "Financial documents"; periodStart: string; periodEnd: string; timezone: string; publicSummary: PacketPublicSummary };
 export type FinancialPacketSummary = {
   packetId: string; version: number; category: "financial"; title: "Financial documents";
   periodStart: string; periodEnd: string; timezone: string; documentCount: number | null;
+  saleDocumentCount?: number | null;
   countBasis: "discovery_matches" | "sale_files"; complete: boolean; updatedAt: string | null;
   priceCents: 500; currency: "USD"; availability: "preparing" | "ready" | "unavailable";
   viewerAction: "owner" | "connect" | "pending" | "request" | "view_request" | "view_files" | "unavailable";
@@ -46,6 +49,7 @@ export function parseFinancialPacketSummary(value: unknown): FinancialPacketSumm
   if (item.updatedAt !== null && (typeof item.updatedAt !== "string" || item.updatedAt.length > 64 || !Number.isFinite(Date.parse(item.updatedAt)))) throw invalid();
   return { packetId: uuid(item.packetId), version: integer(item.version), category: "financial", title: "Financial documents",
     periodStart, periodEnd, timezone: item.timezone, documentCount: item.documentCount === null ? null : integer(item.documentCount),
+    ...(item.saleDocumentCount === undefined ? {} : { saleDocumentCount: item.saleDocumentCount === null ? null : integer(item.saleDocumentCount) }),
     countBasis: member(item.countBasis, ["discovery_matches", "sale_files"]), complete: item.complete, updatedAt: item.updatedAt as string | null,
     priceCents: 500, currency: "USD", availability: member(item.availability, ["preparing", "ready", "unavailable"]),
     viewerAction: member(item.viewerAction, ["owner", "connect", "pending", "request", "view_request", "view_files", "unavailable"]) };
@@ -55,14 +59,39 @@ async function read(response: Response, guard: PacketGuard): Promise<Record<stri
   if (!response.ok || body.length > 262144) throw new Error("packet_summary_unavailable");
   return object(JSON.parse(body));
 }
+export function parsePacketProfileVisibility(value: unknown): PacketProfileVisibility {
+  const item = object(value);
+  if (typeof item.enabled !== "boolean" || item.disclosure !== PACKET_PROFILE_VISIBILITY_DISCLOSURE) throw invalid();
+  return { enabled: item.enabled, revision: integer(item.revision), disclosure: PACKET_PROFILE_VISIBILITY_DISCLOSURE };
+}
 export class FinancialPacketSummaryService {
+  static async visibility(token: string, guard: PacketGuard): Promise<PacketProfileVisibility> {
+    if (!token) throw new Error("authentication_required");
+    guard();
+    return parsePacketProfileVisibility(await read(await ApiService.apiFetch("/api/connectors/google_drive/sharing/financial-summary-preference", {
+      method: "GET", cache: "no-store", timeoutMs: 8_000, headers: ApiService.getAuthHeaders(token),
+      isEffectCurrent: () => { guard(); return true; },
+    }), guard));
+  }
+  static async setVisibility(token: string, expected: PacketProfileVisibility, enabled: boolean, guard: PacketGuard): Promise<PacketProfileVisibility> {
+    parsePacketProfileVisibility(expected);
+    if (!token || typeof enabled !== "boolean") throw invalid();
+    guard();
+    const value = parsePacketProfileVisibility(await read(await ApiService.apiFetch("/api/connectors/google_drive/sharing/financial-summary-preference", {
+      method: "PUT", cache: "no-store", timeoutMs: 8_000, headers: { ...ApiService.getAuthHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled, expectedRevision: expected.revision, disclosure: PACKET_PROFILE_VISIBILITY_DISCLOSURE }),
+      isEffectCurrent: () => { guard(); return true; },
+    }), guard));
+    if (value.enabled !== enabled || value.revision <= expected.revision) throw invalid();
+    return value;
+  }
   static async list(personRef: string, firebaseToken: string, guard: PacketGuard, cursor?: string | null) {
     uuid(personRef); if (!firebaseToken) throw new Error("authentication_required");
     if (cursor && (cursor.length > 2048 || /[\x00-\x1f]/.test(cursor))) throw invalid();
     guard();
     const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
     const value = await read(await ApiService.apiFetch(`/api/one/people/${personRef}/financial-packets${query}`, {
-      method: "GET", cache: "no-store", headers: { Authorization: `Bearer ${firebaseToken}` },
+      method: "GET", cache: "no-store", timeoutMs: 8_000, headers: { Authorization: `Bearer ${firebaseToken}` },
       isEffectCurrent: () => { guard(); return true; },
     }), guard);
     if (!Array.isArray(value.packets) || value.packets.length > 50 || value.nextCursor !== null && (typeof value.nextCursor !== "string" || !value.nextCursor || value.nextCursor.length > 2048)) throw invalid();
@@ -76,7 +105,7 @@ export class FinancialPacketSummaryService {
     const query = cursor ? `?${new URLSearchParams({ cursor: uuid(cursor) })}` : "";
     guard();
     const value = await read(await ApiService.apiFetch(`/api/connectors/google_drive/sharing/packet-publications${query}`, {
-      method: "GET", cache: "no-store", headers: ApiService.getAuthHeaders(token), isEffectCurrent: () => { guard(); return true; },
+      method: "GET", cache: "no-store", timeoutMs: 8_000, headers: ApiService.getAuthHeaders(token), isEffectCurrent: () => { guard(); return true; },
     }), guard);
     if (!Array.isArray(value.packets) || value.packets.length > 25) throw invalid();
     const packets = value.packets.map(value => {
@@ -94,7 +123,7 @@ export class FinancialPacketSummaryService {
     if (!token || typeof enabled !== "boolean") throw invalid();
     guard();
     const value = await read(await ApiService.apiFetch(`/api/connectors/google_drive/sharing/packets/${packetId}/public-summary`, {
-      method: "PUT", cache: "no-store", headers: { ...ApiService.getAuthHeaders(token), "Content-Type": "application/json" },
+      method: "PUT", cache: "no-store", timeoutMs: 8_000, headers: { ...ApiService.getAuthHeaders(token), "Content-Type": "application/json" },
       body: JSON.stringify({ enabled, version: expected.version, expectedRevision: expected.revision, disclosure: PUBLIC_PACKET_DISCLOSURE }),
       isEffectCurrent: () => { guard(); return true; },
     }), guard);

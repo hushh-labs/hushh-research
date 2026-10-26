@@ -349,7 +349,7 @@ def assert_backend_source_rollback(
         "print(json.dumps({'version':1} if sys.argv[2].endswith('account-deletion-authority.json') "
         "else {'ordered_migrations':['423_account_shared_provider_authority.sql'] + "
         "(['425_account_phone_transfers.sql'] if os.environ['SOURCE_CONTRACT'] in ('phone','legacy_phone') else []) + "
-        "(['428_phone_recovery_actions.sql'] if os.environ['SOURCE_CONTRACT']=='phone' else [])}))\n"
+        "(['430_phone_recovery_actions.sql'] if os.environ['SOURCE_CONTRACT']=='phone' else [])}))\n"
     )
     for binary in ("gcloud", "git"):
         (directory / binary).chmod(0o700)

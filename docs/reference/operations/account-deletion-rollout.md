@@ -834,7 +834,7 @@ and these aggregate checks without phone numbers, OTPs or owner identifiers.
 
 ## Phone recovery action admission (428)
 
-Migration `428_phone_recovery_actions.sql` adds bounded, non-authorizing recovery
+Migration `430_phone_recovery_actions.sql` adds bounded, non-authorizing recovery
 continuations and own-device action receipts. Producers use the existing
 `AUTH_PHONE_RECOVERY_ENABLED` flag. Turning it off retains status/readback and
 completed cleanup; it does not erase pending work. Shared codes never grant

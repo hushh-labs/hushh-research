@@ -102,3 +102,47 @@ def test_owner_publication_receipts_require_vault_owner_and_are_control_metadata
     assert response.status_code == 200 and "no-store" in response.headers["Cache-Control"]
     service.list_publications.assert_awaited_once_with(user_id="recipient", cursor=REQUEST_ID)
     assert client.get(path, params={"cursor": "bad"}).status_code == 422
+
+
+def test_owner_summary_preference_requires_current_vault_owner_and_strict_cas(setup, monkeypatch):
+    from api.hub_route_classes import ROUTE_CLASSES, RouteClass
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    client, app, _, current = setup
+    app.include_router(routes.router)
+    preference = {
+        "enabled": True,
+        "revision": 0,
+        "disclosure": "drive-financial-summary-default-v1",
+    }
+    service = SimpleNamespace(
+        get_preference=AsyncMock(return_value=preference),
+        set_preference=AsyncMock(return_value=preference | {"enabled": False, "revision": 1}),
+    )
+    monkeypatch.setattr(routes, "_service", lambda: service)
+    path = "/api/connectors/google_drive/sharing/financial-summary-preference"
+    assert ROUTE_CLASSES[("GET", path)] is RouteClass.AUTHORITY
+    assert ROUTE_CLASSES[("PUT", path)] is RouteClass.AUTHORITY
+    body = {"enabled": False, "expectedRevision": 0, "disclosure": preference["disclosure"]}
+    assert client.get(path).status_code == 401
+    assert client.put(path, json=body).status_code == 401
+    unlock(app)
+    read = client.get(path)
+    assert read.status_code == 200 and read.json() == preference
+    assert "no-store" in read.headers["Cache-Control"]
+    assert client.put(path, json=body).status_code == 200
+    service.set_preference.assert_awaited_once_with(
+        user_id="recipient", enabled=False, expected_revision=0, disclosure=preference["disclosure"]
+    )
+    for patch in (
+        {"enabled": "false"},
+        {"expectedRevision": True},
+        {"packetId": REQUEST_ID},
+        {"ownerUserId": "other"},
+    ):
+        assert client.put(path, json=body | patch).status_code == 422
+    service.set_preference.side_effect = DriveReadError("listing_changed")
+    assert client.put(path, json=body).status_code == 409
+    current.side_effect = HTTPException(401, "Expired")
+    assert client.put(path, json=body).status_code == 401
+    assert service.set_preference.await_count == 2

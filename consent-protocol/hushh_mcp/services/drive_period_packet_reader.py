@@ -26,6 +26,32 @@ def require_period_purchase():
         raise DriveReadError("packet_unavailable")
 
 
+def packet_count_projection(row):
+    """Project saved search counts independently of immutable sale membership."""
+    frozen = row["current_version"] > 0
+    sale_count = row.get("document_count") if frozen else None
+    # A refreshed owner search can advance while its older sale stays unchanged.
+    discovery = (
+        row.get("preview_document_count") is not None
+        or row.get("preview_updated_at") is not None
+        or row.get("preview_complete", False)
+    )
+    count = row.get("preview_document_count") if discovery else sale_count
+    complete = (
+        row.get("preview_complete", False) if discovery else frozen and sale_count is not None
+    )
+    if discovery and count == 0 and not complete:
+        count = None  # An unfinished search has not established an empty result.
+    updated = row.get("preview_updated_at") if discovery else row.get("version_updated_at")
+    return {
+        "documentCount": count,
+        "countBasis": "discovery_matches" if discovery or not frozen else "sale_files",
+        "saleDocumentCount": sale_count,
+        "complete": bool(complete),
+        "updatedAt": updated.isoformat() if updated else None,
+    }
+
+
 def current_manifest(store, connection, *, owner_user_id, packet_id, version, viewer_user_id=None):
     active = store._period_access(connection, owner=owner_user_id, viewer=viewer_user_id)
     row = store._row(
@@ -76,6 +102,7 @@ def project_packet(store, row, *, is_owner, owner_contents):
         manifest["state"] if manifest else "unable_to_verify" if row["error_code"] else "building"
     )
     key = store._key(row)
+    counts = packet_count_projection(row)
     result = {
         "packetId": str(row["packet_id"]),
         "version": row["version"] or 0,
@@ -88,7 +115,8 @@ def project_packet(store, row, *, is_owner, owner_contents):
         "title": key["title"],
         "description": "Files found by Google Drive search.",
         "coverageSummary": "Files selected by provider search and metadata dates.",
-        "documentCount": row["document_count"] or 0,
+        "documentCount": counts["documentCount"],
+        "saleDocumentCount": counts["saleDocumentCount"],
         "priceCents": PERIOD_PACKET_PRICE_CENTS,
         "listingRevision": row["listing_revision"] or 0,
         "listingEnabled": bool(row["listing_enabled"]),
@@ -145,11 +173,14 @@ async def list_packets(
         active = store._period_access(connection, owner=owner, viewer=user_id)
         rows = connection.execute(
             text("""SELECT h.*,v.version,v.manifest_envelope,v.state,v.available,
+          COALESCE(p.financial_summary_enabled,TRUE) AS financial_summary_enabled,
+          COALESCE(p.financial_summary_revision,0) AS financial_summary_revision,
           v.document_count,l.revision AS listing_revision,l.enabled AS listing_enabled,
           buyer.request_id AS buyer_request_id,buyer.status AS buyer_status,
           buyer.payment_status AS buyer_payment_status
           FROM drive_packet_heads h LEFT JOIN drive_packet_versions v
           ON v.packet_id=h.packet_id AND v.version=h.current_version
+          LEFT JOIN drive_live_preferences p ON p.user_id=h.user_id
           LEFT JOIN drive_packet_listings l ON l.packet_id=v.packet_id AND l.version=v.version
           LEFT JOIN LATERAL (SELECT r.request_id,r.status,o.status AS payment_status
             FROM drive_share_requests r LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id

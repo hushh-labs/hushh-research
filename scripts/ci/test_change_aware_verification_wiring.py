@@ -245,6 +245,30 @@ def test_web_targeted_layout_check_tracks_people_fixture_inputs() -> None:
     )
 
 
+def test_financial_packet_inputs_schedule_existing_connections_pack() -> None:
+    import json
+
+    from web_ci_lane_fixture import _run
+
+    for changed in (
+        "hushh-webapp/e2e/financial-packets.layout.spec.ts",
+        "hushh-webapp/e2e/fixtures/person-profile-browser.ts",
+        "hushh-webapp/components/connections/person-profile-packets.tsx",
+        "hushh-webapp/components/consent/drive-packet-catalog.tsx",
+        "hushh-webapp/components/consent/packets/financial-packet-summaries.tsx",
+    ):
+        code, calls, output = _run(
+            ROOT / "scripts/ci/web-targeted-check.sh",
+            {"WEB_TARGETED_PART": "browser", "WEB_TARGETED_CHANGED_FILES": changed},
+        )
+        assert code == 0, output[-2000:]
+        assert calls.count("run test:connections-layout") == 1, (changed, calls)
+    scripts = json.loads((ROOT / "hushh-webapp/package.json").read_text())["scripts"]
+    selected = scripts["test:connections-layout"].split("--project=chromium")[0]
+    assert selected.count("e2e/financial-packets.layout.spec.ts") == 1
+    assert selected.count("e2e/person-profile-actions.layout.spec.ts") == 1
+
+
 def main() -> int:
     tests = (
         test_ci_smoke_and_uat_share_the_selector,
@@ -257,6 +281,7 @@ def main() -> int:
         test_uat_analytics_transient_asset_retry_is_bounded_and_fail_closed,
         test_web_targeted_voice_check_uses_locked_protocol_runtime,
         test_web_targeted_layout_check_tracks_people_fixture_inputs,
+        test_financial_packet_inputs_schedule_existing_connections_pack,
     )
     for test in tests:
         test()
