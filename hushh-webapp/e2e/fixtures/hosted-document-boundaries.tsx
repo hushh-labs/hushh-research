@@ -10,10 +10,14 @@ export type HostedFixtureConfig = {
 };
 let configuration: HostedFixtureConfig;
 let activeActor: "owner" | "recipient" = "recipient";
+let sessionGeneration = 0;
 let keySetups = 0;
 let recipientKeyLost = false;
 export function setHostedFixtureConfig(value: HostedFixtureConfig) { configuration = value; }
-export function setHostedFixtureActor(value: "owner" | "recipient") { activeActor = value; }
+export function setHostedFixtureActor(value: "owner" | "recipient") {
+  if (value !== activeActor) sessionGeneration++;
+  activeActor = value;
+}
 export const getFixtureKeySetupCount = () => keySetups;
 export function loseFixtureRecipientKey() { recipientKeyLost = true; }
 const getVaultKey = () => activeActor === "owner" ? configuration.ownerVaultKey : configuration.recipientVaultKey;
@@ -22,11 +26,14 @@ const users = {
   owner: { uid: "owner", providerData: [], getIdToken: async () => "owner" },
   recipient: { uid: "recipient", providerData: [], getIdToken: async () => "recipient" },
 };
-export const fixtureSession = (userId: "owner" | "recipient"): DocumentSession => ({
-  userId, vaultOwnerToken: userId,
-  vaultKey: userId === "owner" ? configuration.ownerVaultKey : configuration.recipientVaultKey,
-  isCurrent: () => true,
-});
+export const fixtureSession = (userId: "owner" | "recipient"): DocumentSession => {
+  const generation = sessionGeneration;
+  return {
+    userId, vaultOwnerToken: userId,
+    vaultKey: userId === "owner" ? configuration.ownerVaultKey : configuration.recipientVaultKey,
+    isCurrent: () => activeActor === userId && sessionGeneration === generation,
+  };
+};
 export const ApiService = {
   apiFetch: (url: string, { isEffectCurrent, responseType: _responseType, ...options }: RequestInit & { isEffectCurrent?: () => boolean; responseType?: string }) => {
     if (isEffectCurrent && !isEffectCurrent()) throw new Error("session_changed");

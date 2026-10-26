@@ -365,7 +365,8 @@
     "426_financial_search_incomplete_reason.sql",
     "427_workos_generation_memberships.sql",
     "428_financial_summary_owner_preference.sql",
-    "429_drive_empty_sale_finalization.sql"
+    "429_drive_empty_sale_finalization.sql",
+    "430_one_area_discovery.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -775,6 +776,7 @@
     "426_financial_search_incomplete_reason.sql": "rollback/426_financial_search_incomplete_reason.rollback.sql",
     "427_workos_generation_memberships.sql": "rollback/427_workos_generation_memberships.rollback.sql",
     "428_financial_summary_owner_preference.sql": "rollback/428_financial_summary_owner_preference.rollback.sql",
-    "429_drive_empty_sale_finalization.sql": "rollback/429_drive_empty_sale_finalization.rollback.sql"
+    "429_drive_empty_sale_finalization.sql": "rollback/429_drive_empty_sale_finalization.rollback.sql",
+    "430_one_area_discovery.sql": "rollback/430_one_area_discovery.rollback.sql"
   }
 }

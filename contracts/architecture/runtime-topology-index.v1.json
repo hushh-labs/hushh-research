@@ -1518,6 +1518,17 @@
       "primary_access_path": "model preference service, read on every agent chat turn and written from Agent chat or /api/one/models/preference"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_area_discovery_preferences",
+        "one_area_discovery_search_budgets"
+      ],
+      "id": "one_area_discovery",
+      "lifecycle_status": "customer0",
+      "owner": "backend-api-contracts",
+      "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated POST /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_attention_ledger"
@@ -7145,7 +7156,7 @@
     "action_gateway": "03ff24dcd76746d032a6bdc2dc09b8d01d185ba60a3219c78f77a72ff6c31941",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "5f2beefa87d685b030f32e159c7b7f67e85c30406a0e6c09dc701e22500eaa2b",
+    "data_plane": "089abccfc1f0fc6fecad815b8c6b7cc08555c6c6150bed247db7bd21d2858df4",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "9f36cb5a752042829d3497d7ed9dcbc97d6f8481dce542b45842871a3d7a7158",
@@ -7164,6 +7175,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 161,
     "semantic_routes": 17,
-    "table_families": 137
+    "table_families": 138
   }
 }
