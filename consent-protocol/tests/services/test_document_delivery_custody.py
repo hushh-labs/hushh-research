@@ -34,6 +34,14 @@ from tests.services.test_document_delivery import (  # noqa: F401
     lifecycle,
     sharing,
 )
+from tests.test_drive_sharing_routes import (
+    BASE,
+    REQUEST_ID,
+    unlock,
+)
+from tests.test_drive_sharing_routes import (
+    setup as sharing_route_setup,  # noqa: F401 -- canonical lightweight HTTP fixture
+)
 
 
 def _real_content_owner(app, monkeypatch):
@@ -360,3 +368,55 @@ async def test_migration_replay_refuses_loosened_identity_shape_and_rollback_is_
         connection.exec_driver_sql(rollback.replace("%", "%%"))
         apply_drive_fixture_migration(connection, "424_protected_one_document_delivery.sql")
         assert system.store.schema_ready(connection)
+
+
+@pytest.mark.parametrize("operation", ["create", "projection"])
+def test_hosted_routes_preserve_safe_shared_drive_errors(
+    sharing_route_setup, monkeypatch, operation
+):
+    from api.middleware import require_firebase_auth_read_only
+    from api.routes import document_delivery
+    from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+    client, app, _, _ = sharing_route_setup
+    app.include_router(document_delivery.router)
+    service = SimpleNamespace(
+        **{operation: AsyncMock(side_effect=DriveSharingError("connection_required"))}
+    )
+    monkeypatch.setattr(document_delivery, "_service", lambda: service)
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: "recipient"
+    body = {
+        "version": 1,
+        "ownerUserId": "owner",
+        "clientRequestId": REQUEST_ID,
+        "purpose": {"purpose": "resume", "periodStart": "2026-06-02", "periodEnd": "2026-10-02"},
+        "receiveThrough": "one",
+        "activityDisclosureVersion": "one-document-activity-v1",
+        "activityAccepted": True,
+        "recipientKeyId": "key-test",
+        "recipientKeyFingerprint": "a" * 64,
+    }
+
+    def request():
+        if operation == "create":
+            return client.post(
+                "/api/connectors/google_drive/sharing/delivery-requests",
+                headers={"Authorization": "Bearer synthetic-firebase"},
+                json=body,
+            )
+        return client.get(BASE + f"/{REQUEST_ID}/delivery/terms")
+
+    # The transport fix does not bypass admission or invoke the domain service.
+    assert request().status_code == 401
+    assert not getattr(service, operation).called
+    unlock(app)
+    response = request()
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "connection_required"
+    assert "no-store" in response.headers["Cache-Control"]
+    # Arbitrary provider text still cannot cross the shared closed-code mapper.
+    getattr(service, operation).side_effect = DriveReadError("private-provider-diagnostic")
+    response = request()
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "sharing_unavailable"
+    assert "private-provider-diagnostic" not in response.text

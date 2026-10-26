@@ -256,7 +256,7 @@ export function UnlockedRequestButton({
               ? "This question was already sent with different words. Start a new question."
               : code === "invalid_argument"
                 ? "Check your question and try again."
-                : "Couldn't confirm it was sent. Send again. It won't be sent twice.",
+                : "Couldn't confirm sending. Try again.",
       );
     } finally {
       if (serial.current === operation) {
