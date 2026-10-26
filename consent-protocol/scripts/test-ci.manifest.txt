@@ -440,6 +440,7 @@ tests/services/test_account_deletion_provider_cleanup.py
 tests/test_account_deletion_tombstone_migration.py
 tests/test_account_erasure_lock_timeout_postgres.py
 tests/test_account_deletion_release_workflow.py
+tests/test_production_restoration_compatibility.py
 tests/test_cloud_run_image_resolution.py
 # Parallel digest-pinned web image build on every deploy lane, and promotion
 # of the UAT-verified backend digest into production. Both run the real step
