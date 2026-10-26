@@ -5665,6 +5665,32 @@ final class AppUITests: XCTestCase {
                 // Inspection and cancellation only: never enter or save a card.
                 XCTAssertFalse(app.tabBars.firstMatch.buttons["Chat"].firstMatch.isHittable,
                                "WORKSPACE_WALLET_SHEET_LEAKED_NAVIGATION")
+                if ProcessInfo.processInfo.environment["HUSHH_EXPECT_COHERENT_PROFILE"] == "true" {
+                    // Exercise the shared Select adapter, not a Wallet-owned
+                    // native picker. No card entry, save or backend mutation.
+                    for label in ["Card network", "Issuing region"] {
+                        let trigger = web.descendants(matching: .any).matching(NSPredicate(
+                            format: "(elementType == %d OR elementType == %d OR elementType == %d) AND label CONTAINS %@",
+                            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.popUpButton.rawValue,
+                            XCUIElement.ElementType.comboBox.rawValue, label)).firstMatch
+                        for _ in 0..<4 {
+                            if trigger.exists && trigger.isHittable { break }
+                            web.swipeUp()
+                        }
+                        guard waitForAdmittedControl(trigger) else { XCTFail("WORKSPACE_WALLET_CHOICE_TRIGGER_UNAVAILABLE"); return }
+                        trigger.tap()
+                        let sheet = app.descendants(matching: .any).matching(identifier: "native-owned-choice").firstMatch
+                        guard sheet.waitForExistence(timeout: 10) else { XCTFail("WORKSPACE_WALLET_CHOICE_NOT_NATIVE"); return }
+                        let dismiss = sheet.buttons["Cancel"].firstMatch
+                        guard waitForAdmittedControl(dismiss) else { XCTFail("WORKSPACE_WALLET_CHOICE_CANCEL_UNAVAILABLE"); return }
+                        XCTAssertFalse(cancel.isHittable, "WORKSPACE_WALLET_CHOICE_LEAKED_FORM_TOUCH")
+                        dismiss.tap()
+                        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "WORKSPACE_WALLET_CHOICE_NOT_RETIRED")
+                    }
+                    // Return to the form's authored Cancel without closing its
+                    // parent while an owned native picker is still attached.
+                    for _ in 0..<4 { if cancel.isHittable { break }; web.swipeDown() }
+                }
                 cancel.tap()
                 guard walletPaneReady({
                     tab("My cards").isSelected && tab("My cards").isHittable && add.isHittable && !name.isHittable
