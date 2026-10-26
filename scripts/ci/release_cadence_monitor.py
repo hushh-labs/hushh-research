@@ -65,7 +65,8 @@ def evidence(repository: str, state: dict, ordinal: str, lane: str, child: dict,
         require(deferred.get("sha") == sha and deferred.get("reason") == "apple_review_pending",
                 "App Store deferral source mismatch")
         return "App Store candidate deferred while Apple review is pending; no publication claimed."
-    value = artifact_json(repository, identity, f"ios-appstore-redacted-evidence-{identity}", "ios-appstore-release-evidence.json")
+    from release_cadence_native import appstore_evidence
+    value = appstore_evidence(repository, run)
     require(value.get("source_sha") == sha and value.get("backend_target") == "production"
             and value.get("dry_run") is False and value.get("export_outcome") == "success"
             and value.get("appstore_outcome") == "success", "App Store build evidence mismatch")

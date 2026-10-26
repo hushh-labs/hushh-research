@@ -126,9 +126,18 @@ def resolve_replayed_artifact(
 ) -> Document:
     """Select one current-attempt upload; ordering and greatest ID grant nothing."""
     run = api(repository, f"runs/{run_id}")
-    attempt = _replayed_run(
+    _replayed_run(
         run, run_id, name, lane, lambda: governed_dispatch(run, repository, environment)
     )
+    return select_attempt_upload(repository, run, name, lane, api=api,
+                                 timestamp=timestamp, minimum_matches=2)
+
+
+def select_attempt_upload(repository: str, run: Document, name: str, lane: Document, *,
+                          api: Callable[[str, str], Document], timestamp: Timestamp,
+                          minimum_matches: int = 1) -> Document:
+    """Select immutable upload metadata after the caller has verified run authority."""
+    run_id, attempt = run["id"], run["run_attempt"]
     result = api(repository, f"runs/{run_id}/artifacts?per_page=100")
     artifacts = result.get("artifacts")
     if not isinstance(artifacts, list) or result.get("total_count") != len(artifacts):
@@ -138,7 +147,7 @@ def resolve_replayed_artifact(
         for item in artifacts
         if isinstance(item, dict) and item.get("name") == name
     ]
-    if len(matches) < 2:
+    if len(matches) < minimum_matches:
         raise retention.UnsafeState("release artifact is expired or ambiguous")
     jobs = api(repository, f"runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
     started, ended = _upload_window(jobs, run, attempt, lane, timestamp)

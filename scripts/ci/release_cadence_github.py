@@ -37,7 +37,7 @@ from release_cadence_native import wait_production as wait_production
 
 from release_cadence_maintenance import (
     adopt_production_baseline, configuration, disabled_snapshot as disabled_snapshot,
-    production_baseline, replayed_receipt, retire_obsolete_failures,
+    production_baseline, replayed_receipt, retire_obsolete_failures as retire_obsolete_failures, check_operator_inputs, operator_recovery,
 )
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -316,17 +316,12 @@ def verify_recovery(ledger: Ledger, reviewed_head: str, controller: dict, govern
 
 
 def reconcile(repository: str, controller_id: int, event: dict, full: bool = False, recovery_head: str = "",
-              retire_before: int = 0, reviewed_head: str = "") -> dict:
+              retire_before: int = 0, reviewed_head: str = "", retry_run_id: int = 0) -> dict:
     policy, governance = configuration()
     require(policy["enabled"], "Release cadence is disabled")
     controller = run_info(repository, controller_id)
     verify_controller(controller, repository, governance, event)
-    require(bool(retire_before) == bool(reviewed_head), "Retirement requires both frontier and reviewed ledger head")
-    if retire_before:
-        require(controller["event"] == "workflow_dispatch" and not full and not recovery_head,
-                "Retirement requires a dedicated governed manual reconciliation")
-    if controller["event"] == "repository_dispatch":
-        require(not full and not recovery_head, "Clock events cannot request full replay or checkpoint recovery")
+    check_operator_inputs(controller, full, recovery_head, retire_before, reviewed_head, retry_run_id)
     ledger = Ledger(repository, policy["state_branch"])
     try:
         ledger.verify_checkpoint()
@@ -334,8 +329,8 @@ def reconcile(repository: str, controller_id: int, event: dict, full: bool = Fal
         require(recovery_head, "Checkpoint is inconsistent; a production operator must review its exact head before recovery")
         verify_recovery(ledger, recovery_head, controller, governance, policy)
         ledger.save(force=True)
-    if retire_before:
-        retire_obsolete_failures(ledger, retire_before, reviewed_head, controller)
+    if operator_recovery(ledger, controller, retire_before, reviewed_head, retry_run_id):
+        return ledger.state
     if ledger.state is None:
         anchor = git("log", "-1", "--format=%H", "--", "config/release-cadence.json")
         activated = git("show", "-s", "--format=%cI", anchor)

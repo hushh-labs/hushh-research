@@ -20,6 +20,7 @@ def main() -> int:
     parser.add_argument("--recover-head", default="")
     parser.add_argument("--retire-failed-before", type=int, default=0)
     parser.add_argument("--reviewed-ledger-sha", default="")
+    parser.add_argument("--retry-failed-native-run-id", type=int, default=0)
     args = parser.parse_args()
     repository = os.environ["GITHUB_REPOSITORY"]
     if args.command == "wait-production":
@@ -31,7 +32,7 @@ def main() -> int:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         snapshot_path = Path(os.environ["RUNNER_TEMP"], "release-cadence-monitor.json")
         if not configuration()[0]["enabled"]:
-            if args.full or args.recover_head or args.retire_failed_before or args.reviewed_ledger_sha:
+            if args.full or args.recover_head or args.retire_failed_before or args.reviewed_ledger_sha or args.retry_failed_native_run_id:
                 parser.error("disabled cadence cannot reconcile or recover accounting")
             snapshot = disabled_snapshot(repository, int(os.environ["GITHUB_RUN_ID"]), event)
             snapshot_path.write_text(json.dumps(snapshot))
@@ -39,7 +40,7 @@ def main() -> int:
             return 0
         state = reconcile(repository, int(os.environ["GITHUB_RUN_ID"]), event,
                           args.full or event.get("schedule") == "7 3 * * 1", args.recover_head,
-                          args.retire_failed_before, args.reviewed_ledger_sha)
+                          args.retire_failed_before, args.reviewed_ledger_sha, args.retry_failed_native_run_id)
         policy = configuration()[0]
         snapshot_path.write_text(json.dumps(state))
         lines = [(f"Verified UAT deployments: {state['count']}; TestFlight every {policy['testflight_every']}; "

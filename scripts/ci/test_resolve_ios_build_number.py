@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
 import pathlib
 import tempfile
 import unittest
+from copy import deepcopy
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
@@ -26,6 +28,94 @@ RELEASE_SPEC = importlib.util.spec_from_file_location(
 assert RELEASE_SPEC is not None and RELEASE_SPEC.loader is not None
 RELEASE = importlib.util.module_from_spec(RELEASE_SPEC)
 RELEASE_SPEC.loader.exec_module(RELEASE)
+
+
+class AppStoreDraftAdvancementTests(unittest.TestCase):
+    def setUp(self):
+        self.draft = {"id": "draft", "attributes": {"platform": "IOS", "versionString": "1.4.2",
+                      "appStoreState": "DEVELOPER_REJECTED", "releaseType": "MANUAL"}}
+        self.updated = deepcopy(self.draft)
+        self.updated["attributes"].update(versionString="2.0.0", releaseType="AFTER_APPROVAL")
+        for name, options in [("find_app_store_version", {"return_value": None}),
+                              ("asc_get", {}), ("asc_patch", {}),
+                              ("asc_post", {"side_effect": AssertionError("unexpected second draft")})]:
+            owner = patch.object(RELEASE, name, **options)
+            setattr(self, name, owner.start())
+            self.addCleanup(owner.stop)
+        quiet = redirect_stderr(io.StringIO())
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
+
+    def ensure(self, catalog=None, fresh=None, updated=None, target="2.0.0"):
+        self.asc_get.side_effect = [{"data": [self.draft] if catalog is None else catalog},
+                                   {"data": self.draft if fresh is None else fresh},
+                                   {"data": self.updated if updated is None else updated}]
+        return RELEASE.ensure_app_store_version("token", "app", target, "IOS", "AFTER_APPROVAL")
+
+    def test_higher_beta_floor_advances_paginated_current_draft_without_creation(self):
+        self.asc_get.side_effect = [
+            {"data": [], "links": {"next": "https://api.appstoreconnect.apple.com/next"}},
+            {"data": [self.draft]}, {"data": self.draft}, {"data": self.updated}]
+        self.assertEqual(RELEASE.ensure_app_store_version("token", "app", "2.0.0", "IOS", "AFTER_APPROVAL"), self.updated)
+        self.asc_post.assert_not_called()
+        self.asc_patch.assert_called_once_with(
+            "https://api.appstoreconnect.apple.com/v1/appStoreVersions/draft", "token",
+            {"data": {"type": "appStoreVersions", "id": "draft",
+                      "attributes": {"versionString": "2.0.0", "releaseType": "AFTER_APPROVAL"}}})
+        self.assertEqual(self.asc_get.call_args_list[-2].args[0], self.asc_get.call_args_list[-1].args[0])
+
+    def test_ambiguous_noncurrent_or_reviewed_drafts_never_write(self):
+        for defect in ("duplicate", "multiple", "newer_live", "review", "platform", "id", "downgrade"):
+            with self.subTest(defect=defect):
+                records = [deepcopy(self.draft)]
+                target = "1.4.1" if defect == "downgrade" else "2.0.0"
+                if defect in {"duplicate", "multiple", "newer_live"}:
+                    other = deepcopy(self.draft)
+                    other["id"] = "other"
+                    if defect == "multiple":
+                        other["attributes"]["versionString"] = "1.4.1"
+                    if defect == "newer_live":
+                        other["attributes"].update(versionString="1.5.0", appStoreState="READY_FOR_SALE")
+                    records.append(other)
+                if defect == "review":
+                    records[0]["attributes"]["appStoreState"] = "IN_REVIEW"
+                if defect == "platform":
+                    records[0]["attributes"]["platform"] = "MAC_OS"
+                if defect == "id":
+                    records[0].pop("id")
+                with self.assertRaises(SystemExit):
+                    self.ensure(catalog=records, target=target)
+                self.asc_patch.assert_not_called()
+                self.asc_post.assert_not_called()
+
+    def test_draft_race_and_readback_are_fail_closed(self):
+        for phase in ("fresh", "updated"):
+            for field, value in (("id", "other"), ("platform", "MAC_OS"), ("versionString", "1.5.0"),
+                                 ("releaseType", "SCHEDULED"), ("appStoreState", "IN_REVIEW")):
+                with self.subTest(phase=phase, field=field):
+                    record = deepcopy(self.draft if phase == "fresh" else self.updated)
+                    (record if field == "id" else record["attributes"])[field] = value
+                    self.asc_patch.reset_mock()
+                    with self.assertRaises(SystemExit):
+                        self.ensure(**{phase: record})
+                    self.assertEqual(self.asc_patch.call_count, int(phase == "updated"))
+                    self.asc_post.assert_not_called()
+
+    def test_exact_draft_reuse_and_first_version_creation_remain_supported(self):
+        self.find_app_store_version.return_value = self.updated
+        self.assertEqual(RELEASE.ensure_app_store_version("token", "app", "2.0.0", "IOS", "AFTER_APPROVAL"), self.updated)
+        self.asc_get.assert_not_called()
+        self.asc_patch.assert_not_called()
+        self.find_app_store_version.return_value = None
+        self.asc_post.side_effect = None
+        self.asc_post.return_value = {"data": self.updated}
+        released = deepcopy(self.draft)
+        released["attributes"]["appStoreState"] = "READY_FOR_DISTRIBUTION"
+        for catalog in ([], [released]):
+            with self.subTest(catalog=catalog):
+                self.asc_post.reset_mock()
+                self.assertEqual(self.ensure(catalog=catalog), self.updated)
+                self.asc_post.assert_called_once()
 
 
 class ResolveIOSBuildNumberTests(unittest.TestCase):
@@ -90,6 +180,7 @@ class IOSPackagingVersionTests(unittest.TestCase):
                 "CURRENT_PROJECT_VERSION = 69;\nMARKETING_VERSION = 1.4.1;\n"
             )
             with (
+                patch.dict(os.environ, {"IOS_MARKETING_VERSION": ""}),
                 patch.object(RELEASE, "mint_jwt", return_value="synthetic"),
                 patch.object(RELEASE, "asc_get", side_effect=responses) as read,
                 patch.object(

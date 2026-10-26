@@ -279,3 +279,47 @@ class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
 
 class ReplayedProductionReleaseArtifactTest(ReplayedUatReleaseArtifactTest):
     environment = "production"
+
+    def test_retry_selects_its_prepare_upload_and_rejects_unsafe_authority(self):
+        import release_cadence_github as github
+        import release_cadence_native as native
+        from release_cadence import UnsafeRelease
+        for defect in (None, "fork", "actor", "retry_actor", "job_attempt", "job_sha",
+                       "partial_jobs", "partial_artifacts", "upload_failed", "duplicate_upload",
+                       "window", "artifact_origin", "artifact_time", "ambiguous", "expired",
+                       "digest", "size", "symlink", "traversal", "download_failure", "download_timeout"):
+            with self.subTest(defect=defect):
+                self.setUp()
+                self.run.update(path=".github/workflows/release-ios-appstore.yml", conclusion="success",
+                                actor={"login": "github-actions[bot]"}, triggering_actor={"login": "operator"})
+                self.name, self.status_name = "ios-appstore-redacted-evidence-300", "ios-appstore-release-evidence.json"
+                self.jobs["jobs"][0].update(name="Process and prepare uploaded App Store build", conclusion="success")
+                self.upload["name"] = "Upload redacted release evidence"
+                for item in self.inventory["artifacts"]:
+                    item["name"] = self.name
+                self.apply_defect(defect)
+                if defect == "retry_actor":
+                    self.run["triggering_actor"]["login"] = "unapproved"
+                archive = self.archive(defect)
+                if defect == "digest":
+                    self.artifact["digest"] = "sha256:" + "0" * 64
+                if defect == "size":
+                    self.artifact["size_in_bytes"] += 1
+                failure = (subprocess.CalledProcessError(1, ["gh"]) if defect == "download_failure"
+                           else MAINTENANCE.retention.BudgetExpired("bounded read timed out")
+                           if defect == "download_timeout" else None)
+
+                def api(endpoint):
+                    return self.api(self.repo, endpoint.split(f"repos/{self.repo}/actions/", 1)[1])
+
+                with mock.patch.object(github, "configuration", return_value=({}, {
+                        "production": {"manual_dispatch_users": ["operator"]}})), \
+                        mock.patch.object(github, "api", side_effect=api), \
+                        mock.patch.object(MAINTENANCE.retention, "run_command",
+                                          side_effect=failure,
+                                          return_value=subprocess.CompletedProcess([], 0, archive, b"")):
+                    if defect:
+                        with self.assertRaises(UnsafeRelease):
+                            native.appstore_evidence(self.repo, self.run)
+                    else:
+                        self.assertEqual(native.appstore_evidence(self.repo, self.run)["marker"], "attempt-two")
