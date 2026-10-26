@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -325,7 +326,7 @@ def probe_worker_payment_bindings(
 
 
 def assert_backend_source_rollback(
-    root: Path, directory: Path, *, service: str, current: bool, sha_valid: bool, allowed: bool
+    root: Path, directory: Path, *, service: str, contract: str, sha_valid: bool, allowed: bool
 ) -> None:
     commands = directory / "commands"
     sha = "a" * 40 if sha_valid else "unverified"
@@ -339,9 +340,10 @@ def assert_backend_source_rollback(
     (directory / "git").write_text(
         "#!/usr/bin/env python3\nimport json,os,sys\n"
         "assert sys.argv[1]=='show'\n"
-        "if os.environ['CURRENT']!='true': raise SystemExit(1)\n"
+        "if os.environ['SOURCE_CONTRACT']=='unknown': raise SystemExit(1)\n"
         "print(json.dumps({'version':1} if sys.argv[2].endswith('account-deletion-authority.json') "
-        "else {'ordered_migrations':['423_account_shared_provider_authority.sql']}))\n"
+        "else {'ordered_migrations':['423_account_shared_provider_authority.sql'] + "
+        "(['425_account_phone_transfers.sql'] if os.environ['SOURCE_CONTRACT']=='phone' else [])}))\n"
     )
     for binary in ("gcloud", "git"):
         (directory / binary).chmod(0o700)
@@ -350,10 +352,25 @@ def assert_backend_source_rollback(
         "PATH": str(directory) + os.pathsep + os.environ["PATH"],
         "CALLS": str(commands),
         "SOURCE_SHA": sha,
-        "CURRENT": str(current).lower(),
+        "SOURCE_CONTRACT": contract,
         "GCP_PROJECT_ID": "synthetic-project",
     }
     environment.pop("BASH_ENV", None)
+    if service == "consent-protocol":
+        bootstrap = subprocess.run(  # noqa: S603 -- Exact source qualifier with synthetic git port.
+            [
+                sys.executable,
+                str(root / "deploy/account-deletion/activate_release.py"),
+                "--qualify-source",
+                sha,
+            ],
+            cwd=root,
+            env=environment,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        assert (bootstrap.returncode == 0) is (contract != "unknown" and sha_valid)
     result = subprocess.run(  # noqa: S603 - authored script and synthetic cloud/git ports
         ["bash", str(root / "scripts/ci/cloudrun-rollback.sh"), service, "us-central1", "prior"],
         cwd=root,
@@ -382,7 +399,7 @@ def backend_rollback_authority_fixture(
             '#!/bin/sh\ncase "$1" in\n'
             " */resolve_protected_document_release.py) guard=reader;;\n"
             " */activate_release.py) guard=provider; "
-            '[ "$2" = --qualify-source ] && [ "$3" = "$SOURCE_SHA" ] || exit 98;;\n'
+            '[ "$2" = --qualify-rollback-source ] && [ "$3" = "$SOURCE_SHA" ] || exit 98;;\n'
             " *) exit 99;;\nesac\n"
             'printf "%s\\n" "$guard" >> "$CALLS"\n'
             '[ "$guard" != "$DENIED" ] || exit 47\n'

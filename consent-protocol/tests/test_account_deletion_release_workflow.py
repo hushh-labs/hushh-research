@@ -757,19 +757,20 @@ def test_scheduler_setup_rejects_mismatched_explicit_email_before_gcloud(
 
 
 @pytest.mark.parametrize(
-    "service,current,sha_valid,allowed",
+    "service,contract,sha_valid,allowed",
     [
-        ("consent-protocol", True, True, True),
-        ("consent-protocol", False, True, False),
-        ("consent-protocol", True, False, False),
-        ("hushh-webapp", False, False, True),
+        ("consent-protocol", "phone", True, True),
+        ("consent-protocol", "provider", True, False),
+        ("consent-protocol", "unknown", True, False),
+        ("consent-protocol", "phone", False, False),
+        ("hushh-webapp", "unknown", False, True),
     ],
 )
 def test_backend_rollback_qualifies_exact_source_before_traffic(
-    tmp_path, service, current, sha_valid, allowed
+    tmp_path, service, contract, sha_valid, allowed
 ):
     deployment_cli.assert_backend_source_rollback(
-        ROOT, tmp_path, service=service, current=current, sha_valid=sha_valid, allowed=allowed
+        ROOT, tmp_path, service=service, contract=contract, sha_valid=sha_valid, allowed=allowed
     )
 
 

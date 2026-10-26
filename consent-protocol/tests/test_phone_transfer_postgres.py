@@ -23,6 +23,81 @@ PHONE = "+16505550101"
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
 
 
+async def test_phone_replay_preserves_workos_mutation_receipts(database_url):
+    from uuid import uuid4
+
+    from db.migration_authority import _replay_sql, build_manifest_entries
+
+    conn = await asyncpg.connect(database_url)
+    transaction = conn.transaction()
+    await transaction.start()
+    try:
+        await conn.execute("ALTER TABLE account_generations ADD UNIQUE(identity_hash,generation)")
+        workos = (ROOT / "db/migrations/427_workos_generation_memberships.sql").read_text()
+        await conn.execute(workos)
+        for index, purpose in enumerate(("sso_claims", "sso_create", "sso_offboarding")):
+            await conn.execute(
+                """INSERT INTO account_firebase_mutations
+                (operation_id,owner_hash,identity_hash,authority_project,purpose,settlement_nonce)
+                VALUES($1,$2,$3,'synthetic-project',$4,$5)""",
+                uuid4(),
+                "sha256:" + str(index) * 64,
+                "sha256:" + str(index) * 64,
+                purpose,
+                uuid4(),
+            )
+        before = await conn.fetch("SELECT * FROM account_firebase_mutations ORDER BY operation_id")
+        entry = build_manifest_entries(ROOT / "db/migrations", ["425_account_phone_transfers.sql"])[
+            0
+        ]
+        for _ in range(2):
+            await conn.execute(_replay_sql(entry))
+            await conn.execute(workos)
+            assert (
+                await conn.fetch("SELECT * FROM account_firebase_mutations ORDER BY operation_id")
+                == before
+            )
+        # The original historical body is the broken-code negative control.
+        with pytest.raises(asyncpg.CheckViolationError):
+            async with conn.transaction():
+                await conn.execute(entry.sql)
+        assert (
+            await conn.fetch("SELECT * FROM account_firebase_mutations ORDER BY operation_id")
+            == before
+        )
+        # Whitespace inside a literal changes its meaning, even in a validated CHECK.
+        with pytest.raises(asyncpg.RaiseError, match="successor changed"):
+            async with conn.transaction():
+                await conn.execute(
+                    """ALTER TABLE account_firebase_mutations
+                    DROP CONSTRAINT account_firebase_mutations_purpose_check;
+                    ALTER TABLE account_firebase_mutations
+                    ADD CONSTRAINT account_firebase_mutations_purpose_check
+                    CHECK(purpose IN ('display_name','welcome_ marker','phone_unlink',
+                    'sso_claims','sso_create','sso_offboarding'))"""
+                )
+                assert await conn.fetchval(
+                    """SELECT convalidated FROM pg_constraint
+                    WHERE conrelid='account_firebase_mutations'::regclass
+                    AND conname='account_firebase_mutations_purpose_check'"""
+                )
+                await conn.execute(_replay_sql(entry))
+        # A drifted/unvalidated successor must never be silently accepted.
+        with pytest.raises(asyncpg.RaiseError, match="successor changed"):
+            async with conn.transaction():
+                await conn.execute(
+                    """ALTER TABLE account_firebase_mutations
+                    DROP CONSTRAINT account_firebase_mutations_purpose_check;
+                    ALTER TABLE account_firebase_mutations
+                    ADD CONSTRAINT account_firebase_mutations_purpose_check
+                    CHECK(purpose <> 'unknown') NOT VALID"""
+                )
+                await conn.execute(_replay_sql(entry))
+    finally:
+        await transaction.rollback()
+        await conn.close()
+
+
 async def test_two_concurrent_confirmations_preserve_information_and_retire_only_phone(
     database_url, monkeypatch
 ):
@@ -140,13 +215,13 @@ async def test_failed_transfer_rolls_back_binding_consumption_and_revocation(
         await pool.close()
 
 
-@pytest.mark.parametrize("age,fixture", [(301, False), (-1, False), (0, True)])
-def test_transfer_requires_fresh_real_sms(monkeypatch, age, fixture):
+@pytest.mark.parametrize("age,emulator", [(301, False), (-1, False), (0, True)])
+def test_transfer_requires_fresh_real_sms(monkeypatch, age, emulator):
     monkeypatch.setattr(transfer.time, "time", lambda: 1000)
-    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", PHONE if fixture else "")
+    monkeypatch.setenv("FIREBASE_AUTH_EMULATOR_HOST", "localhost:9099" if emulator else "")
     with pytest.raises(HTTPException):
         transfer.require_fresh_sms_claims({"auth_time": 1000 - age}, PHONE)
-    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "")
+    monkeypatch.setenv("FIREBASE_AUTH_EMULATOR_HOST", "")
     transfer.require_fresh_sms_claims({"auth_time": 1000}, PHONE)
 
 
@@ -219,6 +294,9 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
     monkeypatch.setattr(identity, "get_pool", AsyncMock(return_value=pool))
     monkeypatch.setattr(identity.ActorIdentityService, "_ensure_actor_spine", AsyncMock())
     monkeypatch.setattr(
+        identity.ActorIdentityService, "_schedule_phone_resume", lambda *_args: None
+    )
+    monkeypatch.setattr(
         identity.ActorIdentityService, "_sync_referral_qualification_best_effort", AsyncMock()
     )
     try:
@@ -256,6 +334,21 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
             with pytest.raises(asyncpg.RaiseError, match="reconciliation required"):
                 await conn.execute(rollback)
             await conn.execute("UPDATE account_phone_transfers SET state='completed'")
+            for notice_status in ("pending", "dispatched", "uncertain"):
+                await conn.execute(
+                    "UPDATE account_phone_transfers SET notice_status=$1",
+                    notice_status,
+                )
+                receipts = await conn.fetch(
+                    "SELECT * FROM account_phone_transfers ORDER BY operation_id"
+                )
+                with pytest.raises(asyncpg.RaiseError, match="reconciliation required"):
+                    await conn.execute(rollback)
+                assert (
+                    await conn.fetch("SELECT * FROM account_phone_transfers ORDER BY operation_id")
+                    == receipts
+                )
+            await conn.execute("UPDATE account_phone_transfers SET notice_status='settled'")
             await conn.execute(rollback)
             assert not await conn.fetchval(
                 "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='pending_phone_transfer_erasure')"

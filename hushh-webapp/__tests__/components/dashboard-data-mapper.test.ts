@@ -30,6 +30,14 @@ const portfolioFixture: PortfolioData = {
 };
 
 describe("mapPortfolioToDashboardViewModel history", () => {
+  it("counts a repeated stock once and uses its combined value for concentration", () => {
+    const model = mapPortfolioToDashboardViewModel({ ...portfolioFixture, holdings: [
+      { ...portfolioFixture.holdings![0]!, quantity: 10, market_value: 11000, cost_basis: 10000 },
+      { ...portfolioFixture.holdings![0]!, quantity: 5, market_value: 5500, cost_basis: 4000 },
+    ] });
+    expect(model.canonicalModel.counts.totalPositions).toBe(1);
+    expect(model.canonicalModel.positions[0]).toMatchObject({ quantity: 15, marketValue: 16500, costBasis: 14000, gainLoss: 2500 });
+  });
   it("does not fabricate a performance line from statement endpoints", () => {
     const model = mapPortfolioToDashboardViewModel(portfolioFixture);
 

@@ -140,7 +140,7 @@ export function EditHoldingModal({
     quantity: 0,
     price: 0,
     market_value: 0,
-    cost_basis: 0,
+    cost_basis: undefined,
     acquisition_date: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -178,7 +178,7 @@ export function EditHoldingModal({
         quantity: holding.quantity || 0,
         price: holding.price || 0,
         market_value: holding.market_value || 0,
-        cost_basis: holding.cost_basis || 0,
+        cost_basis: holding.cost_basis,
         unrealized_gain_loss: holding.unrealized_gain_loss,
         unrealized_gain_loss_pct: holding.unrealized_gain_loss_pct,
         acquisition_date: holding.acquisition_date || "",
@@ -190,10 +190,10 @@ export function EditHoldingModal({
   // Update market value when quantity or price changes
   useEffect(() => {
     const marketValue = formData.quantity * formData.price;
-    const gainLoss = formData.cost_basis ? marketValue - formData.cost_basis : 0;
-    const gainLossPct = formData.cost_basis && formData.cost_basis > 0 
-      ? (gainLoss / formData.cost_basis) * 100 
-      : 0;
+    const gainLoss = formData.cost_basis === undefined ? undefined : marketValue - formData.cost_basis;
+    const gainLossPct = gainLoss !== undefined && formData.cost_basis && formData.cost_basis > 0
+      ? (gainLoss / formData.cost_basis) * 100
+      : undefined;
 
     setFormData(prev => ({
       ...prev,
@@ -267,7 +267,7 @@ export function EditHoldingModal({
   }, []);
 
   // Handle input change
-  const handleChange = useCallback((field: keyof Holding, value: string | number) => {
+  const handleChange = useCallback((field: keyof Holding, value: string | number | undefined) => {
     setFormData(prev => ({
       ...prev,
       [field]: value,
@@ -595,8 +595,8 @@ export function EditHoldingModal({
             <input
               id="holding-cost-basis"
               type="number"
-              value={formData.cost_basis || ""}
-              onChange={(e) => handleChange("cost_basis", parseFloat(e.target.value) || 0)}
+              value={formData.cost_basis ?? ""}
+              onChange={(e) => handleChange("cost_basis", e.target.value === "" ? undefined : parseFloat(e.target.value))}
               placeholder="0.00"
               min="0"
               step="0.01"

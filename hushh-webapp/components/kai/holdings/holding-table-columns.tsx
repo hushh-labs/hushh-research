@@ -3,6 +3,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { toHoldingViewModel, type HoldingsListItem } from "./holding-view-model";
 
 const money = (value: number | null) => value === null ? "—" : new Intl.NumberFormat("en-US", {
@@ -11,8 +12,8 @@ const money = (value: number | null) => value === null ? "—" : new Intl.Number
 const numeric = "block whitespace-nowrap text-right text-sm tabular-nums";
 
 /** Table and detail use the same statement values, missing-value and gain rules. */
-export function holdingTableColumns(total: number): ColumnDef<HoldingsListItem>[] {
-  return [
+export function holdingTableColumns(total: number, onEntries?: (id: string) => void): ColumnDef<HoldingsListItem>[] {
+  const columns: ColumnDef<HoldingsListItem>[] = [
     {
       accessorKey: "symbol", header: "Holding",
       cell: ({ row }) => {
@@ -22,6 +23,7 @@ export function holdingTableColumns(total: number): ColumnDef<HoldingsListItem>[
           <div className="min-w-0">
             <span className={cn("block truncate font-semibold", holding.pending_delete && "line-through")}>{holding.symbol}</span>
             <span title={holding.name} className="block truncate text-xs text-muted-foreground">{holding.name || "Unnamed security"}</span>
+            {holding.entries && holding.entries.length > 1 ? <span className="block text-xs text-muted-foreground">{holding.entries.length} entries</span> : null}
             {holding.is_cash_equivalent ? <span className="text-xs text-emerald-600 dark:text-emerald-400">Cash</span> : null}
             {holding.pending_delete ? <span className="text-xs text-rose-600 dark:text-rose-400">Pending delete</span> : null}
           </div>
@@ -43,4 +45,9 @@ export function holdingTableColumns(total: number): ColumnDef<HoldingsListItem>[
       </span>;
     } },
   ];
+  if (onEntries) columns.unshift({ id: "entries", header: "Entries", cell: ({ row }) =>
+    <ShellActionSurface variant="pill" className="h-11 text-sm sm:text-sm" onClick={event => {
+      event.stopPropagation(); onEntries(row.original.client_id);
+    }}>Manage entries</ShellActionSurface> });
+  return columns;
 }

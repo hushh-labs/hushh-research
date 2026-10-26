@@ -106,12 +106,26 @@ def test_transfer_routes_require_current_owner_and_explicit_confirmation(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_transfer_uses_authentication_event_not_refreshable_jwt_bytes(monkeypatch):
+@pytest.mark.parametrize(
+    "server_allowlist",
+    [
+        None,
+        "HUSHH_UAT_PHONE_TEST_NUMBERS",
+        "UAT_PHONE_TEST_NUMBERS",
+        "HUSHH_PROD_PHONE_TEST_NUMBERS",
+    ],
+)
+async def test_transfer_uses_authentication_event_not_refreshable_jwt_bytes(
+    monkeypatch, server_allowlist
+):
     import time
 
     from firebase_admin import auth as firebase_auth
 
     monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.delenv("FIREBASE_AUTH_EMULATOR_HOST", raising=False)
+    if server_allowlist:
+        monkeypatch.setenv(server_allowlist, "+16505550101")
     stamp = int(time.time())
     monkeypatch.setattr(
         firebase_auth,
@@ -132,6 +146,152 @@ async def test_transfer_uses_authentication_event_not_refreshable_jwt_bytes(monk
     )
     assert first == refreshed
     assert first["valid_until"] == stamp + 300
+
+
+@pytest.mark.parametrize(
+    ("provider_body", "status", "expected_code"),
+    [
+        ({}, 200, None),
+        (
+            {"signIn": {"phoneNumber": {"testPhoneNumbers": {"+16505550101": "000000"}}}},
+            200,
+            "PHONE_TRANSFER_REAL_SMS_REQUIRED",
+        ),
+        ({}, 403, "PHONE_TRANSFER_PROVIDER_UNAVAILABLE"),
+        (None, 200, "PHONE_TRANSFER_PROVIDER_UNAVAILABLE"),
+        ("invalid-json", 200, "PHONE_TRANSFER_PROVIDER_UNAVAILABLE"),
+    ],
+    ids=[
+        "real-sms",
+        "firebase-fictional",
+        "config-refused",
+        "config-unreachable",
+        "config-invalid",
+    ],
+)
+def test_provider_configuration_remains_the_fictional_phone_authority(
+    monkeypatch, provider_body, status, expected_code
+):
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, Mock
+
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin
+    from hushh_mcp.services import phone_transfer_authority as authority
+
+    phone = "+16505550101"
+    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", phone)
+    app = SimpleNamespace(project_id="isolated-phone-test", credential=Mock())
+    user = SimpleNamespace(
+        phone_number=phone, provider_data=[SimpleNamespace(provider_id="google.com")]
+    )
+    monkeypatch.setattr(firebase_admin, "assert_firebase_identity_mutation_allowed", lambda _: None)
+    monkeypatch.setattr(auth, "get_user", Mock(return_value=user))
+    response = Mock(status_code=status)
+    body = b"invalid-json" if isinstance(provider_body, str) else json.dumps(provider_body).encode()
+    response.iter_content.return_value = [body]
+    session = MagicMock()
+    session.__enter__.return_value = session
+    session.get.return_value = response
+    if provider_body is None:
+        session.get.side_effect = ConnectionError("synthetic-config-outage")
+    monkeypatch.setattr(authority, "AuthorizedSession", Mock(return_value=session))
+
+    if expected_code is None:
+        assert authority.check_provider(app, phone, "existing-proof-identity") is True
+    else:
+        with pytest.raises(HTTPException) as refused:
+            authority.check_provider(app, phone, "existing-proof-identity")
+        assert refused.value.detail["code"] == expected_code
+        assert refused.value.status_code == (403 if "REAL_SMS" in expected_code else 503)
+    if provider_body is not None:
+        response.close.assert_called_once()
+    session.__exit__.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("environment", "project", "status", "code"),
+    [
+        ("uat", "hushh-pda", 403, "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE"),
+        ("production", "isolated-wrong-authority", 503, "PHONE_TRANSFER_PROVIDER_UNAVAILABLE"),
+    ],
+)
+def test_provider_authority_refusal_preserves_shared_identity(
+    monkeypatch, environment, project, status, code
+):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin
+    from hushh_mcp.services import phone_transfer_authority as authority
+
+    monkeypatch.setattr(
+        firebase_admin,
+        "get_app_runtime_settings",
+        lambda: SimpleNamespace(environment=environment, runtime_profile=""),
+    )
+    provider_read, provider_config = Mock(), Mock()
+    monkeypatch.setattr(auth, "get_user", provider_read)
+    monkeypatch.setattr(authority, "AuthorizedSession", provider_config)
+    with pytest.raises(HTTPException) as refused:
+        authority.check_provider(SimpleNamespace(project_id=project), "+16505550101", "proof-owner")
+    assert refused.value.status_code == status
+    assert refused.value.detail["code"] == code
+    if status == 403:
+        assert refused.value.detail["message"] == (
+            "Phone transfer is unavailable in this environment. "
+            "Recover your previous account or use another number."
+        )
+    provider_read.assert_not_called()
+    provider_config.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fixed_code_challenge_cannot_be_used_as_signed_sms_transfer_proof(monkeypatch):
+    from unittest.mock import Mock
+
+    from firebase_admin import auth
+
+    from hushh_mcp.services import phone_test_transport
+
+    monkeypatch.setattr(phone_test_transport, "_phone_test_challenge_key", lambda: "synthetic-key")
+    challenge = phone_test_transport._create_uat_phone_test_verification_id("+16505550101")
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    verify = Mock(side_effect=ValueError("unsigned fixed-code challenge"))
+    monkeypatch.setattr(auth, "verify_id_token", verify)
+    with pytest.raises(HTTPException) as refused:
+        await account._verify_phone_claim_id_token(challenge, transfer=True)
+    assert refused.value.status_code == 401
+    assert refused.value.detail["code"] == "INVALID_PHONE_ID_TOKEN"
+    assert verify.call_args.args[0] == challenge
+    assert verify.call_args.kwargs["check_revoked"] is True
+
+
+@pytest.mark.parametrize("proof", ["reviewer", "trusted-device", "emulator", "stale"])
+def test_non_sms_or_stale_transfer_proof_remains_refused(monkeypatch, proof):
+    import time
+
+    from hushh_mcp.services import phone_transfer_authority as authority
+
+    monkeypatch.delenv("FIREBASE_AUTH_EMULATOR_HOST", raising=False)
+    claims = {"auth_time": int(time.time())}
+    if proof == "reviewer":
+        claims["hushh_review_mint"] = "uat"
+    elif proof == "trusted-device":
+        claims["trusted_device_id"] = "synthetic-device"
+    elif proof == "emulator":
+        monkeypatch.setenv("FIREBASE_AUTH_EMULATOR_HOST", "localhost:9099")
+    else:
+        claims["auth_time"] -= 301
+    with pytest.raises(HTTPException) as refused:
+        authority.require_fresh_sms_claims(claims, "+16505550101")
+    assert refused.value.detail["code"] == (
+        "PHONE_TRANSFER_STALE" if proof == "stale" else "PHONE_TRANSFER_REAL_SMS_REQUIRED"
+    )
 
 
 def test_phone_session_cleanup_never_tombstones_an_existing_phone_only_account(monkeypatch):

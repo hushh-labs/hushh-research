@@ -19,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = "consent-protocol/config/account-deletion-authority.json"
 MIGRATION = "423_account_shared_provider_authority.sql"
+PHONE_MIGRATION = "425_account_phone_transfers.sql"
 CONTRACT_SQL = """SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_trigger
  WHERE tgrelid='public.account_deletion_tombstones'::regclass
  AND tgname='account_shared_provider_authority' AND tgenabled='O' AND NOT tgisinternal)
@@ -39,7 +40,7 @@ def run(argv, *, env=None, timeout=120):
 
 
 @lru_cache(maxsize=256)
-def supports_current_contract(sha: str) -> bool:
+def supports_current_contract(sha: str, *, rollback: bool = False) -> bool:
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         return False
     try:
@@ -53,8 +54,11 @@ def supports_current_contract(sha: str) -> bool:
                 ]
             )
         )
-        return policy.get("version") == 1 and MIGRATION in manifest.get(
-            "ordered_migrations", []
+        migrations = manifest.get("ordered_migrations", [])
+        return (
+            policy.get("version") == 1
+            and MIGRATION in migrations
+            and (not rollback or PHONE_MIGRATION in migrations)
         )
     except (RuntimeError, ValueError):
         return False
@@ -91,9 +95,9 @@ def legacy_inventory(service, revisions, candidate):
         name, labels = metadata.get("name", ""), metadata.get("labels", {})
         if not re.fullmatch(r"[a-z0-9-]+", name):
             raise ValueError("invalid_revision_name")
-        if labels.get(
-            "account-deletion-contract"
-        ) != "v201" or not supports_current_contract(labels.get("deploy-sha", "")):
+        if labels.get("account-deletion-contract") != "v201" or not supports_current_contract(
+            labels.get("deploy-sha", "")
+        ):
             legacy.add(name)
     if candidate in legacy:
         raise ValueError("candidate_is_legacy")
@@ -438,10 +442,13 @@ def parse_arguments():
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] == "--qualify-source":
-        if not supports_current_contract(sys.argv[2]):
+    if len(sys.argv) == 3 and sys.argv[1] in ("--qualify-source", "--qualify-rollback-source"):
+        rollback = sys.argv[1] == "--qualify-rollback-source"
+        if not supports_current_contract(sys.argv[2], rollback=rollback):
             raise SystemExit(
-                "Target lacks the current account lifecycle producer contract"
+                "Target lacks the phone admission rollback contract (migration 425)"
+                if rollback
+                else "Target lacks the current account lifecycle producer contract"
             )
         return 0
     args = parse_arguments()
