@@ -19,9 +19,10 @@ retains its disclosed boundary.
 
 ## Current decision — 26 October 2026, 10:39 UTC
 
-**The application correction is accepted on Dev and UAT. Both clouds pass the new
-Browser image's component and encrypted-recovery checks. Installed-owner Browser
-acceptance and safe account-generation rollout remain open.**
+**The earlier application correction is accepted on Dev and UAT. The newly
+authorized production Shared recovery is local and still requires release
+validation. Both clouds have Browser component/recovery evidence; installed-owner
+Browser acceptance and account-generation activation remain open.**
 
 [PR #8468](https://github.com/hushh-labs/hushh-research/pull/8468) landed as
 `7d5546e471` after the local core, exact hosted CI and landed smoke. Its Dev
