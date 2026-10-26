@@ -6,6 +6,7 @@ import { ObservabilityRouteObserver } from "@/components/observability/route-obs
 const mocks = vi.hoisted(() => ({
   pathname: "/",
   trackPageView: vi.fn(),
+  refreshWebGtmPageContext: vi.fn(),
   captureGrowthAttribution: vi.fn(),
   setLastKaiPath: vi.fn(),
   setLastRiaPath: vi.fn(),
@@ -20,6 +21,9 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/observability/client", () => ({
   trackPageView: mocks.trackPageView,
+}));
+vi.mock("@/lib/observability/adapters/web-gtm", () => ({
+  refreshWebGtmPageContext: mocks.refreshWebGtmPageContext,
 }));
 
 vi.mock("@/lib/observability/growth", () => ({
@@ -64,6 +68,7 @@ describe("ObservabilityRouteObserver", () => {
 
       expect(mocks.trackPageView).not.toHaveBeenCalled();
       expect(mocks.captureGrowthAttribution).not.toHaveBeenCalled();
+      expect(mocks.refreshWebGtmPageContext).not.toHaveBeenCalled();
     },
   );
 
@@ -104,6 +109,7 @@ describe("ObservabilityRouteObserver", () => {
     let releaseBinding: (() => void) | undefined;
     mocks.setObservabilityUserId.mockImplementationOnce(() => new Promise<boolean>((resolve) => { releaseBinding = () => resolve(true); }));
     renderAt("/one");
+    expect(mocks.refreshWebGtmPageContext).toHaveBeenCalledOnce();
     expect(mocks.setObservabilityUserId).toHaveBeenCalledWith("validated-account");
     expect(mocks.trackPageView).not.toHaveBeenCalled();
     releaseBinding?.();

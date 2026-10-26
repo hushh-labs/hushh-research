@@ -75,6 +75,7 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
         "owner_payouts": {"deferred": 1},
         "packet_orders": {"deferred": 1},
         "period_packets": {"queued": 1},
+        "document_deliveries": {"deferred": 1},
     }
 
 
@@ -317,6 +318,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "owner_payouts": {"transferred": 1},
             "packet_orders": {"refunded": 1},
             "period_packets": {"unavailable": 1},
+            "document_deliveries": {"unavailable": 1},
         },
     }
     assert "no-store" in response.headers["Cache-Control"]

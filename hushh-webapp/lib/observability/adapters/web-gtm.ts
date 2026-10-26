@@ -10,6 +10,7 @@ import {
   type GtagHitPriority,
 } from "@/lib/observability/adapters/gtag-hit-budget";
 import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
+import { resolveAnalyticsPageContext } from "@/lib/observability/page-context";
 import { shouldDisableExternalTelemetryForAutomation } from "@/lib/testing/native-test";
 
 declare global {
@@ -48,6 +49,20 @@ function resolveHitPriority(eventName: ObservabilityEventName): GtagHitPriority 
   return OPERATIONAL_EVENTS.has(eventName) ? "operational" : "product";
 }
 
+/** Refresh SDK defaults before asynchronous route/auth work, without a pageview. */
+export function refreshWebGtmPageContext(): void {
+  if (typeof window === "undefined" || Capacitor.isNativePlatform()) return;
+  if (shouldDisableExternalTelemetryForAutomation()) return;
+  const measurementId = resolveAnalyticsMeasurementId();
+  if (typeof window.gtag !== "function") return;
+  const context = resolveAnalyticsPageContext(window.location.href, document.referrer);
+  const configure = window.gtag as unknown as (...args: unknown[]) => void;
+  configure("set", context);
+  if (measurementId) {
+    configure("config", measurementId, { update: true, send_page_view: false, ...context });
+  }
+}
+
 export const webGtmAdapter: ObservabilityAdapter = {
   name: "web-gtm",
 
@@ -62,6 +77,9 @@ export const webGtmAdapter: ObservabilityAdapter = {
     if (!this.isAvailable()) return;
     if (shouldDisableExternalTelemetryForAutomation()) return;
 
+    // GTM can dispatch synchronously on push. Refresh both SDK scopes before
+    // either transport, without expanding the schema-approved event payload.
+    refreshWebGtmPageContext();
     window.dataLayer = window.dataLayer || [];
     const transportPayload = {
       event: eventName,

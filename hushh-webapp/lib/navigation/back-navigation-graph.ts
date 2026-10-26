@@ -279,19 +279,6 @@ export const BACK_NAVIGATION_RULES: BackRule[] = [
     },
   },
   {
-    id: "one-files",
-    resolve: (pathname) => {
-      if (pathname !== ROUTES.ONE_FILES) return undefined;
-      return {
-        backHref: ROUTES.ONE_HOME,
-        width: "profile",
-        align: "center",
-        suppressFallbackTitle: false,
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Files" }],
-      };
-    },
-  },
-  {
     id: "one-initial-welcome",
     resolve: (pathname) => pathname === ROUTES.ONE_WELCOME
       ? { backHref: ROUTES.HOME, hideBack: true, items: [] } : undefined,

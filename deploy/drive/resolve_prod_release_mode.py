@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from runpy import run_path
 from typing import Any
 
 PROJECT = "hushh-pda"
@@ -61,6 +62,16 @@ def _active_state(revision: dict[str, Any], runtime: dict[str, Any]) -> bool:
     if any(value not in {"true", "false"} for value in flags.values()):
         raise DriveReleaseStateError("Serving backend Drive flags are ambiguous")
     if drain == "true":
+        if set(flags.values()) == {"false"} and CANDIDATE_SECRET.fullmatch(secret_name):
+            resolver = run_path(
+                str(Path(__file__).with_name("resolve_protected_document_release.py"))
+            )["resolve"]
+            try:
+                hosted = resolver(runtime, project=PROJECT, environment="production")
+            except (ValueError, TypeError):
+                raise DriveReleaseStateError("Serving hosted maintenance is inconsistent") from None
+            if hosted["configured"]:
+                return False
         if not CANDIDATE_SECRET.fullmatch(secret_name) or set(flags.values()) != {
             "true"
         }:

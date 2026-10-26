@@ -9,13 +9,14 @@ import os
 import re
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 
 import pathspec
 import pytest
 import yaml
 
-from tests.helpers.deployment_cli import production_release_tools
+from tests.helpers.deployment_cli import probe_worker_payment_bindings, production_release_tools
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -192,22 +193,7 @@ gcloud() {
 }
 """
 
-    def run(
-        *, enabled: bool, missing: str = "", previous_bound: bool = False
-    ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(  # noqa: S603 - fixed repo shell block with a mocked gcloud
-            ["bash", "-c", mocked + block + '\nprintf "%s" "$payment_secret_bindings"\n'],
-            env={
-                **os.environ,
-                "DRIVE_REQUEST_PAYMENTS_PROD_ENABLED": "true" if enabled else "false",
-                "MISSING_SECRET": missing,
-                "PREVIOUS_REVISION": "consent-protocol-drive-worker-prev" if previous_bound else "",
-                "PREVIOUS_STRIPE_BOUND": "true" if previous_bound else "false",
-            },
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    run = partial(probe_worker_payment_bindings, block, mocked)
 
     ready = run(enabled=False)
     assert ready.returncode == 0
@@ -216,6 +202,14 @@ gcloud() {
     assert "APP_FRONTEND_ORIGIN=APP_FRONTEND_ORIGIN:latest" in ready.stdout
     missing_off = run(enabled=False, missing="STRIPE_WEBHOOK_SECRET")
     assert missing_off.returncode == 0 and missing_off.stdout == ""
+    hosted_ready = run(enabled=False, hosted=True)
+    assert (
+        hosted_ready.returncode == 0
+        and "STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest" in hosted_ready.stdout
+    )
+    hosted_missing = run(enabled=False, hosted=True, missing="STRIPE_WEBHOOK_SECRET")
+    assert hosted_missing.returncode != 0
+    assert "requires the production Stripe and origin secrets" in hosted_missing.stderr
     missing_previous = run(enabled=False, missing="STRIPE_WEBHOOK_SECRET", previous_bound=True)
     assert missing_previous.returncode != 0
     assert "requires the production Stripe and origin secrets" in missing_previous.stderr

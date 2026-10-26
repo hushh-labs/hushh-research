@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.document_delivery import payment_integration
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import (
     MAX_OWNER_PRICE_CENTS,
@@ -109,9 +110,10 @@ def require_payment_configuration() -> None:
 
 
 class DriveRequestPaymentService(DriveRequestPaymentStore):
-    def __init__(self, db=None, *, stripe_api=None):
+    def __init__(self, db=None, *, stripe_api=None, document_delivery=None):
         super().__init__(db)
         self.stripe_api = stripe_api or stripe
+        self.document_delivery = document_delivery
 
     def _guard_legacy_duplicate_purchase(
         self,
@@ -215,7 +217,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
 
     async def get_payment(self, *, requester_user_id: str, request_id: str) -> dict:
         state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
-        return {key: value for key, value in state.items() if not key.startswith("_")}
+        return payment_integration.public_payment_state(state)
 
     async def reconcile_refunds(self, *, max_orders: int = 4, v1_only: bool = False) -> dict:
         from hushh_mcp.services.drive_request_payment_refunds import reconcile_refunds
@@ -395,7 +397,6 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             raise DriveSharingError("request_unavailable")
         owner = participant["user_id"]
         sharing = DriveSharingStore(db=self.db)
-        sharing._sharing_admission(owner)
         participants = sharing._participant_gate(connection, owner, request_id)
         request = sharing._related_request(connection, owner, request_id)
         if (
@@ -405,6 +406,13 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         ):
             raise checkout_refusal("request_closed")
         private = sharing._open_request(request)
+        if private.get("document_delivery_version") == 1:
+            from hushh_mcp.services.document_delivery.store import DocumentDeliveryStore
+
+            return DocumentDeliveryStore(db=self.db).checkout_authority(
+                connection, request_id=request_id, requester=requester_user_id
+            )
+        sharing._sharing_admission(owner)
         from hushh_mcp.services.drive_packet_purchase_authority import (
             require_checkout_disclosure,
             require_current_packet_purchase,
@@ -535,7 +543,12 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
 
     @logs_checkout_refusals
     async def checkout(
-        self, *, requester_user_id: str, request_id: str, v1_only: bool = False
+        self,
+        *,
+        requester_user_id: str,
+        request_id: str,
+        v1_only: bool = False,
+        accepted_contract: dict | None = None,
     ) -> dict:
         if type(v1_only) is not bool:
             raise ValueError("invalid checkout mode")
@@ -545,6 +558,13 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             raise checkout_refusal("v1_not_eligible")
         request_id = _request_id(request_id)
         state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
+        state = await payment_integration.accept_checkout(
+            self,
+            state,
+            requester=requester_user_id,
+            request_id=request_id,
+            acceptance=accepted_contract,
+        )
         if state.get("existingAccess") is True:
             return {"requestId": request_id, "existingAccess": True}
         try:
@@ -583,24 +603,9 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             and state.get("_payout_settlement_method", "stripe_transfer") != "hashcoins"
         )
         if payout_enrolled:
-            from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
-
-            if not payout_enabled() or not state.get("_payout_owner_user_id"):
-                raise checkout_refusal("payout_disabled", "payment_unavailable")
+            payment_integration.require_payout(state)
         if bank_settlement:
-            from hushh_mcp.services.pkm_payout_service import PkmPayoutService
-
-            try:
-                account = await PkmPayoutService().refresh_account(
-                    user_id=state["_payout_owner_user_id"]
-                )
-            except Exception:
-                raise checkout_refusal(
-                    "payout_account_unavailable", "payment_unavailable"
-                ) from None
-            if not account or not account["readiness"]["ready"]:
-                raise checkout_refusal("payout_account_not_ready")
-            verified_account_id = account["stripe_account_id"]
+            verified_account_id = await payment_integration.verify_payout_account(state)
 
         # Read source versions and recipient access after payout-account I/O,
         # immediately before reserving provider work. Failed access checks must

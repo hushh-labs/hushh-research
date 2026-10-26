@@ -13,8 +13,8 @@ name: "Rollback Deployment"
 # update landed alongside this file. It is not the ad hoc command that rule
 # prohibits: it is actor-gated by the same allowlist that already gates
 # deploy dispatch, authenticates the same way (Workload Identity
-# Federation), and calls the same, unmodified scripts/ci/cloudrun-rollback.sh
-# the automatic path already uses.
+# Federation), and calls the shared scripts/ci/cloudrun-rollback.sh used by the automatic
+# path, with protected-document reader compatibility checked before traffic moves.
 #
 # Two separate jobs, not one dynamic `environment:`, deliberately. Each job
 # binds its exact deployment environment so the corresponding environment-
@@ -70,6 +70,7 @@ jobs:
     env:
       GCP_PROJECT_ID: hushh-pda-uat
       GCP_REGION: us-central1
+      HUSHH_DOCUMENT_MANUAL_ROLLBACK_GUARD: "true"
       BACKEND_SERVICE: consent-protocol
       FRONTEND_SERVICE: hushh-webapp
     steps:
@@ -123,6 +124,18 @@ jobs:
 
       - name: Set GCP project context
         run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
+
+      - name: Prepare protected document rollback checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/document-rollback"
+          "${RUNNER_TEMP}/document-rollback/bin/pip" install --disable-pip-version-check psycopg2-binary==2.9.11
+          echo "PROTOCOL_PYTHON=${RUNNER_TEMP}/document-rollback/bin/python" >> "$GITHUB_ENV"
+          curl -fsSL https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o "${RUNNER_TEMP}/cloud-sql-proxy"
+          chmod +x "${RUNNER_TEMP}/cloud-sql-proxy"
+          echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
 
       - name: Roll back backend
         id: rollback-backend
@@ -195,6 +208,7 @@ jobs:
     env:
       GCP_PROJECT_ID: hushh-pda
       GCP_REGION: us-central1
+      HUSHH_DOCUMENT_MANUAL_ROLLBACK_GUARD: "true"
       BACKEND_SERVICE: consent-protocol
       FRONTEND_SERVICE: hushh-webapp
     steps:
@@ -248,6 +262,18 @@ jobs:
 
       - name: Set GCP project context
         run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
+
+      - name: Prepare protected document rollback checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/document-rollback"
+          "${RUNNER_TEMP}/document-rollback/bin/pip" install --disable-pip-version-check psycopg2-binary==2.9.11
+          echo "PROTOCOL_PYTHON=${RUNNER_TEMP}/document-rollback/bin/python" >> "$GITHUB_ENV"
+          curl -fsSL https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o "${RUNNER_TEMP}/cloud-sql-proxy"
+          chmod +x "${RUNNER_TEMP}/cloud-sql-proxy"
+          echo "${RUNNER_TEMP}" >> "$GITHUB_PATH"
 
       - name: Roll back backend
         id: rollback-backend

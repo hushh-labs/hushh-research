@@ -13,6 +13,7 @@ import {
   resolveGtmContainerId,
   shouldLoadWebAnalyticsScripts,
 } from "@/lib/observability/env";
+import { buildWebAnalyticsBootstrap } from "@/lib/observability/page-context";
 
 const gtmContainerId = resolveGtmContainerId();
 const analyticsMeasurementId = resolveAnalyticsMeasurementId();
@@ -135,20 +136,20 @@ export default function RootLayout({
           />
         ) : null}
         <Script id="calendar-capability-consume" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: "if(window.location.pathname.replace(/\\/$/,'')==='/calendar/reschedule'&&window.location.hash){window.__oneCalendarReschedulingCapability=window.location.hash.slice(1);window.history.replaceState(window.history.state,'',window.location.pathname);}" }} />
-        {loadWebAnalyticsScripts && analyticsMeasurementId ? (
+        {loadWebAnalyticsScripts && (analyticsMeasurementId || gtmContainerId) ? (
           <>
             <Script
               id="ga-base"
-              strategy="afterInteractive"
+              strategy="beforeInteractive"
               dangerouslySetInnerHTML={{
-                __html: `window.dataLayer = window.dataLayer || []; window.gtag = window.gtag || function(){window.dataLayer.push(arguments);}; window.gtag('js', new Date()); window.gtag('config', '${analyticsMeasurementId}', { send_page_view: false });`,
+                __html: buildWebAnalyticsBootstrap(analyticsMeasurementId),
               }}
             />
-            <Script
+            {analyticsMeasurementId ? <Script
               id="ga-loader"
               strategy="afterInteractive"
               src={`https://www.googletagmanager.com/gtag/js?id=${analyticsMeasurementId}`}
-            />
+            /> : null}
           </>
         ) : null}
         {loadWebAnalyticsScripts && gtmContainerId ? (

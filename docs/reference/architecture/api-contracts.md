@@ -4486,6 +4486,63 @@ next period's files. Provider-search package summaries use
 buyer disclosures report unknown content coverage and an explicit search-only
 limitation. A provider-search disclosure cannot claim verified content periods.
 
+### Device-encrypted One document copies
+
+Existing `/sharing/requests` Drive requests keep their original contract. The
+additive `/sharing/delivery-requests` facade accepts `receiveThrough: "one" |
+"both"`; it never enrolls the legacy automatic preparation worker. Both parties
+can use the environment-wide `PROTECTED_DOCUMENT_DELIVERY_ENABLED` capability;
+there is no account cohort or A/B experiment. Turning admission off preserves issued readers,
+revocation, financial reconciliation and cleanup.
+
+B accepts the versioned activity notice and supplies the current public connector
+key. A separately approves exact selected PDF files, price, deadline and hosted-copy
+consent. Drive connection, Trusted status and B's request are not A's copy consent.
+A's browser reads authorized source bytes directly from Google, creates a separate
+watermarked raster PDF, and encrypts originals, renditions and metadata locally.
+The server stores ciphertext and recipient/owner-recovery key envelopes. The
+existing server-readable Drive processing lane remains a separate trust boundary.
+
+All routes below use `/api/connectors/google_drive/sharing`, participant-scoped
+current vault authority, bounded payloads and `private, no-store`. Request creation
+and payment also require matching Firebase identity. B's One-only delivery does not
+require Google content OAuth. `both` additionally uses the existing verified Google
+recipient and managed permission worker.
+
+| Method / suffix | Contract |
+| --- | --- |
+| `GET /delivery-readiness` | Current environment/schema/storage qualification, PDF/size limits and versioned notices. `nativeViewerEnabled:false` until native download qualification. |
+| `POST /delivery-requests` | B's delivery preference, explicit activity consent and exact public key binding. Returns the existing request reference plus `delivery`. |
+| `GET /requests/{id}/delivery/terms` | Participant projection of exact revision, selected files, amount, deadline, content/terms/package commitments, delivery summary and independent revoke states. Source custody fields remain A-only. |
+| `POST /requests/{id}/delivery/approve` | A-only `phase:prepare` with exact files, copy consent and terms; then `phase:final` with the prepared terms/package digests. Neither click substitutes for the other. |
+| `POST /requests/{id}/delivery/source-session` | A-only temporary Google credential after exact preparation consent, bound to current connection generation and revision. Original bytes never pass through this endpoint. |
+| `GET /requests/{id}/delivery/recipient-key` | Exact pinned public key; `purpose=recovery` requires B's proven replacement key. |
+| `POST /requests/{id}/delivery/key-challenge` | Single-use, five-minute X25519 possession challenge bound to B, request and key. Never sends a private key. |
+| `POST /requests/{id}/delivery/uploads`, `PUT …/uploads/{uploadId}`, `POST …/uploads/{uploadId}/finalize` | Reserve a descriptor, upload raw bounded ciphertext, and verify size/hash/object generation before staging. No public object URL. |
+| `POST /requests/{id}/delivery/package` | A stages the canonical content commitment, exact terms, wrapped keys and package commitment. Prepayment responses withhold all B key envelopes. |
+| `POST /requests/{id}/payment/checkout` | New modes require exact `acceptedTermsRevision`, `acceptedTermsDigest`, `acceptedPackageDigest` plus recent B possession proof. Legacy omitted-body checkout remains compatible. |
+| `GET /requests/{id}/delivery/package`, `GET …/artifacts/{artifactId}` | B-only paid active entitlement; authenticated ciphertext response. A receipt for each file releases its keys once. In `both`, that file also needs the actual durable Drive permission receipt. Metadata may describe pending files without releasing their keys. |
+| `GET/POST /requests/{id}/delivery/activity` | Bounded owner/recipient timeline; server authorizations and ciphertext retrieval differ from client-reported render/download handoff. No claim to detect screenshots, saved-file forwarding or exact physical location. |
+| `POST /requests/{id}/delivery/revoke` | Explicit `scope:one|drive|both`; blocks future hosted reads immediately and queues removal of proven app-created Drive permissions. Pending provider removal is not completed removal. |
+| `GET /requests/{id}/delivery/owner-package`, `POST …/recovery-amendment` | A-device rewrap of unchanged ciphertext for B's proven replacement key. Preserves original paid commitment, price, files, rights and deadline; never charges again or restores revoked/expired access. |
+
+The HTTPS entry `/one/documents/open?ref=<opaque-request-uuid>` contains no key,
+token or source locator. One sign-in and vault unlock remain required; forwarding
+the URL does not grant access. Browser downloads preserve original bytes separately
+from the watermarked copy. A downloaded original or screenshot cannot be recalled.
+Initial qualification covers browser PDFs up to 4 MiB/file, 25 files, 40 pages/PDF
+and 32 MiB ciphertext/request. Availability is for every authenticated user in the
+released environment. Native preparation/viewer remains an explicit parity gap
+with browser handoff, rather than a claim of verified device support.
+
+Migration 424 owns the request-bound encrypted artifact inventory, access receipts,
+activity and retained financial/cleanup obligations. Runtime bucket admission pins
+a dedicated private GCS bucket's creation identity, public-access prevention,
+uniform access and no retained-version/hold policy. Exact-generation erasure and
+uncertain upload reconciliation must complete before cleanup claims removal.
+See the [implementation contract](../one/protected-document-delivery.md) for digest
+binding, recovery, rollout and verification ownership.
+
 ### Exact-file Drive sharing (default-off)
 
 All routes below use `/api/connectors/google_drive/sharing` and require a current Vault

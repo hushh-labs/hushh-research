@@ -19,9 +19,10 @@ import stripe
 from sqlalchemy import text
 
 from hushh_mcp.services import payout_doorbell
+from hushh_mcp.services.document_delivery import finance
 from hushh_mcp.services.drive_request_payment_service import _config, _stripe_dict
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
-from hushh_mcp.services.hashcoin_wallet_service import HashcoinWalletService, hashcoins_enabled
+from hushh_mcp.services.hashcoin_wallet_service import HashcoinWalletService
 from hushh_mcp.services.stripe_mode import configured_stripe_mode, stripe_environment
 
 logger = logging.getLogger(__name__)
@@ -314,13 +315,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         settlement_method: str = "stripe_transfer",
     ) -> bool:
         """Enroll only a new, unpaid order in the same transaction as its INSERT."""
-        if settlement_method not in {"stripe_transfer", "hashcoins"}:
-            raise ValueError("invalid settlement method")
-        if not payout_enabled() and not (settlement_method == "hashcoins" and hashcoins_enabled()):
-            raise RuntimeError("owner_payouts_disabled")
-        request = str(UUID(str(request_id)))
-        if not owner_user_id or type(amount_cents) is not int or not 50 <= amount_cents <= 50000:
-            raise ValueError("invalid payout order")
+        request = finance.validate_new_payout(
+            connection, request_id, owner_user_id, amount_cents, settlement_method
+        )
         order = (
             connection.execute(
                 text("""SELECT user_id,amount_cents,status,paid_at,stripe_mode,settlement_method FROM drive_request_payment_orders
@@ -471,6 +468,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         package_count: int | None = None,
         count_preexisting: bool = True,
     ) -> dict[str, int]:
+        from hushh_mcp.services.document_delivery.store import delivery_summary
+
+        hosted = delivery_summary(connection, request_id)
+        if hosted is not None:
+            return hosted
         row = (
             connection.execute(
                 text("""WITH file_outcomes AS (
@@ -581,11 +583,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
               ORDER BY share_id FOR UPDATE"""),
             {"request": request_id},
         ).all()
-        request = self._row(
-            connection,
-            "SELECT * FROM drive_share_requests WHERE request_id=:request FOR UPDATE",
-            {"request": request_id},
-        )
+        request = finance.locked_settlement_request(self, connection, request_id)
         order = self._row(
             connection,
             "SELECT * FROM drive_request_payment_orders WHERE request_id=:request FOR UPDATE",

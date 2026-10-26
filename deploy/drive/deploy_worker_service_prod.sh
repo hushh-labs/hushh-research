@@ -10,6 +10,14 @@ readonly SERVICE="consent-protocol-drive-worker"
 readonly SCHEDULER_STATE_HELPER="deploy/drive/work_drain_scheduler_snapshot_prod.py"
 readonly SCHEDULER_AUDIENCE="https://api.hushh.ai"
 readonly SCHEDULER_ID="drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
+# Preserve the exact intake setting as immutable revision provenance.
+PROTECTED_DOCUMENT_DELIVERY_ENABLED="${PROTECTED_DOCUMENT_DELIVERY_ENABLED:-false}"
+case "${PROTECTED_DOCUMENT_DELIVERY_ENABLED}" in
+  true|false) ;;
+  *) echo "Protected document intake must be true or false" >&2; exit 1 ;;
+esac
+readonly PROTECTED_DOCUMENT_DELIVERY_ENABLED
+
 # Managed Gemini bills to the same dedicated Vertex project as the API
 # (deploy-production.yml _GENAI_PROJECT_ID); Cloud Run, SQL and secrets stay here.
 managed_ai_profile="$(python3 scripts/ops/managed_ai_config.py --environment production --format json)"
@@ -40,9 +48,20 @@ if [[ ! "${IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a
   exit 1
 fi
 
-if [[ "${GCP_PROJECT_ID:-}" != "${PROJECT_ID}" || "${ENABLE_PRODUCTION_DRIVE_LIVE:-false}" != true ]]; then
+legacy_drive="${ENABLE_PRODUCTION_DRIVE_LIVE:-false}"
+hosted_maintenance="${PROTECTED_DOCUMENT_MAINTENANCE:-false}"
+if [[ ! "${legacy_drive}" =~ ^(true|false)$ || ! "${hosted_maintenance}" =~ ^(true|false)$ \
+  || "${GCP_PROJECT_ID:-}" != "${PROJECT_ID}" \
+  || ( "${legacy_drive}" != true && "${hosted_maintenance}" != true ) ]]; then
   echo "Drive worker production release requires the exact project and opt-in gate" >&2
   exit 1
+fi
+# Hosted maintenance composes the existing issued-obligation sharing drain.
+# Indexing/suggestion jobs retain their exact prior state; no legacy live flag
+# or cohort is widened. The normal full-Drive profile retains all three jobs.
+fixed_jobs=(drive-work-sharing-prod)
+if [[ "${legacy_drive}" == true ]]; then
+  fixed_jobs=(drive-work-drain-prod drive-work-suggestions-prod drive-work-sharing-prod)
 fi
 
 # An existing service needs a known rollback revision before deploying an
@@ -142,9 +161,7 @@ rollback() {
       --role=roles/run.invoker --quiet >/dev/null 2>&1 || restore_failed=1
   fi
   if [[ "${promoted}" == true && -n "${previous_revision}" ]]; then
-    gcloud run services update-traffic "${SERVICE}" \
-      --project="${PROJECT_ID}" --region="${REGION}" \
-      --to-revisions="${previous_revision}=100" >&2 || restore_failed=1
+    GCP_PROJECT_ID="${PROJECT_ID}" bash scripts/ci/cloudrun-rollback.sh "${SERVICE}" "${REGION}" "${previous_revision}" >&2 || restore_failed=1
     actual_revision="$(gcloud run services describe "${SERVICE}" \
       --project="${PROJECT_ID}" --region="${REGION}" --format=json 2>/dev/null \
       | python3 -c 'import json,sys; d=json.load(sys.stdin); t=(d.get("status") or {}).get("traffic") or []; r=[x.get("revisionName") for x in t if x.get("percent")==100]; print(r[0] if len(r)==1 else "")' 2>/dev/null)" || restore_failed=1
@@ -193,6 +210,7 @@ print("true" if bound & {"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"} else "fal
 ')"
 fi
 if [[ ( "${DRIVE_REQUEST_PAYMENTS_PROD_ENABLED:-false}" == "true" \
+    || "${hosted_maintenance}" == "true" \
     || "${previous_stripe_bound}" == "true" ) \
   && "${stripe_secret_ready}" != true ]]; then
   echo "Drive payment reconciliation requires the production Stripe and origin secrets" >&2
@@ -217,7 +235,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,--worker-tmp-dir,/tmp,-b,0.0.0.0:8080 \
   --depends-on=clamav \
   --startup-probe=httpGet.port=8080,httpGet.path=/ready,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
-  --set-env-vars="^|^ENVIRONMENT=production|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${MANAGED_TEXT_MODEL}|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=true|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=false|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
+  --set-env-vars="^|^ENVIRONMENT=production|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${MANAGED_TEXT_MODEL}|PROTECTED_DOCUMENT_DELIVERY_ENABLED=${PROTECTED_DOCUMENT_DELIVERY_ENABLED}|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=true|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=false|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
   --set-secrets="BACKEND_RUNTIME_CONFIG_JSON=${DRIVE_RUNTIME_CONFIG_SECRET}:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest,GOOGLE_DRIVE_OAUTH_CLIENT_ID=GOOGLE_DRIVE_OAUTH_CLIENT_ID:latest,GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:latest,EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY:latest,DRIVE_DOCUMENT_KEY_V1=DRIVE_DOCUMENT_KEY_V1:latest,DRIVE_SHARING_KEY_V1=DRIVE_SHARING_KEY_V1:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest${payment_secret_bindings}" \
   --container=clamav \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
@@ -271,7 +289,7 @@ if [[ "${worker_url}" != https://*.run.app ]]; then
   false
 fi
 retargeted=true
-for fixed_job in drive-work-drain-prod drive-work-suggestions-prod drive-work-sharing-prod; do
+for fixed_job in "${fixed_jobs[@]}"; do
   case "${fixed_job}" in
     drive-work-drain-prod) fixed_stage=documents; fixed_cron='*/4 * * * *' ;;
     drive-work-suggestions-prod) fixed_stage=suggestions; fixed_cron='* * * * *' ;;
@@ -282,7 +300,7 @@ for fixed_job in drive-work-drain-prod drive-work-suggestions-prod drive-work-sh
     bash deploy/drive/setup_work_drain_scheduler_prod.sh
 done
 
-for fixed_job in drive-work-drain-prod drive-work-suggestions-prod drive-work-sharing-prod; do
+for fixed_job in "${fixed_jobs[@]}"; do
   triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   gcloud scheduler jobs run "${fixed_job}" \
     --project="${PROJECT_ID}" --location="${REGION}" --quiet
@@ -318,4 +336,4 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
 fi
 trap - EXIT INT TERM
 rm -f "${scheduler_snapshot}"
-echo "Verified private Drive worker ${candidate_revision} at ${worker_url}, SHA ${DEPLOY_SHA}; all three schedulers returned 200"
+echo "Verified private Drive worker ${candidate_revision} at ${worker_url}, SHA ${DEPLOY_SHA}; ${#fixed_jobs[@]} selected schedulers returned 200"

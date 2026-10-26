@@ -146,7 +146,17 @@ def _route_template(request: Request) -> str:
         path = getattr(route, "path", None)
         if isinstance(path, str) and path:
             return path
-    return request.url.path
+    from starlette.routing import Match
+
+    router = getattr(request.scope.get("app"), "router", None)
+    for candidate in getattr(router, "routes", ()):
+        match, _ = candidate.matches(request.scope)
+        path = getattr(candidate, "path", None)
+        if match in {Match.FULL, Match.PARTIAL} and isinstance(path, str) and path:
+            return path
+    # Before routing (and for 404s), a raw URL can contain opaque protected
+    # locators or credentials. It is never a telemetry route template.
+    return "<unmatched>"
 
 
 def _sanitize_request_id(raw: str | None) -> str | None:
@@ -289,7 +299,9 @@ async def _observability_middleware(request: Request, call_next):
     request.state.trace_metadata = metadata
     token = _request_trace_ctx.set(metadata)
     query_token = begin_query_telemetry()
-    audit_token = bind_trace_id(request_id)
+    # Audit and request metadata share the resolved trace correlation; the
+    # request ID keeps its existing response-header compatibility.
+    audit_token = bind_trace_id(trace_id)
     try:
         with request_trace_context(request_id, trace_id):
             failed = False

@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 160,
-    "physical_page_count": 159,
-    "route_contract_count": 160,
-    "surface_map_count": 160,
+    "total_screens": 161,
+    "physical_page_count": 160,
+    "route_contract_count": 161,
+    "surface_map_count": 161,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
-      "vault-backed": 65,
+      "vault-backed": 66,
       "hidden flow": 22,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -1811,6 +1811,52 @@
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": true
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/documents/open",
+      "page_file": "app/one/documents/open/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "encrypted_document",
+        "consent_list"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "0ms; private/no-store entitlement and ciphertext reads",
+      "warm_source": "Unlocked-session document state only; no device document cache",
+      "refresh_trigger": "Live entitlement on every open, preview/download and focus; deadline/session purge",
+      "mutation_invalidator": "CacheSyncService.onConsentMutated plus vault/session/expiry byte and manifest purge",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/documents/open?ref=<authorized-request-uuid>",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": true,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
       },
       "findings": [
         "no local cache primitive detected in page/contract source"
@@ -7201,5 +7247,5 @@
       ]
     }
   ],
-  "content_sha256": "68d32c211a47d9dcbe9fd4c0767e4e68218730efc8c22a461a753cd48a53908a"
+  "content_sha256": "88ab2b4277c8e2fda3aafea7ed78112beb2d6780746e63957ae9a08fc9bcf619"
 }

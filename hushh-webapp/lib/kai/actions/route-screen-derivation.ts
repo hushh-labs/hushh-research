@@ -62,6 +62,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_FILES) {
     return { screen: "one_files", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_DOCUMENTS_OPEN) {
+    return { screen: "one_documents", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_WALLET_CARD) return { screen: "one_wallet_card", subview: null };
   if (normalizedPath === ROUTES.ONE_MESSAGES) return { screen: "one_messages", subview: null };
   if (normalizedPath === "/one/email") return { screen: "email_agent", subview: null };

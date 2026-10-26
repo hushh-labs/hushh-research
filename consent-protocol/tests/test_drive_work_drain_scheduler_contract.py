@@ -214,9 +214,10 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
     assert "_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in uat
     steps = yaml.safe_load(production)["jobs"]["deploy"]["steps"]
     deploy = next(step["run"] for step in steps if step.get("id") == "deploy-backend")
-    for active in ("false", "true"):
+    for active, hosted in (("false", "false"), ("true", "false"), ("false", "true")):
         script = deploy.replace("${{ github.event.inputs.enable_one_email_kyc }}", "false")
         script = script.replace("${{ steps.drive-mode.outputs.active }}", active)
+        script = script.replace("${{ steps.document-mode.outputs.configured }}", hosted)
         script = re.sub(r"\$\{\{.*?\}\}", "fixture", script)
         result = subprocess.run(  # noqa: S603 - repo-authored shell with every cloud call intercepted
             ["bash", "-c", "gcloud() { printf '%s\n' \"$@\"; };\n" + script],
@@ -225,8 +226,10 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
             text=True,
             check=True,
         )
-        assert ("_DRIVE_WORK_DRAIN_ENABLED=true" in result.stdout) == (active == "true")
-        if active == "true":
+        assert ("_DRIVE_WORK_DRAIN_ENABLED=true" in result.stdout) == (
+            active == "true" or hosted == "true"
+        )
+        if active == "true" or hosted == "true":
             assert "_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda," in result.stdout
             assert (
                 "_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL="

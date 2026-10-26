@@ -293,40 +293,17 @@ def _string_constants(node: ast.AST) -> list[str]:
 
 
 def erasure_delete_targets() -> set[str]:
-    """Tables named by a DELETE anywhere in the full-account erasure path."""
-    source = (BACKEND_ROOT / "hushh_mcp/services/account_service.py").read_text(encoding="utf-8")
-    account_service = next(
-        node
-        for node in ast.parse(source).body
-        if isinstance(node, ast.ClassDef) and node.name == "AccountService"
+    from tests.helpers.account_erasure_inventory import delete_targets
+
+    return delete_targets(
+        BACKEND_ROOT,
+        ERASURE_METHODS,
+        (
+            DRIVE_ERASURE,
+            ("hushh_mcp/services/document_delivery/lifecycle.py", ("erase_participant_custody",)),
+        ),
+        _string_constants,
     )
-    methods = {
-        node.name: node
-        for node in account_service.body
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-    }
-    # Keys of the whitelisted per-table delete queries resolve to their SQL.
-    keyed_sql: dict[str, str] = {}
-    for node in ast.walk(methods["__init__"]):
-        if isinstance(node, ast.Dict):
-            for key, value in zip(node.keys, node.values, strict=True):
-                if isinstance(key, ast.Constant) and isinstance(value, ast.Call):
-                    keyed_sql[key.value] = keyed_sql.get(key.value, "") + " ".join(
-                        _string_constants(value)
-                    )
-    fragments: list[str] = []
-    for method in ERASURE_METHODS:
-        for constant in _string_constants(methods[method]):
-            fragments.append(constant)
-            fragments.append(keyed_sql.get(constant, ""))
-    drive_path, drive_functions = DRIVE_ERASURE
-    drive_tree = ast.parse((BACKEND_ROOT / drive_path).read_text(encoding="utf-8"))
-    for node in drive_tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name in drive_functions:
-            fragments.extend(_string_constants(node))
-    return {
-        name.lower() for name in re.findall(r"\bDELETE\s+FROM\s+(\w+)", "\n".join(fragments), re.I)
-    }
 
 
 def uncovered_identity_tables(
