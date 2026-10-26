@@ -25,6 +25,7 @@ def regular_session_clock(monkeypatch):
     now = datetime.fromisoformat("2026-07-14T14:00:00+00:00").timestamp()
     monkeypatch.setattr(fetchers.time, "time", lambda: now)
     monkeypatch.setattr(market_insights, "time", lambda: now)
+    monkeypatch.setattr(fetchers, "_PROVIDER_COOLDOWNS", {})
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +230,30 @@ async def test_a_provider_outage_raises_so_the_cooldown_engages(monkeypatch):
         await fetchers._fetch_yahoo_quotes(["AAPL"])
 
 
+@pytest.mark.asyncio
+async def test_partial_throttling_keeps_success_and_stops_queued_requests(monkeypatch):
+    seen = []
+
+    def handler(request):
+        symbol = request.url.path.rsplit("/", 1)[-1]
+        seen.append(symbol)
+        return (
+            httpx.Response(200, json=_chart(symbol, 100, 90))
+            if symbol == "AAPL"
+            else httpx.Response(429)
+        )
+
+    monkeypatch.setattr(fetchers, "_YAHOO_CHART_CONCURRENCY", 1)
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
+    rows = await fetchers._fetch_yahoo_quotes(["AAPL", "ADBE", "MSFT", "NVDA"])
+    assert [row["ticker"] for row in rows] == ["AAPL"]
+    assert seen == ["AAPL", "ADBE"]
+    assert fetchers._provider_in_cooldown("yahoo_quote_fast:global")
+    with pytest.raises(RuntimeError, match="cooldown"):
+        await fetchers._fetch_yahoo_quote_fast("NVDA")
+    assert seen == ["AAPL", "ADBE"]
+
+
 # ---------------------------------------------------------------------------
 # The route
 # ---------------------------------------------------------------------------
@@ -287,6 +312,102 @@ async def test_a_repeat_request_is_served_from_cache(monkeypatch, isolated_cache
     assert count["n"] == 1
     assert first["cache"]["hit"] is False
     assert second["cache"]["hit"] is True
+
+
+@pytest.mark.asyncio
+async def test_quote_metadata_and_last_good_price_survive_an_empty_refresh(
+    monkeypatch, isolated_cache
+):
+    quote_time = "2026-07-14T13:55:00+00:00"
+
+    async def available(*_args):
+        return {
+            "ADBE": {
+                "price": 273.0,
+                "quoted_at": quote_time,
+                "fetched_at": "2026-07-14T14:00:00+00:00",
+                "is_stale": False,
+            }
+        }
+
+    monkeypatch.setattr(market_quotes, "fetch_market_data_batch", available)
+    initial = await market_quotes.public_market_quotes(symbols="ADBE")
+    assert initial["quotes"][0]["quoted_at"] == quote_time
+    assert initial["quotes"][0]["change_pct"] is None
+    now = market_insights.time()
+    monkeypatch.setattr(market_insights, "time", lambda: now + 300)
+    monkeypatch.setattr(fetchers.time, "time", lambda: now + 300)
+
+    async def unavailable(*_args):
+        return {}
+
+    monkeypatch.setattr(market_quotes, "fetch_market_data_batch", unavailable)
+    retained = await market_quotes.public_market_quotes(symbols="ADBE")
+    assert retained["quotes"][0]["price"] == 273
+    assert retained["quotes"][0]["quoted_at"] == quote_time
+    assert retained["quotes"][0]["is_stale"] is True
+
+
+@pytest.mark.asyncio
+async def test_closed_cold_quote_makes_no_provider_calls(monkeypatch, isolated_cache):
+    closed = datetime.fromisoformat("2026-07-18T14:00:00+00:00").timestamp()
+    monkeypatch.setattr(market_insights, "time", lambda: closed)
+    monkeypatch.setattr(fetchers.time, "time", lambda: closed)
+    calls = []
+
+    async def forbidden(*args):
+        calls.append(args)
+        raise AssertionError("closed market must not fetch quotes")
+
+    monkeypatch.setattr(market_quotes, "fetch_market_data_batch", forbidden)
+    with pytest.raises(Exception) as error:
+        await market_quotes.public_market_quotes(symbols="ADBE")
+    assert error.value.status_code == 503
+    assert not calls
+
+
+@pytest.mark.asyncio
+async def test_nested_provider_stale_batch_is_not_relabelled_fresh(monkeypatch, isolated_cache):
+    from hushh_mcp.services import market_provider_cache
+    from hushh_mcp.services.market_data_provider import MarketDataRequest
+    from tests.helpers.market_public_cache import _FakeStore as ProviderStore
+
+    monkeypatch.setattr(market_provider_cache, "market_insights_cache", MarketInsightsCache())
+    store = ProviderStore()
+    monkeypatch.setattr(market_provider_cache, "get_market_cache_store_service", lambda: store)
+    now = [market_insights.time()]
+    monkeypatch.setattr(fetchers.time, "time", lambda: now[0])
+    monkeypatch.setattr(market_insights, "time", lambda: now[0])
+    failing = False
+    observed = "2026-07-14T13:55:00+00:00"
+
+    async def fetch():
+        if failing:
+            raise RuntimeError("provider offline")
+        return {"ADBE": {"price": 273, "quoted_at": observed, "is_stale": False}}
+
+    async def batch(symbols, *_args):
+        return await market_provider_cache.cached_market_provider_read(
+            MarketDataRequest("quotes", tuple(symbols)),
+            provider_identity="test-provider",
+            fetcher=fetch,
+        )
+
+    monkeypatch.setattr(market_quotes, "fetch_market_data_batch", batch)
+    assert (await market_quotes.public_market_quotes(symbols="ADBE"))["quotes"][0][
+        "is_stale"
+    ] is False
+    now[0] += 300
+    failing = True
+    retained = (await market_quotes.public_market_quotes(symbols="ADBE"))["quotes"][0]
+    assert retained["price"] == 273 and retained["quoted_at"] == observed
+    assert retained["is_stale"] is True
+    assert (
+        market_insights.market_insights_cache.peek(
+            market_quotes.quotes_cache_key(["ADBE"])
+        ).fetched_at
+        == now[0]
+    )
 
 
 @pytest.mark.asyncio

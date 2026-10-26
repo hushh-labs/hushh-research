@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerHoldingEntryChecks } from "./fixtures/finance-screen-checks";
+import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks } from "./fixtures/finance-screen-checks";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
@@ -493,5 +493,6 @@ for (const width of [360, 393, 430, 768, 1024, 1440]) {
 
 
 registerHoldingEntryChecks(mount);
+registerStockQuoteRecoveryChecks(mount);
 
 registerFinanceScreenChecks(mount);

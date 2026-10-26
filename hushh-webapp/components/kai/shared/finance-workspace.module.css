@@ -55,6 +55,14 @@
 .fact dt { font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .fact dd { margin-top: 4px; font-size: 14px; line-height: 21px; font-weight: 550; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .value { font-size: clamp(30px, 6vw, 40px); line-height: 1.2; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.holdingLayout { display: grid; min-width: 0; }
+.holdingDetails { min-width: 0; }
+.holdingSheet :global([data-slot="drawer-close"]) { min-width: 44px; min-height: 44px; }
+@media (min-width: 1024px) {
+  .holdingSheet[data-vaul-drawer-direction="bottom"] { width: min(1120px, calc(100% - 48px)); margin-inline: auto; }
+  .holdingWithHistory { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+  .holdingWithHistory > .holdingDetails { border-inline-start: 1px solid var(--border); }
+}
 .toolbar { display: flex; align-items: center; gap: 8px; }
 .toolbar input { height: 48px; font-size: 16px; line-height: 22px; box-shadow: none; }
 @media (min-width: 621px) { .toolbar input { font-size: 14px; } }

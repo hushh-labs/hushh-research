@@ -256,65 +256,23 @@ class RealtimeDataUnavailable(RuntimeError):
 
 
 async def _fetch_yahoo_quote_fast(ticker: str) -> Dict[str, Any]:
-    """
-    Fast market-data fallback using Yahoo's public quote endpoint.
-
-    Rationale: `yfinance` is synchronous and can hang in some Cloud Run environments.
-    This endpoint is lighter-weight and has explicit timeouts.
-
-    NOTE: This is public market data (no user data). Consent is still enforced by the caller.
-    """
+    """Use the same public chart transport and provider quote time as batch reads."""
     if _provider_in_cooldown("yahoo_quote_fast:global"):
         raise RuntimeError("yahoo_quote_fast_provider_cooldown")
-    url = "https://query1.finance.yahoo.com/v7/finance/quote"
-    params = {"symbols": ticker.upper()}
-    headers = {"User-Agent": "Hushh-Research/1.0 (eng@hush1one.com)"}
-
-    timeout = httpx.Timeout(connect=3.0, read=4.0, write=4.0, pool=3.0)
-    async with httpx.AsyncClient(
-        event_hooks={"request": [record_provider_request]}, timeout=timeout, headers=headers
-    ) as client:
-        try:
-            res = await asyncio.wait_for(
-                client.get(url, params=params),
-                timeout=_YAHOO_FAST_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError as exc:
-            _mark_provider_cooldown_for_duration(
-                "yahoo_quote_fast:global",
-                _YAHOO_FAST_TIMEOUT_COOLDOWN_SECONDS,
-            )
-            raise RuntimeError("yahoo_quote_fast_timeout") from exc
-        if not res.is_success:
-            _mark_provider_cooldown("yahoo_quote_fast:global", res.status_code)
-        res.raise_for_status()
-        data = res.json() or {}
-        results = ((data.get("quoteResponse") or {}).get("result")) or []
-        if not results:
-            return {}
-
-        q = results[0] or {}
-
-        # Map a minimal common subset
-        return {
-            "ticker": ticker.upper(),
-            "price": q.get("regularMarketPrice") or 0,
-            "change_percent": q.get("regularMarketChangePercent"),
-            "volume": q.get("regularMarketVolume"),
-            "market_cap": q.get("marketCap") or 0,
-            "pe_ratio": q.get("trailingPE") or 0,
-            "pb_ratio": q.get("priceToBook") or 0,
-            "dividend_yield": q.get("trailingAnnualDividendYield"),
-            "company_name": q.get("longName") or q.get("shortName") or ticker.upper(),
-            "instrument_type": q.get("quoteType"),
-            # Sector/industry often not present in quote endpoint; keep best-effort.
-            "sector": q.get("sector") or "Unknown",
-            "industry": q.get("industry") or "Unknown",
-            "source": "Yahoo Quote (Fast)",
-            "fetched_at": datetime.utcnow().isoformat(),
-            "ttl_seconds": 60,
-            "is_stale": False,
-        }
+    symbol = ticker.upper().strip()
+    try:
+        rows = await asyncio.wait_for(
+            _fetch_yahoo_quotes([symbol]), timeout=_YAHOO_FAST_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError as exc:
+        _mark_provider_cooldown_for_duration(
+            "yahoo_quote_fast:global", _YAHOO_FAST_TIMEOUT_COOLDOWN_SECONDS
+        )
+        raise RuntimeError("yahoo_quote_fast_timeout") from exc
+    except httpx.HTTPStatusError as exc:
+        _mark_provider_cooldown("yahoo_quote_fast:global", exc.response.status_code)
+        raise
+    return next((row for row in rows if row.get("ticker") == symbol), {})
 
 
 def _parse_google_news_rss(xml_text: str, ticker: str) -> List[Dict[str, Any]]:
@@ -483,6 +441,7 @@ async def _fetch_finnhub_quote(ticker: str) -> Dict[str, Any]:
             "sector": str(profile.get("finnhubIndustry") or "Unknown"),
             "industry": str(profile.get("finnhubIndustry") or "Unknown"),
             "source": "Finnhub",
+            "quoted_at": _quote_time_iso(quote.get("t")),
             "fetched_at": datetime.utcnow().isoformat(),
             "ttl_seconds": 60,
             "is_stale": False,
@@ -552,6 +511,7 @@ async def _fetch_pmp_quote(ticker: str) -> Dict[str, Any]:
             "sector": str(details.get("sector") or "Unknown"),
             "industry": str(details.get("industry") or "Unknown"),
             "source": "PMP/FMP",
+            "quoted_at": _quote_time_iso(row.get("timestamp")),
             "fetched_at": datetime.utcnow().isoformat(),
             "ttl_seconds": 60,
             "is_stale": False,
@@ -796,6 +756,20 @@ async def _fetch_yahoo_search_peers(ticker: str) -> List[str]:
         return peers
 
 
+def _quote_time_iso(value: Any) -> str | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        return None
+    try:
+        return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def _parse_yahoo_chart_meta(meta: Dict[str, Any]) -> Dict[str, Any] | None:
     """Map one v8 chart `meta` block onto the row shape the batch fetcher returns."""
     symbol = str(meta.get("symbol") or "").upper().strip()
@@ -823,13 +797,8 @@ def _parse_yahoo_chart_meta(meta: Dict[str, Any]) -> Dict[str, Any] | None:
     )
 
     now = datetime.now(timezone.utc)
-    quoted_at = None
     quote_time = meta.get("regularMarketTime")
-    if isinstance(quote_time, (int, float)) and not isinstance(quote_time, bool):
-        try:
-            quoted_at = datetime.fromtimestamp(quote_time, tz=timezone.utc).isoformat()
-        except (OverflowError, OSError, ValueError):
-            pass
+    quoted_at = _quote_time_iso(quote_time)
     delay = meta.get("exchangeDataDelayedBy")
     delay = (
         float(delay)
@@ -899,6 +868,8 @@ async def _fetch_yahoo_quotes(
 
         async def fetch_one(symbol: str) -> Dict[str, Any] | None:
             async with semaphore:
+                if _provider_in_cooldown("yahoo_quote_fast:global"):
+                    raise RuntimeError("yahoo_quote_fast_provider_cooldown")
                 res = await client.get(
                     f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}",
                     params={
@@ -911,6 +882,8 @@ async def _fetch_yahoo_quotes(
                 # One delisted or mistyped symbol must not fail the whole batch. A 429 or 5xx is
                 # the provider talking, so that one is raised for the caller's cooldown to see.
                 if res.status_code == 429 or res.status_code >= 500:
+                    # A partial batch must still stop queued sends after throttling.
+                    _mark_provider_cooldown("yahoo_quote_fast:global", res.status_code)
                     res.raise_for_status()
                 if res.status_code >= 400:
                     return None
