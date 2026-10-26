@@ -1814,7 +1814,7 @@ def test_production_release_verifies_provenance_and_publishes_evidence() -> None
         in workflow
     )
     assert (
-        'steps.final-state.outputs.backend_serving }}" != "${{ steps.predeploy-state.outputs.backend_revision'
+        'steps.final-state.outputs.backend_serving }}" != "${{ steps.phone-rollback-qualified.outputs.revision'
         in workflow
     )
     assert (

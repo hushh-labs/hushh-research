@@ -178,10 +178,13 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/process_group.py",
         "scripts/ci/cloudrun-rollback.sh",
         "scripts/ci/runtime_capacity_inventory.py",
+        "scripts/ci/runtime_capacity_cli.py",
+        "scripts/ci/verify-cloudrun-revision-provenance.py",
         "scripts/ci/account-deletion-fence-decision.py",
         "scripts/ci/verify-cloud-scheduler-attempt.py",
         "scripts/ci/cloudrun-rollback.sh",
         "deploy/drive/rollback_after_worker_failure.sh",
+        "deploy/drive/rebind_protected_document_backend.py",
         *(
             f"deploy/account-deletion/{name}"
             for name in (
@@ -196,11 +199,13 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/managed_provider_readiness.py",
         "scripts/ci/managed_capability_proof.py",
         "scripts/ops/verify-env-secrets-parity.py",
+        *(path.relative_to(root).as_posix() for path in (root / "deploy/phone").glob("*.py")),
         *(f"deploy/drive/{name}" for name in DRIVE_PRODUCTION_TOOLS),
         *(
             f"scripts/deploy/{name}"
             for name in (
                 "backend-deploy.sh",
+                "backend-phone-rollback.sh",
                 "verify-managed-vertex-runtime.sh",
                 *(path.name for path in (root / "scripts/deploy").glob("backend-*-settings.sh")),
                 "commerce-preview-bindings.sh",
@@ -476,6 +481,8 @@ def document_installer_environment(directory: Path) -> dict[str, str]:
         directory / "consent-protocol/.venv/bin/python": "exit 0\n",
         commands / "npx": 'echo "$*" >> "$FIXTURE_ROOT/calls"\n'
         '! grep -q azure.archive "$FIXTURE_ROOT/apt-mirrors.txt"\n',
+        commands / "timeout": '[ "$1 $2 $3" = "--signal=TERM --kill-after=30s 8m" ] || exit 97\n'
+        'shift 3\nexec "$@"\n',
     }.items():
         script.parent.mkdir(parents=True, exist_ok=True)
         script.write_text("#!/bin/sh\n" + body)
