@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearOneLocationControlRuntime,
+  BACKGROUND_SHARING_DISCLOSURE_VERSION,
   deriveLocationEnabled,
+  hasBackgroundSharingConsent,
   forgetOneLocationControlPreference,
   readOneLocationControlState,
   subscribeOneLocationControlState,
@@ -17,6 +19,27 @@ afterEach(() => {
 });
 
 describe("One Location control state", () => {
+  it("requires fresh disclosure acceptance after owner/session changes", () => {
+    expect(hasBackgroundSharingConsent(readOneLocationControlState(userId))).toBe(false);
+    updateOneLocationControlState(userId, (current) => ({ ...current, backgroundSharingEnabled: true }));
+    expect(hasBackgroundSharingConsent(readOneLocationControlState(userId))).toBe(false);
+
+    updateOneLocationControlState(userId, (current) => ({
+      ...current, backgroundSharingEnabled: true,
+      backgroundDisclosureVersion: BACKGROUND_SHARING_DISCLOSURE_VERSION,
+    }));
+    expect(hasBackgroundSharingConsent(readOneLocationControlState(userId))).toBe(true);
+    clearOneLocationControlRuntime(userId);
+    expect(hasBackgroundSharingConsent(readOneLocationControlState(userId))).toBe(false);
+    expect(hasBackgroundSharingConsent(readOneLocationControlState("another-owner"))).toBe(false);
+
+    updateOneLocationControlState(userId, (current) => ({ ...current, backgroundSharingEnabled: false }));
+    clearOneLocationControlRuntime(userId);
+    expect(hasBackgroundSharingConsent(readOneLocationControlState(userId))).toBe(false);
+
+    expect(window.localStorage.getItem(`one_location_background_sharing_v1:${userId}`)).toBeNull();
+  });
+
   it("keeps pause durable while runtime activity remains memory-only", () => {
     updateOneLocationControlState(userId, (current) => ({
       ...current,
@@ -34,6 +57,8 @@ describe("One Location control state", () => {
       autoApproveScope: null,
       paused: true,
       selfPreviewEnabled: false,
+      backgroundSharingEnabled: false,
+      backgroundDisclosureVersion: null,
       nearbyPresenceActive: false,
       nearbyCheckedInAt: null,
     });

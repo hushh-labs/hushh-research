@@ -1229,7 +1229,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session."
+      "reason": "The Location introduction unwinds optional panels, then Ready or Save a place to Features, then exits to agents home. Pending place-capture, contact, join and completion operations consume Back. Workspace saved-place modals use topmost overlay dismissal before the authored route parent. Circle creation unwinds its contact step before the route parent, retains saved identity and selection, and consumes Back during membership saves. Contact invitation overlay Back unwinds batch result to review to selection, preserving selected recipients; a pending composer consumes Back and explicit Close clears its session. Background-sharing disclosure uses the shared modal Back owner: first Back/Escape cancels the disclosure in Settings or Share, and a late permission result cannot enable sharing; the next Back follows the existing flow parent."
     }
   },
   {

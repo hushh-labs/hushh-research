@@ -5714,6 +5714,336 @@
     {
       "command": {
         "domain": "location",
+        "review_route": "/one/location"
+      },
+      "action_id": "location.background_review",
+      "surface_id": "one_location",
+      "label": "Review background location sharing",
+      "aliases": [
+        "review background location sharing"
+      ],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "meaning": "Review native background-sharing disclosure.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner must be using the native app with this visible control; permission requires the current disclosure."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Background access requires the visible human consent control and device permission prompt.",
+        "intended_handler": "BackgroundShareToggle"
+      },
+      "control_ids": [
+        "one-location-background-sharing-toggle"
+      ],
+      "state_exposure": [
+        "background sharing preference and device permission status only"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/one-location/background-share-toggle.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.background_review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.background_review",
+            "label": "Review background location sharing",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
+      "action_id": "location.background_accept",
+      "surface_id": "one_location",
+      "label": "Allow background location sharing",
+      "aliases": [
+        "allow background location sharing"
+      ],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "meaning": "The owner accepts disclosure and requests OS background access.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner must be using the native app with this visible control; permission requires the current disclosure."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Background access requires the visible human consent control and device permission prompt.",
+        "intended_handler": "BackgroundShareToggle"
+      },
+      "control_ids": [
+        "one-location-background-sharing-accept"
+      ],
+      "state_exposure": [
+        "background sharing preference and device permission status only"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/one-location/background-share-toggle.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.background_accept",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.background_accept",
+            "label": "Allow background location sharing",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
+      "action_id": "location.background_cancel",
+      "surface_id": "one_location",
+      "label": "Cancel background location sharing",
+      "aliases": [
+        "cancel background location sharing"
+      ],
+      "search_keywords": [
+        "location",
+        "background",
+        "privacy"
+      ],
+      "meaning": "Dismiss disclosure; leave background sharing off.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner must be using the native app with this visible control; permission requires the current disclosure."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Background access requires the visible human consent control and device permission prompt.",
+        "intended_handler": "BackgroundShareToggle"
+      },
+      "control_ids": [
+        "one-location-background-sharing-cancel"
+      ],
+      "state_exposure": [
+        "background sharing preference and device permission status only"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/one-location/background-share-toggle.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.background_cancel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.background_cancel",
+            "label": "Cancel background location sharing",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
         "review_route": "/one/location?action=settings"
       },
       "action_id": "location.review_notifications",

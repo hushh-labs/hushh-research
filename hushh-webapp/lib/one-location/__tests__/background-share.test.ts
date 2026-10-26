@@ -22,6 +22,7 @@ const recipient = (over: Partial<OneLocationRecipient> = {}): OneLocationRecipie
 describe("buildBackgroundShareSession", () => {
   it("maps active grants with a resolvable recipient key", () => {
     const session = buildBackgroundShareSession({
+      precision: "precise",
       activeGrants: [grant()],
       recipients: [recipient()],
       vaultOwnerToken: "tok",
@@ -30,6 +31,7 @@ describe("buildBackgroundShareSession", () => {
       minIntervalMs: 8000,
     });
     expect(session).toEqual({
+      disclosureVersion: 1,
       vaultOwnerToken: "tok",
       backendBaseUrl: "https://api.example.com",
       minMoveMeters: 25,
@@ -37,6 +39,7 @@ describe("buildBackgroundShareSession", () => {
       grants: [
         {
           grantId: "g1",
+          precision: "precise",
           recipientKeyId: "k1",
           recipientPublicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
         },
@@ -46,6 +49,7 @@ describe("buildBackgroundShareSession", () => {
 
   it("drops grants whose recipient is missing key material", () => {
     const session = buildBackgroundShareSession({
+      precision: "precise",
       activeGrants: [grant()],
       recipients: [recipient({ publicKeyJwk: undefined })],
       vaultOwnerToken: "tok",
@@ -58,6 +62,7 @@ describe("buildBackgroundShareSession", () => {
 
   it("drops non-active grants", () => {
     const session = buildBackgroundShareSession({
+      precision: "precise",
       activeGrants: [grant({ status: "revoked" as OneLocationGrant["status"] })],
       recipients: [recipient()],
       vaultOwnerToken: "tok",
@@ -70,6 +75,7 @@ describe("buildBackgroundShareSession", () => {
   it("drops expired or malformed expiry while preserving future expiry for native enforcement", () => {
     const future = Date.now() + 60_000;
     const session = buildBackgroundShareSession({
+      precision: "precise",
       activeGrants: [
         grant({ id: "expired", expiresAt: new Date(1).toISOString() }),
         grant({ id: "malformed", expiresAt: "invalid" }),
@@ -83,6 +89,18 @@ describe("buildBackgroundShareSession", () => {
     });
     expect(session.grants).toHaveLength(1);
     expect(session.grants[0]).toMatchObject({ grantId: "future", expiresAtMs: future });
+  });
+
+  it("applies approximate preference per grant while keeping SOS precise", () => {
+    const session = buildBackgroundShareSession({
+      precision: "approximate",
+      activeGrants: [grant(), grant({ id: "sos", shareKind: "sos" })],
+      recipients: [recipient()], vaultOwnerToken: "synthetic-only", backendBaseUrl: "https://fixture.invalid",
+      minMoveMeters: 25, minIntervalMs: 8000,
+    });
+    expect(session.grants.map(({ grantId, precision }) => ({ grantId, precision }))).toEqual([
+      { grantId: "g1", precision: "approximate" }, { grantId: "sos", precision: "precise" },
+    ]);
   });
 
 });

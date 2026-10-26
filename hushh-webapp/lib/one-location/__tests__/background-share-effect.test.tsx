@@ -27,7 +27,8 @@ describe("syncBackgroundShare", () => {
     await syncBackgroundShare({
       enabled: true,
       session: {
-        vaultOwnerToken: "t",
+        disclosureVersion: 1,
+      vaultOwnerToken: "t",
         backendBaseUrl: "https://api",
         grants: [],
         minMoveMeters: 25,
@@ -40,10 +41,11 @@ describe("syncBackgroundShare", () => {
 
   it("starts native sharing when enabled with grants", async () => {
     const session = {
+      disclosureVersion: 1,
       vaultOwnerToken: "t",
       backendBaseUrl: "https://api",
       grants: [
-        { grantId: "g1", recipientKeyId: "k1", recipientPublicKeyJwk: {} },
+        { grantId: "g1", precision: "precise" as const, recipientKeyId: "k1", recipientPublicKeyJwk: {} },
       ],
       minMoveMeters: 25,
       minIntervalMs: 8000,
@@ -52,4 +54,13 @@ describe("syncBackgroundShare", () => {
     expect(start).toHaveBeenCalledWith(session);
     expect(stop).not.toHaveBeenCalled();
   });
+  it("refuses an unversioned caller even with grants", async () => {
+    await syncBackgroundShare({ enabled: true, session: {
+      disclosureVersion: 0, vaultOwnerToken: "synthetic-only", backendBaseUrl: "https://fixture.invalid",
+      grants: [{ grantId: "g1", precision: "precise", recipientKeyId: "k1", recipientPublicKeyJwk: {} }],
+      minMoveMeters: 25, minIntervalMs: 8000,
+    } });
+    expect(start).not.toHaveBeenCalled(); expect(stop).toHaveBeenCalledTimes(1);
+  });
+
 });

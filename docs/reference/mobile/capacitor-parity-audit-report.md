@@ -69,8 +69,9 @@ Current tracked evidence blockers:
   only 13 results, including a failed `/register-phone`; Android has 76 results.
 - Updated simulator/emulator runs are required to establish route parity. Static
   plugin checks and historical May results do not replace those runs.
-- iOS background location sharing exists; Android explicitly reports it unavailable.
-  Treat this as a behavioral gap, not proof of full native parity.
+- Background location publishing now has both iOS and Android implementations.
+  Shared disclosure/precision behavior still needs exact-candidate device journey
+  evidence and Google Play declaration approval; source parity alone is insufficient.
 
 The repo now hard-fails when:
 

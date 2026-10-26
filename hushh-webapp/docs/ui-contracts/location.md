@@ -928,6 +928,28 @@ Recipient status resolves live share, latest pending ask and latest denied/cance
 
 Extra-time UI is additive:15min/30min/1h/2h more, or a pending-extension banner+Take back. It POSTs `/requests` with owner, exact `extendsGrantId`, `requestedDurationHours:additionalHours`, timed mode and “Requesting {amount} more of your live location.” It never invokes duration PATCH from these mounted controls. Only one pending extension per displayed grant blocks new amount choices; one amount spins and all amounts disable during the request. Success closes the editor and refreshes; failed request leaves choices. Taking back does not revoke existing access. [Component](../../components/one-location/redesign/request-more-time.tsx#L81), [handler](../../app/one/location/page.tsx#L7207).
 
+### Native background-sharing disclosure
+
+The normal Share confirmation and Location Settings expose **Keep sharing in the
+background** in native apps. Web hides this upgrade. The switch stays off while
+the modal explains background collection for active private shares and Save My
+Soul alerts, encryption, and Stop/Pause controls. **Continue** requests the real
+OS background upgrade; only an available permission enables the owner-scoped,
+memory-only intent. **Not now**, outside dismissal, Escape/Back and owner unmount
+invalidate late permission replies. Closing restores focus to the switch. First
+Back closes the modal without leaving Share/Settings; next Back follows the
+existing flow parent. Denial keeps the switch off and gives device-settings
+recovery guidance. Disabling stops native sharing immediately.
+
+`BackgroundLocationPublisherBridge` is the sole native background reconciler,
+mounted independently of Live voice. The existing foreground publisher retains
+its voice-readiness scope. Session changes reconcile recipient keys, grant
+expiry, precision, vault authority and pause. Failed native starts clear the
+intent with recovery guidance; native Stop clears it through a retained event.
+A fresh app session requires a new disclosure acceptance. Approximate coordinates
+are coarsened before native recipient encryption; SOS remains precise. These
+sensitive controls are authored `manual_only` and unavailable to Siri.
+
 ### Incoming review, standing approval, grant management and received viewing
 
 Needs review renders only pending requests owned by this viewer. Header “Nothing is shared until you approve.” Request card shows requester, exact duration/extension remaining time and optional raw reason. Full Approve grants exact requested mode/amount; shorter alternatives are strictly below requested amount from15min/30min/1h/2h/4h, at most four longest valid choices; all shorter answers force timed mode. Extension copy says “Or add less”/“Add {amount} instead”. Decline is immediate dedicated deny; no confirmation dialog. Per-card pending decision disables only that card; only a resolved callback not equal tofalse latches Approved/Declined; rejection/false restores controls. [Review renderer](../../components/one-location/redesign/location-redesign-hub.tsx#L2898), [card](../../components/one-location/redesign/cards.tsx#L275), [shorter options](../../lib/one-location/approve-duration-options.ts#L42).

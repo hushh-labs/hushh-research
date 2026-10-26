@@ -931,11 +931,14 @@ export type HushhLocationPermissionState = {
 
 export type BackgroundShareGrant = {
   grantId: string;
+  expiresAtMs?: number;
+  precision: "precise" | "approximate";
   recipientKeyId: string;
   recipientPublicKeyJwk: JsonWebKey;
 };
 
 export type BackgroundShareSession = {
+  disclosureVersion: number;
   vaultOwnerToken: string;
   backendBaseUrl: string;
   grants: BackgroundShareGrant[];
@@ -950,7 +953,7 @@ export interface HushhLocationPlugin {
   ): Promise<PluginListenerHandle>;
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
-  /** iOS: prompt for the "Always Allow" upgrade. No-op elsewhere. */
+  /** Request background access (iOS upgrade prompt; Android app settings). */
   requestAlwaysAuthorization(): Promise<HushhLocationPermissionState>;
   openAppSettings(): Promise<{
     opened: boolean;

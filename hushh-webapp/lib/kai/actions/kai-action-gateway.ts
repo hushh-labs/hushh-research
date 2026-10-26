@@ -949,7 +949,7 @@ export function evaluateKaiActionAvailability(input: {
   if (action.execution_policy === "manual_only") {
     return {
       status: "manual_only",
-      reason: "This action remains manual in the current Finance workflow.",
+      reason: "Use the on-screen control to complete this action.",
       target_persona: null,
       blocked_guidance: action.workflow?.blocked_guidance || null,
     };

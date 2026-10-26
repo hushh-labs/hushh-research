@@ -20,7 +20,7 @@ final class LocationEnvelopeCryptoTests: XCTestCase {
             recipientPublicKeyJwk: recipientJwk,
             recipientKeyId: "k1",
             capturedAt: "2026-07-09T00:00:00.000Z",
-            sourcePlatform: "ios"
+            sourcePlatform: "ios", precision: "precise"
         )
 
         // Reconstruct the recipient private key and derive the same AES key from
@@ -54,7 +54,7 @@ final class LocationEnvelopeCryptoTests: XCTestCase {
             recipientPublicKeyJwk: recipientJwk,
             recipientKeyId: "k1",
             capturedAt: "2026-07-09T00:00:00.000Z",
-            sourcePlatform: "ios"
+            sourcePlatform: "ios", precision: "precise"
         )
         let json = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
         print("GOLDEN_ENVELOPE_BEGIN" + String(decoding: json, as: UTF8.self) + "GOLDEN_ENVELOPE_END")

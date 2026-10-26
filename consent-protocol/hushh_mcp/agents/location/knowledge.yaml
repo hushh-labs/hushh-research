@@ -82,6 +82,18 @@ capabilities:
   - { capability_id: location.pause_updates, kind: action, feature_group_id: sharing }
   - { capability_id: location.set_ghost_mode, kind: action, feature_group_id: sharing }
   - { capability_id: location.resume_updates, kind: action, feature_group_id: sharing }
+  - capability_id: location.background_review
+    kind: action
+    feature_group_id: sharing
+    semantic_boundary: Human-only native disclosure and OS permission; the private agent cannot execute this control.
+  - capability_id: location.background_accept
+    kind: action
+    feature_group_id: sharing
+    semantic_boundary: Human-only native disclosure and OS permission; the private agent cannot execute this control.
+  - capability_id: location.background_cancel
+    kind: action
+    feature_group_id: sharing
+    semantic_boundary: Human-only native disclosure and OS permission; the private agent cannot execute this control.
   - { capability_id: location.open_ask, kind: action, feature_group_id: requests }
   - { capability_id: location.select_ask_recipient, kind: action, feature_group_id: requests }
   - { capability_id: location.send_request, kind: action, feature_group_id: requests }

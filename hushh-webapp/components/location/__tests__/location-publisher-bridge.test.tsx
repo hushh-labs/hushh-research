@@ -223,7 +223,7 @@ describe("LocationPublisherBridge", () => {
     await waitFor(() =>
       expect(mocks.service.clearLocationWatch).toHaveBeenCalledWith("watch-1"),
     );
-    expect(mocks.service.stopBackgroundShare).toHaveBeenCalled();
+    expect(mocks.service.stopBackgroundShare).not.toHaveBeenCalled();
     // Nothing restarts while off.
     expect(mocks.service.watchCurrentPosition).toHaveBeenCalledTimes(1);
   });
@@ -491,7 +491,7 @@ describe("LocationPublisherBridge", () => {
     expect(mocks.service.storeEnvelope).not.toHaveBeenCalled();
   });
 
-  it("flips the settings resource off on a turn_sharing_off result and stops native sharing", async () => {
+  it("flips settings off while leaving native reconciliation to its sole owner", async () => {
     LocationAccountSettingsResource.write("u1", {
       sharing_state: "on",
       sharing_enabled: true,
@@ -523,7 +523,7 @@ describe("LocationPublisherBridge", () => {
     expect(
       LocationAccountSettingsResource.peek("u1").settings?.sharing_state,
     ).toBe("off");
-    expect(mocks.service.stopBackgroundShare).toHaveBeenCalled();
+    expect(mocks.service.stopBackgroundShare).not.toHaveBeenCalled();
   });
 
   it("ignores a sos_active refusal: sharing stays on", async () => {

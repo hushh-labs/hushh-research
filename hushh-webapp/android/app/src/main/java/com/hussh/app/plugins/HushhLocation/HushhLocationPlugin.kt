@@ -57,9 +57,11 @@ class HushhLocationPlugin : Plugin() {
     // to JS. Each holds its LocationListener so clearWatch can detach it.
     private val activeWatches = HashMap<String, LocationListener>()
     private val backgroundPermissionRequests = mutableMapOf<String, Pair<Long, String>>()
+    private var alwaysPermissionCall: PluginCall? = null
+    private var alwaysPermissionOwner: String? = null
     override fun load() {
         val plugin = WeakReference(this)
-        BackgroundLocationService.onStopped = { plugin.get()?.notifyListeners("backgroundShareStopped", JSObject()) }
+        BackgroundLocationService.onStopped = { plugin.get()?.notifyListeners("backgroundShareStopped", JSObject(), true) }
     }
 
     @PluginMethod
@@ -141,15 +143,43 @@ class HushhLocationPlugin : Plugin() {
 
     @PluginMethod
     fun requestAlwaysAuthorization(call: PluginCall) {
-        // Android 11+ requires the owner to select Always in system settings.
-        // Foreground permission must be granted separately first.
-        if (hasLocationPermission() && Build.VERSION.SDK_INT >= 29 &&
-            !hasAndroidPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:${context.packageName}"))
-            activity.startActivity(intent)
+        activity.runOnUiThread {
+            alwaysPermissionCall?.resolve(permissionPayload())
+            alwaysPermissionCall = null
+            if (!hasLocationPermission() || Build.VERSION.SDK_INT < 29 ||
+                hasAndroidPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
+                call.resolve(permissionPayload())
+                return@runOnUiThread
+            }
+            // The web disclosure is accepted before this upgrade. Resolve only
+            // when the owner returns, so the switch reflects the OS answer.
+            alwaysPermissionOwner = FirebaseAuth.getInstance().currentUser?.uid
+            alwaysPermissionCall = call
+            try {
+                activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${context.packageName}")))
+            } catch (_: Exception) {
+                alwaysPermissionCall = null
+                call.resolve(permissionPayload())
+            }
         }
-        call.resolve(permissionPayload())
+    }
+
+    override fun handleOnResume() {
+        super.handleOnResume()
+        val call = alwaysPermissionCall ?: return
+        alwaysPermissionCall = null
+        if (alwaysPermissionOwner != FirebaseAuth.getInstance().currentUser?.uid) {
+            call.resolve(JSObject().put("background", "foreground-only"))
+        } else call.resolve(permissionPayload())
+        alwaysPermissionOwner = null
+    }
+
+    override fun handleOnDestroy() {
+        alwaysPermissionCall?.resolve(JSObject().put("background", "foreground-only"))
+        alwaysPermissionCall = null
+        alwaysPermissionOwner = null
+        super.handleOnDestroy()
     }
 
     @PluginMethod
@@ -159,6 +189,7 @@ class HushhLocationPlugin : Plugin() {
             val existing = BackgroundLocationService.instance?.takeIf { it.canUpdateForOwner(ownerUid) }
             BackgroundLocationService.clearSession()
             fun unavailable(reason: String) { call.resolve(JSObject().put("started", false).put("reason", reason)) }
+            if (call.getInt("disclosureVersion") != 1) { unavailable("disclosure_required"); return@runOnUiThread }
             if (!hasLocationPermission() || (Build.VERSION.SDK_INT >= 29 &&
                 !hasAndroidPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION))) {
                 unavailable("background_permission_required"); return@runOnUiThread
@@ -191,7 +222,9 @@ class HushhLocationPlugin : Plugin() {
                     val id = grant.getString("grantId")
                     val keyId = grant.getString("recipientKeyId")
                     require(id.isNotBlank() && keyId.isNotBlank())
-                    BackgroundGrant(id, keyId, LocationEnvelopeCrypto.publicKey(grant.getJSONObject("recipientPublicKeyJwk")), expiry)
+                    val precision = BackgroundPrecision.entries.firstOrNull { it.wire == grant.getString("precision") }
+                    require(precision != null)
+                    BackgroundGrant(id, keyId, LocationEnvelopeCrypto.publicKey(grant.getJSONObject("recipientPublicKeyJwk")), expiry, precision)
                 }
                 require(grants.map { it.id }.distinct().size == grants.size)
                 val move = call.getDouble("minMoveMeters", 10.0) ?: 10.0

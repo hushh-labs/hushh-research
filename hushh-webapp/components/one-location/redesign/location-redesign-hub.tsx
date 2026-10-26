@@ -27,6 +27,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { BackgroundShareToggle, type BackgroundShareToggleProps } from "@/components/one-location/background-share-toggle";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { hasReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
@@ -379,6 +380,7 @@ function resolveLocationHubTab(value: string | null): LocationHubTab {
 }
 
 export type LocationHubViewModel = {
+  backgroundSharing?: BackgroundShareToggleProps;
   savedPlacesBanner?: SavedPlacesBannerProps & { visible: boolean };
   /* identity / gating */
   userId: string | null;
@@ -3193,6 +3195,12 @@ function LocationSettingsFlow({
         </SettingsGroup>
       </LocationSettingSection>
 
+      {vm.backgroundSharing ? (
+        <LocationSettingSection title="Background sharing">
+          <BackgroundShareToggle key={vm.userId} {...vm.backgroundSharing} />
+        </LocationSettingSection>
+      ) : null}
+
       <LocationSettingSection title="Safety">
         <SettingsGroup
           embedded
@@ -5324,6 +5332,10 @@ function ShareFlow({
             </button>
           }
         />
+
+        {vm.backgroundSharing ? (
+          <BackgroundShareToggle key={vm.userId} {...vm.backgroundSharing} />
+        ) : null}
 
         {/* Between the rail that says WHO and the button that starts it: the
             one place an owner is still looking at both the people and the

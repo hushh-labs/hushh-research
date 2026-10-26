@@ -17,8 +17,25 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import kotlin.math.floor
+import kotlin.math.max
 
-internal data class BackgroundGrant(val id: String, val keyId: String, val publicKey: ECPublicKey, val expiresAtMs: Long?)
+internal enum class BackgroundPrecision(val wire: String) {
+    PRECISE("precise"), APPROXIMATE("approximate");
+    fun point(location: Location, capturedAt: String): JSONObject {
+        // Match JS Math.round, including negative half-grid boundaries.
+        fun snap(value: Double): Double = floor(floor(value / 0.01 + 0.5) * 0.01 * 1e6 + 0.5) / 1e6
+        val approximate = this == APPROXIMATE
+        val accuracy = if (location.hasAccuracy() && location.accuracy.isFinite() && location.accuracy >= 0) location.accuracy.toDouble() else null
+        return JSONObject().put("latitude", if (approximate) snap(location.latitude) else location.latitude)
+            .put("longitude", if (approximate) snap(location.longitude) else location.longitude)
+            .put("accuracyM", if (approximate) max(1000.0, accuracy ?: 0.0) else accuracy ?: JSONObject.NULL)
+            .put("capturedAt", capturedAt).put("sourcePlatform", "android").put("precision", wire)
+            .also { if (approximate) it.put("drive", JSONObject.NULL) }
+    }
+}
+
+internal data class BackgroundGrant(val id: String, val keyId: String, val publicKey: ECPublicKey, val expiresAtMs: Long?, val precision: BackgroundPrecision)
 internal data class BackgroundSession(val token: String, val baseUrl: HttpUrl, val grants: List<BackgroundGrant>, val minMoveMeters: Double, val minIntervalMs: Long, val ownerUid: String)
 
 /** Owns ciphertext transport; credentials and points never leave process memory in plaintext. */
@@ -66,12 +83,9 @@ internal class BackgroundLocationPublisher(
         val capturedAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(Date(location.time))
-        val point = JSONObject().put("latitude", location.latitude).put("longitude", location.longitude)
-            .put("accuracyM", if (location.hasAccuracy()) location.accuracy else JSONObject.NULL)
-            .put("capturedAt", capturedAt).put("sourcePlatform", "android")
         for (grant in current.grants) {
             if (!queue.active(BackgroundPublishQueue.Item(grant.id, grant.expiresAtMs, ""))) continue
-            val envelope = try { LocationEnvelopeCrypto.encrypt(point, grant.publicKey, grant.keyId) } catch (_: Exception) { continue }
+            val envelope = try { LocationEnvelopeCrypto.encrypt(grant.precision.point(location, capturedAt), grant.publicKey, grant.keyId) } catch (_: Exception) { continue }
             queue.offer(BackgroundPublishQueue.Item(grant.id, grant.expiresAtMs, JSONObject().put("envelope", envelope).toString()))
         }
         drain()

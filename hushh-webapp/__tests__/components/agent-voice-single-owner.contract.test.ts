@@ -42,13 +42,16 @@ describe("One interactive audio ownership", () => {
     expect(gate).toContain("<LocationCommandProvider enabled={commands}>");
     expect(gate).toContain("<VoiceSessionProvider enabled={live}>");
     expect(gate).toContain("useOneVoiceLiveEnabled()");
-    // The Live-only app bridges (the publish loop, the device Location step
+    // The Live-only app bridges (the foreground loop, the device Location step
     // consumer, and the connection-request review step consumer) mount
     // together, once, and only while Live owns the mic; the bounded owner
     // keeps its own device bridge for the other case.
     expect(gate).toMatch(
       /live \? \(\s*<>\s*<LocationPublisherBridge \/>\s*<LocationUpdatesStepBridge \/>\s*<RequestReviewStepBridge \/>\s*<\/>\s*\)\s*:\s*null/,
     );
+    // Native background reconciliation never owns the mic or foreground watch.
+    expect(gate).toMatch(/<BackgroundLocationPublisherBridge \/>\s*\{live \?/);
+    expect(gate.match(/<BackgroundLocationPublisherBridge \/>/g)).toHaveLength(1);
     expect(gate).toContain("{commands ? <LocationCommandDeviceBridge /> : null}");
     expect(gate.match(/<LocationUpdatesStepBridge \/>/g)).toHaveLength(1);
     expect(gate.match(/<RequestReviewStepBridge \/>/g)).toHaveLength(1);

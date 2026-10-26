@@ -63,7 +63,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Hussh One uses your location when you share it with people you choose, and your approximate area to answer questions about places near you.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Hussh One keeps sharing your live location with people you choose even when the app is in the background, until you stop sharing.</string>
+	<string>Hussh One uses your location in the background to keep active live shares and Save My Soul alerts updated for the people you choose. You can stop sharing at any time.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Hussh One uses contacts only when you choose to find people already on Hussh.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

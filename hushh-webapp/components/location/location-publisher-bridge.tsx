@@ -3,7 +3,7 @@
 /**
  * App-level Location publisher for the voice-first area.
  *
- * Mounted ONCE (AgentOwnerGate) while Live is on, so publishing survives
+ * Mounted ONCE (AgentOwnerGate) while Live is on, so foreground publishing survives
  * navigation. It owns three things:
  *
  *  1. The continuous watch -> coarsen -> encrypt -> storeEnvelope loop for
@@ -49,8 +49,6 @@ import {
   useOneLocationStateSnapshot,
 } from "@/lib/location/sharing-state";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { buildBackgroundShareSession } from "@/lib/one-location/background-share";
-import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import {
@@ -82,7 +80,6 @@ import {
   useVoiceToolEffects,
 } from "@/lib/one-voice/session-store";
 import type { ClientStepView } from "@/lib/one-voice/session-types";
-import { getApiBaseUrl } from "@/lib/services/api-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 /** Same movement gate the hub used: no re-publish for GPS jitter. */
@@ -231,7 +228,7 @@ function failuresPayload(
 
 function grantsKey(grants: readonly OneLocationGrant[]): string {
   return grants
-    .map((grant) => `${grant.id}:${grant.recipientKeyId}`)
+    .map((grant) => `${grant.id}:${grant.recipientKeyId}:${grant.expiresAt}:${grant.shareKind}`)
     .sort()
     .join(",");
 }
@@ -272,7 +269,6 @@ export function LocationPublisherBridge() {
     sharing.effective === "sharing" &&
     Boolean(vaultOwnerToken) &&
     grants.length > 0;
-  const appSharing = sharing.appSharing;
   const precision = sharing.precision;
 
   // Refs the watch loop reads without re-subscribing.
@@ -408,47 +404,6 @@ export function LocationPublisherBridge() {
   }, [publishing, grantsSignature, precision, invalidateState]);
 
   // ---------------------------------------------------------------------
-  // 1b. App sharing off => stop native background publishing at once
-  // ---------------------------------------------------------------------
-  const wasAppSharingRef = useRef(appSharing);
-  useEffect(() => {
-    const was = wasAppSharingRef.current;
-    wasAppSharingRef.current = appSharing;
-    if (was && !appSharing) {
-      // The watch effect above has already been torn down by `publishing`
-      // flipping; native needs an explicit stop.
-      void OneLocationService.stopBackgroundShare().catch(() => undefined);
-    }
-  }, [appSharing]);
-
-  // ---------------------------------------------------------------------
-  // 1c. Native background share follows the current grants
-  // ---------------------------------------------------------------------
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    const token = tokenRef.current;
-    if (!token) return;
-    const session = buildBackgroundShareSession({
-      activeGrants: grantsRef.current,
-      recipients: Array.from(recipientsRef.current.values()),
-      vaultOwnerToken: token,
-      backendBaseUrl: getApiBaseUrl(),
-      minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
-      minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
-    });
-    void syncBackgroundShare({ enabled: publishing, session }).catch(
-      () => undefined,
-    );
-  }, [publishing, grantsSignature, vaultOwnerToken]);
-
-  useEffect(
-    () => () => {
-      void OneLocationService.stopBackgroundShare().catch(() => undefined);
-    },
-    [],
-  );
-
-  // ---------------------------------------------------------------------
   // 2. `one-voice:refresh` => the state resource is stale
   // ---------------------------------------------------------------------
   useEffect(() => {
@@ -488,7 +443,6 @@ export function LocationPublisherBridge() {
             sharing_state: "off",
             sharing_enabled: false,
           });
-          void OneLocationService.stopBackgroundShare().catch(() => undefined);
           invalidateState();
         }
         return;
