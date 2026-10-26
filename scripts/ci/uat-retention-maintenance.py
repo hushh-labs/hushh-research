@@ -25,6 +25,7 @@ from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
 import release_artifact_receipts
+import retention_preflight_evidence
 
 retention = importlib.import_module("cloudrun-retention")
 capacity_bridge = importlib.import_module("production-capacity-bridge")
@@ -1339,20 +1340,15 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     raise retention.UnsafeState("no completed deployment observation")
 
 
-def maintenance_due(
-    repository: str,
-    directory: Path,
-    *,
-    environment: str,
-    release_run_id: int | None = None,
-    restore: bool = True,
-) -> bool:
-    """Inspect only changed, unfinished or due retention receipts."""
-    if restore:
-        restore_state(repository, directory, environment=environment)
+def completion_receipt(directory: Path, environment: str) -> dict | None:
+    """Validate a saved checkpoint without advancing its authority or clocks."""
     receipt = directory / "completed.json"
+    if receipt.is_symlink():
+        raise retention.UnsafeState("cleanup completion receipt is a symlink")
     if not receipt.exists():
-        return True
+        return None
+    if not receipt.is_file():
+        raise retention.UnsafeState("cleanup completion receipt is not a regular file")
     completed = json.loads(receipt.read_text())
     if (
         not isinstance(completed, dict)
@@ -1377,6 +1373,24 @@ def maintenance_due(
             )
         ):
             raise retention.UnsafeState("invalid partial cleanup checkpoint")
+    return completed
+
+
+def maintenance_due(
+    repository: str,
+    directory: Path,
+    *,
+    environment: str,
+    release_run_id: int | None = None,
+    restore: bool = True,
+) -> bool:
+    """Inspect only changed, unfinished or due retention receipts."""
+    if restore:
+        restore_state(repository, directory, environment=environment)
+    completed = completion_receipt(directory, environment)
+    if completed is None:
+        return True
+    if completed.get("pass_status", "complete") != "complete":
         return True
     observed = latest_deploy_observation(repository, environment)
     if (
@@ -1663,6 +1677,10 @@ def checkpoint(args, run_id, observed, pending, status):
             **({"capacity_bridge": bridge} if bridge is not None else {}),
         },
     )
+    checkpoint_ready()
+
+
+def checkpoint_ready() -> None:
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with Path(output).open("a") as stream:
@@ -1678,6 +1696,29 @@ SCOPED_TICK_TITLES = {
     "uat": "Capacity Maintenance tick (uat)",
     "production": "Capacity Maintenance tick (production)",
 }
+
+
+def guard_only_preflight_proof(
+    repository: str, environment: str, run: dict, job: dict
+) -> dict | None:
+    """Qualify only the immutable, reviewed historical guard-before-mutation source."""
+    source = run.get("head_sha")
+    if environment != "uat" or not isinstance(source, str) or source not in retention_preflight_evidence.AUDITED_SOURCE_SHAS:
+        return None
+    try:
+        log = command(
+            "gh", "run", "view", str(run["id"]), "--repo", repository,
+            "--job", str(job["id"]), "--log", "--attempt", str(run["run_attempt"]),
+        )
+        blobs = {
+            path: command("git", "rev-parse", f"{source}:{path}").strip()
+            for path in retention_preflight_evidence.AUDITED_SOURCE_BLOBS
+        }
+        return retention_preflight_evidence.qualify_guard_only_run(
+            repository, environment, run, job, log, blobs
+        )
+    except (KeyError, ValueError, OSError, subprocess.SubprocessError):
+        return None  # Missing evidence retains the existing publication fence.
 
 
 def assert_checkpoint_publication(repository: str, environment: str) -> None:
@@ -1747,6 +1788,10 @@ def assert_checkpoint_publication(repository: str, environment: str) -> None:
                     return
                 if saved == "skipped" and attempt.get("conclusion") == "success":
                     continue  # A successful no-op never started a mutation checkpoint.
+                proof = guard_only_preflight_proof(repository, environment, run, job)
+                if proof is not None:
+                    print(json.dumps({"guard_only_reconciliation": proof}, sort_keys=True))
+                    continue  # No custody was created; keep walking to the prior checkpoint.
                 raise retention.UnsafeState(
                     "Maintenance exited without publishing its checkpoint; operator reconciliation required"
                 )
@@ -1789,6 +1834,41 @@ def record_uat_cleanup_outcome(args: argparse.Namespace, outcome: str) -> None:
     if output:
         with Path(output).open("a") as stream:
             stream.write(f"cleanup_outcome={outcome}\n")
+
+
+def preflight_release(args: argparse.Namespace, repository: str) -> tuple[int, dict] | None:
+    if args.apply and completion_receipt(args.state_dir, args.environment) is not None:
+        # Source/health preflight can fail before a new mutation starts. Keep
+        # the authenticated restored receipt publishable without rewriting it;
+        # unresolved provider intents remain fenced by deployment admission.
+        checkpoint_ready()
+    with tempfile.TemporaryDirectory() as temporary:
+        found = find_release(
+            repository,
+            args.release_run_id,
+            Path(temporary),
+            require_live=not args.verify_source_only,
+            environment=args.environment,
+        )
+    if args.verify_source_only:
+        ready = found is not None
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with Path(output).open("a") as stream:
+                stream.write(f"cleanup_ready={str(ready).lower()}\n")
+        return None
+    if found is None:
+        print("No eligible release artifact (or NO_OP source); no cleanup authorized.")
+        record_uat_cleanup_outcome(args, "no_live_source")
+        return None
+    run_id, release = found
+    if not live_release_matches(release, environment=args.environment):
+        print(
+            f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
+        )
+        record_uat_cleanup_outcome(args, "no_live_source")
+        return None
+    return found
 
 
 def maintenance_pass() -> int:
@@ -1839,32 +1919,10 @@ def maintenance_pass() -> int:
             with Path(output).open("a") as stream:
                 stream.write("cleanup_ready=false\n")
         return 0
-    with tempfile.TemporaryDirectory() as temporary:
-        found = find_release(
-            repository,
-            args.release_run_id,
-            Path(temporary),
-            require_live=not args.verify_source_only,
-            environment=args.environment,
-        )
-    if args.verify_source_only:
-        ready = found is not None
-        output = os.environ.get("GITHUB_OUTPUT")
-        if output:
-            with Path(output).open("a") as stream:
-                stream.write(f"cleanup_ready={str(ready).lower()}\n")
-        return 0
+    found = preflight_release(args, repository)
     if found is None:
-        print("No eligible release artifact (or NO_OP source); no cleanup authorized.")
-        record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     run_id, release = found
-    if not live_release_matches(release, environment=args.environment):
-        print(
-            f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
-        )
-        record_uat_cleanup_outcome(args, "no_live_source")
-        return 0
     # An empty marker makes a completed pass supersede stale earlier artifacts.
     (args.state_dir / "README.txt").write_text(
         f"{args.environment} drain evidence; never deployment authority.\n"
