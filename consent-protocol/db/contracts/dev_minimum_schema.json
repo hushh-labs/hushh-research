@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 427,
+  "expected_migration_version": 428,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -325,6 +325,8 @@
     "verify_erasure_mail_preflight",
     "verify_erasure_owner_access_preflight",
     "verify_erasure_secret_preflight",
+    "erase_one_todo_reminders",
+    "project_one_todo_reminders",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -2806,6 +2808,14 @@
       "last_activity_date",
       "longest_streak"
     ],
+    "one_todo_reminder_schedules": [
+      "id",
+      "user_id",
+      "task_ref",
+      "due_at",
+      "generation",
+      "updated_at"
+    ],
     "personal_agent_cloud_removals": [
       "approved_at",
       "approved_digest",
@@ -4055,5 +4065,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 427
+  "expected_schema_head": 428
 }
