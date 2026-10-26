@@ -404,5 +404,38 @@ class BoundedBaseFreshnessTests(unittest.TestCase):
         self.assertIn("Unsupported MAIN_SYNC_MODE 'bounded'", old.stdout + old.stderr)
 
 
+class QueueFreshnessTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temp = tempfile.TemporaryDirectory(prefix="queue-freshness-")
+        self.addCleanup(temp.cleanup)
+        self.work = Path(temp.name)
+
+    def test_queue_shell_rejects_invalid_bases_before_running_checker(self) -> None:
+        import textwrap
+        workflow = (ROOT / ".github/workflows/queue-validation.yml").read_text()
+        step = workflow.split("      - name: Verify queue freshness against merge-group base", 1)[1]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n  ci-status:", 1)[0])
+        checker = self.work / "scripts/git/check-main-sync.sh"
+        checker.parent.mkdir(parents=True)
+        checker.write_text('printf "%s" "$MAIN_SYNC_BRANCH" > observed-base\n')
+        observed = self.work / "observed-base"
+        valid = [f"refs/heads/{base}" for base in ("main", "integration/pr-train", "dev", "uat")]
+        for ref in [*valid, "", "refs/tags/uat", "feature/other", "uat"]:
+            with self.subTest(ref=ref):
+                observed.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                    cwd=self.work, env={**os.environ, "QUEUE_BASE_REF": ref},
+                    capture_output=True, text=True,
+                )
+                if ref in valid:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(observed.read_text(), ref.removeprefix("refs/heads/"))
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(observed.exists(), "Invalid queue base reached checker")
+
+
+
 if __name__ == "__main__":
     unittest.main()

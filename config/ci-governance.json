@@ -61,11 +61,7 @@
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
       "msainani",
-      "RGlodAkshat",
       "ankitkumarsingh1702",
-      "Jhumma-hushh",
-      "DamriaNeelesh",
-      "parthmawai",
       "imsharukhan"
     ],
     "protected_pipeline_paths": [
@@ -163,8 +159,6 @@
       "kushaltrivedi5",
       "msainani",
       "ankitkumarsingh1702",
-      "RGlodAkshat",
-      "DamriaNeelesh",
       "imsharukhan"
     ],
     "owner_environment": "production",

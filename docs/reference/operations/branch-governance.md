@@ -225,6 +225,21 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 3. **Branch-protection approval.** The standard 1 independent approval plus
    approval-of-most-recent-push still applies underneath the two layers above.
 
+### Production access administration
+
+Production dispatch and protected pipeline edits are limited to the four actors
+in the committed policy: `kushaltrivedi5`, `msainani`,
+`ankitkumarsingh1702`, and `imsharukhan`. Dev/UAT dispatch lists are unchanged.
+The managed teams mirror these lists; changing a team alone does not change
+workflow authority. Policy changes take effect after landing on Main.
+
+Deploy-team members must not receive team-maintainer authority. Organization
+owners can still administer teams and repository admins can change protection;
+these are separate trust boundaries, not restrictions enforced by the deploy
+allowlist. When revoking an operator, inspect inherited team grants as well as
+direct repository permissions. A successful API mutation is insufficient:
+read back effective repository permission and organization membership.
+
 ### Concentric privilege rings
 
 Privilege is deliberately nested. Each inner ring is a strict subset of the one
