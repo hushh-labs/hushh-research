@@ -57,6 +57,13 @@ try {
   page = await context.newPage();
   const control = id => page.locator(`[data-voice-control-id="${id}"]`);
   page.on("pageerror", error => errors.push(error.message));
+  page.on("requestfailed", request => {
+    const url = new URL(request.url());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return;
+    const failure = request.failure()?.errorText ?? "";
+    failures.push({ path: url.pathname.replace(/[a-f0-9-]{36}/g, ":id").slice(0, 200),
+      transport: /abort|cancel/i.test(failure) ? "cancelled" : /timeout|timed out/i.test(failure) ? "timeout" : "failed" });
+  });
   page.on("response", async response => {
     if (response.status() < 400) return;
     const url = new URL(response.url());
@@ -242,7 +249,8 @@ try {
   await context.close();
 } catch (error) {
   const alerts = await page?.getByRole("alert").allTextContents().catch(() => []);
-  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, failures, alerts, errors }));
+  const keySetups = await page?.evaluate(async () => (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).getFixtureKeySetupCount()).catch(() => null);
+  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, keySetups, failures, alerts, errors }));
   throw error;
 } finally {
   await browser?.close();
