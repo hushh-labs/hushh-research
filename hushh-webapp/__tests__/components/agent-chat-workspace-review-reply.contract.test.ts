@@ -8,6 +8,22 @@ const source = readFileSync(
   "utf8",
 );
 
+describe("chat consent review boundary", () => {
+  it("opens the full request for review without granting access from a partial notification", () => {
+    const handler = source.slice(
+      source.indexOf("onPendingConsentApprove={"),
+      source.indexOf("onPendingConsentDeny={", source.indexOf("onPendingConsentApprove={")),
+    );
+    expect(handler).toContain("router.push(`${ROUTES.CONSENTS}?${query.toString()}`)");
+    expect(handler).toContain('requestId: item.id');
+    expect(handler).toContain('query.set("bundleId", item.bundleId)');
+    expect(handler).toContain('from: pathname || ROUTES.ONE_HOME');
+    // The previous callback attempted a bundle decision and surfaced a loading
+    // guard as a red chat error before the owner could review the request.
+    expect(handler).not.toMatch(/resolvePendingConsentCardTargets|handleApproveBundle|addErrorMessage/);
+  });
+});
+
 /**
  * agent-chat-workspace.tsx cannot be mounted in a unit test, so this guards the
  * wiring by source: a bare typed "yes"/"no" must be answered with a pointer to
