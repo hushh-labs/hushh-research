@@ -26,16 +26,25 @@ final class NativeSupportTests: XCTestCase {
         defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
         let underlying = UIButton(frame: CGRect(x: 24, y: 400, width: 120, height: 44))
         parent.view.addSubview(underlying)
-        func state(_ sequence: Int) -> NativeFeedbackProjection {
+        func state(_ sequence: Int, revision: Int = 1) -> NativeFeedbackProjection {
             NativeFeedbackProjection(documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1,
                 revision: 1, family: "profile", privacyGeneration: 0, feedbackId: "public-notice-\(sequence)",
-                feedbackRevision: 1, feedbackSequence: sequence, destinationId: nil, supportDestinationId: nil,
+                feedbackRevision: revision, feedbackSequence: sequence, destinationId: nil, supportDestinationId: nil,
                 formScene: nil, formRevision: nil, message: "Public result \(sequence)", tone: "success", duration: 3600, dismissible: true)
         }
         let feedback = NativeFeedbackPresentation()
         XCTAssertTrue(feedback.apply(state(1), to: parent))
         let host = try XCTUnwrap(parent.children.first)
         XCTAssertTrue(feedback.apply(state(2), to: parent))
+        var endedRevisions = [Int]()
+        feedback.ended = { receipt in
+            if let revision = receipt["feedbackRevision"] as? Int { endedRevisions.append(revision) }
+        }
+        let latest = state(2, revision: 2)
+        XCTAssertTrue(feedback.apply(latest, to: parent))
+        feedback.dismiss(state(2)) // A closure retained from the loading revision.
+        XCTAssertTrue(parent.children.first === host, "NATIVE_FEEDBACK_STALE_DISMISS_REMOVED_NEW_RESULT")
+        XCTAssertTrue(endedRevisions.isEmpty, "NATIVE_FEEDBACK_STALE_DISMISS_EMITTED_END")
         XCTAssertEqual(parent.children.count, 1)
         XCTAssertTrue(parent.children.first === host)
         XCTAssertTrue(host.view.superview === parent.view)
@@ -44,6 +53,13 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertLessThan(host.view.bounds.height, 150)
         XCTAssertTrue(parent.view.hitTest(CGPoint(x: 40, y: 420), with: nil) === underlying)
         XCTAssertFalse(parent.view.accessibilityViewIsModal)
+        var retirement = latest.receipt
+        retirement["feedbackRevision"] = 3
+        feedback.retire(id: latest.feedbackId, sequence: latest.feedbackSequence,
+            revision: 3, owner: latest.identity, context: retirement)
+        XCTAssertTrue(parent.children.isEmpty, "NATIVE_FEEDBACK_TARGETED_RETIREMENT_FAILED")
+        XCTAssertEqual(endedRevisions, [2])
+        XCTAssertTrue(feedback.apply(state(3), to: parent))
         feedback.clear()
         XCTAssertTrue(parent.children.isEmpty)
         XCTAssertTrue(parent.view.hitTest(CGPoint(x: 40, y: 420), with: nil) === underlying)

@@ -51,6 +51,15 @@ bounded module, and scene-capability
 admission retains its existing public facade. Architecture fitness reports no
 new or worsened findings; the original ratchet was preserved.
 
+Independent security review found that a retained Dismiss callback could ignore
+the fence's rejection and remove a newer result. The shared dismissal entry now
+matches the complete displayed receipt before changing timers, containment or
+end events. The existing physical presenter case fails without that guard and
+passes with it; both feedback cases pass, including higher-revision explicit
+retirement. The broad `6a84280145` baseline passed canonical core. That result
+predates this final native correction; its combined candidate requires its own
+verification and remains qualification-only.
+
 Profile's authored plain-text feedback uses this shared path. Rich messages and
 callback-authored outcomes are not automatically flattened into native metadata;
 their existing feature presentation remains explicit. Menus, confirmations and

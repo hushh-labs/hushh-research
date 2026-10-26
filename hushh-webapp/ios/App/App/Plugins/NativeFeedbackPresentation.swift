@@ -131,7 +131,7 @@ private struct NativeFeedbackView: View {
     private var lastReceipt: [String: Any]?
     var ended: (([String: Any]) -> Void)?
 
-    init() { model.dismiss = { [weak self] state in self?.remove(state) } }
+    init() { model.dismiss = { [weak self] state in self?.dismiss(state) } }
     func apply(_ state: NativeFeedbackProjection, to parent: UIViewController) -> Bool {
         guard parent.view.window != nil, fence.apply(state) else { return false }
         lastReceipt = state.receipt
@@ -165,7 +165,7 @@ private struct NativeFeedbackView: View {
             let id = state.feedbackId, revision = state.feedbackRevision
             let timer = DispatchWorkItem { [weak self] in
                 guard let self, let current = self.model.messages.first(where: { $0.feedbackId == id && $0.feedbackRevision == revision }) else { return }
-                self.remove(current, terminal: false)
+                self.dismiss(current, terminal: false)
             }
             timers[state.feedbackId] = timer
             DispatchQueue.main.asyncAfter(deadline: .now() + state.duration / 1000, execute: timer)
@@ -179,13 +179,13 @@ private struct NativeFeedbackView: View {
             guard NSDictionary(dictionary: expected).isEqual(to: requested) else { return }
         }
         guard fence.retire(id: id, sequence: sequence, revision: revision, owner: owner) else { return }
-        if let state = model.messages.first(where: { $0.feedbackId == id && $0.feedbackRevision <= revision }) { remove(state) }
+        if let state = model.messages.first(where: { $0.feedbackId == id && $0.feedbackRevision <= revision }) { dismiss(state) }
     }
     func retainOnly(_ state: NativeDrawerProjection) {
-        for message in model.messages where message.family == state.family && !message.belongs(to: state) { remove(message) }
+        for message in model.messages where message.family == state.family && !message.belongs(to: state) { dismiss(message) }
     }
     func retireFamily(_ family: String) {
-        for message in model.messages where message.family == family { remove(message) }
+        for message in model.messages where message.family == family { dismiss(message) }
     }
     func clear() {
         let previous = model.messages
@@ -198,7 +198,12 @@ private struct NativeFeedbackView: View {
         fence = NativeFeedbackFence(); lastReceipt = nil
         previous.forEach { ended?($0.receipt) }
     }
-    private func remove(_ state: NativeFeedbackProjection, terminal: Bool = true) {
+    func dismiss(_ state: NativeFeedbackProjection, terminal: Bool = true) {
+        // A button closure can outlive its rendered revision. Reject it before
+        // touching the newer result's timer, hosting view or end receipt.
+        guard model.messages.contains(where: {
+            NSDictionary(dictionary: $0.receipt).isEqual(to: state.receipt)
+        }) else { return }
         _ = fence.retire(id: state.feedbackId, sequence: state.feedbackSequence, revision: state.feedbackRevision, owner: state.identity, terminal: terminal)
         timers.removeValue(forKey: state.feedbackId)?.cancel()
         model.messages.removeAll { $0.feedbackId == state.feedbackId }
