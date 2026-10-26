@@ -449,3 +449,22 @@ def manifest_index() -> tuple[str, str, str]:
         }
     )
     return manifest, "sha256:" + hashlib.sha256(manifest.encode()).hexdigest(), child
+
+
+def document_installer_environment(directory: Path) -> dict[str, str]:
+    """Synthetic executable providers for the bounded document browser gate."""
+    (directory / "hushh-webapp").mkdir()
+    commands = directory / "commands"
+    for script, body in {
+        directory / "consent-protocol/.venv/bin/python": "exit 0\n",
+        commands / "npx": 'echo "$*" >> "$FIXTURE_ROOT/calls"\n'
+        '! grep -q azure.archive "$FIXTURE_ROOT/apt-mirrors.txt"\n',
+    }.items():
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text("#!/bin/sh\n" + body)
+        script.chmod(0o755)
+    return {
+        **os.environ,
+        "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+        "FIXTURE_ROOT": str(directory),
+    }

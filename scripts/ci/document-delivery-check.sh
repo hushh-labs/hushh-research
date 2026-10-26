@@ -16,7 +16,7 @@ echo '== Protected documents: real browser, SQL, signed payment, preview, downlo
     if [ -f /etc/apt/apt-mirrors.txt ]; then
       sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
     fi
-    npx playwright install --with-deps chromium webkit
+    timeout --signal=TERM --kill-after=30s 8m npx playwright install --with-deps chromium webkit
   fi
   node --input-type=module -e 'import fs from "node:fs"; import { chromium, webkit } from "playwright"; for (const engine of [chromium, webkit]) if (!fs.existsSync(engine.executablePath())) throw new Error("Install the pinned headless browsers before this gate");'
 )

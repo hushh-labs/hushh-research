@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 
 const state = vi.hoisted(() => ({
+  phoneHint: null as boolean | null,
+  cachedPhone: true,
+  stalePhone: false,
+  cachedPhoneVerified: true,
+  refreshPhone: vi.fn(),
   saved: false,
   choice: "hushh_managed_vertex" as "hushh_managed_vertex" | "byok_pending_vault",
   stagedGeminiKey: false,
@@ -55,15 +60,15 @@ vi.mock("@/lib/services/cache-service", async (importOriginal) => ({
   } }) },
 }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
-  getCachedBootstrapState: () => ({ saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
-  bootstrapState: async () => ({ saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
+  getCachedBootstrapState: () => ({ phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
+  bootstrapState: async () => ({ phoneVerified: state.phoneHint, saved: state.saved, oneRuntimeSetupChoice: state.choice, initialContactsWelcomeAcknowledged: !state.pendingContactsWelcome }),
   hasOneCloudProject: () => true,
   hasOneRuntimeChoice: (value: { saved: boolean }) => value.saved,
 } }));
 vi.mock("@/lib/services/account-identity-service", () => ({ AccountIdentityService: {
-  peekCachedIdentity: () => ({ data: { phoneVerified: true } }),
-  refreshCurrentUserIdentity: async () => ({ phoneVerified: true }),
-  hasVerifiedPhone: () => true,
+  peekCachedIdentity: () => state.cachedPhone ? ({ data: { phone_verified: state.cachedPhoneVerified }, isStale: state.stalePhone }) : null,
+  refreshCurrentUserIdentity: state.refreshPhone,
+  hasVerifiedPhone: (identity: { phone_verified?: boolean } | null) => identity?.phone_verified === true,
 } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { getByocSetupStatus: async () => ({ status: "idle" }) } }));
 vi.mock("@/lib/onboarding/use-capability-setup-states", () => ({ useCapabilitySetupStates: () => ({ byId: {}, isLoading: false, isEnriching: false }) }));
@@ -95,6 +100,11 @@ vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurf
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: vi.fn() }));
 
 beforeEach(() => {
+  state.phoneHint = null;
+  state.cachedPhone = true;
+  state.stalePhone = false;
+  state.cachedPhoneVerified = true;
+  state.refreshPhone.mockReset().mockResolvedValue({ phone_verified: true });
   state.saved = false;
   state.emailStatus = "loading";
   state.choice = "hushh_managed_vertex";
@@ -257,3 +267,58 @@ describe("Setup saved AI choice", () => {
 });
 
 beforeEach(() => publishValidatedAuthSessionPrincipal({ firebaseUid: state.user.uid, ownerId: state.user.uid, accountGeneration: 0 }));
+
+describe("reset phone admission", () => {
+  it("keeps the preserved bootstrap phone claim after reset clears local identity", async () => {
+    state.cachedPhone = false;
+    state.phoneHint = true;
+    state.refreshPhone.mockResolvedValue(null);
+    state.saved = true;
+    render(<OneSetupHub />);
+    await screen.findByRole("button", { name: "Verify your phone: Verified" });
+    expect(screen.getByRole("button", { name: "Finish setup" })).toBeEnabled();
+    expect(state.refreshPhone).not.toHaveBeenCalled();
+  });
+  it("still requires verification for an explicitly unverified identity", async () => {
+    state.cachedPhone = false;
+    state.phoneHint = false;
+    state.refreshPhone.mockResolvedValue({ phone_verified: false });
+    state.saved = true;
+    render(<OneSetupHub />);
+    await screen.findByRole("button", { name: "Verify your phone: Required" });
+    expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+    expect(state.acknowledgeSetupExit).not.toHaveBeenCalled();
+  });
+  it("offers retry for unavailable identity instead of declaring it unverified", async () => {
+    state.cachedPhone = false;
+    state.refreshPhone.mockResolvedValue(null);
+    state.saved = true;
+    render(<OneSetupHub />);
+    await screen.findByText("Unable to check phone verification. Please try again.");
+    expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+    state.refreshPhone.mockResolvedValue({ phone_verified: true });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Verify your phone: Verified" });
+    expect(screen.queryByText("Unable to check phone verification. Please try again.")).toBeNull();
+  });
+});
+
+it("revalidates a stale verified identity before allowing setup completion", async () => {
+  state.stalePhone = true;
+  state.phoneHint = true;
+  state.refreshPhone.mockResolvedValue({ phone_verified: false });
+  state.saved = true;
+  render(<OneSetupHub />);
+  await screen.findByRole("button", { name: "Verify your phone: Required" });
+  expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+  expect(state.refreshPhone).toHaveBeenCalled();
+});
+
+it("does not let an older bootstrap hint override a fresh unverified identity", async () => {
+  state.cachedPhoneVerified = false;
+  state.phoneHint = true;
+  state.saved = true;
+  render(<OneSetupHub />);
+  await screen.findByRole("button", { name: "Verify your phone: Required" });
+  expect(screen.getByRole("button", { name: "Finish setup" })).toBeDisabled();
+});
