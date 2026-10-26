@@ -290,3 +290,71 @@ async def test_http_transfer_trace_loop_preserves_information_without_retrying_e
     finally:
         engine.dispose()
         await pool.close()
+
+
+@pytest.mark.feature_auth_reliability
+@pytest.mark.trace_loop
+async def test_not_started_status_fences_a_confirm_still_waiting_for_provider(
+    database_url, monkeypatch
+):
+    import asyncio
+    import threading
+
+    import httpx
+
+    pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2, command_timeout=5)
+    engine = create_engine(database_url)
+    app, effect = _configure_transfer_ports(monkeypatch, pool, engine, "on")
+    started, release = threading.Event(), threading.Event()
+    pending = None
+
+    def provider(*_args):
+        started.set()
+        assert release.wait(3), "Synthetic provider gate was not released"
+        return True
+
+    try:
+        _, before = await seed(pool)
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM account_phone_transfers")
+        payload = {"phone_id_token": "synthetic-signed-proof", "expected_user_id": "receiving-a"}
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            prepared = await client.post("/api/account/phone/transfer/prepare", json=payload)
+            assert prepared.status_code == 200
+            operation_id = prepared.json()["transfer_id"]
+            monkeypatch.setattr(transfer, "check_provider", provider)
+            pending = asyncio.create_task(
+                client.post(
+                    "/api/account/phone/transfer/confirm",
+                    json={**payload, "transfer_id": operation_id, "confirmed": True},
+                )
+            )
+            assert await asyncio.wait_for(asyncio.to_thread(started.wait, 2), 3)
+            status = await client.get(f"/api/account/phone/transfer/{operation_id}")
+            assert status.status_code == 200 and status.json()["transfer_status"] == "not_started"
+            release.set()
+            late = await asyncio.wait_for(pending, 3)
+            assert late.status_code == 409
+            # Cancellation spends this still-fresh SMS event through its validity
+            # window; pruning must not permit it to create a replacement intent.
+            reused = await client.post("/api/account/phone/transfer/prepare", json=payload)
+            assert reused.status_code == 409
+        effect.assert_not_called()
+        async with pool.acquire() as conn:
+            assert (
+                await conn.fetchval(
+                    "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1", PHONE
+                )
+                == "previous"
+            )
+            assert await conn.fetchrow("SELECT * FROM pkm_data WHERE user_id='previous'") == before
+            assert await conn.fetchval("SELECT count(*) FROM account_firebase_mutations") == 0
+            assert await conn.fetchval("SELECT count(*) FROM internal_access_events") == 0
+    finally:
+        release.set()
+        if pending:
+            await asyncio.gather(pending, return_exceptions=True)
+        engine.dispose()
+        await pool.close()

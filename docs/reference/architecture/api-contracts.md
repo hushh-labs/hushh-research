@@ -5294,9 +5294,13 @@ renew through the existing owner flow.
 External unlink reserves the existing Firebase mutation journal in that same
 transaction and dispatches at most once. It never deletes or disables an identity,
 and does not explicitly revoke independent Google/Apple refresh sessions.
-`GET /api/account/phone/transfer/{transfer_id}` is owner-scoped and read-only:
-`not_started`, `in_progress`, `action_required`, or `completed`. A lost confirm
-response permits only status checks until authoritative readback. The hub worker
+`GET /api/account/phone/transfer/{transfer_id}` is owner-scoped and reports
+`not_started`, `in_progress`, `action_required`, or `completed`. Before reporting
+`not_started`, it expires the prepared intent under its row lock so a confirm
+still awaiting provider preflight cannot commit afterward. The spent proof receipt
+remains through the maximum five-minute proof window, including for the per-owner
+intent bound. A lost confirm response permits only status checks until
+authoritative readback. The hub worker
 resumes reserved effects, fairly scans uncertain receipts and reconciles local completion from the journal
 without replaying an uncertain POST. A transient provider read cannot settle an
 uncertain write or release its generation fence. An unchanged uncertain provider

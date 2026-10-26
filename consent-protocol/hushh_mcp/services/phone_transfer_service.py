@@ -30,17 +30,18 @@ check_provider = authority.check_provider
 proof_digest = authority.proof_digest
 refuse = authority.refuse
 require_fresh_sms_claims = authority.require_fresh_sms_claims
+assert_claim_available = authority.assert_claim_available
 
 logger = logging.getLogger(__name__)
 
 
 async def _bound_prepared_intents(conn: Any, user_id: str) -> None:
     await conn.execute(
-        "DELETE FROM account_phone_transfers WHERE (state='prepared' AND expires_at < NOW()) OR (state='completed' AND notice_status='settled' AND completed_at < NOW()-INTERVAL '7 days')"
+        "DELETE FROM account_phone_transfers WHERE (state='prepared' AND expires_at < NOW() AND created_at < NOW()-INTERVAL '5 minutes') OR (state='completed' AND notice_status='settled' AND completed_at < NOW()-INTERVAL '7 days')"
     )
     # Bound outstanding intents per claimant; proof verification precedes this write.
     count = await conn.fetchval(
-        "SELECT count(*) FROM account_phone_transfers WHERE user_id=$1 AND state='prepared' AND expires_at>NOW()",
+        "SELECT count(*) FROM account_phone_transfers WHERE user_id=$1 AND state='prepared' AND created_at>NOW()-INTERVAL '5 minutes'",
         user_id,
     )
     if count >= 5:
@@ -371,15 +372,21 @@ async def status(user_id: str, operation_id: str, app: Any) -> dict[str, Any]:
             )
             if not row:
                 raise refuse("PHONE_TRANSFER_STALE", 404)
+            if row["authority_project"] != app.project_id:
+                raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503)
             if row["state"] == "prepared":
+                # A timed-out confirm may still be in provider preflight. Fence
+                # its later consume before allowing the client a fresh attempt.
+                await conn.execute(
+                    "UPDATE account_phone_transfers SET expires_at=LEAST(expires_at,clock_timestamp()) WHERE operation_id=$1::uuid",
+                    operation_id,
+                )
                 return {
                     "success": False,
                     "transfer_status": "not_started",
                     "identity": None,
                     "phone_verified": False,
                 }
-            if row["authority_project"] != app.project_id:
-                raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503)
             state = "completed" if row["state"] == "completed" else "in_progress"
             if state != "completed":
                 receipt = await conn.fetchrow(
@@ -459,7 +466,7 @@ async def recovery_loop(interval: float = 30) -> None:
             async with pool.acquire() as conn:
                 await conn.execute("""DELETE FROM account_phone_transfers WHERE operation_id IN
                     (SELECT operation_id FROM account_phone_transfers WHERE
-                     (state='prepared' AND expires_at < NOW()) OR
+                     (state='prepared' AND expires_at < NOW() AND created_at < NOW()-INTERVAL '5 minutes') OR
                      (state='completed' AND notice_status='settled' AND completed_at < NOW()-INTERVAL '7 days')
                      LIMIT 100)""")
                 interrupted_notices = await conn.fetchval(
@@ -487,10 +494,3 @@ async def recovery_loop(interval: float = 30) -> None:
         except Exception:
             logger.warning("phone.transfer.recovery_unavailable")
         await asyncio.sleep(interval)
-
-
-async def assert_claim_available(user_id: str, phone: str) -> None:
-    from hushh_mcp.services.actor_identity_service import ActorIdentityService
-
-    if not await ActorIdentityService().can_claim_test_phone(user_id=user_id, phone_number=phone):
-        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED")

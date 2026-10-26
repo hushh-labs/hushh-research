@@ -214,3 +214,10 @@ def assert_phone_admission(owner_id: str, claims: Any, *, get_db_connection: Any
         },
         headers={"Cache-Control": "private, no-store"},
     )
+
+
+async def assert_claim_available(user_id: str, phone: str) -> None:
+    from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+    if not await ActorIdentityService().can_claim_test_phone(user_id=user_id, phone_number=phone):
+        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED")
