@@ -57,7 +57,7 @@ _EMBEDDING_ADMISSION: WeakKeyDictionary = WeakKeyDictionary()
 logger = logging.getLogger(__name__)
 
 
-def _log_admission_timings(values: object) -> None:
+def _log_admission_timings(values: object, *, max_elapsed_ms: int) -> None:
     # The child response is untrusted. Only closed phase names and bounded
     # integers may enter logs, after the public probe's vector passed validation.
     if (
@@ -67,7 +67,8 @@ def _log_admission_timings(values: object) -> None:
             not isinstance(metrics, dict)
             or set(metrics) != {"wall_ms", "cpu_ms"}
             or any(
-                type(value) is not int or not 0 <= value <= 105_000 for value in metrics.values()
+                type(value) is not int or not 0 <= value <= max_elapsed_ms
+                for value in metrics.values()
             )
             for metrics in values.values()
         )
@@ -371,22 +372,22 @@ class IsolatedDocumentEmbedding:
     async def query(self, query: str) -> tuple[float, ...]:
         return await self._query(query, admission=False)
 
-    async def admit(self) -> None:
-        """The existing mandatory public probe, with no private-query telemetry."""
-        await self._query(PUBLIC_ADMISSION_QUERY, admission=True)
+    async def admit(self, *, timeout: int = 100) -> None:
+        """Public startup proof with its caller's bound; private queries stay at 100s."""
+        await self._query(PUBLIC_ADMISSION_QUERY, admission=True, timeout=timeout)
 
-    async def _query(self, query: str, *, admission: bool) -> tuple[float, ...]:
+    async def _query(self, query: str, *, admission: bool, timeout: int = 100) -> tuple[float, ...]:
         if not query.strip() or len(query.encode()) > 2048:
             raise DriveReadError("invalid_argument")
-        # The pinned E5 model was measured at ~71s from a cold start on the
-        # UAT worker's 2-CPU/4-GiB allocation. Admission and child execution
-        # remain bounded independently; downstream jobs own larger leases.
-        async with asyncio.timeout(105), _embedding_admission():
+        # Private queries retain their 100s child / 105s admission bounds.
+        # Startup's public probe may use more of its existing overall budget
+        # without discarding an in-progress cold load and repeating its imports.
+        async with asyncio.timeout(timeout + 5), _embedding_admission():
             result = await _private_process(
                 "embedding",
                 "admit" if admission else "query",
                 json.dumps({"query": query}).encode(),
-                timeout=100,
+                timeout=timeout,
                 limit=16384,
             )
         if result.get("error") == "invalid_argument":
@@ -405,7 +406,9 @@ class IsolatedDocumentEmbedding:
             raise DriveReadError("processor_unavailable")
         if admission:
             try:
-                _log_admission_timings(result.get("admission_timings"))
+                _log_admission_timings(
+                    result.get("admission_timings"), max_elapsed_ms=(timeout + 5) * 1000
+                )
             except Exception:
                 # Logging cannot turn a valid public probe into a readiness
                 # failure. Model/transport/vector failures remain outside this.

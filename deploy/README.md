@@ -202,6 +202,16 @@ including a second due check under the environment lock.
 Cleanup execution is bounded to 300 seconds, with teardown/checkpoint time reserved.
 Partial progress remains due; uncertain provider outcomes keep sanitized intent in the
 same receipt and block conflicting deployments until observation establishes completion.
+If source or health preflight fails before another mutation, the pass republishes
+its validated restored checkpoint unchanged. Missing or invalid checkpoints are
+never fabricated; unresolved intents still block deployment. A failed pass that
+published no checkpoint is recovered through that same maintenance run after the
+repaired tooling lands on main.
+The historical guard-only refusal from the reviewed `f454c67` tooling can be
+qualified from its authenticated exact-attempt job, checkout source blobs and
+terminal diagnostic. That proof only continues the history walk; it creates no
+checkpoint and never exempts the earlier health failure or an uncertain mutation.
+Missing, different or ambiguous evidence retains the publication refusal.
 If the intended revision still exists after an uncertain delete, do not retry blindly:
 operator reconciliation is required. Traffic, service incarnation, expanded candidates
 or protected-set changes invalidate the clock; expired evidence cannot authorize deletion.
@@ -438,9 +448,11 @@ remain authoritative. The same public synthetic E5 admission emits fixed
 `drive_worker_embedding_admission` phases for Torch setup, SentenceTransformers
 import, model construction and encoding, with wall and child-process CPU
 milliseconds. The enclosing startup `embedding` wall time also includes semaphore,
-child startup, IPC, validation and any eligible retry. Private queries never emit these
-metrics; missing or malformed metrics do not change readiness. No extra model
-call is made. An eligible cold-start retry emits a fixed processing-timeout event.
+child startup, IPC and validation. Startup uses one public admission child with
+170 seconds inside the unchanged 180-second overall budget, preserving work
+already spent loading the cold model. Private queries retain their 100-second
+child limit and never emit these metrics; missing or malformed metrics do not
+change readiness. No extra model call is made.
 Compare completed full-release timings before claiming a
 deployment-duration improvement; cache seeding and infrastructure waits can vary.
 

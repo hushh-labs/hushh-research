@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from pathlib import Path
 from time import monotonic
 
@@ -41,8 +41,11 @@ from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR  # noqa: E4
 from hushh_mcp.services.google_drive_adapter import DriveReadError  # noqa: E402
 
 # Leave headroom inside the worker's 220s Gunicorn / 240s startup-probe bounds.
-# Model admission, its single retry and scanner attestation share this budget.
+# Model admission and scanner attestation share this budget. One cold model
+# child gets 170s, leaving 10s for cancellation/reaping instead of restarting
+# its expensive imports at 100s with only 80s left for a second cold load.
 STARTUP_TIMEOUT_SECONDS = 180
+EMBEDDING_STARTUP_TIMEOUT_SECONDS = STARTUP_TIMEOUT_SECONDS - 10
 logger = logging.getLogger(__name__)
 
 
@@ -51,19 +54,7 @@ def _indexing_active() -> bool:
 
 
 async def _admit_embedding() -> None:
-    embedding = IsolatedDocumentEmbedding()
-    try:
-        await embedding.admit()
-    except DriveReadError as error:
-        # The failed child is reaped before its one eligible retry. Preserve
-        # the existing per-query isolation, deadline and resource limits.
-        if not error.retryable or str(error) != "processing_timeout":
-            raise
-        with suppress(Exception):
-            logger.info(
-                "drive_worker_startup stage=embedding outcome=retry reason=processing_timeout"
-            )
-        await embedding.admit()
+    await IsolatedDocumentEmbedding().admit(timeout=EMBEDDING_STARTUP_TIMEOUT_SECONDS)
 
 
 async def _admit_scanner() -> None:
