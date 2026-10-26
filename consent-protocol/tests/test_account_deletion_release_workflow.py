@@ -758,6 +758,7 @@ def test_scheduler_setup_rejects_mismatched_explicit_email_before_gcloud(
     "service,contract,sha_valid,allowed",
     [
         ("consent-protocol", "phone", True, True),
+        ("consent-protocol", "legacy_phone", True, False),
         ("consent-protocol", "provider", True, False),
         ("consent-protocol", "unknown", True, False),
         ("consent-protocol", "phone", False, False),
