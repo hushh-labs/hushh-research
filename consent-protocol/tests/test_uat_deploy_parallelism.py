@@ -471,14 +471,22 @@ def test_document_gate_preserves_official_mirrors_and_both_browser_engines(tmp_p
     python.write_text("#!/bin/sh\nexit 0\n")
     python.chmod(0o755)
     script = _read("scripts/ci/document-delivery-check.sh").replace(
-        "/etc/apt/apt-mirrors.txt", str(mirrors)
+        "/etc/apt/apt-mirrors.txt", mirrors.as_posix()
     )
+    # The installer runs npx through an external timeout process. Keep the
+    # provider boundary executable so the real process deadline remains active.
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    npx = commands / "npx"
+    npx.write_text(
+        '#!/bin/sh\necho "$*" >> "$FIXTURE_ROOT/calls"\n'
+        '! grep -q azure.archive "$FIXTURE_ROOT/apt-mirrors.txt"\n'
+    )
+    npx.chmod(0o755)
     stubs = (
         'git() { echo "$FIXTURE_ROOT"; }; node() { :; }; '
         'sudo() { [ "$1 $2" = "sed -i" ] || return 1; '
-        'sed "$3" "$4" > "$4.filtered" && mv "$4.filtered" "$4"; }; '
-        'npx() { echo "$*" >> "$FIXTURE_ROOT/calls"; '
-        '! grep -q azure.archive "$FIXTURE_ROOT/apt-mirrors.txt"; };\n'
+        'sed "$3" "$4" > "$4.filtered" && mv "$4.filtered" "$4"; };\n'
     )
     calls = tmp_path / "calls"
     result = subprocess.run(  # noqa: S603 - authored gate with synthetic package commands only.
@@ -486,6 +494,7 @@ def test_document_gate_preserves_official_mirrors_and_both_browser_engines(tmp_p
         env={
             **os.environ,
             "CI": ci,
+            "PATH": str(commands) + os.pathsep + os.environ["PATH"],
             "FIXTURE_ROOT": str(tmp_path),
         },
         capture_output=True,
