@@ -29823,6 +29823,163 @@
     },
     {
       "aliases": [
+        "Review previous device access",
+        "review previous device access"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.review_previous_devices",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Preserve device-review intent through previous-account Google or Apple sign-in. Reviewing devices grants no revocation; each unlink requires fresh own-phone proof and explicit confirmation.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.review_previous_devices",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.review_previous_devices",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Review previous device access",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery",
+        "devices"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Use a different number",
         "use a different number"
       ],
@@ -49829,7 +49986,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "31dc0dac668998edac0a869ebd3ca52c0a58dfcae3f9c97b3abaaf4656834304",
+      "projection_digest": "4661f5fe6fa0de30487907e1e8b8eed2bde010bc2f7357bf879f4184ed4c89eb",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49848,7 +50005,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "9031503093c4ce05",
+      "source_revision": "c9235cd9b5598475",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51366,7 +51523,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9031503093c4ce05",
+    "source_revision": "c9235cd9b5598475",
     "web": {
       "actions": [
         {
@@ -51409,7 +51566,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "7cfce5a7b9d82ecea61b3f1447f03d2a83262bafc75b84a7d4c2e90c034d3673",
+      "projection_digest": "5e14f1d4a7c33cd536e7b385d16f22dc2265e94ebd5984e4717c3654e270bc18",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51428,7 +51585,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "9031503093c4ce05",
+      "source_revision": "c9235cd9b5598475",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52985,7 +53142,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9031503093c4ce05",
+  "revision": "c9235cd9b5598475",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -54970,19 +55127,13 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:market.stock.quote.retry"
+      "actions:phone_mandate.review_previous_devices"
     ],
     "breaking": [],
-    "changed": [
-      "screens:screen:/one/kai",
-      "screens:screen:/one/kai?tab=analysis",
-      "screens:screen:/one/kai?tab=analysis&focus=active",
-      "screens:screen:/one/kai?tab=analysis&view=history",
-      "screens:screen:/one/kai?tab=portfolio"
-    ],
+    "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "fed9c40b9bb74ea8",
+    "from_revision": "9031503093c4ce05",
     "migrated": [],
     "removed": []
   },
@@ -57291,7 +57442,7 @@
     "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "4a36164dd7f9eab12c6b12a1a387de803e7e5181c689b22eaf6c3bfbdd99f97d",
+    "kai_action_gateway": "c09d0194a42f6bbf3c3b5ca1c018c5fc887f382a885667e6d849c83ace8c7374",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -57300,9 +57451,9 @@
     "route_orchestration_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "9031503093c4ce05",
+  "source_revision": "c9235cd9b5598475",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9031503093c4ce05",
+    "current_graph_revision": "c9235cd9b5598475",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -57476,6 +57627,7 @@
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
+          "9031503093c4ce05",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
@@ -57683,6 +57835,7 @@
           "8788bf4b6751557b",
           "8afa7c0f35f622a7",
           "8ed4b64eb88ea5b3",
+          "9031503093c4ce05",
           "960bad66c0a7f295",
           "9683f26dff3798f0",
           "9b520324ac39c69f",
@@ -57755,6 +57908,7 @@
           "8052e8fc866f98cd",
           "8afa7c0f35f622a7",
           "8ed4b64eb88ea5b3",
+          "9031503093c4ce05",
           "960bad66c0a7f295",
           "9e28477ae61ba4ef",
           "9e340c6f107b27c0",
@@ -58157,6 +58311,7 @@
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
+          "9031503093c4ce05",
           "90de2a8d40819efe",
           "934f53f787f43981",
           "9503b7156b53ae3c",
@@ -58520,6 +58675,7 @@
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
+          "9031503093c4ce05",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
@@ -58855,6 +59011,7 @@
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
+          "9031503093c4ce05",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
@@ -59190,6 +59347,7 @@
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
+          "9031503093c4ce05",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
@@ -59523,6 +59681,7 @@
           "8eced9f041d6ab65",
           "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
+          "9031503093c4ce05",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
           "934f53f787f43981",
