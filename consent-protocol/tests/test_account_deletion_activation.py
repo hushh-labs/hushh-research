@@ -8,9 +8,25 @@ import pytest
 from tests.test_account_deletion_release_workflow import (
     _activation_adapter,
     _activation_module,
+    _assert_no_uat_target,
+    _production_step,
+    _production_workflow,
 )
 
 pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
+
+
+def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None:
+    activation = _production_step("Activate tombstone-aware account deletion")
+    assert activation["if"] == (
+        "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.classify.outputs.release_failed == 'false' && "
+        "steps.scope.outputs.deploy_backend == 'true')"
+    )
+    assert "python3 deploy/account-deletion/activate_release.py" in activation["run"]
+    assert '--expected-sha "${{ github.event.inputs.sha }}"' in activation["run"]
+    assert '--cloudsql-instance "${{ env.PROD_CLOUDSQL_INSTANCE }}"' in activation["run"]
+    assert _production_workflow()["env"]["CONSENT_API_PUBLIC_ORIGIN"] == "https://api.hushh.ai"
+    _assert_no_uat_target(activation["run"])
 
 
 @pytest.fixture

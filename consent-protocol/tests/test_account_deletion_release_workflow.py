@@ -1168,19 +1168,6 @@ def test_production_backend_deploy_substitutions_are_declared_by_cloud_build() -
         assert name in declared
 
 
-def test_production_activation_uses_the_same_qualified_lifecycle_owner() -> None:
-    activation = _production_step("Activate tombstone-aware account deletion")
-    assert activation["if"] == (
-        "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.classify.outputs.release_failed == 'false' && "
-        "steps.scope.outputs.deploy_backend == 'true')"
-    )
-    assert "python3 deploy/account-deletion/activate_release.py" in activation["run"]
-    assert '--expected-sha "${{ github.event.inputs.sha }}"' in activation["run"]
-    assert '--cloudsql-instance "${{ env.PROD_CLOUDSQL_INSTANCE }}"' in activation["run"]
-    assert _production_workflow()["env"]["CONSENT_API_PUBLIC_ORIGIN"] == "https://api.hushh.ai"
-    _assert_no_uat_target(activation["run"])
-
-
 def test_production_scheduler_service_account_id_is_valid_and_consistent() -> None:
     workflow = _production_workflow()
     scheduler_account_id = workflow["env"]["ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID"]

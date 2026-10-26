@@ -10,25 +10,9 @@ from pathlib import Path
 import pytest
 
 from hushh_mcp import runtime_settings
+from tests.helpers.runtime_config_writer import configuration_arguments, configuration_reader
 
 CANDIDATE_SECRET_NAME = "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_17_1"
-
-
-def _configuration_arguments(project, environment, origin):
-    return {
-        "project": project,
-        "environment": environment,
-        "app-frontend-origin": origin,
-        "db-host": "synthetic",
-        "db-port": "5432",
-        "db-name": "synthetic",
-        "consent-sse-enabled": "false",
-        "sync-remote-enabled": "false",
-        "developer-api-enabled": "false",
-        "remote-mcp-enabled": "false",
-        "cors-allowed-origins": origin,
-        "obs-data-stale-ratio-threshold": "0.35",
-    }
 
 
 def _write_configuration(
@@ -69,34 +53,22 @@ def _write_configuration(
         module, "_upsert_secret", lambda _, name, value: writes.update({name: value})
     )
 
-    def read_existing_config(command, **_kwargs):
-        if candidate_only and target in command:
-            assert command[1:4] == ["secrets", "versions", "access"] or command[1:3] == [
-                "secrets",
-                "describe",
-            ]
-            if candidate_payload is not None and "access" in command:
-                return subprocess.CompletedProcess(command, 0, json.dumps(candidate_payload), "")
-            return subprocess.CompletedProcess(command, 1, "", "NOT_FOUND")
-        assert command == [
-            "gcloud",
-            "secrets",
-            "versions",
-            "access",
-            "latest",
-            "--secret",
-            "BACKEND_RUNTIME_CONFIG_JSON",
-            "--project",
-            project,
-        ]
-        return subprocess.CompletedProcess(command, 0, json.dumps(existing), "")
-
-    monkeypatch.setattr(module, "_run", read_existing_config)
-    arguments = _configuration_arguments(project, environment, origin)
+    arguments = configuration_arguments(project, environment, origin)
     target = "BACKEND_RUNTIME_CONFIG_JSON"
     if candidate:
         target = "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_17_1"
         arguments["production-drive-candidate-secret"] = target
+    monkeypatch.setattr(
+        module,
+        "_run",
+        configuration_reader(
+            project=project,
+            existing=existing,
+            target=target,
+            candidate_only=candidate_only,
+            candidate_payload=candidate_payload,
+        ),
+    )
     monkeypatch.setattr(
         sys,
         "argv",
