@@ -457,3 +457,44 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
             "archive.ubuntu.com" in mirrors.read_text()
             and "security.ubuntu.com" in mirrors.read_text()
         )
+
+
+@pytest.mark.parametrize("ci", ["true", "false"])
+def test_document_gate_preserves_official_mirrors_and_both_browser_engines(tmp_path, ci):
+    mirrors = tmp_path / "apt-mirrors.txt"
+    mirrors.write_text(
+        "http://azure.archive.ubuntu.com/ubuntu/ 10\nhttp://archive.ubuntu.com/ubuntu/ 20\nhttp://security.ubuntu.com/ubuntu/ 30\n"
+    )
+    (tmp_path / "hushh-webapp").mkdir()
+    python = tmp_path / "consent-protocol/.venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\nexit 0\n")
+    python.chmod(0o755)
+    script = _read("scripts/ci/document-delivery-check.sh").replace(
+        "/etc/apt/apt-mirrors.txt", str(mirrors)
+    )
+    stubs = (
+        'git() { echo "$FIXTURE_ROOT"; }; node() { :; }; '
+        'sudo() { [ "$1 $2" = "sed -i" ] || return 1; '
+        'sed "$3" "$4" > "$4.filtered" && mv "$4.filtered" "$4"; }; '
+        'npx() { echo "$*" >> "$FIXTURE_ROOT/calls"; '
+        '! grep -q azure.archive "$FIXTURE_ROOT/apt-mirrors.txt"; };\n'
+    )
+    calls = tmp_path / "calls"
+    result = subprocess.run(  # noqa: S603 - authored gate with synthetic package commands only.
+        [shutil.which("bash") or "bash", "-c", stubs + script],
+        env={
+            **os.environ,
+            "CI": ci,
+            "FIXTURE_ROOT": str(tmp_path),
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert ("azure.archive" not in mirrors.read_text()) is (ci == "true")
+    assert "http://archive.ubuntu.com/ubuntu/" in mirrors.read_text()
+    assert "http://security.ubuntu.com/ubuntu/" in mirrors.read_text()
+    actual = calls.read_text().splitlines() if calls.exists() else []
+    expected = ["playwright install --with-deps chromium webkit"] if ci == "true" else []
+    assert actual == expected

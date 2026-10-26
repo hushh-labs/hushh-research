@@ -222,3 +222,47 @@ def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
         with pytest.raises(ProcessLookupError):
             os.kill(int(proxy_pid_file.read_text()), 0)
     assert not list(tmp_path.glob("hussh-pkm-release.*"))
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+@pytest.mark.parametrize("early_failure", [False, True])
+def test_predeployment_image_failure_blocks_without_rolling_back_healthy_services(
+    tmp_path, monkeypatch, environment, early_failure
+):
+    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    identifier = "classify" if environment == "production" else f"classify-{environment}-release"
+    step = next(step for step in steps if step.get("id") == identifier)
+    assert (
+        step["env"]["FRONTEND_IMAGE_CHECK_OUTCOME"] == "${{ steps.check-frontend-image.outcome }}"
+    )
+    # All downstream checks are skipped: this reproduces the predeployment
+    # failure rather than manufacturing successful readiness receipts.
+    values = {key: "skipped" for key in step["env"]}
+    values.update(
+        DEPLOY_BACKEND="true",
+        DEPLOY_FRONTEND="true",
+        UPSTREAM_JOB_STATUS="failure",
+        FRONTEND_IMAGE_CHECK_OUTCOME="failure" if early_failure else "success",
+        PKM_EVALUATOR_RUNS="0",
+        DRIVE_PAUSE_SNAPSHOT="",
+        DEV_TARGET="shared-dev",
+        GITHUB_OUTPUT=str(tmp_path / "outputs"),
+    )
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    source = step["run"].replace("/tmp/", str(tmp_path) + "/")  # noqa: S108 - isolated workflow artifacts.
+    if environment == "production":
+        result = subprocess.run(  # noqa: S603 - trusted classifier, no cloud commands.
+            ["bash", "-c", source], capture_output=True, text=True, timeout=5
+        )
+        assert result.returncode == 0, result.stderr
+    else:
+        source = source.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        exec(compile(source, "release-classifier", "exec"), {})  # noqa: S102 - trusted workflow source.
+    outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text().splitlines())
+    assert outputs["release_failed"] == "true"
+    assert outputs["backend_failure"] == ("false" if early_failure else "true")
+    assert outputs["frontend_failure"] == ("false" if early_failure else "true")
+    early = next(i for i, item in enumerate(steps) if item.get("id") == "check-frontend-image")
+    assert early < next(i for i, item in enumerate(steps) if item.get("id") == "deploy-backend")

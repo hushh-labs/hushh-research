@@ -129,9 +129,11 @@ def test_uat_sso_cannot_deprovision_or_rewrite_shared_prod_claims(
 
     monkeypatch.setattr(identity, "_auth", auth_context)
     with pytest.raises(EnterpriseSsoError) as refused:
-        asyncio.run(identity.merge_claims("same-uid", {"workosDeprovisionedAt": 1}))
+        asyncio.run(identity.merge_claims("same-uid", {"workosOrgId": "org_1"}))
     assert refused.value.status_code == 503
-    assert asyncio.run(identity.revoke_sessions("same-uid")) is False
+    with pytest.raises(EnterpriseSsoError) as offboarding_refused:
+        asyncio.run(identity.offboard("same-uid", "linked", "org_1", "synthetic-profile-hash"))
+    assert offboarding_refused.value.status_code == 503
     sdk.set_custom_user_claims.assert_not_called()
     sdk.update_user.assert_not_called()
     sdk.delete_user.assert_not_called()
