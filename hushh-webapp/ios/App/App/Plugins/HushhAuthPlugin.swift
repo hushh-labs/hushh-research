@@ -119,6 +119,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authorizeGoogleContacts", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reauthenticateGoogleIdentity", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startPhoneVerificationProof", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmPhoneVerificationProof", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelPhoneVerificationProof", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startPhoneDeletionVerification", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmPhoneDeletionVerification", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelPhoneDeletionVerification", returnType: CAPPluginReturnPromise),
@@ -159,6 +162,12 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             proof.start(call)
         }
     }
+
+    // The same isolated proof owner serves both journeys; deletion entrypoints
+    // remain compatibility facades. This path always requires manual SMS entry.
+    @objc func startPhoneVerificationProof(_ call: CAPPluginCall) { startPhoneDeletionVerification(call) }
+    @objc func confirmPhoneVerificationProof(_ call: CAPPluginCall) { confirmPhoneDeletionVerification(call) }
+    @objc func cancelPhoneVerificationProof(_ call: CAPPluginCall) { cancelPhoneDeletionVerification(call) }
 
     @objc func confirmPhoneDeletionVerification(_ call: CAPPluginCall) {
         DispatchQueue.main.async {

@@ -77,6 +77,7 @@ export function PhoneMandatePageContent() {
     retrySessionVerification,
     startPhoneVerification,
     confirmPhoneVerification,
+    confirmPhoneTransfer,
     refreshUser,
     signOut,
   } = useAuth();
@@ -423,6 +424,9 @@ export function PhoneMandatePageContent() {
               currentPhoneNumber={phoneNumber}
               startVerification={startPhoneVerification}
               confirmVerification={confirmPhoneVerification}
+              confirmTransfer={confirmPhoneTransfer}
+              recoverPreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
+              deletePreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
               onCompleted={continueToNextRoute}
               onContinueExisting={continueToNextRoute}
               onStepChange={setVerificationStep}

@@ -42,7 +42,7 @@ describe("AuthProvider native privacy generations", () => {
     render(<AuthProvider><SessionProbe /><NativePhoneProbe /></AuthProvider>);
     await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe("native-account-owner"));
     fireEvent.click(screen.getByRole("button", { name: "Start native phone" }));
-    await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("already linked to another account"));
+    await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("A shared test code cannot transfer a number. Recover the previous account or use another number."));
     expect(mocks.phoneStart).not.toHaveBeenCalled();
     expect(mocks.phoneFinalize).not.toHaveBeenCalled();
   });

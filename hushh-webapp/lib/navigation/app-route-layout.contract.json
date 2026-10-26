@@ -2651,7 +2651,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Phone verification completes only after the submitted code is accepted.",
+      "completionBoundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
       "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2664,7 +2664,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell."
+      "reason": "Mandatory phone verification owns nested Back: transfer review returns to recovery choices, choices return to phone entry, and a dispatched transfer consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx."
     }
   },
   {

@@ -37,9 +37,11 @@ const auth = vi.hoisted(() => ({
   loading: false,
   sessionVerificationRequired: false,
   phoneNumber: null,
+  phoneNumberStatus: "missing",
   signOut: async () => undefined,
-  startPhoneVerification: async () => undefined,
-  confirmPhoneVerification: async () => undefined,
+  startPhoneVerification: vi.fn().mockResolvedValue({ autoVerified: false }),
+  confirmPhoneVerification: vi.fn(),
+  confirmPhoneTransfer: vi.fn(),
   startPhoneReplacement: async () => undefined,
   confirmPhoneReplacement: async () => undefined,
 }));
@@ -58,11 +60,17 @@ vi.mock("@/lib/persona/persona-context", () => ({
 // Keep the actual Profile entrypoint and hosting gate. Only replace the native
 // bridge leaf: a closed Connectors body must not prevent Profile from mounting.
 vi.mock("@/components/profile/native-profile-menu", () => ({
-  NativeProfilePresentation: ({ workspace, children, onPayoutCapability }: {
+  NativeProfilePresentation: ({ workspace, children, onPayoutCapability, page, menu, phone }: {
     workspace?: { active: boolean }; children: ReactNode; onPayoutCapability?: (available: boolean) => void;
+    page?: { onClose?: () => unknown }; menu?: { onClose: () => unknown };
+    phone?: { active: boolean; editor: (options: { native: boolean; onFallback: () => void }) => ReactNode };
   }) => {
     useEffect(() => { onPayoutCapability?.(true); }, [onPayoutCapability]);
-    return <><div role="dialog" aria-label="Native Profile" />{workspace && !workspace.active ? children : null}</>;
+    return <><div role="dialog" aria-label="Native Profile" />
+      <button onClick={() => page?.onClose?.()}>Page Close Profile</button>
+      <button onClick={() => menu?.onClose()}>Menu Close Profile</button>
+      {workspace && !workspace.active ? children : null}
+      {phone?.active ? phone.editor({ native: false, onFallback: () => undefined }) : null}</>;
   },
 }));
 
@@ -126,6 +134,34 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
+  it("keeps both native Close paths locked until uncertain phone transfer settles", async () => {
+    const { ApiError } = await import("@/lib/services/api-client");
+    nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
+    window.history.replaceState(null, "", `/one?${nav.query}`);
+    const close = vi.fn();
+    vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(new ApiError("Review transfer", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }));
+    vi.spyOn(auth, "confirmPhoneTransfer").mockRejectedValueOnce(new ApiError("Check progress", 409, { code: "PHONE_TRANSFER_IN_PROGRESS" })).mockResolvedValueOnce(auth.user);
+    render(<StepProgressProvider><ProfilePage presentation="native-page" nativeMenuOpen
+      onNativeMenuClose={close} paneLocation={{ panel: "account", detail: "phone" }} /></StepProgressProvider>);
+    const input = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(input, { target: { value: "6505550101" } });
+    fireEvent.submit(input.closest("form")!);
+    const code = await screen.findByRole("textbox", { name: "One-time code" });
+    fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm phone transfer" }));
+    const progress = await screen.findByRole("button", { name: "Check transfer progress" });
+    fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Menu Close Profile" }));
+    expect(close).not.toHaveBeenCalled();
+    expect(auth.startPhoneVerification).toHaveBeenCalledOnce();
+    fireEvent.click(progress);
+    await waitFor(() => expect(auth.confirmPhoneTransfer).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Check transfer progress" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("keeps the complete information-access payment owner in the native Profile handoff", async () => {
     nav.query = "profile_pane=1&profile_panel=payouts";
     window.history.replaceState(null, "", `/one?${nav.query}`);

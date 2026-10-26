@@ -2327,6 +2327,36 @@
       "trust_boundary": "Opaque resource identifiers and bounded transport metadata only. Contents, names, folder index and library keys never become Shared plaintext; durable provider bearer receipts use existing encrypted credential custody.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one library transport/inventory row per Shared owner"
+    },
+    {
+      "id": "account_phone_transfer_workflow",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": [
+        "account_phone_transfers"
+      ],
+      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer and generation-bound Firebase mutation journal.",
+      "retention_policy": "Prepared intents expire after five minutes; completed workflow receipts prune after seven days on prepare. Unsettled effects remain until reconciled.",
+      "deletion_behavior": "Account erasure waits for unsettled committed provider work; completed or unconsumed workflow rows cascade on participant erasure. Hash-only admission fences remain independently.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "At most five live prepared intents per claimant.",
+      "trust_boundary": "No OTP, phone number, bearer or previous-account private projection. Explicit confirmation, fresh manual SMS and binding revisions gate consumption."
+    },
+    {
+      "id": "account_phone_auth_fences",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": [
+        "account_phone_auth_fences"
+      ],
+      "primary_access_path": "Verified phone-origin session admission after account-principal resolution.",
+      "retention_policy": "Retain keyed identity/phone hashes independently of workflow or account lifetime to prevent retired credential admission.",
+      "deletion_behavior": "Hash-only retired authority survives account and workflow erasure; no account projection can be reconstructed.",
+      "trust_boundary": "No OTP, token, phone number or private account projection. Independent Google/Apple sign-in remains available.",
+      "plaintext_posture": "hashes_only",
+      "expected_row_growth": "One row per retired identity/phone pair."
     }
   ]
 }

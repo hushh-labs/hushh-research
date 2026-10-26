@@ -31,6 +31,7 @@ import { NativeAuthRestoreEpoch } from "./native-auth-restore-epoch";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { createPhoneVerificationRecovery } from "@/lib/auth/phone-verification-recovery";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
@@ -181,6 +182,7 @@ interface AuthContextType {
     options?: { resendCode?: boolean },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmPhoneVerification: (otp: string) => Promise<User>;
+  confirmPhoneTransfer: () => Promise<User>;
   startPhoneReplacement: (
     phoneNumber: string,
     options?: { resendCode?: boolean },
@@ -279,6 +281,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const phoneNumberRef = useRef<string | null>(null);
   const phoneVerificationOwnerRef = useRef<string | null>(null);
   const phoneVerificationEpochRef = useRef(0);
+  const phoneTransferProofRef = useRef<({ token: string; transferId?: string; submitted?: boolean } & { userId: string; epoch: number }) | null>(null);
   const requirePhoneVerificationOwner = useCallback(
     (expectedUid: string | null | undefined, expectedEpoch: number) => {
       const liveWebUid = Capacitor.isNativePlatform()
@@ -311,6 +314,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       phoneVerificationOwnerRef.current === uid && phoneVerificationEpochRef.current === epoch,
     retireAttempt: () => {
       phoneVerificationEpochRef.current += 1;
+      phoneTransferProofRef.current = null;
       phoneVerificationOwnerRef.current = null;
       setConfirmationResult(null);
       setNativeVerificationId(null);
@@ -392,6 +396,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const ownerId = principal?.ownerId ?? null;
     if (userRef.current?.uid !== nextUser?.uid || principalRef.current?.ownerId !== ownerId) {
       phoneRecovery.cancelNativeStart();
+      phoneTransferProofRef.current = null;
       phoneVerificationOwnerRef.current = null;
       phoneVerificationEpochRef.current += 1;
       setConfirmationResult(null);
@@ -1826,6 +1831,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (!expectedUid || !capturedPrincipal) throw new Error("Sign in before verifying a phone number.");
         phoneVerificationOwnerRef.current = expectedUid;
         const expectedPhoneEpoch = ++phoneVerificationEpochRef.current;
+        phoneTransferProofRef.current = null;
         setConfirmationResult(null);
         setNativeVerificationId(null);
         setPhoneVerificationPhoneNumber(null);
@@ -1858,7 +1864,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               );
             requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
             if (isNative && uatPhoneTest?.reason === "phone_test_number_in_use") {
-              throw new Error("This test phone number is already linked to another account. Use a different phone number.");
+              throw new ApiError("A shared test code cannot transfer a number. Recover the previous account or use another number.", 409, { code: "PHONE_TEST_NUMBER_IN_USE" });
             }
             if (isNative && (
               !uatPhoneTest?.success ||
@@ -1954,6 +1960,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (!expectedUid || !capturedPrincipal) throw new Error("Sign in before changing a phone number.");
       phoneVerificationOwnerRef.current = expectedUid;
       const expectedPhoneEpoch = ++phoneVerificationEpochRef.current;
+      phoneTransferProofRef.current = null;
       setConfirmationResult(null);
       setNativeVerificationId(null);
       setPhoneVerificationPhoneNumber(null);
@@ -1972,7 +1979,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           phoneVerificationOwnerRef.current = null;
           return { autoVerified: true, user: retainedUser };
         }
-        const linkedUser = await finalizeLinkedProviderPhone(phone, expectedUid, expectedPhoneEpoch);
+        const { linkedUser, allowLinkedPhoneProof } = await phoneRecovery.recoverLinkedPhoneForStart(phone, expectedUid, expectedPhoneEpoch);
         if (linkedUser) {
           applyAuthUser(linkedUser, capturedPrincipal);
           phoneVerificationOwnerRef.current = null;
@@ -1980,6 +1987,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
         result = await AuthService.startPhoneReplacementVerification(phone, {
           resendCode: options?.resendCode,
+          ...(allowLinkedPhoneProof ? { allowLinkedPhoneProof: true } : {}),
           ...(nativeStart ? { signal: nativeStart } : {}),
           recaptchaVerifier: isNative
             ? undefined
@@ -2025,7 +2033,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       return { autoVerified: false };
     },
-    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, finalizeLinkedProviderPhone, confirmRetainedNativePhone, phoneRecovery],
+    [applyAuthUser, refreshUser, requirePhoneVerificationOwner, confirmRetainedNativePhone, phoneRecovery],
   );
 
   const confirmPhoneVerification = useCallback(
@@ -2041,6 +2049,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // (not the real Firebase native link) so iOS test numbers work.
         const useNativeFirebaseConfirm =
           Capacitor.isNativePlatform() &&
+          !AuthService.isManualPhoneProof(nativeVerificationId) &&
           !AuthService.isUatPhoneTestVerificationId(nativeVerificationId);
         const linkedUser = useNativeFirebaseConfirm
           ? await finalizeLinkedProviderPhone(phoneVerificationPhoneNumber, verificationUser.uid, expectedPhoneEpoch)
@@ -2083,16 +2092,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
                   return verificationUser;
                 })()
               : await (async () => {
-                  const phoneIdToken = await AuthService.getPhoneClaimIdToken({
+                  const retainedProof = phoneTransferProofRef.current;
+                  const phoneIdToken = retainedProof?.userId === verificationUser.uid && retainedProof.epoch === expectedPhoneEpoch
+                    ? retainedProof.token : await AuthService.getPhoneClaimIdToken({
                     verificationCode: otp,
                     verificationId: nativeVerificationId,
                   });
                   requirePhoneVerificationOwner(verificationUser.uid, expectedPhoneEpoch);
-                  const identity =
-                    await AccountIdentityService.claimCurrentUserPhone(
-                      verificationUser,
-                      phoneIdToken,
-                    );
+                  phoneTransferProofRef.current = { token: phoneIdToken, userId: verificationUser.uid, epoch: expectedPhoneEpoch };
+                  let identity: AccountIdentity | null;
+                  try { identity = await AccountIdentityService.claimCurrentUserPhone(verificationUser, phoneIdToken); }
+                  catch (error) {
+                    requirePhoneVerificationOwner(verificationUser.uid, expectedPhoneEpoch);
+                    if (["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "PHONE_ALREADY_VERIFIED"].includes(apiErrorCode(error) ?? "")) {
+                      phoneTransferProofRef.current = { token: phoneIdToken, userId: verificationUser.uid, epoch: expectedPhoneEpoch };
+                    }
+                    throw error;
+                  }
                   if (!AccountIdentityService.hasVerifiedPhone(identity)) {
                     throw new Error(
                       "Phone verification completed but the backend could not confirm the phone claim.",
@@ -2111,6 +2127,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (!Capacitor.isNativePlatform()) {
           resetRecaptcha();
         }
+        phoneTransferProofRef.current = null;
         setConfirmationResult(null);
         setNativeVerificationId(null);
         setPhoneVerificationPhoneNumber(null);
@@ -2139,54 +2156,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     ],
   );
 
-  const confirmPhoneReplacement = useCallback(
-    async (otp: string): Promise<User> => {
-      return phoneRecovery.confirmAttempt(phoneVerificationAttempt, async () => {
-        const capturedPrincipal = principalRef.current;
-        const expectedUid = phoneVerificationAttempt?.userId;
-        const expectedPhoneEpoch = phoneVerificationAttempt?.epoch ?? -1;
-        requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
-        const linkedUser = await finalizeLinkedProviderPhone(phoneVerificationPhoneNumber, expectedUid, expectedPhoneEpoch);
-        const verifiedUser = linkedUser ??
-          await AuthService.confirmPhoneReplacementVerification({
-            verificationCode: otp,
-            confirmationResult,
-            verificationId: nativeVerificationId,
-          });
-        requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
-        if (verifiedUser?.uid !== expectedUid) throw new Error("The verified account changed. Start phone verification again.");
-        // Web replacement updates the primary provider too. Both platforms must
-        // explicitly persist the new phone before reporting completion.
-        if (!linkedUser) {
-          await AccountIdentityService.finalizeNativePhoneVerification(
-            verifiedUser, phoneVerificationPhoneNumber,
-          );
-          requirePhoneVerificationOwner(expectedUid, expectedPhoneEpoch);
-        }
-        if (!Capacitor.isNativePlatform()) {
-          resetRecaptcha();
-        }
-        setConfirmationResult(null);
-        setNativeVerificationId(null);
-        setPhoneVerificationPhoneNumber(null);
+  const confirmPhoneTransfer = useCallback(async (): Promise<User> => {
+    const proof = phoneTransferProofRef.current;
+    const currentUser = userRef.current;
+    if (!proof || !currentUser) throw new Error("Request a fresh real SMS code before transferring this number.");
+    requirePhoneVerificationOwner(proof.userId, proof.epoch);
+    await AccountIdentityService.transferCurrentUserPhone(currentUser, proof, () =>
+      phoneTransferProofRef.current === proof && userRef.current?.uid === currentUser.uid && phoneVerificationEpochRef.current === proof.epoch);
+    requirePhoneVerificationOwner(proof.userId, proof.epoch);
+    phoneTransferProofRef.current = null;
+    setConfirmationResult(null); setNativeVerificationId(null); setPhoneVerificationPhoneNumber(null);
+    phoneVerificationOwnerRef.current = null;
+    return currentUser;
+  }, [requirePhoneVerificationOwner]);
 
-        const refreshedUser = verifiedUser ?? (await refreshUser());
-        applyAuthUser(refreshedUser, capturedPrincipal);
-        phoneVerificationOwnerRef.current = null;
-        if (!refreshedUser) {
-          throw new Error(
-            "Phone verification completed but the session could not be refreshed.",
-          );
-        }
-        return refreshedUser;
-      });
-    },
-    [
-      applyAuthUser, confirmationResult, nativeVerificationId,
-      phoneVerificationAttempt, phoneVerificationPhoneNumber,
-      refreshUser, requirePhoneVerificationOwner, phoneRecovery, finalizeLinkedProviderPhone,
-    ],
-  );
+  // Replacement and first verification share the same isolated possession proof.
+  const confirmPhoneReplacement = confirmPhoneVerification;
 
   const beginPostAuthSettlement = useCallback(
     (nextUser: User) => {
@@ -2275,6 +2260,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Methods
       startPhoneVerification,
       confirmPhoneVerification,
+      confirmPhoneTransfer,
       startPhoneReplacement,
       confirmPhoneReplacement,
       signOut,
@@ -2299,6 +2285,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       accountPrincipal,
       startPhoneVerification,
       confirmPhoneVerification,
+      confirmPhoneTransfer,
       startPhoneReplacement,
       confirmPhoneReplacement,
       signOut,

@@ -1,3 +1,4 @@
+import { requestPhoneTransfer } from "./account-phone-api";
 import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection } from "./personal-agent-hosting";
 import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
 /**
@@ -2448,11 +2449,14 @@ export class ApiService {
             : typeof payload.error === "string"
               ? payload.error
               : `Phone claim failed with HTTP ${response.status}`;
-      throw new Error(message);
+      const { ApiError } = await import("./api-client");
+      throw new ApiError(message, response.status, payload);
     }
 
     return payload as unknown as AccountPhoneClaimResponse;
   }
+
+  static phoneTransferRequest = <T>(path: string, idToken: string, body?: Record<string, unknown>): Promise<T> => requestPhoneTransfer<T>(apiFetch, path, idToken, body);
 
   static async startUatPhoneTestVerification(
     phoneNumber: string,

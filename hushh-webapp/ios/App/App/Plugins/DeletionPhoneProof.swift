@@ -94,7 +94,7 @@ final class DeletionPhoneProof {
                 guard error == nil, let id, !id.isEmpty,
                       op.fence.codeSent(userID: self.primary.currentUser?.uid, sameSession: self.primary.currentUser === op.user,
                                         now: ProcessInfo.processInfo.systemUptime) else {
-                    self.finish(op, error: "phone_verification_failed"); return
+                    self.finish(op, error: Self.safeErrorCode(error)); return
                 }
                 op.verificationID = id
                 op.call?.resolve(["attemptId": attempt, "verificationId": attempt])
@@ -108,7 +108,7 @@ final class DeletionPhoneProof {
         dispatchPrecondition(condition: .onQueue(.main))
         guard let op = operation, call.getString("attemptId") == op.fence.attemptID,
               call.getString("expectedUserId") == op.fence.userID, active(op) else {
-            call.reject("Request a new verification code.", "auth/session-expired"); return
+            call.reject("Request a new verification code.", "phone-verification-required"); return
         }
         guard Self.exchangeOwner == nil else { call.reject("Phone verification is already in progress.", "phone_verification_busy"); return }
         guard let code = call.getString("verificationCode"), code.range(of: "^[0-9]{6}$", options: .regularExpression) != nil,
@@ -136,7 +136,7 @@ final class DeletionPhoneProof {
                         op.fence.retryCode()
                         self.expire(op, after: max(0.001, op.fence.deadline - ProcessInfo.processInfo.systemUptime))
                         reply?.reject("That code is incorrect.", "auth/invalid-verification-code")
-                    } else { self.finish(op, error: "phone_verification_failed"); self.drain(op) }
+                    } else { self.finish(op, error: Self.safeErrorCode(error)); self.drain(op) }
                     return
                 }
                 // This exchange just minted the token; never refresh or restore a prior proof session.
@@ -148,7 +148,7 @@ final class DeletionPhoneProof {
                             self.drain(op)
                             if cleaned { reply?.resolve(["attemptId": op.fence.attemptID, "phoneIdToken": token]) }
                             else { reply?.reject("Phone verification did not complete.", "phone_verification_failed") }
-                        } else { self.finish(op, error: "phone_verification_failed"); self.drain(op) }
+                        } else { self.finish(op, error: Self.safeErrorCode(error)); self.drain(op) }
                     }
                 }
             }
@@ -175,11 +175,22 @@ final class DeletionPhoneProof {
         op.timeout?.cancel()
         let work = DispatchWorkItem { [weak self, weak op] in
             guard let self, let op, self.operation === op else { return }
-            self.finish(op, error: "auth/session-expired")
+            self.finish(op, error: "phone-verification-required")
         }
         op.timeout = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
+    private static func safeErrorCode(_ error: Error?) -> String {
+        switch (error as NSError?)?.code {
+        case AuthErrorCode.sessionExpired.rawValue: return "auth/code-expired"
+        case AuthErrorCode.networkError.rawValue: return "auth/network-request-failed"
+        case AuthErrorCode.tooManyRequests.rawValue: return "auth/too-many-requests"
+        case AuthErrorCode.invalidAppCredential.rawValue: return "auth/invalid-app-credential"
+        case AuthErrorCode.captchaCheckFailed.rawValue: return "auth/captcha-check-failed"
+        default: return "phone_verification_failed"
+        }
+    }
+
     @discardableResult private func finish(_ op: Operation, error: String? = nil) -> Bool {
         guard op.fence.settle() else { return false }
         op.timeout?.cancel()

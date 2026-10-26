@@ -53,7 +53,7 @@ async def _finalize_recorded_cleanup(service, monkeypatch, user_id, *, requested
 
 
 def _legacy_table_exists(_conn, table):
-    return table != "shared_files_storage"
+    return table not in {"shared_files_storage", "account_phone_transfers"}
 
 
 def _assert_wallet_grants_erased_before_sources(conn):

@@ -657,32 +657,20 @@ async def test_firebase_sync_failure_never_logs_identity_or_phone_details(
 
 
 @pytest.mark.asyncio
-async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_claim_verified_phone_requires_explicit_transfer_without_mutating_old_owner(
+    monkeypatch,
 ) -> None:
-    _stub_referral_resync(monkeypatch)
-    service = ActorIdentityService()
     conn = _PhoneClaimFakeConnection()
     conn.rows.pop("firebase-user-123456789012")
-
-    async def fake_get_pool() -> _AliasFakePool:
-        return _AliasFakePool(conn)
-
-    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
-
-    identity = await service.claim_verified_phone(
-        user_id="firebase-user-123456789012",
-        phone_number="+16505550101",
+    before = copy.deepcopy(conn.rows)
+    monkeypatch.setattr(
+        actor_identity_service, "get_pool", AsyncMock(return_value=_AliasFakePool(conn))
     )
-
-    assert identity is not None
-    assert identity["phone_number"] == "+16505550101"
-    assert identity["phone_verified"] is True
-    assert identity["source"] == "firebase_phone_claim"
-    previous_owner = conn.rows["other-firebase-user-1234567890"]
-    assert previous_owner["phone_number"] is None
-    assert previous_owner["phone_verified"] is False
-    assert conn.statement_order == ["vault", "profile", "phone_lock", "clear_duplicate", "claim"]
+    with pytest.raises(ActorIdentityPhoneClaimConflictError):
+        await ActorIdentityService().claim_verified_phone(
+            user_id="firebase-user-123456789012", phone_number="+16505550101"
+        )
+    assert conn.rows == before
 
 
 @pytest.mark.asyncio
@@ -713,29 +701,24 @@ async def test_test_phone_claim_cannot_displace_owner_but_same_owner_can_retry(m
 
 @pytest.mark.asyncio
 async def test_claim_verified_phone_rolls_back_duplicate_clear_when_claim_fails(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch,
 ) -> None:
-    service = ActorIdentityService()
+    from hushh_mcp.services import phone_transfer_service
+
     conn = _PhoneClaimFakeConnection()
     conn.rows.pop("firebase-user-123456789012")
+    before = copy.deepcopy(conn.rows)
     conn.fail_claim = True
-
-    async def fake_get_pool() -> _AliasFakePool:
-        return _AliasFakePool(conn)
-
-    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
-
-    identity = await service.claim_verified_phone(
-        user_id="firebase-user-123456789012",
-        phone_number="+16505550101",
+    monkeypatch.setattr(
+        actor_identity_service, "get_pool", AsyncMock(return_value=_AliasFakePool(conn))
     )
-
+    monkeypatch.setattr(phone_transfer_service, "lock_transfer", AsyncMock())
+    monkeypatch.setattr(phone_transfer_service, "consume", AsyncMock())
+    identity = await ActorIdentityService().claim_verified_phone(
+        user_id="firebase-user-123456789012", phone_number="+16505550101", transfer=object()
+    )
     assert identity is None
-    previous_owner = conn.rows["other-firebase-user-1234567890"]
-    assert previous_owner["phone_number"] == "+16505550101"
-    assert previous_owner["phone_verified"] is True
-    assert "firebase-user-123456789012" not in conn.rows
-    assert conn.statement_order == ["vault", "profile", "phone_lock", "clear_duplicate", "claim"]
+    assert conn.rows == before
 
 
 @pytest.mark.asyncio
@@ -951,6 +934,7 @@ async def test_claim_verified_phone_retriggers_referral_qualification(
 
     service = ActorIdentityService()
     conn = _PhoneClaimFakeConnection()
+    conn.rows.pop("other-firebase-user-1234567890")
 
     async def fake_get_pool() -> _AliasFakePool:
         return _AliasFakePool(conn)
@@ -984,6 +968,7 @@ async def test_referral_qualification_resync_failure_does_not_fail_phone_write(
 
     service = ActorIdentityService()
     conn = _PhoneClaimFakeConnection()
+    conn.rows.pop("other-firebase-user-1234567890")
 
     async def fake_get_pool() -> _AliasFakePool:
         return _AliasFakePool(conn)
