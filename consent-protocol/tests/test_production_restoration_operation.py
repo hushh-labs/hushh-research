@@ -65,6 +65,14 @@ def operation(monkeypatch):
                 "traffic": [{"revisionName": value["revision"], "percent": 100}],
             },
         }
+
+    # Source admission has its own negative controls. These runtime tests use
+    # the recorded policy without depending on a separately fetched Git ref.
+    def source(sha):
+        module["require"](sha == record["sourceSha"], "Unrecorded source")
+        return copy.deepcopy(record)
+
+    monkeypatch.setitem(module["AUTHORITY"], "qualify_source", source)
     calls = []
     globals_ = module["initial_plan"].__globals__
     monkeypatch.setitem(

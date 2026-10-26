@@ -783,23 +783,38 @@ def _lane_step(lane: str, name: str) -> dict:
 
 @pytest.mark.parametrize("lane", sorted(LANES))
 def test_lane_overlaps_the_web_build_and_keeps_the_deploy_position(lane: str) -> None:
-    names = [str(step.get("name") or "") for step in _workflow_steps(lane)]
+    steps = _workflow_steps(lane)
+    names = [str(step.get("name") or "") for step in steps]
+    positions = {step["id"]: index for index, step in enumerate(steps) if "id" in step}
     order = [
-        "Sync canonical hosted runtime secrets",
-        "Start frontend image build in parallel",
-        "Build and pin backend image before lifecycle migration",
-        "Refuse an already failed frontend image before lifecycle migration",
-        "Deploy backend using Cloud Build",
-        "Wait for frontend image and pin its digest",
-        "Deploy frontend using Cloud Build",
-        "Resolve deployed candidate revisions",
+        positions[name]
+        for name in (
+            "start-frontend-image-build",
+            "build-backend-image",
+            "check-frontend-image",
+            "deploy-backend",
+            "deploy-frontend",
+            "candidate-state",
+        )
     ]
-    positions = [names.index(name) for name in order]
-    assert positions == sorted(positions), lane
-    # The wait sits immediately before the deploy it feeds.
-    assert names.index("Deploy frontend using Cloud Build") == (
-        names.index("Wait for frontend image and pin its digest") + 1
-    )
+    assert order == sorted(order), lane
+    joined = positions["build-frontend-image"]
+    if lane == "production":
+        assert (
+            positions["build-backend-image"] < joined < positions["install-account-deletion-fence"]
+        )
+        assert joined < names.index("Sync canonical hosted runtime secrets")
+        assert (
+            names.index("Sync frontend hosted runtime secrets")
+            < positions["start-frontend-image-build"]
+        )
+    else:
+        assert (
+            names.index("Sync canonical hosted runtime secrets")
+            < positions["start-frontend-image-build"]
+        )
+        assert positions["deploy-backend"] < joined
+        assert positions["deploy-frontend"] == joined + 1
 
     start = _lane_step(lane, "Start frontend image build in parallel")
     assert start["id"] == "start-frontend-image-build"

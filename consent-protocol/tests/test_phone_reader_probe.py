@@ -45,15 +45,16 @@ def test_rollback_manifest_requires_device_proof_policy_not_only_phone_fences(
     monkeypatch, device_floor
 ):
     module = load("phone_device_binary_floor", "deploy/account-deletion/activate_release.py")
-    migrations = [module.MIGRATION, module.PHONE_MIGRATION]
+    policy = module.SOURCE
+    migrations = [policy["MIGRATION"], policy["PHONE_MIGRATION"]]
     if device_floor:
-        migrations.append(module.PHONE_ACTION_MIGRATION)
+        migrations.append(policy["PHONE_ACTION_MIGRATION"])
 
     def source(command, **_kwargs):
         assert command[:2] == ["git", "show"]
         return json.dumps(
             {"version": 1}
-            if command[-1].endswith(module.POLICY)
+            if command[-1].endswith(policy["POLICY"])
             else {"ordered_migrations": migrations}
         )
 
