@@ -489,6 +489,19 @@ class GoogleConnectionService:
             ),
         )
 
+    async def _calendar_completion_status(self, user_id: str, account_id: str) -> dict[str, Any]:
+        # The top-level fields describe the primary grant. The consumed OAuth
+        # attempt identifies which account the callback must verify.
+        status = await self.calendar_accounts_status(user_id=user_id)
+        return {**status, "completed_account_id": account_id}
+
+    async def _primary_completion_status(
+        self, user_id: str, service: GoogleService, calendar_additional: bool
+    ) -> dict[str, Any]:
+        if calendar_additional and service == "calendar":
+            return await self._calendar_completion_status(user_id, "default")
+        return await self.status(user_id=user_id, service=service)
+
     async def _mark_needs_reauth(
         self,
         *,
@@ -740,7 +753,7 @@ class GoogleConnectionService:
             grant_sql=grant_sql,
             grant_params=grant_params,
         )
-        return await self.status(user_id=user_id, service=service)
+        return await self._primary_completion_status(user_id, service, calendar_additional)
 
     async def _store_additional_calendar_account(
         self,
@@ -941,7 +954,7 @@ class GoogleConnectionService:
             raise GoogleConnectionError(
                 "Calendar connection could not be saved. Reconnect.", status_code=503
             ) from None
-        return await self.calendar_accounts_status(user_id=user_id)
+        return await self._calendar_completion_status(user_id, account_id)
 
     @staticmethod
     def _lock_google_owner(connection: Any, user_id: str) -> None:
