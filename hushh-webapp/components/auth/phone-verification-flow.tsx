@@ -57,6 +57,7 @@ import { CountryPicker, InlineCountryPickerPanel } from "@/components/auth/count
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { PhoneConflictRecovery } from "@/components/auth/phone-conflict-recovery";
 
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
@@ -75,7 +76,7 @@ export type PhoneVerificationFlowProps = {
   currentPhoneNumber?: string | null;
   startVerification: (
     phoneNumber: string,
-    options?: { resendCode?: boolean },
+    options?: { resendCode?: boolean; transport?: "sms" },
   ) => Promise<{ autoVerified: boolean; user?: User | null }>;
   confirmVerification: (otp: string) => Promise<User>;
   confirmTransfer?: () => Promise<User>;
@@ -137,7 +138,7 @@ export function usePhoneVerificationFlow({
 }: PhoneVerificationFlowProps) {
   const pathname = usePathname();
   const [formOwner, setFormOwner] = useState(ownerKey);
-  const visit = useMemo(() => ({ active: false, ownerKey, verified: false, verifiedUser: undefined as User | null | undefined, entryRevision: 0 }), [ownerKey]);
+  const visit = useMemo(() => ({ active: false, ownerKey, verified: false, verifiedUser: undefined as User | null | undefined, entryRevision: 0, smsTransport: false }), [ownerKey]);
   const entryRevision = visit.entryRevision;
   const [, publishEntryRevision] = useState(0);
   const advanceEntryRevision = useCallback(() => {
@@ -250,6 +251,7 @@ export function usePhoneVerificationFlow({
   const returnToPhoneNumber = useCallback(() => {
     if (!current()) return true;
     if (phoneFlowInFlightRef.current) return true;
+    visit.smsTransport = false;
     if (conflict === "review" && !transferPending) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
     if (transferPending) return true;
     advanceEntryRevision();
@@ -259,7 +261,7 @@ export function usePhoneVerificationFlow({
     setConflict(null);
     changeStep("phone");
     return true;
-  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, transferPending]);
+  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, transferPending, visit]);
 
   useEffect(() => {
     onBackStepChange?.(step === "code" ? returnToPhoneNumber : null);
@@ -522,9 +524,11 @@ export function usePhoneVerificationFlow({
     async (
       resendCode = false,
       phoneNumberOverride?: string,
+      transport?: "sms",
     ): Promise<StartVerificationOutcome> => {
-      if (!current() || allowedOperation.current?.() === false || entryRevision !== visit.entryRevision || conflict !== null || busy || phoneFlowInFlightRef.current ||
-          (resendCode ? stepRef.current !== "code" : stepRef.current !== "phone")) {
+      const freshSms = transport === "sms" && conflict === "choices" && !transferEligible;
+      if (!current() || allowedOperation.current?.() === false || entryRevision !== visit.entryRevision || (conflict !== null && !freshSms) || busy || phoneFlowInFlightRef.current ||
+          (!freshSms && (resendCode ? stepRef.current !== "code" : stepRef.current !== "phone"))) {
         return "busy";
       }
       const normalizedPhone = (
@@ -555,7 +559,7 @@ export function usePhoneVerificationFlow({
       rejectedPhoneInputRef.current = false;
       setPhoneNumberError(null);
 
-      if (currentPhoneNumber && normalizedPhone === currentPhoneNumber && !Capacitor.isNativePlatform()) {
+      if (!freshSms && currentPhoneNumber && normalizedPhone === currentPhoneNumber && !Capacitor.isNativePlatform()) {
         trackEvent("phone_verification_completed", {
           action: "existing",
           result: "success",
@@ -572,8 +576,10 @@ export function usePhoneVerificationFlow({
       setOperationError(null);
       let committed = false;
       try {
-        const result = await startVerification(normalizedPhone, { resendCode });
+        if (!resendCode) visit.smsTransport = freshSms;
+        const result = await startVerification(normalizedPhone, { resendCode, ...(visit.smsTransport ? { transport: "sms" as const } : {}) });
         if (!current()) return "busy";
+        setConflict(null);
         trackEvent("phone_verification_started", {
           action: mode,
           result: "success",
@@ -616,7 +622,7 @@ export function usePhoneVerificationFlow({
           phoneFailureMessage(error, "Couldn't send the verification code. Please try again.");
         setOperationError(message);
         if (["PHONE_TEST_NUMBER_IN_USE", "PHONE_ALREADY_VERIFIED", "PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT"].includes(apiErrorCode(error) ?? "")) {
-          advanceEntryRevision(); setTransferEligible(false); setConflict("choices"); changeStep("code");
+          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setTransferEligible(false); setConflict("choices"); changeStep("code");
         }
         if (committed) { morphyToast.error(message); return "auto_verified"; }
         trackEvent("phone_verification_started", {
@@ -647,6 +653,7 @@ export function usePhoneVerificationFlow({
       visit,
       entryRevision,
       conflict,
+      transferEligible,
       advanceEntryRevision,
     ],
   );
@@ -784,8 +791,8 @@ export function usePhoneVerificationFlow({
           phoneFailureMessage(error, "Couldn't verify the phone number. Please try again.");
         setOperationError(message);
         if (committed) { if (options.notify) morphyToast.error(message); return "verified"; }
-        if (["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "PHONE_ALREADY_VERIFIED"].includes(apiErrorCode(error) ?? "")) {
-          advanceEntryRevision(); setTransferEligible(true); setVerificationCode(""); setConflict("choices");
+        if (["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "PHONE_ALREADY_VERIFIED", "PHONE_TEST_NUMBER_IN_USE"].includes(apiErrorCode(error) ?? "")) {
+          advanceEntryRevision(); setTransferEligible(apiErrorCode(error) !== "PHONE_TEST_NUMBER_IN_USE"); setVerificationCode(""); setConflict("choices");
         }
         trackEvent("phone_verification_completed", {
           action: mode,
@@ -798,10 +805,10 @@ export function usePhoneVerificationFlow({
         // Resend available. A wrong code stays in place -- it may be a typo
         // worth fixing, not a dead session -- and no SMS is auto-sent either
         // way; Resend remains an explicit tap.
-        const errorCode = String((error as { code?: unknown })?.code ?? "");
+        const errorCode = String((error as { code?: unknown })?.code ?? apiErrorCode(error) ?? "");
         if (
           codePresentation === "onboarding" &&
-          ["invalid-verification-code", "auth/invalid-verification-code"].includes(errorCode)
+          ["invalid-verification-code", "auth/invalid-verification-code", "UAT_PHONE_TEST_INVALID_CODE"].includes(errorCode)
         ) {
           setCodeError("That code isn't right. Check it and try again.");
         }
@@ -840,7 +847,7 @@ export function usePhoneVerificationFlow({
         const pending = actionRequired || apiErrorCode(error) === "PHONE_TRANSFER_IN_PROGRESS";
         transferGuard.pending = pending; setTransferPending(pending);
         setOperationError(actionRequired ? "Phone transfer needs a security check. Contact one@hushh.ai and check progress again." : pending ? "Finishing phone transfer. Check progress again." :
-          error instanceof Error ? error.message : "Phone transfer could not be confirmed. Please retry.");
+          phoneFailureMessage(error, error instanceof Error ? error.message : "Phone transfer could not be confirmed. Please retry."));
       }
     } finally { phoneFlowInFlightRef.current = false; if (current()) setBusy(false); }
   }, [busy, conflict, confirmTransfer, current, changeStep, onCompleted, visit, entryRevision, transferEligible, phoneFlowInFlightRef, transferGuard]);
@@ -923,6 +930,7 @@ export function usePhoneVerificationFlow({
 
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
     conflict, transferPending, transferEligible, handleTransfer, recoverPrevious,
+    startFreshSms: () => handleStartVerification(false, submittedPhoneNumber, "sms"),
     reviewTransfer: () => { if (current() && visit.entryRevision === entryRevision && conflict === "choices" && transferEligible && !busy && !phoneFlowInFlightRef.current) { advanceEntryRevision(); setConflict("review"); setOperationError(null); } },
     countries: PHONE_COUNTRY_OPTIONS,
     selectedCountry, selectedCountryOption, selectedCountryDisplayLabel, countryQuery, countryInputValue, countryComboboxOpen,
@@ -955,23 +963,8 @@ export function PhoneVerificationForm({ model, className, style, onCancel, codeP
     filteredCountryOptions, localPhoneNumber, mobileNumberLengthRange, suppressNextCountryFocusOpenRef,
     setCountryComboboxOpen, setCountryQuery, handleCountrySelection, handlePhoneNumberChange, handlePhoneNumberPaste,
     handleStartVerification, handleContinueExisting, returnToPhoneNumber, handleSubmit, changeCode } = model;
-  if (model.conflict) return <div className={cn("space-y-4", className)} style={style}>
-    <h2 className={kaiAppCardTitleClassName}>{model.conflict === "choices" ? "This number is linked to another account" : "Use this number on this account?"}</h2>
-    <p className="text-sm text-muted-foreground">Only the phone link will move. The previous account, files, vault and information will remain safe.</p>
-    {model.operationError ? <p role="alert" className="text-sm text-destructive">{model.operationError}</p> : null}
-    {model.conflict === "choices" ? <>
-      <Button type="button" className="w-full" disabled={busy || submissionBlocked || !model.transferEligible} data-voice-control-id="phone-flow-transfer-review" onClick={model.reviewTransfer}>Use this number on this account</Button>
-      {!model.transferEligible ? <p className="text-sm text-muted-foreground">Transfers require a fresh real SMS code. Test codes cannot transfer a number.</p> : null}
-      <Button type="button" variant="none" className="w-full" disabled={busy} data-voice-control-id="phone-flow-recover" onClick={() => void model.recoverPrevious(false)}>Recover my previous account</Button>
-      <Button type="button" variant="none" className="w-full" disabled={busy} data-voice-control-id="phone-flow-delete-previous" onClick={() => void model.recoverPrevious(true)}>Delete my previous account</Button>
-      <p className="text-sm text-muted-foreground">Recovery and deletion require signing in to your previous Google or Apple account. Deletion has its own confirmation.</p>
-      <Button type="button" variant="none" disabled={busy} data-voice-control-id="phone-flow-change-number" onClick={returnToPhoneNumber}>Use a different number</Button>
-    </> : <>
-      <p className="text-sm text-muted-foreground">Confirm using your fresh SMS verification. Previous phone-based access will be revoked. This does not delete either account.</p>
-      <Button type="button" className="w-full" disabled={busy || submissionBlocked} data-voice-control-id="phone-flow-transfer-confirm" onClick={() => void model.handleTransfer()}>{busy ? "Checking transfer…" : model.transferPending ? "Check transfer progress" : "Confirm phone transfer"}</Button>
-      <Button type="button" variant="none" disabled={busy || model.transferPending} data-voice-control-id="phone-flow-transfer-cancel" onClick={returnToPhoneNumber}>Cancel</Button>
-    </>}
-  </div>;
+  if (model.conflict) return <PhoneConflictRecovery {...model} conflict={model.conflict}
+    className={className} style={style} submissionBlocked={submissionBlocked} />;
   if (step === "linked") {
     return (
       <div className={className} style={style}>

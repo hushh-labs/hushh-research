@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   identityPeek: vi.fn(),
   identityClaim: vi.fn(),
   phoneClaimToken: vi.fn(),
+  phoneTestStart: vi.fn(),
   phoneLinkStart: vi.fn(),
   phoneReplacementConfirm: vi.fn(),
   phoneReplacementStart: vi.fn(),
@@ -50,9 +51,16 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.routerReplace }),
+  usePathname: () => window.location.pathname,
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock("firebase/auth", () => ({
+  getAuth: () => ({ settings: {} }),
+  RecaptchaVerifier: class {
+    render() { return Promise.resolve(1); }
+    clear() { return undefined; }
+  },
   onAuthStateChanged: vi.fn(
     (_auth: unknown, listener: (user: unknown) => void) => {
       mocks.authStateListener = listener;
@@ -70,7 +78,8 @@ vi.mock("@capacitor/core", async (importOriginal) => ({
   },
 }));
 
-vi.mock("@/lib/capacitor/session-privacy", () => ({
+vi.mock("@/lib/capacitor/session-privacy", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/capacitor/session-privacy")>(),
   subscribeNativeProfilePreparation: () => () => undefined,
   nativeProfilePreparationRevision: () => 0,
   getNativeSessionPrivacyState: vi.fn().mockResolvedValue({
@@ -114,7 +123,7 @@ vi.mock("@/lib/services/account-identity-service", () => ({
     finalizeNativePhoneVerification: mocks.phoneFinalize,
     hasVerifiedPhone: (identity: { phone_verified?: boolean } | null) =>
       identity?.phone_verified === true,
-    startUatTestPhoneVerification: vi.fn().mockResolvedValue({ success: true, eligible: false, reason: "uat_phone_test_not_configured_or_not_allowlisted" }),
+    startUatTestPhoneVerification: mocks.phoneTestStart,
   },
 }));
 
@@ -129,7 +138,8 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
   },
 }));
 
-vi.mock("@/lib/services/onboarding-route-cookie", () => ({
+vi.mock("@/lib/services/onboarding-route-cookie", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/services/onboarding-route-cookie")>(),
   setOnboardingFlowActiveCookie: vi.fn(),
   setOnboardingRequiredCookie: vi.fn(),
 }));
@@ -142,13 +152,15 @@ vi.mock("@/lib/services/user-local-state-service", () => ({
   },
 }));
 
-vi.mock("@/lib/utils/session-storage", () => ({
+vi.mock("@/lib/utils/session-storage", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/utils/session-storage")>(),
   clearSessionStorage: vi.fn(),
   removeLocalItem: vi.fn(),
   removeSessionItem: vi.fn(),
 }));
 
-vi.mock("@/lib/interaction/interaction-intent-coordinator", () => ({
+vi.mock("@/lib/interaction/interaction-intent-coordinator", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/interaction/interaction-intent-coordinator")>(),
   appInteractionCoordinator: {
     getLifecycleSnapshot: () => ({ state: mocks.lifecycleState }),
     subscribeLifecycle: (listener: () => void) => {
@@ -344,7 +356,7 @@ function InteractiveSettlementProbe() {
   }}>Complete interactive sign-in</button>;
 }
 
-function VerifiedPhoneProbe() {
+function VerifiedPhoneProbe({ transport }: { transport?: "sms" } = {}) {
   const { phoneNumber, phoneNumberStatus, resolveVerifiedPhoneNumber, startPhoneVerification, confirmPhoneVerification } = useAuth();
   const [error, setError] = useState("");
   const [resolved, setResolved] = useState("");
@@ -354,7 +366,7 @@ function VerifiedPhoneProbe() {
     <p data-testid="phone-error">{error}</p>
     <p data-testid="resolved-phone">{resolved}</p>
     <button onClick={() => void resolveVerifiedPhoneNumber().then((phone) => setResolved(phone ?? "missing"))}>Resolve saved phone</button>
-    <button onClick={() => void startPhoneVerification("+12025550101").catch((failure: Error) => setError(failure.message))}>Send phone OTP</button>
+    <button onClick={() => void startPhoneVerification("+12025550101", transport ? { transport } : undefined).catch((failure: Error) => setError(failure.message))}>Send phone OTP</button>
     <button onClick={() => void confirmPhoneVerification("123456").catch((failure: Error) => setError(failure.message))}>Confirm phone OTP</button>
   </>;
 }
@@ -399,6 +411,7 @@ function resetWebAuthMocks() {
     mocks.phoneFinalize.mockReset().mockResolvedValue(undefined);
     mocks.phoneReplacementConfirm.mockReset();
     mocks.phoneReplacementStart.mockReset().mockResolvedValue({ autoVerified: false, verificationId: "replacement-verification" });
+    mocks.phoneTestStart.mockReset().mockResolvedValue({ success: true, eligible: false, reason: "uat_phone_test_not_configured_or_not_allowlisted" });
     mocks.phoneClaimToken.mockReset().mockResolvedValue("phone-id-token");
     mocks.phoneLinkStart.mockReset().mockResolvedValue({ autoVerified: false, verificationId: "web-otp-verification" });
     mocks.clearForUser.mockResolvedValue(undefined);

@@ -5286,10 +5286,17 @@ existing platform coverage.
 `POST /api/account/phone/transfer/prepare` requires the current Firebase bearer,
 `expected_user_id` matching the captured application owner and an independent
 `phone_id_token`. The server verifies its phone provider, revocation, exact UID,
-authentication age, application fixtures and provider fictional-number config.
+authentication age and provider fictional-number config. Membership in a server
+fixed-code list does not disqualify an independently verified real SMS proof.
 The response is an opaque `transfer_id` and intent `expires_at`. This is a
 server authorization deadline, not a promise about provider OTP lifetime.
-Fixture, emulator, reviewer and shared test-code proofs cannot transfer a number.
+Provider fictional-number, emulator, reviewer and shared test-code proofs cannot
+transfer a number. Occupied fixed-code challenges do not silently switch to SMS: a
+human may explicitly request a fresh SMS proof. Failed or malformed eligibility
+checks stop with a typed error; only a successful non-test result permits ordinary
+SMS fallback. The shared production Firebase mutation fence remains authoritative
+in nonproduction; that refusal is permanent for the current authentication plane,
+not a reason to retry the same transfer.
 If removing the phone would strand an established phone-only identity, existing
 account recovery is required first.
 
@@ -5328,6 +5335,9 @@ Native verification extends the existing isolated proof bridge rather than
 linking the primary Firebase user. Owner/attempt fences suppress stale native
 callbacks. Harmless rerenders, typing and background/foreground events do not
 start a challenge. Resend is explicit and retires the prior local challenge.
+Web reCAPTCHA keeps its React-owned host attached and creates a fresh SDK-owned
+child for each attempt. Clearing or retrying the SDK cannot detach React's
+insertion anchor when the OTP form changes to account-conflict recovery.
 Native Profile Close consults the same visit-scoped pending-operation guard as
 the phone flow; it cannot discard an uncertain transfer before status settles.
 No provider expiry countdown is invented. Native provider error mapping follows
