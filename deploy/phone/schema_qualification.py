@@ -287,7 +287,7 @@ def _checks(checks: dict, prepared: dict, origin: dict) -> dict:
     ):
         raise ValueError("phone_schema_canonical_checks_unqualified")
     files = {row["filename"]: row["sha256"] for row in manifest["migrations"]["files"]}
-    for name in ("425_account_phone_transfers.sql", "428_phone_recovery_actions.sql"):
+    for name in ("425_account_phone_transfers.sql", "431_phone_recovery_actions.sql"):
         if (
             files.get(name)
             != hashlib.sha256(

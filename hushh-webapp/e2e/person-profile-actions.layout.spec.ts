@@ -1,13 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { awaitProductFont } from "./fixtures/product-font";
+import { buildPersonProfileBrowserFixture, type PersonProfileBrowserFixture } from "./fixtures/person-profile-browser";
 
 let css: string;
 let script: string;
 let requestScript: string;
-let outDir: string;
+let fixture: PersonProfileBrowserFixture | undefined;
 
 /** Real profile presentation, optimized app CSS and shipped font.
  * Controller, authorization and request-lifetime contracts remain in the component suite.
@@ -18,77 +18,11 @@ async function setFixtureContent(page: Page, content: string) {
 
 test.beforeAll(async () => {
   test.setTimeout(120_000);
-  const root = process.cwd();
-  const { build } = await import("vite");
-  const { Scanner } = await import("@tailwindcss/oxide");
-  const scanner = new Scanner({});
-  const candidates = new Set<string>();
-  outDir = fs.mkdtempSync(path.join(os.tmpdir(), "person-profile-"));
-  const configuration: import("vite").InlineConfig = {
-    configFile: false,
-    publicDir: false,
-    logLevel: "error",
-    plugins: [{
-      name: "fixture-css-candidates",
-      transform(source, id) {
-        if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
-          for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
-        }
-      },
-    }],
-    oxc: { jsx: { runtime: "automatic", development: false } },
-    resolve: { alias: [{ find: "@", replacement: root }] },
-    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
-    build: {
-      outDir,
-      emptyOutDir: false,
-      lib: {
-        entry: path.join(root, "e2e/fixtures/person-profile.tsx"),
-        name: "Fixture",
-        formats: ["iife"],
-        fileName: () => "fixture.js",
-      },
-    },
-  };
-  await build(configuration);
-  script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
-  const ports = path.join(root, "e2e/fixtures/person-profile-request-ports.tsx");
-  const boundaries = ["hooks/use-auth", "lib/vault/vault-context", "lib/services/auth-service", "lib/services/api-service", "lib/cache/cache-sync-service", "lib/one-location/key-bootstrap", "components/vault/vault-flow"];
-  await build({ configFile: false, publicDir: false, logLevel: "error",
-    plugins: [{ name: "request-fixture-css-candidates", transform(source, id) {
-      if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
-        for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
-      }
-    } }],
-    oxc: { jsx: { runtime: "automatic", development: false } },
-    define: { "process.env.NODE_ENV": JSON.stringify("production"), "process.env": "{}" },
-    resolve: { alias: [...boundaries.map(name => ({ find: `@/${name}`, replacement: ports })),
-      { find: /^\.\/auth-service$/, replacement: ports },
-      { find: /^\.\/api-service$/, replacement: ports },
-      { find: "@", replacement: root }] },
-    build: { outDir, emptyOutDir: false, lib: { entry: path.join(root, "e2e/fixtures/person-profile-requests.tsx"), name: "RequestFixture", formats: ["iife"], fileName: () => "request-fixture.js" } },
-  });
-  requestScript = fs.readFileSync(path.join(outDir, "request-fixture.js"), "utf8");
-  const { compile } = await import("tailwindcss");
-  const compiler = await compile(
-    fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""),
-    {
-      base: path.join(root, "app"),
-      loadStylesheet: async (id, base) => {
-        const file = id === "tailwindcss" ? path.join(root, "node_modules/tailwindcss/index.css")
-          : id === "tw-animate-css" ? path.join(root, "node_modules/tw-animate-css/dist/tw-animate.css")
-          : path.resolve(base, id);
-        return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
-      },
-    },
-  );
-  const modules = fs.readdirSync(outDir).filter(name => name.endsWith(".css"))
-    .map(name => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
-  const { optimize } = await import("@tailwindcss/node");
-  css = stripAppFontFaces(optimize(compiler.build([...candidates]) + modules, { minify: true }).code) + productFontStyle();
+  fixture = await buildPersonProfileBrowserFixture();
+  ({ css, script, requestScript } = fixture);
 });
 
-test.afterAll(() => { if (outDir) fs.rmSync(outDir, { recursive: true, force: true }); });
+test.afterAll(() => fixture?.dispose());
 
 async function openFixture(page: Page, width: number, theme = "light") {
   await page.setViewportSize({ width, height: 900 });

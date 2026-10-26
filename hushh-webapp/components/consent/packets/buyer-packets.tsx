@@ -9,7 +9,7 @@ import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price
 import { AuthService } from "@/lib/services/auth-service";
 import { DrivePacketService, type DrivePacket, type PacketGuard } from "@/lib/services/drive-packet-service";
 
-import { buyerNotes, buyerPacketStatus, buyerSummary, documentCount, savedPacketRequest, type BuyerPacketRequest } from "./packet-copy";
+import { buyerDocumentCount, buyerNotes, buyerPacketStatus, buyerSummary, savedPacketRequest, type BuyerPacketRequest } from "./packet-copy";
 import { PacketPage, type PacketPageAction, type PacketPageSection } from "./packet-page";
 import { PacketRows } from "./packet-rows";
 
@@ -70,7 +70,7 @@ export function BuyerPacketRows({ packets, requests, ownerName, onOpen }: {
 
 /**
  * A buyer's page for one packet: what's included, the price and when they pay.
- * "Buy for $X" is today's packet request, unchanged: nothing is charged here.
+ * A packet request charges nothing here.
  * The seller approves, then the buyer pays from the request, as before. The
  * buyer's list never carries the seller's files, and this page never shows them.
  */
@@ -114,11 +114,11 @@ export function BuyerPacketPage({ packet, ownerName, token, guard, requests, onC
   const price = formatDocumentRequestPrice(packet.priceCents);
   const sections: PacketPageSection[] = [
     { id: "included", title: "What’s included", rows: [
-      { id: "documents", title: documentCount(packet.documentCount), description: buyerSummary(packet) ?? undefined },
+      { id: "documents", title: buyerDocumentCount(packet), description: buyerSummary(packet) ?? undefined },
       ...buyerNotes(packet).map((note, index) => ({ id: `note-${index}`, title: note })),
     ] },
-    ...packet.canRequest && !request?.existingAccess && !["paid", "delivered"].includes(request?.purchaseState ?? "") ? [{ id: "price", title: "Price", rows: [
-      { id: "price", title: "Price", value: price, description: `You pay after ${ownerName} approves.` }] }] : [],
+    ...packet.canRequest && !request?.existingAccess && !["paid", "delivered"].includes(request?.purchaseState ?? "") ? [{ id: "price", title: packet.kind === "provider_discovery" ? "One-time price" : "Price", rows: [
+      { id: "price", title: packet.kind === "provider_discovery" ? "One-time payment" : "Price", value: price, description: `You pay after ${ownerName} approves.` }] }] : [],
   ];
   const actions: PacketPageAction[] = request ? [{ id: "open", label: request.existingAccess || request.purchaseState === "delivered" ? "View files" : "View request",
     href: buildConsentCenterHref("pending", { requestId: `document_share_request:${request.requestId}`, requestView: "sent" }) }]

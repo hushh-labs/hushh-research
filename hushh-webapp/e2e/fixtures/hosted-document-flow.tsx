@@ -16,7 +16,7 @@ async function mount() {
     const [requestId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("ref"));
     setHostedFixtureActor(actor);
     const session = useMemo(() => fixtureSession(actor), [actor]);
-    return <main>
+    return <main data-testid="document-fixture" data-actor={actor}>
       <h1>Protected document flow</h1>
       <button onClick={() => { setHostedFixtureActor("owner"); setActor("owner"); }}>Use owner session</button>
       <button onClick={() => { setHostedFixtureActor("recipient"); setActor("recipient"); }}>Use recipient session</button>

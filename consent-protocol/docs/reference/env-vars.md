@@ -129,7 +129,7 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/integrations/plaid/config.py` | No | Plaid environment. Defaults to `sandbox`. |
 | `PLAID_CLIENT_ID` | `hushh_mcp/integrations/plaid/config.py` | If Plaid enabled | Plaid client ID. |
 | `PLAID_SECRET` | `hushh_mcp/integrations/plaid/config.py` | If Plaid enabled | Plaid secret for the selected environment. |
-| `PLAID_CLIENT_NAME` | `hushh_mcp/integrations/plaid/config.py` | No | Link display name. Defaults to `Hushh Kai`. |
+| `PLAID_CLIENT_NAME` | `hushh_mcp/integrations/plaid/config.py` | No | Link display name. Defaults to `Agent One`; legacy `Hushh Kai` / `Hussh Kai` overrides normalize to `Agent One`. |
 | `PLAID_COUNTRY_CODES` | `hushh_mcp/integrations/plaid/config.py` | No | Comma-separated country codes, default `US`. |
 | `PLAID_REDIRECT_PATH` | `hushh_mcp/integrations/plaid/config.py` | Recommended for OAuth | Relative callback path used with `APP_FRONTEND_ORIGIN`. Default: `/kai/plaid/oauth/return`. |
 | `PLAID_REDIRECT_URI` / `PLAID_OAUTH_REDIRECT_URI` | `hushh_mcp/integrations/plaid/config.py` | Optional override | Full allowlisted redirect URI, including path. Use only when overriding `APP_FRONTEND_ORIGIN + PLAID_REDIRECT_PATH`. |

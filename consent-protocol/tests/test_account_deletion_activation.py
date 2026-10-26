@@ -109,7 +109,7 @@ def test_production_activates_only_after_actual_retirement_is_observed(
     assert evidence["status"] == "activated"
     assert evidence["candidate_uid"] == "fixture-current"
     assert evidence["retirement"]["retired_count"] == 0
-    assert evidence["retirement"]["remaining_pre_phone428_count"] == 0
+    assert evidence["retirement"]["remaining_pre_phone431_count"] == 0
     assert evidence["scheduler"]["completion"]["http_status"] == 200
     assert evidence["fence_removal"] == "confirmed_absent"
     assert not any("update-traffic" in call or "delete" in call for call in calls)

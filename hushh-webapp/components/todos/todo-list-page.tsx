@@ -61,7 +61,6 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
-import { TodoAgentSuggestions } from "./todo-agent-suggestions";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -601,11 +600,6 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className="space-y-6 pb-6">
-        {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
-          userId={userId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
-          evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading)}
-          onSaved={() => void loadItems()} onRefresh={() => { void loadItems(); void liveTasks.refreshSources(); void agentFeed.retry(); void retryKyc(); calendar.refresh(); upcoming.refresh(); }}
-        /> : null}
         {!writeReady ? (
           <SurfaceCard>
             <div className="flex items-center gap-3 px-4 py-5">

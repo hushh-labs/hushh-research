@@ -110,7 +110,7 @@ def _canonical_checks():
                     }
                     for name in (
                         "425_account_phone_transfers.sql",
-                        "428_phone_recovery_actions.sql",
+                        "431_phone_recovery_actions.sql",
                     )
                 ]
             },

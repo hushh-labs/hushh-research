@@ -22,7 +22,7 @@ UNCHANGED = (
     "hushh_mcp/services/device_action_service.py",
     "hushh_mcp/services/device_action_proof.py",
     "hushh_mcp/services/phone_test_transport.py",
-    "db/migrations/428_phone_recovery_actions.sql",
+    "db/migrations/431_phone_recovery_actions.sql",
     "db/contracts/prod_core_schema.json",
     "hushh_mcp/services/phone_transfer_service.py",
     "hushh_mcp/services/account_cleanup_runtime.py",

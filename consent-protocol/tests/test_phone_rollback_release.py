@@ -384,7 +384,7 @@ def test_reader_stage_regression_blocks_prepared_enable_before_output(release_pl
         *(f"api/routes/account_{route}.py" for route in ("phone_recovery", "device_revocation")),
         "hushh_mcp/services/phone_recovery_state.py",
         "hushh_mcp/services/device_action_service.py",
-        "db/migrations/428_phone_recovery_actions.sql",
+        "db/migrations/431_phone_recovery_actions.sql",
         "db/contracts/prod_core_schema.json",
     ),
 )

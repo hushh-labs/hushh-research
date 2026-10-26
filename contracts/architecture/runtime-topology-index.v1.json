@@ -1032,7 +1032,7 @@
       "id": "drive_continuous_document_evidence",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only owner-published scalar summaries; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing."
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only scalar financial summaries allowed by the default-ON owner visibility preference; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing. Migration 429 adds only the head sale_finalization_revision scalar: the existing owner/generation-fenced packet worker may attempt an empty-sale finalization once per saved discovery revision, preserving prior immutable versions and request pins."
     },
     {
       "data_class": "personal_encrypted",
@@ -1063,7 +1063,7 @@
       "id": "drive_live_preparation_preferences",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Vault Owner turns background live Drive preparation on or off separately from the live OAuth grant. The suggestion worker checks the current consent and generation before each read and publication."
+      "primary_access_path": "Vault Owner independently controls background live Drive preparation and owner-level scalar financial summary visibility. Workers check background authority before reads; authenticated public-profile discovery checks the current financial_summary_enabled choice under the owner graph lock. The scalar policy defaults ON and preserves explicit OFF across reconnect and new periods."
     },
     {
       "data_class": "personal_encrypted",
@@ -1518,6 +1518,17 @@
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
       "primary_access_path": "model preference service, read on every agent chat turn and written from Agent chat or /api/one/models/preference"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_area_discovery_preferences",
+        "one_area_discovery_search_budgets"
+      ],
+      "id": "one_area_discovery",
+      "lifecycle_status": "customer0",
+      "owner": "backend-api-contracts",
+      "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated POST /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits."
     },
     {
       "data_class": "workflow_state",
@@ -6443,8 +6454,6 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "people.profile.browse_financial_summaries",
-          "people.profile.browse_packets",
           "people.profile.cancel_connection_request",
           "people.profile.connect",
           "people.profile.manage_consent",
@@ -7146,21 +7155,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "c09d0194a42f6bbf3c3b5ca1c018c5fc887f382a885667e6d849c83ace8c7374",
+    "action_gateway": "4bfe970e91845f04f8ce1da7c22e1ab7ae5df6cff34553fd11eef4557db570a9",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "ffb27d68047e80423e389c16980864b001665a63b47b0f88719734d0d34ae84f",
+    "data_plane": "87b1d71a0cf3f4f8d02dd6ef3e8314fb6bfc6f4119e42ce30e5d0a6115b8ea61",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
-    "route_layout": "bd37b42b0aa4e25a565729df83083df5d30210c6d74cae1868a81363fbe49b35",
-    "surface_map": "ae2190a1d63e4063ca17e140a84c185b6a202905f2e88e5cd21d5c165c51520c",
+    "route_index": "9f36cb5a752042829d3497d7ed9dcbc97d6f8481dce542b45842871a3d7a7158",
+    "route_layout": "7246910a632036ee1b003dfe4aee5abfd714b3a40ed57118b6bb613d1e8e5a11",
+    "surface_map": "d42ffc7635d692d7ba6ed6ba7dbdf6d0a02fbcacb063ee8899cbaeff926eb767",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 308,
+    "actions": 306,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
@@ -7168,6 +7177,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 161,
     "semantic_routes": 17,
-    "table_families": 137
+    "table_families": 138
   }
 }
