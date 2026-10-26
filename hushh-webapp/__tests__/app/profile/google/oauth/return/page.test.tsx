@@ -124,6 +124,58 @@ describe("GoogleOAuthReturnPage", () => {
     );
     expect(mocks.replace).not.toHaveBeenCalled();
   });
+  it("verifies the added manage account while the default grant is read only", async () => {
+    const popup = { ...attempt(), accessLevel: "manage", calendarAdditional: true };
+    mocks.readAttempt.mockReturnValue(popup);
+    mocks.completeConnect.mockResolvedValue({
+      ...connected(),
+      access_level: "read",
+      completed_account_id: "new-account",
+      accounts: [{ account_id: "new-account", connected: true, status: "connected", access_level: "manage" }],
+    });
+
+    render(<GoogleOAuthReturnPage />);
+
+    await waitFor(() => expect(mocks.settle).toHaveBeenCalledWith(popup, "succeeded"));
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "success" },
+    );
+  });
+  it("verifies primary account reauthorization from an Add account attempt", async () => {
+    const popup = { ...attempt(), accessLevel: "manage", calendarAdditional: true };
+    mocks.readAttempt.mockReturnValue(popup);
+    mocks.completeConnect.mockResolvedValue({
+      ...connected(),
+      access_level: "manage",
+      completed_account_id: "default",
+      accounts: [{ account_id: "default", connected: true, status: "connected", access_level: "manage" }],
+    });
+
+    render(<GoogleOAuthReturnPage />);
+
+    await waitFor(() => expect(mocks.settle).toHaveBeenCalledWith(popup, "succeeded"));
+  });
+  it.each([
+    { completed_account_id: undefined, accounts: [{ account_id: "old-account", connected: true, status: "connected", access_level: "manage" }] },
+    { completed_account_id: "new-account", accounts: [{ account_id: "old-account", connected: true, status: "connected", access_level: "manage" }] },
+  ])("never verifies an additional attempt from an unrelated existing grant: %j", async (completion) => {
+    const popup = { ...attempt(), accessLevel: "manage", calendarAdditional: true };
+    mocks.readAttempt.mockReturnValue(popup);
+    mocks.completeConnect.mockResolvedValue({ ...connected(), access_level: "manage", ...completion });
+
+    render(<GoogleOAuthReturnPage />);
+
+    await waitFor(() => expect(mocks.settle).toHaveBeenCalledWith(
+      popup,
+      "failed",
+      "Google connection could not be verified. Please check connections before trying again.",
+    ));
+    expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
+      "one_calendar_action",
+      { route_id: "one_calendar", action: "connected", result: "error" },
+    );
+  });
   it.each([undefined, "contacts", "drive"])(
     "rejects unsupported returned service %s",
     async (service) => {
@@ -252,6 +304,24 @@ describe("GoogleOAuthReturnPage", () => {
     expect(mocks.trackEvent).toHaveBeenCalledExactlyOnceWith(
       "one_calendar_action",
       { route_id: "one_calendar", action: "connected", result: "error" },
+    );
+  });
+  it("does not turn a timed-out additional attempt into success from the default grant", async () => {
+    vi.useFakeTimers();
+    mocks.readAttempt.mockReturnValue({ ...attempt(), accessLevel: "manage", calendarAdditional: true });
+    mocks.status.mockResolvedValue({ ...connected(), access_level: "manage" });
+    mocks.completeConnect.mockReturnValue(new Promise(() => {}));
+
+    render(<GoogleOAuthReturnPage />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(35_001);
+    });
+
+    expect(mocks.status).not.toHaveBeenCalled();
+    expect(mocks.settle).toHaveBeenCalledWith(
+      expect.anything(),
+      "failed",
+      "Google may still be saving this connection. Check connections before starting again.",
     );
   });
   it("rejects an immediate read-only result for a manage upgrade", async () => {
