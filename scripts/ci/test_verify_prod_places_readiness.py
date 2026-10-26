@@ -101,14 +101,16 @@ def test_production_workflow_keeps_feature_rollback_available() -> None:
         "if: steps.scope.outputs.deploy_backend == 'true' && vars.ONE_PLACES_DIRECTORY_ENABLED_PROD != 'false'"
         in workflow
     )
-    assert (
-        "--one-places-directory-enabled \"${{ vars.ONE_PLACES_DIRECTORY_ENABLED_PROD || 'true' }}\""
-        in workflow
-    )
-    assert (
-        "--consent-center-summary-v2-enabled \"${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}\""
-        in workflow
-    )
+    common = (
+        Path(__file__).resolve().parents[2] / "deploy/drive/sync_runtime_config_prod.sh"
+    ).read_text(encoding="utf-8")
+    assert "run: bash deploy/drive/sync_runtime_config_prod.sh" in workflow
+    for variable, flag in (
+        ("ONE_PLACES_DIRECTORY_ENABLED_PROD", "one-places-directory-enabled"),
+        ("CONSENT_CENTER_SUMMARY_V2_ENABLED", "consent-center-summary-v2-enabled"),
+    ):
+        assert f"{variable}: ${{{{ vars.{variable} || 'true' }}}}" in workflow
+        assert f'--{flag} "${{{variable}:-true}}"' in common
 
 
 def main() -> int:
