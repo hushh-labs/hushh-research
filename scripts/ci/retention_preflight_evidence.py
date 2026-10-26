@@ -10,6 +10,7 @@ all other failures and the caller must continue checking older maintenance.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta
 from typing import Any
 
 AUDITED_SOURCE_SHA = "f454c67bceefa9829c6825a65d907f8cdd4e6069"
@@ -61,6 +62,94 @@ _PREPARE_COMMAND = (
 )
 _TIMESTAMP = re.compile(r"^\ufeff?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z (.*)$")
 _STYLE = re.compile(r"(?:\x1b|\^\[)\[[0-9;]*m")
+_RAW_LINE = re.compile(r"^\ufeff?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$")
+
+
+def _utc(value: object) -> datetime | None:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value) is None
+    ):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _step_window(job: dict[str, Any], name: str) -> tuple[datetime, datetime] | None:
+    step = next(item for item in job["steps"] if item["name"] == name)
+    started, completed = _utc(step.get("started_at")), _utc(step.get("completed_at"))
+    if started is None or completed is None or completed < started:
+        return None
+    # GitHub's step API records whole seconds, while raw logs retain fractions.
+    return started, completed + timedelta(seconds=1)
+
+
+def raw_log_matches(log: str, job: dict[str, Any], source_sha: str) -> bool:
+    """Closed diagnostic only: validate raw official logs without inventing steps."""
+    if (
+        not isinstance(log, str)
+        or not log
+        or len(log) > MAX_LOG_BYTES
+        or not isinstance(job, dict)
+        or not _steps_match(job)
+        or not isinstance(source_sha, str)
+        or source_sha not in AUDITED_SOURCE_SHAS
+    ):
+        return False
+    try:
+        if len(log.encode("utf-8")) > MAX_LOG_BYTES:
+            return False
+    except UnicodeError:
+        return False
+    checkout_window = _step_window(job, _CHECKOUT)
+    prepare_window = _step_window(job, _PREPARE)
+    if checkout_window is None or prepare_window is None:
+        return False
+    records = []
+    for line in log.splitlines():
+        match = _RAW_LINE.fullmatch(line)
+        if match is None or (at := _utc(match[1])) is None:
+            return False
+        records.append((at, _STYLE.sub("", match[2])))
+    contents = [content for _, content in records]
+    checkout = [index for index, content in enumerate(contents) if content == _CHECKOUT_COMMAND]
+    if len(checkout) != 1:
+        return False
+    position = checkout[0]
+    if (
+        contents[position + 1 : position + 2] != [source_sha]
+        or not checkout_window[0]
+        <= records[position][0]
+        <= records[position + 1][0]
+        < checkout_window[1]
+    ):
+        return False
+    groups = [
+        index
+        for index, content in enumerate(contents)
+        if content == "##[group]Run set -euo pipefail"
+        and contents[index + 1 : index + 7] == list(_PREPARE_COMMAND)
+    ]
+    if len(groups) != 1:
+        return False
+    start = groups[0]
+    end = next(
+        (index for index in range(start + 7, len(contents)) if contents[index] == "##[endgroup]"),
+        None,
+    )
+    if end is None:
+        return False
+    return (
+        not any(line.startswith("##[group]") for line in contents[start + 1 : end])
+        and [line for line in contents[start:end] if line.startswith("  APPLY:")]
+        == ["  APPLY: true"]
+        and contents[end + 1 : end + 3] == [_DIAGNOSTIC, _EXIT]
+        and all(prepare_window[0] <= at < prepare_window[1] for at, _ in records[start : end + 3])
+        and [line for line in contents if "Hosted maintenance stopped:" in line] == [_DIAGNOSTIC]
+        and [line for line in contents if "##[error]" in line] == [_EXIT]
+    )
 
 
 def _steps_match(job: dict[str, Any]) -> bool:
@@ -69,9 +158,7 @@ def _steps_match(job: dict[str, Any]) -> bool:
         return False
     numbers = []
     for step, name in zip(steps, _STEP_NAMES, strict=True):
-        conclusion = (
-            "failure" if name == _PREPARE else "skipped" if name == _SAVE else "success"
-        )
+        conclusion = "failure" if name == _PREPARE else "skipped" if name == _SAVE else "success"
         if (
             not isinstance(step, dict)
             or step.get("name") != name
@@ -85,7 +172,7 @@ def _steps_match(job: dict[str, Any]) -> bool:
     return numbers == sorted(set(numbers))
 
 
-def _log_matches(log: str, source_sha: str) -> bool:
+def _log_matches(log: str, source_sha: str, job: dict[str, Any]) -> bool:
     if not isinstance(log, str) or not log or len(log) > MAX_LOG_BYTES:
         return False
     try:
@@ -93,6 +180,8 @@ def _log_matches(log: str, source_sha: str) -> bool:
             return False
     except UnicodeError:
         return False
+    if _RAW_LINE.fullmatch(log.splitlines()[0]):
+        return raw_log_matches(log, job, source_sha)
     records: dict[str, list[str]] = {}
     last_step = -1
     errors = []
@@ -115,19 +204,14 @@ def _log_matches(log: str, source_sha: str) -> bool:
     if set(records) != set(_STEP_NAMES) - {_SAVE}:
         return False
     checkout = records[_CHECKOUT]
-    positions = [
-        index for index, content in enumerate(checkout) if content == _CHECKOUT_COMMAND
-    ]
-    if len(positions) != 1 or checkout[positions[0] + 1 : positions[0] + 2] != [
-        source_sha
-    ]:
+    positions = [index for index, content in enumerate(checkout) if content == _CHECKOUT_COMMAND]
+    if len(positions) != 1 or checkout[positions[0] + 1 : positions[0] + 2] != [source_sha]:
         return False
     prepare = records[_PREPARE]
     if (
         prepare[:7] != ["##[group]Run set -euo pipefail", *_PREPARE_COMMAND]
         or prepare.count("##[endgroup]") != 1
-        or [line for line in prepare if line.startswith("  APPLY:")]
-        != ["  APPLY: true"]
+        or [line for line in prepare if line.startswith("  APPLY:")] != ["  APPLY: true"]
     ):
         return False
     return (
@@ -176,12 +260,11 @@ def qualify_guard_only_run(
         # A later guard-only attempt cannot account for an earlier lost checkpoint.
         or run["run_attempt"] != 1
         or any(
-            not isinstance(run.get(key), dict)
-            or run[key].get("full_name") != repository
+            not isinstance(run.get(key), dict) or run[key].get("full_name") != repository
             for key in ("repository", "head_repository")
         )
         or not _steps_match(job)
-        or not _log_matches(log, run["head_sha"])
+        or not _log_matches(log, run["head_sha"], job)
     ):
         return None
     return {
@@ -192,7 +275,5 @@ def qualify_guard_only_run(
         "run_attempt": run["run_attempt"],
         "source_sha": run["head_sha"],
         "script_blob": AUDITED_SOURCE_BLOBS["scripts/ci/uat-retention-maintenance.py"],
-        "workflow_blob": AUDITED_SOURCE_BLOBS[
-            ".github/workflows/capacity-maintenance.yml"
-        ],
+        "workflow_blob": AUDITED_SOURCE_BLOBS[".github/workflows/capacity-maintenance.yml"],
     }

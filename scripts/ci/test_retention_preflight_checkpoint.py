@@ -7,6 +7,8 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from unittest import mock
 
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
@@ -175,6 +177,47 @@ class PreflightCheckpointTest(unittest.TestCase):
                     )
             else:
                 MAINTENANCE.assert_no_pending_mutations("org/repo", directory, "uat")
+
+
+class EvidenceTransportTest(unittest.TestCase):
+    def test_raw_api_transport_and_closed_refusal_never_log_payloads_or_credentials(self):
+        source = MAINTENANCE.retention_preflight_evidence.AUDITED_SOURCE_SHA
+        run, job = {"id": 100, "head_sha": source}, {"id": 200}
+        for supports_escape_flag in (False, True):
+            calls, output = [], StringIO()
+
+            def command(*arguments):
+                calls.append(arguments)
+                if arguments == ("gh", "api", "--help"):
+                    return "--allow-escape-sequences" if supports_escape_flag else "usage"
+                if arguments[:2] == ("gh", "api"):
+                    return "PRIVATE_LOG_SENTINEL"
+                return MAINTENANCE.retention_preflight_evidence.AUDITED_SOURCE_BLOBS[
+                    arguments[-1].split(":", 1)[1]
+                ]
+
+            with (
+                self.subTest(supports_escape_flag=supports_escape_flag),
+                redirect_stdout(output),
+                mock.patch.object(MAINTENANCE, "command", side_effect=command),
+                mock.patch.object(MAINTENANCE.retention_preflight_evidence, "qualify_guard_only_run", return_value=None),
+                mock.patch.object(MAINTENANCE.retention_preflight_evidence, "_steps_match", return_value=False),
+                mock.patch.object(MAINTENANCE.retention_preflight_evidence, "raw_log_matches", return_value=False),
+            ):
+                self.assertIsNone(MAINTENANCE.guard_only_preflight_proof("org/repo", "uat", run, job))
+            self.assertEqual(calls[1][:3], ("gh", "api", "repos/org/repo/actions/jobs/200/logs"))
+            self.assertEqual("--allow-escape-sequences" in calls[1], supports_escape_flag)
+            self.assertNotIn("PRIVATE_LOG_SENTINEL", output.getvalue())
+            self.assertFalse(json.loads(output.getvalue())["guard_evidence_refused"]["raw_log_match"])
+
+        with redirect_stdout(output := StringIO()), mock.patch.object(
+            MAINTENANCE, "command", side_effect=MAINTENANCE.subprocess.CalledProcessError(
+                1, ["gh"], stderr="HTTP 403 PRIVATE_CREDENTIAL_SENTINEL"
+            )
+        ):
+            self.assertIsNone(MAINTENANCE.guard_only_preflight_proof("org/repo", "uat", run, job))
+        self.assertNotIn("PRIVATE_CREDENTIAL_SENTINEL", output.getvalue())
+        self.assertEqual(json.loads(output.getvalue())["guard_evidence_refused"]["reason"], "http_403")
 
 
 class PublicationHistoryRecoveryTest(unittest.TestCase):
