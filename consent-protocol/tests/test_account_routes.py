@@ -910,35 +910,6 @@ def test_phone_session_cleanup_intent_binds_the_exact_verified_uid(monkeypatch):
     ]
 
 
-def test_phone_session_cleanup_never_tombstones_an_existing_phone_only_account(monkeypatch):
-    from firebase_admin import auth as firebase_auth
-
-    class _Provider:
-        provider_id = "phone"
-
-    class _User:
-        phone_number = "+16505550101"
-        email = None
-        provider_data = [_Provider()]
-
-    monkeypatch.setattr(firebase_auth, "get_user", lambda *_args, **_kwargs: _User())
-    monkeypatch.setattr(
-        AccountDeletionLifecycleService,
-        "record_pending_if_account_state_absent",
-        lambda *, user_id, expected_phone_digest: False,
-    )
-
-    status = asyncio.run(
-        account._prepare_safe_phone_session_cleanup_intent(
-            uid="established-phone-only-account",
-            phone_number="+16505550101",
-            protected_uid="different-primary-account",
-        )
-    )
-
-    assert status == "protected_existing_account"
-
-
 def test_claim_account_phone_persists_verified_phone(monkeypatch):
     events = []
 

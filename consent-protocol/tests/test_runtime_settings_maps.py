@@ -35,6 +35,18 @@ def test_google_maps_api_key_is_read_from_env(monkeypatch):
     runtime_settings.get_core_security_settings.cache_clear()
 
 
+def test_auth_listener_isolation_runtime_flag_preserves_explicit_rollback(monkeypatch):
+    monkeypatch.delenv("AUTH_DB_LISTENER_ISOLATION_ENABLED", raising=False)
+    monkeypatch.setenv(
+        "BACKEND_RUNTIME_CONFIG_JSON", json.dumps({"auth_db_listener_isolation_enabled": True})
+    )
+    runtime_settings.hydrate_runtime_environment()
+    assert os.environ["AUTH_DB_LISTENER_ISOLATION_ENABLED"] == "true"
+    monkeypatch.setenv("AUTH_DB_LISTENER_ISOLATION_ENABLED", "false")
+    runtime_settings.hydrate_runtime_environment()
+    assert os.environ["AUTH_DB_LISTENER_ISOLATION_ENABLED"] == "false"
+
+
 def test_google_maps_api_key_defaults_empty(monkeypatch):
     monkeypatch.setenv("APP_SIGNING_KEY", "x" * 64)
     monkeypatch.setenv("VAULT_DATA_KEY", "a" * 64)

@@ -115,6 +115,58 @@
   ],
   "table_families": [
     {
+      "id": "protected_document_delivery_authority",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "document_delivery_contracts",
+        "document_delivery_public_keys",
+        "document_delivery_file_receipts",
+        "document_delivery_key_challenges",
+        "document_delivery_activity",
+        "document_delivery_idempotency"
+      ],
+      "primary_access_path": "Owner/requester-authenticated document-delivery facade under the existing Drive sharing namespace; request-bound copy approval, exact canonical connector-key binding, per-file channel fulfillment, activity and scoped revocation. Historical Drive requests retain their original path.",
+      "retention_policy": "Active contracts have a finite access deadline. Abandoned preparation has a 30-minute lease bounded by that deadline; single-use possession challenges expire after five minutes; participant activity is retained at most 90 days. Retired cleanup purges selection, cached results, challenges and package envelopes after fencing. Account erasure removes public-key pins after fencing dependent requests. Financial provenance and unresolved storage inventory are retained separately.",
+      "deletion_behavior": "Request-scoped workflow rows cascade only after independent cleanup inventory and opaque financial bindings preserve required obligations. Account deletion and expiry fence further release; no cascade is proof that provider objects are absent.",
+      "trust_boundary": "One sign-in is not copy consent or payment. Exact A/B identity, selected files, terms/package digests, current authority and required channel receipts govern release. Public-key rows pin a request's canonical connector evidence; they are not a second key-registration authority. Selected filenames, provider IDs and revision metadata use existing encrypted Drive metadata custody. No file contents or unwrapped content/vault keys are stored here.",
+      "plaintext_posture": "opaque_workflow_metadata_public_keys_and_encrypted_selection_and_retry_results",
+      "expected_row_growth": "bounded contracts per owner/requester; at most 25 file receipts per contract; deduplicated paginated activity with 90-day retention and bounded idempotency/challenge records"
+    },
+    {
+      "id": "protected_document_delivery_artifacts",
+      "owner": "security-audit",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "document_delivery_packages",
+        "document_delivery_artifacts"
+      ],
+      "primary_access_path": "A device prepares PDF originals and watermark derivatives locally, then uploads bounded ciphertext through the qualified private GCS port. SQL binds immutable content generations, ciphertext hashes/object generations, encrypted metadata manifests and recipient/owner recovery wraps. B reads only through current paid entitlement and decrypts locally.",
+      "retention_policy": "Retain approved ciphertext and wraps only while the finite delivery grant remains active. Keep uncertain writes and deletion fences until provider outcome is reconciled. Superseded staging follows its bounded lease; retained provider versions/soft deletion remain explicit pending destruction.",
+      "deletion_behavior": "Deny access and fence admissions before exact-generation object deletion. Persist independent cleanup inventory across request/account cascades; verify bucket incarnation and provider-visible absence before removing it. Original Drive files are never modified or deleted by hosted-copy cleanup.",
+      "trust_boundary": "AES-GCM content encryption and X25519 recipient wrapping happen on A's device. The metadata manifest contains no file keys or wraps. B's file-key envelopes are withheld before payment and until each required channel receipt; owner recovery is a separate owner-only path. The platform sees necessary access/payment metadata and ciphertext integrity only, not readable content or cryptographic proof of source fidelity.",
+      "plaintext_posture": "ciphertext_key_wraps_and_opaque_integrity_metadata_only",
+      "expected_row_growth": "at most 25 files and their qualified original/watermark renditions plus one metadata manifest per immutable generation; 4 MiB plaintext/rendition and 32 MiB total request ciphertext admission"
+    },
+    {
+      "id": "protected_document_delivery_retained_obligations",
+      "owner": "backend-runtime-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "document_delivery_financial_bindings",
+        "document_delivery_cleanup"
+      ],
+      "primary_access_path": "Existing signed payment/refund/payout reconciliation consumes one mode-aware delivery summary; independent ciphertext cleanup reconciles reserved, uncertain and exact-generation object outcomes after participant request erasure.",
+      "retention_policy": "Retain minimal opaque financial mode/count/original paid-package binding under the existing payment obligation policy. Retain storage inventory only until all writer and provider-retention outcomes are reconciled. No unbounded recipient activity or personal document metadata is copied here.",
+      "deletion_behavior": "Intentionally survives request/account cascades while a financial or provider-cleanup obligation exists. Preserve historical fulfillment before deleting content authority. A refund fence prevents later release; a lost provider response never proves erasure.",
+      "trust_boundary": "Opaque request/object/operation identifiers, mode, counts, integrity and lifecycle receipts only. No raw participant identifiers, filenames, provider file IDs, content, credentials, vault keys or unwrapped file keys. Retained rows authorize reconciliation only, never a restored personal-content grant.",
+      "plaintext_posture": "minimal_opaque_financial_and_provider_cleanup_receipts",
+      "expected_row_growth": "one financial binding per paid contract plus bounded inventory per staged ciphertext object, compacted after authoritative reconciliation"
+    },
+    {
       "id": "vault_key_material",
       "owner": "security-audit",
       "data_class": "personal_encrypted",
@@ -2275,6 +2327,36 @@
       "trust_boundary": "Opaque resource identifiers and bounded transport metadata only. Contents, names, folder index and library keys never become Shared plaintext; durable provider bearer receipts use existing encrypted credential custody.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one library transport/inventory row per Shared owner"
+    },
+    {
+      "id": "account_phone_transfer_workflow",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": [
+        "account_phone_transfers"
+      ],
+      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer and generation-bound Firebase mutation journal.",
+      "retention_policy": "Prepared intents expire after five minutes; completed workflow receipts prune after seven days on prepare. Unsettled effects remain until reconciled.",
+      "deletion_behavior": "Account erasure waits for unsettled committed provider work; completed or unconsumed workflow rows cascade on participant erasure. Hash-only admission fences remain independently.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "At most five live prepared intents per claimant.",
+      "trust_boundary": "No OTP, phone number, bearer or previous-account private projection. Explicit confirmation, fresh manual SMS and binding revisions gate consumption."
+    },
+    {
+      "id": "account_phone_auth_fences",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": [
+        "account_phone_auth_fences"
+      ],
+      "primary_access_path": "Verified phone-origin session admission after account-principal resolution.",
+      "retention_policy": "Retain keyed identity/phone hashes independently of workflow or account lifetime to prevent retired credential admission.",
+      "deletion_behavior": "Hash-only retired authority survives account and workflow erasure; no account projection can be reconstructed.",
+      "trust_boundary": "No OTP, token, phone number or private account projection. Independent Google/Apple sign-in remains available.",
+      "plaintext_posture": "hashes_only",
+      "expected_row_growth": "One row per retired identity/phone pair."
     },
     {
       "id": "one_area_discovery",

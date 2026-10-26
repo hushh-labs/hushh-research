@@ -2005,34 +2005,23 @@ class AccountService:
                     requested_target=requested_target,
                 )
 
+        from hushh_mcp.services.phone_transfer_service import PhoneTransferInProgressError
+
         try:
             prepared = await settle_cleanup_database_call(prepare)
-        except PersonalAgentDeprovisioningRequiredError:
-            from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
-
-            provider = None
-            try:
-                registry = PersonalAgentRegistryRepo()
-                owner = await registry.get(user_id)
-                provider = (owner or {}).get("deployment_target")
-                if provider not in {"user_gcp", "user_azure"} and owner:
-                    from hushh_mcp.services.azure_teardown_store import AzureTeardownStore
-
-                    if await AzureTeardownStore(registry).can_offer_failed_setup_cleanup(
-                        user_id, owner
-                    ):
-                        provider = "user_azure"
-            except Exception as exc:
-                logger.warning(
-                    "account_deletion.cloud_review_unavailable error=%s", type(exc).__name__
-                )
+        except PhoneTransferInProgressError:
             return {
                 "success": False,
                 "account_deleted": False,
-                "error_code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
-                "error": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
-                "cleanup_provider": provider,
+                "error_code": "PHONE_TRANSFER_IN_PROGRESS",
+                "error": "PHONE_TRANSFER_IN_PROGRESS",
             }
+        except PersonalAgentDeprovisioningRequiredError:
+            from hushh_mcp.services.account_personal_agent_erasure import (
+                cloud_cleanup_required_result,
+            )
+
+            return await cloud_cleanup_required_result(user_id)
         except Exception as exc:
             logger.warning("account_deletion.preparation_refused error=%s", type(exc).__name__)
             return {

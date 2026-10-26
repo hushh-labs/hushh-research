@@ -18,6 +18,7 @@ from .contracts import (
     BrowserRefused,
     BrowserViewport,
 )
+from .dispatch_journal import settle_interrupted_action
 from .downloads import BrowserDownloads
 from .geometry import require_frame_geometry, viewport_for_action
 from .network import public_origin
@@ -193,40 +194,37 @@ class BrowserControl:
             self._sequence = action.sequence
             if actor == "agent":
                 self._actions += 1
+            result_confirmed = settled = False
             try:
                 async with asyncio.timeout(scope.remaining(self._wall_clock)):
                     frame = await self._executor.execute(dispatch_action, scope=scope)
                 require_frame_geometry(frame, action, expected)
-                await self._check()
-                self.require_execution_scope(scope)
+                result_confirmed = True
                 if effect:
                     await self._authority.settle_dispatch(self.binding, action, uncertain=False)
-                    self.require_execution_scope(scope)
+                    settled = True
+                # A confirmed effect and permission to disclose its frame are
+                # separate. Takeover/revocation still fences the observation.
+                await self._check()
+                self.require_execution_scope(scope)
                 self._viewport = expected
                 self._frame = frame
                 self._revision += 1
                 return frame
             except BaseException as exc:
-                if isinstance(exc, BrowserRefused) and exc.code == "BROWSER_OUTCOME_UNCERTAIN":
+                uncertain = (
+                    isinstance(exc, BrowserRefused) and exc.code == "BROWSER_OUTCOME_UNCERTAIN"
+                )
+                if effect and not settled:
+                    settled = await settle_interrupted_action(
+                        self._authority, self.binding, action, confirmed=result_confirmed
+                    )
+                    uncertain = uncertain or not settled
+                if uncertain:
                     self._outcome_uncertain = True
                     if self._mode != "stopped":
                         self._mode = "uncertain"
                         self._revision += 1
-                if effect:
-                    self._outcome_uncertain = True
-                    if self._mode != "stopped":
-                        self._mode = "uncertain"
-                    # Keep the initial journal authoritative if settlement also
-                    # fails; do not clear the uncertain fence in either case.
-                    try:
-                        async with asyncio.timeout(5):
-                            await self._authority.settle_dispatch(
-                                self.binding, action, uncertain=True
-                            )
-                    except Exception:
-                        # The pending intent remains authoritative. A failed
-                        # receipt write must not hang cancellation or permit replay.
-                        pass
                 raise
             finally:
                 # Watching frames is not activity; an unattended preview must

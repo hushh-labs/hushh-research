@@ -360,7 +360,9 @@
     "421_cloud_removal_recovery.sql",
     "422_financial_packet_discovery_capacity.sql",
     "423_account_shared_provider_authority.sql",
-    "424_one_area_discovery.sql"
+    "424_protected_one_document_delivery.sql",
+    "425_account_phone_transfers.sql",
+    "426_one_area_discovery.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -532,7 +534,8 @@
       "340_pwm_provider_budget.sql",
       "341_pwm_research_lifecycle.sql",
       "359_independent_email_otp.sql",
-      "364_one_private_text_processing_approvals.sql"
+      "364_one_private_text_processing_approvals.sql",
+      "425_account_phone_transfers.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -763,6 +766,8 @@
     "417_drive_packet_public_summary.sql": "rollback/417_drive_packet_public_summary.rollback.sql",
     "422_financial_packet_discovery_capacity.sql": "rollback/422_financial_packet_discovery_capacity.rollback.sql",
     "423_account_shared_provider_authority.sql": "rollback/423_account_shared_provider_authority.rollback.sql",
-    "424_one_area_discovery.sql": "rollback/424_one_area_discovery.rollback.sql"
+    "424_protected_one_document_delivery.sql": "rollback/424_protected_one_document_delivery.rollback.sql",
+    "425_account_phone_transfers.sql": "rollback/425_account_phone_transfers.rollback.sql",
+    "426_one_area_discovery.sql": "rollback/426_one_area_discovery.rollback.sql"
   }
 }

@@ -30,7 +30,8 @@ class DrivePermissionWorker:
                 LIMIT :limit FOR UPDATE SKIP LOCKED)
                 UPDATE drive_share_permission_operations p SET worker_inspected_at=clock_timestamp()
                 FROM due WHERE p.operation_id=due.operation_id
-                RETURNING p.operation_id,p.user_id,p.kind,p.state
+                RETURNING p.operation_id,p.user_id,p.kind,p.state,
+                  EXISTS(SELECT 1 FROM document_delivery_contracts d WHERE d.request_id=p.request_id) AS document_delivery
             """),
                     {"limit": min(max(limit, 1), 100)},
                 ).mappings()
@@ -51,7 +52,9 @@ class DrivePermissionWorker:
                 # Management is independent of admission for new sharing.
                 feature = (
                     "drive_document_sharing"
-                    if row["kind"] == "grant" and row["state"] == "queued"
+                    if row["kind"] == "grant"
+                    and row["state"] == "queued"
+                    and not row.get("document_delivery")
                     else "google_drive_connection"
                 )
                 enabled = connector_feature_enabled(feature, row["user_id"])

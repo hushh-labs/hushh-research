@@ -8,6 +8,7 @@ import { isAnalyticsExemptRoute } from "@/lib/navigation/routes";
 import { captureGrowthAttribution } from "@/lib/observability/growth";
 import { trackPageView } from "@/lib/observability/client";
 import { setObservabilityUserId } from "@/lib/observability/identity";
+import { refreshWebGtmPageContext } from "@/lib/observability/adapters/web-gtm";
 import { useAuth } from "@/hooks/use-auth";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 
@@ -28,6 +29,7 @@ export function ObservabilityRouteObserver() {
       lastObservedPathRef.current = pathname;
       return;
     }
+    refreshWebGtmPageContext();
     // Preserve the landing attribution even when auth restoration is still
     // pending and this route redirects before an analytics hit can be sent.
     captureGrowthAttribution(pathname);

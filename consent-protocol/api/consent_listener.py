@@ -20,6 +20,7 @@ from typing import Any, Dict
 
 from api.utils.consent_notifications import next_pending_notification
 from api.utils.fcm_messages import build_push_message
+from db import listener_connection as listener_transport
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_delivery_claims import (
@@ -1190,14 +1191,13 @@ def _system_push_ready_callback(connection, pid, channel, payload: str) -> None:
 async def run_consent_listener():
     """
     Long-running task: LISTEN consent_audit_new and dispatch to FCM + in-app queues.
-    Uses a dedicated asyncpg connection (db.connection.get_pool()).
+    Uses the worker's pooled listener transport, shared when isolation is enabled.
     Also starts the optional timeout job (TIMEOUT events for expired requests).
     """
     global _listener_active, _serving_loop
 
-    # The serving loop exists even before the first SSE client connects. Sync
-    # mutation workers can therefore schedule a PostgreSQL broadcast during the
-    # small startup window before subscribe_consent_queue() first observes it.
+    # Sync mutation workers can broadcast before the first SSE subscription
+    # by retaining this process's serving loop through the startup window.
     _serving_loop = asyncio.get_running_loop()
 
     # Start timeout + reminder jobs in background.
@@ -1211,10 +1211,7 @@ async def run_consent_listener():
             conn = None
             try:
                 pool = await get_pool()
-                # This connection is held for one LISTEN attempt. Request
-                # handlers use a deadline because a caller is waiting; this
-                # recovery loop can wait until pool capacity returns.
-                conn = await pool.acquire(timeout=None)
+                conn = await listener_transport.acquire_listener_connection(pool, timeout=None)
                 await conn.execute("LISTEN consent_audit_new")
                 await conn.execute(f"LISTEN {USER_STATE_CHANNEL}")
                 await conn.add_listener("consent_audit_new", _notify_callback)
@@ -1228,7 +1225,9 @@ async def run_consent_listener():
                 # Streams opened while LISTEN was down may have missed NOTIFYs.
                 await broadcast_local_resync()
                 while True:
-                    await asyncio.sleep(LISTENER_HEALTHCHECK_INTERVAL_SECONDS)
+                    await listener_transport.wait_for_listener_connection(
+                        conn, LISTENER_HEALTHCHECK_INTERVAL_SECONDS
+                    )
                     await _probe_listen_connection(conn)
             except asyncio.CancelledError:
                 raise
@@ -1250,7 +1249,7 @@ async def run_consent_listener():
                     except Exception as exc:  # noqa: BLE001 - best-effort cleanup
                         logger.debug("Consent listener cleanup failed: %s", exc)
                     try:
-                        await pool.release(conn)
+                        await listener_transport.release_listener_connection(pool, conn)
                     except Exception as exc:  # noqa: BLE001 - retry must survive cleanup
                         logger.debug("Consent listener release failed: %s", exc)
 

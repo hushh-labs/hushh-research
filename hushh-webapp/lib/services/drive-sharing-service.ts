@@ -34,6 +34,8 @@ export type SharingStatus = DocumentRequestSetup & {
   status: string;
   revision: number;
   direction: "incoming" | "outgoing";
+  /** Additive new-contract routing; legacy replies omit it. */
+  hostedDelivery?: true;
   outcomeReason?: "no_matching_files" | "matching_files_unshareable";
   /** Owner-only retained candidate counts; never delivery or grant evidence. */
   matchedFileCount?: number;
@@ -1199,6 +1201,7 @@ export class DriveSharingService {
       revision: revision(result.revision),
       status: string(result.status, 80),
       direction: result.direction,
+      ...(result.delivery && typeof result.delivery === "object" && ["one", "both"].includes((result.delivery as Record<string, unknown>).receiveThrough as string) ? { hostedDelivery: true as const } : {}),
       ...(typeof result.outcomeReason === "string" && ["no_matching_files", "matching_files_unshareable"].includes(result.outcomeReason)
         ? { outcomeReason: result.outcomeReason as SharingStatus["outcomeReason"] } : {}),
       ...(result.direction === "incoming" && result.outcomeReason === "matching_files_unshareable" &&

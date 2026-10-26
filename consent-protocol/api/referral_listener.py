@@ -30,6 +30,8 @@ import json
 import logging
 from typing import Any, Dict
 
+from db import listener_connection as listener_transport
+
 logger = logging.getLogger(__name__)
 
 CHANNEL = "one_referral_changed"
@@ -152,25 +154,30 @@ async def run_referral_listener() -> None:
         logger.error("Referral listener: DB pool unavailable (%s), skipping LISTEN", exc)
         return
 
-    conn = None
-    try:
-        conn = await pool.acquire()
-        await conn.execute(f"LISTEN {CHANNEL}")
-        await conn.add_listener(CHANNEL, _notify_callback)
-        _listener_active = True
-        logger.info("Referral NOTIFY listener active (%s)", CHANNEL)
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        logger.info("Referral listener cancelled")
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Referral listener error: %s", exc)
-    finally:
-        _listener_active = False
-        if conn is not None:
-            with contextlib.suppress(Exception):
-                await conn.remove_listener(CHANNEL, _notify_callback)
-            with contextlib.suppress(Exception):
-                await conn.execute(f"UNLISTEN {CHANNEL}")
-            with contextlib.suppress(Exception):
-                await pool.release(conn)
+    while True:
+        conn = None
+        try:
+            conn = await listener_transport.acquire_listener_connection(pool)
+            await conn.execute(f"LISTEN {CHANNEL}")
+            await conn.add_listener(CHANNEL, _notify_callback)
+            _listener_active = True
+            logger.info("Referral NOTIFY listener active (%s)", CHANNEL)
+            while True:
+                await listener_transport.wait_for_listener_connection(conn, 3600)
+        except asyncio.CancelledError:
+            logger.info("Referral listener cancelled")
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Referral listener error: %s", exc)
+        finally:
+            _listener_active = False
+            if conn is not None:
+                with contextlib.suppress(Exception):
+                    await conn.remove_listener(CHANNEL, _notify_callback)
+                with contextlib.suppress(Exception):
+                    await conn.execute(f"UNLISTEN {CHANNEL}")
+                with contextlib.suppress(Exception):
+                    await listener_transport.release_listener_connection(pool, conn)
+        if not listener_transport.listener_isolation_enabled():
+            return
+        await asyncio.sleep(5)

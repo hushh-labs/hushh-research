@@ -8,6 +8,7 @@ import {
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import { isDocumentCiphertextRequest, proxyDocumentCiphertext } from "./_document-ciphertext-proxy";
 
 const CONNECTOR_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
 const CONNECTOR_OAUTH_START_TIMEOUT_MS = resolveSlowRequestTimeoutMs(25_000, {
@@ -121,6 +122,9 @@ export async function proxyExternalConnectorRequest(
   if (consentHeader) headers.set("X-Hushh-Consent", consentHeader);
   if (chatKeyHeader) headers.set(ONE_CHAT_KEY_HEADER, chatKeyHeader);
   const joinedPath = path.join("/");
+  if (isDocumentCiphertextRequest(request.method, joinedPath)) {
+    return proxyDocumentCiphertext(request, targetUrl, headers, requestId);
+  }
   const isPrepareStream =
     request.method === "POST" && DRIVE_PREPARE_STREAM.test(joinedPath);
   const isOwnerCompileStream =

@@ -32,7 +32,7 @@ Use this contract for browser rehearsals whose result depends on protected infor
 
 An unlocked browser context is a security state, not merely a signed-in cookie jar.
 
-1. Start at `/login?redirect=...`, use the reviewer bridge, and wait for both the expected UID and `bootstrapState=vault_unlocked`.
+1. Start at `/login?redirect=...`, use the reviewer bridge, and wait for the expected UID and current owner's rendered `bootstrapState=vault_unlocked`. Automatic vault reads require the validated application owner; refused or stale unlocks never certify success.
 2. Continue protected multi-route flows through the app's Next navigation event, `app-internal-navigation-requested`, or the equivalent user-visible link. Do not use `page.goto`, reload, or a new context between steps that claim same-session key continuity.
 3. After every client navigation, assert that the unlock form is absent and the bootstrap state remains `vault_unlocked`.
 4. Test cold-start behavior separately: close the context, open a fresh context, authenticate again, unlock again, and verify protected readback. A cold route is not evidence of same-session continuity.

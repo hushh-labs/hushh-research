@@ -36,13 +36,12 @@ from api.consent_listener import (
     _user_state_notify_callback,
 )
 
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
+# Minimal legacy connection ports; shared-session ports live in test_listener_connection.py.
 
 
 @pytest.fixture(autouse=True)
-def _clear_tasks():
+def _clear_tasks(monkeypatch):
+    monkeypatch.setenv("AUTH_DB_LISTENER_ISOLATION_ENABLED", "false")
     _background_notify_tasks.clear()
     yield
     _background_notify_tasks.clear()

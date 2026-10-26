@@ -69,6 +69,7 @@ import {
   ChevronDown,
   Pencil,
   PhoneCall,
+  Play,
   RefreshCw,
   Search,
   Send,
@@ -194,6 +195,8 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, a
   const pendingPhotoUrl = useRef<string | null>(null);
   const [opening, setOpening] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const allocatedVideo = useRef<string | null>(null);
   useBackLayer(ROUTES.ONE_MESSAGES, photoOpen ? 3 : 0, () => {
     setPhotoOpen(false);
     return true;
@@ -207,6 +210,8 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, a
       active.current = false;
       if (pendingPhotoUrl.current) URL.revokeObjectURL(pendingPhotoUrl.current);
       pendingPhotoUrl.current = null;
+      if (allocatedVideo.current) URL.revokeObjectURL(allocatedVideo.current);
+      allocatedVideo.current = null;
     };
   }, []);
   useEffect(() => () => { if (mediaUrl) URL.revokeObjectURL(mediaUrl); }, [mediaUrl]);
@@ -268,13 +273,18 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, a
     return blob;
   };
   if (attachment.kind === "audio") return <DirectMessageVoicePlayer durationMs={attachment.durationMs ?? 0} loadAudio={loadAttachment} />;
-  const open = async () => {
+  const open = async (download = false) => {
     if (!isCurrent() || opening) return;
     setOpening(true);
     try {
       const blob = await loadAttachment();
       if (!isCurrent()) return;
-      if (attachment.kind !== "photo") {
+      if (attachment.kind === "video" && !download) {
+        const url = URL.createObjectURL(blob);
+        if (allocatedVideo.current) URL.revokeObjectURL(allocatedVideo.current);
+        allocatedVideo.current = url;
+        setVideoUrl(url);
+      } else if (attachment.kind !== "photo") {
         await shareFile({ file: new File([blob], attachment.name, { type: attachment.mimeType }), title: attachment.name, isEffectCurrent: isCurrent });
       } else {
         const url = URL.createObjectURL(blob);
@@ -294,6 +304,7 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, a
       if (isCurrent() && !isShareCancellationError(error)) morphyToast.error("This attachment is unavailable. Try again.");
     } finally { if (isCurrent()) setOpening(false); }
   };
+  const FileActionIcon = attachment.kind === "video" ? videoUrl ? RefreshCw : Play : Download;
   return <div className={styles.messageAttachment} ref={photoRef}>
     {attachment.kind === "photo" ? <>
       <button type="button" className={styles.photoMessage} disabled={!mediaUrl && opening}
@@ -315,14 +326,21 @@ function MessageAttachment({ message, getIdToken, onPhotoLoad, isCurrentVisit, a
           {mediaUrl ? <img src={mediaUrl} alt="Shared photo" /> : null}
         </DialogContent>
       </Dialog>
-    </> : <div className={styles.fileMessageCard}>
-      <FileText className="h-6 w-6" aria-hidden="true" />
+    </> : <><div className={styles.fileMessageCard}>
+      {attachment.kind === "video" ? <Play className="h-6 w-6" aria-hidden="true" /> : <FileText className="h-6 w-6" aria-hidden="true" />}
       <div><strong title={attachment.name}>{attachment.name}</strong>
         <span>{attachment.size < 1024 * 1024 ? `${(attachment.size / 1024).toFixed(1)} KB` : `${(attachment.size / 1024 / 1024).toFixed(1)} MB`} · {typeLabel}</span></div>
-      <button type="button" disabled={opening} aria-busy={opening} aria-label={`Download ${attachment.name}`} onClick={() => void open()}>
-        <Download className="h-5 w-5" aria-hidden="true" />
+      <button type="button" disabled={opening} aria-busy={opening} aria-label={attachment.kind === "video" ? videoUrl ? "Reload video" : "Open video" : `Download ${attachment.name}`} onClick={() => void open()}>
+        {opening ? <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FileActionIcon className="h-5 w-5" aria-hidden="true" />}
       </button>
-    </div>}
+    </div>
+      {videoUrl && admitted && isCurrent() ? <video aria-label={`Video: ${attachment.name}`} className="w-full" controls playsInline preload="metadata" src={videoUrl}
+        onLoadedMetadata={() => { if (isCurrent()) onPhotoLoad(); }} /> : null}
+      {attachment.kind === "video" ? <button type="button" className="inline-flex min-h-11 items-center gap-2" disabled={opening}
+        aria-label={`Download ${attachment.name}`} onClick={() => void open(true)}>
+        <Download className="h-4 w-4" aria-hidden="true" /> Download video
+      </button> : null}
+    </>}
   </div>;
 }
 
@@ -512,6 +530,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const dockFrame = useAgentDockFrame();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRef = useRef<HTMLInputElement | null>(null);
   const editingInputRef = useRef<HTMLTextAreaElement | null>(null);
   const editDraftGeneration = useRef(0);
@@ -1306,11 +1325,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const chooseAttachment = (file: File | undefined) => {
     if (!file || sendingSelections.current.has(draftScope) || sendAttempts.current.get(draftScope)?.unconfirmed) return;
     const allowed = [
-      "image/jpeg", "image/png", "image/webp", "audio/wav",
+      "image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "audio/wav",
       "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain",
     ];
-    if (!allowed.includes(file.type) || file.size > 5 * 1024 * 1024) {
-      morphyToast.error("Choose a photo, voice recording, PDF, Word, or text file up to 5 MB.");
+    if (!allowed.includes(file.type) || !file.size || file.size > 5 * 1024 * 1024) {
+      morphyToast.error("Choose a photo, MP4 or WebM video, voice recording, PDF, Word, or text file up to 5 MB.");
       return;
     }
     attachmentDrafts.current.set(draftScope, file);
@@ -2094,18 +2113,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                       <button type="button" className={styles.replyPreview} aria-label={`Go to original message from ${message.replyTo.senderIsViewer ? "you" : selectedLabel}`}
                                         onClick={() => void jumpToOriginal(message.replyTo!.id)}>
                                         <span>{message.replyTo.senderIsViewer ? "You" : selectedLabel}</span>
-                                        <p>{walletMessagePreview(message.replyTo.content)}</p>
+                                        <p>{message.replyTo.deletedForEveryoneAt ? "This message was deleted." : walletMessagePreview(message.replyTo.content) || "Attachment"}</p>
                                       </button>
                                     ) : null}
                                     {cardRequestReference(message.content) ? <Link className="underline underline-offset-4" href={walletCardRequestHref(cardRequestReference(message.content)!)}>View card request</Link> : cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className={cn(styles.messageText, "whitespace-pre-wrap break-words")}>{message.content}</p> : null}
-                                    <MessageAttachment key={`${presentationEpoch}:${message.id}`} message={message} admitted={isCurrentRead} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
+                                    {lane === "people" ? <MessageAttachment key={`${presentationEpoch}:${message.id}`} message={message} admitted={isCurrentRead} isCurrentVisit={() => operationGeneration.current === presentationEpoch && readAdmission.current.admitted && readAdmission.current.lane === "people" && readAdmission.current.ownerId === user?.uid} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();
                                     }} onPhotoLoad={() => {
                                       const node = messageListRef.current;
                                       if (node && atBottomRef.current) node.scrollTop = node.scrollHeight;
                                       if (node) scrollMetrics.current = { top: node.scrollTop, height: node.scrollHeight };
-                                    }} />
+                                    }} /> : null}
                                   </>
                                 )}
                                   <div className={styles.messageBubbleMeta}>
@@ -2287,6 +2306,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                   >
                     <input ref={photoInputRef} hidden type="file" accept="image/jpeg,image/png,image/webp"
                       onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
+                    <input ref={videoInputRef} hidden type="file" accept="video/mp4,video/webm"
+                      onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
                     <input ref={documentInputRef} hidden type="file"
                       accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.pdf,.docx,.txt"
                       onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
@@ -2299,7 +2320,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       <div className={styles.composerReplyPreview}>
                         <div>
                           <strong>Replying to {replyingTo.senderIsViewer ? "yourself" : selectedLabel}</strong>
-                          <span>{walletMessagePreview(replyingTo.content)}</span>
+                          <span>{replyingTo.deletedForEveryoneAt ? "This message was deleted." : walletMessagePreview(replyingTo.content) || "Attachment"}</span>
                         </div>
                         <button
                           type="button"
@@ -2316,7 +2337,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                         // Selected encrypted media stays local until Send; blob URLs cannot use the image optimizer.
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={selectedPhotoUrl} alt="Photo ready to send" />
-                      ) : attachment.type.startsWith("image/") ? <span>Preparing photo?</span> : <span title={attachment.type === "audio/wav" ? undefined : attachment.name}>{attachment.type === "audio/wav" ? "Voice message" : `${attachment.name} ? ${(attachment.size / 1024 / 1024).toFixed(1)} MB`}</span>}
+                      ) : attachment.type.startsWith("image/") ? <span>Preparing photo…</span> : <span title={attachment.type === "audio/wav" ? undefined : attachment.name}>{attachment.type === "audio/wav" ? "Voice message" : `${attachment.name} · ${(attachment.size / 1024 / 1024).toFixed(1)} MB`}</span>}
                       <button type="button" aria-label="Remove attachment" disabled={sending || hasUnconfirmedSend} onClick={() => {
                         if (sendingSelections.current.has(draftScope) || sendAttempts.current.get(draftScope)?.unconfirmed) return;
                         attachmentDrafts.current.delete(draftScope); setAttachment(null);
@@ -2332,6 +2353,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       <DropdownMenuContent align="start" side="top" className={styles.attachmentMenu} data-messages-type-scale>
                         <DropdownMenuItem onSelect={() => photoInputRef.current?.click()}>
                           <ImageIcon className="h-4 w-4" aria-hidden="true" /> Photo
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => videoInputRef.current?.click()}>
+                          <Play className="h-4 w-4" aria-hidden="true" /> Video
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => documentInputRef.current?.click()}>
                           <FileText className="h-4 w-4" aria-hidden="true" /> Document

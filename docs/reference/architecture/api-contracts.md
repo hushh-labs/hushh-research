@@ -549,6 +549,23 @@ Web's existing secondary Firebase phone-token claim remains unchanged.
 If provider linking succeeds while persistence is unavailable, retrying the
 same linked phone rechecks provider proof and finalizes without another OTP.
 
+With `NEXT_PUBLIC_AUTH_PHONE_RECOVERY_ENABLED` enabled (the default), web
+finalization conflicts `PHONE_ALREADY_VERIFIED` and `PHONE_VERIFICATION_CHANGED`
+can request fresh Firebase OTP proof through the existing isolated phone-token
+claim. A cached provider phone alone never transfers ownership. Native conflicts,
+unrecognized conflicts and provider/persistence outages remain explicit failures.
+Strict finalization preserves the backend error code instead of flattening it.
+An expired challenge retires only its captured owner/attempt; a newer resend
+remains valid. Missing local state is `phone-verification-required`, distinct
+from a provider-reported `code-expired`.
+
+`NEXT_PUBLIC_AUTH_PHONE_SESSION_FENCING_ENABLED` defaults on and rejects
+pre-dispatch retained native callbacks and overlapping starts. It does not
+configure Firebase SMS validity: Android's native timeout controls automatic
+retrieval, and the inspected send APIs expose no OTP TTL setting. Explicit
+resend replaces the previous challenge. Native events arriving after dispatch
+still lack a request identifier; real-device qualification remains required.
+
 Backend and updated native shared JavaScript must ship together for native
 replacement. Older clients without explicit intent retain the existing app
 phone and fail their exact-number completion check rather than overwrite it.
@@ -2612,9 +2629,9 @@ Signup phone verification is account-scoped: deleting only an RIA persona retain
 the shared identity row and its verified phone, email and avatar. Full account
 deletion still removes it. Passive Firebase hydration cannot transfer a phone
 already verified for another account; ownership is rechecked under the existing
-phone advisory lock and ordered identity row locks. An explicit validated phone
-claim retains the transfer path, and Firebase phone replacement still updates an
-account when the new number is unbound.
+phone advisory lock and ordered identity row locks. An ordinary validated phone claim cannot displace another owner. Fresh real SMS
+proof plus a separate explicit transfer confirmation uses the same identity writer.
+An unbound replacement still uses ordinary phone claiming.
 
 If an incomplete identity cannot be refreshed because the provider or persistence
 is unavailable, both contact-sync endpoints return retryable HTTP 503 with
@@ -4469,6 +4486,63 @@ next period's files. Provider-search package summaries use
 buyer disclosures report unknown content coverage and an explicit search-only
 limitation. A provider-search disclosure cannot claim verified content periods.
 
+### Device-encrypted One document copies
+
+Existing `/sharing/requests` Drive requests keep their original contract. The
+additive `/sharing/delivery-requests` facade accepts `receiveThrough: "one" |
+"both"`; it never enrolls the legacy automatic preparation worker. Both parties
+can use the environment-wide `PROTECTED_DOCUMENT_DELIVERY_ENABLED` capability;
+there is no account cohort or A/B experiment. Turning admission off preserves issued readers,
+revocation, financial reconciliation and cleanup.
+
+B accepts the versioned activity notice and supplies the current public connector
+key. A separately approves exact selected PDF files, price, deadline and hosted-copy
+consent. Drive connection, Trusted status and B's request are not A's copy consent.
+A's browser reads authorized source bytes directly from Google, creates a separate
+watermarked raster PDF, and encrypts originals, renditions and metadata locally.
+The server stores ciphertext and recipient/owner-recovery key envelopes. The
+existing server-readable Drive processing lane remains a separate trust boundary.
+
+All routes below use `/api/connectors/google_drive/sharing`, participant-scoped
+current vault authority, bounded payloads and `private, no-store`. Request creation
+and payment also require matching Firebase identity. B's One-only delivery does not
+require Google content OAuth. `both` additionally uses the existing verified Google
+recipient and managed permission worker.
+
+| Method / suffix | Contract |
+| --- | --- |
+| `GET /delivery-readiness` | Current environment/schema/storage qualification, PDF/size limits and versioned notices. `nativeViewerEnabled:false` until native download qualification. |
+| `POST /delivery-requests` | B's delivery preference, explicit activity consent and exact public key binding. Returns the existing request reference plus `delivery`. |
+| `GET /requests/{id}/delivery/terms` | Participant projection of exact revision, selected files, amount, deadline, content/terms/package commitments, delivery summary and independent revoke states. Source custody fields remain A-only. |
+| `POST /requests/{id}/delivery/approve` | A-only `phase:prepare` with exact files, copy consent and terms; then `phase:final` with the prepared terms/package digests. Neither click substitutes for the other. |
+| `POST /requests/{id}/delivery/source-session` | A-only temporary Google credential after exact preparation consent, bound to current connection generation and revision. Original bytes never pass through this endpoint. |
+| `GET /requests/{id}/delivery/recipient-key` | Exact pinned public key; `purpose=recovery` requires B's proven replacement key. |
+| `POST /requests/{id}/delivery/key-challenge` | Single-use, five-minute X25519 possession challenge bound to B, request and key. Never sends a private key. |
+| `POST /requests/{id}/delivery/uploads`, `PUT …/uploads/{uploadId}`, `POST …/uploads/{uploadId}/finalize` | Reserve a descriptor, upload raw bounded ciphertext, and verify size/hash/object generation before staging. No public object URL. |
+| `POST /requests/{id}/delivery/package` | A stages the canonical content commitment, exact terms, wrapped keys and package commitment. Prepayment responses withhold all B key envelopes. |
+| `POST /requests/{id}/payment/checkout` | New modes require exact `acceptedTermsRevision`, `acceptedTermsDigest`, `acceptedPackageDigest` plus recent B possession proof. Legacy omitted-body checkout remains compatible. |
+| `GET /requests/{id}/delivery/package`, `GET …/artifacts/{artifactId}` | B-only paid active entitlement; authenticated ciphertext response. A receipt for each file releases its keys once. In `both`, that file also needs the actual durable Drive permission receipt. Metadata may describe pending files without releasing their keys. |
+| `GET/POST /requests/{id}/delivery/activity` | Bounded owner/recipient timeline; server authorizations and ciphertext retrieval differ from client-reported render/download handoff. No claim to detect screenshots, saved-file forwarding or exact physical location. |
+| `POST /requests/{id}/delivery/revoke` | Explicit `scope:one|drive|both`; blocks future hosted reads immediately and queues removal of proven app-created Drive permissions. Pending provider removal is not completed removal. |
+| `GET /requests/{id}/delivery/owner-package`, `POST …/recovery-amendment` | A-device rewrap of unchanged ciphertext for B's proven replacement key. Preserves original paid commitment, price, files, rights and deadline; never charges again or restores revoked/expired access. |
+
+The HTTPS entry `/one/documents/open?ref=<opaque-request-uuid>` contains no key,
+token or source locator. One sign-in and vault unlock remain required; forwarding
+the URL does not grant access. Browser downloads preserve original bytes separately
+from the watermarked copy. A downloaded original or screenshot cannot be recalled.
+Initial qualification covers browser PDFs up to 4 MiB/file, 25 files, 40 pages/PDF
+and 32 MiB ciphertext/request. Availability is for every authenticated user in the
+released environment. Native preparation/viewer remains an explicit parity gap
+with browser handoff, rather than a claim of verified device support.
+
+Migration 424 owns the request-bound encrypted artifact inventory, access receipts,
+activity and retained financial/cleanup obligations. Runtime bucket admission pins
+a dedicated private GCS bucket's creation identity, public-access prevention,
+uniform access and no retained-version/hold policy. Exact-generation erasure and
+uncertain upload reconciliation must complete before cleanup claims removal.
+See the [implementation contract](../one/protected-document-delivery.md) for digest
+binding, recovery, rollout and verification ownership.
+
 ### Exact-file Drive sharing (default-off)
 
 All routes below use `/api/connectors/google_drive/sharing` and require a current Vault
@@ -5209,3 +5283,86 @@ Consent rows are share-locked while projecting each response. Opt-out serializes
 with already admitted reads; every search starting after opt-out commits excludes
 the withdrawn row. Previously delivered names cannot be recalled. Existing One
 app contracts, name directory behavior, location grants and native UI are unchanged.
+
+### Phone conflict recovery and trusted-device boundary
+
+Web, iOS and Android use the same phone conflict model. A conflict reveals no
+previous-account name, email, identifiers, devices or information. The choices
+are **Use this number on this account**, **Recover my previous account**, and
+**Delete my previous account**. The latter two open the existing Google/Apple
+sign-in and Profile flow. Deletion still needs that account's existing owner
+capability, re-authentication and destructive confirmation. Phone-origin proof
+is accepted only as the secondary possession proof and cannot admit a primary
+application session, read a previous owner profile, mint an owner capability or approve a new trusted device. Existing
+owner-authenticated trusted-device listing and revocation keep their hub-first,
+pod-propagation and uncertain-outcome contracts. This does not create a universal
+browser/mobile session registry; currently enrolled trusted devices retain their
+existing platform coverage.
+
+`POST /api/account/phone/transfer/prepare` requires the current Firebase bearer,
+`expected_user_id` matching the captured application owner and an independent
+`phone_id_token`. The server verifies its phone provider, revocation, exact UID,
+authentication age, application fixtures and provider fictional-number config.
+The response is an opaque `transfer_id` and intent `expires_at`. This is a
+server authorization deadline, not a promise about provider OTP lifetime.
+Fixture, emulator, reviewer and shared test-code proofs cannot transfer a number.
+If removing the phone would strand an established phone-only identity, existing
+account recovery is required first.
+
+`POST /api/account/phone/transfer/confirm` repeats those proofs and requires
+`transfer_id` and literal `confirmed: true`. The canonical phone writer consumes
+the proof event and expected source/receiving binding revisions atomically under
+existing lifecycle, identity-generation, per-phone and ordered row locks. A
+stale/expired intent, generation change, ABA binding change or concurrent loser
+moves nothing. Only the old phone link changes; old files, encrypted PKM, vault
+and account remain. A phone credential already owned by the receiving identity
+is preserved. A temporary phone-only proof identity is also never unlinked or
+deleted by transfer; it supplies possession only. Established phone-only accounts
+require independent recovery. Old phone-origin admission is fenced, and existing owner-token
+lineage is retired under its canonical renewal lock; Google/Apple access can
+renew through the existing owner flow.
+
+External unlink reserves the existing Firebase mutation journal in that same
+transaction and dispatches at most once. It never deletes or disables an identity,
+and does not explicitly revoke independent Google/Apple refresh sessions.
+`GET /api/account/phone/transfer/{transfer_id}` is owner-scoped and reports
+`not_started`, `in_progress`, `action_required`, or `completed`. Before reporting
+`not_started`, it expires the prepared intent under its row lock so a confirm
+still awaiting provider preflight cannot commit afterward. The spent proof receipt
+remains through the maximum five-minute proof window, including for the per-owner
+intent bound. A lost confirm response permits only status checks until
+authoritative readback. The hub worker
+resumes reserved effects, fairly scans uncertain receipts and reconciles local completion from the journal
+without replaying an uncertain POST. A transient provider read cannot settle an
+uncertain write or release its generation fence. An unchanged uncertain provider
+outcome needs operator reconciliation; the screen names support rather than
+claiming ongoing automatic completion. Account erasure waits for committed
+provider work so its recovery context cannot disappear. Existing deletion 202
+and cleanup-pending behavior remains authoritative.
+
+Native verification extends the existing isolated proof bridge rather than
+linking the primary Firebase user. Owner/attempt fences suppress stale native
+callbacks. Harmless rerenders, typing and background/foreground events do not
+start a challenge. Resend is explicit and retires the prior local challenge.
+Native Profile Close consults the same visit-scoped pending-operation guard as
+the phone flow; it cannot discard an uncertain transfer before status settles.
+No provider expiry countdown is invented. Native provider error mapping follows
+[Firebase's published error contract](https://docs.cloud.google.com/identity-platform/docs/error-codes);
+wrong code, provider-expired code, missing local session, ownership conflict and
+provider outage remain distinct.
+
+Migration `425` holds short-lived transfer receipts and independent hash-only
+retired-phone admission fences. Unsettled remote work blocks rollback; rollback
+removes its erasure trigger before the workflow table and retains security fences.
+The existing `AUTH_PHONE_RECOVERY_ENABLED` rollout flag and request-scoped auth
+traces are reused. Monitoring extends the existing auth failure metric, without
+phone/token labels. The existing verified-email gate sends static phone-link
+security notices after the binding commit; uncertain sends are not blindly replayed.
+
+Verification has separate lanes: focused unit/component tests, disposable
+PostgreSQL concurrency/rollback proof, generated UI/native contracts, hosted CI,
+deployment schema/provider qualification, and physical-device real-SMS journeys.
+Passing an earlier lane does not declare a later lane complete. Release requires
+Identity Platform config-read permission, permitted identity mutation authority,
+qualified migration 425, existing alert delivery and real Web/iOS/Android SMS,
+resend, account-switch, outage and device-revocation rehearsals.

@@ -128,6 +128,7 @@ async def sharing(documents, monkeypatch):
             "355_drive_v1_live_request.sql",
             "356_drive_v1_access_period.sql",
             "368_drive_existing_access_nocharge.sql",
+            "424_protected_one_document_delivery.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.

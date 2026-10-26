@@ -14,9 +14,11 @@
 import { Capacitor } from "@capacitor/core";
 import {
   startDeletionPhoneProof, confirmDeletionPhoneProof, cancelDeletionPhoneProof, mintPhoneClaimIdToken,
+  startManualPhoneProof, isManualPhoneProof,
   type PhoneDeletionContext, type PhoneDeletionConfirmation, type PhoneClaimConfirmation,
 } from "./phone-deletion-verification";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
+import { getPhoneReliabilityFlags } from "@/lib/auth/phone-reliability";
 import { authenticateCustomToken } from "@/lib/auth/custom-token-auth";
 import {
   type ApplicationVerifier,
@@ -38,7 +40,6 @@ import {
 import { auth } from "@/lib/firebase/config";
 import {
   FirebaseAuthentication,
-  ProviderId,
 } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
 import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
@@ -1453,6 +1454,8 @@ export class AuthService {
       recaptchaVerifier?: ApplicationVerifier;
       resendCode?: boolean;
       timeout?: number;
+      signal?: AbortSignal;
+      allowLinkedPhoneProof?: boolean;
     },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("link", phoneNumber, options);
@@ -1473,6 +1476,8 @@ export class AuthService {
       recaptchaVerifier?: ApplicationVerifier;
       resendCode?: boolean;
       timeout?: number;
+      signal?: AbortSignal;
+      allowLinkedPhoneProof?: boolean;
     },
   ): Promise<PhoneVerificationStartResult> {
     return this.startPhoneVerification("replace", phoneNumber, options);
@@ -1485,6 +1490,8 @@ export class AuthService {
       recaptchaVerifier?: ApplicationVerifier;
       resendCode?: boolean;
       timeout?: number;
+      signal?: AbortSignal;
+      allowLinkedPhoneProof?: boolean;
     },
   ): Promise<PhoneVerificationStartResult> {
     const normalizedPhoneNumber = String(phoneNumber ?? "").trim();
@@ -1495,7 +1502,14 @@ export class AuthService {
     const currentPhoneNumber = String(
       auth.currentUser?.phoneNumber ?? "",
     ).trim();
-    if (currentPhoneNumber && currentPhoneNumber === normalizedPhoneNumber) {
+    const allowLinkedPhoneProof =
+      options?.allowLinkedPhoneProof === true &&
+      getPhoneReliabilityFlags().recovery;
+    if (
+      currentPhoneNumber &&
+      currentPhoneNumber === normalizedPhoneNumber &&
+      !allowLinkedPhoneProof
+    ) {
       throw this.createPhoneVerificationError(
         "phone-already-linked-to-current-user",
         "This phone number is already linked to your account.",
@@ -1514,108 +1528,10 @@ export class AuthService {
     }
 
     if (Capacitor.isNativePlatform()) {
-      if (!(await this.isSignedIn())) {
-        throw new Error(
-          intent === "replace"
-            ? "You must be signed in before changing the phone number."
-            : "You must be signed in before linking a phone number.",
-        );
-      }
-
-      const handles: Array<{ remove: () => Promise<void> }> = [];
-      const cleanup = async () => {
-        await Promise.all(
-          handles.map((handle) => handle.remove().catch(() => undefined)),
-        );
-      };
-
-      return await new Promise<PhoneVerificationStartResult>(
-        (resolve, reject) => {
-          let settled = false;
-
-          const settle = async (
-            next:
-              | { type: "resolve"; value: PhoneVerificationStartResult }
-              | { type: "reject"; error: Error },
-          ) => {
-            if (settled) return;
-            settled = true;
-            await cleanup();
-            if (next.type === "resolve") {
-              resolve(next.value);
-              return;
-            }
-            reject(next.error);
-          };
-
-          void (async () => {
-            try {
-              handles.push(
-                await FirebaseAuthentication.addListener(
-                  "phoneCodeSent",
-                  async (event) => {
-                    await settle({
-                      type: "resolve",
-                      value: {
-                        autoVerified: false,
-                        verificationId: event.verificationId,
-                      },
-                    });
-                  },
-                ),
-              );
-              handles.push(
-                await FirebaseAuthentication.addListener(
-                  "phoneVerificationFailed",
-                  async (event) => {
-                    await settle({
-                      type: "reject",
-                      error: new Error(
-                        event.message || "Phone verification failed.",
-                      ),
-                    });
-                  },
-                ),
-              );
-              handles.push(
-                await FirebaseAuthentication.addListener(
-                  "phoneVerificationCompleted",
-                  async () => {
-                    const restoredUser = await this.restoreNativeSession();
-                    await settle({
-                      type: "resolve",
-                      value: {
-                        autoVerified: true,
-                        user: restoredUser,
-                      },
-                    });
-                  },
-                ),
-              );
-
-              if (intent === "replace" && currentPhoneNumber) {
-                await FirebaseAuthentication.unlink({
-                  providerId: ProviderId.PHONE,
-                });
-              }
-
-              await FirebaseAuthentication.linkWithPhoneNumber({
-                phoneNumber: normalizedPhoneNumber,
-                resendCode: options?.resendCode,
-                timeout: options?.timeout,
-              });
-            } catch (error) {
-              await settle({
-                type: "reject",
-                error: this.normalizePhoneVerificationError(
-                  error,
-                  intent === "replace" ? "replace_start" : "link_start",
-                ),
-              });
-            }
-          })();
-        },
-      );
+      const current = await this.restoreNativeSession({ nativeOnly: true });
+      if (!current) throw new Error("Sign in before verifying a phone number.");
+      try { return await startManualPhoneProof(normalizedPhoneNumber, current.uid, options?.signal); }
+      catch (error) { throw this.normalizePhoneVerificationError(error, "link_start"); }
     }
 
     if (!auth.currentUser) {
@@ -1676,6 +1592,8 @@ export class AuthService {
   static getPhoneClaimIdToken(params: PhoneClaimConfirmation): Promise<string> {
     return mintPhoneClaimIdToken(params, (error) => this.normalizePhoneVerificationError(error, "link_confirm"));
   }
+
+  static isManualPhoneProof = isManualPhoneProof;
 
   static async confirmPhoneReplacementVerification(params: {
     verificationCode: string;
@@ -1807,6 +1725,15 @@ export class AuthService {
       "link_start" | "link_confirm" | "replace_start" | "replace_confirm",
   ): Error {
     const code = this.getPhoneVerificationErrorCode(error);
+
+    if (code === "phone-verification-required" || code === "session-expired")
+      return this.createPhoneVerificationError("phone-verification-required", "This device no longer has the verification session. Request a new code.");
+    if (code === "network-request-failed")
+      return this.createPhoneVerificationError(code, "Phone verification is temporarily unavailable. Check your connection and retry.");
+    if (code === "phone_manual_sms_required")
+      return this.createPhoneVerificationError(code, "A fresh manually entered SMS code is required. Request another code.");
+    if (code === "session_changed")
+      return this.createPhoneVerificationError(code, "Your signed-in account changed. Start phone verification again.");
 
     if (code === "phone-already-linked-to-current-user") {
       return this.createPhoneVerificationError(

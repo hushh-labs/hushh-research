@@ -830,21 +830,16 @@ for (const width of [320, 390, 1440]) {
     expect(errors).toEqual([]);
   });
 
-  // Dismissal and confirmed revocation retain all assertions with separate clocks.
-  test(`Wallet Sharing dismissal keeps access and restores focus at ${width}px`, async ({ page }) => {
+  // Each dismissal journey keeps its own deadline, including reopen/focus proof.
+  for (const dismissal of ["Keep sharing", "Escape"] as const) test(`Wallet Sharing dismissal keeps access and restores focus at ${width}px (${dismissal})`, async ({ page }) => {
     const { errors, revoke, revocations } = await openWalletSharingReview(page, width, { open, mount });
     await revoke.click();
     const confirmation = page.getByRole("alertdialog", { name: "Revoke this card share?", exact: true });
     await expect(confirmation).toBeVisible();
     await expect(confirmation.getByRole("button", { name: "Revoke access", exact: true })).toBeEnabled();
     expect(await revocations()).toEqual([]);
-    await confirmation.getByRole("button", { name: "Keep sharing", exact: true }).click();
-    await expect(confirmation).toBeHidden();
-    await expect(revoke).toBeFocused();
-    expect(await revocations()).toEqual([]);
-    await revoke.click();
-    await expect(confirmation).toBeVisible();
-    await page.keyboard.press("Escape");
+    if (dismissal === "Escape") await page.keyboard.press("Escape");
+    else await confirmation.getByRole("button", { name: "Keep sharing", exact: true }).click();
     await expect(confirmation).toBeHidden();
     await expect(revoke).toBeFocused();
     expect(await revocations()).toEqual([]);

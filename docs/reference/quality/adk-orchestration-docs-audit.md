@@ -17,51 +17,102 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 25 October 2026, 17:23 UTC
+## Current decision — 26 October 2026, 01:30 UTC
 
-**Dev is healthy; installed and UAT acceptance remain incomplete.**
-[Browser repair #8451](https://github.com/hushh-labs/hushh-research/pull/8451)
-and [qualification publication #8457](https://github.com/hushh-labs/hushh-research/pull/8457)
-are on main. [Dev 40207330968](https://github.com/hushh-labs/hushh-research/actions/runs/40207330968)
-passed in 23m19s without retry or rollback. Corporate ADC at 17:22 UTC confirms
-application `c4aeb1ca09` at 100%: backend `00241-8p9`, frontend `00207-hjf`.
-Peer main `8d24c6a6ce` and local corrections are not that serving application.
+**Both application environments serve `79674242c9`; the newer Browser publication
+repair is on main and still needs deployment and installed acceptance.**
+[PR #8466](https://github.com/hushh-labs/hushh-research/pull/8466) landed as
+`6e28a65e0b` after local core (20m27s), exact hosted CI (21m54s) and landed smoke.
+It preserves the peer phone/database and encrypted-document changes.
+No source-only result is an installed-owner receipt.
 
 | Boundary | Verified outcome | Remaining acceptance |
 |---|---|---|
-| Azure owner update | Exact approved Dev 30 update verified at 16:03 UTC, image `6e57f251…eeac423`, source `9174abfbe594` | Installed Browser controls, login, reconnect and Puppy response |
-| GCP owner update | Approved Files queue, identity and IAM checkpoints completed | Image handoff remains unconfirmed; old `26bab163` serves. Preserve the held operation and reconcile; do not repeat the exhausted queue continuation |
-| Browser components | Both native clouds pass research, responsive controls, suppressed login observations, encrypted remember/restore, logout, Forget, reviewed synthetic save and Stop | Installed owner HTTP controls and cloud custody; controlled-site qualification does not establish general website compatibility |
-| Recovery | Actual predecessors preserve identity, six records, consent, revocation and 245,763 exact file bytes | Installed active-work drain and recovery |
-| Account generations | Isolated real-mail two-cycle proof passes with one Firebase UID and three application owners; retired sessions refuse | Public admission stays disabled pending environment sender and identity-integration compatibility |
-| Information sharing | Existing fixed-term access is the confirmed scope; no recurring billing | Two-owner request/review/access/revocation. Paid Sandbox remains the existing two-account cohort until explicitly changed |
-| UAT | [40208297820](https://github.com/hushh-labs/hushh-research/actions/runs/40208297820) rolled back application `6afe430826`; retained `24545d1dc2` serves both services at 100% | Expected portfolio analytics absent; authenticated overview and information read succeed, so investigate the missing event without another unchanged rollout |
+| Azure owner | Approved Dev 30/image `6e57f251…eeac423`; one complete Puppy/Gemma 12B response, then observed zero replicas | Browser takeover, login, reconnect and cloud session custody |
+| GCP owner | Approved Files queue, identity and IAM checkpoints | Held image handoff remains unconfirmed; preserve the operation and do not replay its exhausted queue continuation |
+| Browser components | Both clouds pass controlled research, responsive controls, suppressed login, remember/restore, logout, Forget, reviewed save and Stop | Actual owner HTTP journey; broad websites and GitHub remain unqualified |
+| Browser correction | [PR #8462](https://github.com/hushh-labs/hushh-research/pull/8462) landed as `eb855fbb57` through authorized Admin landing after exact-head CI and landed smoke; local core and 203 combined Browser/Files cases pass | Exact-image qualification and installation; earlier connected-executor window remains open |
+| Recovery | Predecessors preserve identity, six encrypted records, consent, revocation and 245,763 exact file bytes | Installed active-work drain/recovery |
+| Account generations | Isolated real-mail two-cycle proof with unchanged Firebase UID and retired-session refusal | Federated recovery is independent of email; public admission remains disabled pending deployment qualification. UAT retains an unqualified WorkOS offboarding consumer |
+| Information sharing | Existing fixed-term access; no recurring billing. Temporary Dev pair 97/1711 explicitly authorized, with original pair restoration required | Two-owner request/review/access/revocation; cohort change prepared but not applied |
+| Dev application | Both services serve `79674242c9` at 100%. Later run `40252726690` rolled back: frontend build exhausted Node's 2 GiB heap during TypeScript | Verify the builder-only 4 GiB heap correction, then deploy the new application/pod candidate |
+| UAT | Run `40247731598` accepted `79674242c9`; backend `02582-tuw` and frontend `02164-trp` serve 100%; schema, semantic and analytics acceptance passed | Promote the next accepted Dev application separately |
 
-The subsequent [Dev attempt 40213126854](https://github.com/hushh-labs/hushh-research/actions/runs/40213126854)
-correctly stopped before migration: one retained synthetic Shared Files upload is
-still fenced as uncertain during erasure. No customer record was reset. Its exact
-session now returns 404; that alone does not satisfy the retained expiry proof.
-The release fence and cleanup state remain intact. Actual Dev traffic stays on the
-accepted application. Do not remove the fence or mark cleanup complete to deploy.
+The failed Dev frontend build reached approximately 2,040 MiB before V8 heap
+exhaustion; it did not report a TypeScript diagnostic. The proposed Docker build
+command allows 4 GiB of old-space while preserving the existing two-worker limits,
+type checking and the runner's memory configuration. This is a per-process heap
+limit, not a total host-memory guarantee. A successful exact Cloud Build remains
+required before declaring the deployment repair verified.
 
-The local follow-up fixes repeated update notices after explicit dismissal,
-preserves the exact request selector through web consent revocation, and refreshes
-GCP's resource version only after proving post-IAM configuration is unchanged. Eleven notice cases and 82 upgrade/bootstrap cases pass; the original
-sources fail their focused negative controls. These are source results, not an
-installed-operation repair or a new deployment receipt.
+The canonical UAT reviewer has an explicit Shared choice, no pod registry row and
+no pending cloud job. Metadata-only headless verification of the older serving
+application unlocked and rendered Finance; it does not qualify the failed candidate.
+A deterministic same-account pending-to-validated regression fails on the prior source:
+Finance placement can retain an early refusal after authentication recovers. The
+correction in [PR #8464](https://github.com/hushh-labs/hushh-research/pull/8464)
+rechecks the validated UID, owner and account generation; all 34
+nearest cases, TypeScript, lint and UI contracts pass. Private routing remains
+fail closed. The later UAT application receipt passed; it does not establish the
+precise cause of each earlier failure. Do not silently change the fixture's placement.
 
-The qualified Browser uses Gemini `gemini-3.7-flash` through ADK on GCP and Azure
-`one-chat`, backed by GPT-5.6 Luna. One and Browser share the non-root owner
-container; GCP keeps Chromium's sandbox, Azure explicitly disables it. Normal
-broker/consent enforcement does not contain compromised code. The interactive
-policy covers a temporary controlled HTTPS fixture; authenticated GitHub, selected
-PKM disclosure and Browser-to-Files retain separate acceptance.
+Peer [PR #8463](https://github.com/hushh-labs/hushh-research/pull/8463)
+landed as `7266b4d2e9` while the local correction was being verified. Its reviewed
+bootstrap implementation is inherited; the duplicate local implementation is
+retired. The combined integration run found an obsolete duplicate vault mock in
+the Account recovery test; removing that duplicate preserves the real recovery
+assertions. All 38 owning bootstrap, analytics and recovery cases pass.
 
-Qualification/recovery compute, grants, active objects, copied images and Azure
-deleted vault were removed and read back. GCP's seven-day soft-delete retention is
-explicit. The temporary website remains inventoried for acceptance. Approved GCP
-Files resources belong to the retained owner operation and must not be swept as
-orphans. No production, stable publication or automatic owner upgrade is authorized.
+The reviewer vault bootstrap could start before authentication settled and ignore
+a refused unlock callback, then falsely publish `vault_unlocked`. The vault itself
+remained sealed. The correction waits for the verified application owner, fences
+stale work and reports success only from the unlocked context. The original
+source fails the focused web/native regression. This explains a possible false
+acceptance prerequisite; it does not yet prove the deployed UAT failure resolved
+or explain the separate ordinary-owner session hold. A green continue-on-error
+workflow step is not a successful acceptance receipt.
+
+The pod publication retained image source `9174abfbe5` despite changed Browser
+control and dispatch modules. Archive provenance exposed the mismatch before any
+new owner installation. The corrective release removes that pin, retires the
+old image's active Browser qualification/compatibility offer, and adds a
+pre-upload source comparison; its focused regression refuses changed image inputs
+while preserving metadata-only reuse. A successful application rollout does not
+establish that a private pod received its new executable.
+
+A new read-only GCP observation confirms the original service UID, old image,
+generation 21, Ready state and 100% old-revision traffic without the approved
+attempt nonce. The temporary observer exited and was deleted. This does not prove
+where the original generic exception occurred or authorize replay of its held operation.
+
+Audit logs identified missing read/act-as access on the existing cleanup identity.
+The scoped repair and separate Scheduler/log-read permissions allowed activation:
+a fresh authenticated worker invocation returned HTTP 200, 98 legacy shared-backend
+revisions were retired, and fence removal was confirmed. This is shared-backend
+release evidence, not deletion of customer pods.
+
+Peer [PR #8461](https://github.com/hushh-labs/hushh-research/pull/8461) supplies
+qualified GCS session-expiry recovery. The separate authorized canonical cleanup
+removed seven retained fixture object generations and preserved account/vault rows.
+Generic missing resources remain uncertain; restored session custody and original
+bucket incarnation qualify the provider's expiry response. The peer fix is retained
+through a normal merge, without replacing authored files.
+
+The installed Azure Browser attempt became uncertain during takeover; no
+credentials or forms were submitted and the goal was not replayed. Sampled memory
+peaked near 833 MiB of 2 GiB with no container restart. This does not establish
+OOM absence or justify increasing capacity. The control fix settles validated
+execution before rechecking observation permission, without replaying effects or
+clearing genuinely uncertain outcomes.
+
+One and Browser share the non-root owner container. GCP retains Chromium's
+sandbox; Azure explicitly disables it. Application policy does not contain a
+compromised process. Exact qualification covers the controlled HTTPS fixture,
+whose earlier instance was deleted with resource-absence readback. Its replacement
+passes eight HTTPS fixture controls; installed acceptance and final cleanup remain
+required. Authenticated GitHub, selected PKM disclosure and
+Browser-to-Files retain separate gates. No production, stable publication or
+automatic owner upgrade is authorized.
 
 ### PR #8437 verification history
 

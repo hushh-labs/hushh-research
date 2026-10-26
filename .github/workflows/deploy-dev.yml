@@ -354,6 +354,7 @@ jobs:
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           RUN_PKM_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
           RUN_REVIEWER_BYOK: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          CANDIDATE_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" - <<'PYBUILD'
@@ -413,6 +414,14 @@ jobs:
               ids = {step.get("id") for step in config.get("steps", [])}
               if not {"build-pod-image", "resolve-pod-image-digest"} <= ids:
                   raise SystemExit("Candidate does not support explicit pod image publication")
+              reuse_pin = Path("deploy/pod-release-reuse.json")
+              if reuse_pin.is_file():
+                  subprocess.run([
+                      sys.executable, "scripts/deploy/reuse-pod-release.py",
+                      "--config", str(reuse_pin), "--project", "hushh-pda-dev",
+                      "--descriptor-sha", os.environ["CANDIDATE_SHA"],
+                      "--check-source-only",
+                  ], check=True, timeout=45)
           if reviewer_script is not None:
               with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
                   output.write(f"reviewer_byok_script={reviewer_script.as_posix()}\n")

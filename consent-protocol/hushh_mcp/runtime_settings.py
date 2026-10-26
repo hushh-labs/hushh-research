@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
-from hushh_mcp import one_feature_settings, runtime_environment
+from hushh_mcp import one_feature_settings, runtime_environment, runtime_setting_records
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 # Local-only maintainer overlay. Developers keep the reviewer fixture
@@ -78,9 +78,13 @@ BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     **runtime_environment.SCOPE_COMMERCE_ENV_MAP,
+    "auth_db_listener_isolation_enabled": "AUTH_DB_LISTENER_ISOLATION_ENABLED",
     "pod_dev_inference_bridge_json": "HUSSH_POD_DEV_INFERENCE_BRIDGE_JSON",
     "hussh_shared_files_enabled": "HUSSH_SHARED_FILES_ENABLED",
     "hussh_shared_files_bucket": "HUSSH_SHARED_FILES_BUCKET",
+    "protected_document_delivery": "PROTECTED_DOCUMENT_DELIVERY_ENABLED",
+    "document_delivery_bucket": "DOCUMENT_DELIVERY_BUCKET",
+    "document_delivery_bucket_identity": "DOCUMENT_DELIVERY_BUCKET_IDENTITY",
     "one_plg_export_enabled": "ONE_PLG_EXPORT_ENABLED",
     "one_plg_activity_enabled": "ONE_PLG_ACTIVITY_ENABLED",
     "one_plg_activity_all_registered": "ONE_PLG_ACTIVITY_ALL_REGISTERED",
@@ -301,29 +305,10 @@ def hydrate_runtime_environment() -> None:
             os.environ.setdefault(env_name, rendered)
 
 
-@dataclass(frozen=True)
-class CoreSecuritySettings:
-    app_signing_key: str
-    vault_data_key: str
-    google_api_key: str
-    google_maps_api_key: str
-    environment: str
-    agent_id: str
-    hushh_hackathon: bool
-    default_consent_token_expiry_ms: int
-    default_trust_link_expiry_ms: int
-
-
-@dataclass(frozen=True)
-class FirebaseCredentialSettings:
-    admin_credentials_json: str
-
-
-@dataclass(frozen=True)
-class AppRuntimeSettings:
-    environment: str
-    app_frontend_origin: str
-    runtime_profile: str = ""
+# Compatibility exports; the import-safe record definitions have no hydration side effects.
+CoreSecuritySettings = runtime_setting_records.CoreSecuritySettings
+FirebaseCredentialSettings = runtime_setting_records.FirebaseCredentialSettings
+AppRuntimeSettings = runtime_setting_records.AppRuntimeSettings
 
 
 @dataclass(frozen=True)
@@ -1253,6 +1238,8 @@ def get_app_runtime_settings() -> AppRuntimeSettings:
         environment=_clean_env("ENVIRONMENT", "development").lower() or "development",
         app_frontend_origin=_normalize_origin(_clean_env(APP_FRONTEND_ORIGIN_ENV)),
         runtime_profile=_clean_env("APP_RUNTIME_PROFILE").lower(),
+        document_delivery_bucket=_clean_env("DOCUMENT_DELIVERY_BUCKET"),
+        document_delivery_bucket_identity=_clean_env("DOCUMENT_DELIVERY_BUCKET_IDENTITY"),
     )
 
 

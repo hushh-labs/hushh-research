@@ -550,7 +550,7 @@ describe("AuthService.restoreNativeSession", () => {
       token: null,
     } as any);
     vi.mocked(FirebaseAuthentication.addListener).mockResolvedValue({
-      remove: vi.fn(),
+      remove: vi.fn().mockResolvedValue(undefined),
     } as any);
     vi.mocked(FirebaseAuthentication.confirmVerificationCode).mockResolvedValue(
       {} as any,
@@ -937,47 +937,23 @@ describe("AuthService.restoreNativeSession", () => {
     });
   });
 
-  it("uses native Firebase phone linking without minting a web phone claim token", async () => {
-    const listeners: Record<string, (event: any) => void | Promise<void>> = {};
+  it.each(["link", "replacement"])("requires a native owner before starting a %s phone proof", async mode => {
+    const proof = vi.spyOn(await import("@/lib/services/phone-deletion-verification"), "startManualPhoneProof")
+      .mockRejectedValue(new Error("Unowned phone proof dispatched"));
     mockCapacitor.isNativePlatform.mockReturnValue(true);
-    mockAuth.currentUser = {
-      uid: "native-user",
-      phoneNumber: null,
-    } as any;
-    vi.mocked(FirebaseAuthentication.addListener).mockImplementation(
-      async (
-        eventName: string,
-        callback: (event: any) => void | Promise<void>,
-      ) => {
-        listeners[eventName] = callback;
-        return { remove: vi.fn() } as any;
-      },
-    );
-
-    const startPromise = AuthService.startPhoneLinkVerification(
-      "+16505550101",
-      {
-        resendCode: true,
-        timeout: 30,
-      },
-    );
-
-    for (let i = 0; i < 10 && !listeners.phoneCodeSent; i += 1) {
-      await Promise.resolve();
-    }
-    expect(listeners.phoneCodeSent).toBeTypeOf("function");
-    await listeners.phoneCodeSent({ verificationId: "native-verification-id" });
-
-    await expect(startPromise).resolves.toEqual({
-      autoVerified: false,
-      verificationId: "native-verification-id",
-    });
-    expect(FirebaseAuthentication.linkWithPhoneNumber).toHaveBeenCalledWith({
-      phoneNumber: "+16505550101",
-      resendCode: true,
-      timeout: 30,
-    });
-    expect(signInWithCredential).not.toHaveBeenCalled();
+    const cached = { uid: "native-user", phoneNumber: null };
+    mockAuth.currentUser = cached;
+    try {
+      const start = mode === "link"
+        ? AuthService.startPhoneLinkVerification("+16505550101", { resendCode: true })
+        : AuthService.startPhoneReplacementVerification("+16505550101", { resendCode: true });
+      await expect(start).rejects.toThrow("Sign in before verifying a phone number.");
+      expect(proof).not.toHaveBeenCalled();
+      expect(mockAuth.currentUser).toBe(cached);
+      expect(FirebaseAuthentication.linkWithPhoneNumber).not.toHaveBeenCalled();
+      expect(FirebaseAuthentication.unlink).not.toHaveBeenCalled();
+      expect(signInWithCredential).not.toHaveBeenCalled();
+    } finally { proof.mockRestore(); }
   });
 
   it("links the web user phone number during link confirmation", async () => {

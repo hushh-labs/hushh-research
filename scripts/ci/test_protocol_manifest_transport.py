@@ -62,6 +62,10 @@ class ProtocolManifestTransportTest(unittest.TestCase):
         manifest = [
             "tests/ordinary.py", "tests/owner_postgres.py",
             "tests/services/test_drive_sharing_store.py",
+            "tests/services/test_document_delivery_custody.py",
+            "tests/services/test_document_delivery_commerce.py",
+            "tests/services/test_document_delivery_recovery.py",
+            "tests/services/test_document_delivery_lifecycle.py",
         ]
         results = {}
         for partition in (None, "parallel", "database"):

@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from api.routes import (
+    document_delivery,
     drive_groups,
     drive_packet_previews,
     drive_packet_public_summary,
@@ -24,6 +25,7 @@ def register_connector_routes(app: FastAPI) -> None:
     for router in (
         external_connectors.router,
         drive_sharing.router,
+        document_delivery.router,
         drive_packet_previews.router,
         drive_packet_public_summary.router,
         drive_packet_public_summary.people_router,

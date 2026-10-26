@@ -1,0 +1,44 @@
+{
+  "displayName": "[Managed] Auth Service Failures",
+  "documentation": {
+    "content": "At least three identity, phone-finalization or vault-bootstrap server errors occurred in five minutes. Check serving revision, DATABASE_UNAVAILABLE, DB acquisition timeouts and sanitized auth error codes. Invalid OTP, 409 ownership conflicts and rate-limited callers do not count. No caller values belong in this incident. Runbook: deploy/observability/README.md#auth-availability",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": false,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "auth",
+    "incident_purpose": "diagnostic"
+  },
+  "conditions": [
+    {
+      "displayName": "Auth server errors >= 3 in 5m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_auth_service_failure_count\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 2,
+        "duration": "0s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ],
+    "autoClose": "1800s"
+  }
+}

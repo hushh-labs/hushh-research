@@ -16,6 +16,8 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from tests.helpers import deployment_cli
+
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy-uat.yml"
@@ -766,47 +768,44 @@ def test_scheduler_setup_rejects_mismatched_explicit_email_before_gcloud(
 def test_backend_rollback_qualifies_exact_source_before_traffic(
     tmp_path, service, current, sha_valid, allowed
 ):
-    commands = tmp_path / "commands"
-    sha = "a" * 40 if sha_valid else "unverified"
-    (tmp_path / "gcloud").write_text(
-        "#!/usr/bin/env python3\nimport os,sys\n"
-        "a=sys.argv[1:]\n"
-        "with open(os.environ['CALLS'],'a') as f: f.write(' '.join(a)+'\\n')\n"
-        "if a[:3]==['run','revisions','describe']: print(os.environ['SOURCE_SHA'])\n"
-        "elif a[:3]!=['run','services','update-traffic']: raise SystemExit(99)\n"
+    deployment_cli.assert_backend_source_rollback(
+        ROOT, tmp_path, service=service, current=current, sha_valid=sha_valid, allowed=allowed
     )
-    (tmp_path / "git").write_text(
-        "#!/usr/bin/env python3\nimport json,os,sys\n"
-        "assert sys.argv[1]=='show'\n"
-        "if os.environ['CURRENT']!='true': raise SystemExit(1)\n"
-        "print(json.dumps({'version':1} if sys.argv[2].endswith('account-deletion-authority.json') "
-        "else {'ordered_migrations':['423_account_shared_provider_authority.sql']}))\n"
+
+
+@pytest.mark.parametrize("denied", [None, "reader", "provider"])
+def test_backend_rollback_requires_both_reader_and_provider_authority(tmp_path, denied):
+    """The real traffic mutator requires both independent compatibility ports."""
+    calls, execute = deployment_cli.backend_rollback_authority_fixture(ROOT, tmp_path, denied)
+
+    script = ROOT / "scripts/ci/cloudrun-rollback.sh"
+    result = execute(script)
+    assert result.returncode == (47 if denied else 0), result.stderr
+    expected = ["reader"] if denied == "reader" else ["reader", "provider"]
+    if denied is None:
+        expected.append("traffic")
+    assert calls.read_text().splitlines() == expected
+    if denied is None:
+        return
+
+    # Remove only the denied authority. The other compatible guard still runs,
+    # so a missing helper or relocated fixture cannot masquerade as a denial.
+    source = script.read_text()
+    start = source.index(
+        'if [[ -n "${HUSHH_DOCUMENT_READER_GUARD_REPORT:-}" ]]; then'
+        if denied == "reader"
+        else 'if [[ "$SERVICE" == "consent-protocol" ]]; then'
     )
-    for binary in ("gcloud", "git"):
-        (tmp_path / binary).chmod(0o700)
-    environment = {
-        **os.environ,
-        "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
-        "CALLS": str(commands),
-        "SOURCE_SHA": sha,
-        "CURRENT": str(current).lower(),
-        "GCP_PROJECT_ID": "synthetic-project",
-    }
-    environment.pop("BASH_ENV", None)
-    result = subprocess.run(  # noqa: S603 - authored script and synthetic cloud/git ports
-        ["bash", str(ROOT / "scripts/ci/cloudrun-rollback.sh"), service, "us-central1", "prior"],
-        cwd=ROOT,
-        env=environment,
-        text=True,
-        capture_output=True,
-        timeout=10,
-    )
-    assert (result.returncode == 0) is allowed, result.stderr
-    calls = commands.read_text().splitlines()
-    assert any("update-traffic" in call for call in calls) is allowed
-    if service == "consent-protocol":
-        assert calls[0].startswith("run revisions describe prior ")
-        assert "--project=synthetic-project" in calls[0]
+    end = source.index("manual_reader_guard=" if denied == "reader" else "cmd=(", start)
+    broken = tmp_path / "one-guard-removed.sh"
+    broken.write_text(source[:start] + source[end:])
+    calls.unlink()
+    result = execute(broken)
+    assert result.returncode == 0, result.stderr
+    assert calls.read_text().splitlines() == [
+        "provider" if denied == "reader" else "reader",
+        "traffic",
+    ]
 
 
 def test_pre_v201_backend_rollback_requires_fence_and_empty_tombstones() -> None:

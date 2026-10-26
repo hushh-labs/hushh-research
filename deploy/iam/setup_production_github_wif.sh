@@ -19,11 +19,17 @@ readonly ATTRIBUTE_CONDITION="assertion.sub == 'repo:${GITHUB_REPOSITORY}:enviro
 
 readonly -a DEPLOY_PROJECT_ROLES=(
   "roles/cloudbuild.builds.editor"
+  "roles/cloudsql.client"
+  "roles/cloudsql.viewer"
+  "roles/logging.logWriter"
+  "roles/logging.viewer"
   "roles/run.admin"
   "roles/secretmanager.admin"
   "roles/secretmanager.secretAccessor"
   "roles/serviceusage.serviceUsageConsumer"
   "roles/storage.admin"
+  "projects/${PROD_PROJECT_ID}/roles/accountDeletionSchedulerOperator"
+  "projects/${PROD_PROJECT_ID}/roles/predeployBackupOperator"
 )
 
 add_project_role_binding() {

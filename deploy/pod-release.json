@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.30",
+  "version": "2026.10-dev.31",
   "channel": "dev",
   "summary": "Browser control and reliable private-agent connections.",
   "notes": {
@@ -8,16 +8,13 @@
       "Browser shares your selected cloud and on-demand agent lifecycle."
     ],
     "fixes": [
-      "Sign-in redirects retain the approved action until navigation completes.",
+      "Confirmed browser actions stay recorded when control changes.",
       "Puppy can finish within its approved response window."
     ],
     "security": [
       "Browser activation requires approval for this exact image and site policy.",
-      "Recovery preserved identity, consent, memory and exact file bytes from both eligible versions."
+      "Update eligibility remains unavailable until recovery is verified for this image."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:26bab16354b2eeded3c3688db7421226c27f82adab95b1f0ca3c8dd60c061809",
-    "sha256:8b846022947bca939fba48cddf1101f3c26dddfb043ab41e20bd7407e068ac07"
-  ]
+  "supportedUpgradeDigests": []
 }

@@ -87,10 +87,12 @@ ENV NODE_ENV=production
 # Build Next.js (produces .next/standalone with monorepo-aware paths)
 # ARG values are available in the RUN environment. A blank optional logo
 # argument must stay unset so the existing receipt fallback remains unchanged.
+# TypeScript exceeds Node's default 2 GiB heap on the 8 GiB Cloud Build host.
+# Bound this build process to 4 GiB; the runner retains its normal memory policy.
 RUN if [ -z "$NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE" ]; then \
       unset NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE; \
     fi; \
-    npm run build
+    NODE_OPTIONS=--max-old-space-size=4096 npm run build
 
 # Stage 2: Production runner
 FROM node:24-alpine AS runner

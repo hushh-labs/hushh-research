@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
+import { readRouteCacheSource } from "./cache-source-evidence.mjs";
 
 const appRoot = process.cwd();
 const repoRoot = path.resolve(appRoot, "..");
@@ -68,54 +69,7 @@ function routeValuesFromRoutesTs(source) {
 }
 
 function sourceForRoute(route, contractEntry) {
-  const files = new Set();
-  const pageFile = pageFileForRoute(route);
-  if (pageFile) files.add(pageFile);
-  const verificationFile = contractEntry?.shellVerification?.file;
-  if (verificationFile) files.add(verificationFile);
-  // The canonical root is a route-level chat surface, so include its workspace
-  // in the evidence scan. The page is intentionally a thin auth/vault guard;
-  // scanning only it would misclassify the root as non-streaming.
-  if (
-    route === "/" &&
-    fs.existsSync(path.join(appRoot, "components/agent/agent-chat-workspace.tsx"))
-  ) {
-    files.add("components/agent/agent-chat-workspace.tsx");
-  }
-
-  if (route === "/one/gmail") {
-    for (const file of ["components/gmail/gmail-receipts-page.tsx", "lib/services/mail-receipt-resource-service.ts", "lib/mail/receipt-store.ts"]) files.add(file);
-  }
-  const sources = [];
-  for (const relative of files) {
-    const absolute = path.join(appRoot, relative);
-    if (fs.existsSync(absolute)) {
-      sources.push(read(absolute));
-    }
-  }
-  let joined = sources.join("\n\n");
-  if (joined.includes("ConnectedSystemDetailClient")) {
-    sources.push(
-      read(
-        path.join(
-          appRoot,
-          "app/one/connected-systems/[systemId]/connected-system-detail-client.tsx",
-        ),
-      ),
-    );
-    joined = sources.join("\n\n");
-  }
-  if (joined.includes("ConnectedSystemsPanel")) {
-    sources.push(
-      read(
-        path.join(appRoot, "components/profile/connected-systems-panel.tsx"),
-      ),
-    );
-  }
-  if (joined.includes("FeedPage")) {
-    sources.push(read(path.join(appRoot, "components/feed/feed-page.tsx")));
-  }
-  return sources.join("\n\n");
+  return readRouteCacheSource(route, contractEntry, { appRoot, pageFileForRoute, read });
 }
 
 function flagsForSource(source) {
@@ -304,6 +258,7 @@ function routeCacheKeys(route) {
 }
 
 function resourceClassesFor(route, screenClass) {
+  if (route === "/one/documents/open") return ["encrypted_document", "consent_list"];
   if (route === "/one/gmail") return ["financial_resource"];
   if (route === "/one/referrals") return ["user_metadata", "realtime_stream"];
   if (screenClass === "public/static") return ["public_static"];
@@ -349,6 +304,7 @@ function resourceClassesFor(route, screenClass) {
 function sensitivityClassFor(screenClass, resourceClasses) {
   if (
     resourceClasses.includes("pkm_projection") ||
+    resourceClasses.includes("encrypted_document") ||
     resourceClasses.includes("financial_resource")
   ) {
     return "encrypted-user-data";
@@ -420,6 +376,7 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
 }
 
 function ttlClassFor(route, screenClass) {
+  if (route === "/one/documents/open") return "0ms; private/no-store entitlement and ciphertext reads";
   if (route === "/one/messages") return "5 minutes per memory snapshot; always revalidate message access on entry";
   if (route === "/one/referrals") return "0ms; retain memory while revalidating on navigation and signals";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
@@ -442,6 +399,7 @@ function ttlClassFor(route, screenClass) {
 }
 
 function warmSourceFor(route, screenClass) {
+  if (route === "/one/documents/open") return "Unlocked-session document state only; no device document cache";
   if (route === "/one/messages") return "DirectMessagesResourceService owner-scoped memory snapshots";
   if (screenClass === "public/static" || screenClass === "redirect/alias")
     return "none";
@@ -468,6 +426,7 @@ function warmSourceFor(route, screenClass) {
 }
 
 function refreshTriggerFor(route, screenClass) {
+  if (route === "/one/documents/open") return "Live entitlement on every open, preview/download and focus; deadline/session purge";
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
   if (screenClass === "public/auth-split")
@@ -501,6 +460,7 @@ function isPkmEpochRoute(route) {
 }
 
 function invalidatorFor(route, screenClass) {
+  if (route === "/one/documents/open") return "CacheSyncService.onConsentMutated plus vault/session/expiry byte and manifest purge";
   if (route === "/one/messages") return "CacheSyncService message-change, connection and user/session invalidation";
 
 
@@ -551,6 +511,7 @@ function realtimePolicyFor(route, screenClass) {
 }
 
 function reviewerFixtureFor(route, nativeRow) {
+  if (route === "/one/documents/open") return "/one/documents/open?ref=<authorized-request-uuid>";
   // `/agent` is retained only as a web compatibility redirect. Reviewer
   // rehearsals must exercise the canonical root Chat surface, never the
   // redirect itself.

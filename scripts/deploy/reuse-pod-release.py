@@ -91,17 +91,57 @@ def gcloud(*args: str) -> bytes:
     return result.stdout
 
 
+def require_unchanged_image_context(pin: dict, descriptor_sha: str) -> None:
+    """Metadata reuse cannot omit changes copied into the owner image.
+
+    Compare protocol, generated contracts and upload rules conservatively.
+    This runs in the main-owned workflow checkout before its Git-free Cloud Build
+    upload; a direct Cloud Build reuse is not a supported release entrypoint.
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "diff",
+            "--quiet",
+            "--no-ext-diff",
+            "--no-textconv",
+            pin["sourceRevision"],
+            descriptor_sha,
+            "--",
+            "consent-protocol",
+            "contracts",
+            ".gcloudignore",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode:
+        raise ValueError(
+            "pod image inputs changed; remove the reuse pin and build the candidate"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--descriptor-sha", required=True)
-    parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--workspace", type=Path)
+    parser.add_argument("--check-source-only", action="store_true")
     args = parser.parse_args()
     try:
         if not re.fullmatch(r"[0-9a-f]{40}", args.descriptor_sha):
             raise ValueError("reviewed descriptor requires an exact source revision")
         pin = validate_pin(json.loads(args.config.read_text()), project=args.project)
+        if args.check_source_only or (ROOT / ".git").exists():
+            require_unchanged_image_context(pin, args.descriptor_sha)
+        if args.check_source_only:
+            print("Pinned pod image inputs match the candidate.")
+            return 0
+        if args.workspace is None:
+            raise ValueError("pod publication workspace is required")
         archive = f"gs://{args.project}_cloudbuild/pod-releases/{pin['sourceRevision']}/{pin['runId']}/release.json"
         release = validate_archive(
             pin, gcloud("storage", "cat", archive), project=args.project
