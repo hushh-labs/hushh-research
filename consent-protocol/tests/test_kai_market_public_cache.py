@@ -195,7 +195,7 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
         key = str(kwargs["key"])
         if key.startswith("home:"):
             return await kwargs["fetcher"](), False, 0, "live", False
-        if key.startswith("quotes:"):
+        if key.startswith(("quotes:", "indices:")):
             raise RuntimeError("quote provider unavailable")
         if key == "macro:v2:us":
             return (
@@ -265,6 +265,7 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
 
     assert payload["stale"] is True
     assert payload["provider_status"]["quote:AAPL"] == "failed"
+    assert payload["provider_status"]["quote:^GSPC"] == "failed"
     assert payload["watchlist"][0]["symbol"] == "AAPL"
     assert payload["watchlist"][0]["degraded"] is True
     assert payload["movers"]["degraded"] is True

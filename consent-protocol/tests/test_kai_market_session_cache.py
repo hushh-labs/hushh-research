@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from api.routes.kai import market_insights
+from api.routes.kai._index_last_close import INDEX_LAST_CLOSE_KEY, INDEX_SYMBOLS
 from hushh_mcp.services import market_insights_cache as cache_module
 from hushh_mcp.services.market_insights_cache import MarketInsightsCache
 from tests.helpers.market_public_cache import (  # noqa: F401
@@ -175,6 +177,95 @@ async def test_closed_cold_prices_are_unavailable_but_news_still_refreshes(monke
     assert calls == [True]
 
 
+@pytest.mark.parametrize(
+    ("key", "age_days", "replayed"),
+    [
+        (INDEX_LAST_CLOSE_KEY, 5, True),
+        (INDEX_LAST_CLOSE_KEY, 8, False),
+        # Same saved row under a per-viewer key is older than the last session: refused.
+        ("quotes:AAPL", 5, False),
+    ],
+)
+async def test_index_last_close_replays_for_a_week_past_the_last_session(
+    monkeypatch, key, age_days, replayed
+):
+    from hushh_mcp.services.market_refresh_policy import MarketPriceRefreshPaused
+
+    now = datetime.fromisoformat("2026-07-20T01:00:00+00:00").timestamp()  # Monday, closed
+    saved_at = now - age_days * 24 * 60 * 60
+    monkeypatch.setattr(cache_module.time, "time", lambda: now)
+    store = _FakeStore()
+    saved = {"quotes": {"^GSPC": {"price": 100, "quoted_at": "2026-07-15T19:59:00Z"}}}
+    store.entries[key] = _FakeEntry(saved, saved_at, saved_at + 600, saved_at + 7 * 24 * 60 * 60)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    calls = []
+
+    async def forbidden():
+        calls.append(True)
+        return {}
+
+    read = market_insights._get_or_refresh_public_module(
+        key=key, fresh_ttl_seconds=600, stale_ttl_seconds=1800, fetcher=forbidden
+    )
+    if replayed:
+        assert await read == (saved, True, int(now - saved_at), "postgres", True)
+    else:
+        with pytest.raises(MarketPriceRefreshPaused):
+            await read
+    assert calls == []
+
+
+async def test_empty_index_refresh_cannot_replace_the_saved_last_close(monkeypatch):
+    now = datetime.fromisoformat("2026-07-20T14:00:00+00:00").timestamp()  # Monday, open
+    saved_at = datetime.fromisoformat("2026-07-17T19:50:00+00:00").timestamp()
+    monkeypatch.setattr(cache_module.time, "time", lambda: now)
+    store = _FakeStore()
+    saved = {
+        "quotes": {"^GSPC": {"price": 100, "quoted_at": "2026-07-17T19:49:00Z"}},
+        "provider_status": {"quote:^GSPC": "ok"},
+    }
+    store.entries[INDEX_LAST_CLOSE_KEY] = _FakeEntry(
+        saved, saved_at, saved_at + 600, saved_at + 7 * 24 * 60 * 60
+    )
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: store)
+    monkeypatch.setattr(market_insights, "market_insights_cache", MarketInsightsCache())
+    monkeypatch.setattr(market_insights, "fetch_market_data_batch", AsyncMock(return_value={}))
+
+    value, stale, *_ = await market_insights._get_or_refresh_public_module(
+        key=INDEX_LAST_CLOSE_KEY,
+        fresh_ttl_seconds=600,
+        stale_ttl_seconds=1800,
+        fetcher=market_insights._fetch_index_quotes_bundle,
+        serve_stale_while_revalidate=False,
+    )
+    assert value == saved and stale is True
+    assert store.entries[INDEX_LAST_CLOSE_KEY].payload == saved
+
+
+@pytest.mark.parametrize("budget_critical", [False, True])
+async def test_open_warmer_refreshes_indices_first_and_regardless_of_the_fmp_budget(
+    monkeypatch, budget_critical
+):
+    keys = []
+
+    async def module(**kwargs):
+        keys.append(kwargs["key"])
+        return {}, False, 0, "live", False
+
+    monkeypatch.setattr(market_insights, "_us_market_is_open", lambda: True)
+    monkeypatch.setattr(market_insights, "is_budget_critical", lambda: budget_critical)
+    monkeypatch.setattr(market_insights, "_get_or_refresh_public_module", module)
+    monkeypatch.setattr(
+        market_insights,
+        "get_market_cache_store_service",
+        lambda: SimpleNamespace(delete_expired=AsyncMock(return_value=0)),
+    )
+    await market_insights._refresh_public_market_modules_once()
+    assert keys[0] == INDEX_LAST_CLOSE_KEY
+    assert len(keys) == (1 if budget_critical else 4)
+
+
 async def test_price_store_retention_reaches_next_opening(monkeypatch):
     now = datetime.fromisoformat("2026-07-17T19:59:00+00:00").timestamp()
     opens_at = datetime.fromisoformat("2026-07-20T13:30:00+00:00").timestamp()
@@ -264,10 +355,15 @@ async def test_closed_home_keeps_news_and_indices_without_sparklines(monkeypatch
         "_resolve_pick_source_rows",
         AsyncMock(return_value=([], [market_insights._default_pick_source()], "default")),
     )
-    indices = ["^GSPC", "^IXIC", "^DJI", "^RUT"]
+    # The viewer's own quotes entry is cold; the shared index entry must still serve them.
     cache.seed_entry(
-        f"quotes:{','.join(sorted([*indices, 'AAPL']))}",
-        {"quotes": {symbol: {"price": 100, "quoted_at": quoted_at} for symbol in indices}},
+        INDEX_LAST_CLOSE_KEY,
+        {
+            "quotes": {
+                symbol: {"price": 100, "quoted_at": quoted_at, "market_state": "open"}
+                for symbol in INDEX_SYMBOLS
+            }
+        },
         saved_at,
     )
     if saved_movers:
@@ -323,6 +419,7 @@ async def test_closed_home_keeps_news_and_indices_without_sparklines(monkeypatch
     overview = {row.get("symbol"): row for row in payload["market_overview"]}
     assert overview["^GSPC"]["value"] == 100
     assert overview["^GSPC"]["as_of"] == quoted_at
+    assert overview["^GSPC"]["market_state"] == "closed"
     assert payload["stale_reason"] == "market_closed"
     assert payload["provider_status"].get("home") != "failed"
     if saved_movers:
