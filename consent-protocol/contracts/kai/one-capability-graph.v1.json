@@ -29043,6 +29043,162 @@
     },
     {
       "aliases": [
+        "Send a real SMS code",
+        "send a real SMS code"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "phone_mandate.send_real_sms",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "An explicit human choice starts a fresh SMS possession proof instead of a shared test code; it does not transfer a phone or grant account access.",
+      "execution": {
+        "binding_ref": "render:phone_mandate.send_real_sms",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.phone_mandate.send_real_sms",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Send a real SMS code",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Use this number on this account",
         "use this number on this account"
       ],
@@ -49378,7 +49534,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "8415787d717d2e87d45b0ea32d14c05b68d878c94e13860d56a35be27e21aff5",
+      "projection_digest": "9f7d73021d9c25e51996cd8bf35590558e5acf42bdd32f19107abe018b2588cc",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49397,7 +49553,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4be733c76f5be2bb",
+      "source_revision": "c19f96c7fd08b9c1",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -50915,7 +51071,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4be733c76f5be2bb",
+    "source_revision": "c19f96c7fd08b9c1",
     "web": {
       "actions": [
         {
@@ -50958,7 +51114,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "15ee9b94611006e8038e6300c47de1bd5a56d593652e4a0fc8c8ef48e0d1465f",
+      "projection_digest": "6ed1c13b38a386db17ccfe7266684fb7ef1328bacee97ff3c81eb6a4f425647d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50977,7 +51133,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "4be733c76f5be2bb",
+      "source_revision": "c19f96c7fd08b9c1",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52534,7 +52690,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4be733c76f5be2bb",
+  "revision": "c19f96c7fd08b9c1",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -54509,18 +54665,13 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.recover",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
+      "actions:phone_mandate.send_real_sms"
     ],
     "breaking": [],
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "35982be19f859840",
+    "from_revision": "4be733c76f5be2bb",
     "migrated": [],
     "removed": []
   },
@@ -56829,7 +56980,7 @@
     "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "6a7cbc71edeb570aafe6d563bfcfa6e1f9a984a73f1594bf14ea5e201522af38",
+    "kai_action_gateway": "b42ad915d8e6cba50f095441db6fbc4cff8172f3cab6fc955f6fcfecad6baa6c",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -56838,9 +56989,9 @@
     "route_orchestration_index": "69584fe9db71100558c021153c3b24c99711a4197aea21c94743f256a403f76d",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "4be733c76f5be2bb",
+  "source_revision": "c19f96c7fd08b9c1",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4be733c76f5be2bb",
+    "current_graph_revision": "c19f96c7fd08b9c1",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -56923,6 +57074,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -57195,6 +57347,7 @@
           "43efe9fb3a1513f1",
           "45be718cd9891cd4",
           "49f1882f17ca746a",
+          "4be733c76f5be2bb",
           "4d911004af4b252b",
           "4f5bda58994aac11",
           "53c411e01494034b",
@@ -57270,6 +57423,7 @@
           "3b4a692078832301",
           "43c428db7505bdee",
           "45be718cd9891cd4",
+          "4be733c76f5be2bb",
           "4d911004af4b252b",
           "4f5bda58994aac11",
           "53c411e01494034b",
@@ -57612,6 +57766,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
           "4f5bda58994aac11",
@@ -57951,6 +58106,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58282,6 +58438,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58613,6 +58770,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",
@@ -58942,6 +59100,7 @@
           "49f1882f17ca746a",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
           "4d911004af4b252b",

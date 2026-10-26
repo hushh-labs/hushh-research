@@ -140,13 +140,13 @@ async def test_failed_transfer_rolls_back_binding_consumption_and_revocation(
         await pool.close()
 
 
-@pytest.mark.parametrize("age,fixture", [(301, False), (-1, False), (0, True)])
-def test_transfer_requires_fresh_real_sms(monkeypatch, age, fixture):
+@pytest.mark.parametrize("age,emulator", [(301, False), (-1, False), (0, True)])
+def test_transfer_requires_fresh_real_sms(monkeypatch, age, emulator):
     monkeypatch.setattr(transfer.time, "time", lambda: 1000)
-    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", PHONE if fixture else "")
+    monkeypatch.setenv("FIREBASE_AUTH_EMULATOR_HOST", "localhost:9099" if emulator else "")
     with pytest.raises(HTTPException):
         transfer.require_fresh_sms_claims({"auth_time": 1000 - age}, PHONE)
-    monkeypatch.setenv("HUSHH_PROD_PHONE_TEST_NUMBERS", "")
+    monkeypatch.setenv("FIREBASE_AUTH_EMULATOR_HOST", "")
     transfer.require_fresh_sms_claims({"auth_time": 1000}, PHONE)
 
 
@@ -219,6 +219,9 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
     monkeypatch.setattr(identity, "get_pool", AsyncMock(return_value=pool))
     monkeypatch.setattr(identity.ActorIdentityService, "_ensure_actor_spine", AsyncMock())
     monkeypatch.setattr(
+        identity.ActorIdentityService, "_schedule_phone_resume", lambda *_args: None
+    )
+    monkeypatch.setattr(
         identity.ActorIdentityService, "_sync_referral_qualification_best_effort", AsyncMock()
     )
     try:
@@ -256,6 +259,21 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
             with pytest.raises(asyncpg.RaiseError, match="reconciliation required"):
                 await conn.execute(rollback)
             await conn.execute("UPDATE account_phone_transfers SET state='completed'")
+            for notice_status in ("pending", "dispatched", "uncertain"):
+                await conn.execute(
+                    "UPDATE account_phone_transfers SET notice_status=$1",
+                    notice_status,
+                )
+                receipts = await conn.fetch(
+                    "SELECT * FROM account_phone_transfers ORDER BY operation_id"
+                )
+                with pytest.raises(asyncpg.RaiseError, match="reconciliation required"):
+                    await conn.execute(rollback)
+                assert (
+                    await conn.fetch("SELECT * FROM account_phone_transfers ORDER BY operation_id")
+                    == receipts
+                )
+            await conn.execute("UPDATE account_phone_transfers SET notice_status='settled'")
             await conn.execute(rollback)
             assert not await conn.fetchval(
                 "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='pending_phone_transfer_erasure')"
