@@ -102,6 +102,7 @@ function SelectTrigger({
       )}
       {...props}
       ref={composedRef}
+      data-native-owned-choice={native ? native.blocked ? "blocked" : native.presented ? "presented" : "ready" : undefined}
       {...(native && (native.presented || native.blocked) ? { "aria-expanded": native.presented, "aria-haspopup": "dialog" as const,
         "aria-controls": undefined, "data-state": native.presented ? "open" : "closed",
         "aria-busy": native.blocked || undefined } : {})}

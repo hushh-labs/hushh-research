@@ -5680,7 +5680,14 @@ final class AppUITests: XCTestCase {
                         guard waitForAdmittedControl(trigger) else { XCTFail("WORKSPACE_WALLET_CHOICE_TRIGGER_UNAVAILABLE"); return }
                         trigger.tap()
                         let sheet = app.descendants(matching: .any).matching(identifier: "native-owned-choice").firstMatch
-                        guard sheet.waitForExistence(timeout: 10) else { XCTFail("WORKSPACE_WALLET_CHOICE_NOT_NATIVE"); return }
+                        guard sheet.waitForExistence(timeout: 10) else {
+                            let probe = app.buttons["native-vault-layout"].firstMatch
+                            if let json = probe.value as? String, let data = json.data(using: .utf8),
+                               let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
+                                print("WORKSPACE_CHOICE_ADMISSION bootstrap=\(packet["nativeChoiceBootstrap"]?.boolValue == true) ready=\(packet["nativeChoiceReady"]?.intValue ?? 0) presented=\(packet["nativeChoicePresented"]?.intValue ?? 0) blocked=\(packet["nativeChoiceBlocked"]?.intValue ?? 0) native_cancel=\(app.buttons["Cancel"].count > web.buttons["Cancel"].count)")
+                            }
+                            XCTFail("WORKSPACE_WALLET_CHOICE_NOT_NATIVE"); return
+                        }
                         let dismiss = sheet.buttons["Cancel"].firstMatch
                         guard waitForAdmittedControl(dismiss) else { XCTFail("WORKSPACE_WALLET_CHOICE_CANCEL_UNAVAILABLE"); return }
                         XCTAssertFalse(cancel.isHittable, "WORKSPACE_WALLET_CHOICE_LEAKED_FORM_TOUCH")

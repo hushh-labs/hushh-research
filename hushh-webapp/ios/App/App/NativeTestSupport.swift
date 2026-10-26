@@ -920,6 +920,10 @@ final class NativeVaultLayoutProbe {
         } catch { /* Malformed public diagnostics grant no authority. */ }
       }
       const result = {
+        nativeChoiceBootstrap: window.__HUSHH_NATIVE_DRAWER_BOOTSTRAP__?.ownedChoices === true,
+        nativeChoiceReady: document.querySelectorAll('[data-native-owned-choice="ready"]').length,
+        nativeChoicePresented: document.querySelectorAll('[data-native-owned-choice="presented"]').length,
+        nativeChoiceBlocked: document.querySelectorAll('[data-native-owned-choice="blocked"]').length,
         routeKind: Math.max(0, ['/', '/one', '/login', '/register', '/register/phone', '/one/setup'].indexOf(location.pathname) + 1),
         globalErrorKind: Math.max(0, ['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError'].indexOf(document.querySelector('[data-native-global-error]')?.getAttribute('data-native-global-error')) + 1),
         phoneGate: !!document.querySelector('[data-figma-phone-step]'),
