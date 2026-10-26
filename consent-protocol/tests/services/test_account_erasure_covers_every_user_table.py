@@ -45,6 +45,7 @@ _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
 _CASCADE_PARENT = {
     "google_calendar_additional_accounts": "actor_profiles",
     "calendar_attendance_reviews": "actor_profiles",
+    "one_todo_reminder_schedules": "actor_profiles",
     "pwm_research_preferences": "actor_profiles",
     "pwm_completion_events": "pwm_research_preferences",
     "pkm_answer_payment_orders": "pkm_answer_requests",

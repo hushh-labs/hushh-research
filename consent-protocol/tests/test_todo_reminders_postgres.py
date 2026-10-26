@@ -87,6 +87,21 @@ def test_todo_reminders_commit_cancel_reschedule_and_erase_atomically(todo_remin
     assert not sql(db, "SELECT * FROM system_push_outbox WHERE source_kind='todo_reminder'")
 
 
+def test_todo_reminder_account_erasure_cascades_only_the_deleted_owner(todo_reminders):
+    db, items, _ = todo_reminders
+    project(db, items)
+    sql(
+        db,
+        """INSERT INTO pkm_events VALUES('sender','one_todos','content_write',CAST(:metadata AS JSONB))""",
+        {"metadata": json.dumps({"todo_reminders_v1": {"items": items}})},
+    )
+    sql(db, "DELETE FROM actor_profiles WHERE user_id='recipient'")
+    assert not sql(db, "SELECT * FROM one_todo_reminder_schedules WHERE user_id='recipient'")
+    assert not sql(db, "SELECT * FROM system_push_outbox WHERE recipient_user_id='recipient'")
+    assert len(sql(db, "SELECT * FROM one_todo_reminder_schedules WHERE user_id='sender'")) == 1
+    assert len(sql(db, "SELECT * FROM system_push_outbox WHERE recipient_user_id='sender'")) == 1
+
+
 def test_todo_reminders_deliver_only_when_due_and_refuse_active_rollback(
     todo_reminders, monkeypatch
 ):
