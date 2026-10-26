@@ -17,6 +17,7 @@ import {
   OneMarketNewsBriefing,
   marketNewsImageUrl,
 } from "@/components/kai/views/kai-market-preview-view";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 import { withStableOverviewFromCache } from "@/lib/kai/kai-market-home-resource";
 import type { KaiHomeInsightsV2, KaiHomeNewsItem } from "@/lib/services/api-service";
 
@@ -162,7 +163,13 @@ describe("market index quote evidence", () => {
       { label: "Market Status", value: "Open", delta_pct: null, as_of: null, source: "Schedule", degraded: false },
     ] }, { market_overview: [{ ...quote, degraded: false, is_delayed: false }] });
     expect(payload.market_overview?.[0]).toMatchObject({ value: 7712.57, degraded: true, as_of: quote.as_of });
-    expect(toIndexStripItems(payload)[0].quoteStatus).toBe("Cached");
+    expect(toIndexStripItems(payload)[0].quoteStatus).toBe("");
+    expect(toIndexStripItems(payload)[0].quotedAt).toBe(quote.as_of);
+    const metrics = toIndexStripItems(payload);
+    const { container } = render(createElement(OneMarketIndexStrip, { metrics, onMetricSelect: () => {} }));
+    expect(container.textContent).not.toMatch(/cached/i);
+    expect(metrics[0].detailPanel?.statusLabel).toBe("");
+    expect(metrics[0].degraded).toBe(true);
     const next = withStableOverviewFromCache({ market_overview: [{ ...quote, value: 7800, degraded: false }] }, payload);
     expect(next.market_overview?.[0].value).toBe(7800);
   });
@@ -191,28 +198,35 @@ describe("toMoverGroups", () => {
     }
   });
 
-  it("shares cached status only for the displayed rows and retains exact common observation time", () => {
+  it("keeps three ranks and a common local observation time without cache wording", () => {
     const groups = groupsFor([mover("A", 4), mover("B", 3), mover("C", 2), mover("FOURTH", 1, false)], [mover("D", -1)]);
     const { container } = render(createElement(OneMarketMovers, { groups }));
     expect(container.querySelectorAll("button")).toHaveLength(4);
     expect(container.querySelectorAll("[data-market-mover-freshness]")).toHaveLength(1);
-    expect(screen.getByText(/^Cached quotes/)).not.toHaveTextContent(/unavailable/);
+    expect(container.querySelector("[data-market-mover-freshness]")).toHaveTextContent(formatLocalDateTime(time)!);
+    expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(2);
+    expect(container.textContent).not.toMatch(/cached/i);
     expect(screen.queryByText("Cached", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("FOURTH", { exact: true })).not.toBeInTheDocument();
     expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
   });
 
-  it("keeps mixed freshness and differing or missing observation times explicit", () => {
-    const { container, rerender } = render(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, false)]) }));
-    expect(container.querySelector("[data-market-mover-freshness]")).not.toHaveTextContent("Cached quotes");
-    expect(screen.getByText("Cached", { exact: true })).toBeVisible();
+  it("retains differing local times and unavailable observations without cache labels", () => {
+    const later = "2026-10-21T15:00:00Z";
+    const { container, rerender } = render(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, false, later)]) }));
+    expect(container.querySelector("[data-market-mover-freshness]")).toBeNull();
+    expect([...container.querySelectorAll("time")].map(node => node.textContent)).toEqual(
+      [time, later].map(value => formatLocalDateTime(value, { hour: "numeric", minute: "2-digit" })),
+    );
     rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1)], [mover("B", -1, true, null)]) }));
-    expect(screen.getByText("Cached quotes", { exact: true })).toBeVisible();
     expect(screen.getByText("Time unavailable", { exact: true })).toBeVisible();
-    expect(container.querySelectorAll("button > span[title]")).toHaveLength(2);
-    rerender(createElement(OneMarketMovers, { groups: groupsFor([mover("A", 1, false, null)], [mover("B", -1, false, null)], true) }));
-    expect(screen.getByText(/Cached quotes.*Quote time unavailable/)).toBeVisible();
-    expect(screen.queryByText("Time unavailable", { exact: true })).not.toBeInTheDocument();
+    expect(container.querySelectorAll("button > time")).toHaveLength(2);
+    expect(container.textContent).not.toMatch(/cached/i);
+    rerender(createElement(OneMarketMovers, { groups: groupsFor([], []) }));
+    expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
+    expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(6);
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+    expect(container.textContent).not.toMatch(/cached|[+-]\d/);
   });
 
   it("rejects a directionally invalid provider bucket and orders valid movers by magnitude", () => {
