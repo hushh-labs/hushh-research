@@ -1006,7 +1006,6 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
 
     import asyncpg
 
-    from hushh_mcp.services import account_firebase_mutations as mutations
     from hushh_mcp.services import account_generation_service as generations
 
     migration = (ROOT / "db/migrations/419_account_generations.sql").read_text()
@@ -1016,6 +1015,9 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
     )
     await conn.execute(migration)
     await conn.execute(migration)
+    workos_migration = (ROOT / "db/migrations/426_workos_generation_memberships.sql").read_text()
+    await conn.execute(workos_migration)
+    await conn.execute(workos_migration)
     for client_role in ("anon", "authenticated"):
         assert (
             await conn.fetchval(
@@ -1179,9 +1181,14 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
     database_override.start()
     lifecycle_override = patch.object(lifecycle, "get_db_connection", engine.begin)
     lifecycle_override.start()
+    from tests.helpers.workos_generation_rehearsal import GenerationMembershipRehearsal
+
+    workos = GenerationMembershipRehearsal(engine, identity)
     try:
         for generation in range(2):
             await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
+            if generation == 0:
+                await asyncio.to_thread(workos.capture, owner)
             # A retained historical record demonstrates the unchanged-UID
             # UPDATE boundary; normal account-owned rows are erased instead.
             await conn.execute("INSERT INTO one_adk_sessions VALUES($1)", owner)
@@ -1189,17 +1196,7 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
                 "INSERT INTO synthetic_generation_retained_rows VALUES($1,'original')", owner
             )
 
-            def begin_mutation(captured_owner=owner):
-                with patch.object(mutations, "get_db_connection", engine.begin):
-                    return mutations.begin(
-                        captured_owner,
-                        purpose="display_name",
-                        authority_project="synthetic-project",
-                    )
-
-            def settle_mutation(permit, outcome):
-                with patch.object(mutations, "get_db_connection", engine.begin):
-                    return mutations.settle(permit, outcome)
+            begin_mutation, settle_mutation = workos.mutation_callbacks(owner)
 
             dispatched = await asyncio.to_thread(begin_mutation)
             assert dispatched.firebase_uid == identity
@@ -1215,6 +1212,7 @@ async def _assert_account_generation_cycles(conn, database_url, monkeypatch):
             )
             assert retired["retired_at"] is not None and retired["cleanup_confirmed"] is True
             assert retired["owner_id"] is None and retired["identity_uid"] is None
+            await workos.assert_retired(conn)
             with pytest.raises(asyncpg.CheckViolationError, match="generation is retired"):
                 await conn.execute(
                     "UPDATE one_adk_sessions SET user_id=user_id WHERE user_id=$1", owner

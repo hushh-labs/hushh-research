@@ -1,9 +1,9 @@
 """The Firebase boundary for enterprise SSO.
 
 Firebase stays the only token verifier, and it is also this feature's only
-account store: which WorkOS person an account belongs to, and whether that
-person was later deprovisioned, live as custom claims on the Firebase user.
-There is no table. This adapter looks users up, creates the identity a custom
+identity store. WorkOS profile attribution is retained by the local lifecycle;
+provider claims retain the existing sign-in compatibility. This adapter creates
+the identity a custom
 token signs in as, mints that token, and ends an identity's access. It never
 deletes an account.
 """
@@ -11,10 +11,12 @@ deletes an account.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from .errors import EnterpriseSsoError
 
@@ -31,7 +33,7 @@ ORIGIN_LINKED = "linked"
 
 
 def require_generation_compatibility() -> None:
-    """WorkOS callbacks have no captured account-generation mutation authority yet."""
+    """Keep public rollout off until legacy membership coverage is qualified."""
     if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
         raise EnterpriseSsoError("sso_generation_unavailable", 503)
 
@@ -58,9 +60,9 @@ class FirebaseIdentityPort(Protocol):
 
     async def mint_token(self, uid: str, claims: dict[str, str]) -> str: ...
 
-    async def quarantine(self, uid: str) -> bool: ...
-
-    async def revoke_sessions(self, uid: str) -> bool: ...
+    async def offboard(
+        self, uid: str, origin: str, organization: str, profile_hash: str
+    ) -> bool: ...
 
 
 def _info(user: Any) -> FirebaseUserInfo:
@@ -115,71 +117,127 @@ class FirebaseAdminIdentity:
         except firebase_auth.UserNotFoundError:
             return None
 
-    async def create_user(self, uid: str, email: str, display_name: str | None = None) -> None:
-        """Create the identity, idempotently. The org's IdP asserted this email on a domain
-        WorkOS verified by DNS, so the address is created verified."""
+    async def _mutate(
+        self,
+        uid: str,
+        purpose: Literal["display_name", "sso_claims", "sso_create", "sso_offboarding"],
+        operation: Callable[[Any, Any, str], None],
+    ) -> None:
+        from hushh_mcp.services import account_firebase_mutations as mutations
+        from hushh_mcp.services.account_generation_service import AccountGenerationRefused
+
         firebase_auth, app = self._write_auth()
-        extra = {"display_name": display_name} if display_name else {}
         try:
-            await asyncio.to_thread(
-                firebase_auth.create_user,
-                uid=uid,
-                email=email,
-                email_verified=True,
-                app=app,
-                **extra,
+            result = await mutations.run(
+                uid,
+                purpose=purpose,
+                authority_project=str(app.project_id),
+                operation=lambda captured: operation(firebase_auth, app, captured),
             )
-        except firebase_auth.UidAlreadyExistsError:
-            return  # a concurrent first sign-in for the same person already made it
-        except firebase_auth.EmailAlreadyExistsError:
-            # A different account holds this address. Never merge into it here.
-            raise EnterpriseSsoError("sso_email_conflict", 409) from None
+            if not result.settled:
+                raise EnterpriseSsoError("sso_identity_write_unconfirmed", 503)
+        except AccountGenerationRefused:
+            raise EnterpriseSsoError("sso_generation_unavailable", 503) from None
+        except mutations.FirebaseMutationRejected:
+            raise EnterpriseSsoError("sso_account_conflict", 409) from None
+        except mutations.FirebaseMutationTransportError:
+            raise EnterpriseSsoError("sso_identity_write_unconfirmed", 503) from None
+
+    async def create_user(self, uid: str, email: str, display_name: str | None = None) -> None:
+        """Stable UID creation, fenced against retirement for the complete SDK call."""
+
+        def create(firebase_auth, app, captured):
+            try:
+                firebase_auth.create_user(
+                    uid=captured,
+                    email=email,
+                    email_verified=True,
+                    app=app,
+                    **({"display_name": display_name} if display_name else {}),
+                )
+            except firebase_auth.UidAlreadyExistsError:
+                return
+
+        await self._mutate(uid, "sso_create", create)
 
     async def set_display_name(self, uid: str, display_name: str) -> None:
-        """Set the name the profile shows. Firebase Auth is where the app reads it from; the
-        identity shadow catches up on the person's next sign-in."""
-        firebase_auth, app = self._write_auth()
-        await asyncio.to_thread(firebase_auth.update_user, uid, display_name=display_name, app=app)
+        from hushh_mcp.services.account_firebase_mutations import set_display_name
+
+        await self._mutate(
+            uid,
+            "display_name",
+            lambda _auth, app, captured: set_display_name(app, captured, display_name),
+        )
 
     async def merge_claims(self, uid: str, updates: Mapping[str, Any]) -> None:
-        """Add to a user's claims. `set_custom_user_claims` replaces the whole object, so
-        the existing claims (for example `hushhWelcomeMailAt`) are read and kept."""
-        firebase_auth, app = self._write_auth()
-        user = await asyncio.to_thread(firebase_auth.get_user, uid, app=app)
-        merged = {**(user.custom_claims or {}), **updates}
-        await asyncio.to_thread(firebase_auth.set_custom_user_claims, uid, merged, app=app)
+        from hushh_mcp.services.account_firebase_mutations import (
+            FirebaseMutationRejected,
+            set_welcome_claims,
+        )
+
+        if set(updates) - {CLAIM_ORG, CLAIM_USER, CLAIM_ORIGIN}:
+            raise EnterpriseSsoError("sso_account_conflict", 409)
+
+        def merge(firebase_auth, app, captured):
+            user = firebase_auth.get_user(captured, app=app)
+            current = dict(user.custom_claims or {})
+            if current.get(CLAIM_DEPROVISIONED_AT) or any(
+                current.get(field, updates.get(field)) != updates.get(field)
+                for field in (CLAIM_ORG, CLAIM_USER)
+            ):
+                raise FirebaseMutationRejected("WorkOS identity binding changed")
+            merged = {**current, **updates}
+            if current.get(CLAIM_ORIGIN) in {ORIGIN_CREATED, ORIGIN_LINKED}:
+                merged[CLAIM_ORIGIN] = current[CLAIM_ORIGIN]
+            set_welcome_claims(app, captured, merged)
+
+        await self._mutate(uid, "sso_claims", merge)
 
     async def mint_token(self, uid: str, claims: dict[str, str]) -> str:
+        from api.utils.firebase_auth import current_auth_lane
+        from hushh_mcp.services.account_generation_service import AccountGenerationService
+
+        identity, binding = await asyncio.to_thread(
+            AccountGenerationService.custom_session_binding, uid, lane=current_auth_lane()
+        )
         firebase_auth, app = self._write_auth()
         token: Any = await asyncio.to_thread(
-            firebase_auth.create_custom_token, uid, claims, app=app
+            firebase_auth.create_custom_token, identity, {**claims, **binding}, app=app
         )
         return token.decode("utf-8") if isinstance(token, bytes) else str(token)
 
-    async def quarantine(self, uid: str) -> bool:
-        """Disable and revoke through the account lifecycle's own quarantine."""
-        from hushh_mcp.services.account_deletion_lifecycle_service import (
-            AccountDeletionLifecycleService,
+    async def offboard(self, uid: str, origin: str, organization: str, profile_hash: str) -> bool:
+        """One no-retry provider update, joined with dispatch/settlement receipts."""
+        from hushh_mcp.services.account_firebase_mutations import (
+            FirebaseMutationRejected,
+            _update_identity,
         )
 
-        attempt = await AccountDeletionLifecycleService().quarantine_firebase_identity(uid)
-        return attempt.outcome in {"quarantined", "not_found"}
+        from .membership import membership_hash
 
-    async def revoke_sessions(self, uid: str) -> bool:
-        """End live sessions without disabling the account."""
-        from api.utils.firebase_admin import FirebaseAuthorityError
+        if origin not in {ORIGIN_CREATED, ORIGIN_LINKED}:
+            raise EnterpriseSsoError("sso_account_conflict", 409)
 
-        try:
-            firebase_auth, app = self._auth()
-        except FirebaseAuthorityError:
-            return False
-        try:
-            from api.utils.firebase_admin import assert_firebase_identity_mutation_allowed
+        def update(firebase_auth, app, captured):
+            try:
+                user = firebase_auth.get_user(captured, app=app)
+            except firebase_auth.UserNotFoundError:
+                return
+            claims = dict(user.custom_claims or {})
+            if (
+                claims.get(CLAIM_ORIGIN) != origin
+                or claims.get(CLAIM_ORG) != organization
+                or membership_hash(organization, str(claims.get(CLAIM_USER) or "")) != profile_hash
+            ):
+                raise FirebaseMutationRejected("WorkOS identity binding changed")
+            claims.setdefault(CLAIM_DEPROVISIONED_AT, int(time.time()))
+            serialized = json.dumps(claims, separators=(",", ":"), allow_nan=False)
+            if len(serialized.encode()) > 1000:
+                raise EnterpriseSsoError("sso_account_conflict", 409)
+            fields = {"customAttributes": serialized, "validSince": str(int(time.time()))}
+            if origin == ORIGIN_CREATED:
+                fields["disableUser"] = True
+            _update_identity(app, captured, fields)
 
-            assert_firebase_identity_mutation_allowed(app)
-            await asyncio.to_thread(firebase_auth.revoke_refresh_tokens, uid, app=app)
-        except firebase_auth.UserNotFoundError:
-            return True
-        except Exception:  # noqa: BLE001 - the caller turns False into a retry
-            return False
+        await self._mutate(uid, "sso_offboarding", update)
         return True

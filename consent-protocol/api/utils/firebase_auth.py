@@ -286,6 +286,7 @@ def verify_firebase_principal(
         nonlocal principal
         from api.utils.account_principal_policy import (
             admit_phone_principal,
+            admit_workos_principal,
             require_independent_phone_signin,
         )
 
@@ -314,6 +315,7 @@ def verify_firebase_principal(
                 headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
             ) from None
         admit_phone_principal(principal.owner_id, claims)
+        admit_workos_principal(principal.owner_id, claims, lane=current_auth_lane())
         return principal.owner_id
 
     _verify_firebase_bearer(

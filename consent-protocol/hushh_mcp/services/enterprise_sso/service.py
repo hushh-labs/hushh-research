@@ -4,8 +4,8 @@ Identity proof only. A successful exchange yields a Firebase custom token and
 nothing else: no role, no consent, no vault access. Authorization stays DB-driven
 and unchanged.
 
-No table backs this. WorkOS is the authority for organizations, their DNS-verified
-domains and their connections; Firebase is the authority for accounts. See
+WorkOS owns organizations, domains and connections; Firebase owns identities.
+The local lifecycle retains immutable, hash-only directory attribution. See
 docs/reference/architecture/enterprise-sso-workos-adr.md.
 """
 
@@ -15,7 +15,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import time
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -34,6 +33,7 @@ from .firebase_identity import (
     FirebaseUserInfo,
     require_generation_compatibility,
 )
+from .membership import MembershipPort, SqlMembershipStore, membership_hash
 from .workos_adapter import (
     SsoProfile,
     WorkOSConfig,
@@ -115,12 +115,14 @@ class EnterpriseSsoService:
         firebase: FirebaseIdentityPort | None = None,
         consent: ConsentRevoker | None = None,
         is_tombstoned: Callable[[str], bool] | None = None,
+        memberships: MembershipPort | None = None,
     ) -> None:
         self._config = config or WorkOSConfig.from_env()
         self._workos = workos or WorkOSSdkAdapter(self._config)
         self._firebase = firebase or FirebaseAdminIdentity()
         self._consent = consent
         self._is_tombstoned = is_tombstoned or _tombstoned
+        self._memberships = memberships or SqlMembershipStore()
 
     def _consent_service(self) -> ConsentRevoker:
         if self._consent is None:
@@ -183,15 +185,31 @@ class EnterpriseSsoService:
         if not domain or domain in CONSUMER_EMAIL_DOMAINS or domain not in org.verified_domains:
             raise EnterpriseSsoError("sso_domain_not_verified", 403)
 
+        directory = await asyncio.to_thread(self._workos.directory_membership, profile)
         uid, is_new = await self._resolve_account(
             org_id=org.id,
             workos_user_id=profile.id,
             email=email,
             display_name=_profile_display_name(profile),
         )
-        token = await self._firebase.mint_token(
-            uid, {"auth_provider": SSO_AUTH_PROVIDER, "workos_org_id": org.id}
+        user = await self._firebase.get_user(uid)
+        if user is None:
+            raise EnterpriseSsoError("sso_unavailable", 503)
+        membership_key = await asyncio.to_thread(
+            self._memberships.capture,
+            uid,
+            profile,
+            directory,
+            str(user.claims.get(CLAIM_ORIGIN) or ""),
         )
+        claims = {
+            "auth_provider": SSO_AUTH_PROVIDER,
+            "workos_org_id": org.id,
+            "hussh_workos_profile": membership_hash(org.id, profile.id),
+        }
+        if membership_key is not None:
+            claims["hussh_workos_membership"] = membership_key
+        token = await self._firebase.mint_token(uid, claims)
         return {
             "custom_token": token,
             "user_id": uid,
@@ -281,8 +299,8 @@ class EnterpriseSsoService:
         except (ValueError, KeyError, TypeError, AttributeError):
             raise EnterpriseSsoError("webhook_invalid_event", 400) from None
 
-        # No dedupe ledger: every step below is idempotent, so a redelivery (WorkOS retries
-        # on any non-2xx) or a replay inside the 180 s signature window repeats harmlessly.
+        # Captured membership and the existing mutation journal preserve the
+        # original generation across redelivery and uncertain provider outcomes.
         deprovisioned = 0
         if self._is_deprovision(event_type, data):
             deprovisioned = await self._deprovision(data)
@@ -300,25 +318,29 @@ class EnterpriseSsoService:
 
     async def _deprovision(self, data: dict[str, Any]) -> int:
         workos_org_id = str(data.get("organization_id") or "")
-        email = _normalize_email(data.get("email"))
-        if not workos_org_id or not email:
+        captured = await asyncio.to_thread(
+            self._memberships.offboard,
+            workos_org_id,
+            str(data.get("directory_id") or ""),
+            str(data.get("id") or ""),
+        )
+        if captured.owner_id is None:
+            # A retired generation is acknowledged; the same UID's replacement
+            # must never receive this callback's authority.
             return 0
-        user = await self._firebase.find_by_email(email)
-        # Only someone who signed in through this organization is ours to deprovision.
-        if not user or user.claims.get(CLAIM_ORG) != workos_org_id:
-            return 0
-
-        # Refuse new sign-ins first, so a failure below cannot leave the door open.
-        if not user.claims.get(CLAIM_DEPROVISIONED_AT):
-            await self._firebase.merge_claims(user.uid, {CLAIM_DEPROVISIONED_AT: int(time.time())})
-        if user.claims.get(CLAIM_ORIGIN) == ORIGIN_CREATED:
-            # SSO made this account for the person's work: end it and what it granted.
-            if not await self._firebase.quarantine(user.uid):
-                raise EnterpriseSsoError("deprovision_incomplete", 503)
-            await self._consent_service().revoke_all_active_grants(user.uid)
-        elif not await self._firebase.revoke_sessions(user.uid):
-            # A personal account that was linked: end the work session, but leave the
-            # person's own account, vault and grants alone. They can still sign in normally.
+        user = await self._firebase.get_user(captured.owner_id)
+        if user and (
+            user.claims.get(CLAIM_ORG) != workos_org_id
+            or membership_hash(workos_org_id, str(user.claims.get(CLAIM_USER) or ""))
+            != captured.profile_hash
+            or user.claims.get(CLAIM_ORIGIN) != captured.origin
+        ):
+            raise EnterpriseSsoError("sso_account_conflict", 409)
+        if user and not await self._firebase.offboard(
+            captured.owner_id, captured.origin, workos_org_id, captured.profile_hash
+        ):
             raise EnterpriseSsoError("deprovision_incomplete", 503)
+        if captured.origin == ORIGIN_CREATED:
+            await self._consent_service().revoke_all_active_grants(captured.owner_id)
         logger.info("enterprise_sso.deprovisioned")
         return 1

@@ -361,7 +361,8 @@
     "422_financial_packet_discovery_capacity.sql",
     "423_account_shared_provider_authority.sql",
     "424_protected_one_document_delivery.sql",
-    "425_account_phone_transfers.sql"
+    "425_account_phone_transfers.sql",
+    "426_workos_generation_memberships.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -534,7 +535,8 @@
       "341_pwm_research_lifecycle.sql",
       "359_independent_email_otp.sql",
       "364_one_private_text_processing_approvals.sql",
-      "425_account_phone_transfers.sql"
+      "425_account_phone_transfers.sql",
+      "426_workos_generation_memberships.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -766,6 +768,7 @@
     "422_financial_packet_discovery_capacity.sql": "rollback/422_financial_packet_discovery_capacity.rollback.sql",
     "423_account_shared_provider_authority.sql": "rollback/423_account_shared_provider_authority.rollback.sql",
     "424_protected_one_document_delivery.sql": "rollback/424_protected_one_document_delivery.rollback.sql",
-    "425_account_phone_transfers.sql": "rollback/425_account_phone_transfers.rollback.sql"
+    "425_account_phone_transfers.sql": "rollback/425_account_phone_transfers.rollback.sql",
+    "426_workos_generation_memberships.sql": "rollback/426_workos_generation_memberships.rollback.sql"
   }
 }

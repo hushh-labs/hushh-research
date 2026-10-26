@@ -8,8 +8,6 @@ those two edges.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import json
 import os
 import re
@@ -32,35 +30,45 @@ from hushh_mcp.services.enterprise_sso.firebase_identity import (
     CLAIM_ORG,
     CLAIM_ORIGIN,
     CLAIM_USER,
-    FirebaseUserInfo,
 )
+from hushh_mcp.services.enterprise_sso.membership import membership_hash
 from hushh_mcp.services.enterprise_sso.service import sso_uid
 from hushh_mcp.services.enterprise_sso.workos_adapter import (
+    DirectoryMembership,
     SsoProfile,
     WorkOSConfig,
-    WorkOSOrganization,
     WorkOSSdkAdapter,
     sign_state,
     verify_state,
     verify_webhook_signature,
 )
-
-SECRET = "whsec_test"
-WRONG_SECRET = "not-the-webhook-secret"
-API_KEY = "sk_test_key"
-CONFIG = WorkOSConfig(
-    api_key=API_KEY,
-    client_id="client_1",
-    webhook_secret=SECRET,
-    redirect_uri="https://app.example/cb",
+from tests.helpers.workos_identity import (
+    API_KEY,
+    CONFIG,
+    SECRET,
+    WRONG_SECRET,
+    FakeConsent,
+    FakeFirebase,
+    FakeWorkOS,
+    _acme,
+    _deleted,
+    _event,
+    _real_adapter,
+    _request,
+    _routes_client,
+    _sdk_org,
+    _sign,
+    _sign_in,
+    _webhook,
+    directory_models,
+    offboarding_provider,
 )
-
-
-def _sign(body: bytes, *, secret: str = SECRET, issued_ms: int | None = None) -> str:
-    issued = str(int(time.time() * 1000) if issued_ms is None else issued_ms)
-    digest = hmac.new(secret.encode(), issued.encode() + b"." + body, hashlib.sha256).hexdigest()
-    return f"t={issued}, v1={digest}"
-
+from tests.helpers.workos_identity import (
+    active_firebase_account as active_firebase_account,
+)
+from tests.helpers.workos_identity import (
+    world as world,
+)
 
 # ── Pure contracts ──
 
@@ -135,71 +143,6 @@ def test_the_account_uid_is_stable_per_person_and_never_shared_across_orgs_or_pe
 # These exist because the fakes below are hand-written: they prove the service's rules, not that
 # the adapter reads WorkOS's real objects correctly. A live staging run showed WorkOS leaves its
 # built-in Test Identity Provider out of the connection listing, which this protects.
-
-_TS = "2026-01-01T00:00:00.000Z"
-
-
-def _sdk_org(domains):
-    from workos.organizations.models.organization import Organization
-
-    return Organization.from_dict(
-        {
-            "object": "organization",
-            "id": "org_01",
-            "name": "Acme",
-            "domains": [
-                {
-                    "object": "organization_domain",
-                    "id": f"d{i}",
-                    "organization_id": "org_01",
-                    "domain": domain,
-                    "state": state,
-                    "created_at": _TS,
-                    "updated_at": _TS,
-                }
-                for i, (domain, state) in enumerate(domains)
-            ],
-            "metadata": {},
-            "external_id": None,
-            "stripe_customer_id": None,
-            "created_at": _TS,
-            "updated_at": _TS,
-            "allow_profiles_outside_organization": False,
-        }
-    )
-
-
-def _sdk_connection(state):
-    from workos.sso.models.connection import Connection
-
-    return Connection.from_dict(
-        {
-            "object": "connection",
-            "id": "conn_1",
-            "organization_id": "org_01",
-            "connection_type": "GenericSAML",
-            "name": "Acme SSO",
-            "state": state,
-            "domains": [],
-            "created_at": _TS,
-            "updated_at": _TS,
-        }
-    )
-
-
-def _real_adapter(orgs, connection_states, api_key="sk_test_x"):
-    adapter = WorkOSSdkAdapter(
-        WorkOSConfig(api_key=api_key, client_id="client_x", redirect_uri="https://a.example/b")
-    )
-    connections = [_sdk_connection(state) for state in connection_states]
-    adapter._client = SimpleNamespace(
-        organizations=SimpleNamespace(
-            get_organization=lambda _id: orgs[0],
-            list_organizations=lambda **_: SimpleNamespace(data=orgs),
-        ),
-        sso=SimpleNamespace(list_connections=lambda **_: SimpleNamespace(data=connections)),
-    )
-    return adapter
 
 
 def test_only_dns_verified_domains_count_and_they_are_lowercased():
@@ -280,7 +223,7 @@ def test_a_rejected_code_exchange_tells_a_misconfiguration_from_a_bad_attempt(
     assert (refused.value.code, refused.value.status_code) == (expected_code, expected_status)
 
 
-def test_the_adapter_keeps_the_name_and_nothing_more_from_the_workos_profile():
+def test_the_adapter_keeps_identity_and_name_without_groups_or_raw_attributes():
     # Built from the real SDK model so a renamed field fails here instead of silently losing names.
     from workos.sso.models.profile import Profile
 
@@ -311,141 +254,69 @@ def test_the_adapter_keeps_the_name_and_nothing_more_from_the_workos_profile():
         email="ada@acme.example",
         first_name="Ada",
         last_name="Lovelace",
+        connection_id="conn_1",
+        idp_id="idp_1",
     )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "exact",
+        "empty",
+        "ambiguous",
+        "wrong_org",
+        "inactive",
+        "paginated",
+        "user_page",
+        "missing_idp",
+    ],
+)
+def test_directory_attribution_uses_complete_exact_provider_identity(case):
+    from workos._pagination import SyncPage
+    from workos.common.models.list_metadata import ListMetadata
+
+    directory, user, profile = directory_models(case)
+    calls = []
+
+    def connection(identifier):
+        calls.append(("connection", identifier))
+        return SimpleNamespace(
+            organization_id="wrong" if case == "wrong_org" else "org_01", state="active"
+        )
+
+    def users(**kwargs):
+        calls.append(("users", kwargs))
+        assert kwargs == {"directory": "directory_1", "idp_id": "idp_1", "limit": 2}
+        return SyncPage(
+            [user, user] if case == "ambiguous" else [user],
+            ListMetadata(before=None, after="more" if case == "user_page" else None),
+        )
+
+    adapter = WorkOSSdkAdapter(CONFIG)
+    adapter._client = SimpleNamespace(
+        sso=SimpleNamespace(get_connection=connection),
+        directory_sync=SimpleNamespace(
+            list_directories=lambda **_: SyncPage(
+                [] if case == "empty" else [directory],
+                ListMetadata(before=None, after="more" if case == "paginated" else None),
+            ),
+            list_users=users,
+        ),
+    )
+    if case in {"exact", "empty"}:
+        assert adapter.directory_membership(profile) == (
+            None if case == "empty" else DirectoryMembership("directory_1", "directory_user_1")
+        )
+        if case == "empty":
+            assert calls == []  # TestIdP needs no hidden-connection lookup.
+    else:
+        with pytest.raises(EnterpriseSsoError) as refused:
+            adapter.directory_membership(profile)
+        assert refused.value.code == "sso_directory_binding_required"
 
 
 # ── Fakes ──
-
-
-def _acme(**overrides):
-    values = {
-        "id": "org_01",
-        "name": "Acme",
-        "verified_domains": frozenset({"acme.example"}),
-        "sso_disabled": False,
-    }
-    return WorkOSOrganization(**{**values, **overrides})
-
-
-class FakeWorkOS:
-    """WorkOS is the authority: it owns the organizations, their verified domains and connections."""
-
-    def __init__(self):
-        self.profile = SsoProfile(id="prof_1", organization_id="org_01", email="Ada@Acme.example")
-        self.orgs = {"org_01": _acme()}
-        self.urls = []
-        self.redirects = []
-
-    def find_organization_by_domain(self, domain):
-        for org in self.orgs.values():
-            if domain in org.verified_domains and not org.sso_disabled:
-                return org
-        return None
-
-    def get_organization(self, organization_id):
-        return self.orgs.get(organization_id)
-
-    def authorization_url(self, *, organization_id, state, login_hint, redirect_uri=None):
-        self.urls.append((organization_id, login_hint))
-        self.redirects.append(redirect_uri)
-        return f"https://workos.example/authorize?organization={organization_id}&state={state}"
-
-    def exchange_code(self, code):
-        if code != "good-code":
-            raise EnterpriseSsoError("sso_code_invalid", 400)
-        return self.profile
-
-
-class FakeFirebase:
-    """Firebase is the account store: users, claims, the disabled flag and session revocation."""
-
-    def __init__(self):
-        self.users = {}  # uid -> {"email", "verified", "disabled", "claims"}
-        self.minted = []
-        self.quarantined = []
-        self.sessions_revoked = []
-        self.quarantine_ok = True
-
-    def add(self, uid, email, *, verified=True, disabled=False, display_name=None, **claims):
-        self.users[uid] = {
-            "email": email,
-            "verified": verified,
-            "disabled": disabled,
-            "claims": dict(claims),
-            "display_name": display_name,
-        }
-
-    def _info(self, uid):
-        user = self.users[uid]
-        return FirebaseUserInfo(
-            uid=uid,
-            email_verified=user["verified"],
-            disabled=user["disabled"],
-            claims=dict(user["claims"]),
-            display_name=user["display_name"],
-        )
-
-    async def get_user(self, uid):
-        return self._info(uid) if uid in self.users else None
-
-    async def find_by_email(self, email):
-        return next((self._info(uid) for uid, u in self.users.items() if u["email"] == email), None)
-
-    async def create_user(self, uid, email, display_name=None):
-        if uid in self.users:
-            return  # idempotent, like the real adapter
-        if any(u["email"] == email for u in self.users.values()):
-            raise EnterpriseSsoError("sso_email_conflict", 409)
-        self.add(uid, email, display_name=display_name)
-
-    async def set_display_name(self, uid, display_name):
-        self.users[uid]["display_name"] = display_name
-
-    async def merge_claims(self, uid, updates):
-        self.users[uid]["claims"] = {**self.users[uid]["claims"], **updates}
-
-    async def mint_token(self, uid, claims):
-        self.minted.append((uid, claims))
-        return f"token:{uid}"
-
-    async def quarantine(self, uid):
-        self.quarantined.append(uid)
-        if self.quarantine_ok:
-            self.users[uid]["disabled"] = True
-        return self.quarantine_ok
-
-    async def revoke_sessions(self, uid):
-        self.sessions_revoked.append(uid)
-        return True
-
-
-class FakeConsent:
-    def __init__(self):
-        self.revoked = []
-
-    async def revoke_all_active_grants(self, user_id):
-        self.revoked.append(user_id)
-        return 1
-
-
-@pytest.fixture
-def world():
-    workos, firebase, consent = FakeWorkOS(), FakeFirebase(), FakeConsent()
-    deleted = set()
-    service = EnterpriseSsoService(
-        workos=workos,
-        config=CONFIG,
-        firebase=firebase,
-        consent=consent,
-        is_tombstoned=lambda uid: uid in deleted,
-    )
-    return SimpleNamespace(
-        service=service, workos=workos, firebase=firebase, consent=consent, deleted=deleted
-    )
-
-
-async def _sign_in(world):
-    return await world.service.exchange(code="good-code", state=sign_state(API_KEY, "org_01"))
 
 
 async def test_unqualified_workos_cannot_mutate_a_generation_aware_identity(world, monkeypatch):
@@ -461,20 +332,6 @@ async def test_unqualified_workos_cannot_mutate_a_generation_aware_identity(worl
     assert not world.firebase.minted
     assert not world.firebase.quarantined
     assert not world.firebase.sessions_revoked
-
-
-def _event(event_type, data, event_id="event_1"):
-    return json.dumps({"id": event_id, "event": event_type, "data": data}).encode()
-
-
-def _deleted(email="ada@acme.example", org="org_01"):
-    return _event(
-        "dsync.user.deleted", {"id": "directory_user_1", "organization_id": org, "email": email}
-    )
-
-
-async def _webhook(world, body):
-    return await world.service.handle_webhook(body=body, signature=_sign(body))
 
 
 # ── Start ──
@@ -523,7 +380,19 @@ async def test_first_sign_in_creates_a_stable_account_with_a_minimal_token(world
     assert user["email"] == "ada@acme.example" and user["verified"]
     assert user["claims"] == {CLAIM_ORG: "org_01", CLAIM_USER: "prof_1", CLAIM_ORIGIN: "created"}
     # Identity only: two token claims, never the review-lane marker, never a role.
-    assert world.firebase.minted == [(uid, {"auth_provider": "workos", "workos_org_id": "org_01"})]
+    assert world.firebase.minted == [
+        (
+            uid,
+            {
+                "auth_provider": "workos",
+                "workos_org_id": "org_01",
+                "hussh_workos_profile": membership_hash("org_01", "prof_1"),
+                "hussh_workos_membership": membership_hash(
+                    "org_01", "directory_1", "directory_user_1"
+                ),
+            },
+        )
+    ]
     again = await _sign_in(world)
     assert again["user_id"] == uid and not again["is_new_account"]
     assert len(world.firebase.users) == 1
@@ -712,7 +581,12 @@ async def test_deprovisioning_a_linked_personal_account_ends_the_work_session_on
 
 async def test_an_inactive_directory_update_deprovisions_but_an_active_one_does_not(world):
     uid = (await _sign_in(world))["user_id"]
-    data = {"id": "directory_user_1", "organization_id": "org_01", "email": "ada@acme.example"}
+    data = {
+        "id": "directory_user_1",
+        "directory_id": "directory_1",
+        "organization_id": "org_01",
+        "email": "ada@acme.example",
+    }
     active = _event("dsync.user.updated", {**data, "state": "active"}, "event_a")
     await _webhook(world, active)
     assert world.firebase.quarantined == []
@@ -721,15 +595,33 @@ async def test_an_inactive_directory_update_deprovisions_but_an_active_one_does_
     assert world.firebase.quarantined == [uid]
 
 
-async def test_deprovision_only_touches_people_who_signed_in_through_that_org(world):
-    await _sign_in(world)
-    for body in (_deleted(org="org_other"), _deleted(email="stranger@acme.example")):
-        assert (await _webhook(world, body))["deprovisioned"] == 0
-    assert world.firebase.quarantined == [] and world.firebase.sessions_revoked == []
-    # An account that never used SSO is out of reach even if its address matches.
+async def test_deprovision_requires_captured_membership_not_the_event_email(world):
+    uid = (await _sign_in(world))["user_id"]
     world.firebase.add("uid-bystander", "bystander@acme.example", verified=True)
-    assert (await _webhook(world, _deleted(email="bystander@acme.example")))["deprovisioned"] == 0
+    for body in (
+        _deleted(org="org_other"),
+        _deleted(directory="other"),
+        _deleted(person="stranger"),
+    ):
+        with pytest.raises(EnterpriseSsoError) as refused:
+            await _webhook(world, body)
+        assert refused.value.code == "sso_directory_binding_required"
+    assert not world.firebase.quarantined and not world.firebase.sessions_revoked
+    # An email change or malicious email field cannot select another identity.
+    assert (await _webhook(world, _deleted(email="bystander@acme.example")))["deprovisioned"] == 1
+    assert world.firebase.quarantined == [uid]
     assert world.firebase.users["uid-bystander"]["claims"] == {}
+
+
+async def test_retired_membership_cannot_offboard_the_same_uid_replacement(world):
+    uid = (await _sign_in(world))["user_id"]
+    world.memberships.retired.add(uid)
+    # The external UID still exists with a replacement's state. A late event
+    # must not read/mutate that identity or revoke the new owner's grants.
+    world.firebase.users[uid]["claims"] = {"replacement": True}
+    assert (await _webhook(world, _deleted()))["deprovisioned"] == 0
+    assert world.firebase.users[uid]["claims"] == {"replacement": True}
+    assert not world.firebase.quarantined and not world.consent.revoked
 
 
 async def test_a_redelivered_event_repeats_harmlessly(world):
@@ -872,21 +764,6 @@ async def test_start_sends_workos_the_redirect_for_the_origin_the_person_started
     assert workos.redirects == ["https://alt.example/cb", "https://app.example/cb"]
 
 
-def _routes_client(monkeypatch, *, enabled, secret=None):
-    from api.routes import workos as routes
-
-    monkeypatch.delenv("WORKOS_SSO_ENABLED", raising=False)
-    monkeypatch.delenv("WORKOS_WEBHOOK_SECRET", raising=False)
-    if enabled:
-        monkeypatch.setenv("WORKOS_SSO_ENABLED", "true")
-    if secret:
-        monkeypatch.setenv("WORKOS_WEBHOOK_SECRET", secret)
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.include_router(routes.webhook_router)
-    return TestClient(app)
-
-
 def test_the_webhook_keeps_working_after_sign_in_is_switched_off(monkeypatch):
     # Turning sign-in off is the rollback. It must not make WorkOS's offboarding events fail.
     client = _routes_client(monkeypatch, enabled=False, secret=SECRET)
@@ -928,13 +805,6 @@ def test_the_limited_routes_work_with_the_limiter_switched_on(monkeypatch):
 
     assert set(starts) == {422, 429}  # reached the handler (422) until the ceiling held (429)
     assert exchange.status_code not in (429, 500)
-
-
-def _request(forwarded=None, peer="10.0.0.1"):
-    from starlette.requests import Request
-
-    headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded else []
-    return Request({"type": "http", "headers": headers, "client": (peer, 1234)})
 
 
 @pytest.mark.parametrize(
@@ -1012,3 +882,120 @@ def test_deploy_refuses_to_enable_sso_with_missing_required_configuration(
         ["bash", "-c", f"{stubs}source {script}"], env=env, capture_output=True, text=True
     )
     assert (run.returncode == 0) is ok
+
+
+async def test_sso_only_login_preserves_prior_offboarding_when_directory_is_removed(world):
+    world.workos.directory_membership = lambda _: None
+    await _sign_in(world)
+    assert "hussh_workos_profile" in world.firebase.minted[-1][1]
+    assert "hussh_workos_membership" not in world.firebase.minted[-1][1]
+    # A later verified exchange captures Directory Sync; removing that directory
+    # cannot downgrade a previously offboarded profile to SSO-only authority.
+    world.workos.directory_membership = lambda _: DirectoryMembership(
+        "directory_1", "directory_user_1"
+    )
+    await _sign_in(world)
+    world.memberships.offboard("org_01", "directory_1", "directory_user_1")
+    world.workos.directory_membership = lambda _: None
+    before = len(world.firebase.minted)
+    with pytest.raises(EnterpriseSsoError) as refused:
+        await _sign_in(world)
+    assert refused.value.code == "sso_deprovisioned"
+    assert len(world.firebase.minted) == before
+
+
+@pytest.mark.parametrize(
+    "origin,changed,lost",
+    [
+        ("created", False, False),
+        ("linked", False, False),
+        ("linked", True, False),
+        ("created", False, True),
+    ],
+)
+async def test_offboarding_rechecks_binding_and_settles_one_provider_write(
+    monkeypatch, origin, changed, lost
+):
+    identity, permit, settlements, writes = offboarding_provider(monkeypatch, origin, changed, lost)
+    if changed or lost:
+        with pytest.raises(EnterpriseSsoError) as error:
+            await identity.offboard(
+                "captured-owner", origin, "org_01", membership_hash("org_01", "prof_1")
+            )
+        assert error.value.status_code == (409 if changed else 503)
+    else:
+        assert await identity.offboard(
+            "captured-owner", origin, "org_01", membership_hash("org_01", "prof_1")
+        )
+    assert settlements == [
+        (permit, "rejected" if changed else "uncertain" if lost else "succeeded")
+    ]
+    assert len(writes) == (0 if changed else 1)
+    if writes:
+        uid, fields = writes[0]
+        assert uid == "captured-uid"
+        assert fields.get("disableUser", False) is (origin == "created")
+        assert set(fields) == (
+            {"customAttributes", "validSince", "disableUser"}
+            if origin == "created"
+            else {"customAttributes", "validSince"}
+        )
+        decoded = json.loads(fields["customAttributes"])
+        assert decoded["unrelated"] == "preserved" and decoded[CLAIM_DEPROVISIONED_AT] > 0
+
+
+@pytest.mark.parametrize(
+    "state",
+    ["active", "offboarded", "retired", "foreign_lane", "database_outage", "legacy_offboarded"],
+)
+@pytest.mark.parametrize("profile_only", [False, True])
+def test_held_workos_custom_token_cannot_reopen_an_offboarded_membership(
+    monkeypatch, state, profile_only, active_firebase_account
+):
+    import firebase_admin.auth as firebase_auth
+    from fastapi import HTTPException
+
+    from api.utils import firebase_auth as firebase_auth_module
+    from api.utils.firebase_auth import verify_firebase_bearer
+    from hushh_mcp.services.enterprise_sso.membership import SqlMembershipStore
+
+    monkeypatch.delenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", raising=False)
+    lane = firebase_auth_module.current_auth_lane()
+    claims = {
+        "uid": "captured-owner",
+        "firebase": {"sign_in_provider": "custom"},
+        "auth_provider": "workos",
+        "hussh_account_owner": "captured-owner",
+        "hussh_account_lane": "foreign-lane" if state == "foreign_lane" else lane,
+        "hussh_workos_membership": "sha256:" + "a" * 64,
+    }
+    if profile_only:
+        claims["hussh_workos_profile"] = claims.pop("hussh_workos_membership")
+    if state == "legacy_offboarded":
+        claims.pop("hussh_workos_membership", None)
+        claims.pop("hussh_workos_profile", None)
+        claims["workosDeprovisionedAt"] = 1
+    calls = []
+
+    def admit(_self, key, owner):
+        calls.append((key, owner))
+        if state == "database_outage":
+            raise ConnectionError("synthetic outage")
+        return state == "active"
+
+    monkeypatch.setattr(SqlMembershipStore, "admit", admit)
+    monkeypatch.setattr(SqlMembershipStore, "admit_profile", admit)
+    monkeypatch.setattr(firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "test"))
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+    # The ID token is freshly redeemed AFTER provider revocation, so Firebase
+    # signature/auth_time alone cannot distinguish this held custom token.
+    monkeypatch.setattr(firebase_auth, "verify_id_token", lambda *_args, **_kwargs: claims)
+    if state == "active":
+        assert verify_firebase_bearer("Bearer held-workos-proof") == "captured-owner"
+    else:
+        with pytest.raises(HTTPException) as error:
+            verify_firebase_bearer("Bearer held-workos-proof")
+        assert error.value.status_code == (
+            503 if state == "database_outage" else 401 if state == "foreign_lane" else 403
+        )
+    assert len(calls) == (0 if state in {"foreign_lane", "legacy_offboarded"} else 1)
