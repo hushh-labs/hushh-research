@@ -227,9 +227,9 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 
 ### Production access administration
 
-Production dispatch and protected pipeline edits are limited to the five actors
+Production dispatch and protected pipeline edits are limited to the six actors
 in the committed policy: `kushaltrivedi5`, `msainani`,
-`ankitkumarsingh1702`, `DamriaNeelesh`, and `imsharukhan`. Dev/UAT dispatch lists are unchanged.
+`RGlodAkshat`, `ankitkumarsingh1702`, `DamriaNeelesh`, and `imsharukhan`. Dev/UAT dispatch lists are unchanged.
 The managed teams mirror these lists; changing a team alone does not change
 workflow authority. Policy changes take effect after landing on Main.
 

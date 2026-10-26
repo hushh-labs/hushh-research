@@ -106,6 +106,10 @@ flowchart LR
 5. Daily posture workflow:
 - `.github/workflows/prod-cloudsql-backup-posture.yml`
 - validates backup/PITR posture and uploads a JSON report artifact
+- runs only from `main` in the `production` GitHub environment using the existing
+  production WIF provider and a dedicated read-only backup identity
+- configure that identity with `deploy/iam/setup_production_backup_wif.sh`; no
+  database connection, backup mutation or deployment authority is granted
 
 ---
 

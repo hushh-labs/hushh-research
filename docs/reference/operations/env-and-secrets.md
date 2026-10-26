@@ -404,7 +404,7 @@ These are not Cloud Run runtime secrets.
   missing environment configuration before dispatch. The workflow reads
   `vars.*`, so setting same-named GitHub environment secrets does not satisfy
   the contract.
-- Required as repository variables for the scheduled production backup posture
+- Required as production environment variables for the scheduled backup posture
   workflow: `GCP_WORKLOAD_IDENTITY_PROVIDER` and
   `GCP_BACKUP_SERVICE_ACCOUNT`.
 - These identities use GitHub OIDC Workload Identity Federation. Do not create,
@@ -999,8 +999,8 @@ Verify manually with `gcloud secrets list --project=YOUR_PROJECT_ID` and the che
 
 | Variable | Scope | Used by | Notes |
 |----------|-------|---------|-------|
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub repository variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. |
-| `GCP_BACKUP_SERVICE_ACCOUNT` | GitHub repository variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Dedicated read-only backup-posture identity; never the Cloud Run LLM runtime identity. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub production environment variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Full Workload Identity Provider resource name for GitHub OIDC; non-secret configuration. |
+| `GCP_BACKUP_SERVICE_ACCOUNT` | GitHub production environment variable | `.github/workflows/prod-cloudsql-backup-posture.yml` | Dedicated read-only backup-posture identity; never the Cloud Run LLM runtime identity. |
 
 ### Backup posture config (Cloud SQL)
 

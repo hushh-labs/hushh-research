@@ -441,8 +441,31 @@ def test_a_missing_record_fails_loudly() -> None:
     raise AssertionError("a missing record must raise, never yield an empty expectation")
 
 
+def test_backup_monitor_uses_production_main_and_read_only_identity() -> None:
+    # Governance runs with the runner's plain Python, before project dependency
+    # installation. Keep this source-contract check standard-library-only.
+    workflow = (REPO_ROOT / ".github/workflows/prod-cloudsql-backup-posture.yml").read_text()
+    lines = {line.strip() for line in workflow.splitlines()}
+    assert "environment: production" in lines
+    assert (
+        "if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'"
+        in lines
+    )
+    assert "service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}" in lines
+    assert any(line.startswith("uses: google-github-actions/auth@") for line in lines)
+    assert any(line.startswith("uses: google-github-actions/setup-gcloud@") for line in lines)
+    assert MOD.audit_record(REAL, workflow) == []
+    setup = (REPO_ROOT / "deploy/iam/setup_production_backup_wif.sh").read_text()
+    assert "readonly PERMISSIONS=cloudsql.instances.get,cloudsql.backupRuns.list" in setup
+    assert "--env=production" in setup
+    assert "verify-deploy-identity-provenance.py" in setup
+    assert "roles/cloudsql.client" not in setup
+    assert "service-accounts keys create" not in setup
+
+
 def main() -> int:
     tests = [
+        test_backup_monitor_uses_production_main_and_read_only_identity,
         test_the_real_record_parses_and_interpolates,
         test_the_record_as_committed_is_coherent,
         test_record_only_never_reads_cloud_authority,
