@@ -783,38 +783,17 @@ def _lane_step(lane: str, name: str) -> dict:
 
 @pytest.mark.parametrize("lane", sorted(LANES))
 def test_lane_overlaps_the_web_build_and_keeps_the_deploy_position(lane: str) -> None:
+    from tests.helpers.frontend_image_contract import assert_frontend_release_order
+
     steps = _workflow_steps(lane)
-    names = [str(step.get("name") or "") for step in steps]
-    positions = {step["id"]: index for index, step in enumerate(steps) if "id" in step}
-    order = [
-        positions[name]
-        for name in (
-            "start-frontend-image-build",
-            "build-backend-image",
-            "check-frontend-image",
-            "deploy-backend",
-            "deploy-frontend",
-            "candidate-state",
-        )
-    ]
-    assert order == sorted(order), lane
-    joined = positions["build-frontend-image"]
+    assert_frontend_release_order(steps, lane)
     if lane == "production":
-        assert (
-            positions["build-backend-image"] < joined < positions["install-account-deletion-fence"]
-        )
-        assert joined < names.index("Sync canonical hosted runtime secrets")
-        assert (
-            names.index("Sync frontend hosted runtime secrets")
-            < positions["start-frontend-image-build"]
-        )
-    else:
-        assert (
-            names.index("Sync canonical hosted runtime secrets")
-            < positions["start-frontend-image-build"]
-        )
-        assert positions["deploy-backend"] < joined
-        assert positions["deploy-frontend"] == joined + 1
+        broken = list(steps)
+        joined = next(step for step in broken if step.get("id") == "build-frontend-image")
+        broken.remove(joined)
+        broken.append(joined)
+        with pytest.raises(AssertionError):
+            assert_frontend_release_order(broken, lane)
 
     start = _lane_step(lane, "Start frontend image build in parallel")
     assert start["id"] == "start-frontend-image-build"
