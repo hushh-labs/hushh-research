@@ -58,6 +58,11 @@ performed when it opens. Its Edit/Delete controls retain the existing callbacks.
 Stocks exposes `Search stocks` (placeholder `Symbol or company`) beside
 `History`. Tier, Sector, Rows per page, and the source selector when alternatives
 exist retain local filtering/pagination and the existing source-selection owner.
+Failed reads offer Retry through the same shared Finance resource, with the
+current source selection preserved. Saved rows remain visible during refresh and
+after a refresh failure, with a quiet loading/update-availability status. A partial
+refresh failure never relabels all visible quotes as cached. Retry is disabled while
+the resource is busy; History stays available during an initial load failure.
 Searching, choosing a chart range, and closing History make no API calls.
 History contents use the existing encrypted history service only when
 opened with an unlocked vault. The existing history action/route intent opens
