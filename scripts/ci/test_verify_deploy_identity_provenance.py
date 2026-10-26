@@ -442,17 +442,19 @@ def test_a_missing_record_fails_loudly() -> None:
 
 
 def test_backup_monitor_uses_production_main_and_read_only_identity() -> None:
-    import yaml
-
-    workflow = yaml.safe_load(
-        (REPO_ROOT / ".github/workflows/prod-cloudsql-backup-posture.yml").read_text()
+    # Governance runs with the runner's plain Python, before project dependency
+    # installation. Keep this source-contract check standard-library-only.
+    workflow = (REPO_ROOT / ".github/workflows/prod-cloudsql-backup-posture.yml").read_text()
+    lines = {line.strip() for line in workflow.splitlines()}
+    assert "environment: production" in lines
+    assert (
+        "if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'"
+        in lines
     )
-    job = workflow["jobs"]["backup-posture"]
-    assert job["environment"] == "production"
-    assert "github.ref == 'refs/heads/main'" in job["if"]
-    auth = next(step for step in job["steps"] if "google-github-actions/auth@" in step.get("uses", ""))
-    assert auth["with"]["service_account"] == "${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}"
-    assert any("google-github-actions/setup-gcloud@" in step.get("uses", "") for step in job["steps"])
+    assert "service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}" in lines
+    assert any(line.startswith("uses: google-github-actions/auth@") for line in lines)
+    assert any(line.startswith("uses: google-github-actions/setup-gcloud@") for line in lines)
+    assert MOD.audit_record(REAL, workflow) == []
     setup = (REPO_ROOT / "deploy/iam/setup_production_backup_wif.sh").read_text()
     assert "readonly PERMISSIONS=cloudsql.instances.get,cloudsql.backupRuns.list" in setup
     assert "--env=production" in setup
