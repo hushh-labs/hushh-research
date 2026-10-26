@@ -20,6 +20,18 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def synthetic_firebase_authority(monkeypatch):
+    # Never resolve developer ADC in isolated identity cleanup tests.
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "development")
+    monkeypatch.setattr(
+        lifecycle_module,
+        "get_firebase_auth_app",
+        lambda: SimpleNamespace(project_id="synthetic-test-project"),
+    )
+
+
 @contextmanager
 def _db(conn):
     yield conn
@@ -139,7 +151,7 @@ def test_backend_only_erasure_retains_barrier_without_external_cleanup():
     )
 
     insert = conn.execute.call_args_list[-1]
-    assert conn.execute.call_count == 3
+    assert conn.execute.call_count == 4  # owner locks, schema admission, legacy receipt
     assert conn.execute.call_args_list[0].args[1]["lock_namespace"] == 171
     assert conn.execute.call_args_list[1].args[1]["lock_namespace"] == 198
     assert insert.args[1] == {"user_id_hash": account_deletion_user_hash("user_123")}
@@ -428,7 +440,7 @@ def test_completed_cleanup_scrubs_raw_firebase_uid(monkeypatch):
 
     sql = str(conn.execute.call_args.args[0])
     params = conn.execute.call_args.args[1]
-    assert "firebase_uid = CASE WHEN :completed THEN NULL" in sql
+    assert "firebase_uid = CASE WHEN :completed OR :identity_retained THEN NULL" in sql
     assert "expected_phone_digest = CASE" in sql
     assert params["completed"] is True
     assert params["cleanup_status"] == "completed"
@@ -736,7 +748,7 @@ def test_due_cleanup_claim_uses_skip_locked(monkeypatch):
     assert "cleanup_claim_token = gen_random_uuid()" in str(conn.execute.call_args.args[0])
 
 
-def test_firebase_cleanup_has_whole_intent_deadline(monkeypatch):
+def test_phone_orphan_cleanup_has_whole_intent_deadline(monkeypatch):
     service = AccountDeletionLifecycleService()
 
     async def _never_finishes(_user_id: str, **_kwargs):
@@ -749,9 +761,15 @@ def test_firebase_cleanup_has_whole_intent_deadline(monkeypatch):
     )
     monkeypatch.setattr(service, "_delete_or_quarantine_firebase_identity", _never_finishes)
 
-    attempt = asyncio.run(service.delete_or_quarantine_firebase_identity("user_123"))
+    attempt = asyncio.run(
+        service.delete_or_quarantine_firebase_identity(
+            "user_123",
+            intent_kind="phone_orphan",
+            expected_phone_digest=account_deletion_phone_digest("+16505550101"),
+        )
+    )
 
-    assert attempt.outcome == "quarantine_incomplete"
+    assert attempt.outcome == "retry_pending"
     assert attempt.failure_class == "TimeoutError"
 
 

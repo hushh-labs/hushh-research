@@ -32,6 +32,7 @@ export const AUTH_SESSION_INVALIDATION_CODES = [
   "account_deleted",
   "account_deleted_ready_to_start_fresh",
   "account_deletion_finishing",
+  "account_deletion_identity_retained",
   "account_deletion_uncertain",
   "session_invalid",
 ] as const;
@@ -42,7 +43,7 @@ export type AuthSessionInvalidationCode =
 /** Codes that can be inferred from a credential/backend response alone. */
 export type AuthCredentialInvalidationCode = Exclude<
   AuthSessionInvalidationCode,
-  "account_deleted" | "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_uncertain"
+  "account_deleted" | "account_deleted_ready_to_start_fresh" | "account_deletion_finishing" | "account_deletion_uncertain" | "account_deletion_identity_retained"
 >;
 
 type BackendAccountLifecycleCode =
@@ -134,6 +135,11 @@ const LANDING_NOTICES: Record<
     code: "account_deleted_ready_to_start_fresh",
     message: "Your old account is deleted. Continue below to start fresh.",
     toastId: "auth-session-account-deleted-ready",
+  },
+  account_deletion_identity_retained: {
+    code: "account_deletion_identity_retained",
+    message: "Your One information has been deleted. Your Google, Apple or Microsoft sign-in remains unchanged. Contact support before starting a new One account.",
+    toastId: "auth-session-account-identity-retained",
   },
   account_deletion_finishing: {
     code: "account_deletion_finishing",

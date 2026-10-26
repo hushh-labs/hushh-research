@@ -384,10 +384,6 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   // Auth validation is the outer security boundary. A cached in-memory vault
   // must never bypass it while a foreground/deletion check is in progress.
-  if (authLoading) {
-    return sessionHold("session", "Checking session...");
-  }
-
   // An ordinary network/backend outage cannot prove that a remotely deleted
   // account is still live. Keep every decrypted/cached Vault surface hidden,
   // but retain the identity so the user can recover without a destructive
@@ -399,6 +395,11 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
         onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );
+  }
+
+  // Keep the already-sealed recovery surface mounted during background probes.
+  if (authLoading) {
+    return sessionHold("session", "Checking session...");
   }
 
   if (isVaultUnlocked) {

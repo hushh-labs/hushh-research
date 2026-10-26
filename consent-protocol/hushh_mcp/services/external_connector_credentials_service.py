@@ -154,7 +154,10 @@ class ExternalConnectorCredentialsService:
             )
             if version == 2:
                 expiry = datetime.fromisoformat(payload["expiresAt"])
-                if payload["envelopeVersion"] != 2 or expiry != row["credential_expires_at"]:
+                stored_expiry = row["credential_expires_at"]
+                if isinstance(stored_expiry, str):
+                    stored_expiry = datetime.fromisoformat(stored_expiry)
+                if payload["envelopeVersion"] != 2 or expiry != stored_expiry:
                     raise ValueError("envelope metadata mismatch")
                 payload = payload["credential"]
             if not isinstance(payload, dict):

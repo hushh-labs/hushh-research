@@ -13,17 +13,20 @@ import re
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from functools import partial
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import HTTPException
 
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.account_generation_service import AccountPrincipal
 
 _REVOCATION_CACHE_TTL_SECONDS = 60.0
 _REVOCATION_CACHE_MAX_ENTRIES = 4096
@@ -271,13 +274,121 @@ def _assert_account_not_deleted(uid: str) -> None:
             headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
         ) from None
     if deleted:
-        raise _account_not_found_error()
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "AUTH_ACCOUNT_NOT_FOUND",
+                "account_lifecycle": "deleted",
+                "message": "Account information has been deleted",
+            },
+            headers={"Cache-Control": "private, no-store"},
+        )
 
 
 def verify_firebase_bearer(
     authorization: Optional[str],
     *,
     check_revoked: bool = True,
+) -> str:
+    """Return the admitted application owner, preserving generation-zero UIDs."""
+    return verify_firebase_principal(authorization, check_revoked=check_revoked).owner_id
+
+
+def verify_firebase_principal(
+    authorization: Optional[str], *, check_revoked: bool = True
+) -> AccountPrincipal:
+    """Keep external authentication and immutable application ownership distinct.
+
+    Admission ships dark until all consumers and enrollment are qualified.
+    Disabling it never maps a replacement back to generation zero: the original
+    UID's retained tombstone continues to refuse that path.
+    """
+    from hushh_mcp.services.account_generation_service import (
+        AccountGenerationRefused,
+        AccountGenerationService,
+        AccountPrincipal,
+    )
+
+    principal: AccountPrincipal | None = None
+
+    def resolve(claims: Mapping[str, Any]) -> str:
+        nonlocal principal
+        try:
+            if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
+                principal = AccountGenerationService.resolve_verified_identity(
+                    claims, lane=current_auth_lane()
+                )
+            else:
+                uid = str(claims["uid"])
+                principal = AccountPrincipal(uid, uid, 0)
+        except AccountGenerationRefused as exc:
+            detail = {"code": "AUTH_GENERATION_REAUTHENTICATION_REQUIRED"}
+            if str(exc) == "account_retired":
+                detail = {"code": "AUTH_ACCOUNT_NOT_FOUND", "account_lifecycle": "deleted"}
+            raise HTTPException(
+                status_code=401,
+                detail=detail,
+                headers={"Cache-Control": "private, no-store"},
+            ) from None
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "AUTH_SESSION_STATUS_UNAVAILABLE"},
+                headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
+            ) from None
+        return principal.owner_id
+
+    _verify_firebase_bearer(
+        authorization,
+        check_revoked=check_revoked,
+        account_guard=_assert_account_not_deleted,
+        identity_resolver=resolve,
+    )
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    return principal
+
+
+def verify_account_cleanup_bearer(
+    authorization: Optional[str], *, operation_id: str | None = None
+) -> str:
+    """Verify identity for cleanup status only; never issue account admission."""
+    from hushh_mcp.services.account_deletion_provider_journal import (
+        CleanupOperationNotFound,
+        inspect_for_identity,
+    )
+
+    def cleanup_guard(uid: str) -> None:
+        try:
+            inspect_for_identity(uid, operation_id=operation_id)
+        except CleanupOperationNotFound:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "ACCOUNT_CLEANUP_NOT_FOUND"},
+                headers={"Cache-Control": "private, no-store"},
+            ) from None
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "ACCOUNT_CLEANUP_UNAVAILABLE"},
+                headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
+            ) from None
+
+    try:
+        return _verify_firebase_bearer(
+            authorization, check_revoked=True, account_guard=cleanup_guard
+        )
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), "Cache-Control": "private, no-store"}
+        raise
+
+
+def _verify_firebase_bearer(
+    authorization: Optional[str],
+    *,
+    check_revoked: bool,
+    account_guard: Callable[[str], None],
+    identity_resolver: Callable[[Mapping[str, Any]], str] | None = None,
 ) -> str:
     """
     Verify `Authorization: Bearer <firebaseIdToken>` and return UID.
@@ -298,6 +409,13 @@ def verify_firebase_bearer(
     from firebase_admin import exceptions as firebase_exceptions
 
     uid: str | None = None
+    decoded: Mapping[str, Any] | None = None
+
+    def admit(claims: Mapping[str, Any]) -> str:
+        owner = identity_resolver(claims) if identity_resolver else str(claims["uid"])
+        account_guard(owner)
+        return owner
+
     try:
         firebase_app = get_firebase_auth_app()
         # Always do signature/issuer/audience/expiry verification. The global
@@ -327,7 +445,7 @@ def verify_firebase_bearer(
                 expected_uid=uid,
             )
 
-        _assert_account_not_deleted(uid)
+        owner_id = admit(decoded)
 
         device_id = str(decoded.get("trusted_device_id") or "").strip()
         if device_id:
@@ -339,7 +457,7 @@ def verify_firebase_bearer(
 
             try:
                 active = TrustedDeviceService().is_active_device(
-                    user_id=uid,
+                    user_id=owner_id,
                     device_id=device_id,
                 )
             except Exception:
@@ -357,7 +475,7 @@ def verify_firebase_bearer(
                     status_code=401,
                     detail="Trusted-device session is no longer active",
                 )
-        return uid
+        return owner_id
     except HTTPException:
         raise
     except ValueError as exc:
@@ -383,7 +501,7 @@ def verify_firebase_bearer(
             )
             uid = decoded_without_revocation.get("uid")
             if isinstance(uid, str) and uid:
-                _assert_account_not_deleted(uid)
+                admit(decoded_without_revocation)
         except HTTPException:
             raise
         except Exception:
@@ -396,9 +514,15 @@ def verify_firebase_bearer(
         raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from None
     except firebase_auth.CertificateFetchError as exc:
         logger.error("firebase.verify_id_token certificate_fetch_failed: %s", exc)
+        # Typed code so the client keeps the user signed in through a transient
+        # provider outage by CODE, not by prose-matching (a real cross-tier
+        # contract). The human-readable message is retained for logs/humans.
         raise HTTPException(
             status_code=503,
-            detail="Authentication service temporarily unavailable",
+            detail={
+                "error_code": "AUTH_PROVIDER_UNAVAILABLE",
+                "message": "Authentication service temporarily unavailable",
+            },
         ) from None
     except firebase_exceptions.FirebaseError as exc:
         # In particular, the opt-in revocation lookup can surface deadline,
@@ -407,8 +531,8 @@ def verify_firebase_bearer(
         # If local verification already established a UID, consult the
         # tombstone before returning an outage. Deleted accounts must still
         # receive the terminal machine code when Firebase is unavailable.
-        if uid is not None:
-            _assert_account_not_deleted(uid)
+        if uid is not None and decoded is not None:
+            admit(decoded)
         logger.error(
             "firebase.verify_id_token service_unavailable error=%s",
             type(exc).__name__,
@@ -422,8 +546,8 @@ def verify_firebase_bearer(
             headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
         ) from None
     except _FirebaseRevocationUnavailable as exc:
-        if uid is not None:
-            _assert_account_not_deleted(uid)
+        if uid is not None and decoded is not None:
+            admit(decoded)
         logger.error(
             "firebase.verify_id_token revocation_unavailable error=%s",
             type(exc).__name__,

@@ -74,3 +74,16 @@ describe("account delete proxy", () => {
     expect(apiErrorCode(error)).toBeNull();
   });
 });
+
+
+it("preserves staged cleanup status and retry instructions", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(
+    { success: true, cleanup_pending: true, account_deleted: false },
+    { status: 202, headers: { "Retry-After": "5" } },
+  )));
+  const response = await DELETE(deleteRequest());
+  expect(response.status).toBe(202);
+  expect(response.headers.get("Retry-After")).toBe("5");
+  expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  expect(await response.json()).toMatchObject({ cleanup_pending: true, account_deleted: false });
+});

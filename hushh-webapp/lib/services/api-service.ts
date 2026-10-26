@@ -585,6 +585,8 @@ export async function fetchWithWebTimeout(
 }
 
 export type ApiFetchOptions = RequestInit & {
+  /** Account lifecycle settles cleanup before altering authentication. */
+  accountLifecycleOwnsAuthOutcome?: boolean;
   /** Native HTTP returns binary bodies as base64; decode them before blob(). */
   responseType?: "arraybuffer";
   /** Revalidate effect authority after async transport setup, including retries. */
@@ -613,7 +615,11 @@ async function apiFetch(
   options: ApiFetchOptions = {},
   streaming = false,
 ): Promise<Response> {
-  const { beforeDispatch, isEffectCurrent, responseType, ...fetchOptions } = options;
+  const { beforeDispatch, isEffectCurrent, responseType, accountLifecycleOwnsAuthOutcome, ...fetchOptions } = options;
+  if (accountLifecycleOwnsAuthOutcome && ![
+    "/api/account/session-status", "/api/account/delete", "/api/account/delete-lost-vault",
+    "/api/account/deletion-cleanup", "/api/account/deletion-cleanup/continue",
+  ].includes(path)) throw new Error("Unsupported account lifecycle transport.");
   const assertEffectCurrent = () => {
     if (isEffectCurrent && isEffectCurrent() !== true) {
       throw new DOMException("The effect session changed.", "AbortError");
@@ -878,6 +884,11 @@ async function apiFetch(
   const settleAuthenticatedResponse = async (
     response: Response,
   ): Promise<Response> => {
+    if (accountLifecycleOwnsAuthOutcome) {
+      assertEffectCurrent();
+      recordApiRequestMetric(response.status);
+      return response;
+    }
     await handleVaultOwnerAuthFailure(response);
     if (await dispatchTerminalAuthCodeFromResponse(response)) {
       recordApiRequestMetric(response.status);
@@ -2215,6 +2226,7 @@ export class ApiService {
 
     try {
       return await apiFetch("/api/account/session-status", {
+        accountLifecycleOwnsAuthOutcome: true,
         method: "GET",
         cache: "no-store",
         signal: controller.signal,
@@ -2229,6 +2241,30 @@ export class ApiService {
     } finally {
       globalThis.clearTimeout(timeout);
     }
+  }
+
+  /** Cleanup status remains available while ordinary account access is fenced. */
+  static async getAccountCleanupStatus(idToken: string, signal?: AbortSignal): Promise<Response> {
+    return apiFetch("/api/account/deletion-cleanup", {
+      method: "GET", cache: "no-store", signal,
+      accountLifecycleOwnsAuthOutcome: true,
+      headers: { Authorization: `Bearer ${idToken}`, [AUTH_REFRESH_RETRY_HEADER]: "1" },
+    });
+  }
+
+  static async continueAccountCleanup(
+    idToken: string,
+    operation: { id: string; inventory_sha256: string },
+    acceptLocalErasure: boolean,
+    isCurrent: () => boolean,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    return apiFetch("/api/account/deletion-cleanup/continue", {
+      method: "POST", cache: "no-store", signal, isEffectCurrent: isCurrent,
+      accountLifecycleOwnsAuthOutcome: true,
+      headers: { Authorization: `Bearer ${idToken}`, [AUTH_REFRESH_RETRY_HEADER]: "1" },
+      body: JSON.stringify({ operation_id: operation.id, inventory_sha256: operation.inventory_sha256, accept_local_erasure: acceptLocalErasure }),
+    });
   }
 
   // ==================== Consent ====================

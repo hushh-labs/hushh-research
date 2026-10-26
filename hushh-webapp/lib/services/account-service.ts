@@ -77,6 +77,8 @@ export interface AccountDeletionResult {
   requested_target?: AccountDeletionTarget;
   deleted_target?: AccountDeletionTarget;
   account_deleted?: boolean;
+  cleanup_pending?: boolean;
+  cleanup_operation?: { id: string; owner_id: string; state: string; credential_count: number };
   remaining_personas?: Array<"investor" | "ria">;
   details?: Record<string, unknown>;
   /** Only true after the old Firebase identity is removed. */
@@ -161,10 +163,13 @@ export class AccountServiceImpl {
   async deleteLostVaultAccount(params: {
     firebaseIdToken: string;
     phoneIdToken?: string;
+    isCurrent?: () => boolean;
   }): Promise<AccountDeletionResult> {
     if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
     return apiJson<AccountDeletionResult>("/api/account/delete-lost-vault", {
       method: "POST",
+      accountLifecycleOwnsAuthOutcome: true,
+      isEffectCurrent: params.isCurrent,
       headers: { Authorization: `Bearer ${params.firebaseIdToken}` },
       body: JSON.stringify(
         params.phoneIdToken
@@ -187,12 +192,14 @@ export class AccountServiceImpl {
    */
   async deleteAccount(
     vaultOwnerToken: string,
-    target: AccountDeletionTarget = "both"
+    target: AccountDeletionTarget = "both",
+    isCurrent?: () => boolean,
   ): Promise<AccountDeletionResult> {
     if (!vaultOwnerToken) {
       throw new Error("VAULT_OWNER token required - vault must be unlocked");
     }
     
+    if (isCurrent?.() === false) throw new Error("Account deletion cancelled before submission.");
     trackEvent("account_delete_requested", {
       result: "success",
     });
@@ -211,7 +218,7 @@ export class AccountServiceImpl {
         } catch (error) {
           throw nativeAccountDeletionApiError(error) ?? error;
         }
-        trackEvent("account_delete_completed", {
+        if (!result.cleanup_pending) trackEvent("account_delete_completed", {
           result: result.success ? "success" : "error",
           status_bucket: result.success ? "2xx" : "5xx",
         });
@@ -222,13 +229,15 @@ export class AccountServiceImpl {
           "/api/account/delete",
           {
             method: "DELETE",
+            accountLifecycleOwnsAuthOutcome: true,
+            isEffectCurrent: isCurrent,
             headers: {
               Authorization: `Bearer ${vaultOwnerToken}`,
             },
             body: JSON.stringify({ target }),
           }
         );
-        trackEvent("account_delete_completed", {
+        if (!result.cleanup_pending) trackEvent("account_delete_completed", {
           result: result.success ? "success" : "error",
           status_bucket: result.success ? "2xx" : "5xx",
         });

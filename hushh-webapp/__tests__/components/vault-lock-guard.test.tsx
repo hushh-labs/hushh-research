@@ -439,6 +439,17 @@ describe("VaultLockGuard", () => {
     expect(screen.queryByText("Protected route")).toBeNull();
   });
 
+  it("keeps cleanup recovery mounted during background session verification", () => {
+    mocks.authState.sessionVerificationRequired = true;
+    const { rerender } = render(<VaultLockGuard><div>Protected route</div></VaultLockGuard>);
+    const recovery = screen.getByRole("alert");
+    mocks.authState.loading = true;
+    rerender(<VaultLockGuard><div>Protected route</div></VaultLockGuard>);
+    expect(screen.getByRole("alert")).toBe(recovery);
+    expect(screen.queryByText("Protected route")).toBeNull();
+    expect(screen.queryByText("Checking session...")).toBeNull();
+  });
+
   it("keeps an unlocked Vault hidden behind an actionable recovery surface when verification is unavailable", async () => {
     mocks.vaultUnlocked = true;
     mocks.authState.sessionVerificationRequired = true;

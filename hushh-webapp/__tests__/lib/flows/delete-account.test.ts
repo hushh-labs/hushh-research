@@ -42,6 +42,7 @@ vi.mock("@/lib/auth/session-invalidation", () => ({
   dispatchAuthSessionInvalidated: mockDispatchAuthSessionInvalidated,
   authSessionInvalidationCodeFromBackendPayload: mockBackendInvalidationCode,
   authSessionInvalidationCodeFromFirebaseError: mockFirebaseInvalidationCode,
+  isAccountDeletionInProgressBackendPayload: (body: string) => body.includes("AUTH_ACCOUNT_DELETION_IN_PROGRESS"),
 }));
 
 vi.mock("@/lib/services/account-service", () => ({
@@ -94,7 +95,10 @@ import {
 import { ApiError } from "@/lib/services/api-client";
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
 
+import { publishValidatedAuthSessionOwner, AUTH_SESSION_VERIFICATION_REQUIRED_EVENT } from "@/lib/auth/session-owner";
+
 function makeSessionUser(uid = "user_123") {
+  publishValidatedAuthSessionOwner(uid);
   return {
     uid,
     getIdToken: vi.fn().mockResolvedValue("firebase-token"),
@@ -591,6 +595,7 @@ describe("banks sealed in the vault are revoked before the account is erased", (
     }).catch(() => undefined);
 
     expect(mockRevokeAllVaultPlaid).toHaveBeenCalledWith({
+      isCurrent: expect.any(Function),
       userId: "user_123",
       vaultKey: "vault-key",
       vaultOwnerToken: "vault-owner-token",
@@ -750,6 +755,7 @@ describe("banks sealed in the vault are revoked before the account is erased", (
     });
 
     expect(mockDeleteLostVaultAccount).toHaveBeenCalledWith({
+      isCurrent: expect.any(Function),
       firebaseIdToken: "fresh-provider-token",
       phoneIdToken: undefined,
     });
@@ -758,5 +764,32 @@ describe("banks sealed in the vault are revoked before the account is erased", (
       path: "account_delete_confirmed",
       userId: "user_123",
     });
+  });
+});
+
+
+describe("durable deletion compatibility", () => {
+  beforeEach(() => { vi.clearAllMocks(); mockRevokeAllVaultPlaid.mockResolvedValue({ revoked: 0, failed: 0 }); });
+  it("keeps a pending cleanup sealed without sign-out, local erasure or replay", async () => {
+    const listener = vi.fn();
+    window.addEventListener(AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, listener);
+    mockDeleteAccount.mockResolvedValue({ success: true, account_deleted: false, cleanup_pending: true,
+      cleanup_operation: { id: "11111111-1111-4111-8111-111111111111", owner_id: "user_123", state: "cleaning_up" } });
+    try {
+      await expect(executeVerifiedAccountDeletion({ userId: "user_123", vaultOwnerToken: "synthetic", sessionUser: makeSessionUser() })).rejects.toMatchObject({ code: "ACCOUNT_DELETION_IN_PROGRESS" });
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
+      expect(mockDispatchAuthSessionInvalidated).not.toHaveBeenCalled();
+      expect(mockClearForUser).not.toHaveBeenCalled();
+      expect(mockGetAccountSessionStatus).not.toHaveBeenCalled();
+    } finally { window.removeEventListener(AUTH_SESSION_VERIFICATION_REQUIRED_EVENT, listener); }
+  });
+  it("does not submit after an owner switch during bank preparation", async () => {
+    mockRevokeAllVaultPlaid.mockImplementation(async () => {
+      publishValidatedAuthSessionOwner("other-owner");
+      return { revoked: 1, failed: 0 };
+    });
+    await expect(executeVerifiedAccountDeletion({ userId: "user_123", vaultOwnerToken: "synthetic", vaultKey: "synthetic", sessionUser: makeSessionUser() })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
   });
 });

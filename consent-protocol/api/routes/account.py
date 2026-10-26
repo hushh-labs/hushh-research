@@ -33,6 +33,7 @@ import re
 import secrets
 import time
 from typing import Any, Literal, cast
+from uuid import UUID
 
 from anyio import CancelScope, fail_after
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
@@ -41,7 +42,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from api.middleware import (
     require_firebase_auth,
@@ -53,6 +54,7 @@ from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
     carries_review_mint,
     refuse_foreign_review_mint,
+    verify_account_cleanup_bearer,
     verify_firebase_bearer,
 )
 from hushh_mcp.services.account_deletion_lifecycle_service import (
@@ -1807,16 +1809,14 @@ async def delete_account(
 async def _perform_account_deletion(user_id: str, *, target: str):
     """Shared erasure lifecycle. Authority is checked by the calling route."""
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
-    service = AccountService()
-    try:
-        result = await service.delete_account(user_id, target=target)
-    except Exception as exc:
-        # The erasure itself catches every error once its transaction begins,
-        # and provider release never raises, so an exception here happened
-        # before anything was erased (for example the profile read). Report it
-        # with the machine code so the client keeps a session it can retry.
-        logger.error("account.delete_failed user=%s error=%s", user_id, type(exc).__name__)
-        result = {"success": False, "error": type(exc).__name__}
+    result = await _delete_account_result(user_id, target=target)
+
+    if result.get("success") is True and result.get("cleanup_pending") is True:
+        return JSONResponse(
+            status_code=202,
+            content=result,
+            headers={"Cache-Control": "private, no-store", "Retry-After": "2"},
+        )
 
     if not result["success"]:
         if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
@@ -1825,6 +1825,7 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 detail={
                     "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
                     "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+                    **_cleanup_provider_detail(result.get("cleanup_provider")),
                 },
             )
         if result.get("error_code") == ACCOUNT_DELETION_PAUSED_CODE:
@@ -1835,6 +1836,11 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 status_code=503,
                 content={"detail": "Account deletion paused", "code": ACCOUNT_DELETION_PAUSED_CODE},
             )
+        pending_files = _files_erasure_pending_response(result.get("error_code"))
+        if pending_files is not None:
+            # Preserve the exact safe refusal. Unverified uploads require
+            # reconciliation; only a settled bounded batch invites continuation.
+            return pending_files
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.
         logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))
@@ -1873,6 +1879,7 @@ async def _perform_account_deletion(user_id: str, *, target: str):
                 user_id,
             )
         result["details"] = details
+        result["ready_to_start_fresh"] = firebase_auth_status in {"deleted", "not_found"}
 
     return result
 
@@ -1949,3 +1956,109 @@ async def export_account_data(token_data: dict = Depends(require_vault_owner_tok
         logger.warning("account_export outcome=prepare_failed error_type=%s", type(exc).__name__)
         raise HTTPException(status_code=500, detail="Account export failed") from None
     return _AccountExportResponse(stream)
+
+
+@router.get("/deletion-cleanup")
+async def account_deletion_cleanup_status(
+    response: Response,
+    authorization: str | None = Header(None),
+    operation_id: UUID | None = Query(None),
+):
+    """Discover only this identity's durable cleanup, including after refresh."""
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    response.headers["Cache-Control"] = "private, no-store"
+    selected = str(operation_id) if operation_id is not None else None
+    identity = await run_in_threadpool(
+        verify_account_cleanup_bearer, authorization, operation_id=selected
+    )
+    operation = await run_in_threadpool(
+        journal.inspect_for_identity, identity, operation_id=selected
+    )
+    if operation["retry_after_seconds"] is not None:
+        response.headers["Retry-After"] = str(operation["retry_after_seconds"])
+    return {"operation": operation}
+
+
+class AccountCleanupContinuation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    operation_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    inventory_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    accept_local_erasure: bool = False
+
+
+@router.post("/deletion-cleanup/continue")
+async def continue_account_deletion_cleanup(
+    payload: AccountCleanupContinuation,
+    response: Response,
+    authorization: str | None = Header(None),
+):
+    """Confirm local-only erasure or retry safe work for the exact inventory."""
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        operation_id = str(UUID(payload.operation_id))
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail={"code": "ACCOUNT_CLEANUP_OPERATION_INVALID"}
+        ) from None
+    identity = await run_in_threadpool(
+        verify_account_cleanup_bearer, authorization, operation_id=operation_id
+    )
+    try:
+        await run_in_threadpool(
+            journal.authorize_continuation,
+            identity,
+            operation_id=operation_id,
+            inventory_sha256=payload.inventory_sha256,
+            accept_local_erasure=payload.accept_local_erasure,
+        )
+    except journal.CleanupOperationNotFound:
+        raise HTTPException(status_code=404, detail={"code": "ACCOUNT_CLEANUP_NOT_FOUND"}) from None
+    except journal.ProviderCleanupNotReady:
+        raise HTTPException(
+            status_code=409, detail={"code": "ACCOUNT_CLEANUP_REVIEW_REQUIRED"}
+        ) from None
+    return {
+        "operation": await run_in_threadpool(
+            journal.inspect_for_identity, identity, operation_id=operation_id
+        )
+    }
+
+
+def _files_erasure_pending_response(code: str | None) -> JSONResponse | None:
+    messages = {
+        "FILES_ERASURE_IN_PROGRESS": (
+            "Files cleanup is still in progress. Account not deleted. Try again to continue."
+        ),
+        "FILES_ERASURE_WAITING_FOR_WRITES": (
+            "An upload outcome is unverified. Account not deleted. Contact support before retrying."
+        ),
+    }
+    message = messages.get(code or "")
+    if message is None:
+        return None
+    return JSONResponse(
+        status_code=409,
+        content={"detail": message, "code": code},
+    )
+
+
+async def _delete_account_result(user_id: str, *, target: str) -> dict[str, Any]:
+    """Preserve the erasure service's result, including a definite pre-transaction failure."""
+    service = AccountService()
+    try:
+        return cast(dict[str, Any], await service.delete_account(user_id, target=target))
+    except Exception as exc:
+        # Transaction failures are returned by the service. A raised exception
+        # occurred before erasure, so preserve the existing retry-safe result.
+        logger.error("account.delete_failed user=%s error=%s", user_id, type(exc).__name__)
+        return {"success": False, "error": type(exc).__name__}
+
+
+def _cleanup_provider_detail(value: object) -> dict[str, str]:
+    if not isinstance(value, str):
+        return {}
+    provider = {"user_azure": "azure", "user_gcp": "gcp"}.get(value)
+    return {"cleanupProvider": provider} if provider else {}

@@ -114,7 +114,7 @@ def snapshot_provider_credentials_in_transaction(
 
 
 async def revoke_google_oauth_token(token: str) -> str:
-    """Revoke one Google grant. An already-invalid token has nothing left to revoke."""
+    """Report token absence separately from confirmed project/account revocation."""
     try:
         async with httpx.AsyncClient(
             timeout=_REVOKE_HTTP_TIMEOUT_SECONDS, follow_redirects=False
@@ -125,8 +125,15 @@ async def revoke_google_oauth_token(token: str) -> str:
         return "failed"
     if response.status_code == 200:
         return "revoked"
-    if response.status_code == 400:
-        return "already_invalid"
+    if response.status_code == 400 and len(response.content) <= 4096:
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict) and body.get("error") == "invalid_token":
+            # Absence of this token is not proof that all clients in its OAuth
+            # project have been revoked. Cleanup must retain that distinction.
+            return "token_absent"
     logger.warning("account_deletion.provider_revoke_failed status=%s", response.status_code)
     return "failed"
 

@@ -1048,12 +1048,9 @@ describe("AuthProvider terminal session invalidation", () => {
     act(() => requestExplicitSessionVerification());
 
     expect(screen.getByText("Checking session")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
-    });
-    expect(mocks.replaceDocument).toHaveBeenCalledWith(
-      "/login?auth_notice=account_deletion_uncertain",
-    );
+    expect(await screen.findByText("Verification required")).toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+    expect(mocks.replaceDocument).not.toHaveBeenCalled();
     expect(
       screen.queryByText("Vault content for account-owner"),
     ).not.toBeInTheDocument();

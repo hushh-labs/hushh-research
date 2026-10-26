@@ -764,6 +764,7 @@ export async function revokeAllVaultPlaidAtPlaid(params: {
   userId: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  isCurrent?: () => boolean;
 }): Promise<{ revoked: number; failed: number }> {
   // A failed read throws and stops the erasure; null means no finance record.
   const financial = await loadFinancialForVault(params);

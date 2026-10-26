@@ -23,6 +23,9 @@ import {
   clearAccountDeletionActive,
   markAccountDeletionActive,
 } from "@/lib/auth/account-deletion-activity";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent,
+  dispatchAuthSessionVerificationRequired, type AuthSessionOwnerSnapshot } from "@/lib/auth/session-owner";
+import { isAccountDeletionInProgressBackendPayload } from "@/lib/auth/session-invalidation";
 import { withDeadline } from "@/lib/utils/with-deadline";
 
 export type DeleteAccountAuthResolution =
@@ -40,7 +43,7 @@ export const DELETE_ACCOUNT_DIALOG_DESCRIPTION =
   "Deletes your account, vault, memory, chats, and connections. This can’t be undone.";
 
 type AccountDeletionSessionUser = Pick<User, "uid" | "getIdToken">;
-type DeletionStatusProbe = "active" | "deleted" | "unavailable";
+type DeletionStatusProbe = "active" | "deleted" | "pending" | "unavailable";
 const DELETION_STATUS_MAX_BODY_BYTES = 4_096;
 
 export const DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE =
@@ -91,6 +94,7 @@ export async function revokeVaultBanksBeforeErasure(params: {
   userId: string;
   vaultKey: string | null | undefined;
   vaultOwnerToken: string;
+  isCurrent?: () => boolean;
 }): Promise<void> {
   if (!params.vaultKey) return;
   const { revokeAllVaultPlaidAtPlaid } = await import("@/lib/kai/plaid-vault/vault-sync");
@@ -98,6 +102,7 @@ export async function revokeVaultBanksBeforeErasure(params: {
     userId: params.userId,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
+    isCurrent: params.isCurrent,
   }).catch(() => ({ revoked: 0, failed: -1 }));
   if (outcome.failed !== 0) throw new AccountErasureBanksNotDisconnectedError(outcome.failed);
 }
@@ -143,6 +148,20 @@ export class AccountDeletionNotCompletedError extends Error {
   }
 }
 
+export class AccountDeletionPendingError extends Error {
+  readonly code = "ACCOUNT_DELETION_IN_PROGRESS";
+  constructor() {
+    super("Account cleanup is in progress. You can check its status here.");
+    this.name = "AccountDeletionPendingError";
+  }
+}
+
+function requireDeletionOwner(userId: string): AuthSessionOwnerSnapshot {
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (!owner || owner.userId !== userId) throw new Error("Account deletion session changed.");
+  return owner;
+}
+
 export class AccountDeletionOutcomeUncertainError extends Error {
   readonly code = "ACCOUNT_DELETION_OUTCOME_UNCERTAIN";
 
@@ -159,6 +178,7 @@ export class AccountDeletionOutcomeUncertainError extends Error {
  */
 export function isHandledAccountDeletionOutcome(error: unknown): boolean {
   return (
+    error instanceof AccountDeletionPendingError ||
     error instanceof AccountDeletionOutcomeUncertainError ||
     error instanceof AccountDeletionNotCompletedError ||
     error instanceof AccountErasureBanksNotDisconnectedError ||
@@ -167,6 +187,7 @@ export function isHandledAccountDeletionOutcome(error: unknown): boolean {
 }
 
 export function accountDeletionErrorMessage(error: unknown): string {
+  if (error instanceof AccountDeletionPendingError) return error.message;
   if (error instanceof AccountDeletionOutcomeUncertainError) {
     return DELETE_ACCOUNT_OUTCOME_UNCERTAIN_MESSAGE;
   }
@@ -238,6 +259,7 @@ async function probeDeletionStatus(
         return "unavailable";
       }
     }
+    if (response.status === 423 && isAccountDeletionInProgressBackendPayload(payload)) return "pending";
     if (response.status !== 401) return "unavailable";
     return authSessionInvalidationCodeFromBackendPayload(payload) ===
       "account_not_found"
@@ -336,16 +358,19 @@ export async function executeVerifiedAccountDeletion(params: {
     throw new Error("Account deletion session identity changed. Please retry.");
   }
 
+  const owner = requireDeletionOwner(params.userId);
   await revokeVaultBanksBeforeErasure({
     userId: params.userId,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
+    isCurrent: () => isValidatedAuthSessionOwnerCurrent(owner),
   });
 
   await executeAccountDeletion({
     userId: params.userId,
     sessionUser: params.sessionUser,
-    performDeletion: () => AccountService.deleteAccount(params.vaultOwnerToken, "both"),
+    owner,
+    performDeletion: () => AccountService.deleteAccount(params.vaultOwnerToken, "both", () => isValidatedAuthSessionOwnerCurrent(owner)),
   });
 }
 
@@ -357,10 +382,13 @@ export async function executeLostVaultAccountDeletion(params: {
   phoneIdToken?: string;
 }): Promise<AccountDeletionResult> {
   if (!params.firebaseIdToken) throw new Error("Fresh sign-in proof required.");
+  const owner = requireDeletionOwner(params.userId);
   return executeAccountDeletion({
     userId: params.userId,
     sessionUser: params.sessionUser,
+    owner,
     performDeletion: () => AccountService.deleteLostVaultAccount({
+      isCurrent: () => isValidatedAuthSessionOwnerCurrent(owner),
       firebaseIdToken: params.firebaseIdToken,
       phoneIdToken: params.phoneIdToken,
     }),
@@ -371,6 +399,7 @@ export async function executeLostVaultAccountDeletion(params: {
 async function executeAccountDeletion(params: {
   userId: string;
   sessionUser: AccountDeletionSessionUser;
+  owner: AuthSessionOwnerSnapshot;
   performDeletion: () => Promise<AccountDeletionResult>;
   isKnownPrecommitError?: (error: unknown) => boolean;
 }): Promise<AccountDeletionResult> {
@@ -378,6 +407,10 @@ async function executeAccountDeletion(params: {
     throw new Error("Account deletion session identity changed. Please retry.");
   }
 
+  const assertCurrent = () => {
+    if (!isValidatedAuthSessionOwnerCurrent(params.owner)) throw new DOMException("The account changed.", "AbortError");
+  };
+  assertCurrent();
   // Capture a UID-bound Firebase credential before the destructive request.
   // Even if Firebase is removed and the HTTP response is lost, this token can
   // still ask the tombstone-aware status route for the committed outcome.
@@ -396,6 +429,7 @@ async function executeAccountDeletion(params: {
   let terminalDeletionSignalDispatched = false;
   // From here the erasure may lock or remove this account's rows under any
   // background vault work still running on this page.
+  assertCurrent();
   markAccountDeletionActive(params.userId);
   try {
     result = await params.performDeletion();
@@ -403,6 +437,13 @@ async function executeAccountDeletion(params: {
     submissionFailure = error;
   }
 
+  assertCurrent();
+  if (result?.success === true && result.cleanup_pending === true && result.account_deleted === false &&
+      result.cleanup_operation?.owner_id === params.userId &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(result.cleanup_operation.id)) {
+    dispatchAuthSessionVerificationRequired(params.owner, "AUTH_ACCOUNT_DELETION_IN_PROGRESS");
+    throw new AccountDeletionPendingError();
+  }
   if (
     submissionFailure !== null ||
     result?.success !== true ||
@@ -431,6 +472,11 @@ async function executeAccountDeletion(params: {
             }),
             Date.now() + 8_000,
           ).catch(() => "unavailable" as const);
+    assertCurrent();
+    if (deletionStatus === "pending") {
+      dispatchAuthSessionVerificationRequired(params.owner, "AUTH_ACCOUNT_DELETION_IN_PROGRESS");
+      throw new AccountDeletionPendingError();
+    }
     if (
       deletionStatus === "active" &&
       isReportedAccountDeletionFailure(submissionFailure)
@@ -480,7 +526,9 @@ async function executeAccountDeletion(params: {
     // success, so it receives success copy; sibling/other devices still use
     // the authoritative account-not-found notice.
     dispatchAuthSessionInvalidated({
-      code: result.ready_to_start_fresh === true
+      code: result.details?.firebase_auth_user === "identity_retained"
+        ? "account_deletion_identity_retained"
+        : result.ready_to_start_fresh === true
         ? "account_deleted_ready_to_start_fresh"
         : result.ready_to_start_fresh === false
           ? "account_deletion_finishing"

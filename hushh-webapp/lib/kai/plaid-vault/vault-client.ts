@@ -83,13 +83,15 @@ function requireToken(value: string, label: string): string {
 async function post<T>(
   endpoint: PlaidVaultEndpoint,
   vaultOwnerToken: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  isCurrent?: () => boolean,
 ): Promise<T> {
   const token = requireToken(vaultOwnerToken, "A vault-owner token");
   let response: Response;
   try {
     response = await ApiService.apiFetch(`${PLAID_VAULT_BASE_PATH}/${endpoint}`, {
       method: "POST",
+      ...(isCurrent ? { isEffectCurrent: isCurrent } : {}),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
@@ -152,9 +154,10 @@ export async function fetchVaultSnapshot(params: {
 export async function removeVaultItem(params: {
   vaultOwnerToken: string;
   accessToken: string;
+  isCurrent?: () => boolean;
 }): Promise<PlaidVaultRemoveResponse> {
   const accessToken = requireToken(params.accessToken, "A Plaid access token");
   return post<PlaidVaultRemoveResponse>("remove", params.vaultOwnerToken, {
     access_token: accessToken,
-  });
+  }, params.isCurrent);
 }

@@ -806,7 +806,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // loss, or unreadable follow-up is an uncertain destructive outcome
           // and must never reopen cached authenticated UI.
         }
-        return { outcome: "terminal", code: "account_deletion_uncertain" };
+        // Durable cleanup may outlive a session probe. Keep identity for recovery.
+        return { outcome: "unavailable" };
       };
 
       try {

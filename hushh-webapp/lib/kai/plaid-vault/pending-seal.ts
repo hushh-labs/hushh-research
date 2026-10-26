@@ -95,24 +95,27 @@ export async function recoverPendingSeals(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   sealedItemIds: ReadonlySet<string>;
+  isCurrent?: () => boolean;
 }): Promise<PendingSealRecovery> {
   const outcome: PendingSealRecovery = { disconnected: 0, alreadySealed: 0, failed: 0 };
   const seals = await readPending(params.userId, params.vaultKey);
   if (seals.length === 0) return outcome;
   const keep: PendingSeal[] = [];
   for (const seal of seals) {
+    if (params.isCurrent?.() === false) throw new DOMException("The account changed.", "AbortError");
     if (params.sealedItemIds.has(seal.itemId)) {
       outcome.alreadySealed += 1;
       continue;
     }
     try {
-      await removeVaultItem({ vaultOwnerToken: params.vaultOwnerToken, accessToken: seal.accessToken });
+      await removeVaultItem({ vaultOwnerToken: params.vaultOwnerToken, accessToken: seal.accessToken, ...(params.isCurrent ? { isCurrent: params.isCurrent } : {}) });
       outcome.disconnected += 1;
     } catch {
       outcome.failed += 1;
       keep.push(seal);
     }
   }
+  if (params.isCurrent?.() === false) throw new DOMException("The account changed.", "AbortError");
   await writePending(params.userId, params.vaultKey, keep);
   return outcome;
 }
