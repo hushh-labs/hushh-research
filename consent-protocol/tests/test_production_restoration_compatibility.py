@@ -315,6 +315,9 @@ def test_document_restoration_fence_drains_real_writers_and_preserves_empty_casc
                 cursor.execute("DELETE FROM drive_share_requests WHERE id=1")
         proof = module.install(installer, source="a" * 40, run_id="12", database="postgres")
         assert proof["status"] == "installed"
+        module.verify(observer, source="a" * 40, run_id="12")
+        with pytest.raises(module.Refused, match="unconfirmed"):
+            module.verify(observer, source="a" * 40, run_id="13")
         assert (
             module.install(installer, source="a" * 40, run_id="12", database="postgres")["status"]
             == "confirmed"

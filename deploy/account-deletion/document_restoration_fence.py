@@ -148,3 +148,23 @@ def _verify(cursor, function_oid: int) -> None:
         ],
         "restoration_fence_registration_changed",
     )
+
+
+def verify(connection, *, source: str, run_id: str) -> None:
+    """Confirm the exact persistent barrier before non-reader activation."""
+    _require(bool(re.fullmatch(r"[0-9a-f]{40}", source)), "invalid_restoration_source")
+    _require(bool(re.fullmatch(r"[1-9][0-9]*", run_id)), "invalid_restoration_run")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT p.oid,p.prosrc,obj_description(p.oid,'pg_proc') FROM pg_proc p "
+            "WHERE p.oid=to_regprocedure(%s)",
+            (f"public.{FUNCTION}()",),
+        )
+        row = cursor.fetchone()
+        _require(
+            row is not None
+            and row[1] == BODY
+            and row[2] == f"hussh.production-restoration.v1:{source}:{run_id}",
+            "restoration_fence_unconfirmed",
+        )
+        _verify(cursor, row[0])
