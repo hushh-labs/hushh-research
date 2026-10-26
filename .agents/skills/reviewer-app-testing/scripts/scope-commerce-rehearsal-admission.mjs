@@ -17,23 +17,23 @@ function samePreparation(body, expected) {
 }
 
 function acceptsBody(capability, body) {
-  const { type, expected } = capability;
+  const { type, expected, durationSeconds } = capability;
   if (type === "tariff") return validOperation(body, ["scope_handle", "machine_scope", "price_cents", "base_duration_seconds"]) &&
     body.scope_handle === expected.scopeHandle && body.machine_scope === expected.machineScope &&
-    body.price_cents === expected.priceCents && body.base_duration_seconds === COMMERCE_REHEARSAL.durationSeconds;
+    body.price_cents === expected.priceCents && body.base_duration_seconds === durationSeconds;
   if (type === "request") return exactKeys(body, ["person_ref", "scope_refs", "purpose", "duration_seconds", "connector_key_id", "idempotency_key"]) &&
     body.person_ref === expected.personRef && sameJson(body.scope_refs, [expected.scopeRef]) &&
-    body.purpose === expected.purpose && body.duration_seconds === COMMERCE_REHEARSAL.durationSeconds &&
+    body.purpose === expected.purpose && body.duration_seconds === durationSeconds &&
     body.connector_key_id === expected.connectorKeyId && body.idempotency_key === expected.operationId;
   if (type === "approval") return validOperation(body, ["duration_seconds", "model_processing_allowed"]) &&
-    body.duration_seconds === COMMERCE_REHEARSAL.durationSeconds && typeof expected.modelProcessingAllowed === "boolean" &&
+    body.duration_seconds === durationSeconds && typeof expected.modelProcessingAllowed === "boolean" &&
     body.model_processing_allowed === expected.modelProcessingAllowed;
   if (type === "opened") return exactKeys(body, ["requestId", "bundleId", "userId", "openedVia"]) &&
     body.requestId === expected.requestId && body.userId === expected.userId &&
     (!body.bundleId || body.bundleId === expected.bundleId) &&
     (!body.openedVia || ["review_button", "consent_route", "deep_link"].includes(body.openedVia));
   if (type === "quote") return validOperation(body, ["request_id", "duration_seconds"]) &&
-    body.request_id === expected.requestId && body.duration_seconds === COMMERCE_REHEARSAL.durationSeconds;
+    body.request_id === expected.requestId && body.duration_seconds === durationSeconds;
   if (type === "purchase") return validOperation(body, ["quote_id", "confirmed"]) && body.quote_id === expected.quoteId && body.confirmed === true;
   if (type === "prepare") return exactKeys(body, ["source_revisions", "negative_net_acknowledgement"]) &&
     exactKeys(body.source_revisions, ["content_revision", "manifest_revision"]) &&
@@ -49,14 +49,20 @@ function acceptsBody(capability, body) {
   return false;
 }
 
-/** Each capability admits one exact request and its byte-equivalent retry. */
-export function createCommerceMutationAdmission({ appOrigin, role }) {
+/** Each capability admits one exact request and its byte-equivalent retry.
+ * Explicit UI rehearsals bind their reviewed term; the existing financial
+ * sequence keeps its one-hour default and calendar proofs unchanged.
+ */
+export function createCommerceMutationAdmission({ appOrigin, role, durationSeconds = COMMERCE_REHEARSAL.durationSeconds }) {
   commerceEvidence(["primary", "counterpart"].includes(role), "ADMISSION_ROLE_REQUIRED");
+  // Capture reviewed terms before requests exist; never infer them from a request.
+  commerceEvidence(Number.isSafeInteger(durationSeconds) && durationSeconds > 0 && durationSeconds <= 31_536_000,
+    "EXACT_TERM_REQUIRED");
   const capabilities = new Map();
   return {
     permit({ type, pathname, expected, beforeForward = null }) {
       commerceEvidence(typeof pathname === "string" && pathname.startsWith("/api/") && !capabilities.has(pathname), "ADMISSION_ALREADY_BOUND");
-      capabilities.set(pathname, { type, expected, beforeForward, serialized: null });
+      capabilities.set(pathname, { type, expected, durationSeconds, beforeForward, serialized: null });
     },
     replace({ type, pathname, expected, beforeForward = null }) {
       capabilities.delete(pathname);
