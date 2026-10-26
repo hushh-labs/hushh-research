@@ -43,6 +43,17 @@ deadline/price, and approves the final prepared package. Drive connection and
 Trusted status do not imply this consent. Changed terms require a fresh review
 before payment; an allocated Checkout attempt fences owner preparation changes.
 
+Packet browsing and the optional agent-package request flow have separate
+capabilities. An available packet catalog does not add access-period or actor
+fields to a legacy Drive request. An unchanged retry keeps its request key;
+starting another request creates a separate intent.
+
+The owner starts with file selection. Price, expiry and copy consent appear
+after a supported PDF is selected. Cancelling the picker preserves the draft;
+completing selection refreshes the local source catalog. If device preparation
+fails after approval is acknowledged, retry uses the acknowledged revision.
+Known shared Drive failures retain the existing safe status/code mapping.
+
 The initial source is a selected PDF no larger than 4 MiB. A's browser reads the
 source directly from Google's fixed Drive API after source metadata and download
 capability checks, then rechecks the same revision and integrity. It preserves

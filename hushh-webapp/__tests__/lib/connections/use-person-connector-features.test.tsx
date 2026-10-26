@@ -8,18 +8,18 @@ import { usePersonConnectorFeatures } from "@/lib/connections/use-person-connect
 
 afterEach(cleanup);
 describe("person profile packet feature admission", () => {
-  it("admits period packets independently of retired body collection, and requires either admitted flag", () => {
+  it("keeps period-packet browsing separate from agent-package request terms", () => {
     state.data = { driveAgentPackagesEnabled: false,
       features: { drive_period_packets: true, drive_document_sharing: false } };
     const { result, rerender } = renderHook(({ unlocked }) => usePersonConnectorFeatures("owner", "token", unlocked),
       { initialProps: { unlocked: true } });
-    expect(result.current.availability).toEqual({ status: "ready", documentSharing: false, agentPackages: true });
+    expect(result.current.availability).toEqual({ status: "ready", documentSharing: false, agentPackages: false, periodPackets: true });
     state.data.features.drive_period_packets = false;
     rerender({ unlocked: true });
-    expect(result.current.availability).toMatchObject({ agentPackages: false });
+    expect(result.current.availability).toMatchObject({ agentPackages: false, periodPackets: false });
     state.data.driveAgentPackagesEnabled = true;
     rerender({ unlocked: true });
-    expect(result.current.availability).toMatchObject({ agentPackages: true });
+    expect(result.current.availability).toMatchObject({ agentPackages: true, periodPackets: false });
     rerender({ unlocked: false });
     expect(result.current.availability).toEqual({ status: "locked" });
   });
