@@ -5,6 +5,8 @@ Source-backed reference inspected on 26 October 2026 against feature base
 Scope: `/one/todos` and the One profile To-do tab. Local fixtures do not qualify
 live Google accounts, Cloud Scheduler provisioning or physical-device alerts.
 
+## Visual Map
+
 ```mermaid
 flowchart LR
   sources["Nine authorized source queues"] --> list["Pending tasks with source context"]
@@ -14,6 +16,8 @@ flowchart LR
   list --> origin["Open source and review its action"]
   list --> completed["Complete or dismiss task only"]
 ```
+
+## Behavior and verification
 
 Messages, Finance, Wallet, Location, Advisor, Mail, Calendar, Memory and Consent
 use existing owner-authorized services. Empty, disconnected, failed and partial
