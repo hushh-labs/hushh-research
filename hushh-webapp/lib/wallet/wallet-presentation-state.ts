@@ -69,3 +69,12 @@ export function rejectPresentationArtwork(
   }
   return { ...previous, artworks, pendingArtworkIds };
 }
+
+/** Apply a confirmed removal to this visit’s display; never roll back a whole snapshot. */
+export function removeCardPresentation(previous: WalletPresentationState | null, ownerId: string, epoch: number, cardId: string) {
+  if (previous?.ownerId !== ownerId || previous.epoch !== epoch) return previous;
+  const cardholderNames = { ...previous.cardholderNames }, artworks = { ...previous.artworks };
+  delete cardholderNames[cardId]; delete artworks[cardId];
+  return { ...previous, cards: previous.cards.filter(card => card.cardId !== cardId), cardholderNames, artworks,
+    pendingArtworkIds: new Set([...previous.pendingArtworkIds].filter(id => id !== cardId)) };
+}

@@ -15,7 +15,8 @@ export function WalletCollectionSkeleton({ owned = false }: { owned?: boolean })
     {owned ? <section className={styles.oneCards} aria-hidden="true">
       <div className={styles.sectionHeading}><h3>Your One cards</h3><span>Identity &amp; membership</span></div>
       <div className={styles.oneCardGrid}>{[0, 1, 2].map(index => <div key={index} className={styles.oneCardOpen}>
-        <Skeleton className="aspect-[85.6/53.98] w-full rounded-2xl" /><Skeleton className="mt-4 h-5 w-24" />
+        <span className={styles.oneCardArt}><Skeleton className="aspect-[85.6/53.98] w-full rounded-xl" /></span>
+        <span className={styles.oneCardCaption}><span className="min-w-0"><Skeleton className="h-5 w-20 max-w-full" /><Skeleton className="mt-2 h-4 w-28 max-w-full" /></span></span>
       </div>)}</div>
     </section> : null}
   </div>;

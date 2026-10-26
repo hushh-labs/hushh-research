@@ -146,7 +146,7 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
     </div>
     <Button variant="secondary" size="compact" disabled={isBusy || addDisabled} aria-label="Add a card" onClick={onAdd} className={styles.plus}><Plus aria-hidden="true" className="size-5" /></Button>
   </nav>;
-  return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
+  return <div ref={content} tabIndex={-1} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
     <h2 className="sr-only">Your cards</h2>
     <div className={styles.collection} aria-label="Saved payment cards">
       {cards.length || pendingCard ? <div className={styles.cardGrid}>{pendingCard}{cards.map(card => <article key={card.cardId} className={styles.cardTile}>
@@ -157,18 +157,18 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, artworks = {}, 
         </button>
       </article>)}</div> : <div className={styles.emptyCollection}><p>No payment cards yet</p><span>Add a card to keep its details close.</span><Button size="compact" variant="secondary" onClick={onAdd} disabled={isBusy || addDisabled}><Plus aria-hidden="true" className="size-4" />Add a payment card</Button></div>}
       <section className={styles.oneCards} aria-label="Your One cards"><div className={styles.sectionHeading}><h3>Your One cards</h3><span>Identity & membership</span></div>
-        <div className={styles.oneCardGrid} data-swipe-views-horizontal-scroll>{WALLET_DEMO_CARDS.map(card => <button type="button" key={card.cardId} disabled={isBusy} onClick={() => choose(card.cardId)} className={styles.oneCardOpen} data-wallet-card-id={card.cardId} data-selected-return={selected.cardId === card.cardId ? "true" : undefined} aria-label={card.nickname}>
+        <div className={styles.oneCardGrid}>{WALLET_DEMO_CARDS.map(card => <button type="button" key={card.cardId} disabled={isBusy} onClick={() => choose(card.cardId)} className={styles.oneCardOpen} data-wallet-card-id={card.cardId} data-selected-return={selected.cardId === card.cardId ? "true" : undefined} aria-label={card.nickname}>
           <span className={styles.oneCardArt} aria-hidden="true"><WalletDemoCardFace summary={card} profile={demoProfile} /></span>
           <span className={styles.oneCardCaption}><span><strong>{card.cardId === "agent-one-profile" ? "Profile" : card.cardId === "agent-one-referral" ? "Referral" : "NWS"}</strong><small>{card.cardId === "agent-one-profile" ? "Share your introduction" : card.cardId === "agent-one-referral" ? "Invite your people" : "Sample card"}</small></span><ArrowRight aria-hidden="true" className="size-4" /></span>
         </button>)}</div>
       </section>
     </div>
-    <SettingsDetailPanel open={active && mode === "card"} onOpenChange={open => { if (!open) unwindBackLayer(ROUTES.ONE_WALLET); }}
+    <SettingsDetailPanel open={active && mode === "card" && selected.cardId === (agentCardId ?? selectedCardId)} onOpenChange={open => { if (!open) unwindBackLayer(ROUTES.ONE_WALLET); }}
       title={selected.nickname || (isAgentWalletCard(selected.cardId) ? "One card" : cardNetworkLabel(selected.brand))}
       description={isAgentWalletCard(selected.cardId) ? undefined : `${cardNetworkLabel(selected.brand)} · •••• ${selected.last4}`}
       eyebrow="Your card" headerTextOverflow="wrap"
       leading={<Button variant="ghost" size="icon-touch" aria-label="Back" onClick={() => unwindBackLayer(ROUTES.ONE_WALLET)} disabled={isBusy}><ArrowLeft aria-hidden="true" className="size-5" /></Button>}
-      onCloseAutoFocus={event => { event.preventDefault(); (Array.from(content.current?.querySelectorAll<HTMLButtonElement>("[data-wallet-card-id]") ?? []).find(button => button.dataset.walletCardId === returnCardId.current) ?? (returnTarget.current?.isConnected ? returnTarget.current : null))?.focus({ preventScroll: true }); }}
+      onCloseAutoFocus={event => { event.preventDefault(); (Array.from(content.current?.querySelectorAll<HTMLButtonElement>("[data-wallet-card-id]") ?? []).find(button => button.dataset.walletCardId === returnCardId.current) ?? (returnTarget.current?.isConnected ? returnTarget.current : content.current))?.focus({ preventScroll: true }); }}
       contentClassName="md:translate-x-0 md:translate-y-0" surfaceClassName={`${styles.detailPanel} ${presentationStyles.walletPortal} ${presentationStyles.walletDialog}`} bodyClassName={styles.detailBody}
       desktopMaxWidth="520px" desktopMaxWidthClassName="sm:!max-w-[520px]">
       {mode === "card" ? <div key={selected.cardId} className="motion-step-enter space-y-5" data-testid="wallet-selected-card">
