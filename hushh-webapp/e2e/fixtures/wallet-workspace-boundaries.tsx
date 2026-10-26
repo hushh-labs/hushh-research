@@ -33,6 +33,7 @@ type Scenario = {
   cardsPending?: boolean;
   sharingStatePending?: boolean;
   saveDelayMs?: number;
+  deletePending?: boolean;
   error?: boolean;
   profile?: WalletCardPayload;
   artworkGallery?: boolean;
@@ -119,8 +120,10 @@ export class WalletService {
   }
   static async deleteCard({ cardId }: { cardId: string }) {
     record(`delete:${cardId}`);
+    if (scenario().deletePending) await new Promise<void>(resolve => window.addEventListener("wallet-fixture:delete-ready", () => resolve(), { once: true }));
     store = cards().filter((card) => card.cardId !== cardId);
     bumpPkmInvalidationEpoch("fixture-owner", "wallet");
+    record(`deleted:${cardId}`);
   }
   static async addCard({ card }: { card: {
     nickname: string; brand?: string; pan: string; cardholderName: string;
