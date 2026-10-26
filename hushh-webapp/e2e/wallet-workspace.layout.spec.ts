@@ -24,11 +24,14 @@ let css = "";
 let script = "";
 let walletHero: Buffer;
 
+// Geometry and navigation measure settled UI; the spring cases opt back into motion.
+test.beforeEach(async ({ page }) => { await page.emulateMedia({ reducedMotion: "reduce" }); });
+
 test.beforeAll(async () => {
   ({ css, script, walletHero } = await buildWalletWorkspaceFixture(process.cwd()));
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; sharingStateDelayMs?: number; saveDelayMs?: number; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean; walletWideDetails?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; cardsPending?: boolean; sharingStatePending?: boolean; saveDelayMs?: number; profile?: WalletCardPayload; artworkGallery?: boolean; sharingHistory?: boolean; revokeFailure?: boolean; cardRequest?: boolean; walletWideDetails?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -278,7 +281,7 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
 
 for (const width of [320, 1440]) {
   test(`loading cards keep collection geometry and Share opens during the access check at ${width}px`, async ({ page }, testInfo) => {
-    const errors = await open(page, width, "dark", { cards: 1, delayMs: 2500, sharingStateDelayMs: 5000 }, { shell: true });
+    const errors = await open(page, width, "dark", { cards: 1, cardsPending: true, sharingStatePending: true }, { shell: true });
     await mount(page);
     const loading = page.getByRole("status", { name: "Opening your wallet" });
     await expect(loading).toBeVisible();
@@ -288,6 +291,10 @@ for (const width of [320, 1440]) {
     expect(Math.abs(box!.width / box!.height - ISO_RATIO)).toBeLessThan(.01);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath(`wallet-loading-${width}.png`) });
+    await page.evaluate(() => {
+      window.__walletScenario!.cardsPending = false;
+      window.dispatchEvent(new Event("wallet-fixture:cards-ready"));
+    });
     await expect(loading).toBeHidden();
     await page.locator('[data-wallet-card-id="card_a"]').click();
     const selected = page.getByTestId("wallet-selected-card");
@@ -299,6 +306,10 @@ for (const width of [320, 1440]) {
     await picker.getByRole("checkbox", { name: "Share with Test Recipient", exact: true }).check();
     const send = picker.getByRole("button", { name: "Share with 1", exact: true });
     await expect(send).toBeDisabled();
+    await page.evaluate(() => {
+      window.__walletScenario!.sharingStatePending = false;
+      window.dispatchEvent(new Event("wallet-fixture:sharing-ready"));
+    });
     await expect(send).toBeEnabled({ timeout: 10_000 });
     await expect(picker.getByRole("button", { name: "15 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
     await page.keyboard.press("Escape");
@@ -807,11 +818,11 @@ for (const width of [320, 393, 1024]) {
     await email.blur();
     await page.screenshot({ path: testInfo.outputPath(`visitor-${width}.png`), fullPage: true });
   });
-  // Keep each real preview → editor → collection journey inside the existing
-  // 30s budget. The CI trace completed both kinds but exhausted that compound
-  // case; do not raise the timeout, skip a viewport or remove return assertions.
+  // Bound individual steps while allowing the complete preview/editor journey
+  // on loaded WebKit runners. Every assertion retains its existing deadline.
   for (const [kind, title] of [["profile", "Agent One Profile"], ["nws", "Agent One NWS"]] as const) {
     test(`owner ${kind} visitor preview and editor return at ${width}px`, async ({ page }, testInfo) => {
+      test.slow(); page.setDefaultTimeout(5_000);
       const errors = await open(page, width, "light", { cards: 0 }, { shell: true, secure: true });
       await mount(page);
       await page.getByRole("button", { name: title, exact: true }).click();
@@ -849,9 +860,8 @@ for (const width of [320, 393, 1024]) {
 for (const width of [320, 1440]) {
   for (const kind of ["Profile", "Referral", "NWS"] as const) {
     test(`default ${kind} QR revocation updates the link and counts at ${width}px`, async ({ page }, testInfo) => {
-      // This path also edits Profile and verifies the shared NWS scan reset.
-      // Keep each assertion's deadline while allowing CI WebKit's full journey.
-      if (kind === "Profile" && width === 1440) test.setTimeout(60_000);
+      // This compound journey also edits Profile and checks the shared NWS scan reset.
+      test.slow(); page.setDefaultTimeout(5_000);
       const errors = await open(page, width, "light", { cards: 0 }, { height: 900, shell: true, secure: true });
       await mount(page);
       await page.getByRole("button", { name: "Agent One Profile", exact: true }).click();
