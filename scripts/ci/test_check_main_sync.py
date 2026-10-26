@@ -315,6 +315,26 @@ class BoundedBaseFreshnessTests(unittest.TestCase):
         self.assertIn("[main-sync] BLOCKED", run.output)
         self.assertIn("is behind origin/main by 2 commit(s)", run.output)
 
+    def test_prepared_branches_check_their_destination_not_main(self) -> None:
+        self.repo.behind_branch(
+            branch_files=("app.txt",), main_after_tested=("other.txt",)
+        )
+        for base in ("dev", "uat"):
+            with self.subTest(base=base):
+                # Candidate includes Main but lacks its actual destination's newer work.
+                self.repo.git("checkout", "-q", "-B", "feature", "origin/main")
+                self.repo.git("checkout", "-q", "-B", base)
+                self.repo.commit(("notes.txt",), 0.25, base)
+                self.repo.git("push", "-q", "origin", base)
+                self.repo.git("checkout", "-q", "feature")
+                self.assertEqual(self.repo.check("block").code, 0)
+                stale = self.repo.check("block", MAIN_SYNC_BRANCH=base)
+                self.assertEqual(stale.code, 1, stale.output)
+                self.assertIn(f"origin/{base}", stale.output)
+                self.repo.git("merge", "-q", "--ff-only", f"origin/{base}")
+                fresh = self.repo.check("block", MAIN_SYNC_BRANCH=base)
+                self.assertEqual(fresh.code, 0, fresh.output)
+
     def test_gate_step_runs_the_script_from_the_merge_commit_not_the_head(self) -> None:
         # Regression of 2026-10-15 (run 38659836145): the workflow, taken from
         # refs/pull/N/merge, set MAIN_SYNC_MODE=bounded, while the job ran the

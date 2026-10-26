@@ -8,7 +8,17 @@
       "maintainer/promote-damria-one-location-consent",
       "maintainer/promote-uat-summary-hardening",
       "maintainer/promote-android-playstore-pipeline"
-    ]
+    ],
+    "prepared_branches": {
+      "dev": {
+        "policy_key": "pr_train",
+        "merge_queue_ruleset_name": "dev merge queue"
+      },
+      "uat": {
+        "policy_key": "main",
+        "merge_queue_ruleset_name": "uat merge queue"
+      }
+    }
   },
   "repository": {
     "allow_auto_merge": true

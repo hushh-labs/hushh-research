@@ -217,6 +217,14 @@ def _failing_runs() -> list[tuple[str, Run]]:
         ("dispatch-backend-scope", replace(DISPATCH, scope="backend")),
         ("dispatch-unknown-scope", replace(DISPATCH, scope="unknown")),
     ]
+    for base in ("dev", "uat"):
+        for result in ("skipped", "cancelled", "failure"):
+            runs.append(
+                (
+                    f"{base}-freshness-{result}",
+                    replace(EVERYTHING, base_ref=base).with_result("main-freshness-gate", result),
+                )
+            )
     return runs
 
 
@@ -226,6 +234,8 @@ def _passing_runs() -> list[tuple[str, Run]]:
     ]
     runs += [
         ("everything-selected", EVERYTHING),
+        ("dev-freshness-passed", replace(EVERYTHING, base_ref="dev")),
+        ("uat-freshness-passed", replace(EVERYTHING, base_ref="uat")),
         ("nothing-selected", _selected()),
         (
             "freshness-skip-is-legitimate-into-a-stacked-base",
@@ -467,3 +477,40 @@ def test_operator_preflight_binds_gate_to_current_canonical_attempt(monkeypatch,
             run()
     else:
         assert run()["attempt"] == 2
+
+
+@pytest.mark.parametrize("base", ["main", "integration/pr-train", "dev", "uat"])
+def test_queue_freshness_uses_exact_declared_destination(base: str, tmp_path: Path) -> None:
+    _queue_freshness(base, tmp_path, expected_success=True)
+
+
+@pytest.mark.parametrize("base", ["", "refs/tags/uat", "feature/other", "uat"])
+def test_queue_freshness_refuses_missing_or_non_head_destination(base: str, tmp_path: Path) -> None:
+    _queue_freshness(base, tmp_path, expected_success=False)
+
+
+def _queue_freshness(base: str, tmp_path: Path, *, expected_success: bool) -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/queue-validation.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["main-freshness-gate"]["steps"]
+        if step.get("name") == "Verify queue freshness against merge-group base"
+    )
+    checker = tmp_path / "scripts/git/check-main-sync.sh"
+    checker.parent.mkdir(parents=True)
+    checker.write_text('printf "%s" "$MAIN_SYNC_BRANCH" > observed-base\n', encoding="utf-8")
+    result = subprocess.run(  # noqa: S603 - executes this repository's queue gate
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
+        cwd=tmp_path,
+        env={**os.environ, "QUEUE_BASE_REF": f"refs/heads/{base}" if expected_success else base},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    observed = tmp_path / "observed-base"
+    if expected_success:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert observed.read_text() == base
+    else:
+        assert result.returncode != 0
+        assert not observed.exists(), "Malformed queue authority reached the freshness checker"
