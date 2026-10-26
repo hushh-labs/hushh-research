@@ -1751,7 +1751,11 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     parity_position = workflow.index("- name: Verify production candidate runtime env parity")
     promote_position = workflow.index("- name: Promote deployed revisions to production traffic")
     assert parity_position < promote_position
-    assert "if: steps.verify-parity.outcome == 'success'" in workflow
+    steps = yaml.safe_load(workflow)["jobs"]["deploy"]["steps"]
+    promote = next(step for step in steps if step.get("id") == "promote-traffic")
+    assert promote["if"].startswith(
+        "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' &&"
+    )
     assert '--backend-revision "${{ steps.candidate-state.outputs.backend_revision }}"' in workflow
     assert (
         '--frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"' in workflow
@@ -1867,16 +1871,15 @@ def test_production_wif_has_one_keyless_setup_path() -> None:
 
 
 def test_production_health_gates_only_probe_after_successful_promotion() -> None:
-    workflow = _read(".github/workflows/deploy-production.yml")
-
-    assert (
-        "if: steps.scope.outputs.deploy_backend == 'true' "
-        "&& steps.promote-traffic.outcome == 'success'"
-    ) in workflow
-    assert (
-        "if: steps.scope.outputs.deploy_frontend == 'true' "
-        "&& steps.promote-traffic.outcome == 'success'"
-    ) in workflow
+    steps = yaml.safe_load(_read(".github/workflows/deploy-production.yml"))["jobs"]["deploy"][
+        "steps"
+    ]
+    for lane in ("backend", "frontend"):
+        gate = next(step for step in steps if step.get("id") == f"health-{lane}")
+        assert gate["if"] == (
+            f"env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_{lane} == 'true' "
+            "&& steps.promote-traffic.outcome == 'success')"
+        )
 
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:

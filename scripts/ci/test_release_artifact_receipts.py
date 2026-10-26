@@ -12,21 +12,23 @@ import unittest
 import zipfile
 from unittest import mock
 
+from production_activation_continuation_cases import ActivationContinuationCases
+from production_backend_inheritance_cases import BackendInheritanceCases
 from production_backend_successor_cases import OperationalBackendReferenceCases
 from production_pending_activation_cases import PendingActivationCases
-from production_activation_continuation_cases import ActivationContinuationCases
-from production_phone_receipt_cases import ProductionPhoneReceiptCases
-from production_worker_basis_cases import WorkerBasisCases
 from production_phone_lease_cases import (
     ProductionPhoneIntentGateCases,
     ProductionPhoneLeaseCases,
     ProductionPhoneSkippedLeaseCases,
 )
-
+from production_phone_receipt_cases import ProductionPhoneReceiptCases
 from production_staged_worker_cases import (
-    ProductionStagedWorkerCases as ProductionStagedWorkerCases,
     ProductionHealthyStagedWorkerCases as ProductionHealthyStagedWorkerCases,
 )
+from production_staged_worker_cases import (
+    ProductionStagedWorkerCases as ProductionStagedWorkerCases,
+)
+from production_worker_basis_cases import WorkerBasisCases
 
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
@@ -186,18 +188,16 @@ class ReplayedReleaseFixture:
         elif defect == "lane":
             self.run["path"] = (
                 ".github/workflows/"
-                + MAINTENANCE.LANES[
-                    "production" if self.environment == "uat" else "uat"
-                ]["workflow"]
+                + MAINTENANCE.LANES["production" if self.environment == "uat" else "uat"][
+                    "workflow"
+                ]
             )
         elif defect == "job_name":
             self.jobs["jobs"][0]["name"] = "Another lane's deployment"
         elif defect == "upload_name":
             self.upload["name"] = "Another lane's upload"
         elif defect == "name":
-            self.name = (
-                "prod-release-300" if self.environment == "uat" else "uat-release-300"
-            )
+            self.name = "prod-release-300" if self.environment == "uat" else "uat-release-300"
 
 
 class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
@@ -258,9 +258,7 @@ class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
                     return_value=subprocess.CompletedProcess([], 0, archive, b""),
                 ) as fetch,
             ):
-                result = MAINTENANCE.load_release(
-                    self.repo, 300, directory, self.environment
-                )
+                result = MAINTENANCE.load_release(self.repo, 300, directory, self.environment)
                 self.assertEqual(result["marker"], "attempt-two")
                 self.assertIn("/artifacts/100/zip", fetch.call_args.args[0][-1])
                 self.assertEqual(
@@ -294,6 +292,7 @@ class ReplayedUatReleaseArtifactTest(ReplayedReleaseFixture, unittest.TestCase):
 
 
 class ReplayedProductionReleaseArtifactTest(
+    BackendInheritanceCases,
     PendingActivationCases,
     ActivationContinuationCases,
     OperationalBackendReferenceCases,

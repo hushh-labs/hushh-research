@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -12,6 +11,7 @@ import pytest
 import yaml
 
 from tests.helpers.drive_worker_gcloud import write_worker_gcloud_fixture
+from tests.helpers.production_runtime_profile import run_production_backend_build
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "deploy" / "drive" / "setup_work_drain_scheduler.sh"
@@ -215,17 +215,7 @@ def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation(
     steps = yaml.safe_load(production)["jobs"]["deploy"]["steps"]
     deploy = next(step["run"] for step in steps if step.get("id") == "deploy-backend")
     for active, hosted in (("false", "false"), ("true", "false"), ("false", "true")):
-        script = deploy.replace("${{ github.event.inputs.enable_one_email_kyc }}", "false")
-        script = script.replace("${{ steps.drive-mode.outputs.active }}", active)
-        script = script.replace("${{ steps.document-mode.outputs.configured }}", hosted)
-        script = re.sub(r"\$\{\{.*?\}\}", "fixture", script)
-        result = subprocess.run(  # noqa: S603 - repo-authored shell with every cloud call intercepted
-            ["bash", "-c", "gcloud() { printf '%s\n' \"$@\"; };\n" + script],
-            env={**os.environ, "DRIVE_CANDIDATE_RUNTIME_SECRET": "fixture"},
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        result = run_production_backend_build(deploy, drive_active=active, hosted_documents=hosted)
         assert ("_DRIVE_WORK_DRAIN_ENABLED=true" in result.stdout) == (
             active == "true" or hosted == "true"
         )

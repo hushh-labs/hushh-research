@@ -134,6 +134,16 @@ def find_source(owner, args, repository):
 
 def healthy_phone(owner, repository, run, release, lane, callback):
     if (
+        lane["project"] == "hushh-pda"
+        and release.get("scope") == "frontend"
+        and release.get("status") == "healthy"
+        and "phone_rollback" not in release
+    ):
+        importlib.import_module("production_backend_inheritance").apply(
+            owner, repository, run, release, lane, callback
+        )
+        return
+    if (
         lane["project"] != "hushh-pda"
         or "phone_rollback" not in release
         or release.get("status") != "healthy"
@@ -362,6 +372,15 @@ def protection(
     phone_anchor=None,
     operational_anchor=None,
 ):
+    if lane == "backend" and "_maintenance_backend_inheritance" in release:
+        return importlib.import_module("production_backend_inheritance").protection(
+            owner,
+            service,
+            lane,
+            release,
+            environment=environment,
+            phone_anchor=phone_anchor,
+        )
     if operational_anchor is None or lane != "backend":
         return retention_admission.legacy_protection(
             owner,

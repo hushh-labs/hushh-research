@@ -235,6 +235,48 @@ def _hygiene_failure(ports):
 
 
 class WorkerBasisCases:
+    def test_frontend_only_basis_uses_canonical_inherited_backend_identity(self):
+        from production_backend_inheritance_cases import _inheritance_case
+
+        with _inheritance_case(self) as ports:
+            before = copy.deepcopy(ports.fe_release)
+            result = basis.load("f" * 40, release_run_id=str(ports.fe_run["id"]))
+            self.assertEqual(result["healthy"]["run_id"], str(ports.fe_run["id"]))
+            self.assertEqual(result["tag"]["commit"], ports.fe_release["sha"])
+            self.assertNotEqual(result["backend"]["source"], ports.fe_release["sha"])
+            self.assertEqual(result["backend"]["runtime_run_id"], "500")
+            self.assertEqual(result["backend"]["uid"], "primary-uid")
+            self.assertEqual(basis.revalidate(result), result)
+            self.assertEqual(ports.fe_release, before)
+            self.assertEqual(ports.fe_release["scope"], "frontend")
+            self.assertNotIn("prod-activation-origin.json", ports.fe_documents)
+            with mock.patch.object(
+                ports.owner.retention,
+                "service_state",
+                side_effect=AssertionError("source-only runtime read"),
+            ):
+                self.assertEqual(basis.qualify_source(result), result)
+
+    def test_frontend_only_basis_refuses_forged_origin_or_changed_backend_uid(self):
+        from production_backend_inheritance_cases import _inheritance_case
+
+        for defect in ("uid", "source", "pending-origin", "live-uid"):
+            with self.subTest(defect=defect), _inheritance_case(self) as ports:
+                origin = ports.fe_release["backend_origin"]
+                if defect == "uid":
+                    origin["uid"] = "forged-backend"
+                elif defect == "source":
+                    origin["source"] = "0" * 40
+                elif defect == "pending-origin":
+                    origin["run_id"] = "400"
+                else:
+                    ports.runtimes["consent-protocol"][1]["metadata"]["uid"] = (
+                        "recreated"
+                    )
+                ports.pack()
+                with self.assertRaises(basis.receipts.retention.UnsafeState):
+                    basis.load("f" * 40)
+
     def test_ordinary_healthy_worker_basis_keeps_its_own_runtime_run(self):
         with _basis_case(self) as ports:
             _ordinary(ports)

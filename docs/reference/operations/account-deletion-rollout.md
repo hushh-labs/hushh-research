@@ -925,3 +925,11 @@ retention can drain the older cold reader. Changed tags, attempts, UIDs, image,
 mode, configuration or Scheduler state fail closed. Qualified cleanup-only
 workflow failures retain the existing canonical health classifier; application
 failures and failed activation continuations remain ineligible.
+
+A frontend-only healthy release carries the unchanged backend's exact original
+run, source and revision identities as an untrusted selector. Maintenance and
+worker admission independently qualify that run's immutable ordinary backend
+receipt, activated identity and phone rollback. The current frontend receipt and
+healthy tag remain authoritative. Pending origins, chained frontend origins and
+missing or changed identity proofs refuse cleanup; no historical scan substitutes
+an older apparently healthy release.

@@ -21,6 +21,7 @@ from hushh_mcp.services.curated_connector_manifest import (
     get_manifest,
     get_registration_spec,
 )
+from tests.helpers.production_runtime_profile import production_runtime_profile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SCRIPT = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text(encoding="utf-8")
@@ -178,7 +179,13 @@ def test_production_uses_its_own_opt_in_and_fails_before_deploy_on_missing_clien
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
         in PROD_WORKFLOW
     )
-    assert '--curated-mcp-connectors "$PROD_CURATED_MCP_CONNECTORS"' in PROD_WORKFLOW
+    assert (
+        "PROD_CURATED_MCP_CONNECTORS: ${{ vars.CURATED_MCP_CONNECTORS_PROD || 'false' }}"
+        in PROD_WORKFLOW
+    )
+    assert '--curated-mcp-connectors "$PROD_CURATED_MCP_CONNECTORS"' in production_runtime_profile(
+        PROD_WORKFLOW
+    )
     assert "CURATED_MCP_CONNECTORS_UAT" not in PROD_WORKFLOW
 
 

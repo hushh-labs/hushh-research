@@ -277,7 +277,7 @@ jobs:
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py \
-            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_retention_context.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
+            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/$tool"
@@ -350,7 +350,7 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
           for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py \
-            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_retention_context.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
+            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
@@ -2456,6 +2456,11 @@ jobs:
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
           echo "backend_serving=${backend_serving}" >> "$GITHUB_OUTPUT"
           echo "frontend_serving=${frontend_serving}" >> "$GITHUB_OUTPUT"
+          if [ "${{ steps.scope.outputs.deploy_backend }}" != true ] && [ -n "$backend_serving" ]; then
+            gcloud run revisions describe "$backend_serving" \
+              --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+              --format='json(metadata)' > /tmp/prod-backend-origin-revision.json
+          fi
 
       - name: Write production release status artifact
         id: release-status
@@ -2570,6 +2575,27 @@ jobs:
           }
           if "${{ steps.scope.outputs.deploy_backend }}" != "true":
               payload.pop("phone_rollback")
+              if payload["status"] == "healthy":
+                  # This is a selector, never authority. Readers independently
+                  # bind its exact original run/archive and activated identity.
+                  import re
+                  metadata = json.loads(Path("/tmp/prod-backend-origin-revision.json").read_text())["metadata"]
+                  service = json.loads(Path("/tmp/prod-backend-final-service.json").read_text())["metadata"]
+                  labels = metadata.get("labels", {})
+                  pointer = {
+                      "run_id": labels.get("github-run-id", ""),
+                      "source": labels.get("deploy-sha", ""),
+                      "revision": metadata.get("name", ""),
+                      "uid": metadata.get("uid", ""),
+                      "service_uid": service.get("uid", ""),
+                  }
+                  if (not re.fullmatch(r"[1-9][0-9]*", pointer["run_id"])
+                      or not re.fullmatch(r"[0-9a-f]{40}", pointer["source"])
+                      or pointer["revision"] != payload["final"]["backend_revision"]
+                      or not all(isinstance(pointer[key], str) and 0 < len(pointer[key]) <= 256
+                                 for key in ("uid", "service_uid"))):
+                      raise SystemExit("Frontend release has no exact inherited backend selector")
+                  payload["backend_origin"] = pointer
           predecessor = Path("/tmp/prod-predecessor-acceptance.json")
           payload["predecessor_acceptance"] = (
               json.loads(predecessor.read_text(encoding="utf-8")) if predecessor.exists() else None

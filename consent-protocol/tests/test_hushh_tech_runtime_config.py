@@ -14,6 +14,7 @@ import yaml
 
 from hushh_mcp import runtime_settings
 from tests._deploy_contract import backend_deploy_surface
+from tests.helpers.production_runtime_profile import production_runtime_profile
 
 SYNC_SCRIPT = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
 
@@ -207,8 +208,9 @@ def test_generator_and_runtime_hydrate_every_hushh_tech_policy_key(monkeypatch):
 
 def test_production_workflow_pins_client_flag_off():
     workflow = Path(__file__).resolve().parents[2] / ".github/workflows/deploy-production.yml"
-    assert '--hushh-tech-client-enabled "false"' in workflow.read_text()
-    assert '--hushh-tech-allowed-consent-scopes ""' in workflow.read_text()
+    profile = production_runtime_profile(workflow.read_text())
+    assert '--hushh-tech-client-enabled "false"' in profile
+    assert '--hushh-tech-allowed-consent-scopes ""' in profile
 
 
 def test_uat_cloud_run_binds_launch_pepper_only_as_optional_secret():
@@ -295,7 +297,7 @@ def test_production_workflow_pins_voice_mail_reply_off():
     root = Path(__file__).resolve().parents[2]
     production = (root / ".github/workflows/deploy-production.yml").read_text()
     uat = (root / ".github/workflows/deploy-uat.yml").read_text()
-    assert '--one-voice-mail-reply-enabled "false"' in production
+    assert '--one-voice-mail-reply-enabled "false"' in production_runtime_profile(production)
     assert (
         "--one-voice-mail-reply-enabled \"${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}\""
         in uat
@@ -339,7 +341,7 @@ def test_production_pins_mail_part_two_switches_off_and_uat_turns_them_on(key, _
     production = (root / ".github/workflows/deploy-production.yml").read_text()
     uat = (root / ".github/workflows/deploy-uat.yml").read_text()
     flag = "--" + key.replace("_", "-")
-    assert f'{flag} "false"' in production
+    assert f'{flag} "false"' in production_runtime_profile(production)
     assert f"{flag} \"${{{{ vars.{key.upper()}_UAT || 'true' }}}}\"" in uat
 
 

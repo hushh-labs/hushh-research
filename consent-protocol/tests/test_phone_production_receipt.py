@@ -6,12 +6,16 @@ import copy
 import importlib
 import json
 import re
+import subprocess
+import sys
+import textwrap
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.feature_auth_reliability
 ROOT = Path(__file__).resolve().parents[2]
@@ -174,3 +178,55 @@ def test_ordinary_healthy_receipt_does_not_consult_continuation_authority(produc
         "source": production_case.case.release["sha"],
         "revision": production_case.case.release["final"]["backend_revision"],
     }
+
+
+@pytest.mark.parametrize("defect", [None, "run_id", "source", "revision", "uid", "service_uid"])
+def test_frontend_status_emits_only_actual_backend_selector(tmp_path, monkeypatch, defect):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
+    step = next(
+        item for item in workflow["jobs"]["deploy"]["steps"] if item.get("id") == "release-status"
+    )
+    script = step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    values = {
+        "steps.scope.outputs.deploy_backend": "false",
+        "steps.scope.outputs.scope": "frontend",
+        "steps.final-state.outputs.backend_serving": "consent-protocol-bound",
+    }
+    script = re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda match: values.get(match[1], ""), script)
+    script = script.replace("/tmp/", str(tmp_path) + "/")  # noqa: S108 - redirect workflow paths into pytest isolation
+    expected = {
+        "run_id": "500",
+        "source": "a" * 40,
+        "revision": "consent-protocol-bound",
+        "uid": "revision-uid",
+        "service_uid": "service-uid",
+    }
+    actual = dict(expected)
+    if defect is not None:
+        actual[defect] = "" if defect != "revision" else "consent-protocol-other"
+    revision = {
+        "metadata": {
+            "name": actual["revision"],
+            "uid": actual["uid"],
+            "labels": {"github-run-id": actual["run_id"], "deploy-sha": actual["source"]},
+        }
+    }
+    service = {"metadata": {"uid": actual["service_uid"]}}
+    (tmp_path / "prod-backend-origin-revision.json").write_text(json.dumps(revision))
+    (tmp_path / "prod-backend-final-service.json").write_text(json.dumps(service))
+    monkeypatch.setenv("STATUS", "healthy")
+    source = tmp_path / "actual_production_status_writer.py"
+    source.write_text(textwrap.dedent(script))
+    result = subprocess.run(  # noqa: S603 - execute only the repository-owned workflow in pytest isolation
+        [sys.executable, str(source)], capture_output=True, text=True, check=False
+    )
+    if defect is not None:
+        assert result.returncode != 0
+        assert "no exact inherited backend selector" in result.stderr
+        assert not (tmp_path / "prod-release-status.json").exists()
+    else:
+        assert result.returncode == 0
+        report = json.loads((tmp_path / "prod-release-status.json").read_text())
+        assert report["backend_origin"] == expected
+        assert "phone_rollback" not in report
+        assert report["status"] == "healthy"
