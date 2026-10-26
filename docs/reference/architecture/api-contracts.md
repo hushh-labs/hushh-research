@@ -5313,6 +5313,8 @@ Native verification extends the existing isolated proof bridge rather than
 linking the primary Firebase user. Owner/attempt fences suppress stale native
 callbacks. Harmless rerenders, typing and background/foreground events do not
 start a challenge. Resend is explicit and retires the prior local challenge.
+Native Profile Close consults the same visit-scoped pending-operation guard as
+the phone flow; it cannot discard an uncertain transfer before status settles.
 No provider expiry countdown is invented. Native provider error mapping follows
 [Firebase's published error contract](https://docs.cloud.google.com/identity-platform/docs/error-codes);
 wrong code, provider-expired code, missing local session, ownership conflict and

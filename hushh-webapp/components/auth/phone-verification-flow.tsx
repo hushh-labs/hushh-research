@@ -94,6 +94,7 @@ export type PhoneVerificationFlowProps = {
   style?: CSSProperties;
   onStepChange?: (step: VerificationStep) => void;
   onBackStepChange?: (handler: (() => boolean) | null) => void;
+  onNavigationGuardChange?: (guard: (() => boolean) | null) => void;
   /** Optional owning destination fence. Never a provider credential. */
   ownerKey?: string | symbol;
   isCurrent?: () => boolean;
@@ -129,6 +130,7 @@ export function usePhoneVerificationFlow({
   phonePresentation = "default",
   onStepChange,
   onBackStepChange,
+  onNavigationGuardChange,
   ownerKey,
   isCurrent,
   operationAllowed,
@@ -174,6 +176,11 @@ export function usePhoneVerificationFlow({
   // attempt starts -- closes that cross-action race, not just same-action
   // double-clicks.
   const phoneFlowInFlightRef = useMemo(() => ({ current: false, visit }), [visit]);
+  const transferGuard = useMemo(() => ({ pending: false, visit }), [visit]);
+  useLayoutEffect(() => {
+    onNavigationGuardChange?.(() => current() && (phoneFlowInFlightRef.current || transferGuard.pending));
+    return () => onNavigationGuardChange?.(null);
+  }, [current, onNavigationGuardChange, phoneFlowInFlightRef, transferGuard]);
 
   // `step` read from an effect that must not re-run when it changes.
   const stepRef = useRef(step);
@@ -208,9 +215,9 @@ export function usePhoneVerificationFlow({
     setCountryQuery("");
     setVerificationCode("");
     setCodeError(null); setOperationError(null); setBusy(false);
-    setConflict(null); setTransferPending(false);
+    setConflict(null); setTransferPending(false); transferGuard.pending = false;
     changeStep(mode === "link" && currentPhoneNumber ? "linked" : "phone");
-  }, [currentPhoneNumber, mode, ownerKey, changeStep, visit]);
+  }, [currentPhoneNumber, mode, ownerKey, changeStep, visit, transferGuard]);
 
   // Start on the person's own country, not on ours.
   //
@@ -825,18 +832,18 @@ export function usePhoneVerificationFlow({
       const verified = await confirmTransfer();
       if (!current()) return;
       committed = true; visit.verified = true; visit.verifiedUser = verified;
-      setConflict(null); setTransferPending(false); changeStep("linked");
+      setConflict(null); setTransferPending(false); transferGuard.pending = false; changeStep("linked");
       await onCompleted(verified);
     } catch (error) {
       if (current() && !committed) {
         const actionRequired = apiErrorCode(error) === "PHONE_TRANSFER_ACTION_REQUIRED";
         const pending = actionRequired || apiErrorCode(error) === "PHONE_TRANSFER_IN_PROGRESS";
-        setTransferPending(pending);
+        transferGuard.pending = pending; setTransferPending(pending);
         setOperationError(actionRequired ? "Phone transfer needs a security check. Contact one@hushh.ai and check progress again." : pending ? "Finishing phone transfer. Check progress again." :
           error instanceof Error ? error.message : "Phone transfer could not be confirmed. Please retry.");
       }
     } finally { phoneFlowInFlightRef.current = false; if (current()) setBusy(false); }
-  }, [busy, conflict, confirmTransfer, current, changeStep, onCompleted, visit, entryRevision, transferEligible, phoneFlowInFlightRef]);
+  }, [busy, conflict, confirmTransfer, current, changeStep, onCompleted, visit, entryRevision, transferEligible, phoneFlowInFlightRef, transferGuard]);
 
   const recoverPrevious = useCallback(async (deleting: boolean) => {
     if (!current() || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current || transferPending) return;

@@ -592,8 +592,10 @@ function ProfilePageContent({
     accountPreparation.current.invalidate();
     setShowDeleteConfirm(false); setShowResetConfirm(false);
   }, [isDeleting, isResetting]);
+  const phoneNavigationGuard = useRef<(() => boolean) | null>(null);
+  const bindPhoneNavigationGuard = useCallback((guard: (() => boolean) | null) => { phoneNavigationGuard.current = guard; }, []);
   const closeNativeProfile = useCallback(() => {
-    if (isDeleting || isResetting) return false;
+    if (isDeleting || isResetting || phoneNavigationGuard.current?.()) return false;
     dismissAccountConfirmation(); onNativeMenuClose?.();
     return true;
   }, [isDeleting, isResetting, dismissAccountConfirmation, onNativeMenuClose]);
@@ -3644,7 +3646,7 @@ function ProfilePageContent({
     confirmTransfer: confirmPhoneTransfer,
     recoverPreviousAccount: () => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` }),
     deletePreviousAccount: () => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` }),
-    onCompleted: handleAccountPhoneCompleted, onBackStepChange: bindPhoneBackStep, onCancel: popProfileStack,
+    onCompleted: handleAccountPhoneCompleted, onBackStepChange: bindPhoneBackStep, onNavigationGuardChange: bindPhoneNavigationGuard, onCancel: popProfileStack,
   };
 
 
