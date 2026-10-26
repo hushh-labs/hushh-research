@@ -100,6 +100,24 @@ def market_home_response(
     return payload
 
 
+def quote_observation_fields(
+    quote, unavailable_status="unavailable", *, stale=False
+) -> dict[str, Any]:
+    """Quote provenance is provider observation time, never retrieval time."""
+    value = quote or {}
+    stale = bool(stale or value.get("is_stale"))
+    observed = value.get("quoted_at") if isinstance(value.get("quoted_at"), str) else None
+    return {
+        "as_of": observed,
+        "quoted_at": observed,
+        "is_stale": stale,
+        "degraded": bool(not value or stale),
+        "is_delayed": value.get("is_delayed"),
+        "market_state": value.get("market_state"),
+        "quote_status": "stale" if stale else "ok" if value else unavailable_status,
+    }
+
+
 def stock_preview_quote(
     quote_payload, normalized_symbol, _safe_float, _safe_int, _now_iso
 ) -> dict[str, Any]:

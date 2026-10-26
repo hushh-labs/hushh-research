@@ -12,6 +12,7 @@ import { useKaiMarketHome } from "@/components/kai/shared/kai-market-home-contex
 import { marketSurfaceVariablesClassName } from "@/components/kai/shared/market-surface-theme";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
+import { loadPublicStockQuote } from "@/lib/services/public-stock-quote";
 
 /** Stock browsing shares Finance's existing resource and source-selection owner. */
 export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, browseStocks = true, historyRequested = false, onHistoryClose }: {
@@ -63,6 +64,7 @@ export function KaiStocksView({ onAnalyze, onSelectedSymbolChange, history, brow
       activeSourceId={activePickSource} onSourceChange={handlePickSourceChange}
       controlMode="adaptive-surface" loadCompanyFacts={active ? loadCompanyFacts : undefined}
       loadHistory={active ? loadHistory : undefined} toolbarActions={historyButton}
+      loadQuote={active ? loadPublicStockQuote : undefined}
       onSelectedSymbolChange={onSelectedSymbolChange}
       onAnalyze={onAnalyze ? symbol => onAnalyze(symbol, activePickSource) : undefined} /> : <div className="flex justify-end">{historyButton}</div>}
     <KaiControlSurface open={isHistoryOpen} onOpenChange={open => open ? setHistoryOpen(true) : closeHistory()} title="Saved analysis" surfaceClassName={financeStyles.detail}>

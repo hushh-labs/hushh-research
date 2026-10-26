@@ -26,10 +26,12 @@ nothing derived from anyone's holdings, picks or vault. It is the same public po
 
 import hashlib
 import logging
+import math
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from api.routes.kai._market_presentation import quote_observation_fields
 from api.routes.kai.market_insights import _get_or_refresh_public_module
 from hushh_mcp.operons.kai.fetchers import fetch_market_data_batch
 from hushh_mcp.types import UserID
@@ -54,6 +56,14 @@ PUBLIC_AUDIENCE = UserID("public-market-quotes")
 # blank strip when a provider is in cooldown.
 FRESH_TTL_SECONDS = 120
 STALE_TTL_SECONDS = 3_600
+
+
+def finite_number(value: Any) -> float | None:
+    return (
+        float(value)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        else None
+    )
 
 
 def normalize_symbols(raw: str) -> list[str]:
@@ -97,12 +107,19 @@ async def public_market_quotes(
 
     async def load() -> dict[str, Any]:
         quotes = await fetch_market_data_batch(requested, PUBLIC_AUDIENCE, None)
+        if not isinstance(quotes, dict) or not any(
+            (finite_number((row or {}).get("price")) or 0) > 0
+            for row in quotes.values()
+            if isinstance(row, dict)
+        ):
+            # Keep the previous observed quote through a provider outage/cooldown.
+            raise RuntimeError("public_quotes_unavailable")
         return {"quotes": quotes if isinstance(quotes, dict) else {}}
 
     try:
         (
             payload,
-            _refreshed,
+            stale,
             age_seconds,
             cache_tier,
             cache_hit,
@@ -126,12 +143,15 @@ async def public_market_quotes(
         {
             "symbol": symbol,
             "price": float(resolved[symbol].get("price") or 0),
-            "change_percent": float(resolved[symbol].get("change_percent") or 0),
+            "change_percent": finite_number(resolved[symbol].get("change_percent")) or 0,
+            "change_pct": finite_number(resolved[symbol].get("change_percent")),
+            **quote_observation_fields(resolved[symbol], stale=stale),
             "company_name": resolved[symbol].get("company_name") or symbol,
             "source": resolved[symbol].get("source") or "Unknown",
         }
         for symbol in requested
-        if isinstance(resolved.get(symbol), dict) and float(resolved[symbol].get("price") or 0) > 0
+        if isinstance(resolved.get(symbol), dict)
+        and (finite_number(resolved[symbol].get("price")) or 0) > 0
     ]
 
     return {
