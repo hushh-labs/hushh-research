@@ -219,6 +219,58 @@ else: print(json.dumps(response))
         )
 
 
+def _check_prepared_branches(policy, policy_file, base, environment, run) -> None:
+    import copy
+
+    # Prepared branches inherit authored protection policy, not deploy authority.
+    for branch, policy_key in (("dev", "pr_train"), ("uat", "main")):
+        prepared_policy = copy.deepcopy(policy)
+        prepared_policy[policy_key] = copy.deepcopy(policy["main"])
+        prepared_policy["branch_flow"]["prepared_branches"] = {
+            branch: {"policy_key": policy_key, "merge_queue_ruleset_name": f"{branch} merge queue"}
+        }
+        policy_file.write_text(json.dumps(prepared_policy), encoding="utf-8")
+        sample = copy.deepcopy(base)
+        for suffix in ("protection",):
+            sample[f"repos/synthetic-org/repo/branches/{branch}/{suffix}"] = sample[
+                f"repos/synthetic-org/repo/branches/main/{suffix}"]
+        sample[f"repos/synthetic-org/repo/rules/branches/{branch}"] = sample[
+            "repos/synthetic-org/repo/rules/branches/main"]
+        detail = sample["repos/synthetic-org/repo/rulesets/7"]
+        detail.update(name=f"{branch} merge queue", target="branch", enforcement="active",
+                      conditions={"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
+                      rules=[{"type": "merge_queue", "parameters": {"group": 1}}])
+        environment["GITHUB_BRANCH"] = branch
+        accepted = run(sample)
+        assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+        environment["GITHUB_POLICY_KEY"] = "dev"
+        wrong_policy = run(sample)
+        assert wrong_policy.returncode != 0 and "no matching authored protection policy" in wrong_policy.stdout
+        del environment["GITHUB_POLICY_KEY"]
+        for change in (
+            {"conditions": {"ref_name": {"include": ["refs/heads/other"], "exclude": []}}},
+            {"rules": [{"type": "deletion"}]},
+            {"enforcement": "disabled"},
+        ):
+            invalid = copy.deepcopy(sample)
+            invalid["repos/synthetic-org/repo/rulesets/7"].update(change)
+            rejected = run(invalid)
+            assert rejected.returncode != 0 and "exact-ref named merge queue" in rejected.stdout
+        sample["repos/synthetic-org/repo/rulesets/7"]["name"] = "Queue"
+        rejected = run(sample)
+        assert rejected.returncode != 0, "A Main queue cannot prove the prepared branch queue"
+    policy_file.write_text(json.dumps(policy), encoding="utf-8")
+    environment["GITHUB_BRANCH"] = "unknown-branch"
+    unknown = copy.deepcopy(base)
+    unknown["repos/synthetic-org/repo/branches/unknown-branch/protection"] = base[
+        "repos/synthetic-org/repo/branches/main/protection"]
+    unknown["repos/synthetic-org/repo/rules/branches/unknown-branch"] = []
+    rejected = run(unknown)
+    assert rejected.returncode != 0 and "no matching authored protection policy" in rejected.stdout
+    environment["GITHUB_BRANCH"] = "main"
+
+
+
 def test_live_verifier_distinguishes_pending_activation_without_granting_authority(module) -> None:
     """Exercise the real verifier; pending never conceals protection/actor drift."""
     import copy
@@ -281,6 +333,8 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
         assert accepted.returncode == 0, accepted.stdout + accepted.stderr
         assert "ADVISORY: approved queue-team invitations await activation" in accepted.stdout
         assert "merge_queue_bypass=['operator']" in accepted.stdout
+
+        _check_prepared_branches(policy, policy_file, base, environment, run)
 
         # Negative controls: no blanket allowance for missing users or drift.
         cases = []

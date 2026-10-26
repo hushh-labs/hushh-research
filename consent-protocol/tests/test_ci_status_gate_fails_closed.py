@@ -217,6 +217,14 @@ def _failing_runs() -> list[tuple[str, Run]]:
         ("dispatch-backend-scope", replace(DISPATCH, scope="backend")),
         ("dispatch-unknown-scope", replace(DISPATCH, scope="unknown")),
     ]
+    for base in ("dev", "uat"):
+        for result in ("skipped", "cancelled", "failure"):
+            runs.append(
+                (
+                    f"{base}-freshness-{result}",
+                    replace(EVERYTHING, base_ref=base).with_result("main-freshness-gate", result),
+                )
+            )
     return runs
 
 
@@ -226,6 +234,8 @@ def _passing_runs() -> list[tuple[str, Run]]:
     ]
     runs += [
         ("everything-selected", EVERYTHING),
+        ("dev-freshness-passed", replace(EVERYTHING, base_ref="dev")),
+        ("uat-freshness-passed", replace(EVERYTHING, base_ref="uat")),
         ("nothing-selected", _selected()),
         (
             "freshness-skip-is-legitimate-into-a-stacked-base",

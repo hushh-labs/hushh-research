@@ -171,6 +171,9 @@ def self_test() -> int:
         parse_pr_number(f"gh-readonly-queue/integration/pr-train/pr-12-{sha}") == 12,
         "pr-train queue ref",
     )
+    for base in ("dev", "uat"):
+        _expect(parse_pr_number(f"refs/heads/gh-readonly-queue/{base}/pr-12-{sha}") == 12,
+                f"{base} queue ref")
     for bad in ("refs/heads/main", f"gh-readonly-queue/main/pr-x-{sha}", "gh-readonly-queue/main/pr-1-abc"):
         try:
             parse_pr_number(bad)
