@@ -653,8 +653,15 @@ def _replay_drive_cent_prices_sql(entry: MigrationManifestEntryV2) -> str:
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
     from db.account_cleanup_replay import SOURCES as ACCOUNT_SOURCES
     from db.account_cleanup_replay import account_cleanup_replay_sql
+    from db.firebase_mutation_replay import SOURCE as PHONE_MUTATION_SOURCE
+    from db.firebase_mutation_replay import phone_mutation_replay_sql
     from db.private_action_replay import SOURCES, private_action_replay_sql
 
+    if (entry.migration_id, entry.filename) == PHONE_MUTATION_SOURCE:
+        try:
+            return phone_mutation_replay_sql(entry)
+        except ValueError as exc:
+            raise MigrationAuthorityError(str(exc)) from None
     if (entry.migration_id, entry.filename) in ACCOUNT_SOURCES:
         try:
             return account_cleanup_replay_sql(

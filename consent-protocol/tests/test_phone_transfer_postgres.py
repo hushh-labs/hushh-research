@@ -23,6 +23,81 @@ PHONE = "+16505550101"
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
 
 
+async def test_phone_replay_preserves_workos_mutation_receipts(database_url):
+    from uuid import uuid4
+
+    from db.migration_authority import _replay_sql, build_manifest_entries
+
+    conn = await asyncpg.connect(database_url)
+    transaction = conn.transaction()
+    await transaction.start()
+    try:
+        await conn.execute("ALTER TABLE account_generations ADD UNIQUE(identity_hash,generation)")
+        workos = (ROOT / "db/migrations/427_workos_generation_memberships.sql").read_text()
+        await conn.execute(workos)
+        for index, purpose in enumerate(("sso_claims", "sso_create", "sso_offboarding")):
+            await conn.execute(
+                """INSERT INTO account_firebase_mutations
+                (operation_id,owner_hash,identity_hash,authority_project,purpose,settlement_nonce)
+                VALUES($1,$2,$3,'synthetic-project',$4,$5)""",
+                uuid4(),
+                "sha256:" + str(index) * 64,
+                "sha256:" + str(index) * 64,
+                purpose,
+                uuid4(),
+            )
+        before = await conn.fetch("SELECT * FROM account_firebase_mutations ORDER BY operation_id")
+        entry = build_manifest_entries(ROOT / "db/migrations", ["425_account_phone_transfers.sql"])[
+            0
+        ]
+        for _ in range(2):
+            await conn.execute(_replay_sql(entry))
+            await conn.execute(workos)
+            assert (
+                await conn.fetch("SELECT * FROM account_firebase_mutations ORDER BY operation_id")
+                == before
+            )
+        # The original historical body is the broken-code negative control.
+        with pytest.raises(asyncpg.CheckViolationError):
+            async with conn.transaction():
+                await conn.execute(entry.sql)
+        assert (
+            await conn.fetch("SELECT * FROM account_firebase_mutations ORDER BY operation_id")
+            == before
+        )
+        # Whitespace inside a literal changes its meaning, even in a validated CHECK.
+        with pytest.raises(asyncpg.RaiseError, match="successor changed"):
+            async with conn.transaction():
+                await conn.execute(
+                    """ALTER TABLE account_firebase_mutations
+                    DROP CONSTRAINT account_firebase_mutations_purpose_check;
+                    ALTER TABLE account_firebase_mutations
+                    ADD CONSTRAINT account_firebase_mutations_purpose_check
+                    CHECK(purpose IN ('display_name','welcome_ marker','phone_unlink',
+                    'sso_claims','sso_create','sso_offboarding'))"""
+                )
+                assert await conn.fetchval(
+                    """SELECT convalidated FROM pg_constraint
+                    WHERE conrelid='account_firebase_mutations'::regclass
+                    AND conname='account_firebase_mutations_purpose_check'"""
+                )
+                await conn.execute(_replay_sql(entry))
+        # A drifted/unvalidated successor must never be silently accepted.
+        with pytest.raises(asyncpg.RaiseError, match="successor changed"):
+            async with conn.transaction():
+                await conn.execute(
+                    """ALTER TABLE account_firebase_mutations
+                    DROP CONSTRAINT account_firebase_mutations_purpose_check;
+                    ALTER TABLE account_firebase_mutations
+                    ADD CONSTRAINT account_firebase_mutations_purpose_check
+                    CHECK(purpose <> 'unknown') NOT VALID"""
+                )
+                await conn.execute(_replay_sql(entry))
+    finally:
+        await transaction.rollback()
+        await conn.close()
+
+
 async def test_two_concurrent_confirmations_preserve_information_and_retire_only_phone(
     database_url, monkeypatch
 ):

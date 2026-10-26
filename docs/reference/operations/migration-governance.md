@@ -117,6 +117,18 @@ while preserving compatible review history. The 971 SQL down path refuses while
 private reviews remain; never delete history to force it. Restoring its earlier
 schema requires the separately reviewed forward qualification before re-enablement.
 
+## Phone and WorkOS mutation receipt replay
+
+Migration 427 extends the Firebase mutation-purpose check with SSO receipts.
+The checksum-pinned `db/firebase_mutation_replay.py` adapter preserves that exact,
+validated successor when replaying immutable 425 under a table lock. Missing or
+changed successor constraints refuse replay when WorkOS membership storage is
+present. All other phone DDL still executes; schemas without WorkOS retain the
+original phone migration behavior. Historical SQL and ledger checksums are
+unchanged. Rehearsal retains all three SSO receipt purposes across repeated phone
+and WorkOS replay and proves the original 425 body fails on those receipts.
+This compatibility does not qualify an older application for WorkOS rollback.
+
 ## Canonical private-agent graduation and cleanup replay
 
 Canonical 418–421 graduate private-agent authority through forward SQL; the
