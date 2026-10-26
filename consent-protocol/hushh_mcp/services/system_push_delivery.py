@@ -20,6 +20,7 @@ from hushh_mcp.services.push_tokens_service import (
     PUSH_TOKEN_REGISTRY_SQL,
     remove_stale_push_token,
 )
+from hushh_mcp.services.system_push_payloads import actor_label, todo_reminder_notification
 
 logger = logging.getLogger(__name__)
 _wakeup: asyncio.Event | None = None
@@ -139,24 +140,10 @@ def _source(conn, event: dict) -> dict | None:
 
 def _notification(conn, event: dict, source: dict) -> dict:
     if event["source_kind"] == "todo_reminder":
-        return dict(
-            user_id=event["recipient_user_id"],
-            notification_type="todo_reminder",
-            title="Task reminder",
-            body="Open your to-do list.",
-            request_url="/one/todos",
-            notification_tag=f"todo-reminder:{source['id']}",
-            show_alert=True,
-            data={
-                "message_id": str(event["id"]),
-                "user_id": event["recipient_user_id"],
-                "reminder_expires_at": str(int(event["expires_at"].timestamp())),
-            },
-        )
+        return todo_reminder_notification(event, source)
     from hushh_mcp.services.one_location_agent_service import (
         OneLocationAgentService,
         _access_ask_summary,
-        _identity_notification_label,
         _remaining_label,
     )
 
@@ -165,15 +152,7 @@ def _notification(conn, event: dict, source: dict) -> dict:
     counterpart = source.get("requester_user_id") or source.get("owner_user_id")
     if kind == "circle_member" and source.get("system_kind") != "sms":
         counterpart = (source.get("metadata") or {}).get("addedBy")
-    identity = (
-        conn.execute(
-            text("SELECT user_id,display_name,email FROM actor_identity_cache WHERE user_id=:user"),
-            {"user": counterpart},
-        )
-        .mappings()
-        .first()
-    )
-    label = _identity_notification_label(dict(identity) if identity else {})
+    label = actor_label(conn, counterpart)
     data = {"message_id": str(event["id"]), "user_id": user}
     if kind == "share":
         service = OneLocationAgentService()

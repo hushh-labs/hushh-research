@@ -2569,6 +2569,7 @@ class PersonalKnowledgeModelService:
         location_finalize_authorization: LocationPkmFinalizeAuthorizationV1 | None = None,
     ) -> dict[str, Any]:
         """Commit ciphertext, metadata, events, and refresh jobs in one DB transaction."""
+        from hushh_mcp.services.pkm_write_events import build_domain_write_events
         from hushh_mcp.services.todo_reminders import reminder_projection
 
         todo_schedule = reminder_projection(domain, write_projections)
@@ -2673,47 +2674,18 @@ class PersonalKnowledgeModelService:
             if normalized_mutation_plan
             else {"upgrade_claim": upgrade_claim or {}}
         )
-        event_rows: list[dict[str, Any]] = [
-            {
-                "operation_type": operation_type,
-                "segment_ids": sorted(normalized_segments),
-                "path_set": path_set,
-                "source_agent": structure_agent_id,
-                "confidence": confidence,
-                "prior_manifest_version": prior_manifest_version,
-                "new_manifest_version": normalized_manifest.manifest_version,
-                "metadata": {
-                    "structure_decision": {
-                        "action": normalized_manifest.structure_decision.get("action"),
-                        "target_domain": normalized_manifest.structure_decision.get(
-                            "target_domain"
-                        ),
-                        "contract_version": normalized_manifest.structure_decision.get(
-                            "contract_version"
-                        ),
-                        "writer_id": writer_id,
-                        "structure_agent_id": structure_agent_id,
-                    },
-                    "top_level_scope_paths": normalized_manifest.top_level_scope_paths,
-                    "externalizable_paths": normalized_manifest.externalizable_paths,
-                    "provenance": mutation_metadata,
-                },
-            },
-            {
-                "operation_type": "content_write",
-                "segment_ids": sorted(normalized_segments),
-                "path_set": path_set,
-                "source_agent": writer_id,
-                "confidence": confidence,
-                "prior_manifest_version": prior_manifest_version,
-                "new_manifest_version": normalized_manifest.manifest_version,
-                "metadata": {
-                    "storage_mode": "per_domain_blob",
-                    "data_version": next_version,
-                    "provenance": mutation_metadata,
-                },
-            },
-        ]
+        event_rows = build_domain_write_events(
+            normalized_manifest=normalized_manifest,
+            normalized_segments=normalized_segments,
+            operation_type=operation_type,
+            path_set=path_set,
+            structure_agent_id=structure_agent_id,
+            writer_id=writer_id,
+            confidence=confidence,
+            prior_manifest_version=prior_manifest_version,
+            next_version=next_version,
+            mutation_metadata=mutation_metadata,
+        )
         if (
             normalized_mutation_plan
             and normalized_mutation_plan.confirmation_receipt.workflow_authority

@@ -1,5 +1,8 @@
 "use client";
 
+import { notificationEventDedupKey } from "@/lib/notifications/notification-event-identity";
+import { presentTodoReminder } from "@/lib/notifications/todo-reminder-presentation";
+
 import { stopOneLocationNotificationSound } from "@/lib/one-location/notification-sound";
 import { activeNotificationKeyId } from "@/lib/notifications/preview-keys";
 import { chatAlertIsVisible } from "@/lib/notifications/chat-alert-visibility";
@@ -563,41 +566,6 @@ function oneLocationNotificationId(data: Record<string, string>): string {
   // number, having never been told it moved.
   const revision = String(data.notification_revision || "").trim();
   return base && revision && revision !== "1" ? `${base}#${revision}` : base;
-}
-
-function notificationEventDedupKey(
-  msgType: string | undefined,
-  data: Record<string, string>,
-): string | null {
-  const normalizedType = String(msgType || "unknown").trim() || "unknown";
-  const messageId = String(data.message_id || "").trim();
-  if (messageId) return `${normalizedType}:message:${messageId}`;
-
-  const revision = String(
-    data.notification_revision ||
-      data.notification_sequence ||
-      data.request_revision ||
-      "",
-  ).trim();
-  const entityId = String(
-    data.request_id ||
-      data.bundle_id ||
-      data.grant_id ||
-      data.approved_grant_id ||
-      data.submission_id ||
-      data.referral_id ||
-      data.connection_id ||
-      data.invite_id ||
-      data.transfer_id ||
-      data.notification_tag ||
-      "",
-  ).trim();
-
-  // An entity id identifies the subject, not the delivery. Repeated valid
-  // events can target the same grant/request, so only pair it with an explicit
-  // producer revision or sequence when suppressing a replay.
-  if (!revision || !entityId) return null;
-  return `${normalizedType}:entity:${entityId}:revision:${revision}`;
 }
 
 /**
@@ -1774,23 +1742,13 @@ export function ConsentNotificationProvider({
       }
 
       if (msgType === "todo_reminder") {
-        const expires = Number(data.reminder_expires_at);
-        if (document.visibilityState !== "visible" || appInteractionCoordinator.getLifecycleSnapshot().state !== "active") return;
-        if (!applicationOwnerId || data.user_id !== applicationOwnerId || !data.message_id ||
-          !Number.isFinite(expires) || expires * 1000 <= Date.now()) return;
-        const reminderKey = notificationEventDedupKey(msgType, data);
-        if (!reminderKey) return;
-        if (ingestedMessageIdsRef.current.has(reminderKey)) { detail.accepted = true; return; }
-        // A user-scheduled reminder is presented once per stable outbox id.
-        toast("Task reminder", { id: `todo-reminder:${data.message_id}`, description: "Open your to-do list.",
-          action: { label: "Open", onClick: () => router.push("/one/todos") } });
-        ingestedMessageIdsRef.current.add(reminderKey);
-        while (ingestedMessageIdsRef.current.size > 1000) {
-          const oldest = ingestedMessageIdsRef.current.values().next().value;
-          if (!oldest) break;
-          ingestedMessageIdsRef.current.delete(oldest);
-        }
-        detail.accepted = true;
+        detail.accepted = presentTodoReminder(data, {
+          ownerId: applicationOwnerId, visible: document.visibilityState === "visible",
+          active: appInteractionCoordinator.getLifecycleSnapshot().state === "active",
+          seen: ingestedMessageIdsRef.current, now: Date.now(),
+          present: () => toast("Task reminder", { id: `todo-reminder:${data.message_id}`, description: "Open your to-do list.",
+            action: { label: "Open", onClick: () => router.push("/one/todos") } }),
+        });
         return;
       }
       if (msgType === "answer_request_changed") {
@@ -2248,6 +2206,7 @@ export function ConsentNotificationProvider({
     isVaultUnlocked,
     showOneLocationWorkflowNotification,
     applicationOwnerId,
+    router,
   ]);
 
   const reconcileOneLocationNotifications = useCallback(async () => {

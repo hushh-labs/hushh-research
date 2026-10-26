@@ -265,6 +265,8 @@ tests/test_fcm_messages.py
 tests/test_system_push_drain_routes.py
 tests/test_gmail_nudges.py
 tests/services/test_gmail_followup_scan.py
+tests/test_todo_reminders_postgres.py
+tests/services/test_pkm_todo_reminders.py
 tests/test_fcm_sms_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py

@@ -11,7 +11,7 @@ export function useTodoCapabilitySources(input: {
 }) {
   const { enabled, userId, vaultOwnerToken, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, mailAccountKey } = input;
   const epoch = snapshotVaultSessionEpoch();
-  const identity = useMemo(() => Symbol(`todo-sources-${Boolean(userId)}-${Boolean(vaultOwnerToken)}-${enabled}-${mailConnected}-${calendarConnected}-${mailStatusKnown}-${calendarStatusKnown}-${epoch}`), [userId, vaultOwnerToken, enabled, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, mailAccountKey, epoch]);
+  const identity = useMemo(() => Symbol(`todo-sources-${Boolean(userId)}-${Boolean(vaultOwnerToken)}-${enabled}-${mailConnected}-${calendarConnected}-${mailStatusKnown}-${calendarStatusKnown}-${Boolean(mailAccountKey)}-${epoch}`), [userId, vaultOwnerToken, enabled, mailConnected, calendarConnected, mailStatusKnown, calendarStatusKnown, mailAccountKey, epoch]);
   const current = useRef(identity);
   current.current = identity;
   const provider = useRef(input.idTokenProvider);

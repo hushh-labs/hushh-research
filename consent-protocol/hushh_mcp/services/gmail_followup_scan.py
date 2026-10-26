@@ -19,17 +19,7 @@ def invalid_cursor() -> GmailApiError:
     )
 
 
-async def scan_followup_page(
-    helpers,
-    *,
-    access_token: str,
-    user_id: str,
-    binding: list[str],
-    cursor: str | None,
-    require_current,
-) -> dict:
-    secret = helpers._state_secret().encode("utf-8")
-    aad = ["gmail-followup-v1", *binding, str(PAGE_SIZE)]
+def load_scan_state(secret, aad, cursor):
     now = int(time.time())
     if cursor:
         try:
@@ -61,59 +51,82 @@ async def scan_followup_page(
             "seen": [],
             "page_token": None,
         }
+    return state
+
+
+async def list_followup_threads(helpers, access_token, state):
+    profile = await helpers._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
+    owner_email = profile.get("emailAddress")
+    if not isinstance(owner_email, str) or "@" not in owner_email or not owner_email.strip():
+        raise GmailApiError(
+            "Email account could not be verified.",
+            status_code=502,
+            code="GMAIL_PROFILE_INVALID",
+        )
+    token = state["page_token"]
+    params = {
+        "q": f"in:anywhere -in:spam -in:trash before:{state['cutoff']}",
+        "maxResults": PAGE_SIZE,
+    }
+    if token:
+        params["pageToken"] = token
+    listing = await helpers._http_get_json(THREADS_URL, token=access_token, params=params)
+    entries = listing.get("threads", [])
+    if (
+        not isinstance(entries, list)
+        or len(entries) > PAGE_SIZE
+        or any(
+            not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
+            for item in entries
+        )
+    ):
+        raise invalid_cursor()
+    ids = list(dict.fromkeys(item["id"] for item in entries))
+    next_token = listing.get("nextPageToken") or None
+    digest = None
+    if next_token is not None:
+        if not isinstance(next_token, str) or len(next_token) > 4096:
+            raise invalid_cursor()
+        digest = hashlib.sha256(next_token.encode()).hexdigest()[:16]
+        if not ids or digest in state["seen"]:
+            raise invalid_cursor()
+    return profile, ids, next_token, digest
+
+
+async def read_followup_threads(helpers, access_token, ids):
+    semaphore = asyncio.Semaphore(5)
+
+    async def fetch(thread_id):
+        try:
+            async with semaphore:
+                payload = await asyncio.wait_for(
+                    helpers._get_thread_metadata(access_token=access_token, thread_id=thread_id),
+                    4,
+                )
+            return helpers._nudge_thread_from_payload(payload)
+        except Exception:
+            return None
+
+    threads = await asyncio.gather(*(fetch(thread_id) for thread_id in ids))
+    return threads
+
+
+async def scan_followup_page(
+    helpers,
+    *,
+    access_token: str,
+    user_id: str,
+    binding: list[str],
+    cursor: str | None,
+    require_current,
+) -> dict:
+    secret = helpers._state_secret().encode("utf-8")
+    aad = ["gmail-followup-v1", *binding, str(PAGE_SIZE)]
+    state = load_scan_state(secret, aad, cursor)
     await require_current()
     async with asyncio.timeout(24):
-        profile = await helpers._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
-        owner_email = profile.get("emailAddress")
-        if not isinstance(owner_email, str) or "@" not in owner_email or not owner_email.strip():
-            raise GmailApiError(
-                "Email account could not be verified.",
-                status_code=502,
-                code="GMAIL_PROFILE_INVALID",
-            )
-        token = state["page_token"]
-        params = {
-            "q": f"in:anywhere -in:spam -in:trash before:{state['cutoff']}",
-            "maxResults": PAGE_SIZE,
-        }
-        if token:
-            params["pageToken"] = token
-        listing = await helpers._http_get_json(THREADS_URL, token=access_token, params=params)
-        entries = listing.get("threads", [])
-        if (
-            not isinstance(entries, list)
-            or len(entries) > PAGE_SIZE
-            or any(
-                not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]
-                for item in entries
-            )
-        ):
-            raise invalid_cursor()
-        ids = list(dict.fromkeys(item["id"] for item in entries))
-        next_token = listing.get("nextPageToken") or None
-        digest = None
-        if next_token is not None:
-            if not isinstance(next_token, str) or len(next_token) > 4096:
-                raise invalid_cursor()
-            digest = hashlib.sha256(next_token.encode()).hexdigest()[:16]
-            if not ids or digest in state["seen"]:
-                raise invalid_cursor()
-        semaphore = asyncio.Semaphore(5)
-
-        async def fetch(thread_id):
-            try:
-                async with semaphore:
-                    payload = await asyncio.wait_for(
-                        helpers._get_thread_metadata(
-                            access_token=access_token, thread_id=thread_id
-                        ),
-                        4,
-                    )
-                return helpers._nudge_thread_from_payload(payload)
-            except Exception:
-                return None
-
-        threads = await asyncio.gather(*(fetch(thread_id) for thread_id in ids))
+        profile, ids, next_token, digest = await list_followup_threads(helpers, access_token, state)
+        threads = await read_followup_threads(helpers, access_token, ids)
     await require_current()
     failed = [thread_id for thread_id, thread in zip(ids, threads, strict=True) if thread is None]
     scanned = state["scanned"] + len(ids) - len(failed)

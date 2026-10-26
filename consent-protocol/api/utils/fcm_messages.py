@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
+
+from api.utils.push_lifetime import chat_badge_count, push_lifetime
 
 CONSENT_NOTIFICATION_CATEGORY = "CONSENT_REQUEST"
 CONSENT_NOTIFICATION_ACTION_REVIEW = "CONSENT_REVIEW"
@@ -92,37 +94,16 @@ def build_push_message(
     is_chat = normalized_type in {"direct_message", "location_circle_message"}
     is_reminder = normalized_type == "todo_reminder"
     is_chat_read = normalized_type in {"direct_message_read", "location_circle_chat_read"}
-    try:
-        chat_badge = (
-            max(0, min(9999, int(data["chat_badge_count"]))) if is_chat or is_chat_read else None
-        )
-    except (KeyError, ValueError, TypeError):
-        chat_badge = None
-    expiry = int(data.get("chat_expires_at") or (int(time.time()) + 86400)) if is_chat else 0
-    chat_ttl = max(0, min(86400, expiry - int(time.time())))
+    chat_badge = chat_badge_count(data, enabled=is_chat or is_chat_read)
     is_sms_emergency = _is_one_location_sms_emergency(data)
     is_sms_created = is_sms_emergency and normalized_type == "location_share_created"
-    sms_expiry = 0
-    sms_expired = False
-    if is_sms_created and data.get("expires_at"):
-        try:
-            deadline = datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
-            if deadline.tzinfo is None:
-                deadline = deadline.replace(tzinfo=UTC)
-            sms_expiry = int(deadline.timestamp())
-            sms_expired = sms_expiry <= int(time.time())
-        except (ValueError, OverflowError, TypeError):
-            sms_expired = True
-    # Legacy undated alerts may deliver now but must never queue for weeks.
-    sms_ttl = max(0, min(28 * 86400, sms_expiry - int(time.time())))
-    alert_ttl = sms_ttl if is_sms_created else chat_ttl
-    reminder_expiry = 0
-    if is_reminder:
-        try:
-            reminder_expiry = int(data.get("reminder_expires_at") or 0)
-        except (ValueError, TypeError):
-            reminder_expiry = 0
-        alert_ttl = max(0, min(900, reminder_expiry - int(time.time())))
+    lifetime = push_lifetime(
+        data,
+        is_chat=is_chat,
+        is_sms_created=is_sms_created,
+        is_reminder=is_reminder,
+        now=time.time(),
+    )
 
     force_feed_only_transport = _is_one_location_feed_only_transport(
         normalized_type,
@@ -130,8 +111,8 @@ def build_push_message(
     show_alert = (
         bool(show_alert)
         and not force_feed_only_transport
-        and not sms_expired
-        and (not is_reminder or alert_ttl > 0)
+        and not lifetime.sms_expired
+        and (not is_reminder or lifetime.alert_ttl > 0)
     )
     if force_feed_only_transport:
         data = {
@@ -163,7 +144,11 @@ def build_push_message(
         webpush = messaging.WebpushConfig(
             headers={
                 "Urgency": "high",
-                **({"TTL": str(alert_ttl)} if is_chat or is_sms_created or is_reminder else {}),
+                **(
+                    {"TTL": str(lifetime.alert_ttl)}
+                    if is_chat or is_sms_created or is_reminder
+                    else {}
+                ),
             },
             notification=None
             if is_chat or not show_alert
@@ -188,11 +173,13 @@ def build_push_message(
     if normalized_platform == "android" and is_chat_read:
         android = messaging.AndroidConfig(priority="high")
     if normalized_platform == "android" and is_chat and data.get("recipient_key_id"):
-        android = messaging.AndroidConfig(priority="high", ttl=timedelta(seconds=chat_ttl))
+        android = messaging.AndroidConfig(priority="high", ttl=timedelta(seconds=lifetime.chat_ttl))
     if normalized_platform == "android" and (show_alert or is_sms_created):
         android = android or messaging.AndroidConfig(
             priority="high",
-            ttl=timedelta(seconds=alert_ttl) if is_chat or is_sms_created or is_reminder else None,
+            ttl=timedelta(seconds=lifetime.alert_ttl)
+            if is_chat or is_sms_created or is_reminder
+            else None,
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
@@ -218,11 +205,11 @@ def build_push_message(
             headers={
                 "apns-push-type": "alert",
                 "apns-priority": "10",
-                **({"apns-expiration": str(sms_expiry)} if is_sms_created else {}),
-                **({"apns-expiration": str(reminder_expiry)} if is_reminder else {}),
+                **({"apns-expiration": str(lifetime.sms_expiry)} if is_sms_created else {}),
+                **({"apns-expiration": str(lifetime.reminder_expiry)} if is_reminder else {}),
                 **(
                     {
-                        "apns-expiration": str(expiry),
+                        "apns-expiration": str(lifetime.expiry),
                         "apns-collapse-id": hashlib.sha256(
                             str(data.get("message_id") or notification_tag).encode()
                         ).hexdigest(),
@@ -260,7 +247,7 @@ def build_push_message(
             headers={
                 "apns-push-type": "alert" if chat_badge is not None else "background",
                 "apns-priority": "5",
-                **({"apns-expiration": str(sms_expiry)} if is_sms_created else {}),
+                **({"apns-expiration": str(lifetime.sms_expiry)} if is_sms_created else {}),
             },
             payload=messaging.APNSPayload(
                 aps=messaging.Aps(

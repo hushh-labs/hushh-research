@@ -14,11 +14,12 @@ from collections.abc import Awaitable
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, verify_user_id_match
+from api.routes.kai.gmail_nudges import gmail_nudges as gmail_nudges
+from api.routes.kai.gmail_nudges import router as nudges_router
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.gmail_live_receipts_service import get_gmail_live_receipts_service
@@ -30,6 +31,7 @@ from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Kai Gmail"])
+router.include_router(nudges_router)
 
 
 class GmailConnectStartRequest(BaseModel):
@@ -854,49 +856,6 @@ async def gmail_live_receipt_detail(
     except Exception as exc:
         logger.warning("kai.gmail.live_receipt_detail_failed error=%s", type(exc).__name__)
         raise _live_receipt_http_error(exc) from None
-
-
-@router.get("/gmail/nudges/{user_id}")
-async def gmail_nudges(
-    user_id: str = Path(..., min_length=1, max_length=128),
-    limit: int = Query(10, ge=1, le=50),
-    scan_all: bool = Query(False),
-    cursor: str | None = Query(None, max_length=8192),
-    firebase_uid: str = Depends(require_firebase_auth),
-    token_data: dict = Depends(hub_content_owner),
-):
-    """Derive inbox flashcard nudges ("Needs a reply") from the connected Gmail
-    account. Reuses the receipts gmail.readonly connection — no new scope. Verifies
-    VAULT_OWNER consent before any inbox access."""
-    verify_user_id_match(firebase_uid, user_id)
-    if token_data["user_id"] != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User ID does not match token",
-        )
-    try:
-        if scan_all or cursor:
-
-            async def require_current_access() -> None:
-                await _revalidate_live_receipt_access(token_data=token_data, owner=user_id)
-
-            result = await _service().list_nudges(
-                user_id=user_id,
-                limit=limit,
-                scan_all=scan_all,
-                cursor=cursor,
-                require_access=require_current_access,
-            )
-        else:
-            result = await _service().list_nudges(user_id=user_id, limit=limit)
-        return JSONResponse(
-            result, headers={"Cache-Control": "private, no-store", "Pragma": "no-cache"}
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("kai.gmail.nudges_failed user_id=%s", user_id)
-        raise _to_http_exception(exc, operation="nudges") from exc
 
 
 @router.post("/gmail/receipts-memory/preview")

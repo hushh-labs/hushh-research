@@ -2404,12 +2404,21 @@ suppressed after 15 minutes; device acceptance does not prove OS presentation.
 `POST /api/internal/system-push/drain` wakes the durable worker at scale zero.
 It accepts only Google OIDC with the exact environment audience and dedicated
 `system-push-drain` service account, and returns private/no-store counts. Release
-order: apply migration 428, deploy the backend/frontend, then run
-`DEPLOY_ENV=uat bash deploy/notifications/setup_system_push_scheduler.sh` (or
-`production`) to configure the minute Cloud Scheduler job. Notification permission
-is requested only through the explicit editor CTA. No scheduler provisioning or
-device/provider delivery is implied by local test evidence. Rollback refuses
-active schedules; cancel or preserve them before executing its registered SQL.
+gate is owned by the deployment operator: apply migration 428, deploy the
+compatible backend/frontend, configure a minute HTTP POST wake-up, and verify an
+authenticated drain plus an end-to-end reminder before enabling this release.
+The operator must use these pinned identities; application code does not provision
+cloud resources or change IAM:
+
+| Environment | Drain URI | OIDC audience | Scheduler service account |
+| --- | --- | --- | --- |
+| UAT | `https://api.uat.hushh.ai/api/internal/system-push/drain` | `https://api.uat.hushh.ai` | `system-push-drain@hushh-pda-uat.iam.gserviceaccount.com` |
+| Production | `https://api.hushh.ai/api/internal/system-push/drain` | `https://api.hushh.ai` | `system-push-drain@hushh-pda.iam.gserviceaccount.com` |
+
+Notification permission is requested only through the explicit editor CTA.
+Scale-zero delivery is not operationally qualified until this release gate passes.
+Rollback refuses active schedules; cancel or preserve them before executing its
+registered SQL.
 
 `GET /api/one/todos/suggestions/status` requires vault-owner authentication and
 returns private/no-store `{available}` from `ONE_TODO_SUGGESTIONS_ENABLED`.
