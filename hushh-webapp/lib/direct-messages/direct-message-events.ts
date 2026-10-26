@@ -71,7 +71,7 @@ export function subscribeToDirectMessagesUpdated(
 
   let lastDeliveredKey = "";
   const deliver = (detail: DirectMessagesUpdatedDetail) => {
-    const key = `${detail.userId}:${detail.conversationId ?? ""}:${detail.messageId ?? ""}:${detail.changedAt}`;
+    const key = JSON.stringify([detail.userId, detail.conversationId, detail.messageId, detail.source, detail.changedAt]);
     if (key === lastDeliveredKey) return;
     lastDeliveredKey = key;
     invalidateMessageSnapshot(detail);

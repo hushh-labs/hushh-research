@@ -1,5 +1,12 @@
 # CI Configuration Reference
 
+> **Staged branch preparation:** CI now recognizes `dev` and `uat` for strict
+> destination freshness and merge-queue validation. Existing branch routing and
+> manual deploy source rules remain active. Current Main is preserved; there is
+> no production-baseline rollback. See [branch preparation](./branch-governance.md#dev--uat-branch-preparation)
+> for the activation boundary and remaining promotion work.
+
+
 
 ## Visual Map
 

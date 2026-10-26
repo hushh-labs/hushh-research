@@ -34,7 +34,7 @@ class ReplayedReleaseFixture:
             "path": ".github/workflows/deploy-uat.yml"
             if self.environment == "uat"
             else ".github/workflows/deploy-production.yml",
-            "actor": {"login": "DamriaNeelesh"},
+            "actor": {"login": "ankitkumarsingh1702"},
             "repository": {"id": 7, "full_name": self.repo},
             "head_repository": {"id": 7, "full_name": self.repo},
         }

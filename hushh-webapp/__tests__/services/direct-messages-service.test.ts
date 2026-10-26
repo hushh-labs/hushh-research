@@ -325,6 +325,14 @@ describe("DirectMessagesService", () => {
     await DirectMessagesService.markConversationRead({ idToken: "old-owner", ownerUserId: "alice", conversationId: "conversation-1", throughMessageId: "message-1" });
     expect(clearRead).toHaveBeenCalledTimes(1);
   });
+
+  it.each([undefined, null, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1])("rejects an unverified read count %s before clearing notifications", async (readCount) => {
+    apiFetch.mockResolvedValueOnce(Response.json({ readCount, readThroughCreatedAt: "2026-10-26T10:00:00Z" }));
+    await expect(DirectMessagesService.markConversationRead({
+      idToken: "fixture", ownerUserId: "alice", conversationId: "conversation-1", throughMessageId: "message-1",
+    })).rejects.toThrow("Read status could not be verified.");
+    expect(clearRead).not.toHaveBeenCalled();
+  });
 });
 
 

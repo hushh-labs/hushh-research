@@ -62,4 +62,20 @@ describe("DirectMessagesResourceService", () => {
       expect(resource.readThread("owner", "person:person")?.messages).toEqual([message]);
     } finally { first(); second(); }
   });
+
+  it("delivers distinct sources in the same millisecond while deduplicating the same event", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-26T10:00:00Z"));
+    const listener = vi.fn();
+    const unsubscribe = subscribeToDirectMessagesUpdated(listener);
+    const detail = { userId: "owner", conversationId: "chat", messageId: null };
+    try {
+      dispatchDirectMessagesUpdated({ ...detail, source: "read" });
+      resource.writeThread("owner", resource.beginRequest("owner"), "person:person", thread, [message]);
+      dispatchDirectMessagesUpdated({ ...detail, source: "sse" });
+      dispatchDirectMessagesUpdated({ ...detail, source: "sse" });
+      expect(listener.mock.calls.map(([event]) => event.source)).toEqual(["read", "sse"]);
+      expect(resource.readThread("owner", "person:person")).toBeNull();
+    } finally { unsubscribe(); }
+  });
 });
