@@ -79,8 +79,8 @@ def _activation_adapter(module, args, failure, monkeypatch, *, phone_floor=False
                 "timestamp": (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat(),
                 "jsonPayload": {
                     "@type": "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished",
-                    "jobName": "projects/hushh-pda-uat/locations/us-central1/jobs/account-deletion-cleanup-uat",
-                    "url": "https://api.uat.hushh.ai/api/account/deletion-cleanup/drain?limit=10",
+                    "jobName": f"projects/{args.project}/locations/{args.region}/jobs/{args.scheduler_job}",
+                    "url": args.backend_url + "/api/account/deletion-cleanup/drain?limit=10",
                 },
                 "httpRequest": {"status": 503 if failure == "scheduler" else 200},
             }
@@ -965,8 +965,7 @@ def test_production_no_longer_hard_blocks_migration_201() -> None:
 def test_production_release_orders_image_fence_schema_runtime_and_activation() -> None:
     names = [str(step.get("name") or "") for step in _production_steps()]
     expected_order = [
-        # The proxy is installed early for read-only Drive database attestation.
-        # Backup, image, fence and migration authority retain their order.
+        # Proxy, backup, image, fence and migration authority retain their order.
         "Install Cloud SQL Auth Proxy",
         "Pre-deploy Cloud SQL backup posture gate",
         "Build and pin backend image before lifecycle migration",
@@ -998,19 +997,22 @@ def test_production_release_orders_image_fence_schema_runtime_and_activation() -
     ):
         step = _production_step(name)
         assert step.get("id") == step_id
-    for name in (
-        "Build and pin backend image before lifecycle migration",
-        "Apply production DB migrations behind account deletion fence",
-        "Resolve backend candidate revision",
-        "Verify backend candidate readiness and exact-SHA provenance",
+    backend = "steps.scope.outputs.deploy_backend == 'true'"
+    candidate = f"env.PHONE_DEPLOY_PHASE != 'cold' && ({backend})"
+    for name, expected in (
+        ("Build and pin backend image before lifecycle migration", backend),
+        (
+            "Apply production DB migrations behind account deletion fence",
+            backend
+            + " && (env.PHONE_DEPLOY_PHASE != 'cold' || steps.cold-schema-intent.outcome == 'success')",
+        ),
+        ("Resolve backend candidate revision", candidate),
+        ("Verify backend candidate readiness and exact-SHA provenance", candidate),
     ):
-        expected = "steps.scope.outputs.deploy_backend == 'true'"
-        if name != "Build and pin backend image before lifecycle migration":
-            expected = "env.PHONE_DEPLOY_PHASE != 'cold' && (" + expected + ")"
         assert _production_step(name).get("if") == expected
     assert _production_step("Install fail-closed account deletion release fence").get("if") == (
-        "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_backend == 'true' && "
-        "steps.account-deletion-fence-decision.outputs.required == 'true')"
+        "steps.scope.outputs.deploy_backend == 'true' && steps.account-deletion-fence-decision.outputs.required == 'true' && "
+        "(env.PHONE_DEPLOY_PHASE != 'cold' || steps.cold-schema-intent.outcome == 'success')"
     )
 
 

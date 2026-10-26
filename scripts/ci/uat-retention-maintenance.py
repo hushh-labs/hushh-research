@@ -27,6 +27,7 @@ from zipfile import BadZipFile, ZipFile
 import release_artifact_receipts
 import production_phone_receipt
 import production_phone_lease
+import production_retention_context
 
 retention = importlib.import_module("cloudrun-retention")
 capacity_bridge = importlib.import_module("production-capacity-bridge")
@@ -52,7 +53,7 @@ LANES = {
         "deploy_job": "Deploy Production Scope",
         "upload_step": "Upload production deploy artifacts",
         "state_artifact": "production-retention-state",
-        "services": {"consent-protocol": 2, "hushh-webapp": 10},
+        "services": {"consent-protocol": 2, "hushh-webapp": 10, "consent-protocol-drive-worker": 1},
     },
 }
 STATE_ARTIFACT = LANES["uat"]["state_artifact"]
@@ -417,15 +418,7 @@ def load_release(repository: str, run_id: int, directory: Path, environment: str
     release = json.loads(status_file.read_text())
     if not isinstance(release, dict):
         raise retention.UnsafeState("source release artifact is invalid")
-    if any(
-        name in release
-        for name in (
-            "_maintenance_source_run",
-            "_maintenance_lane_provenance",
-            "_maintenance_prior_backend_provenance",
-            "_maintenance_backend_rollback_revision",
-        )
-    ):
+    if any(name.startswith("_maintenance_") for name in release):
         raise retention.UnsafeState("source artifact contains internal maintenance authority")
     return release
 
@@ -822,6 +815,7 @@ def find_release(
     require_live: bool = True,
     environment: str = "uat",
     on_phone_rollback=None,
+    operational_anchor=None,
 ) -> tuple[int, dict] | None:
     lane_config = LANES[environment]
     if requested:
@@ -898,6 +892,9 @@ def find_release(
                 if requested:
                     raise
                 continue
+        elif environment == "production" and release.get("status") == "pending_activation":
+            release["_maintenance_pending_retirement"] = production_retention_context.pending(
+                sys.modules[__name__], repository, run, release, operational_anchor)
         elif release.get("status") != "healthy":
             if requested:
                 raise retention.UnsafeState("source release artifact is not healthy")
@@ -914,15 +911,8 @@ def find_release(
             or not require_live
             or live_release_matches(release, environment=environment)
         ):
-            if environment == "production" and isinstance(release.get("phone_rollback"), dict) and release["phone_rollback"].get("revision"):
-                original = {key: value for key, value in release.items() if not key.startswith("_maintenance_")}
-                anchor = production_phone_receipt.healthy_anchor(
-                    repository, run, original, lane_config, api=api, governed=governed_dispatch,
-                    timestamp=_github_timestamp, run_command=retention.run_command,
-                    timeout=min(retention.remaining_seconds(GITHUB_LOOKUP_SECONDS), (_LOOKUP_DEADLINE.get() or math.inf) - time.monotonic()),
-                )
-                if on_phone_rollback is not None:
-                    on_phone_rollback(anchor)
+            production_retention_context.healthy_phone(
+                sys.modules[__name__], repository, run, release, lane_config, on_phone_rollback)
             return run_id, release
     return None
 
@@ -1384,20 +1374,18 @@ def production_maintenance_due(repository: str, directory: Path) -> bool:
 
 
 def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
+    if environment == "production" and "_maintenance_backend_identity" in release:
+        production_retention_context.backend_identity(sys.modules[__name__], release["_maintenance_backend_identity"])
+    if environment == "production" and "_maintenance_pending_retirement" in release:
+        production_retention_context.pending_live(sys.modules[__name__], release, release["_maintenance_pending_retirement"])
     project = LANES[environment]["project"]
     for service, lane in (
         ("consent-protocol", "backend"),
         ("hushh-webapp", "frontend"),
     ):
         state = retention.service_state(service, project, REGION)
-        ready = any(
-            c.get("type") == "Ready" and c.get("status") == "True"
-            for c in state.get("status", {}).get("conditions", [])
-        )
-        serving = {
-            name for name, percent, _ in retention.traffic_state(state) if percent
-        }
-        if not ready or serving != {release["final"][f"{lane}_revision"]}:
+        serving = production_retention_context.serving(sys.modules[__name__], state)
+        if serving != {release["final"][f"{lane}_revision"]}:
             return False
         provenance = (release.get("_maintenance_lane_provenance") or {}).get(lane)
         if "_maintenance_source_run" in release:
@@ -1523,74 +1511,13 @@ def live_release_matches(release: dict, *, environment: str = "uat") -> bool:
 
 
 def release_protection_flags(
-    service: str, lane: str, release: dict, *, environment: str = "uat", phone_anchor=None
+    service: str, lane: str, release: dict, *, environment: str = "uat", phone_anchor=None,
+    operational_anchor=None,
 ) -> list[str]:
-    current = release["final"][f"{lane}_revision"]
-    rollback = release.get("predeploy", {}).get(f"{lane}_revision", "")
-    if (
-        environment == "uat"
-        and lane == "backend"
-        and release.get("scope") == "frontend"
-    ):
-        verified_rollback = release.get("_maintenance_backend_rollback_revision")
-        if not isinstance(verified_rollback, str) or not re.fullmatch(
-            r"consent-protocol-[a-z0-9-]+", verified_rollback
-        ):
-            raise retention.UnsafeState(
-                "frontend-only UAT backend rollback is unverified"
-            )
-        rollback = verified_rollback
-    known_good = ""
-    if environment == "uat":
-        tag = retention.run_command(
-            ["git", "show-ref", "--verify", "--quiet", "refs/tags/deployed/uat-latest"],
-            check=False,
-            timeout=30,
-        )
-        if tag.returncode not in {0, 1}:
-            raise retention.UnsafeState("UAT last-known-good tag lookup failed")
-    if environment != "uat" or tag.returncode == 0:
-        known_good = command(
-            "bash", "scripts/ci/resolve-rollback-target.sh", environment, lane
-        ).strip()
-    present: set[str] = set()
-    if rollback or environment == "uat" or phone_anchor is not None:
-        revisions = retention.revision_state(
-            service, LANES[environment]["project"], REGION
-        )
-        present = {item["metadata"]["name"] for item in revisions}
-    if phone_anchor is not None:
-        if environment != "production" or lane != "backend":
-            raise retention.UnsafeState("phone anchor is outside production backend authority")
-        rollback = production_phone_receipt.rollback_revision(phone_anchor, release, revisions)
-    if rollback:
-        if not retention.REVISION_RE.fullmatch(rollback):
-            raise retention.UnsafeState("source predeploy revision is invalid")
-        if rollback not in present:
-            # After rollback, an older release artifact can name a predeploy
-            # revision that a later healthy release already retired.
-            print(f"Source predeploy revision {rollback} is already absent.")
-            rollback = ""
-    if known_good not in present and environment == "uat":
-        # A tag records a historical revision and can outlive Cloud Run
-        # retention. It cannot protect a revision that no longer exists.
-        # Preserve an artifact-backed rollback anchor, or the verified live
-        # revision when the historical predeploy revision is already absent.
-        replacement = rollback or current
-        if replacement not in present:
-            raise retention.UnsafeState("UAT recovery anchor is absent")
-        print(
-            f"Tagged last-known-good revision {known_good} is absent; "
-            f"protecting verified UAT revision {replacement} instead."
-        )
-        known_good = replacement
-    return [
-        current,
-        "--rollback-revision",
-        rollback,
-        "--last-known-good-revision",
-        known_good,
-    ]
+    return production_retention_context.protection(
+        sys.modules[__name__], service, lane, release, environment=environment,
+        phone_anchor=phone_anchor, operational_anchor=operational_anchor,
+    )
 
 
 def main() -> int:
@@ -1642,6 +1569,9 @@ def checkpoint(args, run_id, observed, pending, status):
             "pending_services": list(pending),
             **({"capacity_bridge": bridge} if bridge is not None else {}),
             **({"phone_rollback_qualification": args.phone_anchor} if getattr(args, "phone_anchor", None) else {}),
+            **({"operational_backend": args.operational_anchor} if isinstance(getattr(args, "operational_anchor", None), dict) else {}),
+            **({"pending_retirement": args.pending_context} if isinstance(getattr(args, "pending_context", None), dict) else {}),
+            **({"staged_worker_qualification": args.worker_anchor["context"]} if isinstance(getattr(args, "worker_anchor", None), dict) else {}),
         },
     )
     output = os.environ.get("GITHUB_OUTPUT")
@@ -1789,6 +1719,9 @@ def maintenance_cli():
     )
     parser.add_argument("--environment", choices=tuple(LANES), default="uat")
     parser.add_argument("--qualified-cold-checkpoint-run-id", default="")
+    parser.add_argument("--operational-backend-proof-run-id", default="")
+    parser.add_argument("--operational-backend-proof-attempt", type=production_retention_context.optional_attempt)
+    parser.add_argument("--staged-worker-run-id", default="")
     args = parser.parse_args()
     if args.production_capacity_bridge and (args.environment != "production" or not args.apply
             or args.verify_source_only or args.check_mutations or not args.force_inspection
@@ -1805,6 +1738,7 @@ def maintenance_cli():
     ):
         parser.error("cold checkpoint requires explicit manual main production with a healthy serving release")
     production_phone_receipt.refuse_advance_checkpoint(args.qualified_cold_checkpoint_run_id)
+    production_retention_context.check_inputs(args, parser)
     return args
 
 
@@ -1819,6 +1753,8 @@ def maintenance_pass() -> int:
     if args.apply:
         assert_checkpoint_publication(repository, args.environment)
         restore_state(repository, args.state_dir, environment=args.environment)
+    args.operational_anchor = production_retention_context.load_operational(sys.modules[__name__], args)
+    args.worker_anchor = production_retention_context.worker(sys.modules[__name__], args, repository)
     if (
         (args.verify_source_only or args.apply)
         and not args.force_inspection
@@ -1835,17 +1771,7 @@ def maintenance_pass() -> int:
             with Path(output).open("a") as stream:
                 stream.write("cleanup_ready=false\n")
         return 0
-    with tempfile.TemporaryDirectory() as temporary:
-        phone_anchors = []
-        found = find_release(
-            repository,
-            args.release_run_id,
-            Path(temporary),
-            require_live=not args.verify_source_only,
-            environment=args.environment,
-            on_phone_rollback=phone_anchors.append,
-        )
-    args.phone_anchor = phone_anchors[-1] if phone_anchors else None
+    found = production_retention_context.find_source(sys.modules[__name__], args, repository)
     if args.verify_source_only:
         ready = found is not None
         output = os.environ.get("GITHUB_OUTPUT")
@@ -1858,6 +1784,7 @@ def maintenance_pass() -> int:
         record_uat_cleanup_outcome(args, "no_live_source")
         return 0
     run_id, release = found
+    args.pending_context = release.get("_maintenance_pending_retirement")
     if not live_release_matches(release, environment=args.environment):
         print(
             f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
@@ -1871,10 +1798,11 @@ def maintenance_pass() -> int:
     observation = (
         latest_deploy_observation(repository, args.environment) if args.apply else None
     )
-    pending = list(lane_config["services"])
+    service_settings = production_retention_context.services(sys.modules[__name__], args)
+    pending = list(service_settings)
     if args.apply:
         checkpoint(args, run_id, observation, pending, "in_progress")
-    for service in lane_config["services"]:
+    for service in list(pending):
         if not args.apply:
             break
         try:
@@ -1902,7 +1830,7 @@ def maintenance_pass() -> int:
             checkpoint(args, run_id, observation, pending, outcome)
             record_uat_cleanup_outcome(args, outcome)
             return 0
-    for service, keep in lane_config["services"].items():
+    for service, keep in service_settings.items():
         try:
             # The workflow holds the environment's deployment lock for this short pass.
             # Recheck the release before each service as defense against external changes.
@@ -1912,20 +1840,23 @@ def maintenance_pass() -> int:
             lane = {"consent-protocol": "backend", "hushh-webapp": "frontend"}.get(
                 service
             )
+            if service == "consent-protocol-drive-worker" and args.environment == "production":
+                flags += production_retention_context.worker_flags(sys.modules[__name__], args.worker_anchor)
             if lane:
                 flags += release_protection_flags(
                     service, lane, release, environment=args.environment,
                     phone_anchor=args.phone_anchor if lane == "backend" else None,
+                    **({"operational_anchor": args.operational_anchor} if args.operational_anchor else {}),
                 )
             if args.apply:
                 flags += [
                     "--apply",
-                    "--healthy",
                     "--defer-state",
                     str(args.state_dir / f"{service}.json"),
                     "--release-run-id",
                     str(run_id),
                 ]
+                flags += production_retention_context.pending_flags(args.pending_context, args.state_dir) if args.pending_context else ["--healthy"]
                 if args.environment == "uat":
                     flags.append("--carry-uat-clock")
             else:

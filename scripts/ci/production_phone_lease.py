@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from runpy import run_path
@@ -10,6 +9,7 @@ import subprocess
 import time
 
 import production_phone_receipt as phone
+import production_phone_lease_receipts as lease_documents
 import release_artifact_receipts as receipts
 
 retention = receipts.retention
@@ -21,6 +21,8 @@ CLEANUP = "Retire initial cold health-tag lease"
 UPLOAD = "Publish cold health-tag reconciliation evidence"
 MARKER = "prod-phone-health-lease-"
 GUARD = "Require reconciled maintenance mutations under deployment lock"
+INTENT = "Publish initial cold health-tag intent"
+BUILD_IF = "steps.scope.outputs.deploy_backend == 'true' && (env.PHONE_DEPLOY_PHASE != 'cold' || (steps.cold-lease.outcome == 'success' && steps.cold-lease-intent.outcome == 'success'))"
 
 
 def _require(condition, reason):
@@ -135,7 +137,26 @@ def _protocol(sha, newer, source):
         all(marker in text for marker in markers),
         "workflow lease protocol is ambiguous",
     )
+    if INTENT in text:
+        _intent_gate(text)
+        return "intent"
     return True
+
+
+def _intent_gate(text):
+    blocks = re.findall(
+        r"(?ms)^      - name: Deploy backend using Cloud Build\n(.*?)(?=^      - name:|\Z)",
+        text,
+    )
+    conditions = (
+        re.findall(r"^        if: (.+)$", blocks[0], re.M) if len(blocks) == 1 else []
+    )
+    _require(
+        conditions == [BUILD_IF]
+        and text.count(f"- name: {INTENT}") == 1
+        and text.index(f"- name: {INTENT}") < text.index(f"- name: {DEPLOY}"),
+        "immutable intent does not gate submission",
+    )
 
 
 def _source(args, port):
@@ -204,7 +225,7 @@ def _attempt(repository, run, number, api):
     return attempt, result, matches[0]
 
 
-def _steps(job, current=False):
+def _steps(job, current=False, source_gated=False):
     steps = job.get("steps")
     _require(
         isinstance(steps, list)
@@ -242,6 +263,17 @@ def _steps(job, current=False):
     ):
         _require(guard, "an earlier producer is still active")
         return None
+    intent, deploy = by_name.get(INTENT, {}), by_name.get(DEPLOY, {})
+    if (
+        source_gated
+        and job.get("status") == "completed"
+        and intent.get("status") == "completed"
+        and intent.get("conclusion") == "failure"
+        and deploy.get("status") == "completed"
+        and deploy.get("conclusion") == "skipped"
+        and deploy.get("started_at") is None
+    ):
+        return None
     _require(
         job.get("status") == "completed"
         and all(
@@ -257,13 +289,13 @@ def _steps(job, current=False):
 def _current(repository, attempt, job, trusted):
     return (
         trusted
+        and os.environ.get("GITHUB_JOB") in {"deploy", "complete-phone-activation"}
         and attempt.get("status") == job.get("status") == "in_progress"
         and all(
             os.environ.get(key) == value
             for key, value in {
                 "GITHUB_RUN_ID": str(attempt["id"]),
                 "GITHUB_RUN_ATTEMPT": str(attempt["run_attempt"]),
-                "GITHUB_JOB": "deploy",
                 "GITHUB_REPOSITORY": repository,
                 "GITHUB_REF_NAME": "main",
             }.items()
@@ -272,111 +304,52 @@ def _current(repository, attempt, job, trusted):
 
 
 def _artifact(repository, attempt, result, api, timestamp):
-    lane = {"deploy_job": JOB, "upload_step": UPLOAD}
-    started, ended = receipts._upload_window(
-        result, attempt, attempt["run_attempt"], lane, timestamp
-    )
-    inventory = api(repository, f"runs/{attempt['id']}/artifacts?per_page=100")
-    rows = inventory.get("artifacts")
-    _require(
-        isinstance(rows, list)
-        and len(rows) <= 100
-        and inventory.get("total_count") == len(rows)
-        and all(isinstance(row, dict) for row in rows),
-        "lease artifact inventory is incomplete",
-    )
-    name = f"{MARKER}{attempt['id']}-{attempt['run_attempt']}"
-    matches = [row for row in rows if row.get("name") == name]
-    _require(
-        len(matches) == 1 and matches[0].get("expired") is False,
-        "lease artifact is missing, expired or ambiguous",
-    )
-    created = receipts._artifact_created(matches[0], attempt, timestamp)
-    _require(
-        started.timestamp() - 5 <= created.timestamp() <= ended.timestamp() + 30,
-        "lease publication is not attempt-bound",
-    )
-    return matches[0]
-
-
-def _retired(lease, attempt):
-    origin = {"run_id": str(attempt["id"]), "run_attempt": attempt["run_attempt"]}
-    _require(
-        type(lease.get("schema_version")) is int
-        and lease["schema_version"] == 1
-        and lease.get("kind") == "phone-cold-health-lease"
-        and lease.get("project") == "hushh-pda"
-        and lease.get("region") == "us-central1"
-        and lease.get("service") == "consent-protocol"
-        and lease.get("origin") == origin
-        and type(lease["origin"].get("run_attempt")) is int
-        and lease.get("workflow_sha") == attempt["head_sha"]
-        and lease.get("tag") == f"phone-rollback-{attempt['id']}"
-        and re.fullmatch(r"[0-9a-f]{40}", str(lease.get("source", "")))
-        and re.fullmatch(
-            r"gcr\.io/hushh-pda/consent-protocol@sha256:[0-9a-f]{64}",
-            str(lease.get("image", "")),
-        )
-        and lease.get("status") == "retired"
-        and "pending_mutation" in lease
-        and lease["pending_mutation"] is None
-        and isinstance(lease.get("service_uid"), str)
-        and 0 < len(lease["service_uid"]) <= 256
-        and all(
-            re.fullmatch(r"[0-9a-f]{64}", str(lease.get(key, "")))
-            for key in ("controls", "iam")
-        )
-        and _traffic(lease)
-        and "revision" in lease
-        and (
-            lease["revision"] is None
-            or re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(lease["revision"]))
-        ),
-        "lease retirement is invalid or unresolved",
+    return lease_documents.artifact(
+        repository,
+        attempt,
+        result,
+        api,
+        timestamp,
+        job=JOB,
+        upload=UPLOAD,
+        name=f"{MARKER}{attempt['id']}-{attempt['run_attempt']}",
     )
 
 
-def _traffic(lease):
-    serving, traffic = lease.get("serving"), lease.get("traffic")
-    if not (
-        isinstance(serving, list)
-        and len(serving) == 1
-        and isinstance(serving[0], list)
-        and len(serving[0]) == 2
-        and re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(serving[0][0]))
-        and type(serving[0][1]) is int
-        and serving[0][1] == 100
-        and isinstance(traffic, list)
-        and len(traffic) == 2
-        and isinstance(traffic[0], list)
-        and len(traffic[0]) <= 100
-        and isinstance(traffic[1], str)
-        and len(traffic[1]) <= 65536
-    ):
-        return False
-    try:
-        desired = json.loads(traffic[1], object_pairs_hook=phone._unique_object)
-    except (TypeError, ValueError):
-        return False
-    return (
-        isinstance(desired, list)
-        and len(desired) <= 100
-        and all(
-            isinstance(row, dict) and row.get("tag") != lease["tag"] for row in desired
+_retired = lease_documents.validate
+_traffic = lease_documents.traffic
+
+
+def _verify_retired(
+    repository, attempt, result, job, protocol, *, api, timestamp, deadline, run_command
+):
+    original = None
+    if protocol == "intent":
+        original = lease_documents.intent(
+            repository,
+            attempt,
+            result,
+            {step["name"]: step for step in job["steps"]},
+            job=JOB,
+            begin=BEGIN,
+            upload=INTENT,
+            deploy=DEPLOY,
+            api=api,
+            timestamp=timestamp,
+            run_command=run_command or retention.run_command,
+            timeout=_budget(deadline),
         )
-        and all(
-            isinstance(row, list)
-            and len(row) == 3
-            and re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(row[0]))
-            and type(row[1]) is int
-            and 0 <= row[1] <= 100
-            and isinstance(row[2], str)
-            and len(row[2]) <= 63
-            and row[2] != lease["tag"]
-            for row in traffic[0]
-        )
-        and sorted([row[0], row[1]] for row in traffic[0] if row[1]) == serving
+    artifact = _artifact(repository, attempt, result, api, timestamp)
+    archive = receipts.immutable_archive(
+        repository,
+        artifact,
+        run_command=run_command or retention.run_command,
+        timeout=_budget(deadline),
     )
+    final = phone._document(archive, "initial-lease.json")
+    _retired(final, attempt)
+    if original is not None:
+        lease_documents.bind_final(final, original)
 
 
 def assert_reconciled(
@@ -411,7 +384,12 @@ def assert_reconciled(
             attempt, result, job = _attempt(repository, run, number, api)
             if (
                 job is None
-                or _steps(job, _current(repository, attempt, job, trusted)) is None
+                or _steps(
+                    job,
+                    _current(repository, attempt, job, trusted),
+                    protocol == "intent",
+                )
+                is None
             ):
                 continue
             _require(
@@ -421,14 +399,17 @@ def assert_reconciled(
                 ),
                 "lease producer is not governed",
             )
-            artifact = _artifact(repository, attempt, result, api, timestamp)
-            archive = receipts.immutable_archive(
+            _verify_retired(
                 repository,
-                artifact,
-                run_command=run_command or retention.run_command,
-                timeout=_budget(deadline),
+                attempt,
+                result,
+                job,
+                protocol,
+                api=api,
+                timestamp=timestamp,
+                deadline=deadline,
+                run_command=run_command,
             )
-            _retired(phone._document(archive, "initial-lease.json"), attempt)
         refreshed = api(repository, f"runs/{run['id']}?exclude_pull_requests=true")
         _require(
             all(

@@ -109,7 +109,7 @@ class Runtime:
         expected = {
             WORKFLOW: ("deploy", "Deploy Production Scope"),
             ".github/workflows/capacity-maintenance.yml": (
-                "production",
+                "cleanup",
                 "Production bounded revision cleanup",
             ),
         }.get(owner.get("path"))
@@ -263,6 +263,11 @@ def begin(
         "iam": iam_fingerprint(before_iam),
         "traffic": _without_tag(before, tag),
         "pending_mutation": "stage_cold",
+        "producer": {
+            "cloud_build_tag": f"phone-cold-{owner['id']}-{owner['run_attempt']}",
+            "primary_source": prepared["primary_sha"],
+            "fallback_source": prepared["source"],
+        },
     }
     current = ports.service()
     _attest(current, result, ports)

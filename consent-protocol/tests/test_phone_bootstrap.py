@@ -364,14 +364,12 @@ def test_cold_phase_dispatch_cannot_reach_primary(phase, expected):
     assert result.stdout == expected
 
 
-def test_cold_workflow_is_terminal_without_producer_mutations():
+def test_cold_workflow_is_terminal_without_release_or_secret_mutations():
     workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
     assert workflow[True]["workflow_dispatch"]["inputs"]["phone_phase"]["default"] == "standard"
     assert workflow["concurrency"]["group"] == "deploy-production"
     steps = {step["name"]: step for step in workflow["jobs"]["deploy"]["steps"]}
     for name in (
-        "Install fail-closed account deletion release fence",
-        "Apply production DB migrations behind account deletion fence",
         "Sync canonical hosted runtime secrets",
         "Sync frontend hosted runtime secrets",
         "Promote deployed revisions to production traffic",
@@ -387,6 +385,14 @@ def test_cold_workflow_is_terminal_without_producer_mutations():
     )
     assert upload["with"]["path"] == "/tmp/phone-rollback/bootstrap.json"  # noqa: S108 - Assert authored artifact location; no file is opened.
     assert "steps.cold-lease-cleanup.outcome == 'success'" in upload["if"]
+    assert (
+        "steps.cold-lease-intent.outcome == 'success'"
+        in steps["Deploy backend using Cloud Build"]["if"]
+    )
+    assert (
+        steps["Publish initial cold health-tag intent"]["with"]["name"]
+        == "prod-phone-health-intent-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
     assert "always()" in steps["Retire initial cold health-tag lease"]["if"]
     assert (
         "steps.cold-lease.outcome == 'success'" in steps["Deploy backend using Cloud Build"]["if"]

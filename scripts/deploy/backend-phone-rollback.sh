@@ -3,6 +3,10 @@
 # SPDX-FileCopyrightText: 2026 Hushh
 # Validate and stage the independent production phone reader before a primary.
 
+phone_deploy_phase_valid() {
+  [[ "$1" == standard || "$1" == cold ]]
+}
+
 validate_phone_recovery_boolean() {
   [[ "$1" == true || "$1" == false ]] || {
     echo "Phone recovery requires an explicit boolean." >&2; return 1;
@@ -32,7 +36,7 @@ stage_phone_rollback() {
 deploy_phone_phase() {
   local phase="$1" fallback_sha="$2" fallback_image="$3" deploy_env="$4" project="$5" no_traffic="$6"
   shift 6
-  [[ "${phase}" == standard || "${phase}" == cold ]] || {
+  phone_deploy_phase_valid "${phase}" || {
     echo "Invalid phone deployment phase." >&2; return 1;
   }
   if [[ "${phase}" == cold ]]; then

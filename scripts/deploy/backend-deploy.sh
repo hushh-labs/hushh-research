@@ -26,13 +26,12 @@ set -euo pipefail
 # Image selection travels together to remain within Cloud Build's env-entry cap.
 IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _SECRET_PREFIX _PHONE_ROLLBACK_SHA _PHONE_ROLLBACK_IMAGE_REFERENCE _PHONE_DEPLOY_PHASE _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
 _PHONE_DEPLOY_PHASE="${_PHONE_DEPLOY_PHASE:-standard}"
+source scripts/deploy/backend-phone-rollback.sh
 if [[ "${_SKIP_IMAGE_BUILD}" != "true" && "${_SKIP_IMAGE_BUILD}" != "false" ]] ||
   [[ "${_BUILD_POD_IMAGE}" != "true" && "${_BUILD_POD_IMAGE}" != "false" ]] ||
-  [[ -n "${_image_extra}" ]] ||
-  [[ "${_PHONE_DEPLOY_PHASE}" != standard && "${_PHONE_DEPLOY_PHASE}" != cold ]]; then
+  [[ -n "${_image_extra}" ]] || ! phone_deploy_phase_valid "${_PHONE_DEPLOY_PHASE}"; then
   echo "Invalid image settings." >&2; exit 1
 fi
-source scripts/deploy/backend-phone-rollback.sh
 validate_phone_rollback_image "${_PHONE_ROLLBACK_SHA}" "${_PHONE_ROLLBACK_IMAGE_REFERENCE}"
 
 source scripts/deploy/commerce-preview-bindings.sh

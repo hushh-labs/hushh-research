@@ -31,6 +31,7 @@ from fastapi import FastAPI, HTTPException  # noqa: E402
 
 from api.routes.drive_work_drain import router  # noqa: E402
 from hushh_mcp.services.connector_feature_admission import (  # noqa: E402
+    connector_feature_enabled,
     connector_feature_owner_cohort,
 )
 from hushh_mcp.services.drive_document_processor import (  # noqa: E402
@@ -48,6 +49,14 @@ logger = logging.getLogger(__name__)
 
 def _indexing_active() -> bool:
     return connector_feature_owner_cohort("drive_document_indexing") != ()
+
+
+def _scanner_active() -> bool:
+    # This synthetic identity evaluates configuration only; it grants no owner
+    # access and does not widen the indexing cohort.
+    return _indexing_active() or connector_feature_enabled(
+        "protected_document_delivery", "connector-scope-check"
+    )
 
 
 async def _admit_embedding() -> None:
@@ -96,10 +105,11 @@ async def _timed_admission(stage: str, check: Callable[[], Awaitable[None]]) -> 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if not _indexing_active():
+    indexing = _indexing_active()
+    if not _scanner_active():
         yield
         return
-    if not Path(BAKED_MODEL_DIR).is_dir():
+    if indexing and not Path(BAKED_MODEL_DIR).is_dir():
         raise RuntimeError("Drive worker image is missing its pinned local model")
     # This is synthetic content only. Failure keeps the candidate revision
     # unready and prevents the scheduler from being retargeted to it.
@@ -108,10 +118,9 @@ async def lifespan(_app: FastAPI):
         async with asyncio.timeout(STARTUP_TIMEOUT_SECONDS):
             # Scanner reload/freshness and isolated model admission are
             # independent. Both must finish within the same startup budget.
-            tasks = [
-                asyncio.create_task(_timed_admission("embedding", _admit_embedding)),
-                asyncio.create_task(_timed_admission("scanner", _admit_scanner)),
-            ]
+            tasks = [asyncio.create_task(_timed_admission("scanner", _admit_scanner))]
+            if indexing:
+                tasks.append(asyncio.create_task(_timed_admission("embedding", _admit_embedding)))
             await asyncio.gather(*tasks)
     except TimeoutError:
         raise RuntimeError("Drive worker exceeded its startup readiness budget") from None
@@ -137,7 +146,7 @@ app.include_router(router)
 
 @app.get("/ready", include_in_schema=False)
 async def ready() -> dict[str, str]:
-    if not _indexing_active():
+    if not _scanner_active():
         return {"status": "ready"}
     try:
         await ClamAvScanner().check_ready()

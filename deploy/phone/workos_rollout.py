@@ -88,15 +88,24 @@ def source_capable(sha: str) -> bool:
     return False
 
 
-def _source(labels: dict) -> str:
+def _source(labels: dict, check=None) -> str:
     if not isinstance(labels, dict):
         raise ValueError("workos_history_labels_invalid")
     sha = labels.get("deploy-sha")
-    source_capable(sha)
+    (check or source_capable)(sha)
     return sha
 
 
-def revision_inventory(rows: list) -> dict[str, dict]:
+def revision_inventory(
+    rows: list,
+    *,
+    service=SERVICE,
+    check=None,
+    flag="WORKOS_SSO_ENABLED",
+    closed_key="direct_sso_false",
+    container_name=None,
+) -> dict[str, dict]:
+    check = check or source_capable
     if not isinstance(rows, list) or not rows or len(rows) >= LIMIT:
         raise ValueError("workos_revision_inventory_incomplete")
     result = {}
@@ -106,24 +115,30 @@ def revision_inventory(rows: list) -> dict[str, dict]:
         labels = metadata.get("labels") or {}
         if (
             not isinstance(name, str)
-            or not re.fullmatch(r"consent-protocol-[a-z0-9-]{1,46}", name)
+            or not re.fullmatch(
+                rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name
+            )
             or name in result
-            or labels.get("serving.knative.dev/service") != SERVICE
+            or labels.get("serving.knative.dev/service") != service
         ):
             raise ValueError("workos_revision_identity_invalid")
         _instant(created)
-        sha = _source(labels)
+        sha = _source(labels, check)
         containers = spec.get("containers") or []
+        if container_name:
+            containers = [
+                row for row in containers if row.get("name") == container_name
+            ]
         if len(containers) != 1:
             raise ValueError("workos_revision_container_unknown")
         entries = containers[0].get("env") or []
-        flags = [item for item in entries if item.get("name") == "WORKOS_SSO_ENABLED"]
+        flags = [item for item in entries if item.get("name") == flag]
         closed = (
             len(flags) == 1
             and flags[0].get("value") == "false"
             and "valueFrom" not in flags[0]
         )
-        capable = source_capable(sha)
+        capable = check(sha)
         if capable and not closed:
             raise ValueError("workos_capable_revision_was_not_directly_closed")
         result[name] = {
@@ -131,21 +146,32 @@ def revision_inventory(rows: list) -> dict[str, dict]:
             "source": sha,
             "created_at": created,
             "capable": capable,
-            "direct_sso_false": closed,
+            closed_key: closed,
         }
     return result
 
 
-def _audit_templates(event: dict) -> list[tuple[dict, str | None, bool]]:
+def _audit_templates(
+    event: dict, *, kind="Service"
+) -> list[tuple[dict, str | None, bool]]:
     """Accept the observed v1 request/completion envelopes, never a guessed v2."""
     payload = event.get("protoPayload") or {}
-    if payload.get("methodName") not in METHODS:
+    methods = (
+        METHODS
+        if kind == "Service"
+        else {
+            method.replace("Services", "Jobs").replace("Service", "Job")
+            for method in METHODS
+        }
+    )
+    if kind not in {"Service", "Job"} or payload.get("methodName") not in methods:
         raise ValueError("workos_audit_method_unknown")
     found = []
     request, response = payload.get("request") or {}, payload.get("response") or {}
-    service = request.get("service")
+    field = kind.lower()
+    service = request.get(field)
     if request and (
-        not set(request).issubset({"@type", "name", "service"})
+        not set(request).issubset({"@type", "name", field})
         or not isinstance(service, dict)
         or not isinstance((service.get("spec") or {}).get("template"), dict)
     ):
@@ -157,9 +183,13 @@ def _audit_templates(event: dict) -> list[tuple[dict, str | None, bool]]:
     if isinstance(response.get("spec"), dict) and isinstance(
         response["spec"].get("template"), dict
     ):
-        if response.get("kind") != "Service":
+        if response.get("kind") != kind:
             raise ValueError("workos_audit_response_unknown")
-        name = (response.get("status") or {}).get("latestCreatedRevisionName")
+        name = (
+            (response.get("status") or {}).get("latestCreatedRevisionName")
+            if kind == "Service"
+            else (response.get("metadata") or {}).get("name")
+        )
         found.append((response["spec"]["template"], name, True))
     if not found:
         # Only explicit pre-creation RPC refusals may lack a template. A generic
@@ -171,15 +201,15 @@ def _audit_templates(event: dict) -> list[tuple[dict, str | None, bool]]:
     return found
 
 
-def _completion_closed(template: dict) -> bool:
+def _completion_closed(
+    template: dict, flag="WORKOS_SSO_ENABLED", container_name=None
+) -> bool:
     containers = (template.get("spec") or {}).get("containers") or []
+    if container_name:
+        containers = [row for row in containers if row.get("name") == container_name]
     if len(containers) != 1:
         raise ValueError("workos_audit_container_unknown")
-    flags = [
-        row
-        for row in containers[0].get("env", [])
-        if row.get("name") == "WORKOS_SSO_ENABLED"
-    ]
+    flags = [row for row in containers[0].get("env", []) if row.get("name") == flag]
     return (
         len(flags) == 1
         and flags[0].get("value") == "false"
@@ -188,8 +218,20 @@ def _completion_closed(template: dict) -> bool:
 
 
 def review_history(
-    events: list, inventory: dict[str, dict], *, project: str, until: str
+    events: list,
+    inventory: dict[str, dict],
+    *,
+    project: str,
+    until: str,
+    service=SERVICE,
+    start=HISTORY_START,
+    check=None,
+    flag="WORKOS_SSO_ENABLED",
+    closed_key="direct_sso_false",
+    require_retained=False,
+    container_name=None,
 ) -> int:
+    check = check or source_capable
     if not isinstance(events, list) or len(events) >= LIMIT:
         raise ValueError("workos_audit_history_incomplete")
     seen, templates, completions = set(), [], {}
@@ -198,26 +240,26 @@ def review_history(
         payload = event.get("protoPayload") or {}
         stamp = _instant(event.get("timestamp", ""))
         if (
-            labels.get("service_name") != SERVICE
+            labels.get("service_name") != service
             or payload.get("serviceName") != "run.googleapis.com"
             or event.get("logName")
             != f"projects/{project}/logs/cloudaudit.googleapis.com%2Factivity"
-            or not _instant(HISTORY_START) <= stamp <= _instant(until)
+            or not _instant(start) <= stamp <= _instant(until)
         ):
             raise ValueError("workos_audit_scope_invalid")
         for template, completed_name, completion in _audit_templates(event):
             metadata = template.get("metadata") or {}
-            sha = _source(metadata.get("labels") or {})
+            sha = _source(metadata.get("labels") or {}, check)
             name = metadata.get("name") or completed_name
             if completed_name and name != completed_name:
                 raise ValueError("workos_audit_revision_ambiguous")
             if not isinstance(name, str) or not re.fullmatch(
-                r"consent-protocol-[a-z0-9-]{1,46}", name
+                rf"{re.escape(service)}-[a-z0-9-]{{1,{62 - len(service)}}}", name
             ):
                 raise ValueError("workos_audit_revision_unknown")
             templates.append((name, sha))
             if completion:
-                observation = (sha, _completion_closed(template))
+                observation = (sha, _completion_closed(template, flag, container_name))
                 if name in completions and completions[name] != observation:
                     raise ValueError("workos_audit_completion_changed")
                 completions[name] = observation
@@ -228,11 +270,11 @@ def review_history(
         completed = completions.get(name)
         if completed is not None and completed[0] != sha:
             raise ValueError("workos_audit_request_completion_mismatch")
-        if source_capable(sha) and (
-            completed == (sha, False)
+        if check(sha) and (
+            (require_retained and actual is None)
+            or completed == (sha, False)
             or not (
-                (actual is not None and actual["direct_sso_false"])
-                or completed == (sha, True)
+                (actual is not None and actual[closed_key]) or completed == (sha, True)
             )
         ):
             # Requests redact env. Require the retained immutable revision
@@ -241,7 +283,7 @@ def review_history(
         if actual is not None:
             seen.add(name)
     if any(
-        _instant(row["created_at"]) >= _instant(HISTORY_START) and name not in seen
+        _instant(row["created_at"]) >= _instant(start) and name not in seen
         for name, row in inventory.items()
     ):
         raise ValueError("workos_creation_history_not_yet_complete")
@@ -309,7 +351,7 @@ def _database_empty(connection) -> dict:
     }
 
 
-def database_evidence(project: str) -> dict:
+def database_evidence(project: str, *, inspect=None) -> dict:
     """Read only aggregates through this invocation's bounded, owned proxy."""
     import psycopg2
 
@@ -364,7 +406,7 @@ def database_evidence(project: str) -> dict:
                 )
             ) as connection:
                 try:
-                    evidence = _database_empty(connection)
+                    evidence = (inspect or _database_empty)(connection)
                 finally:
                     connection.rollback()
         finally:

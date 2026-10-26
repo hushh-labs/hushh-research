@@ -1,3 +1,4 @@
+tags: ["phone-${_PHONE_DEPLOY_PHASE}-${_GITHUB_RUN_ID}-${_GITHUB_RUN_ATTEMPT}"]
 # Cloud Build configuration for Python FastAPI backend
 # Deploy to: Cloud Run (service name configurable via substitutions)
 
@@ -902,6 +903,7 @@ substitutions:
   _DEPLOY_SOURCE: manual
   _DEPLOY_SHA: unknown
   _GITHUB_RUN_ID: unknown
+  _GITHUB_RUN_ATTEMPT: unknown
   _RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS: "65"
   _RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS: "75"
 

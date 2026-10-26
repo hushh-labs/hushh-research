@@ -18,7 +18,11 @@ from unittest import mock
 from test_release_artifact_receipts import (
     ReplayedProductionReleaseArtifactTest as ReplayedProductionReleaseArtifactTest,
     ReplayedUatReleaseArtifactTest as ReplayedUatReleaseArtifactTest,
+    ProductionStagedWorkerCases as ProductionStagedWorkerCases,
+    ProductionHealthyStagedWorkerCases as ProductionHealthyStagedWorkerCases,
 )
+from test_production_operational_retention import OperationalRetentionCases as OperationalRetentionCases
+from test_production_operational_retention import PendingRetirementCases as PendingRetirementCases
 
 SCRIPT = pathlib.Path(__file__).with_name("cloudrun-retention.py")
 SPEC = importlib.util.spec_from_file_location("cloudrun_retention", SCRIPT)
@@ -2119,11 +2123,12 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertNotIn("uat-drain-wait:", text)
             self.assertNotIn("uat-drain-recheck:", text)
             self.assertNotIn('sleep "$wait_seconds"', text)
-            # Only the explicit, separately authorized production bridge may
-            # force inspection. Ordinary ticks must retain the quiet due check.
+            # Explicit proof inputs request inspection, never infer mutation
+            # authority. Ordinary ticks retain the quiet due check.
             for line in text.splitlines():
                 if "--force-inspection" in line:
-                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+                    self.assertRegex(line.strip(), r'^if \[\[ "\$CAPACITY_BRIDGE" = true(?: \|\| -n "\$\{OPERATIONAL_RUN_ID:-\}\$\{STAGED_WORKER_RUN_ID:-\}")? \]\]; then flags(?:=|\+=)\(--force-inspection(?: --production-capacity-bridge)?\); fi$')
+            self.assertIn('"$OPERATIONAL_RUN_ID" =~ ^[1-9][0-9]*$ && "$OPERATIONAL_ATTEMPT" =~ ^[1-9][0-9]*$', text)
             self.assertIn('[[ "$GITHUB_EVENT_NAME" = workflow_dispatch && "$RELEASE_ENV" = production && "$APPLY" = true ]] || exit 1', text)
             concurrency = text.split("\nconcurrency:\n", 1)[1].split(
                 "\npermissions:", 1
@@ -3231,8 +3236,6 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             )
 
     def test_queued_settled_pass_checks_inside_lock_before_cloud_steps(self):
-        import re
-
         source = (
             pathlib.Path(__file__).resolve().parents[2]
             / ".github/workflows/capacity-maintenance.yml"
@@ -3252,8 +3255,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             self.assertIn("--release-run-id", check)
             if "--force-inspection" in check:
                 self.assertIn("CAPACITY_BRIDGE: ${{ inputs.production_capacity_bridge }}", check)
-                self.assertIn('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', check)
-                self.assertNotIn("--force-inspection", check.replace('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', ""))
+                inspected = 'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi'
+                self.assertIn(inspected, check)
+                self.assertNotIn("--force-inspection", check.replace(inspected, ""))
+                self.assertIn('OPERATIONAL_ATTEMPT: ${{ inputs.operational_backend_proof_attempt }}', check)
             self.assertNotIn("--apply", check)
             for i, step in enumerate(steps):
                 protected = any(
@@ -3288,7 +3293,10 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 assert_guarded(broken)
             if "--force-inspection" in job:
-                broken = job.replace('if [[ "$CAPACITY_BRIDGE" = true ]]; then flags=(--force-inspection); fi', 'if true; then flags=(--force-inspection); fi')
+                broken = job.replace(
+                    'if [[ "$CAPACITY_BRIDGE" = true || -n "${OPERATIONAL_RUN_ID:-}${STAGED_WORKER_RUN_ID:-}" ]]; then flags=(--force-inspection); fi',
+                    'if true; then flags=(--force-inspection); fi',
+                )
                 with self.assertRaises(AssertionError):
                     assert_guarded(broken)
 

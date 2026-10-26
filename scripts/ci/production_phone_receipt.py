@@ -9,6 +9,7 @@ import re
 from runpy import run_path
 
 import release_artifact_receipts as receipts
+import production_backend_successor as backend_reference
 
 retention = receipts.retention
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,7 +69,7 @@ def _document(archive, name):
     return value
 
 
-def _qualified(qualified, plan, release, run):
+def qualified_reader(qualified, plan, primary_sha, run):
     source, image, revision = (
         qualified.get(key) for key in ("source", "image", "revision")
     )
@@ -89,18 +90,12 @@ def _qualified(qualified, plan, release, run):
         ),
         "phone rollback qualification identity is invalid",
     )
-    summary = release["phone_rollback"]
-    _require(
-        summary.get("revision") == revision
-        and summary.get("qualification") == "success",
-        "phone rollback summary is not bound to its qualification",
-    )
     _require(
         type(plan.get("schema_version")) is int
         and plan["schema_version"] == 1
         and plan.get("run_id") == str(run["id"])
-        and plan.get("primary_sha") == release.get("sha")
-        and re.fullmatch(r"[0-9a-f]{40}", str(release.get("sha", "")))
+        and plan.get("primary_sha") == primary_sha
+        and re.fullmatch(r"[0-9a-f]{40}", str(primary_sha))
         and plan.get("source") == source
         and plan.get("image") == image
         and type(plan.get("recovery_enabled")) is bool,
@@ -129,26 +124,67 @@ def _qualified(qualified, plan, release, run):
     _require(
         isinstance(consumers, dict)
         and consumers.get("fallback") == source
-        and consumers.get("primary") == release["sha"]
+        and consumers.get("primary") == primary_sha
         and _hashes(consumers.get("source_sha256"), paths),
         "phone consumer compatibility is not qualified",
     )
     return {"revision": revision, "source": source, "image": image}
 
 
-def _documents(archive, anchor, release):
-    mode = _document(archive, "prod-protected-document-release.json")
+def _qualified(qualified, plan, release, run):
+    anchor = qualified_reader(qualified, plan, release.get("sha"), run)
+    summary = release["phone_rollback"]
     _require(
-        type(mode.get("configured")) is bool and type(mode.get("enabled")) is bool,
+        summary.get("revision") == anchor["revision"]
+        and summary.get("qualification") == "success",
+        "phone rollback summary is not bound to its qualification",
+    )
+    return anchor
+
+
+def operational_runtime(qualified, plan):
+    """Read an operational binding re-attested by this exact release's gates."""
+    binding = plan.get("operational_reference") or {}
+    tag = binding.get("tag") or {}
+    try:
+        _require(
+            backend_reference.tag_identity(tag.get("tag_object")) == tag,
+            "operational phone runtime tag changed",
+        )
+        _, record = backend_reference.split(tag["message"], tag["commit"])
+        _require(isinstance(record, dict), "operational phone runtime reference absent")
+        _require(
+            qualified.get("mode") == plan.get("mode") == "operational"
+            and qualified.get("operational_reference") == binding
+            and qualified.get("uid") == binding.get("uid") == record["uid"]
+            and record["origin"] == binding.get("origin")
+            and qualified.get("recovery") is False
+            and qualified.get("sso") is False
+            and all(
+                qualified.get(key) == record[key]
+                for key in ("revision", "source", "image")
+            ),
+            "operational phone runtime is not bound to its release",
+        )
+    except (ValueError, TypeError, KeyError) as error:
+        raise retention.UnsafeState("operational phone runtime is invalid") from error
+    return {"runtime_run_id": record["origin"]["run_id"], "uid": record["uid"]}
+
+
+def qualified_documents(mode, report, anchor, primary_sha):
+    _require(
+        type(mode.get("configured")) is bool
+        and type(mode.get("enabled")) is bool
+        and (not mode["enabled"] or mode["configured"]),
         "document runtime mode is invalid",
     )
     if not mode["configured"]:
         return
-    report = _document(archive, "prod-document-reader-compatibility.json")
     _require(
-        report.get("project") == "hushh-pda"
+        isinstance(report, dict)
+        and report.get("project") == "hushh-pda"
         and report.get("configured") is True
-        and report.get("targetSha") == release["sha"]
+        and report.get("targetSha") == primary_sha
         and report.get("enabled") is mode["enabled"]
         and re.fullmatch(r"[0-9a-f]{40}", str(report.get("readerAncestor", "")))
         and isinstance(report.get("previous"), dict)
@@ -161,6 +197,16 @@ def _documents(archive, anchor, release):
         },
         "document rollback proof was not rebound to the phone reader",
     )
+
+
+def _documents(archive, anchor, release):
+    mode = _document(archive, "prod-protected-document-release.json")
+    report = (
+        _document(archive, "prod-document-reader-compatibility.json")
+        if mode.get("configured") is True
+        else None
+    )
+    qualified_documents(mode, report, anchor, release["sha"])
 
 
 def _qualified_upload(repository, run, release, lane, *, api, governed, timestamp):
@@ -199,9 +245,13 @@ def healthy_anchor(
     repository, run, release, lane, *, api, governed, timestamp, run_command, timeout
 ):
     """Read the exact upload independently; keep the healthy receipt immutable."""
-    summary = release.get("phone_rollback")
-    if not isinstance(summary, dict) or not summary.get("revision"):
+    if "phone_rollback" not in release:
         return None
+    summary = release["phone_rollback"]
+    _require(
+        isinstance(summary, dict) and bool(summary.get("revision")),
+        "phone rollback summary is present but invalid",
+    )
     artifact = _qualified_upload(
         repository, run, release, lane, api=api, governed=governed, timestamp=timestamp
     )
@@ -216,6 +266,7 @@ def healthy_anchor(
     plan = _document(archive, "phone-rollback/plan.json")
     anchor = _qualified(qualified, plan, release, run)
     _documents(archive, anchor, release)
+    runtime_identity = {}
     if plan.get("mode") == "cold":
         _require(
             qualified.get("health") == "passed"
@@ -224,6 +275,9 @@ def healthy_anchor(
             "cold rollback runtime is not qualified",
         )
         runtime_run = str(run["id"])
+    elif plan.get("mode") == "operational":
+        runtime_identity = operational_runtime(qualified, plan)
+        runtime_run = runtime_identity["runtime_run_id"]
     else:
         runtime = plan.get("runtime") or {}
         _require(
@@ -259,6 +313,7 @@ def healthy_anchor(
         "artifact_digest": artifact["digest"],
         "mode": plan["mode"],
         "runtime_run_id": runtime_run,
+        **runtime_identity,
     }
 
 
@@ -276,6 +331,11 @@ def rollback_revision(anchor, release, revisions):
     _require(
         len(matches) == 1, "qualified phone rollback revision is absent or ambiguous"
     )
+    if anchor.get("mode") == "operational":
+        _require(
+            matches[0].get("metadata", {}).get("uid") == anchor.get("uid"),
+            "operational phone rollback UID changed",
+        )
     contract = run_path(str(ROOT / "deploy/phone/revision_qualification.py"))
     try:
         contract["_qualify_revision"](
@@ -284,9 +344,9 @@ def rollback_revision(anchor, release, revisions):
             image=anchor["image"],
             run_id=anchor["runtime_run_id"],
             source="deploy-production-phone-rollback"
-            if anchor["mode"] == "cold"
+            if anchor["mode"] in {"cold", "operational"}
             else "deploy-production",
-            cold=anchor["mode"] == "cold",
+            cold=anchor["mode"] in {"cold", "operational"},
         )
     except (KeyError, ValueError, TypeError) as error:
         raise retention.UnsafeState(

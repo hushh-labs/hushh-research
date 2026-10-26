@@ -9,6 +9,7 @@ import zipfile
 
 import production_phone_lease as lease
 import production_phone_receipt as phone
+import production_backend_successor as reference
 
 
 def _qualified_phone():
@@ -279,15 +280,58 @@ class LeaseFixture:
             "GITHUB_REF_NAME": "main",
         }
 
+    def intent_protocol(self):
+        self.sources[self.runs[0]["head_sha"]] = (
+            phone.ROOT / lease.WORKFLOW
+        ).read_bytes()
+        self.intent_documents = {}
+        intents = []
+        for number in (1, 2):
+            document = self.documents[number]
+            document["producer"] = {
+                "cloud_build_tag": f"phone-cold-300-{number}",
+                "primary_source": "f" * 40,
+                "fallback_source": document["source"],
+            }
+            baseline = copy.deepcopy(document)
+            baseline.update(status="pending", pending_mutation="stage_cold")
+            baseline.pop("revision")
+            self.intent_documents[number] = baseline
+            steps = self.jobs[(300, number)]["jobs"][0]["steps"]
+            steps.insert(
+                1,
+                {
+                    "name": lease.INTENT,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "started_at": "2026-10-21T03:18:00Z",
+                    "completed_at": "2026-10-21T03:18:01Z",
+                },
+            )
+            next(step for step in steps if step["name"] == lease.DEPLOY).update(
+                started_at="2026-10-21T03:18:02Z", completed_at="2026-10-21T03:18:50Z"
+            )
+            item = copy.deepcopy(self.artifacts[number - 1])
+            item.update(
+                id=1900 + number,
+                name=f"prod-phone-health-intent-300-{number}",
+                created_at="2026-10-21T03:18:00Z",
+            )
+            intents.append(item)
+        self.artifacts = intents + self.artifacts
+
     def pack(self):
         self.archives = {}
         for artifact in self.artifacts:
             number = int(artifact["name"].rsplit("-", 1)[1])
             output = io.BytesIO()
             with zipfile.ZipFile(output, "w") as bundle:
-                bundle.writestr(
-                    "initial-lease.json", json.dumps(self.documents[number])
+                document = (
+                    self.intent_documents[number]
+                    if artifact["name"].startswith("prod-phone-health-intent-")
+                    else self.documents[number]
                 )
+                bundle.writestr("initial-lease.json", json.dumps(document))
             payload = output.getvalue()
             artifact.update(
                 size_in_bytes=len(payload),
@@ -317,3 +361,62 @@ class LeaseFixture:
             key = identity, int(parts[3])
             return self.jobs[key] if len(parts) == 5 else self.attempts[key]
         raise AssertionError("unexpected synthetic lease lookup: " + endpoint)
+
+
+def healthy_tag(fixture):
+    message = "Last known good — production\n" + "".join(
+        f"{key}: {value}\n"
+        for key, value in {
+            "sha": fixture.release["sha"],
+            "backend_revision": fixture.release["final"]["backend_revision"],
+            "backend_url": "https://api.hushh.ai",
+            "frontend_revision": fixture.release["final"]["frontend_revision"],
+            "frontend_url": "https://one.hushh.ai",
+            "run": f"https://github.com/{fixture.fixture.repo}/actions/runs/{fixture.run['id']}",
+            "actor": "kushaltrivedi5",
+            "tagged_at": "20261027T010000Z",
+        }.items()
+    )
+    return reference.tag_identity(
+        f"object {fixture.release['sha']}\ntype commit\ntag deployed/production-latest\n"
+        f"tagger Release owner <release@example.test> 1793000000 +0000\n\n{message}"
+    )
+
+
+def activated_receipt(primary: str, candidate: str) -> dict:
+    from production_activation_continuation import _floor_key
+
+    return {
+        "schema_version": 1,
+        "kind": "account-lifecycle-activation",
+        "status": "activated",
+        "project": "hushh-pda",
+        "region": "us-central1",
+        "service": "consent-protocol",
+        "sha": primary,
+        "run_id": "900",
+        "candidate_revision": candidate,
+        "candidate_uid": "primary-uid",
+        "service_uid": "backend-service-uid",
+        "required_provider_contract": 2,
+        "database_preflight": "qualified",
+        "fence_removal": "confirmed_absent",
+        "scheduler": {
+            "status": "healthy",
+            "checks": {"fresh_attempt_finished": True, "http_2xx": True},
+        },
+        "retirement": {
+            "status": "retired",
+            "retired_count": 0,
+            "phone_admission_floor_required": True,
+            **dict.fromkeys(
+                (
+                    "remaining_pre_v201_count",
+                    "remaining_pre_provider_v2_count",
+                    "remaining_pre_phone425_count",
+                    _floor_key(),
+                ),
+                0,
+            ),
+        },
+    }

@@ -263,3 +263,91 @@ class ProductionPhoneSkippedLeaseCases:
                 self.assertRaises(lease.retention.UnsafeState),
             ):
                 self.lease_check(case)
+
+
+class ProductionPhoneIntentGateCases:
+    def test_started_producer_requires_immutable_pre_submission_intent_and_matching_final(
+        self,
+    ):
+        self.setUp()
+        for defect in (
+            None,
+            "missing",
+            "origin",
+            "pending",
+            "producer",
+            "order",
+            "changed_final",
+        ):
+            case = LeaseFixture(self)
+            case.intent_protocol()
+            if defect == "missing":
+                case.artifacts = [
+                    item
+                    for item in case.artifacts
+                    if item["name"] != "prod-phone-health-intent-300-2"
+                ]
+            elif defect == "origin":
+                case.intent_documents[2]["origin"]["run_attempt"] = 1
+            elif defect == "pending":
+                case.intent_documents[2]["status"] = "retired"
+            elif defect == "producer":
+                case.intent_documents[2]["producer"]["cloud_build_tag"] = (
+                    "phone-cold-300-1"
+                )
+            elif defect == "order":
+                next(
+                    step
+                    for step in case.jobs[(300, 2)]["jobs"][0]["steps"]
+                    if step["name"] == lease.INTENT
+                )["completed_at"] = "2026-10-21T03:18:03Z"
+            elif defect == "changed_final":
+                case.documents[2]["controls"] = "f" * 64
+            with self.subTest(defect=defect):
+                if defect is None:
+                    self.assertIsNone(self.lease_check(case))
+                else:
+                    with self.assertRaises(lease.retention.UnsafeState):
+                        self.lease_check(case)
+
+    def test_failed_intent_upload_requires_proven_never_started_submission(self):
+        self.setUp()
+        for defect in (
+            None,
+            "source_gate",
+            "source_missing_intent",
+            "started",
+            "failed",
+            "unknown",
+            "unknown_upload",
+        ):
+            case = LeaseFixture(self)
+            case.intent_protocol()
+            text = (lease.phone.ROOT / lease.WORKFLOW).read_text()
+            if defect == "source_gate":
+                text = text.replace(
+                    " && steps.cold-lease-intent.outcome == 'success'", ""
+                )
+            if defect == "source_missing_intent":
+                text = text.replace(lease.INTENT, "Other upload")
+            case.sources[case.runs[0]["head_sha"]] = text.encode()
+            job = case.jobs[(300, 2)]["jobs"][0]
+            deploy = next(step for step in job["steps"] if step["name"] == lease.DEPLOY)
+            deploy.update(status="completed", conclusion="skipped", started_at=None)
+            intent = next(step for step in job["steps"] if step["name"] == lease.INTENT)
+            intent["conclusion"] = "failure"
+            if defect == "started":
+                deploy["started_at"] = "2026-10-21T03:18:00Z"
+            elif defect in {"failed", "unknown"}:
+                deploy["conclusion"] = "failure" if defect == "failed" else None
+            elif defect == "unknown_upload":
+                intent["conclusion"] = None
+            with self.subTest(defect=defect):
+                if defect is None:
+                    self.assertIsNone(self.lease_check(case))
+                    self.lease_defect(case, "older_pending")
+                    with self.assertRaises(lease.retention.UnsafeState):
+                        self.lease_check(case)
+                else:
+                    with self.assertRaises(lease.retention.UnsafeState):
+                        self.lease_check(case)

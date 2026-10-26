@@ -290,11 +290,7 @@ def test_no_cloud_build_step_exceeds_the_env_entry_cap() -> None:
 
 
 def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env() -> None:
-    """Every read reaches the extracted deploy, including packed cold-phase selection.
-
-    Unwired substitutions silently deployed empty Gmail/model settings before this guard.
-    The phase shares its existing packed entry and defaults to the ordinary release.
-    """
+    """Every read reaches deploy, with phase packed and attempt bound outside env."""
     root = Path(__file__).resolve().parents[2]
     script = (root / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
     script += (root / "scripts/deploy/backend-capacity-settings.sh").read_text(encoding="utf-8")
@@ -304,6 +300,13 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     assert config is not None
     step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
     assert config["substitutions"]["_PHONE_DEPLOY_PHASE"] == "standard"
+    assert config["tags"] == [
+        "phone-${_PHONE_DEPLOY_PHASE}-${_GITHUB_RUN_ID}-${_GITHUB_RUN_ATTEMPT}"
+    ]
+    assert (
+        "_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
+        in (root / ".github/workflows/deploy-production.yml").read_text()
+    )
     assert any(
         entry.startswith("_IMAGE_SETTINGS=") and entry.endswith("|${_PHONE_DEPLOY_PHASE}")
         for entry in step["env"]

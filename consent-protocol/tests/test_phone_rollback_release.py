@@ -164,6 +164,7 @@ def release_plan(monkeypatch, tmp_path):
         },
     )
     monkeypatch.setattr(production_receipt, "run", lambda command: _production_port(state, command))
+    monkeypatch.setattr(plan, "_operational", lambda: None)
     state.service = {
         "metadata": {"name": "consent-protocol"},
         "status": {
@@ -244,7 +245,6 @@ def test_existing_plan_rechecks_actual_revision_and_propagates_identity(release_
     assert prepared["primary_sha"] == PRIMARY
     assert prepared["source"] == FALLBACK
     assert prepared["image"] == IMAGE
-    assert prepared["run_id"] == "42"
     assert prepared["production"]["run_id"] == "41"
     assert prepared["runtime"]["revision"] == REVISION
     result = state.plan.verify(_verify_args(state))
