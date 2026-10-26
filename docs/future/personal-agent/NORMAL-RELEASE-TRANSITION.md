@@ -16,6 +16,11 @@ preserving private assignments, pending setups, keys and erasure evidence.
 Its implementation and validation are in progress; production traffic has not
 been changed by this recovery. Normal private-agent development remains enabled
 where already admitted. Production/native automatic cadence remains disabled.
+Recovery defaults off. Qualify explicit `shared_experience_recovery_enabled`
+activation in UAT's existing runtime JSON, then activate production's own setting
+through its governed deployment. Retain all other configuration, verify the
+environment/project binding and refuse a contradictory direct environment value.
+Dev keeps the flag absent or false. A code deployment alone does not activate recovery.
 
 Account-generation compatibility PR [#8473](https://github.com/hushh-labs/hushh-research/pull/8473)
 landed as `10022eba13` with exact-head hosted CI and landed smoke success.
@@ -25,7 +30,7 @@ revision. Production served application `7d5546e471`; its latest frontend/backen
 workflows were dispatched under `ankitkumarsingh1702`. Source completion does not
 establish installed-pod or replacement-generation acceptance.
 
-**Current surgical follow-up — 25 October 2026, 21:02 UTC:**
+**Earlier acceptance checkpoint — 25 October 2026, 21:02 UTC:**
 [Continuity corrections #8459](https://github.com/hushh-labs/hushh-research/pull/8459)
 landed as `2a74d28cd0` after exact CI and landed smoke. Dev run `40224453087`,
 attempt 2, accepted application `5ad9ef542d`: worker invocation returned HTTP 200,
@@ -47,8 +52,9 @@ hypothesis without weakening generic missing-status recovery.
 
 The exact qualified pod remains source `9174abfbe594`, image `6e57f251…eeac423`.
 Azure's approved update and one Puppy/Gemma 12B response pass. GCP's approved Files
-operation still has an unconfirmed image handoff; preserve its held operation and
-never replay the exhausted queue continuation. Installed Browser takeover became
+operation had an unconfirmed image handoff at this checkpoint; it has since completed
+through its original approval and operation. Do not replay that queue continuation.
+Installed Browser takeover became
 uncertain without credential entry. The post-result settlement correction has
 source and hosted proof, not an installed image receipt; earlier executor and owner journeys
 remain open. The temporary fixture is deleted. Capacity samples do not justify an
@@ -88,8 +94,9 @@ The correction release follows exact-candidate hosted validation, Admin SOP,
 landed-SHA smoke, governed dev acceptance and UAT promotion. Replacement enrollment
 stays disabled until generation-aware consumers and live two-cycle acceptance
 pass. Historical incomplete cleanup remains repairable and must not be marked
-complete to bypass enrollment. No production, stable or automatic owner upgrade
-is authorized.
+complete to bypass enrollment. Apart from the explicit Shared recovery above,
+no production rollout is authorized. Stable publication and automatic owner upgrades
+remain unauthorized.
 
 **Prior accepted delivery:**
 [PR #8401](https://github.com/hushh-labs/hushh-research/pull/8401) landed as

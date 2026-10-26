@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 10:39 UTC
+## Current decision — 26 October 2026, 13:15 UTC
 
 **The earlier application correction is accepted on Dev and UAT. The newly
 authorized production Shared recovery is local and still requires release
@@ -46,8 +46,9 @@ This generation-aware application is not yet deployed by this workstream.
 restoring the pre-pod Shared-first experience. Last pre-pod source `904fbd215c`
 cannot be restored unchanged: its backend revision was pruned and its provider
 cleanup is incompatible with today's authority. Production currently serves
-`7d5546e471`; its latest frontend/backend releases were dispatched under Ankit's
-account. No production mutation has been made for this recovery.
+`7d5546e471` at 100% on both services in the 12:55 UTC readback; its latest
+frontend/backend releases were dispatched under Ankit's account. The pre-pod
+release is not live. No production mutation has been made for this recovery.
 
 The local correction retains current schema, cleanup journals, tombstones,
 placement and issued-document readers. Default-off, environment-bound recovery
@@ -55,9 +56,16 @@ changes Shared/unplaced presentation only; it never moves a private or pending
 owner. An explicit owner-bound Shared choice rechecks placement under the
 provisioning lock. Nearest checks pass (233 backend, 148 frontend); the old
 selection negative control detects pending-setup cancellation. Checkpoints
-`6d5f26efbf` and `201cd60998` preserve the implementation. Fresh main `bee8c8acdc`
-is integrated normally; final generated contracts, frozen validation and the
-Dev → UAT → production recovery chain remain required.
+`6d5f26efbf` and `201cd60998` preserve the implementation. Main `4e41f043cd`
+is integrated normally, retaining its reset-phone admission correction alongside
+Shared recovery. Combined onboarding checks pass 143 cases and the required
+Back behavior pack passes 501 cases. Original backend/database results are
+retained; two import-timeout retries passed without changing their limits.
+The local integration wrapper's cleanup error was reconciled, not relabelled
+as a successful wrapper exit. Final combined validation, exact hosted CI and the
+Dev → UAT → production recovery chain remain required. Recovery defaults off:
+explicit environment-bound activation must be qualified on UAT before production;
+Dev retains its normal private-agent configuration.
 
 Read-only provider evidence now confirms no Directory Sync connections in the
 WorkOS environment whose webhook secret matches UAT. The local continuation removes
