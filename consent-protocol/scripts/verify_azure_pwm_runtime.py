@@ -24,7 +24,12 @@ if str(PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(PROTOCOL_ROOT))
 
 from hushh_mcp.managed_ai_config import load_pwm_policy  # noqa: E402
-from scripts.probe_azure_openai_readiness import run_probe  # noqa: E402
+from scripts.probe_azure_openai_readiness import (  # noqa: E402
+    ReadinessProbeError,
+    failure_fields,
+    readiness_event,
+    run_probe,
+)
 
 
 def _token_provider(*, tenant_id: str, client_id: str):
@@ -410,23 +415,10 @@ async def probe() -> None:
         raise RuntimeError("UAT Azure PWM provider is not selected")
     config = policy["azure"]
     readiness = await run_probe()
-    if (
-        readiness["status"] != "ready"
-        or readiness["http_status"] != 200
-        or readiness["deployment"] != config["primary_deployment"]
-    ):
-        raise RuntimeError("Azure primary HTTP 200 readiness check failed")
-    print(
-        json.dumps(
-            {
-                "azure_pwm_runtime_probe_stage": "primary_http",
-                "result": "ok",
-                "http_status": 200,
-                "deployment": config["primary_deployment"],
-            }
-        ),
-        flush=True,
-    )
+    event = readiness_event(readiness, config["primary_deployment"])
+    print(json.dumps(event), flush=True)
+    if event["result"] != "ok":
+        raise ReadinessProbeError(event)
     if policy["provider"] == "azure_openai_tavily":
         from hushh_mcp.one_adk.tavily_search import extract_tavily_receipts, search_tavily
 
@@ -461,14 +453,11 @@ def main() -> int:
         # call. Neither performs search or sends owner information.
         asyncio.run(asyncio.wait_for(probe(), timeout=360))
     except Exception as error:  # noqa: BLE001 - print only the error class, never a token
-        from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
-
         print(
             json.dumps(
                 {
                     "azure_pwm_runtime_probe_result": "failed",
-                    "classification": classify_provider_error(error),
-                    "error_type": type(error).__name__,
+                    **failure_fields(error),
                     "pwm_trust_failure": isinstance(error, AzurePwmTrustError),
                 }
             ),

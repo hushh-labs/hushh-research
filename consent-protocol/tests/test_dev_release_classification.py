@@ -224,10 +224,20 @@ def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
     assert not list(tmp_path.glob("hussh-pkm-release.*"))
 
 
-@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
-@pytest.mark.parametrize("early_failure", [False, True])
-def test_predeployment_image_failure_blocks_without_rolling_back_healthy_services(
-    tmp_path, monkeypatch, environment, early_failure
+@pytest.mark.parametrize(
+    ("environment", "phase"),
+    [
+        ("dev", "image"),
+        ("dev", "downstream"),
+        ("uat", "image"),
+        ("uat", "downstream"),
+        ("production", "image"),
+        ("production", "prepromotion"),
+        ("production", "postpromotion"),
+    ],
+)
+def test_release_phase_blocks_without_unnecessary_rollback(
+    tmp_path, monkeypatch, environment, phase
 ):
     workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
     steps = workflow["jobs"]["deploy"]["steps"]
@@ -236,19 +246,40 @@ def test_predeployment_image_failure_blocks_without_rolling_back_healthy_service
     assert (
         step["env"]["FRONTEND_IMAGE_CHECK_OUTCOME"] == "${{ steps.check-frontend-image.outcome }}"
     )
-    # All downstream checks are skipped: this reproduces the predeployment
-    # failure rather than manufacturing successful readiness receipts.
+    # Missing checks before production promotion cannot justify moving traffic.
+    # Dev/UAT retain their existing downstream classifier contracts.
     values = {key: "skipped" for key in step["env"]}
     values.update(
         DEPLOY_BACKEND="true",
         DEPLOY_FRONTEND="true",
         UPSTREAM_JOB_STATUS="failure",
-        FRONTEND_IMAGE_CHECK_OUTCOME="failure" if early_failure else "success",
+        FRONTEND_IMAGE_CHECK_OUTCOME="failure" if phase == "image" else "success",
         PKM_EVALUATOR_RUNS="0",
         DRIVE_PAUSE_SNAPSHOT="",
         DEV_TARGET="shared-dev",
         GITHUB_OUTPUT=str(tmp_path / "outputs"),
     )
+    if phase == "postpromotion":
+        values.update(
+            {
+                key: "success"
+                for key in (
+                    "HEALTH_BACKEND",
+                    "HEALTH_FRONTEND",
+                    "PARITY_OUTCOME",
+                    "CONNECTED_SYSTEMS_OUTCOME",
+                    "BACKEND_PROVENANCE_OUTCOME",
+                    "FRONTEND_PROVENANCE_OUTCOME",
+                    "PASSKEY_ASSOCIATIONS_OUTCOME",
+                    "DRIVE_PAUSE_OUTCOME",
+                    "PROMOTE_OUTCOME",
+                )
+            },
+            DRIVE_ENABLED="false",
+            DOCUMENT_DELIVERY_CONFIGURED="false",
+        )
+        # Isolate the missing combined serving-pair compatibility receipt.
+        assert values["ACCOUNT_SESSION_CONTRACT_OUTCOME"] == "skipped"
     for key, value in values.items():
         monkeypatch.setenv(key, value)
     source = step["run"].replace("/tmp/", str(tmp_path) + "/")  # noqa: S108 - isolated workflow artifacts.
@@ -262,7 +293,8 @@ def test_predeployment_image_failure_blocks_without_rolling_back_healthy_service
         exec(compile(source, "release-classifier", "exec"), {})  # noqa: S102 - trusted workflow source.
     outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text().splitlines())
     assert outputs["release_failed"] == "true"
-    assert outputs["backend_failure"] == ("false" if early_failure else "true")
-    assert outputs["frontend_failure"] == ("false" if early_failure else "true")
+    rollback = phase not in {"image", "prepromotion"}
+    assert outputs["backend_failure"] == str(rollback).lower()
+    assert outputs["frontend_failure"] == str(rollback).lower()
     early = next(i for i, item in enumerate(steps) if item.get("id") == "check-frontend-image")
     assert early < next(i for i, item in enumerate(steps) if item.get("id") == "deploy-backend")

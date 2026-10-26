@@ -17,6 +17,12 @@ SPEC = importlib.util.spec_from_file_location("runtime_capacity_budget", MODULE_
 assert SPEC and SPEC.loader
 budget = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(budget)
+FIXTURE_SPEC = importlib.util.spec_from_file_location(
+    "runtime_capacity_fixtures", Path(__file__).with_name("runtime_capacity_fixtures.py")
+)
+assert FIXTURE_SPEC and FIXTURE_SPEC.loader
+fixtures = importlib.util.module_from_spec(FIXTURE_SPEC)
+FIXTURE_SPEC.loader.exec_module(fixtures)
 
 CONNECTION = "hushh-pda-uat:us-central1:hushh-uat-pg"
 SETTINGS = {
@@ -316,65 +322,41 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
 
     def test_post_release_checks_retained_capacity_without_next_candidate(self) -> None:
         profile = json.loads(budget.DEFAULT_PROFILE.read_text())
-        config = profile["environments"]["production"]
-        connection = f"{config['project']}:{profile['region']}:{config['database_instance']}"
-        revisions = [
-            revision("consent-protocol-current"),
-            revision("consent-protocol-recent-drain"),
-            revision("consent-protocol-older-drain"),
-        ]
-        for retained in revisions:
-            retained["metadata"]["annotations"][
-                "run.googleapis.com/cloudsql-instances"
-            ] = connection
-            retained["spec"]["containers"][0]["env"][1]["value"] = "4"
-        job = {
-            "metadata": {"name": "consent-protocol-genai-readiness"},
-            "spec": {
-                "template": {
-                    "metadata": {
-                        "annotations": {
-                            "run.googleapis.com/cloudsql-instances": connection
-                        }
-                    },
-                    "spec": {
-                        "taskCount": 1,
-                        "parallelism": 1,
-                        "template": {
-                            "spec": {
-                                "containers": [
-                                    {"env": copy.deepcopy(
-                                        revisions[0]["spec"]["containers"][0]["env"]
-                                    )}
-                                ]
-                            }
-                        },
-                    },
-                }
-            },
-        }
-        inventory = {
-            "database_max_connections": 400,
-            "services": {
-                "consent-protocol": {
-                    "service": {
-                        "status": {
-                            "traffic": [
-                                {"revisionName": "consent-protocol-current", "percent": 100}
-                            ]
-                        }
-                    },
-                    "revisions": revisions,
-                }
-            },
-            "jobs": {"consent-protocol-genai-readiness": job},
-        }
+        inventory = fixtures.retained_production_inventory(profile, revision)
+        revisions = inventory["services"]["consent-protocol"]["revisions"]
         # The deployed candidate is already among the three retained revisions.
         # Default admission still reserves another backend and optional worker.
         next_release = budget.evaluate(profile, "production", inventory)
         self.assertEqual(next_release["phase"], "pre-deploy")
         self.assertEqual(next_release["projected_connections"], 372)
         self.assertFalse(next_release["admitted"])
+        bootstrap = budget.evaluate(
+            profile, "production", inventory,
+            additional_candidate_services=("consent-protocol",),
+        )
+        self.assertEqual(bootstrap["projected_connections"], 452)
+        self.assertEqual(
+            next(row["connections"] for row in bootstrap["services"]
+                 if row["name"] == "consent-protocol:additional-candidate"),
+            80,
+        )
+        self.assertFalse(bootstrap["admitted"])
+        for invalid in ("uat", "post-release"):
+            with self.subTest(extra_candidate_refusal=invalid):
+                with self.assertRaises(budget.BudgetError):
+                    budget.evaluate(
+                        profile, invalid if invalid == "uat" else "production", inventory,
+                        phase=invalid if invalid == "post-release" else "pre-deploy",
+                        additional_candidate_services=("consent-protocol",),
+                    )
+        with self.assertRaisesRegex(
+            budget.BudgetError, "additional candidates cannot use inherited capacity"
+        ):
+            budget.evaluate(
+                profile, "production", inventory,
+                inherited_candidate_services=frozenset({"consent-protocol"}),
+                additional_candidate_services=("consent-protocol",),
+            )
         bridge = budget.evaluate(profile, "production", inventory, maintenance_profile="serving_backend_clone_v1")
         self.assertEqual(bridge["projected_connections"], 300)
         self.assertTrue(bridge["admitted"])

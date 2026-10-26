@@ -250,13 +250,13 @@ def browser_configuration(system, original, browser_engine):
     return config
 
 
-async def run_browser_process(config):
+async def run_browser_process(config, *, script="hosted-document-flow.mjs"):
     web_root = Path(__file__).resolve().parents[3] / "hushh-webapp"
     command_group = run_path(str(web_root.parent / "scripts/ci/process_group.py"))["command_group"]
     with (
         TemporaryDirectory(prefix="one-document-vite-") as cache_dir,
         command_group(
-            ["node", "scripts/testing/hosted-document-flow.mjs"],
+            ["node", f"scripts/testing/{script}"],
             cwd=web_root,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

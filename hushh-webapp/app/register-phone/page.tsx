@@ -11,6 +11,7 @@ import { SessionVerificationRecovery } from "@/components/auth/session-verificat
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
+import { usePhoneRecoveryHandoff } from "@/components/auth/use-phone-recovery-handoff";
 import { PhoneVerificationScene } from "@/components/auth/phone-verification-scene";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
@@ -41,7 +42,9 @@ import {
   isClaimableLookupOutcome,
   resolveVerifiedPhone,
 } from "@/lib/ria/ria-claim-entry";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { usePhoneMandateMetadata } from "@/components/auth/use-phone-mandate-metadata";
+import { PhoneRecoveryReview } from "@/components/auth/phone-recovery-review";
+import { phoneRecoveryId, phoneRecoveryReviewRoute } from "@/lib/auth/phone-recovery-route";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { cn } from "@/lib/utils";
@@ -69,6 +72,7 @@ export function PhoneMandatePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get("redirect") || undefined;
+  const recoveryId = phoneRecoveryId(searchParams.get("recovery"));
   const {
     user,
     loading,
@@ -81,19 +85,20 @@ export function PhoneMandatePageContent() {
     refreshUser,
     signOut,
   } = useAuth();
+  const recoveryHandoff = usePhoneRecoveryHandoff(user, signOut);
 
   useEffect(() => {
     if (loading || user) {
       return;
     }
 
-    const currentPath = redirectPath
+    const currentPath = recoveryId ? phoneRecoveryReviewRoute(recoveryId) : redirectPath
       ? `${ROUTES.PHONE_MANDATE}?redirect=${encodeURIComponent(redirectPath)}`
       : ROUTES.PHONE_MANDATE;
     router.replace(
       `${ROUTES.LOGIN}?redirect=${encodeURIComponent(currentPath)}`,
     );
-  }, [loading, redirectPath, router, user]);
+  }, [loading, redirectPath, recoveryId, router, user]);
 
   const continueToNextRoute = useCallback(
     async (resolvedUser = user) => {
@@ -206,7 +211,7 @@ export function PhoneMandatePageContent() {
   const [admissionRetry, setAdmissionRetry] = useState(0);
 
   useEffect(() => {
-    if (!user || sessionVerificationRequired) return;
+    if (!user || sessionVerificationRequired || recoveryId) return;
     const userId = user.uid;
     let cancelled = false;
     setAdmission(null);
@@ -266,7 +271,7 @@ export function PhoneMandatePageContent() {
     // Admission is per owner, not per token refresh or OTP callback. Once the
     // form opens, keep it mounted until its completion handler settles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid, redirectPath, admissionRetry, sessionVerificationRequired]);
+  }, [user?.uid, redirectPath, admissionRetry, sessionVerificationRequired, recoveryId]);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -279,64 +284,7 @@ export function PhoneMandatePageContent() {
     }
   }, [signOut]);
 
-  // Admission moves an established account to its owning route. An explicit
-  // localhost visit remains on the phone flow; the route guard owns any local
-  // exemption. The development number allowlist can complete this flow without
-  // SMS, while production numbers use the real challenge.
-  usePublishVoiceSurfaceMetadata(
-    !loading && user
-      ? {
-          screenId: "phone_mandate",
-          title: "Verify your phone",
-          purpose:
-            "Verify your phone to continue setup or accept your invitation.",
-          // The step is the only verification state published to One. Phone
-          // numbers and OTPs stay inside the input and auth operation.
-          screenMetadata: { phone_verification_step: verificationStep },
-          actions:
-            verificationStep === "phone"
-              ? [
-                  {
-                    id: "phone_mandate.submit_number",
-                    actionId: "phone_mandate.submit_number",
-                    label: "Send a verification code",
-                    purpose: "Send a code after the phone form is completed.",
-                  },
-                ]
-              : verificationStep === "code"
-                ? [
-                    {
-                      id: "phone_mandate.submit_code",
-                      actionId: "phone_mandate.submit_code",
-                      label: "Confirm verification code",
-                      purpose: "Confirm the code in the current verification form.",
-                    },
-                  ]
-                : [],
-          controls:
-            verificationStep === "phone"
-              ? [
-                  {
-                    id: "phone-flow-number",
-                    label: "Phone number",
-                    type: "tel",
-                    actionId: "phone_mandate.submit_number",
-                  },
-                ]
-              : verificationStep === "code"
-                ? [
-                    {
-                      id: "phone-flow-code",
-                      label: "Verification code",
-                      type: "text",
-                      actionId: "phone_mandate.submit_code",
-                    },
-                  ]
-                : [],
-        }
-      : null,
-    { role: "route", routeKey: ROUTES.PHONE_MANDATE },
-  );
+  usePhoneMandateMetadata(!loading && !!user && !recoveryId, verificationStep);
 
   // Gate on identity, never on `loading`.
   //
@@ -365,6 +313,8 @@ export function PhoneMandatePageContent() {
       />
     );
   }
+
+  if (recoveryId) return <PhoneRecoveryReview key={`${user.uid}:${recoveryId}`} user={user} continuationId={recoveryId} signOut={signOut} />;
 
   if (admission?.userId === user.uid && admission.status === "error") {
     return (
@@ -430,8 +380,7 @@ export function PhoneMandatePageContent() {
               startVerification={startPhoneVerification}
               confirmVerification={confirmPhoneVerification}
               confirmTransfer={confirmPhoneTransfer}
-              recoverPreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
-              deletePreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
+              {...recoveryHandoff}
               onCompleted={continueToNextRoute}
               onContinueExisting={continueToNextRoute}
               onStepChange={setVerificationStep}

@@ -102,6 +102,7 @@ function phoneMessage(error: unknown, sending: boolean): string {
 export function useLostVaultDelete(
   user: User,
   resolvePhone: () => Promise<string | null>,
+  continuationId?: string,
 ) {
   const generation = getAuthSessionGeneration();
   const owner = useMemo(
@@ -114,6 +115,7 @@ export function useLostVaultDelete(
       edited: false,
       submitted: false,
       phoneAttempt: null as string | null,
+      phoneController: null as AbortController | null,
     }),
     [generation],
   );
@@ -124,6 +126,7 @@ export function useLostVaultDelete(
     return () => {
       owner.active = false;
       owner.attempt += 1;
+      owner.phoneController?.abort();
       if (owner.phoneAttempt) {
         void AuthService.cancelPhoneDeletionVerification(owner.phoneAttempt).catch(() => undefined);
         owner.phoneAttempt = null;
@@ -235,6 +238,7 @@ export function useLostVaultDelete(
     }
   }
   function clearPhoneProof() {
+    owner.phoneController?.abort(); owner.phoneController = null;
     if (owner.phoneAttempt) {
       void AuthService.cancelPhoneDeletionVerification(owner.phoneAttempt).catch(() => undefined);
       owner.phoneAttempt = null;
@@ -297,6 +301,7 @@ export function useLostVaultDelete(
       setError(validationError);
       return;
     }
+    const resendCode = Boolean(verificationId);
     const attempt = begin();
     if (attempt === null) return;
     clearPhoneProof();
@@ -313,10 +318,11 @@ export function useLostVaultDelete(
       if (!valid(attempt)) return;
       const phoneAttempt = crypto.randomUUID();
       owner.phoneAttempt = phoneAttempt;
+      owner.phoneController = new AbortController();
       const result = await AuthService.startPhoneDeletionVerification(
         phone,
         verifier,
-        { expectedUserId: user.uid, attemptId: phoneAttempt },
+        { expectedUserId: user.uid, attemptId: phoneAttempt, signal: owner.phoneController.signal, ...(resendCode ? { resendCode: true } : {}) },
       );
       if (!valid(attempt)) return;
       if ("phoneIdToken" in result) {
@@ -378,6 +384,7 @@ export function useLostVaultDelete(
         sessionUser: user,
         firebaseIdToken: providerProof,
         phoneIdToken: phoneProof || undefined,
+        continuationId,
         isCurrent: () => valid(attempt),
       });
       if (!valid(attempt)) return;

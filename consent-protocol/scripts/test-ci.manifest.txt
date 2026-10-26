@@ -1496,5 +1496,11 @@ tests/test_consumer_consent_replay_postgres.py
 tests/test_phone_transfer_postgres.py
 
 tests/test_phone_transfer_authority.py
+
+# Phone recovery authority, packaged rollback reader and provider receipts.
+# Full phone UI/SQL proof runs in the mandatory Integration browser gate.
+tests/test_phone_recovery_actions.py
+tests/test_phone_reader_probe.py
+tests/scripts/test_managed_provider_receipt.py
 tests/routes/test_area_discovery.py
 tests/services/test_area_discovery_postgres.py

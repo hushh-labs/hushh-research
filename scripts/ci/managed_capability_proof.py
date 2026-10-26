@@ -5,6 +5,229 @@ This module validates synthetic evidence only; it grants no runtime authority.
 
 from __future__ import annotations
 
+import re
+from typing import Any
+
+CLASSIFICATIONS = frozenset(
+    {
+        "dependency_ok",
+        "provider_unavailable",
+        "candidate_misconfigured",
+        "application_broken",
+    }
+)
+ERROR_TYPES = frozenset(
+    {
+        "ClientError",
+        "ServerError",
+        "APIError",
+        "ResourceExhausted",
+        "ResourceExhaustedError",
+        "TimeoutError",
+        "ConnectionError",
+        "RuntimeError",
+        "ValueError",
+        "KeyError",
+        "LookupError",
+        "AttributeError",
+        "PermissionDenied",
+        "Unauthenticated",
+        "NotFound",
+        "InvalidArgument",
+        "GoogleAPICallError",
+        "ServiceUnavailable",
+        "DeadlineExceeded",
+        "APITimeoutError",
+        "APIConnectionError",
+        "AuthenticationError",
+        "RateLimitError",
+        "InternalServerError",
+        "BadRequestError",
+        "NotFoundError",
+        "PermissionDeniedError",
+        "APIStatusError",
+        "ReadinessConfigurationError",
+        "ReadinessResponseError",
+        "JSONDecodeError",
+        "UnknownException",
+    }
+)
+PROBE_NAME = re.compile(
+    r"(?:text|adk|one_chat|one_voice_live):gemini-[a-z0-9][a-z0-9._-]{0,95}"
+    r"@[a-z][a-z0-9-]{0,39}(?:,[a-z][a-z0-9-]{0,39}){0,7}\Z"
+)
+FIXED_PROBES = frozenset(
+    {"embedding", "location_command:audio", "location_command:semantics"}
+)
+
+
+def _decision_fields(value: dict[str, Any]) -> dict[str, Any]:
+    if (
+        type(value.get("ok")) is not bool
+        or value.get("classification") not in CLASSIFICATIONS
+    ):
+        raise ValueError("Invalid decision fields")
+    return {"ok": value["ok"], "classification": value["classification"]}
+
+
+def _attempt_receipts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not 1 <= len(value) <= 2:
+        raise ValueError("Invalid probe attempts")
+    result = []
+    for attempt in value:
+        if not isinstance(attempt, dict):
+            raise ValueError("Invalid probe attempt")
+        elapsed = attempt.get("elapsed_ms")
+        if type(elapsed) is not int or not 0 <= elapsed <= 420000:
+            raise ValueError("Invalid probe duration")
+        clean = {**_decision_fields(attempt), "elapsed_ms": elapsed}
+        if "dispatched" in attempt:
+            if type(attempt["dispatched"]) is not bool:
+                raise ValueError("Invalid dispatch flag")
+            clean["dispatched"] = attempt["dispatched"]
+        if "resource_exhausted" in attempt:
+            if type(attempt["resource_exhausted"]) is not bool:
+                raise ValueError("Invalid attempt exhaustion flag")
+            clean["resource_exhausted"] = attempt["resource_exhausted"]
+        if "error_type" in attempt:
+            error_type = attempt["error_type"]
+            clean["error_type"] = (
+                error_type
+                if isinstance(error_type, str) and error_type in ERROR_TYPES
+                else "OtherError"
+            )
+        if "failure_stage" in attempt:
+            stage = attempt["failure_stage"]
+            if stage not in {
+                "configuration",
+                "federation",
+                "primary_http",
+                "response_validation",
+            }:
+                raise ValueError("Invalid failure stage")
+            clean["failure_stage"] = stage
+        result.append(clean)
+    return result
+
+
+def sanitize_probe_history(value: Any, *, provider: str) -> list[dict]:
+    """Retain actual bounded attempts, with recovery derived from their outcomes."""
+    if not isinstance(value, list) or len(value) > 128:
+        raise ValueError("Invalid probe history")
+    result, seen = [], set()
+    for row in value:
+        if not isinstance(row, dict):
+            raise ValueError("Invalid probe history row")
+        name = row.get("probe")
+        if (
+            not isinstance(name, str)
+            or name in seen
+            or name not in FIXED_PROBES | {"primary_http"}
+            and not PROBE_NAME.fullmatch(name)
+        ):
+            raise ValueError("Invalid probe history name")
+        seen.add(name)
+        attempts = _attempt_receipts(row.get("attempts"))
+        if provider == "azure_openai" and (
+            name != "primary_http" or len(attempts) != 1
+        ):
+            raise ValueError("Azure readiness has no retry")
+        if provider == "vertex" and name == "primary_http":
+            raise ValueError("Probe history provider mismatch")
+        if any(a["ok"] != (a["classification"] == "dependency_ok") for a in attempts):
+            raise ValueError("Inconsistent probe history outcome")
+        if len(attempts) == 2 and (
+            attempts[0]["ok"] or attempts[0]["classification"] != "provider_unavailable"
+        ):
+            raise ValueError("Invalid probe retry lineage")
+        recovered = len(attempts) == 2 and attempts[-1]["ok"]
+        if (
+            "recovered_after_retry" in row
+            and row["recovered_after_retry"] is not recovered
+        ):
+            raise ValueError("Unproven probe recovery")
+        clean = {"probe": name, "attempts": attempts}
+        if recovered:
+            clean["recovered_after_retry"] = True
+        result.append(clean)
+    return result
+
+
+def execution_diagnostics(provider: str, values: list[dict]) -> dict:
+    """Called only after the collector binds the exact candidate job execution."""
+    history, result = [], {}
+    if provider == "vertex":
+        verdicts = [v for v in values if v.get("check") == "managed_vertex_runtime"]
+        if len(verdicts) != 1:
+            return result
+        probes = [p for p in verdicts[0].get("probes", []) if isinstance(p, dict)]
+        result["capability_classifications"] = {
+            p["probe"]: p.get("classification", "unverified")
+            for p in probes
+            if isinstance(p.get("probe"), str)
+        }
+        result["capabilities"] = {
+            p["probe"]: p.get("ok") is True
+            for p in probes
+            if isinstance(p.get("probe"), str)
+        }
+        for p in probes:
+            if "attempts" in p:
+                attempts = _attempt_receipts(p["attempts"])
+                if _decision_fields(p) != _decision_fields(attempts[-1]):
+                    raise ValueError(
+                        "Probe terminal outcome differs from its last attempt"
+                    )
+                history.append({"probe": p["probe"], "attempts": attempts})
+    else:
+        stages = [
+            v
+            for v in values
+            if v.get("azure_pwm_runtime_probe_stage") == "primary_http"
+        ]
+        if len(stages) > 1:
+            raise ValueError("Ambiguous Azure readiness history")
+        if len(stages) == 1 and "elapsed_ms" in stages[0]:
+            stage = stages[0]
+            attempt = {
+                "ok": stage.get("result") == "ok",
+                "classification": stage.get("classification", "dependency_ok"),
+                "elapsed_ms": stage["elapsed_ms"],
+            }
+            for key in ("error_type", "failure_stage"):
+                if key in stage:
+                    attempt[key] = stage[key]
+            history.append({"probe": "primary_http", "attempts": [attempt]})
+    if history:
+        result["probe_history"] = sanitize_probe_history(history, provider=provider)
+    return result
+
+
+def verified_diagnostics(value: dict, *, provider: str) -> dict:
+    if "probe_history" not in value:
+        return {}
+    return {
+        "probe_history": sanitize_probe_history(
+            value["probe_history"], provider=provider
+        )
+    }
+
+
+def readiness_diagnostics(
+    value: dict, *, provider: str, valid: bool, ready: bool
+) -> dict:
+    return {
+        "ready": ready,
+        "reason": value.get("reason", "unverified") if valid else "missing_or_misbound",
+        "capabilities": value.get("capabilities", {}) if valid else {},
+        "classifications": value.get("capability_classifications", {}) if valid else {},
+        **(
+            verified_diagnostics(value, provider=provider)
+            if valid and value.get("verified") is True
+            else {}
+        ),
+    }
+
 
 def _valid_result(value: object) -> bool:
     return (

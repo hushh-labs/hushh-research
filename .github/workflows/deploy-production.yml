@@ -59,6 +59,11 @@ on:
         options:
           - build-from-source
           - promote-from-uat
+      phone_rollback_sha:
+        description: "Previously UAT-accepted phone425 source for first production rollback baseline; blank once a qualified production baseline exists"
+        required: false
+        default: ""
+        type: string
       nearby_check_in_cohort:
         description: "Nearby check-in audience. Leave this as 'all' for a normal deploy. Clearing it turns nearby check-in OFF in production, which is the kill switch; a comma-separated list of user ids restricts it to those accounts."
         required: false
@@ -179,10 +184,14 @@ jobs:
             "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
           # The current YAML invokes extracted helpers even for an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/backend-deploy"
-          for tool in backend-deploy.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
+          for tool in backend-deploy.sh backend-phone-rollback.sh backend-capacity-settings.sh backend-model-settings.sh backend-drive-secret-settings.sh commerce-preview-bindings.sh \
             verify-managed-vertex-runtime.sh scope-commerce-secrets.sh pod-release-env.sh preserve-pod-release.py; do
             cp "scripts/deploy/${tool}" "${RUNNER_TEMP}/release-tools/backend-deploy/${tool}"
           done
+          mkdir -p "${RUNNER_TEMP}/release-tools/phone" "${RUNNER_TEMP}/release-tools/sso"
+          cp deploy/phone/*.py "${RUNNER_TEMP}/release-tools/phone/"
+          cp deploy/sso/bind_workos.sh "${RUNNER_TEMP}/release-tools/sso/"
+          cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           # Source upload admission belongs to the same current tooling bundle.
           cp .gcloudignore "${RUNNER_TEMP}/release-tools/.gcloudignore"
           # Preserve the companion sourced by current Cloud Build tooling when
@@ -203,7 +212,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/managed_capability_proof.py"
           # Orchestration must remain current when rolling back to an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/drive"
-          for tool in resolve_prod_release_mode.py resolve_protected_document_release.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
+          for tool in resolve_prod_release_mode.py resolve_protected_document_release.py rebind_protected_document_backend.py verify_prod_prerequisites.py verify_hashcoin_config.sh setup_native_callback_log_exclusion.sh \
             deploy_worker_service_prod.sh setup_work_drain_scheduler_prod.sh \
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
@@ -226,6 +235,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
           cp scripts/ci/runtime_capacity_inventory.py \
             "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py"
+          cp scripts/ci/runtime_capacity_cli.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
@@ -251,6 +261,10 @@ jobs:
           git checkout --detach "${{ github.event.inputs.sha }}"
           cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
             deploy/backend.cloudbuild.yaml
+          mkdir -p deploy/phone deploy/sso
+          cp "${RUNNER_TEMP}/release-tools/phone/"*.py deploy/phone/
+          cp "${RUNNER_TEMP}/release-tools/sso/"* deploy/sso/
+          cp "${RUNNER_TEMP}/release-tools/verify-cloudrun-revision-provenance.py" scripts/ci/
           mkdir -p scripts/deploy
           cp "${RUNNER_TEMP}/release-tools/backend-deploy/"* scripts/deploy/
           cp "${RUNNER_TEMP}/release-tools/.gcloudignore" .gcloudignore
@@ -283,6 +297,7 @@ jobs:
             scripts/ci/runtime-capacity-budget.py
           cp "${RUNNER_TEMP}/release-tools/runtime_capacity_inventory.py" \
             scripts/ci/runtime_capacity_inventory.py
+          cp "${RUNNER_TEMP}/release-tools/runtime_capacity_cli.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
           mkdir -p deploy/drive
@@ -336,7 +351,13 @@ jobs:
 
       - name: Enforce production database connection budget before deployment
         shell: bash
-        run: timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production
+        env:
+          PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ -n "$PHONE_ROLLBACK_SHA" ]; then extra=(--additional-candidate-service consent-protocol); fi
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production "${extra[@]}"
 
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
@@ -471,6 +492,23 @@ jobs:
             --target-sha "${{ github.event.inputs.sha }}" \
             --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/prod-drive-feature-commit")" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Prepare qualified phone rollback and producer stage
+        id: phone-rollback-plan
+        if: steps.scope.outputs.deploy_backend == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+          ENABLE_PHONE_RECOVERY: ${{ vars.AUTH_PHONE_RECOVERY_PROD_ENABLED || 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/phone-rollback
+          gcloud auth configure-docker gcr.io --quiet
+          python3 deploy/phone/plan.py prepare --run-id "${{ github.run_id }}" \
+            --primary-sha "${{ inputs.sha }}" --enable-recovery "$ENABLE_PHONE_RECOVERY" \
+            --current-json /tmp/prod-drive-serving-backend.json --fallback-sha "$PHONE_ROLLBACK_SHA" \
+            --release-tools "${RUNNER_TEMP}/release-tools" \
+            --output /tmp/phone-rollback/plan.json --github-output "$GITHUB_OUTPUT"
 
       - name: Resolve retained protected document maintenance
         id: document-mode
@@ -617,6 +655,12 @@ jobs:
             --verify-previous --json-output /tmp/prod-document-reader-compatibility.json
           echo "HUSHH_DOCUMENT_READER_GUARD_REPORT=/tmp/prod-document-reader-compatibility.json" >> "$GITHUB_ENV"
           echo "HUSHH_DOCUMENT_READER_ENVIRONMENT=production" >> "$GITHUB_ENV"
+
+      - name: Qualify WorkOS non-activation before production mutation
+        if: steps.scope.outputs.deploy_backend == 'true'
+        run: |
+          "${{ env.PROTOCOL_PYTHON }}" deploy/phone/workos_rollout.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-before.json
 
       - name: Attest production Drive database before secret sync
         if: (steps.drive-mode.outputs.active == 'true' || steps.document-mode.outputs.configured == 'true') && steps.scope.outputs.deploy_backend == 'true'
@@ -1162,7 +1206,9 @@ jobs:
             echo "Production One Email KYC is blocked until mailbox-watch ownership, Scheduler renewal, and encrypted-at-rest draft storage are complete."
             exit 1
           fi
+          set -euo pipefail
           DRIVE_SUBSTITUTIONS=",_BACKEND_RUNTIME_CONFIG_JSON_SECRET=${DRIVE_CANDIDATE_RUNTIME_SECRET}"
+          DRIVE_SUBSTITUTIONS+=",_AUTH_PHONE_RECOVERY_ENABLED=${{ steps.phone-rollback-plan.outputs.recovery_enabled }},_WORKOS_SSO_ENABLED=false,_PHONE_ROLLBACK_SHA=${{ steps.phone-rollback-plan.outputs.fallback_sha }},_PHONE_ROLLBACK_IMAGE_REFERENCE=${{ steps.phone-rollback-plan.outputs.fallback_image }}"
           if grep -Fq '${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}' deploy/backend.cloudbuild.yaml; then
             DRIVE_SUBSTITUTIONS+=",_PROTECTED_DOCUMENT_DELIVERY_ENABLED=${{ steps.document-mode.outputs.enabled || 'false' }}"
           fi
@@ -1185,6 +1231,26 @@ jobs:
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
             "--substitutions=$(python3 scripts/ops/managed_ai_config.py --environment production --format substitutions | sed 's/##/,/g'),_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID,_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET,_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI,_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_CONSENT_WEB_FALLBACK_ENABLED=false,_CONSENT_SSE_ENABLED=false,_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_CPU=2,_CLOUD_RUN_MEMORY=4Gi,_CLOUD_RUN_CONCURRENCY=20,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_VERIFY_MANAGED_VERTEX_RUNTIME=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_ONE_WALLET_CARD_ENABLED=true,_WALLET_PASS_PROVIDER=service,_WALLET_API_KEY_SECRET=WALLET_API_KEY,_ONE_VOICE_LIVE_ENABLED=true,_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }},_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }},_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com,_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_PROD_ENABLED || 'false' }},_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET${DRIVE_SUBSTITUTIONS}"
+
+      - name: Revalidate actual phone rollback after backend deployment attempt
+        id: phone-rollback-qualified
+        if: always() && steps.phone-rollback-plan.outcome == 'success' && steps.deploy-backend.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 deploy/phone/plan.py verify --run-id "${{ github.run_id }}" \
+            --primary-sha "${{ inputs.sha }}" --plan /tmp/phone-rollback/plan.json \
+            --output /tmp/phone-rollback/qualified.json --github-output "$GITHUB_OUTPUT"
+          "${{ env.PROTOCOL_PYTHON }}" deploy/phone/workos_rollout.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --output /tmp/phone-rollback/workos-after.json
+          if [ "${{ steps.document-mode.outputs.configured }}" = "true" ]; then
+            "${{ env.PROTOCOL_PYTHON }}" deploy/drive/resolve_protected_document_release.py \
+              --project "${{ env.GCP_PROJECT_ID }}" --environment production \
+              --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
+              --rollback-report /tmp/prod-document-reader-compatibility.json \
+              --rebind-backend-report /tmp/phone-rollback/qualified.json
+          fi
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -1596,7 +1662,7 @@ jobs:
       # freshly built revision, then health-gate it, then auto-roll-back on failure.
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
-        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || steps.verify-connected-systems.outcome == 'success') && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && steps.document-mode.outputs.configured != 'true') || steps.deploy-drive-worker.outcome == 'success')
+        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && steps.document-mode.outputs.configured != 'true') || steps.deploy-drive-worker.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -1777,11 +1843,9 @@ jobs:
             # The compatibility check observes the combined serving pair. Revert
             # every service changed by this release so traffic returns to the
             # previously proven pair.
-            if [ "$DEPLOY_BACKEND" = "true" ]; then
-              backend_failure=true
-            fi
-            if [ "$DEPLOY_FRONTEND" = "true" ]; then
-              frontend_failure=true
+            if [ "$PROMOTE_OUTCOME" = "success" ] || [ "$PROMOTE_OUTCOME" = "failure" ]; then
+              if [ "$DEPLOY_BACKEND" = "true" ]; then backend_failure=true; fi
+              if [ "$DEPLOY_FRONTEND" = "true" ]; then frontend_failure=true; fi
             fi
           fi
           if [ "$PARITY_OUTCOME" = "failure" ]; then
@@ -1791,7 +1855,7 @@ jobs:
             connected_systems_failed=true
           fi
           if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PARITY_OUTCOME" = "success" ] \
-             && [ "$CONNECTED_SYSTEMS_OUTCOME" = "success" ]; then
+             && [ "$CONNECTED_SYSTEMS_OUTCOME" = "success" ] && [ "$PROMOTE_OUTCOME" = "success" ]; then
             if { [ "$DRIVE_ENABLED" = "true" ] || [ "$DOCUMENT_DELIVERY_CONFIGURED" = "true" ]; } && [ "$DRIVE_WORKER_OUTCOME" != "success" ]; then
               drive_worker_failed=true
             fi
@@ -1878,12 +1942,12 @@ jobs:
 
       - name: Roll back backend revision
         id: rollback-backend
-        if: always() && steps.classify.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.predeploy-state.outputs.backend_revision != ''
+        if: always() && steps.classify.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.phone-rollback-qualified.outputs.revision != ''
         shell: bash
         run: |
           set -euo pipefail
-          rollback_revision="${{ steps.predeploy-state.outputs.backend_revision }}"
-          echo "Backend release gate failed; evaluating rollback to predeploy revision ${rollback_revision}"
+          rollback_revision="${{ steps.phone-rollback-qualified.outputs.revision }}"
+          echo "Backend release gate failed; evaluating rollback to qualified phone reader ${rollback_revision}"
           gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
@@ -2078,9 +2142,9 @@ jobs:
             ROLLBACK_PROVEN=true
             if [ "${{ steps.classify.outputs.backend_failure }}" = "true" ]; then
               ROLLBACK_REQUIRED=true
-              if [ "${{ steps.predeploy-state.outputs.backend_revision }}" = "" ] \
+              if [ "${{ steps.phone-rollback-qualified.outputs.revision }}" = "" ] \
                  || [ "${{ steps.rollback-backend.outcome }}" != "success" ] \
-                 || [ "${{ steps.final-state.outputs.backend_serving }}" != "${{ steps.predeploy-state.outputs.backend_revision }}" ]; then
+                 || [ "${{ steps.final-state.outputs.backend_serving }}" != "${{ steps.phone-rollback-qualified.outputs.revision }}" ]; then
                 ROLLBACK_PROVEN=false
               fi
             fi
@@ -2144,6 +2208,7 @@ jobs:
                   "backend_provenance_failed": "${{ steps.classify.outputs.backend_provenance_failed }}",
                   "frontend_provenance_failed": "${{ steps.classify.outputs.frontend_provenance_failed }}",
               },
+              "phone_rollback": {"revision": "${{ steps.phone-rollback-qualified.outputs.revision }}", "qualification": "${{ steps.phone-rollback-qualified.outcome }}", "recovery_enabled": "${{ steps.phone-rollback-plan.outputs.recovery_enabled }}"},
               "rollback": {
                   "backend": "${{ steps.rollback-backend.outcome }}",
                   "frontend": "${{ steps.rollback-frontend.outcome }}",
@@ -2187,6 +2252,7 @@ jobs:
           name: prod-release-${{ github.run_id }}
           if-no-files-found: error
           path: |
+            /tmp/phone-rollback/
             /tmp/prod-predecessor-acceptance.json
             /tmp/prod-runtime-secret-sync.json
             /tmp/prod-frontend-runtime-secret-sync.json
@@ -2247,6 +2313,8 @@ jobs:
             echo ""
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
               echo "- Backend URL: \`${{ steps.backend-url.outputs.url }}\`"
+              echo "- Qualified phone rollback revision: \`${{ steps.phone-rollback-qualified.outputs.revision || 'unqualified' }}\`"
+              echo "- Phone recovery producer: \`${{ steps.phone-rollback-plan.outputs.recovery_enabled || 'unqualified' }}\`"
               echo "- Backend predeploy revision: \`${{ steps.predeploy-state.outputs.backend_revision || 'unknown' }}\`"
               echo "- Backend image source: \`${{ github.event.inputs.backend_image_source }}\`"
               echo "- Backend image: \`${{ steps.build-backend-image.outputs.image_reference || 'n/a' }}\`"
@@ -2315,7 +2383,7 @@ jobs:
         env:
           BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_serving }}
           FRONTEND_CURRENT: ${{ steps.final-state.outputs.frontend_serving }}
-          BACKEND_ROLLBACK: ${{ steps.predeploy-state.outputs.backend_revision }}
+          BACKEND_ROLLBACK: ${{ steps.phone-rollback-qualified.outputs.revision }}
           FRONTEND_ROLLBACK: ${{ steps.predeploy-state.outputs.frontend_revision }}
         run: |
           set -euo pipefail

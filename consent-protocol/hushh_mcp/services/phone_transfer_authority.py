@@ -122,6 +122,20 @@ def check_provider(app: Any, phone: str, proof_uid: str) -> bool:
                     conn, user_id=owner
                 ):
                     raise refuse("PHONE_TRANSFER_RECOVERY_REQUIRED", 403)
+        assert_real_sms_provider(app, phone)
+        return independent_signin
+    except SharedFirebaseIdentityRetained:
+        raise refuse("PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE", 403) from None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning("phone.transfer.provider_preflight_unavailable")
+        raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503) from None
+
+
+def assert_real_sms_provider(app: Any, phone: str) -> None:
+    """Read-only fictional-number check; grants no Firebase mutation authority."""
+    try:
         # Firebase fictional-number tokens are signed like ordinary phone tokens.
         # Inspect the provider configuration as well as the application's fixture list.
         with AuthorizedSession(app.credential.get_credential(), max_refresh_attempts=0) as session:
@@ -150,13 +164,9 @@ def check_provider(app: Any, phone: str, proof_uid: str) -> bool:
                     raise refuse("PHONE_TRANSFER_REAL_SMS_REQUIRED", 403)
             finally:
                 response.close()
-        return independent_signin
-    except SharedFirebaseIdentityRetained:
-        raise refuse("PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE", 403) from None
     except HTTPException:
         raise
     except Exception:
-        logger.warning("phone.transfer.provider_preflight_unavailable")
         raise refuse("PHONE_TRANSFER_PROVIDER_UNAVAILABLE", 503) from None
 
 

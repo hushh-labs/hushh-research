@@ -60,7 +60,7 @@ export function useNativeTrustedDevices(model: TrustedDevicesModel, owner: strin
     pages.push({ id: "device-unlink", title: model.confirmation.device_name, sections: [{ id: "devices-confirmation", rows: [
       { id: "devices-confirmation-description", label: `Unlink ${model.confirmation.device_name}?`, detail: UNLINK_WARNING, enabled: true, readOnly: true },
       ...(model.error ? [{ id: "devices-confirmation-error", label: model.error, enabled: true, readOnly: true }] : []),
-      { id: confirmId, label: model.busy ? "Unlinking…" : "Unlink device", enabled: actionsEnabled, pending: model.busy, destructive: true },
+      { id: confirmId, label: model.busy ? "Checking…" : "Unlink device", enabled: actionsEnabled && !!model.proof.view?.codeSent, pending: model.busy, destructive: true },
       ...(model.uncertain ? [{ id: "devices-confirmation-refresh", label: "Refresh", enabled: !model.busy && !model.refreshing, pending: model.refreshing }] : []),
       { id: "devices-cancel", label: "Cancel", enabled: !model.busy },
     ] }] });

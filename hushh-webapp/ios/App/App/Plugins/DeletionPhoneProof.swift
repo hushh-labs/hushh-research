@@ -86,7 +86,7 @@ final class DeletionPhoneProof {
         do { try proof.signOut() } catch { call.reject("Phone verification is unavailable.", "phone_verification_failed"); return }
         let op = Operation(user: user, phone: phone, attemptID: attempt, call: call)
         operation = op
-        expire(op, after: 120)
+        expire(op, after: 120, error: "phone-verification-start-timeout")
         // App verification remains with the configured primary Firebase app; no sign-in occurs here.
         PhoneAuthProvider.provider(auth: primary).verifyPhoneNumber(phone, uiDelegate: nil) { id, error in
             DispatchQueue.main.async {
@@ -171,11 +171,11 @@ final class DeletionPhoneProof {
                                now: ProcessInfo.processInfo.systemUptime) else { finish(op, error: "session_changed"); return false }
         return true
     }
-    private func expire(_ op: Operation, after seconds: TimeInterval) {
+    private func expire(_ op: Operation, after seconds: TimeInterval, error: String = "phone-verification-required") {
         op.timeout?.cancel()
         let work = DispatchWorkItem { [weak self, weak op] in
             guard let self, let op, self.operation === op else { return }
-            self.finish(op, error: "phone-verification-required")
+            self.finish(op, error: error)
         }
         op.timeout = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
