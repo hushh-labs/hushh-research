@@ -19,12 +19,17 @@ evidence, not admission or release claims for the latest implementation.
 ### Root-worktree Profile completion candidate — 2026-10-25
 
 The root worktree supersedes the retired ADK checkout as the active source.
-Main `c0bf05df4f` is integrated at `d827eccece`, after the earlier integrations
-of `79674242c9`, `6e28a65e0b` and `7d5546e471`. Of the latest 104 team-changed
-paths, 103 match main exactly. The remaining Profile workspace combines the
+Main `66f3855082` is integrated at `e0f036778c`, after `c0bf05df4f` at
+`d827eccece` and the earlier integrations of `79674242c9`, `6e28a65e0b` and
+`7d5546e471`. All 48 newly incoming Wallet/receipt paths match main exactly;
+105 focused Wallet checks pass. Of the preceding 104 team-changed paths,
+103 matched main exactly. The remaining Profile workspace combines the
 team's pending-phone-transfer Close guard with the retained connector Back
 owner. Phone verification and authentication changed, so this merge needs a
-new combined build; earlier device results do not qualify those changes.
+new combined build; earlier device results do not qualify those changes. The
+installed `f77047caac` below includes phone-transfer integration, but not the
+subsequent Wallet changes. Its completed canonical core stages pass; the newer
+integration requires its own combined verification.
 Preservation checks found no dropped team content; preserve subsequent peer changes.
 Profile and Chat are **partially native**, not completely qualified. The
 authored roster now contains 15 ordinary destinations, plus guarded Developer
