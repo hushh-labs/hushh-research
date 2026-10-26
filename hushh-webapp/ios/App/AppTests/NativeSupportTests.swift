@@ -57,7 +57,10 @@ final class NativeSupportTests: XCTestCase {
                 guard case let .dictionary(value)? = result?.resultData else { XCTFail("CHOICE_RECEIPT_MISSING"); active.fulfill(); return }
                 XCTAssertEqual(value["phase"] as? String, "active"); active.fulfill()
             }, error: { _ in XCTFail("CHOICE_PREPARE_REFUSED"); active.fulfill() }))
-        choice.prepare(prepare); await fulfillment(of: [active], timeout: 3)
+        choice.prepare(prepare)
+        XCTAssertFalse(choice.coversPresentation, "Admission must not hide the WebView before the native sheet finishes presentation")
+        await fulfillment(of: [active], timeout: 3)
+        XCTAssertTrue(choice.coversPresentation)
         let controller = try XCTUnwrap(parent.presentedViewController)
         for chrome in [navigation as UIView, dock] {
             let point = chrome.convert(CGPoint(x: chrome.bounds.midX, y: chrome.bounds.midY), to: window)

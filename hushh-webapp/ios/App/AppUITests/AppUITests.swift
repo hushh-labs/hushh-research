@@ -5690,11 +5690,14 @@ final class AppUITests: XCTestCase {
                             }
                             XCTFail("WORKSPACE_WALLET_CHOICE_NOT_NATIVE"); return
                         }
+                        print("WORKSPACE_CHOICE_STAGE stage=presented")
                         let dismiss = sheet.buttons["Cancel"].firstMatch
                         guard waitForAdmittedControl(dismiss) else { XCTFail("WORKSPACE_WALLET_CHOICE_CANCEL_UNAVAILABLE"); return }
-                        XCTAssertFalse(cancel.isHittable, "WORKSPACE_WALLET_CHOICE_LEAKED_FORM_TOUCH")
+                        XCTAssertFalse(cancel.exists && cancel.isHittable, "WORKSPACE_WALLET_CHOICE_LEAKED_FORM_TOUCH")
+                        print("WORKSPACE_CHOICE_STAGE stage=isolated")
                         dismiss.tap()
                         XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "WORKSPACE_WALLET_CHOICE_NOT_RETIRED")
+                        print("WORKSPACE_CHOICE_STAGE stage=retired")
                     }
                     // Return to the form's authored Cancel without closing its
                     // parent while an owned native picker is still attached.

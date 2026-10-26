@@ -140,7 +140,10 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
     private var retired: [String: Int] = [:]
     private var lastReceipt: [String: Any]?
     private var lastEvent: [String: Any]?
-    var coversPresentation: Bool { current != nil }
+    // UIKit owns opening hit testing. Transfer the WebView's interaction/AX
+    // coverage only once the replacement presentation has actually laid out.
+    // Active sessions retain coverage through actual dismissal completion.
+    var coversPresentation: Bool { current?.active == true }
     var concealed: Bool { current == nil }
     private func key(_ identity: NativeOwnedChoiceIdentity) -> String {
         "\(identity.documentId):\(identity.ownerEpoch):\(identity.ownerGeneration)"
@@ -202,6 +205,7 @@ struct NativeOwnedChoiceProjection: Decodable, Equatable {
                 self.retire(); return
             }
             session.active = true
+            self.changed()
             let calls = session.pending; session.pending = []
             calls.forEach { $0.resolve(session.state.receipt("active", sequence: session.updateSequence)) }
         }
