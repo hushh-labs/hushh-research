@@ -772,12 +772,14 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "account_phone_transfers"
+        "account_phone_transfers",
+        "account_phone_recovery_continuations",
+        "account_device_actions"
       ],
       "id": "account_phone_transfer_workflow",
       "lifecycle_status": "release_schema_qualification",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer and generation-bound Firebase mutation journal."
+      "primary_access_path": "Phone transfer prepare/confirm through the existing identity writer; opaque recovery continuations and single-use own-device action admission with independent owner authentication."
     },
     {
       "data_class": "personal_metadata",
@@ -7144,21 +7146,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "4a36164dd7f9eab12c6b12a1a387de803e7e5181c689b22eaf6c3bfbdd99f97d",
+    "action_gateway": "c09d0194a42f6bbf3c3b5ca1c018c5fc887f382a885667e6d849c83ace8c7374",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "8b7c2ede3d91f5aef6086aab2526782dfe733424239fc1b39e85d556178723b2",
+    "data_plane": "ffb27d68047e80423e389c16980864b001665a63b47b0f88719734d0d34ae84f",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
-    "route_layout": "70797338bdab9648b22a77d38f19f43049bfcf00fd7ebe910778fbe457b2f09f",
-    "surface_map": "fa19132e6b9bf362f41ef35d3e23b15dce12faf0755947dc9ce196bcc078fae3",
+    "route_layout": "bd37b42b0aa4e25a565729df83083df5d30210c6d74cae1868a81363fbe49b35",
+    "surface_map": "ae2190a1d63e4063ca17e140a84c185b6a202905f2e88e5cd21d5c165c51520c",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 307,
+    "actions": 308,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,

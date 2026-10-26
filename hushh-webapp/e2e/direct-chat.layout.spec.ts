@@ -6,6 +6,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/messages-navigation-proof";
 import { registerMessagesPresentationCases } from "./fixtures/messages-presentation-cases";
 import { registerMessagesReactionCases } from "./fixtures/messages-reaction-cases";
+import { registerMessagesVoiceCases } from "./fixtures/messages-voice-cases";
 
 // Production components/styles with synthetic auth/navigation/service ports.
 // Device keyboards, signed-in routes and push delivery have separate proofs.
@@ -71,12 +72,13 @@ test.beforeAll(async () => {
   });
   css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
-async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean } = {}) {
+async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; origin?: string } = {}) {
+  const origin = options.origin ?? "http://localhost";
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("http://localhost/fixture-person-*.webp", (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
-  await page.route("http://localhost/one/messages*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" data-modal-fixture="${options.modal === true}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
-  await page.goto(`http://localhost/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}${options.overflowInbox ? "&overflowInbox=1" : ""}`}`);
+  await page.route(`${origin}/fixture-person-*.webp`, (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
+  await page.route(`${origin}/one/messages*`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" data-modal-fixture="${options.modal === true}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+  await page.goto(`${origin}/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}${options.preview ? "&preview=1" : ""}${options.overflowInbox ? "&overflowInbox=1" : ""}`}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   const input = page.getByRole(inbox ? "searchbox" : "textbox", { name: inbox ? "Search conversations" : "Message Maya Rao" });
@@ -1008,6 +1010,8 @@ test("Enter preserves composition and mobile newlines while desktop Enter sends"
 
 
 registerMessagesReactionCases({ mount, fixture, holdMessage });
+
+registerMessagesVoiceCases({ mount, fixture });
 
 test("preserves reply sending and editing with a short phone keyboard", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 }); await mount(page);

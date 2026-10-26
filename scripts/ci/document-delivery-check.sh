@@ -5,7 +5,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 test_dir="$(mktemp -d "${TMPDIR:-/tmp}/hushh-document-delivery.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 
-echo '== Protected documents: real browser, SQL, signed payment, preview, download and revoke =='
+echo '== Browser contracts: protected documents and phone recovery through real SQL =='
 (
   cd "$REPO_ROOT/hushh-webapp"
   # Qualify actual PDF rendering and downloads in Chromium and Safari's engine.
@@ -23,6 +23,7 @@ echo '== Protected documents: real browser, SQL, signed payment, preview, downlo
 (
   cd "$REPO_ROOT/consent-protocol"
   TESTING=true DB_OFFLINE=1 OFFLINE_DB_PATH="$test_dir/protocol.db" \
-  GOOGLE_CLOUD_PROJECT=hushh-ci-test REQUIRE_CONNECTOR_POSTGRES=1 \
-  .venv/bin/python -m pytest -q tests/services/test_document_delivery_browser.py
+  GOOGLE_CLOUD_PROJECT=hushh-ci-test REQUIRE_CONNECTOR_POSTGRES=1 REQUIRE_PHONE_TRANSFER_POSTGRES=1 \
+  .venv/bin/python -m pytest -q \
+    tests/services/test_document_delivery_browser.py tests/test_account_phone_browser.py
 )

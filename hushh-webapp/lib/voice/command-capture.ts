@@ -33,6 +33,7 @@ export class CommandCapture {
   private levelListener: PluginListenerHandle | null = null;
   private resolveFinish: ((wav: ArrayBuffer) => void) | null = null;
   private webPermissionReady = false;
+  private removeTrackListeners: (() => void)[] = [];
 
   haptic(kind: "ready" | "cancel"): void {
     if (this.session && Capacitor.isNativePlatform()) {
@@ -47,6 +48,7 @@ export class CommandCapture {
     sessionId: string,
     onLimit: () => void,
     onLevel?: (event: CommandCaptureLevel) => void,
+    onEnded?: () => void,
   ): Promise<void> {
     if (this.session) throw new Error("The microphone is already in use.");
     this.session = sessionId;
@@ -77,7 +79,10 @@ export class CommandCapture {
         if (permission.state !== "granted") {
           if (permission.state === "denied")
             throw new Error("Allow microphone access in device settings.");
-          await NativeOneVoiceInvocation.requestCommandCapturePermission();
+          const requested = await NativeOneVoiceInvocation.requestCommandCapturePermission();
+          this.assertSession(sessionId);
+          if (requested.state !== "granted")
+            throw new Error("Allow microphone access in device settings.");
           // A permission prompt outlives a hold gesture. Require a fresh gesture.
           throw new Error(
             "Microphone permission updated. Tap Talk to One to record.",
@@ -124,6 +129,21 @@ export class CommandCapture {
           throw new Error(
             "Microphone permission updated. Tap Talk to One to record.",
           );
+        }
+        // Only opt-in owners can settle their UI after an interrupted capture.
+        // Other owners retain their existing timeout/error recovery contract.
+        if (onEnded) {
+          const ended = () => {
+            if (this.session !== sessionId) return;
+            void this.cancel();
+            onEnded();
+          };
+          for (const track of stream.getAudioTracks()) {
+            track.addEventListener("ended", ended, { once: true });
+            this.removeTrackListeners.push(() => track.removeEventListener("ended", ended));
+            if (track.readyState === "ended") ended();
+            this.assertSession(sessionId);
+          }
         }
         const audio = new AudioContext();
         this.audio = audio;
@@ -230,6 +250,8 @@ export class CommandCapture {
   }
 
   private cleanup(): void {
+    for (const remove of this.removeTrackListeners) remove();
+    this.removeTrackListeners = [];
     this.finishing = false;
     if (this.limitTimer) clearTimeout(this.limitTimer);
     this.limitTimer = null;

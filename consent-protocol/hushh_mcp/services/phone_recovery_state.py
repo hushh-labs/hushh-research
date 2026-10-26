@@ -74,33 +74,35 @@ def phone_hint(current: dict[str, Any]) -> str:
     return "••" + current["phone"][-2:]
 
 
+_DRAFT_QUERIES = {
+    "account_phone_recovery_continuations": (
+        "DELETE FROM account_phone_recovery_continuations WHERE operation_id IN "
+        "(SELECT operation_id FROM account_phone_recovery_continuations "
+        "WHERE expires_at<clock_timestamp()-INTERVAL '1 hour' ORDER BY expires_at LIMIT 100)",
+        "SELECT count(*) FROM account_phone_recovery_continuations "
+        "WHERE requester_user_id=$1 AND expires_at>clock_timestamp()",
+    ),
+    "account_device_actions": (
+        "DELETE FROM account_device_actions WHERE operation_id IN "
+        "(SELECT operation_id FROM account_device_actions "
+        "WHERE ((state IN ('prepared','cancelled') AND expires_at<clock_timestamp()-INTERVAL '1 hour') "
+        "OR (state='completed' AND expires_at<clock_timestamp()-INTERVAL '7 days')) "
+        "ORDER BY expires_at LIMIT 100)",
+        "SELECT count(*) FROM account_device_actions WHERE user_id=$1 AND "
+        "(state IN ('pending','action_required') OR created_at>clock_timestamp()-INTERVAL '5 minutes')",
+    ),
+}
+
+
 async def bound_owner_drafts(conn: Any, table: str, owner: str) -> None:
-    # Only static internal table names reach SQL; callers cannot select a relation.
-    if table not in {"account_phone_recovery_continuations", "account_device_actions"}:
+    # Relation names and query structure are static; only the owner is bound.
+    if table not in _DRAFT_QUERIES:
         raise ValueError("unknown recovery draft family")
-    column = "requester_user_id" if table.endswith("continuations") else "user_id"
+    prune, count_query = _DRAFT_QUERIES[table]
     await conn.execute(
         "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", f"phone-recovery:{owner}"
     )
-    await conn.execute(
-        f"DELETE FROM {table} WHERE operation_id IN (SELECT operation_id FROM {table} "
-        "WHERE "
-        + (
-            "((state IN ('prepared','cancelled') AND expires_at<clock_timestamp()-INTERVAL '1 hour') OR "
-            "(state='completed' AND expires_at<clock_timestamp()-INTERVAL '7 days')) "
-            if table.endswith("actions")
-            else "expires_at<clock_timestamp()-INTERVAL '1 hour' "
-        )
-        + "ORDER BY expires_at LIMIT 100)"
-    )
-    count = await conn.fetchval(
-        f"SELECT count(*) FROM {table} WHERE {column}=$1 AND "
-        + (
-            "(state IN ('pending','action_required') OR created_at>clock_timestamp()-INTERVAL '5 minutes')"
-            if table.endswith("actions")
-            else "expires_at>clock_timestamp()"
-        ),
-        owner,
-    )
+    await conn.execute(prune)
+    count = await conn.fetchval(count_query, owner)
     if count >= 5:
         raise refuse("PHONE_RECOVERY_LIMIT_REACHED", 429)

@@ -15,6 +15,7 @@ export function DirectMessageVoicePlayer({ durationMs, loadAudio }: {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const currentSpeed = useRef(1);
   const audio = useRef<HTMLAudioElement | null>(null);
   const progress = useRef<SVGRectElement | null>(null);
   const lease = useRef<VoiceSessionLease | null>(null);
@@ -72,7 +73,7 @@ export function DirectMessageVoicePlayer({ durationMs, loadAudio }: {
         player.ontimeupdate = () => progress.current?.setAttribute("transform", `scale(${Math.min(1, player.currentTime / (waveform.durationMs / 1000))} 1)`);
       }
       if (generation.current !== current || !lease.current?.isCurrent()) return;
-      audio.current!.playbackRate = speed;
+      audio.current!.playbackRate = currentSpeed.current;
       await audio.current!.play();
     } catch {
       if (generation.current === current) {
@@ -103,7 +104,8 @@ export function DirectMessageVoicePlayer({ durationMs, loadAudio }: {
       <span>{formatVoiceDuration(durationMs)}</span>
     </div>
     <button type="button" className={styles.voiceSpeedButton} aria-label={`Playback speed ${speed}x`} onClick={() => {
-      const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
+      const next = currentSpeed.current === 1 ? 1.5 : currentSpeed.current === 1.5 ? 2 : 1;
+      currentSpeed.current = next;
       setSpeed(next); if (audio.current) audio.current.playbackRate = next;
     }}>{speed}x</button>
   </div>;
