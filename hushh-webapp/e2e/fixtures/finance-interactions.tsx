@@ -26,6 +26,10 @@ import { holdingTableColumns } from "../../components/kai/holdings/holding-table
 import { toHoldingViewModel } from "../../components/kai/holdings/holding-view-model";
 import { mapPortfolioToDashboardViewModel } from "../../components/kai/views/dashboard-data-mapper";
 import type { PortfolioData } from "../../components/kai/types/portfolio";
+import type { HoldingsListItem } from "../../components/kai/holdings/holding-view-model";
+import { groupHoldingPositions, prepareHoldingEntryEdit } from "../../lib/kai/holding-positions";
+import { EditHoldingModal } from "../../components/kai/modals/edit-holding-modal";
+import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
 
 const samplePortfolio: PortfolioData = { account_summary: { beginning_value: 24000, ending_value: 24680.42, cash_balance: 2000 },
   holdings: [{ symbol: "TEST", name: "Sample Company", market_value: 22680.42, price: 226.8042, quantity: 100, cost_basis: 21000, sector: "Technology", source_type: "Statement", institution_price_as_of: "2026-10-20T20:00:00Z" }] };
@@ -41,12 +45,43 @@ const observedFixture = Array.from({ length: 31 }, (_, index) => ({
 
 const loadSampleHistory = async () => ({ points: observedFixture, stale: false, cached: true, source: "Synthetic daily fixture", retrievedAt: "2026-10-20T20:00:00Z" });
 
+function GroupedHoldingsFixture() {
+  const [entries, setEntries] = useState<HoldingsListItem[]>([
+    { client_id: "entry-one", entry_id: "entry-one", symbol: "TEST", name: "Sample Company", quantity: 10, price: 130, market_value: 1300, cost_basis: 1000, account_id: "sample", acquisition_date: "2026-01-10" },
+    { client_id: "entry-two", entry_id: "entry-two", symbol: "TEST", name: "Sample Company", quantity: 5, price: 130, market_value: 650, cost_basis: 600, account_id: "sample", acquisition_date: "2026-05-10" },
+  ]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [editing, setEditing] = useState<HoldingsListItem | null>(null);
+  const groups = groupHoldingPositions(entries);
+  const total = groups.reduce((sum, row) => sum + row.market_value, 0);
+  const position = groups.find(row => row.client_id === selected);
+  return <section data-testid="grouped-holdings-fixture" className={`${financeStyles.workspace} mt-8`}>
+    <h2>Grouped holdings · sample figures</h2>
+    <div className="md:hidden"><SettingsGroup>{groups.map(row => <SettingsRow key={row.client_id}
+      title={row.symbol} description={`${row.name} · ${row.entries.length} entries`} trailing={`$${row.market_value.toFixed(2)}`}
+      ariaLabel={`View ${row.symbol} entries`} onClick={() => setSelected(row.client_id)} />)}</SettingsGroup></div>
+    <div className="hidden md:block"><DataTable columns={holdingTableColumns(total, setSelected)} data={groups} onRowClick={row => setSelected(row.client_id)} /></div>
+    <HoldingDetailsDrawer open={Boolean(position) && !editing} holding={position ? toHoldingViewModel(position, total) : null}
+      entries={position?.entries.map(row => toHoldingViewModel(row, total))} canManageHoldings loadHistory={loadSampleHistory}
+      onOpenChange={open => { if (!open) setSelected(null); }}
+      onEditEntry={id => setEditing(entries.find(row => row.client_id === id)!)}
+      onToggleDeleteEntry={id => setEntries(rows => rows.map(row => row.client_id === id ? { ...row, pending_delete: !row.pending_delete } : row))}
+      onAddEntry={() => setEditing({ ...position!.entries[0]!, client_id: "entry-new", entry_id: "entry-new", quantity: 0, price: 0, market_value: 0, cost_basis: undefined, acquisition_date: undefined })} />
+    <EditHoldingModal isOpen={Boolean(editing)} holding={editing} onClose={() => setEditing(null)} onSave={updated => {
+      const next = prepareHoldingEntryEdit(updated, editing, entries) as HoldingsListItem;
+      setEntries(rows => rows.some(row => row.client_id === next.client_id) ? rows.map(row => row.client_id === next.client_id ? next : row) : [...rows, next]);
+      setEditing(null);
+    }} />
+  </section>;
+}
+
 function Fixture() {
   const [holdingOpen, setHoldingOpen] = useState(false);
   const [updated, setUpdated] = useState(false);
   const [action, setAction] = useState("");
   const [indexMetric, setIndexMetric] = useState<MarketOverviewMetric | null>(null);
   return <main className="mx-auto max-w-3xl p-4">
+    <GroupedHoldingsFixture />
     <button onClick={() => setUpdated(true)}>Update progress</button>
     <ImportProgressView stage="extracting" isStreaming progressPct={updated ? 77 : undefined}
       statusMessage="Reading your statement"

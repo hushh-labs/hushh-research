@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { PortfolioReportAction } from "@/components/kai/cards/portfolio-report-action";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
@@ -8,17 +8,77 @@ import { AnalysisHistoryList } from "@/components/kai/views/analysis-history-lis
 import { VersionOptions } from "@/components/kai/views/analysis-history-version-options";
 import { KaiStocksView } from "@/components/kai/views/kai-stocks-view";
 
-const state = vi.hoisted(() => ({ params: new URLSearchParams("tab=analysis") }));
+const state = vi.hoisted(() => ({
+  params: new URLSearchParams("tab=analysis"),
+  market: {
+    payload: null as { pick_rows: { symbol: string }[] } | null,
+    loading: false,
+    refreshing: false,
+    error: null as string | null,
+    loadInsights: vi.fn().mockResolvedValue(undefined),
+  },
+}));
 vi.mock("next/navigation", () => ({ useSearchParams: () => state.params, usePathname: () => "/one/kai" }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: null }) }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {} }));
 vi.mock("@/components/kai/shared/kai-market-home-context", () => ({
-  useKaiMarketHome: () => ({ payload: null, loading: false, error: null }),
+  useKaiMarketHome: () => state.market,
 }));
-vi.mock("@/components/kai/cards/renaissance-market-list", () => ({ RiaPicksList: () => null }));
+vi.mock("@/components/kai/cards/renaissance-market-list", () => ({
+  RiaPicksList: ({ rows }: { rows: { symbol: string }[] }) => <div aria-label="Stock results">{rows.map(row => <span key={row.symbol}>{row.symbol}</span>)}</div>,
+}));
 vi.mock("@/components/app-ui/kai-control-surface", () => ({
   KaiControlSurface: ({ open, children, footer }: { open: boolean; children: ReactNode; footer?: ReactNode }) => open ? <div role="dialog">{children}{footer}</div> : null,
 }));
+
+beforeEach(() => {
+  state.params = new URLSearchParams("tab=analysis");
+  state.market.payload = null;
+  state.market.loading = false;
+  state.market.refreshing = false;
+  state.market.error = null;
+  state.market.loadInsights.mockClear();
+});
+
+describe("Stocks loading recovery", () => {
+  it("retries a failed first load through the shared resource and prevents duplicate retries", () => {
+    state.market.error = "Request failed";
+    const { rerender } = render(<KaiStocksView history={<p>Saved entries</p>} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Stocks are temporarily unavailable.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading stocks" }));
+    expect(state.market.loadInsights).toHaveBeenCalledExactlyOnceWith({ manual: true });
+    state.market.loading = true;
+    state.market.refreshing = true;
+    rerender(<KaiStocksView history={<p>Saved entries</p>} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading stocks…");
+    const retry = screen.getByRole("button", { name: "Retry loading stocks" });
+    expect(retry).toBeDisabled();
+    fireEvent.click(retry);
+    expect(state.market.loadInsights).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Saved entries");
+  });
+
+  it("keeps saved stock rows visible across a failed refresh and clears the status after recovery", () => {
+    state.market.payload = { pick_rows: [{ symbol: "MSFT" }] };
+    state.market.error = "Request failed";
+    const { rerender } = render(<KaiStocksView />);
+    expect(screen.getByText("MSFT")).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Some updates are temporarily unavailable.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading stocks" }));
+    expect(state.market.loadInsights).toHaveBeenCalledExactlyOnceWith({ manual: true });
+    state.market.error = null;
+    state.market.refreshing = true;
+    rerender(<KaiStocksView />);
+    expect(screen.getByRole("status")).toHaveTextContent("Updating stocks…");
+    expect(screen.getByText("MSFT")).toBeVisible();
+    state.market.refreshing = false;
+    rerender(<KaiStocksView />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry loading stocks" })).toBeNull();
+    expect(screen.getByText("MSFT")).toBeVisible();
+  });
+});
 
 describe("Stocks history intent", () => {
   it("opens requested history without the browser, unwinds Back, and releases the inactive pane", () => {

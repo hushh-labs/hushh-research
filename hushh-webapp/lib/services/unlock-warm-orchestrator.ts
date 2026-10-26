@@ -1002,7 +1002,7 @@ export class UnlockWarmOrchestrator {
     }
 
     const financial = financialRaw as Record<string, unknown>;
-    const normalized = normalizeStoredPortfolio(financial);
+    const normalized = normalizeStoredPortfolio(financial, { preserveEntries: true });
     CacheSyncService.onPortfolioUpserted(params.userId, normalized, {
       invalidateMetadata: false,
     });
