@@ -5670,9 +5670,9 @@ final class AppUITests: XCTestCase {
                     // native picker. No card entry, save or backend mutation.
                     for label in ["Card network", "Issuing region"] {
                         let trigger = web.descendants(matching: .any).matching(NSPredicate(
-                            format: "(elementType == %d OR elementType == %d OR elementType == %d) AND label CONTAINS %@",
+                            format: "(elementType == %d OR elementType == %d OR elementType == %d OR elementType == %d) AND label CONTAINS %@",
                             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.popUpButton.rawValue,
-                            XCUIElement.ElementType.comboBox.rawValue, label)).firstMatch
+                            XCUIElement.ElementType.comboBox.rawValue, XCUIElement.ElementType.other.rawValue, label)).firstMatch
                         for _ in 0..<4 {
                             if trigger.exists && trigger.isHittable { break }
                             web.swipeUp()
