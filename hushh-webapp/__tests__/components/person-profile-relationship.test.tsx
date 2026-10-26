@@ -107,7 +107,8 @@ describe("Person profile relationship controls", () => {
 
     const list = await screen.findByRole("region", { name: "Available document packets" });
     expect(await within(list).findByRole("button", { name: /^Example Bank statements/ })).toHaveTextContent("$12.34");
-    expect(screen.getByRole("button", { name: "Available packets" })).toBeInTheDocument();
+    expect(within(list).getByRole("heading", { name: "Other document packets" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Available packets" })).not.toBeInTheDocument();
     expect(mocks.packets).toHaveBeenCalledWith("owner-token", expect.any(Function), "actual-public-ref", undefined);
   });
 });
