@@ -151,6 +151,15 @@ final class AppUITests: XCTestCase {
 
     private func printCoherentPresentationAdmission(_ app: XCUIApplication) {
         printPrivacyAdmission(app)
+        // Fixed authored field identities only, never editor contents.
+        for name in ["name", "endpoint", "credential", "cancel", "link"] {
+            let controls = app.descendants(matching: .any).matching(identifier: "native-connector-\(name)")
+            let control = controls.firstMatch
+            let observed = control.exists ? control.frame : .zero
+            let bounds = [observed.minX, observed.minY, observed.width, observed.height]
+                .allSatisfy({ $0.isFinite && abs($0) <= 10_000 }) ? observed : .zero
+            print("PROFILE_CONNECTOR_FORM control=\(name) count=\(controls.count) role=\(control.exists ? control.elementType.rawValue : 0) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled) x=\(Int(bounds.minX)) y=\(Int(bounds.minY)) width=\(Int(bounds.width)) height=\(Int(bounds.height))")
+        }
         // Fixed authored identifiers/labels only. Never serialize a hierarchy,
         // profile identity, row label, draft or private presentation payload.
         for (kind, label) in [("view", "View photo"), ("options", "Photo options"),
@@ -4858,7 +4867,8 @@ final class AppUITests: XCTestCase {
                 row("Add connector").tap()
                 guard waitForAdmittedControl(app.textFields["native-connector-name"].firstMatch),
                       waitForAdmittedControl(app.textFields["native-connector-endpoint"].firstMatch),
-                      app.secureTextFields["native-connector-credential"].firstMatch.exists, waitForAdmittedControl(cancel) else {
+                      app.secureTextFields["native-connector-credential"].firstMatch.waitForExistence(timeout: 10), waitForAdmittedControl(cancel) else {
+                    printCoherentPresentationAdmission(app)
                     XCTFail("PROFILE_NATIVE_CONNECTOR_SETUP_FORM_UNAVAILABLE"); return
                 }
                 cancel.tap()

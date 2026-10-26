@@ -68,14 +68,15 @@ platform form control; no glass overlay is needed merely to open a native picker
 Mail/Consent/Wallet route tabs remain deliberate retained families.
 
 The installed UAT-backed local Release qualification binary is source
-`a3e0bd4b69`, version 1.4.1 (69), on iPhone
-16e/iOS 27.2 Beta. Its 1,753 runtime files match the prepared bundle; Finder
-metadata is excluded. Dependency pins and deep code signing were checked.
-Its native code is unchanged from `308d9791c4`; resource sealing changed the
-signed executable digest. This does not substitute for the new merge's build.
-UAT was observed serving `7266b4d2e9` before this run. Normal passphrase unlock passes.
-The older dev Pricing 503 and old UAT principal-contract failure are historical,
-not the current editor/readiness result. This is not a TestFlight release.
+`f77047caac`, version 1.4.1 (69), on iPhone 16e/iOS 27.2 Beta. All 1,754 bundled
+runtime files match the export and generated Cordova resources. Dependency pins,
+deep code signing and the executable digest were checked before installation.
+The app was launched without reviewer/bootstrap arguments; normal passphrase
+unlock passes. UAT independently serves `7d5546e471` at 100% traffic on
+`consent-protocol-02585-suf`; it does not yet include the merged phone-transfer
+backend. Account/Phone cancellation and Payments inspection/return pass on this
+candidate without sending an OTP or changing reviewer records. This is not a
+TestFlight release.
 
 The strict UAT roster passed Hosting/Software updates, Account and Phone
 cancellation, Payments history/filtering, Pricing editing, Memory readers/editor
@@ -111,18 +112,30 @@ callback is now placed in its existing family module and the pane Back module;
 the same regression moves to the existing route-motion suite. All 132 focused
 checks pass, and the architecture ratchet reports no new or worsened findings.
 The reorganized `a3e0bd4b69` candidate also passes the actual Connectors catalog,
-provider/link/custom editors, Drive review and final return to Profile.
+provider/link/custom editors, Drive review and final return to Profile. The
+combined `f77047caac` run initially failed the aggregate Add connector form guard
+after cancelling a link editor. No retention defect was established. An unchanged
+product rerun passes; the existing harness now waits for the secure field's
+asynchronous admission and records only fixed control geometry on failure. Its
+bounded repeat run also passes. The original failure remains diagnostic evidence,
+not a claimed product fix.
 The visible-page-only interaction policy retains its failing-before/passing-after
 native host evidence. Retained connector loading/error/Retry preserves the single
 feature controller, including routine token-renewal and reopen continuity.
 
+The combined candidate passes ten background/resume cycles and an observed
+Control Center interruption, including Profile, hamburger, agent selector and
+editor touch recovery with the draft and single WebView preserved. These are
+functional checks, not compositor or accessibility acceptance.
+
 Rendered transitions, accessibility and three physical Release performance runs
 need their own evidence. Three measurement iterations returned zero frame counts
 despite positive FPS; no hitch/frame ceiling is accepted from those samples.
-Instruments sees the phone offline while CoreDevice and XCTest work. A bounded
-all-process Animation Hitches probe lost its device session; the owned collector
-was stopped and its unusable trace removed. This is a separate profiling-transport
-failure, not a lost XCTest grant or proof of an SDK defect.
+Instruments intermittently sees the phone offline while CoreDevice and XCTest
+work. An all-process Animation Hitches probe saved its schema table only after
+reporting a device disconnect; this does not establish measured gesture coverage.
+Owned collectors exited and private raw traces were removed. This is a separate
+profiling failure, not a lost XCTest grant or proof of an SDK defect.
 First-entry whole-value XCUI typing also remains intermittently incomplete with
 public text; an unproven preparation change was discarded. Normal warm
 whole-value reviewer unlock passes and incomplete entries are never submitted.
