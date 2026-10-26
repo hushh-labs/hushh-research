@@ -54,6 +54,10 @@ import/review, statement editing, Save/Cancel/Delete/Restore, and read-only
 brokerage restrictions retain their current handlers and vault admission.
 The holding drawer uses a flat definition list and the existing public price-history
 read. Opening it performs no holding mutation; entry controls retain the draft/save flow.
+At 1024px and wider, the holding sheet is centered with a 1120px maximum width:
+value and price history sit left, facts and individual entries sit right. A single
+scroll area retains the existing footer and dismissal owner. Mobile stays stacked
+with the same text sizes; cash and CUSIP positions leave no empty chart column.
 
 Holdings browse as one derived position per compatible security, source, account,
 currency and position side. The position retains its original entries; edits and

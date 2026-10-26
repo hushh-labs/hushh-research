@@ -82,12 +82,14 @@ export function HoldingDetailsDrawer({
   const gainLossValue = holding
     ? `${formatCurrency(holding.gainLossValue)} (${formatSignedPercent(holding.gainLossPct)})`
     : "—";
+  const hasHistory = Boolean(holding && !holding.isCash && holding.identifierType !== "cusip"
+    && /^[A-Z][A-Z0-9.-]{0,15}$/.test(holding.symbol));
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className={cn(financeStyles.detail, "border-border/70 bg-background")}>
+      <DrawerContent showCloseButton className={cn(financeStyles.detail, financeStyles.holdingSheet, "border-border/70 bg-background")}>
         <div className="min-h-0 overflow-y-auto overscroll-contain">
-          <DrawerHeader className="flex-row items-center gap-3 px-5 pb-2 text-left">
+          <DrawerHeader className="flex-row items-center gap-3 px-5 pb-2 pr-16 text-left">
             {holding ? <SymbolAvatar symbol={holding.symbol} name={holding.name} isCash={holding.isCash} size="lg" /> : null}
             <div className="min-w-0">
             <DrawerTitle className="ui-text-navigation-title text-left text-foreground">
@@ -99,30 +101,36 @@ export function HoldingDetailsDrawer({
             </div>
           </DrawerHeader>
 
-          <div className="px-5 py-4">
-            <p className={financeStyles.description}>Market value</p>
-            <p className={financeStyles.value}>{formatCurrency(holding?.marketValue ?? null)}</p>
-            <p className={cn("mt-2 text-sm tabular-nums", gainLossTone)}>{gainLossValue} · Unrealized gain / loss</p>
-          </div>
+          <div className={cn(financeStyles.holdingLayout, hasHistory && financeStyles.holdingWithHistory)}>
+            <div className="min-w-0">
+              <div className="px-5 py-4">
+                <p className={financeStyles.description}>Market value</p>
+                <p className={financeStyles.value}>{formatCurrency(holding?.marketValue ?? null)}</p>
+                <p className={cn("mt-2 text-sm tabular-nums", gainLossTone)}>{gainLossValue} · Unrealized gain / loss</p>
+              </div>
 
-          {holding && !holding.isCash && holding.identifierType !== "cusip" && /^[A-Z][A-Z0-9.-]{0,15}$/.test(holding.symbol) ? <div className="px-5 pb-4">
-            <StockHistoryPanel symbol={holding.symbol} loadHistory={loadHistory} active={open} />
-          </div> : null}
-          <dl className={cn(financeStyles.facts, "px-5 pb-3")}>
-            <DetailRow label="Shares" value={holding ? formatShares(holding.shares) : "—"} />
-            <DetailRow label="Average Price" value={formatCurrency(holding?.averagePrice ?? null)} />
-            <DetailRow label={holding?.valuationKind === "statement" ? "Statement price" : "Reported price"} value={formatCurrency(holding?.currentPrice ?? null)} />
-            <DetailRow label="Cost basis" value={formatCurrency(holding?.costBasis ?? null)} />
-            <DetailRow
-              label="Portfolio Weight"
-              value={holding ? `${holding.portfolioWeightPct.toFixed(2)}%` : "—"}
-            />
-            <DetailRow label="Sector" value={holding?.sector || "Unclassified"} />
-            <DetailRow label="Valuation source" value={holding?.source || "Not supplied by source"} />
-            <DetailRow label={holding?.valuationKind === "statement" ? "Statement as of" : "Price as of"} value={formatObservationDate(holding?.quoteAsOf || holding?.statementAsOf)} />
-          </dl>
-          {entries ? <HoldingEntryList entries={entries} editable={canManageHoldings}
-            onEdit={onEditEntry} onToggleDelete={onToggleDeleteEntry} onAdd={onAddEntry} /> : null}
+              {hasHistory && holding ? <div className="px-5 pb-4">
+                <StockHistoryPanel symbol={holding.symbol} loadHistory={loadHistory} active={open} />
+              </div> : null}
+            </div>
+            <div className={financeStyles.holdingDetails}>
+              <dl aria-label="Holding details" className={cn(financeStyles.facts, "px-5 pb-3")}>
+                <DetailRow label="Shares" value={holding ? formatShares(holding.shares) : "—"} />
+                <DetailRow label="Average Price" value={formatCurrency(holding?.averagePrice ?? null)} />
+                <DetailRow label={holding?.valuationKind === "statement" ? "Statement price" : "Reported price"} value={formatCurrency(holding?.currentPrice ?? null)} />
+                <DetailRow label="Cost basis" value={formatCurrency(holding?.costBasis ?? null)} />
+                <DetailRow
+                  label="Portfolio Weight"
+                  value={holding ? `${holding.portfolioWeightPct.toFixed(2)}%` : "—"}
+                />
+                <DetailRow label="Sector" value={holding?.sector || "Unclassified"} />
+                <DetailRow label="Valuation source" value={holding?.source || "Not supplied by source"} />
+                <DetailRow label={holding?.valuationKind === "statement" ? "Statement as of" : "Price as of"} value={formatObservationDate(holding?.quoteAsOf || holding?.statementAsOf)} />
+              </dl>
+              {entries ? <HoldingEntryList entries={entries} editable={canManageHoldings}
+                onEdit={onEditEntry} onToggleDelete={onToggleDeleteEntry} onAdd={onAddEntry} /> : null}
+            </div>
+          </div>
         </div>
 
         {canManageHoldings && onEdit && onToggleDelete ? (

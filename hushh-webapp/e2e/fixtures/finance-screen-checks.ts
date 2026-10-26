@@ -81,6 +81,21 @@ export function registerFinanceScreenChecks(
           const line = el.querySelector("path.recharts-area-curve")!.getBoundingClientRect();
           return line.width >= el.clientWidth - 85;
         })).toBe(true);
+        const facts = holding.locator('dl[aria-label="Holding details"]');
+        const sheetBox = (await holding.boundingBox())!;
+        const chartBox = (await holdingChart.boundingBox())!;
+        const factsBox = (await facts.boundingBox())!;
+        const closeBox = (await holding.getByRole("button", { name: "Close", exact: true }).boundingBox())!;
+        expect(Math.min(closeBox.width, closeBox.height)).toBeGreaterThanOrEqual(44);
+        if (width >= 1024) {
+          expect(sheetBox.width).toBeLessThanOrEqual(1120);
+          expect(Math.abs(sheetBox.x - (width - sheetBox.width) / 2)).toBeLessThanOrEqual(2);
+          expect(chartBox.x + chartBox.width).toBeLessThanOrEqual(factsBox.x);
+          expect(chartBox.width).toBeGreaterThan(400);
+        } else {
+          expect(factsBox.y).toBeGreaterThanOrEqual(chartBox.y + chartBox.height);
+        }
+        expect(await facts.locator("dd").first().evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
         await holding.screenshot({ path: test.info().outputPath(`holding-${width}-${theme}.png`) });
         await holding.getByRole("button", { name: "Edit Holding" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Edit sample");
