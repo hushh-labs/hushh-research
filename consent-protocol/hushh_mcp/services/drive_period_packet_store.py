@@ -13,6 +13,7 @@ from hushh_mcp.services.connector_feature_admission import (
 )
 from hushh_mcp.services.drive_document_facts_store import seal_evidence
 from hushh_mcp.services.drive_financial_packet_query import QUERY_SOURCE, QUERY_VERSION
+from hushh_mcp.services.drive_financial_packet_search_limits import legacy_incomplete_packets
 from hushh_mcp.services.drive_packet_store import DrivePacketStore
 from hushh_mcp.services.drive_period_packet_contract import (
     PERIOD_PACKET_POLICY,
@@ -125,6 +126,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
                   AND (current_version=0 OR (category='financial'
                     AND period_start=ANY(CAST(:period_starts AS date[]))))
                   AND ((dirty AND attempts<8 AND next_at<=clock_timestamp())
+                    OR packet_id=ANY(CAST(:legacy_packets AS uuid[]))
                     OR (category='financial' AND predefined_query_version IS DISTINCT FROM :template))
                   AND (lease_id IS NULL OR lease_expires_at<=clock_timestamp())
                   AND (:packet IS NULL OR packet_id=CAST(:packet AS uuid))
@@ -140,6 +142,7 @@ class DrivePeriodPacketStore(DrivePacketStore):
                     "generation": active["connection_generation"],
                     "packet": str(UUID(packet_id)) if packet_id else None,
                     "template": QUERY_VERSION,
+                    "legacy_packets": legacy_incomplete_packets(connection, user_id=user_id),
                     "period_starts": [
                         period.start for period in current_year_periods(datetime.now(UTC), "UTC")
                     ],

@@ -69,6 +69,7 @@ tests/test_drive_packet_preview_routes.py
 tests/test_drive_groups_routes.py
 tests/test_drive_searches_routes.py
 tests/services/test_drive_live_reader.py
+tests/services/test_drive_live_reader_titles.py
 tests/services/test_drive_candidate_selection.py
 tests/services/test_google_drive_rest_transport.py
 # Drive writes: create/copy/move/comment cannot share by filing into a folder
@@ -1415,8 +1416,10 @@ tests/services/test_drive_period_packets_postgres.py
 tests/services/test_drive_period_packet_previews_postgres.py
 tests/services/test_drive_financial_packet_recovery_postgres.py
 tests/services/test_drive_financial_packet_large_recovery_postgres.py
+tests/services/test_drive_financial_search_reason_postgres.py
 tests/services/test_drive_financial_packet_rollout_postgres.py
 tests/services/test_drive_period_packet_loop_postgres.py
+tests/services/test_drive_period_packet_titles_postgres.py
 
 tests/services/test_drive_packet_catalog_postgres.py
 

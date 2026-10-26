@@ -131,6 +131,14 @@ async def candidate_owners(store):
                   AND (h.current_version=0 OR (h.category='financial'
                     AND h.period_start=ANY(CAST(:period_starts AS date[]))))
                   AND ((h.dirty AND h.attempts<8 AND h.next_at<=clock_timestamp())
+                    OR (h.category='financial' AND h.dirty AND h.attempts=8
+                      AND h.next_at<=clock_timestamp() AND h.error_code='search_incomplete'
+                      AND h.predefined_query_version=:template
+                      AND EXISTS(SELECT 1 FROM drive_owner_search_jobs legacy
+                        WHERE legacy.user_id=h.user_id AND legacy.period_packet_id=h.packet_id
+                        AND legacy.connection_generation=h.connection_generation
+                        AND legacy.status='limited' AND legacy.incomplete_search
+                        AND legacy.error_code IS NULL))
                     OR (h.category='financial' AND h.predefined_query_version IS DISTINCT FROM :template))
                   AND (h.lease_id IS NULL OR h.lease_expires_at<=clock_timestamp()))
                 OR EXISTS(SELECT 1 FROM drive_packet_heads h WHERE h.user_id=c.user_id
