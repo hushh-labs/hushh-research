@@ -19,7 +19,10 @@ evidence, not admission or release claims for the latest implementation.
 ### Root-worktree Profile completion candidate — 2026-10-25
 
 The root worktree supersedes the retired ADK checkout as the active source.
-The integrated baseline is `c927b76281`; preserve subsequent peer changes.
+Main `7d5546e471` is integrated at `850b35a5c1`, after the earlier integrations
+of `79674242c9` and `6e28a65e0b`. The latest team change affects Docker delivery
+and its readiness memo, not the tested native/application owners. Preservation
+checks found no dropped team content; preserve subsequent peer changes.
 Profile and Chat are **partially native**, not completely qualified. The
 authored roster now contains 15 ordinary destinations, plus guarded Developer
 tools and Sign out. Older 13-destination runs cannot cover the expanded roster.
@@ -61,40 +64,57 @@ without replacing that moving trigger. Calendar date inputs already use the
 platform form control; no glass overlay is needed merely to open a native picker.
 Mail/Consent/Wallet route tabs remain deliberate retained families.
 
-The installed local Release qualification binary is `c85bde954a`, version
-1.4.1 (69), on iPhone 16e/iOS 27.2 Beta. Its 1,737 exported web files match the
-installed bundle; committed dependency pins and code signing were checked.
-Its web payload is unchanged from `e211246c5f`; the native correction admits
-touch and accessibility only on the visible retained Profile destination.
-The existing native stack regression fails on the old covered-root policy and
-passes with the correction, including inverse eligibility after Back; both
-focused host tests pass on the physical iPhone. Canonical passphrase unlock
-also passes. Normal launch without diagnostic arguments was separately proved
-on `e211246c5f`. This is a local candidate, not a TestFlight release.
+The installed UAT-backed local Release qualification binary contains native
+source `308d9791c4` and web source `34a843252a`, version 1.4.1 (69), on iPhone
+16e/iOS 27.2 Beta. Its 1,753 runtime files match the prepared bundle; Finder
+metadata is excluded. Dependency pins and deep code signing were checked.
+UAT was observed serving `7266b4d2e9` before this run. Normal passphrase unlock passes.
+The older dev Pricing 503 and old UAT principal-contract failure are historical,
+not the current editor/readiness result. This is not a TestFlight release.
 
-Warm-session evidence on `e211246c5f` covers Account confirmation cancellation, Phone
-keyboard/return without sending, Payments activity/filter, Memory's sources,
-sharing and private readers, World Model research/sources/editor return, and
-Security's Vault-method/protected-editor cancellation. Profile is full-height
-and phone-width. A Memory editor was unavailable and is not counted as tested.
-Connector traversal reached catalog, provider, link/custom editors and Drive
-trust; its root-return assertion exposed an offscreen-row assumption in the
-runner and needs completion after that correction. SwiftUI virtualizes roster
-headings, so their offscreen absence is not a missing-destination failure.
+The strict UAT roster passed Hosting/Software updates, Account and Phone
+cancellation, Payments history/filtering, Pricing editing, Memory readers/editor
+cancellation, World Model, provider configuration, Voice, Vault methods and
+Trusted devices. Profile is full-height and phone-width. Connectors reached its
+catalog, provider details, link/custom editors and Drive trust page, then failed
+the final return to Profile. Sanitized follow-up shows Back alternating between
+Connectors and Google Drive: the retained adapter pushed a new catalog visit
+instead of consuming the detail visit. This is a product history defect, separate
+from the earlier corrected offscreen-row assumption.
 
-This candidate explicitly uses the **dev replica**. Initial readback showed
-`c927b76281`; a later readback found dev at `79674242c9` and UAT at `7266b4d2e9`.
-The earlier UAT `24545d1dc2` response lacked the current owner/generation
-contract; that historical failure must be revalidated after the rollout, not
-reported as the current blocker. Dev's observed document-sharing
-flag is off; Request pricing correctly receives HTTP 503 and its editor remains
-unqualified. Private-host/provider-specific configuration deliberately retains
-the complete React handoff; a missing shared-runtime native editor there is not
-a passed native conversion. Remaining destination returns, rendered transitions,
-accessibility and three physical Release performance runs still require their
-own evidence. Dev results do not establish UAT or distribution acceptance.
-Credentials remain process-only; raw private results are destroyed and reviewer
-records are unchanged. XCTest authorization is observed, not guaranteed to persist.
+Fix `34a843252a` routes connector return through the existing pane Back owner.
+Repeated detail visits now preserve catalog depth before returning to Profile.
+The regression fails on the old push behavior (depth 4 instead of 2). The
+corrected physical five-destination batch passes Connectors, Invite friends,
+Help, Privacy and Terms, including their nested editor/document cancellation
+and return paths. The complete roster is accounted for across these batches;
+this does not establish every mutation or accessibility state.
+
+Native fix `308d9791c4` avoids identical UIKit interaction/accessibility writes
+on compatible refreshes. The extended existing host test fails on the old
+binary for redundant interaction writes and passes after correction, including
+actual quarantine/readmission of both owners. Thirteen public synthetic header
+captures are diagnostic `drawHierarchy` output; intermittent missing Close
+glyphs there are not proven compositor defects or a visual acceptance pass.
+No replacement Close control or new navigation owner was introduced.
+
+On the guarded binary, the Preferences/haptics scenario, three-destination
+route/software-keyboard continuity, ten background/resume cycles, an observed
+Control Center interruption and three bottom-chrome hide/reverse cycles pass.
+Draft, editor and single-WebView comparisons remain process-only. The connector
+callback is now placed in its existing family module and the pane Back module;
+the same regression moves to the existing route-motion suite. All 132 focused
+checks pass, and the architecture ratchet reports no new or worsened findings.
+The visible-page-only interaction policy retains its failing-before/passing-after
+native host evidence. Retained connector loading/error/Retry preserves the single
+feature controller, including routine token-renewal and reopen continuity.
+
+Rendered transitions, accessibility and three physical Release performance runs
+need their own evidence. The existing measurement path records metrics but does
+not by itself enforce the requested hitch/frame ceilings; a functional XCTest
+pass is not performance acceptance. Credentials remain process-only, raw private
+results are destroyed and reviewer records are unchanged. XCTest authorization
+is observed, not guaranteed to persist.
 
 Verification for this mapping batch: 51 existing Calendar owner/service checks
 pass, including both rendered route/marker cases; restoring the old shared

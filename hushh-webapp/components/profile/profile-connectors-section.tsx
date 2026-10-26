@@ -7,6 +7,7 @@ import type { ProfileStackEntry } from "@/components/profile/profile-stack-navig
 import { useAuth } from "@/hooks/use-auth";
 import styles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import type { ProfileDetail } from "@/lib/navigation/profile-routes";
+import { changeProfilePaneConnector } from "@/lib/navigation/profile-pane-back";
 import {
   activeChatConnectorRecoveryHost,
   saveCustomConnectorSettingsHandoff,
@@ -21,6 +22,21 @@ type RecoveryInput = {
   reason: "web_full_page" | "native_oauth" | "native_picker";
   customConnector?: { connectorId: string; revision: string };
 };
+
+/** Keep the retained renderer's navigation with its shared connector family. */
+export function useRetainedProfileConnectorNavigation({ pane, pathname, query, detail, updateView }: {
+  pane: boolean; pathname: string; query: { get(name: string): string | null; toString(): string };
+  detail: ProfileDetail | null;
+  updateView: (next: { panel: "connectors"; detail: ProfileDetail | null }, mode: "push" | "replace") => void;
+}) {
+  return useCallback((id: string | null) => {
+    if (pane) {
+      changeProfilePaneConnector(pathname, query, id);
+      return;
+    }
+    updateView({ panel: "connectors", detail: id ? `connector:${id}` : null }, id && !detail ? "push" : "replace");
+  }, [pane, pathname, query, detail, updateView]);
+}
 
 function ConnectorPresentationPort({ value, publish }: { value: ConnectorsPanelPresentation; publish: (value: ConnectorsPanelPresentation | undefined) => void }) {
   useLayoutEffect(() => { publish(value); }, [value, publish]);

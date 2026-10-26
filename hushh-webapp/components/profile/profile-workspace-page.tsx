@@ -96,7 +96,7 @@ import { useNativeRuntimeSettings } from "@/components/profile/use-native-runtim
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { MailActionsGroup } from "@/components/profile/mail-actions-group";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { buildProfileConnectorsStackEntry, RetainedProfileConnectors } from "@/components/profile/profile-connectors-section";
+import { buildProfileConnectorsStackEntry, RetainedProfileConnectors, useRetainedProfileConnectorNavigation } from "@/components/profile/profile-connectors-section";
 import type { ConnectorsPanelPresentation } from "@/components/agent/connectors-panel";
 import {
   buildProfileLegalStackEntries,
@@ -172,7 +172,6 @@ import {
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
   popProfilePaneLocation,
-  changeProfilePaneConnector,
   profileLegalParentForPresentation,
   profilePanelParentForPresentation,
   pushProfilePaneLocation,
@@ -1251,13 +1250,7 @@ function ProfilePageContent({
   const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
     onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
     onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
-  const changeRetainedConnector = useCallback((id: string | null) => {
-    if (isPanePresentation) {
-      changeProfilePaneConnector(pathname, searchParams, id);
-      return;
-    }
-    updateProfileView({ panel: "connectors", detail: id ? `connector:${id}` : null }, id && !activeDetail ? "push" : "replace");
-  }, [isPanePresentation, pathname, searchParams, activeDetail, updateProfileView]);
+  const changeRetainedConnector = useRetainedProfileConnectorNavigation({ pane: isPanePresentation, pathname, query: searchParams, detail: activeDetail, updateView: updateProfileView });
   useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
   const nativeMemory = useNativeMemory({
