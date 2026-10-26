@@ -134,6 +134,7 @@ import {
 } from "@/components/ui/select";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
+import { phoneRecoveryHandoff } from "@/components/auth/use-phone-recovery-handoff";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
@@ -3636,8 +3637,7 @@ function ProfilePageContent({
     startVerification: phoneNumber ? startPhoneReplacement : startPhoneVerification,
     confirmVerification: phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification,
     confirmTransfer: confirmPhoneTransfer,
-    recoverPreviousAccount: () => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` }),
-    deletePreviousAccount: () => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` }),
+    ...phoneRecoveryHandoff(user, signOut),
     onCompleted: handleAccountPhoneCompleted, onBackStepChange: bindPhoneBackStep, onNavigationGuardChange: bindPhoneNavigationGuard, onCancel: popProfileStack,
   };
 
@@ -5160,7 +5160,7 @@ function ProfilePageContent({
           updateProfileView({ panel: null, detail: null }, "replace");
         },
       }} /> }}
-    settings={{ active: !showVaultUnlock && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null || nativeFinanceActive || nativeRuntimeActive) ||
+    settings={{ active: !showVaultUnlock && !(devicesActive && devicesModel.confirmation) && (activePanel === "preferences" && (!activeDetail || activeDetail === "voice" && voiceParent !== null || nativeFinanceActive || nativeRuntimeActive) ||
         activePanel === "security" && (!activeDetail || activeDetail === "session" || devicesActive && nativeDevicesAvailable && devicesParent !== null ||
           vaultNativeActive && vaultParent !== null && !nativeVaultPasswordFallback)),
       formScene: vaultNativeActive && passphraseDialogOpen ? "vault-passphrase" : nativeRuntimeActive ? nativeRuntime.formScene : nativePreferences.formScene,

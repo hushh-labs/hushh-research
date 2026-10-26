@@ -91,6 +91,8 @@ export interface HushhAuthPlugin extends NativeDeletionPhoneProofPlugin {
   reauthenticateGoogleIdentity(options: {
     expectedUserId: string;
   }): Promise<{ userId: string; idToken: string }>;
+  /** Fresh Apple proof for the current Firebase user; never replaces sign-in. */
+  reauthenticateAppleIdentity(options: { expectedUserId: string }): Promise<{ userId: string; idToken: string }>;
 
   /**
    * Sign in with Google using native iOS/Android UI

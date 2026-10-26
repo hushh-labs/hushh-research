@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
+import { AuthService } from "@/lib/services/auth-service";
+import { PhoneRecoveryService } from "@/lib/services/phone-recovery-service";
+import { applyDeviceRevocation, mergeRevocationReceipts, type RevocationReceipt } from "./trusted-device-revocation";
+import { useDeviceRevocationProof } from "./use-device-revocation-proof";
 import { Capacitor } from "@capacitor/core";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -19,7 +23,7 @@ export interface TrustedDevice extends DeviceSyncFields {
   status: "active" | "revoked";
 }
 
-const UNLINK_WARNING = "This device will stop syncing immediately, and its local copy of your vault will be sealed on the device. Reconnecting requires approving it again in your browser and setting up the local vault from scratch.";
+const UNLINK_WARNING = "Stops new account access. Pod access and device sealing still need confirmation. Reconnecting requires approving this device again.";
 export { UNLINK_WARNING };
 let nextReadScope = 0;
 function createReadScope(ownerId: string | null, epoch: number, enabled: boolean, authGeneration: number | undefined,
@@ -27,12 +31,12 @@ function createReadScope(ownerId: string | null, epoch: number, enabled: boolean
   // Credentials invalidate the visit without retaining another copy.
   return { active: false, ownerId, epoch, enabled, authGeneration, request: ++nextReadScope, actionGeneration: 0,
     pending: null as symbol | null, mutation: 0, readStarted: 0, readSucceeded: 0,
-    auth: snapshotValidatedAuthSessionOwner() };
+    attemptedOperations: new Set<string>(), deliveredPods: new Set<string>(), receipts: [] as RevocationReceipt[], auth: snapshotValidatedAuthSessionOwner() };
 }
 
 /** One cache and operation owner for web and native presentation. No credentials
  * or device identifiers enter the native action handles. */
-export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean) {
+export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean, continuationId?: string) {
   const { vaultOwnerToken } = useVault();
   const visit = useId();
   const epoch = snapshotVaultSessionEpoch();
@@ -68,6 +72,12 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean)
         const response = await ApiService.listTrustedDevices(current);
         const payload = await response.json();
         if (!current() || !response.ok || !Array.isArray(payload?.devices)) throw new Error("Devices unavailable.");
+        scope.receipts = mergeRevocationReceipts(scope.receipts, payload.pending_revocations);
+        scope.receipts = scope.receipts.filter(value => !["not_started", "expired", "stale"].includes(value.state));
+        if (scope.receipts.some(receipt => receipt.state === "pending" || receipt.state === "action_required")) patch({ uncertain: true, error: "Unlinking is not confirmed. Refresh to check its status." });
+        const pendingPodRevocations = scope.receipts.filter(value => value.state === "completed" && !!value.device_id &&
+          (value.podBindingVersion ?? 0) > 0 && !scope.deliveredPods.has(value.device_id!)).map(value => value.device_id!);
+        if (pendingPodRevocations.length) patch({ pendingPodRevocations });
         scope.readSucceeded = read;
         return payload.devices as TrustedDevice[];
       } catch { throw new Error("Devices unavailable."); }
@@ -121,16 +131,49 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean)
     }
     return current() && scope.readSucceeded > barrier ? result : null;
   };
+  const proof = useDeviceRevocationProof(status.confirmation, current, continuationId);
   const refresh = async () => {
     if (!canAct() || scope.pending) return;
     const mutation = scope.mutation;
     // Drop a possibly stale server verdict before reconciliation. The resource
     // retains its visible rows, but a failed refresh must not clear uncertainty.
     const result = await refreshAfterCurrentReads();
-    if (current() && scope.mutation === mutation && result !== null) patch({ error: "", uncertain: false });
+    if (!current() || scope.mutation !== mutation || result === null) return;
+    const user = AuthService.getCurrentUser();
+    if (!user) return;
+    for (const receipt of scope.receipts) {
+      const value = await PhoneRecoveryService.revocationStatus(user, receipt.operation_id, current).catch(() => null);
+      if (!current()) return;
+      if (value && ["not_started", "expired", "stale"].includes(value.state)) {
+        scope.receipts = scope.receipts.filter(item => item.operation_id !== value.operation_id);
+        if (proof.ownsOperation(value.operation_id)) { void proof.clear(); patch({ confirmation: null }); }
+        continue;
+      }
+      if (value?.state === "prepared") {
+        if (status.uncertain) { patch({error: "Verification is unfinished. Cancel this check before starting again."}); return; }
+        continue;
+      }
+      if (!value || value.state !== "completed" || value.success !== true || !value.device_id) {
+        patch({ uncertain: true, error: "Unlinking is not confirmed. Refresh to check its status." }); return;
+      }
+      await applyDeviceRevocation(value.device_id, ownerId!, current, patch, status.unlinked,
+        status.pendingPodRevocations, refreshAfterCurrentReads, undefined, value, pending => { if (!pending) scope.deliveredPods.add(value.device_id!); });
+    }
+    if (current()) patch({ error: "", uncertain: false });
   };
-  const cancel = () => {
-    if (canAct() && !scope.pending) { scope.actionGeneration += 1; patch({ confirmation: null }); }
+  const cancel = async () => {
+    if (!canAct() || scope.pending) return;
+    const request = Symbol(); scope.pending = request; scope.actionGeneration += 1; patch({busy: true});
+    try {
+      const cancelled = await proof.clear();
+      const unfinished = scope.receipts.find(value => value.state === "prepared" && scope.attemptedOperations.has(value.operation_id));
+      const user = AuthService.getCurrentUser();
+      const result = cancelled ?? (unfinished && user ? await PhoneRecoveryService.cancelRevocation(user, unfinished.operation_id, current).catch(() => null) : null);
+      if (!current()) return;
+      const ended = result && ["not_started", "expired", "stale"].includes(result.state);
+      if (ended) scope.receipts = scope.receipts.filter(value => value.operation_id !== result.operation_id);
+      patch({confirmation: null, ...(ended ? {uncertain: false, error: ""} : {})});
+    } finally { if (scope.pending === request) scope.pending = null; patch({busy: false}); }
   };
   const choose = (id: string) => {
     if (!canAct() || scope.pending || status.uncertain ||
@@ -142,36 +185,20 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean)
     if (!canAct() || scope.pending || status.uncertain || !confirmation || (confirmation.status !== "active" && !status.pendingPodRevocations.includes(confirmation.device_id))) return;
     const request = Symbol(); scope.pending = request; scope.mutation += 1; scope.actionGeneration += 1;
     patch({ busy: true, error: "" });
-    let committed = false;
     try {
-      // Invalidate the consumed callback immediately, but retain this admitted
-      // operation's dispatch fence through the async transport boundary.
       const admittedGeneration = scope.actionGeneration;
-      const result = await ApiService.revokeTrustedDeviceEverywhere(confirmation.device_id, ownerId!, () => {
-        const privacy = nativePrivacyObservation().state;
-        return current() && scope.actionGeneration === admittedGeneration &&
-          (!Capacitor.isNativePlatform() || !!privacy && privacy.appIsActive && !privacy.shielded);
-      });
-      const response = result.hub;
-      const receipt = response.ok ? await response.clone().json().catch(() => ({})) : {};
-      const podRevocationPending = !result.pod.delivered && !("unpinned" in result.pod && receipt.podBindingVersion === 0);
-      // A committed response invalidates its original cache even if its screen
-      // departed. Never let a later visit reuse pre-revocation trust metadata.
-      if (response.ok) { committed = true; CacheService.getInstance().invalidate(cacheKey); }
-      if (!current()) return;
-      if (!response.ok) {
-        const uncertain = response.status >= 500 || response.status === 408;
-        patch({ error: uncertain ? "Couldn’t confirm whether the device was unlinked. Refresh before trying again." :
-          "The device could not be unlinked.", uncertain });
-        return;
-      }
-      patch({ confirmation: null, unlinked: [...status.unlinked, confirmation.device_id],
-        pendingPodRevocations: podRevocationPending ? [...new Set([...status.pendingPodRevocations, confirmation.device_id])] : status.pendingPodRevocations.filter(id => id !== confirmation.device_id) });
-      const refreshed = await refreshAfterCurrentReads();
-      if (current() && refreshed === null) patch({ error: "Device unlinked. Couldn’t refresh the list." });
-    } catch {
-      if (current()) patch({ error: committed ? "Device unlinked. Couldn’t refresh the list." :
-        "Couldn’t confirm whether the device was unlinked. Refresh before trying again.", uncertain: !committed });
+      const admittedCurrent = () => current() && scope.actionGeneration === admittedGeneration &&
+        (!Capacitor.isNativePlatform() || !!nativePrivacyObservation().state?.appIsActive && !nativePrivacyObservation().state?.shielded);
+      const freshProof = await proof.proof();
+      if (!freshProof || !admittedCurrent()) return;
+      scope.attemptedOperations.add(freshProof.operation_id);
+      scope.receipts.push({ operation_id: freshProof.operation_id, device_id: confirmation.device_id, state: "pending" });
+      await applyDeviceRevocation(confirmation.device_id, ownerId!, admittedCurrent, patch, status.unlinked,
+        status.pendingPodRevocations, () => {
+          scope.receipts = scope.receipts.map(item => item.operation_id === freshProof.operation_id ? { ...item, state: "completed" } : item);
+          return refreshAfterCurrentReads();
+        }, freshProof, undefined, pending => { if (!pending) scope.deliveredPods.add(confirmation.device_id); });
+
     } finally {
       if (scope.pending === request) scope.pending = null;
       patch({ busy: false });
@@ -179,7 +206,10 @@ export function useTrustedDevicesModel(ownerId: string | null, enabled: boolean)
   };
   return { puppyAccess: status.puppyAccess, byocReady: status.byocReady, changingPuppy: status.changingPuppy, puppyNotice: status.puppyNotice,
     pendingPuppyWithdrawal: status.pendingPuppyWithdrawal, pendingPodRevocations: status.pendingPodRevocations, changePuppyAccess, devices, confirmation, busy: status.busy, uncertain: status.uncertain,
-    loading: resource.loading && resource.data === null, refreshing: resource.refreshing,
+    cancellableVerification: status.uncertain && scope.receipts.some(value => value.state === "prepared" && scope.attemptedOperations.has(value.operation_id)),
+    verificationUnfinished: scope.receipts.some(receipt => receipt.state === "prepared"),
+    revocationConfirmed: status.unlinked.length > 0 && !status.uncertain && status.pendingPodRevocations.length === 0,
+    proof, loading: resource.loading && resource.data === null, refreshing: resource.refreshing,
     error: status.error || resource.error || "", refresh, cancel, choose, confirm };
 }
 

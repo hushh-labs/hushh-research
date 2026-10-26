@@ -53,3 +53,18 @@ export class AccountDeletionNotCompletedError extends Error {
     this.paused = paused;
   }
 }
+
+const LOST_VAULT_PRECOMMIT_CODES = new Set([
+  "PHONE_RECOVERY_PREVIOUS_SIGN_IN_REQUIRED",
+  "ACCOUNT_DELETE_REAUTH_REQUIRED",
+  "ACCOUNT_DELETE_PHONE_PROOF_REQUIRED",
+  "ACCOUNT_DELETE_PHONE_PROOF_INVALID",
+  "ACCOUNT_DELETE_METHOD_UNAVAILABLE",
+  "ACCOUNT_DELETE_VERIFICATION_UNAVAILABLE",
+  "ACCOUNT_DELETE_PHONE_BINDING_CONFLICT",
+  "PERSONAL_AGENT_DEPROVISION_REQUIRED",
+]);
+
+export function isLostVaultPrecommitError(error: unknown): boolean {
+  return error instanceof ApiError && LOST_VAULT_PRECOMMIT_CODES.has(apiErrorCode(error) ?? "");
+}

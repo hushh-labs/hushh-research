@@ -44,6 +44,9 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     // AuthService owns web popup/session guards; do not create a second path.
     throw new Error("Use AuthService for web identity verification.");
   }
+  async reauthenticateAppleIdentity(_options: { expectedUserId: string }): Promise<{ userId: string; idToken: string }> {
+    throw new Error("Use AuthService for web identity verification.");
+  }
 
   private currentUser: AuthUser | null = null;
   private currentIdToken: string | null = null;

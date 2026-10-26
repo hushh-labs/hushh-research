@@ -79,6 +79,7 @@ def test_backend_scaling_target_reaches_real_deploy_command_without_cutting_head
             "-c",
             "set -euo pipefail\nPROJECT_ID=test\ndeploy_labels=test\nenv_var_string=test\nsecrets=test\n"
             "source scripts/deploy/backend-capacity-settings.sh\n"
+            "source scripts/deploy/backend-phone-rollback.sh\n"
             'gcloud() { printf "%s\\n" "$@"; }\n' + command,
         ],
         cwd=REPO_ROOT,

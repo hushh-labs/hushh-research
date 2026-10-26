@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 import { chromium, webkit } from "playwright";
+import { DOCUMENT_DIAGNOSTIC_PREFIX, documentFailureDiagnostic, instrumentDocumentErrors } from "./document-loop-diagnostics.mjs";
 
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
@@ -20,6 +21,15 @@ let server, browser, page;
 const events = [];
 const failures = [];
 const errors = [];
+const caught = [];
+assert.deepEqual(documentFailureDiagnostic(new Error("synthetic-private-key-material")), { name: "Error", code: "unknown" });
+assert.deepEqual(documentFailureDiagnostic({ name: "synthetic-private-owner", message: "synthetic-private-document" }), { name: "unknown", code: "unknown" });
+const diagnosticReads = { name: 0, message: 0 };
+assert.deepEqual(documentFailureDiagnostic({
+  get name() { return diagnosticReads.name++ === 0 ? "Error" : "synthetic-private-owner"; },
+  get message() { return diagnosticReads.message++ === 0 ? "document_key_invalid" : "synthetic-private-document"; },
+}), { name: "Error", code: "document_key_invalid" });
+assert.deepEqual(diagnosticReads, { name: 1, message: 1 });
 let directGoogleReads = 0; let oneUploads = 0;
 let legacyQuoteReads = 0;
 const record = (name, details = {}) => events.push({ name, ...details });
@@ -33,7 +43,11 @@ try {
     define: { "process.env": JSON.stringify({ NEXT_PUBLIC_APP_URL: "https://one.invalid" }) },
     resolve: { alias: [...alias, { find: "@", replacement: root }] },
     server: { host: "127.0.0.1", port: 0, proxy: { "/api": config.backend, "/__document_fixture/settle": config.backend, "/__document_fixture/replace-key": config.backend, "/__document_fixture/pause-intake": config.backend } },
-    plugins: [{ name: "isolated-document-loop", configureServer(vite) {
+    plugins: [{ name: "isolated-document-loop", enforce: "pre", transform(source, id) {
+      // Observe the real error-copy boundary without replacing any operation.
+      if (id.split("?")[0] === path.join(root, "components/consent/hosted-document-reader.tsx")) return instrumentDocumentErrors(source);
+      return null;
+    }, configureServer(vite) {
       vite.middlewares.use((req, res, next) => {
         if (req.url === "/__document_fixture/config") {
           res.setHeader("Content-Type", "application/json"); res.setHeader("Cache-Control", "no-store");
@@ -76,7 +90,17 @@ try {
       failures.push({ status: response.status(), code: error?.detail?.code ?? "unavailable", path: url.pathname.replace(/[a-f0-9-]{36}/g, ":id") });
     } else failures.push({ status: response.status(), path: url.pathname.replace(/[a-f0-9-]{36}/g, ":id") });
   });
-  page.on("console", message => { if (message.type() === "error" || message.text().includes("worker")) failures.push({ browser: message.text().slice(0, 300) }); });
+  page.on("console", message => {
+    if (message.text().startsWith(DOCUMENT_DIAGNOSTIC_PREFIX)) {
+      const value = JSON.parse(message.text().slice(DOCUMENT_DIAGNOSTIC_PREFIX.length));
+      if (caught.length < 8) caught.push(documentFailureDiagnostic({ name: value.name, message: value.code }));
+    } else if (message.type() === "error" || message.text().includes("worker")) failures.push({ browser: message.text().slice(0, 300) });
+  });
+  page.on("requestfailed", request => {
+    const pathname = new URL(request.url()).pathname;
+    const endpoint = ["owner-package", "recipient-key", "recovery-amendment"].find(name => pathname.endsWith(`/delivery/${name}`));
+    if (endpoint) failures.push({ network: "failed", endpoint });
+  });
   const sourceBytes = Buffer.from(config.source.pdf, "base64");
   const sourceHash = crypto.createHash("sha256").update(sourceBytes).digest("hex");
   await page.route("https://www.googleapis.com/drive/v3/files/**", async route => {
@@ -270,7 +294,7 @@ try {
 } catch (error) {
   const alerts = await page?.getByRole("alert").allTextContents().catch(() => []);
   const keySetups = await page?.evaluate(async () => (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).getFixtureKeySetupCount()).catch(() => null);
-  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, keySetups, failures, alerts, errors }));
+  console.error(JSON.stringify({ stage: events.at(-1)?.name ?? "starting", directGoogleReads, oneUploads, keySetups, failures, alerts, errors, caught }));
   throw error;
 } finally {
   await browser?.close();

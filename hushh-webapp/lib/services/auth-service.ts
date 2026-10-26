@@ -14,7 +14,7 @@
 import { Capacitor } from "@capacitor/core";
 import {
   startDeletionPhoneProof, confirmDeletionPhoneProof, cancelDeletionPhoneProof, mintPhoneClaimIdToken,
-  startManualPhoneProof, isManualPhoneProof,
+  startManualPhoneProof, isManualPhoneProof, withNativePhoneProofStart,
   type PhoneDeletionContext, type PhoneDeletionConfirmation, type PhoneClaimConfirmation,
 } from "./phone-deletion-verification";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
@@ -624,6 +624,34 @@ export class AuthService {
     }
   }
 
+  private static async reauthenticateNativeIdentity(
+    provider: "google" | "apple", expectedUserId: string, isCurrent: () => boolean,
+  ): Promise<string> {
+    if (!expectedUserId || !isCurrent()) throw new Error("session_changed");
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        provider === "google" ? HushhAuth.reauthenticateGoogleIdentity({ expectedUserId })
+          : HushhAuth.reauthenticateAppleIdentity({ expectedUserId }),
+        // Bound older wrappers whose missing bridge method never settles.
+        new Promise<never>((_, reject) => {
+          deadline = setTimeout(() => reject(new Error("identity_timeout")), 125_000);
+        }),
+      ]);
+      if (!isCurrent()) throw new Error("session_changed");
+      if (result.userId !== expectedUserId) throw new Error("identity_mismatch");
+      if (typeof result.idToken !== "string" || !result.idToken.trim()) throw new Error("identity_verification_failed");
+      return result.idToken;
+    } catch (error) {
+      if (!isCurrent()) throw new Error("session_changed");
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      const safeCode = code || (error instanceof Error ? error.message : "");
+      if (code === "UNIMPLEMENTED" || code === "UNAVAILABLE") throw new Error("native_identity_unavailable");
+      if (["identity_cancelled", "identity_mismatch", "google_identity_required", "apple_identity_required", "session_changed", "identity_busy", "identity_timeout"].includes(safeCode)) throw new Error(safeCode);
+      throw new Error("identity_verification_failed");
+    } finally { clearTimeout(deadline); }
+  }
+
   /** Fresh Google proof for an existing owner, never a replacement sign-in. */
   static async reauthenticateGoogleIdentity(
     expectedUserId: string,
@@ -631,34 +659,7 @@ export class AuthService {
   ): Promise<string> {
     if (!expectedUserId || !isCurrent()) throw new Error("session_changed");
     if (Capacitor.isNativePlatform()) {
-      // The native Firebase user is authoritative. The web SDK observer may
-      // not have published that identity yet and must not replace its session.
-      let deadline: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const result = await Promise.race([
-          HushhAuth.reauthenticateGoogleIdentity({ expectedUserId }),
-          // Older iOS shells can leave an unknown bridge method unsettled.
-          // This bounds the UI wait without pretending to cancel native OAuth.
-          new Promise<never>((_, reject) => {
-            deadline = setTimeout(() => reject(new Error("identity_timeout")), 125_000);
-          }),
-        ]);
-        if (!isCurrent()) throw new Error("session_changed");
-        if (result.userId !== expectedUserId) throw new Error("identity_mismatch");
-        if (typeof result.idToken !== "string" || !result.idToken.trim()) throw new Error("identity_verification_failed");
-        return result.idToken;
-      } catch (error) {
-        if (!isCurrent()) throw new Error("session_changed");
-        const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-        const safeCode = code || (error instanceof Error ? error.message : "");
-        if (code === "UNIMPLEMENTED" || code === "UNAVAILABLE") throw new Error("native_identity_unavailable");
-        if (["identity_cancelled", "identity_mismatch", "google_identity_required", "session_changed", "identity_busy", "identity_timeout"].includes(safeCode)) {
-          throw new Error(safeCode);
-        }
-        throw new Error("identity_verification_failed");
-      } finally {
-        clearTimeout(deadline);
-      }
+      return this.reauthenticateNativeIdentity("google", expectedUserId, isCurrent);
     }
     const currentUser = auth.currentUser;
     if (!currentUser || currentUser.uid !== expectedUserId ||
@@ -708,8 +709,7 @@ export class AuthService {
       return this.reauthenticateGoogleIdentity(expectedUserId, isCurrent);
     }
     if (Capacitor.isNativePlatform()) {
-      // The native Apple bridge has no reauthentication operation. A normal
-      // sign-in here could silently replace the current deletion session.
+      if (providerId === "apple.com") return this.reauthenticateNativeIdentity("apple", expectedUserId, isCurrent);
       throw new Error("native_identity_unavailable");
     }
     const currentUser = auth.currentUser;
@@ -1528,9 +1528,12 @@ export class AuthService {
     }
 
     if (Capacitor.isNativePlatform()) {
-      const current = await this.restoreNativeSession({ nativeOnly: true });
-      if (!current) throw new Error("Sign in before verifying a phone number.");
-      try { return await startManualPhoneProof(normalizedPhoneNumber, current.uid, options?.signal); }
+      try { return await withNativePhoneProofStart(options?.signal, async signal => {
+        const current = await this.restoreNativeSession({ nativeOnly: true });
+        if (signal.aborted) throw Object.assign(new Error("Your signed-in account changed. Start phone verification again."), { code: "session_changed" });
+        if (!current) throw new Error("Sign in before verifying a phone number.");
+        return startManualPhoneProof(normalizedPhoneNumber, current.uid, signal, options?.resendCode, options?.signal);
+      }); }
       catch (error) { throw this.normalizePhoneVerificationError(error, "link_start"); }
     }
 
@@ -1734,6 +1737,8 @@ export class AuthService {
       return this.createPhoneVerificationError(code, "A fresh manually entered SMS code is required. Request another code.");
     if (code === "session_changed")
       return this.createPhoneVerificationError(code, "Your signed-in account changed. Start phone verification again.");
+    if (code === "phone-verification-start-timeout")
+      return this.createPhoneVerificationError(code, "Sending the verification code took too long. Request a new code.");
 
     if (code === "phone-already-linked-to-current-user") {
       return this.createPhoneVerificationError(

@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 POLICY = "consent-protocol/config/account-deletion-authority.json"
 MIGRATION = "423_account_shared_provider_authority.sql"
 PHONE_MIGRATION = "425_account_phone_transfers.sql"
+PHONE_ACTION_MIGRATION = "431_phone_recovery_actions.sql"
 CONTRACT_SQL = """SELECT CASE WHEN EXISTS(SELECT 1 FROM pg_trigger
  WHERE tgrelid='public.account_deletion_tombstones'::regclass
  AND tgname='account_shared_provider_authority' AND tgenabled='O' AND NOT tgisinternal)
@@ -58,7 +59,7 @@ def supports_current_contract(sha: str, *, rollback: bool = False) -> bool:
         return (
             policy.get("version") == 1
             and MIGRATION in migrations
-            and (not rollback or PHONE_MIGRATION in migrations)
+            and (not rollback or all(name in migrations for name in (PHONE_MIGRATION, PHONE_ACTION_MIGRATION)))
         )
     except (RuntimeError, ValueError):
         return False
@@ -88,7 +89,7 @@ def serving_candidate(service, revisions, *, expected_sha, expected_run):
     return name
 
 
-def legacy_inventory(service, revisions, candidate):
+def legacy_inventory(service, revisions, candidate, *, phone_floor=False):
     legacy = set()
     for row in revisions:
         metadata = row.get("metadata", {})
@@ -96,7 +97,7 @@ def legacy_inventory(service, revisions, candidate):
         if not re.fullmatch(r"[a-z0-9-]+", name):
             raise ValueError("invalid_revision_name")
         if labels.get("account-deletion-contract") != "v201" or not supports_current_contract(
-            labels.get("deploy-sha", "")
+            labels.get("deploy-sha", ""), rollback=phone_floor
         ):
             legacy.add(name)
     if candidate in legacy:
@@ -343,7 +344,8 @@ def verify_scheduler_delivery(args, evidence, retain, triggered):
 
 
 def retire_incompatible_revisions(args, evidence, service, revisions, candidate):
-    legacy, tags = legacy_inventory(service, revisions, candidate)
+    phone_floor = supports_current_contract(args.expected_sha, rollback=True)
+    legacy, tags = legacy_inventory(service, revisions, candidate, phone_floor=phone_floor)
     if tags:
         run(
             [
@@ -371,7 +373,7 @@ def retire_incompatible_revisions(args, evidence, service, revisions, candidate)
             ]
         )
     service, revisions, candidate = observe(args)
-    remaining, _ = legacy_inventory(service, revisions, candidate)
+    remaining, _ = legacy_inventory(service, revisions, candidate, phone_floor=phone_floor)
     if remaining:
         raise RuntimeError("legacy_provider_revisions_remain")
     evidence["retirement"] = {
@@ -379,6 +381,9 @@ def retire_incompatible_revisions(args, evidence, service, revisions, candidate)
         "retired_count": len(legacy),
         "remaining_pre_v201_count": 0,
         "remaining_pre_provider_v2_count": 0,
+        "phone_admission_floor_required": phone_floor,
+        "remaining_pre_phone425_count": 0 if phone_floor else None,
+        "remaining_pre_phone431_count": 0 if phone_floor else None,
     }
     evidence["candidate_revision"] = candidate
 
@@ -446,7 +451,7 @@ def main():
         rollback = sys.argv[1] == "--qualify-rollback-source"
         if not supports_current_contract(sys.argv[2], rollback=rollback):
             raise SystemExit(
-                "Target lacks the phone admission rollback contract (migration 425)"
+                "Target lacks the phone/device admission rollback contract (migration 430)"
                 if rollback
                 else "Target lacks the current account lifecycle producer contract"
             )

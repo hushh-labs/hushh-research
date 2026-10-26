@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from httpx import ReadTimeout
+from httpx import ConnectError, ReadTimeout
 
 from hushh_mcp.runtime_providers.dependency_health import (
     APPLICATION_BROKEN,
@@ -112,7 +112,8 @@ def test_provider_status_names_are_outages_even_without_a_code(status_name: str)
 
 
 @pytest.mark.parametrize(
-    "error", [asyncio.TimeoutError(), TimeoutError(), ConnectionError("refused")]
+    "error",
+    [asyncio.TimeoutError(), TimeoutError(), ConnectionError("refused"), ConnectError("refused")],
 )
 def test_timeouts_and_connection_failures_are_provider_outages(error: BaseException) -> None:
     assert classify_provider_error(error) == PROVIDER_UNAVAILABLE

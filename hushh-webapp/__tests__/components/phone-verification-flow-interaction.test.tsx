@@ -825,7 +825,7 @@ describe("phone conflict recovery", () => {
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
     fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
     expect(transfer).not.toHaveBeenCalled();
-    expect(screen.getByText(/previous account, files, vault and information will remain safe/i)).toBeVisible();
+    expect(screen.getByText(/moving the phone link keeps both accounts, files and vaults/i)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(transfer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Use this number on this account" }));
