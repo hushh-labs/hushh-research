@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
-import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks } from "./fixtures/finance-screen-checks";
+import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks, expectMarketLocalTimes } from "./fixtures/finance-screen-checks";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
@@ -137,7 +137,8 @@ test.beforeAll(async () => {
 });
 
 for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
-  for (const theme of ["light", "dark"]) {
+  for (const theme of ["light", "dark"]) test.describe(`${width}px ${theme} local time`, () => {
+    test.use({ locale: "en-US", timezoneId: theme === "light" ? "Asia/Kolkata" : "America/Los_Angeles" });
     test(`Market briefing stays readable and fits at ${width}px in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 932 });
       await page.route("http://localhost/fonts/Inter/InterVariable.woff2", route => route.fulfill({
@@ -201,8 +202,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       expect(Math.abs(gainers!.y - decliners!.y)).toBeLessThanOrEqual(1);
       expect(gainers!.x + gainers!.width).toBeLessThanOrEqual(decliners!.x);
       expect(await movers.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-      await expect(movers.locator("[data-market-mover-freshness]")).toHaveCount(1);
-      await expect(movers.getByText("Cached", { exact: true })).toHaveCount(0);
+      await expectMarketLocalTimes(page, theme === "light" ? "7:30 PM" : "7:00 AM");
       for (const pair of await movers.locator("[data-market-mover-pair]").all()) {
         const cells = pair.getByRole("button");
         if (await cells.count() === 2) {
@@ -235,7 +235,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       await card.scrollIntoViewIfNeeded();
       await page.screenshot({ path: test.info().outputPath(`finance-${width}-${theme}.png`) });
     });
-  }
+  });
 }
 
 for (const result of ["success", "error"]) {
