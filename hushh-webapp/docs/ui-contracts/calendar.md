@@ -104,6 +104,13 @@ screens. Add, targeted reconnect, permission upgrade and disconnect act on one
 account. A disconnected slot can be reused. Google Mail authority remains
 separate from Calendar authority.
 
+The web OAuth completion for an Add account attempt identifies the saved grant
+with `completed_account_id`, including `default` when the primary account is
+reauthorized. The callback verifies that exact `accounts[]` entry and its
+requested access level before reporting success. The default grant's
+top-level status cannot verify an additional account. An indeterminate callback
+does not treat an older default grant as proof that the new account connected.
+
 | Surface | Current behavior and failure boundary |
 | --- | --- |
 | Board read | `POST /api/one/calendar/board/day` reads each connected account for the selected local date in the browser's current time zone, refreshed on focus or visibility after travel. The backend pages readable events, includes hidden invitations, checks account bindings before/after reads, and reports unreadable calendars instead of silently claiming every event is visible. The UI keeps all returned events, including declined invitations. Each account shows up to three event rows before scrolling inside one shared event area, including imported non-blocking items; the page scrolls between account cards. Connection labels omit check times, while the board retains its overall check time. The board has no manual zone field, duration chips or calendar-inclusion accordion. |

@@ -11,6 +11,7 @@ vi.mock("@/lib/observability/client", () => ({ toDurationBucket: () => "fast", t
 vi.mock("@/lib/observability/route-map", () => ({ resolveRouteId: () => "test-route" }));
 vi.mock("@/lib/motion/api-progress-tracker", () => ({ trackRequestStart: vi.fn(), trackRequestEnd: vi.fn() }));
 import { ApiService } from "@/lib/services/api-service";
+import { loadPublicStockQuote } from "@/lib/services/public-stock-quote";
 import { ComputerUseClient } from "@/lib/services/computer-use-client";
 import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { AUTH_SESSION_INVALIDATED_EVENT } from "@/lib/auth/session-invalidation";
@@ -44,6 +45,18 @@ describe("ApiService authentication recovery", () => {
     expect(events.mock.calls.filter(([event]) => event.type === AUTH_SESSION_INVALIDATED_EVENT)).toHaveLength(terminal ? 1 : 0);
   });
 
+  it("reads a selected public quote without vault authority and preserves its observed time", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ quotes: [{ symbol: "ADBE", price: 273.25, change_pct: null,
+      quoted_at: "2026-10-26T14:00:00Z", source: "Yahoo Chart (Batch)", is_stale: true, is_delayed: false }] }));
+    const signal = new AbortController().signal;
+    const quote = await loadPublicStockQuote("ADBE", signal);
+    expect(quote).toMatchObject({ symbol: "ADBE", price: 273.25, changePct: null, quotedAt: "2026-10-26T14:00:00Z", stale: true });
+    expect(String(mockFetch.mock.calls[0]![0])).toContain("/api/market/quotes?symbols=ADBE");
+    expect(new Headers(mockFetch.mock.calls[0]![1].headers).has("Authorization")).toBe(false);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    mockFetch.mockResolvedValueOnce(jsonResponse({ quotes: [{ symbol: "MSFT", price: 123 }] }));
+    expect(await loadPublicStockQuote("ADBE", signal)).toBeNull();
+  });
   it("admits Browser only with its captured Firebase/application principal and session episode", async () => {
     const ownerId = "acct_" + "a".repeat(32);
     publishValidatedAuthSessionPrincipal({ firebaseUid: "user-1", ownerId, accountGeneration: 1 });

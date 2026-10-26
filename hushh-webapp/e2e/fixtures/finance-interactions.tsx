@@ -30,6 +30,7 @@ import type { HoldingsListItem } from "../../components/kai/holdings/holding-vie
 import { groupHoldingPositions, prepareHoldingEntryEdit } from "../../lib/kai/holding-positions";
 import { EditHoldingModal } from "../../components/kai/modals/edit-holding-modal";
 import { SettingsGroup, SettingsRow } from "../../components/app-ui/settings-ui";
+import type { StockQuoteLoader } from "../../lib/services/public-stock-quote";
 
 const samplePortfolio: PortfolioData = { account_summary: { beginning_value: 24000, ending_value: 24680.42, cash_balance: 2000 },
   holdings: [{ symbol: "TEST", name: "Sample Company", market_value: 22680.42, price: 226.8042, quantity: 100, cost_basis: 21000, sector: "Technology", source_type: "Statement", institution_price_as_of: "2026-10-20T20:00:00Z" }] };
@@ -44,6 +45,12 @@ const observedFixture = Array.from({ length: 31 }, (_, index) => ({
 }));
 
 const loadSampleHistory = async () => ({ points: observedFixture, stale: false, cached: true, source: "Synthetic daily fixture", retrievedAt: "2026-10-20T20:00:00Z" });
+const loadSampleQuote: StockQuoteLoader = async (symbol) => {
+  document.body.dataset.quoteReads = String(Number(document.body.dataset.quoteReads || 0) + 1);
+  if (document.body.dataset.quoteMode === "unavailable") return null;
+  return { symbol, price: symbol === "BRK-B" ? 456.78 : 234.56, changePct: 1.2,
+    quotedAt: "2026-10-20T20:00:00Z", source: "Synthetic quote fixture", stale: true, delayed: false };
+};
 
 function GroupedHoldingsFixture() {
   const [entries, setEntries] = useState<HoldingsListItem[]>([
@@ -125,10 +132,10 @@ function Fixture() {
         list_match: { in_list: true, tier: "KING", recommendation_bias: "Hold", sector: "Technology", fcf_billions: 4, investment_thesis: "Full investment thesis remains readable on a phone. Consider durable cash generation, competitive position, valuation assumptions and risks alongside the needs of your own portfolio." }, pick_sources: [], active_pick_source: "default" } as Parameters<typeof StockComparisonPreview>[0]["preview"]} onStartDebate={() => setAction("Start analysis")} />
     </section>
     <section data-testid="market-iphone-fixture" className={`${financeStyles.workspace} mx-auto mt-8 w-full`}>
-      <RiaPicksList controlMode="adaptive-surface" loadHistory={async () => ({ points: observedFixture, stale: true, retrievedAt: "2026-10-20T20:00:00Z" })} rows={[
+      <RiaPicksList controlMode="adaptive-surface" loadQuote={loadSampleQuote} loadHistory={async () => ({ points: observedFixture, stale: true, retrievedAt: "2026-10-20T20:00:00Z" })} rows={[
         { symbol: "BRK-B", company_name: "Berkshire Hathaway Inc. Class B", sector: "Financials", tier: "KING", market_cap: 850_000_000_000,
           company_facts: { symbol: "BRK-B", summary: "This synthetic company profile describes several operating businesses. It serves customers through a range of subsidiaries. Additional details remain available in the complete profile for people who want to continue reading." },
-          price: 456.78, change_pct: 1.2, volume: 1000, degraded: false, as_of: "2026-10-20T20:00:00Z", source_tags: ["layout fixture"] },
+          price: null, change_pct: null, volume: 1000, degraded: true, as_of: null, source_tags: ["layout fixture"] },
         { symbol: "AAPL", company_name: "Apple Inc", sector: "Technology", tier: "ACE", market_cap: 3_500_000_000_000,
           price: 234.56, change_pct: -0.4, volume: 1000, degraded: false, as_of: "2026-10-20T20:00:00Z", source_tags: ["layout fixture"] },
       ]} />

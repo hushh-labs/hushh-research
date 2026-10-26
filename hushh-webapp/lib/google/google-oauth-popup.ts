@@ -16,6 +16,7 @@ export type GoogleOAuthPopupAttempt = {
   ownerId: string;
   returnMode?: "popup" | "same_window";
   accessLevel?: "read" | "manage";
+  calendarAdditional?: boolean;
 };
 export type GoogleOAuthPopupSettlement = {
   schemaVersion: 1;
@@ -74,7 +75,7 @@ function storage(target: Window | null | undefined): Storage | null {
 
 export function createGoogleOAuthPopupAttempt(
   service: GoogleOAuthPopupService,
-  options: { ownerId: string; accessLevel?: "read" | "manage" },
+  options: { ownerId: string; accessLevel?: "read" | "manage"; calendarAdditional?: boolean },
 ): GoogleOAuthPopupAttempt {
   return {
     version: 1,
@@ -83,6 +84,7 @@ export function createGoogleOAuthPopupAttempt(
     startedAt: Date.now(),
     ownerId: options.ownerId,
     ...(options.accessLevel ? { accessLevel: options.accessLevel } : {}),
+    ...(options.calendarAdditional ? { calendarAdditional: true } : {}),
   };
 }
 
@@ -149,6 +151,8 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
       (parsed.accessLevel === undefined ||
         parsed.accessLevel === "read" ||
         parsed.accessLevel === "manage") &&
+      (parsed.calendarAdditional === undefined ||
+        parsed.calendarAdditional === true) &&
       Date.now() - parsed.startedAt >= 0 &&
       Date.now() - parsed.startedAt <= MAX_AGE_MS
     )

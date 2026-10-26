@@ -1156,6 +1156,7 @@ export interface KaiHomeRenaissanceItem {
   degraded: boolean;
   alias_repaired?: boolean;
   quote_provider?: string | null;
+  quoted_at?: string | null;
   quote_status?: string | null;
   filtered_out_reason?: string | null;
   as_of: string | null;
@@ -5164,9 +5165,7 @@ export class ApiService {
     });
   }
 
-  /**
-   * Fetch baseline market insights for Kai home without requiring vault access.
-   */
+  /** Public company facts require sign-in, without vault access. */
   static async getKaiMarketCompanyFacts(data: {
     userId: string;
     symbols: string[];

@@ -46,6 +46,7 @@ from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 from . import _shared_last_close as shared_last_close
 from ._market_presentation import (
     market_home_response,
+    quote_observation_fields,
     recommendation_from_target,
     resolve_public_module,
     stock_preview_quote,
@@ -2730,14 +2731,10 @@ async def _get_market_insights_payload(
                     "volume": _safe_int((quote or {}).get("volume")),
                     "market_cap": _safe_float((quote or {}).get("market_cap")),
                     "source_tags": sorted(set(["Renaissance", quote_source])),
-                    "degraded": bool(not quote),
+                    **quote_observation_fields(quote, quote_status),
                     "alias_repaired": alias_repaired,
                     "quote_provider": quote_source,
-                    "quote_status": "ok" if quote else quote_status,
                     "filtered_out_reason": None,
-                    "as_of": (quote or {}).get("fetched_at")
-                    if isinstance((quote or {}).get("fetched_at"), str)
-                    else None,
                 }
             )
 

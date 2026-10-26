@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { RiaPicksList, mergeMarketCompanyFacts } from "@/components/kai/cards/renaissance-market-list";
 import type { KaiHomeRenaissanceItem } from "@/lib/services/api-service";
+import type { PublicStockQuote } from "@/lib/services/public-stock-quote";
 
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => false,
@@ -31,6 +32,79 @@ const row: KaiHomeRenaissanceItem = {
 };
 
 describe("RiaPicksList detail", () => {
+  it("recovers an unavailable quote only for the selected stock and accepts later list updates", async () => {
+    const loadQuote = vi.fn(async (symbol: string, _signal: AbortSignal): Promise<PublicStockQuote> => ({
+      symbol, price: 273, changePct: null, quotedAt: "2026-10-26T14:00:00Z", source: "Fixture", stale: true, delayed: false,
+    }));
+    const unavailable = { ...row, price: null, change_pct: null, as_of: null, degraded: true };
+    const { rerender } = render(<RiaPicksList rows={[unavailable, { ...unavailable, symbol: "ADBE", quote_symbol: "ADBE", company_name: "Adobe" }]} loadQuote={loadQuote} />);
+    expect(loadQuote).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
+    const detail = within(await screen.findByRole("dialog", { name: "Nvidia" }));
+    const quote = within(detail.getByRole("region", { name: "Stock quote" }));
+    await waitFor(() => expect(quote.getByText("$273.00")).toBeTruthy());
+    expect(quote.getByText(/Cached quote/)).toBeTruthy();
+    expect(quote.queryByText("+0.00%")).toBeNull();
+    expect(loadQuote).toHaveBeenCalledExactlyOnceWith("NVDA", expect.any(AbortSignal));
+    rerender(<RiaPicksList rows={[{ ...row, price: 280, as_of: "2026-10-26T14:30:00Z", quoted_at: "2026-10-26T14:30:00Z" }]} loadQuote={loadQuote} />);
+    await waitFor(() => expect(quote.getByText("$280.00")).toBeTruthy());
+  });
+
+  it("cancels quote recovery when switching stocks and ignores the late result", async () => {
+    let finishFirst!: (value: PublicStockQuote) => void;
+    const loadQuote = vi.fn((symbol: string, _signal: AbortSignal): Promise<PublicStockQuote> => symbol === "NVDA"
+      ? new Promise(resolve => { finishFirst = resolve; })
+      : Promise.resolve({ symbol, price: 260, changePct: 0, quotedAt: null, source: "Fixture", stale: false, delayed: false }));
+    const missing = { ...row, price: null, as_of: null };
+    render(<RiaPicksList rows={[missing, { ...missing, symbol: "ADBE", quote_symbol: "ADBE", company_name: "Adobe" }]} loadQuote={loadQuote} />);
+    fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
+    const first = within(await screen.findByRole("dialog", { name: "Nvidia" }));
+    await waitFor(() => expect(loadQuote).toHaveBeenCalledTimes(1));
+    const signal = loadQuote.mock.calls[0]![1];
+    fireEvent.click(first.getByRole("button", { name: "Close detail panel" }));
+    expect(signal.aborted).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Adobe/i }));
+    const second = within(await screen.findByRole("dialog", { name: "Adobe" }));
+    await waitFor(() => expect(second.getByText("$260.00")).toBeTruthy());
+    await act(async () => { finishFirst({ symbol: "NVDA", price: 999, changePct: 1, quotedAt: null, source: "Fixture", stale: false, delayed: false }); });
+    expect(second.queryByText("$999.00")).toBeNull();
+    expect(second.getByText(/Quote time unavailable/)).toBeTruthy();
+    expect(second.getByText("+0.00%")).toBeTruthy();
+  });
+
+  it("uses observed quote time rather than a legacy list retrieval timestamp and cancels an inactive read", async () => {
+    let finish!: (value: PublicStockQuote) => void;
+    const loadQuote = vi.fn((_symbol: string, _signal: AbortSignal): Promise<PublicStockQuote> => new Promise(resolve => { finish = resolve; }));
+    const legacy = { ...row, price: 250, as_of: "2026-10-26T14:30:00Z" };
+    const { rerender } = render(<RiaPicksList rows={[legacy]} loadQuote={loadQuote} />);
+    fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
+    const detail = within(await screen.findByRole("dialog", { name: "Nvidia" }));
+    await act(async () => { finish({ symbol: "NVDA", price: 260, changePct: 1, quotedAt: "2026-10-26T14:20:00Z", source: "Fixture", stale: false, delayed: false }); });
+    expect(detail.getByText("$260.00")).toBeTruthy();
+    const pending = vi.fn((_symbol: string, _signal: AbortSignal): Promise<PublicStockQuote> => new Promise(resolve => { finish = resolve; }));
+    rerender(<RiaPicksList rows={[legacy]} loadQuote={pending} />);
+    await waitFor(() => expect(pending).toHaveBeenCalledOnce());
+    const signal = pending.mock.calls[0]![1];
+    rerender(<RiaPicksList rows={[legacy]} />);
+    expect(signal.aborted).toBe(true);
+    await act(async () => { finish({ symbol: "NVDA", price: 999, changePct: 1, quotedAt: "2026-10-26T15:00:00Z", source: "Fixture", stale: false, delayed: false }); });
+    expect(detail.queryByText("$999.00")).toBeNull();
+  });
+
+  it.each([null, 900])("offers a bounded quote retry while preserving available price %s", async price => {
+    const loadQuote = vi.fn(async (_symbol: string, _signal: AbortSignal): Promise<PublicStockQuote | null> => null);
+    render(<RiaPicksList rows={[{ ...row, price, as_of: price ? row.as_of : null }]} loadQuote={loadQuote}
+      loadHistory={async () => ({ points: [{ date: "2026-10-01", value: 111 }, { date: "2026-10-02", value: 112 }], stale: false, retrievedAt: null })} />);
+    fireEvent.click(screen.getByRole("button", { name: /Nvidia/i }));
+    const detail = within(await screen.findByRole("dialog", { name: "Nvidia" }));
+    const quote = within(detail.getByRole("region", { name: "Stock quote" }));
+    const retry = await quote.findByRole("button", { name: "Retry quote" });
+    expect(quote.getByText(price ? "$900.00" : "Unavailable", { exact: true })).toBeTruthy();
+    expect(quote.queryByText("$112.00")).toBeNull();
+    expect(quote.queryByText(/Quoted Unavailable/)).toBeNull();
+    fireEvent.click(retry);
+    await waitFor(() => expect(loadQuote).toHaveBeenCalledTimes(2));
+  });
   it("retains known facts through refresh failure and accepts newer successful facts", () => {
     const current = { NVDA: row.company_facts! };
     const cached = mergeMarketCompanyFacts(current, { NVDA: { symbol: "NVDA", unavailable: true } }, [row]);

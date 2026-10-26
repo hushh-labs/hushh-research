@@ -57,6 +57,19 @@ flowchart TB
 
 ---
 
+## Public market quotes
+
+`GET /api/market/quotes?symbols=ADBE` reuses the shared public quote provider
+and L1/L2 cache, without owner, holdings or vault context. Web reaches it through
+the fixed Next.js proxy at the same path; native uses the existing ApiService
+backend transport. The proxy forwards neither owner authorization nor cookies.
+The quote row retains `price`, legacy `change_percent`, `company_name`, and
+`source`, and adds nullable `change_pct` and provider `quoted_at`, plus
+`is_stale`, `is_delayed`, and `market_state`. Retrieval time never becomes
+quote time. Empty provider refreshes retain eligible cached prices; a cold
+closed-market request returns 503 without calling providers. Daily historical
+observations remain a separate contract.
+
 ## Request-specific revocation
 
 `POST /api/consent/revoke` preserves the optional `requestId` from the web client
@@ -2453,10 +2466,10 @@ separate work; a static export or native compile is not sign-in proof.
 
 | Method | Path                                  | Authorization      | Description                                                                                                         |
 | ------ | ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| POST | `/api/one/google/connect/complete` | Firebase Bearer | Complete the owner-bound Google attempt; return connection status and authoritative service. No caller-supplied service is accepted. |
+| POST | `/api/one/google/connect/complete` | Firebase Bearer | Complete the owner-bound Google attempt; return connection status and authoritative service. An Add account Calendar completion also returns `completed_account_id` alongside `accounts[]` for the grant saved by this attempt (`default` when the primary account was reauthorized); the browser verifies that grant. No caller-supplied service is accepted. |
 | POST   | `/api/one/calendar/connect/start`     | Firebase Bearer    | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
 | POST | `/api/one/calendar/connect/start` | Firebase Bearer | `additional:true` starts an owner-bound additional Calendar authorization through the existing connect endpoint, optionally bound to one existing `account_id` for reconnect. A verified Google subject cannot occupy two active account slots; the owner can retain at most three slots. |
-| POST   | `/api/one/calendar/connect/complete`  | Firebase Bearer    | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant.      |
+| POST   | `/api/one/calendar/connect/complete`  | Firebase Bearer    | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant. An Add account attempt includes the saved grant's `completed_account_id` and matching `accounts[]` entry, including `default` if the primary account was selected again. Top-level status fields continue to describe only the default grant. |
 | POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |
 | POST   | `/api/one/calendar/connect/native/complete` | Firebase Bearer | Exchange the native code only with the matching state, owner, service and permission; missing state is rejected. |
 | GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state, including each owner-bound Calendar account ID/status and a three-account limit. |
