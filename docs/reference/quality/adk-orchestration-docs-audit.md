@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 04:00 UTC
+## Current decision — 26 October 2026, 04:25 UTC
 
 **The application correction is accepted on Dev and UAT. Both clouds pass the new
 Browser image's component and encrypted-recovery checks. Installed-owner Browser
@@ -28,19 +28,28 @@ acceptance and safe account-generation rollout remain open.**
 [release](https://github.com/hushh-labs/hushh-research/actions/runs/40258969686)
 and UAT [release](https://github.com/hushh-labs/hushh-research/actions/runs/40263257564)
 passed. Peer phone-transfer changes from main are preserved; Dev now serves
-`c0bf05df4f`. A subsequent peer UAT rollout is still running. No production change
-or new owner installation is claimed.
+`c0bf05df4f` on both environments. The later UAT
+[release](https://github.com/hushh-labs/hushh-research/actions/runs/40264162428)
+passed; actual serving revisions and digests were read back. No production change
+or new Browser installation is claimed.
 
 | Boundary | Verified outcome | Remaining acceptance |
 |---|---|---|
-| Application | Dev backend `00252-cfk` and frontend `00216-vl7`, source `c0bf05df4f`, 100% traffic; UAT accepted `7d5546e471` | Read back the later peer UAT rollout separately |
+| Application | Dev backend `00252-cfk` / frontend `00216-vl7`; UAT backend `02588-kuw` / frontend `02172-s4l`; both source `c0bf05df4f`, 100% traffic | Next combined lifecycle candidate retains its own acceptance |
 | Browser image | Genuine source `7d5546e471`, digest `09d4ce51…d5deea`; controlled native execution passes on Cloud Run and Container Apps | Publish qualified compatibility metadata and install through exact owner approval |
 | Browser component | Both clouds pass research, responsive control, zero model observations during manual login, encrypted remember/restore, logout, Forget, one reviewed save and joined Stop | Actual owner HTTP takeover, reconnect and signed-in journeys; GitHub and broader sites remain unqualified |
 | Encrypted recovery | GCP predecessor `26bab163…061809` and Azure predecessor `6e57f251…eeac423` preserve identity, six records, consent, revocation and 245,763 exact file bytes on the new image | Installed active-work drain and recovery |
-| Installed owners | Azure Dev 30 update and Puppy/Gemma 12B response passed; idle return observed | Azure Browser task reconciliation; GCP's retained approved Files update is undergoing a configuration-only repair |
+| Installed owners | Azure Dev 30 update and Puppy/Gemma 12B response passed. GCP's original approved Dev 30/Files update now verifies image `6e57f251…eeac423` through its existing operation | Browser task reconciliation, active-work acceptance and current-image Files organization |
 | Fixed-term sharing | Temporary 97/1711 sandbox admission verified. Original 54/1711 secret and runtime restored through successful governed rollout, with both owner readbacks | Account 97 has zero funded balance and no funding lots; no purchase/funding was attempted. Request/access/revocation acceptance remains open |
 | Account generations | Isolated real-mail two-cycle proof preserves Firebase UID and refuses retired sessions | Public admission remains off; WorkOS offboarding needs immutable membership and captured-generation authority |
 | Cleanup | Browser qualification compute, temporary inference role, copied images and both recovery fixtures removed with provider absence receipts | Disposable Cloudflare site awaits connector reconnection for deletion; synthetic state only, with serving expiry |
+
+The stranded GCP update completed through its original approval and operation,
+with one conditional configuration replacement and normal provider acknowledgement
+reconciliation. Its completed queue and IAM work was not repeated; the lease was
+not manually cleared. A prior attempt refused a changed runtime epoch before
+reservation or dispatch. All repair/observation jobs were removed after terminal
+provider results. This settles that image/Files update, not Browser activation.
 
 The frontend heap correction is verified on the real build host: Cloud Build
 `bc9973e1-e96a-44e0-88cc-9ab76c0528f9` passed TypeScript and 188 prerendered pages
