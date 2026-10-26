@@ -7,6 +7,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { NativeProfilePage } from "@/lib/capacitor/native-drawers";
+
+const nativePresentation = vi.hoisted(() => ({ workspace: vi.fn() }));
 
 const nav = vi.hoisted(() => ({
   query: "profile_pane=1&profile_panel=world-model",
@@ -61,11 +64,12 @@ vi.mock("@/lib/persona/persona-context", () => ({
 // bridge leaf: a closed Connectors body must not prevent Profile from mounting.
 vi.mock("@/components/profile/native-profile-menu", () => ({
   NativeProfilePresentation: ({ workspace, children, onPayoutCapability, page, menu, phone }: {
-    workspace?: { active: boolean }; children: ReactNode; onPayoutCapability?: (available: boolean) => void;
+    workspace?: { active: boolean; pages: readonly NativeProfilePage[] }; children: ReactNode; onPayoutCapability?: (available: boolean) => void;
     page?: { onClose?: () => unknown }; menu?: { onClose: () => unknown };
     phone?: { active: boolean; editor: (options: { native: boolean; onFallback: () => void }) => ReactNode };
   }) => {
     useEffect(() => { onPayoutCapability?.(true); }, [onPayoutCapability]);
+    if (workspace?.active) nativePresentation.workspace(workspace.pages);
     return <><div role="dialog" aria-label="Native Profile" />
       <button onClick={() => page?.onClose?.()}>Page Close Profile</button>
       <button onClick={() => menu?.onClose()}>Menu Close Profile</button>
@@ -167,7 +171,11 @@ describe("Profile pane: Personal World Model", () => {
     window.history.replaceState(null, "", `/one?${nav.query}`);
     render(<StepProgressProvider><ProfilePage presentation="native-page"
       nativeMenuOpen paneLocation={{ panel: "payouts", detail: null }} /></StepProgressProvider>);
-    expect(await screen.findByText("Information access")).toBeInTheDocument();
+    await waitFor(() => expect(nativePresentation.workspace).toHaveBeenLastCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: "payouts", sections:
+        expect.arrayContaining([expect.objectContaining({ title: "Information access" })]),
+      })]),
+    ));
   });
   it("mounts native Profile independently of the closed Connectors hosting gate", async () => {
     nav.query = "profile_pane=1";
