@@ -803,3 +803,55 @@ inputs. Infrastructure-only edits therefore run Protocol and Integration,
 including the required deletion pack. The path-contract regression rejects
 excluded lifecycle/runtime inputs. Live console or secret changes still require
 environment-bound runtime attestation; path selection is not deployed proof.
+
+### Staged phone-reader rollout
+
+Production phone recovery is enabled only after every retained backend revision
+qualifies for the strict 425 admission floor. The first rollout deploys the
+phone-aware candidate with `AUTH_PHONE_RECOVERY_ENABLED=false`, verifies the
+ordinary release, and retires pre-425 readers through the existing lifecycle
+activation. A subsequent backend release may enable recovery when the fresh
+revision inventory passes. `AUTH_PHONE_RECOVERY_PROD_ENABLED=false` remains the
+producer kill switch; it does not erase pending work or stop recovery consumers.
+
+Before the first rollout, `phone_rollback_sha` selects an independently accepted
+UAT backend source. Main-owned tooling verifies its packaged public admission
+chain without cloud credentials, pins the copied production image digest, and
+stages a zero-traffic reader with production bindings and recovery disabled.
+Exact source comparisons preserve phone dispatch, reconciliation and notices.
+The actual revision must pass runtime, health and generation-branch checks before
+creating the primary. The selected revision is revalidated before promotion and
+used by rollback, final classification and retention. Protected-document reader
+authority is independently checked before rebinding only that backend entry.
+
+WorkOS remains directly disabled from revision creation. The initial 427 rollout
+qualifier separately verifies complete issuer history and empty membership and
+SSO mutation authority. A missing history, unknown source or issued authority
+blocks this initial rollout; it does not authorize SSO activation or an older
+reader. Release artifacts retain the plan, exact image probe, selected revision
+and these aggregate checks without phone numbers, OTPs or owner identifiers.
+
+
+## Phone recovery action admission (431)
+
+Migration `431_phone_recovery_actions.sql` adds bounded, non-authorizing recovery
+continuations and own-device action receipts. Producers use the existing
+`AUTH_PHONE_RECOVERY_ENABLED` flag. Turning it off retains status/readback and
+completed cleanup; it does not erase pending work. Shared codes never grant
+cross-owner transfer, deletion or device authority. Account erasure cascades the
+new metadata. Unknown device dispatches retain their consumed proof event and
+cannot be automatically submitted again.
+
+Production rollback qualification now requires both migrations 425 and 431 in
+its immutable source. A 425-only image exposes the former unguarded device DELETE
+contract and is not an eligible fallback. The packaged reader probe also calls
+the actual legacy DELETE entry with no proof and requires rejection before the
+canonical writer. Primary and independent cold readers must be separately
+qualified against real runtime identity, image, schema and admission state.
+
+Capacity admission counts retained backend and Drive-worker revisions, both
+candidate roles, readiness jobs and the admin reserve. A rejected budget is not
+permission to delete the protected rollback, shrink pools or increase the limit.
+A staged capacity transition requires its own qualified anchor, full request
+drain and worker compatibility evidence before primary admission. Local tests,
+green CI and UAT acceptance do not alone prove this production transition.

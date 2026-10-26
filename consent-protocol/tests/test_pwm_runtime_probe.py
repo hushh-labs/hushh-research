@@ -179,3 +179,101 @@ def pwm_proof_fixture(document):
         "deployment": document["pwm_research_uat"]["azure"]["primary_deployment"],
         "policy_sha256": "c" * 64,
     }
+
+
+@pytest.mark.parametrize(
+    "error_type,stage,http_status,classification",
+    [
+        ("TimeoutError", "primary_http", None, "provider_unavailable"),
+        ("TimeoutError", "federation", None, "provider_unavailable"),
+        ("APITimeoutError", "primary_http", None, "provider_unavailable"),
+        ("ReadinessResponseError", "response_validation", 200, "candidate_misconfigured"),
+    ],
+)
+def test_outer_azure_probe_preserves_leaf_failure_provenance(
+    monkeypatch, capsys, error_type, stage, http_status, classification
+):
+    from unittest.mock import AsyncMock, Mock
+
+    module, _, config = primary_fixture(monkeypatch, None)
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setattr(module, "_initialize_synthetic_runtime", lambda: None)
+    monkeypatch.setattr(
+        module,
+        "load_pwm_policy",
+        lambda **_: {"provider": "azure_openai_web_search", "azure": config},
+    )
+    monkeypatch.setattr(
+        module,
+        "run_probe",
+        AsyncMock(
+            return_value={
+                "status": "unavailable",
+                "http_status": http_status,
+                "latency_ms": 30001,
+                "deployment": config["primary_deployment"],
+                "error_class": error_type,
+                "stage": stage,
+                "classification": classification,
+            }
+        ),
+    )
+    forbidden = Mock(side_effect=AssertionError("must stop at failed readiness"))
+    monkeypatch.setattr(module, "_probe_managed_text", forbidden)
+    assert module.main() == 1
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert events[0]["result"] == "failed"
+    assert events[-1] == {
+        "azure_pwm_runtime_probe_result": "failed",
+        "pwm_trust_failure": False,
+        "classification": classification,
+        "error_type": error_type,
+        "failure_stage": stage,
+        "elapsed_ms": 30001,
+        "attempt": 1,
+    }
+    forbidden.assert_not_called()
+
+
+@pytest.mark.parametrize("defect", ["foreign_deployment", "later_schema"])
+def test_primary_http_success_never_erases_later_qualification_failure(monkeypatch, capsys, defect):
+    from unittest.mock import AsyncMock
+
+    module, _, config = primary_fixture(monkeypatch, None)
+    config = {**config, "tenant_id": "synthetic", "client_id": "synthetic"}
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setattr(module, "_initialize_synthetic_runtime", lambda: None)
+    monkeypatch.setattr(
+        module,
+        "load_pwm_policy",
+        lambda **_: {"provider": "azure_openai_web_search", "azure": config},
+    )
+    monkeypatch.setattr(
+        module,
+        "run_probe",
+        AsyncMock(
+            return_value={
+                "status": "ready",
+                "http_status": 200,
+                "latency_ms": 1,
+                "deployment": "foreign"
+                if defect == "foreign_deployment"
+                else config["primary_deployment"],
+                "error_class": None,
+                "stage": "response_validation",
+                "classification": "dependency_ok",
+            }
+        ),
+    )
+    monkeypatch.setattr(module, "_probe_managed_text", AsyncMock())
+    monkeypatch.setattr(module, "_token_provider", lambda **_: lambda: "synthetic")
+    primary = AsyncMock(side_effect=module.AzurePwmTrustError("PRIVATE_SYNTHETIC_ERROR"))
+    monkeypatch.setattr(module, "_probe_primary", primary)
+    assert module.main() == 1
+    output = capsys.readouterr().out
+    events = [json.loads(line) for line in output.splitlines()]
+    assert events[-1]["classification"] == "candidate_misconfigured"
+    assert events[-1]["pwm_trust_failure"] is (defect == "later_schema")
+    assert events[0]["result"] == ("failed" if defect == "foreign_deployment" else "ok")
+    assert primary.await_count == (1 if defect == "later_schema" else 0)
+    assert "PRIVATE_SYNTHETIC_ERROR" not in output

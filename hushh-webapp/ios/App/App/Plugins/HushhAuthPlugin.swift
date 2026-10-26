@@ -119,6 +119,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "authorizeGoogleContacts", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reauthenticateGoogleIdentity", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reauthenticateAppleIdentity", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startPhoneVerificationProof", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmPhoneVerificationProof", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelPhoneVerificationProof", returnType: CAPPluginReturnPromise),
@@ -139,19 +140,22 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Properties
     private let TAG = "HushhAuth"
     private var deletionPhoneProof: DeletionPhoneProof?
+    private var appleIdentityReauthentication: AppleIdentityReauthentication?
 
     public override func load() {
         super.load()
         DispatchQueue.main.async {
             if self.ensureFirebaseConfigured() {
                 self.deletionPhoneProof = try? DeletionPhoneProof(primary: Auth.auth())
+                self.appleIdentityReauthentication = AppleIdentityReauthentication(auth: Auth.auth())
             }
         }
     }
 
     deinit {
         let proof = deletionPhoneProof
-        DispatchQueue.main.async { proof?.invalidate() }
+        let apple = appleIdentityReauthentication
+        DispatchQueue.main.async { proof?.invalidate(); apple?.invalidate() }
     }
 
     @objc func startPhoneDeletionVerification(_ call: CAPPluginCall) {
@@ -499,7 +503,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         guard googleContactsCapture == nil, driveAuthorization == nil, drivePickerAuthorization == nil,
-              identityReauthentication == nil,
+              identityReauthentication == nil, appleIdentityReauthentication?.busy != true,
               !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
@@ -628,7 +632,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         guard googleContactsCapture == nil, driveAuthorization == nil, drivePickerAuthorization == nil,
-              identityReauthentication == nil,
+              identityReauthentication == nil, appleIdentityReauthentication?.busy != true,
               !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
@@ -717,7 +721,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         guard googleContactsCapture == nil, driveAuthorization == nil, drivePickerAuthorization == nil,
-              identityReauthentication == nil,
+              identityReauthentication == nil, appleIdentityReauthentication?.busy != true,
               !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
@@ -887,7 +891,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             guard self.googleContactsCapture == nil, self.driveAuthorization == nil,
-                  self.drivePickerAuthorization == nil, self.identityReauthentication == nil,
+                  self.drivePickerAuthorization == nil, self.identityReauthentication == nil, self.appleIdentityReauthentication?.busy != true,
                   !self.googleInteractiveInFlight, self.appleSignInCall == nil else {
                 call.reject("Google Contacts access is already in progress.", "identity_busy")
                 return
@@ -945,7 +949,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         guard googleContactsCapture == nil, driveAuthorization == nil, drivePickerAuthorization == nil,
-              identityReauthentication == nil,
+              identityReauthentication == nil, appleIdentityReauthentication?.busy != true,
               !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Another identity action is already in progress.", "identity_busy")
             return
@@ -1087,7 +1091,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         guard googleContactsCapture == nil, driveAuthorization == nil, drivePickerAuthorization == nil,
-              identityReauthentication == nil, !googleInteractiveInFlight,
+              identityReauthentication == nil, appleIdentityReauthentication?.busy != true, !googleInteractiveInFlight,
               appleSignInCall == nil else {
             call.reject("Another identity action is already in progress.", "identity_busy")
             return
@@ -1209,6 +1213,17 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     // MARK: - Fresh same-user Google proof
+    @objc func reauthenticateAppleIdentity(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard self.googleContactsCapture == nil, self.driveAuthorization == nil, self.drivePickerAuthorization == nil,
+                  self.identityReauthentication == nil, self.appleIdentityReauthentication?.busy != true, !self.googleInteractiveInFlight, self.appleSignInCall == nil,
+                  let proof = self.appleIdentityReauthentication, let window = self.bridge?.webView?.window else {
+                call.reject("Identity verification is unavailable or busy.", "identity_busy"); return
+            }
+            proof.start(call, window: window)
+        }
+    }
+
     @objc func reauthenticateGoogleIdentity(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             self?.startIdentityReauthentication(call)
@@ -1217,7 +1232,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func startIdentityReauthentication(_ call: CAPPluginCall) {
         guard googleContactsCapture == nil, driveAuthorization == nil, drivePickerAuthorization == nil,
-              identityReauthentication == nil,
+              identityReauthentication == nil, appleIdentityReauthentication?.busy != true,
               !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
@@ -1322,6 +1337,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         deletionPhoneProof?.invalidate()
+        appleIdentityReauthentication?.invalidate()
         if let operation = identityReauthentication { finishIdentity(operation, code: "session_changed") }
         if let capture = googleContactsCapture {
             rejectGoogleContacts(capture, code: "session_changed")
@@ -1481,7 +1497,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         guard googleContactsCapture == nil, driveAuthorization == nil, drivePickerAuthorization == nil,
-              identityReauthentication == nil,
+              identityReauthentication == nil, appleIdentityReauthentication?.busy != true,
               !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return

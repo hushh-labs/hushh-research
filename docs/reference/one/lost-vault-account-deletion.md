@@ -54,6 +54,23 @@ The flow is an escape hatch from the locked gate, not a hidden Profile setting. 
 
 Automated phone-entry and OTP coverage uses synthetic provider and SMS ports. It does not establish real SMS delivery, UAT identity configuration, live erasure, native hardware behavior, or complete fresh signup. A linked-phone proof may use a distinct phone-only Firebase UID; the existing lost-vault route erases the primary owner, so removal of that separate provider identity and subsequent registration remain acceptance gaps. Shared identities deliberately retained across environments continue to prevent fresh registration.
 
+## Occupied-phone entry
+
+The phone-conflict **Delete my previous account** choice resumes this same panel
+after independent sign-in to that account. A server-bound opaque continuation
+preserves the chosen action through sign-out, account switching and refresh.
+It is navigation state, never proof of ownership. The phone link and account
+generation must still match when deletion is submitted. An expired request says
+**Account not deleted** and asks the person to start again; it cannot silently
+sign them out as if erasure succeeded. Recovery and device review use separate
+continuations. Moving a phone link preserves the previous files and vault.
+
+Native proof startup has one bounded deadline, distinct from OTP expiry. The
+same-user Google/Apple reauthentication and secondary phone-proof adapters retain
+owner and attempt fences until their owned SDK callbacks drain. Explicit resend
+uses a new local challenge. A startup timeout does not claim that an SMS expired.
+A new native binary is required for installed applications to receive these changes.
+
 ## Delivery plan and release gates
 
 1. Expose the locked-vault CTA, review, identity verification, irreversible confirmation, and outcome states in the shared web view. Use concise language and semantic destructive styling.

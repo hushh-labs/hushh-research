@@ -23,7 +23,8 @@ cd "$REPO_ROOT"
 bash "$REPO_ROOT/scripts/ci/account-deletion-check.sh"
 
 # A new hosted path cannot pass on mocked component success or direct SQL-paid
-# assignment. This loop uses the production client, routes and financial store.
+# assignment. These loops use production clients, routes and PostgreSQL: protected
+# document delivery plus phone recovery, erasure and device-action admission.
 bash "$REPO_ROOT/scripts/ci/document-delivery-check.sh"
 
 # Expensive zero-loss rehearsal belongs only to PKM upgrade compatibility

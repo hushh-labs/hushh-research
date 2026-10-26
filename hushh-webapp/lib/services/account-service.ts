@@ -163,6 +163,7 @@ export class AccountServiceImpl {
   async deleteLostVaultAccount(params: {
     firebaseIdToken: string;
     phoneIdToken?: string;
+    continuationId?: string;
     isCurrent?: () => boolean;
   }): Promise<AccountDeletionResult> {
     if (!params.firebaseIdToken) throw new Error("Firebase ID token required");
@@ -171,11 +172,12 @@ export class AccountServiceImpl {
       accountLifecycleOwnsAuthOutcome: true,
       isEffectCurrent: params.isCurrent,
       headers: { Authorization: `Bearer ${params.firebaseIdToken}` },
-      body: JSON.stringify(
-        params.phoneIdToken
+      body: JSON.stringify({
+        ...(params.phoneIdToken
           ? { method: "phone", phone_id_token: params.phoneIdToken }
-          : { method: "provider" },
-      ),
+          : { method: "provider" }),
+        ...(params.continuationId ? { continuation_id: params.continuationId } : {}),
+      }),
     });
   }
 

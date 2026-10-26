@@ -10,7 +10,6 @@ candidate. Both phases include retained revisions, jobs and administrative reser
 
 from __future__ import annotations
 
-import argparse
 import importlib.util
 import json
 import re
@@ -30,6 +29,12 @@ _inventory = importlib.util.module_from_spec(_INVENTORY_SPEC)
 _INVENTORY_SPEC.loader.exec_module(_inventory)
 BudgetError = _inventory.BudgetError
 positive_int = _inventory.positive_int
+_CLI_SPEC = importlib.util.spec_from_file_location(
+    "runtime_capacity_cli", Path(__file__).with_name("runtime_capacity_cli.py")
+)
+assert _CLI_SPEC and _CLI_SPEC.loader
+_cli = importlib.util.module_from_spec(_CLI_SPEC)
+_CLI_SPEC.loader.exec_module(_cli)
 
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
 CAPACITY_PHASES = ("pre-deploy", "post-release")
@@ -575,6 +580,38 @@ def sql_alert_thresholds(
     return {"warning": maximum * 70 // 100, "critical": maximum * 85 // 100}
 
 
+def candidate_reservations(
+    config: dict[str, Any],
+    environment: str,
+    phase: CapacityPhase,
+    services: tuple[str, ...],
+    candidates: frozenset[str] | None,
+    inherited: frozenset[str],
+    maintenance: dict[str, Any] | None,
+) -> tuple[frozenset[str], list[dict[str, Any]]]:
+    """Resolve the candidate set before reserving any additional revision."""
+    if candidates is None:
+        candidates = frozenset(config["services"])
+    if candidates - config["services"].keys():
+        raise BudgetError("candidate service is not in the capacity profile")
+    if inherited - candidates:
+        raise BudgetError("inherited candidate must be a reserved candidate service")
+    if services and inherited:
+        raise BudgetError("additional candidates cannot use inherited capacity")
+    if services and (
+        environment != "production"
+        or phase != "pre-deploy"
+        or maintenance is not None
+        or len(services) != len(set(services))
+        or set(services) - candidates
+    ):
+        raise BudgetError("additional candidates require an ordinary production reservation")
+    return candidates, [
+        {**candidate_connections(name, config["services"][name]), "name": f"{name}:additional-candidate"}
+        for name in services
+    ]
+
+
 def evaluate(
     profile: dict[str, Any],
     environment: str,
@@ -583,6 +620,7 @@ def evaluate(
     phase: CapacityPhase = "pre-deploy",
     candidate_services: frozenset[str] | None = None,
     inherited_candidate_services: frozenset[str] = frozenset(),
+    additional_candidate_services: tuple[str, ...] = (),
     maintenance_profile: str | None = None,
 ) -> dict[str, Any]:
     if phase not in CAPACITY_PHASES:
@@ -609,12 +647,10 @@ def evaluate(
             # This operation creates only its backend clone. Retained workers
             # and all jobs still count; ordinary releases reserve new workers.
             candidate_services = frozenset({"consent-protocol"})
-    if candidate_services is None:
-        candidate_services = frozenset(config["services"])
-    if candidate_services - config["services"].keys():
-        raise BudgetError("candidate service is not in the capacity profile")
-    if inherited_candidate_services - candidate_services:
-        raise BudgetError("inherited candidate must be a reserved candidate service")
+    candidate_services, extra_rows = candidate_reservations(
+        config, environment, phase, additional_candidate_services,
+        candidate_services, inherited_candidate_services, maintenance,
+    )
     maximum = policy["database_max_connections"]
     limit = policy["admission_limit"]
     reserve = policy["administrative_reserve"]
@@ -677,6 +713,7 @@ def evaluate(
         job_budget(inventory["jobs"][name], settings, connection_name)
         for name, settings in config["jobs"].items()
     ]
+    service_rows.extend(extra_rows)
     projected = reserve + sum(row["connections"] for row in service_rows + job_rows)
     return {
         "environment": environment,
@@ -704,50 +741,12 @@ def collect(profile: dict[str, Any], environment: str) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--environment", choices=("uat", "production"), required=True)
-    parser.add_argument(
-        "--phase",
-        choices=CAPACITY_PHASES,
-        default="pre-deploy",
-        help="Reserve the next deployment candidate, or check only retained capacity",
-    )
-    parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
-    candidates = parser.add_mutually_exclusive_group()
-    candidates.add_argument(
-        "--candidate-service",
-        action="append",
-        help="Reserve a new revision of this service (repeat for each deployed service)",
-    )
-    candidates.add_argument(
-        "--inherit-candidate-service",
-        action="append",
-        help="Reserve a candidate inheriting this live service's template (repeatable)",
-    )
-    candidates.add_argument(
-        "--no-candidates",
-        action="store_true",
-        help="Audit the global database budget without reserving a new service revision",
-    )
-    candidates.add_argument(
-        "--frontend-only",
-        action="store_true",
-        help="Verify UAT web service has zero incremental SQL demand without auditing unrelated jobs",
-    )
-    parser.add_argument(
-        "--frontend-revision",
-        help="Also verify this exact frontend candidate revision before traffic promotion",
-    )
-    parser.add_argument(
-        "--report-only",
-        action="store_true",
-        help="Report an over-budget result without a nonzero exit",
-    )
-    parser.add_argument("--output", choices=("text", "json"), default="text")
-    args = parser.parse_args()
+    args = _cli.parse_args(__doc__, CAPACITY_PHASES, DEFAULT_PROFILE)
     try:
         profile = json.loads(args.profile.read_text())
         if args.frontend_only:
+            if args.additional_candidate_service:
+                raise BudgetError("frontend-only admission cannot reserve a fallback")
             if args.phase != "pre-deploy":
                 raise BudgetError("frontend-only admission requires the pre-deploy phase")
             report = frontend_only_report(
@@ -772,6 +771,7 @@ def main() -> int:
                 phase=args.phase,
                 candidate_services=candidate_services,
                 inherited_candidate_services=frozenset(args.inherit_candidate_service or ()),
+                additional_candidate_services=tuple(args.additional_candidate_service),
             )
     except (OSError, KeyError, TypeError, json.JSONDecodeError, BudgetError) as exc:
         print(f"capacity budget blocked: {exc}", file=sys.stderr)

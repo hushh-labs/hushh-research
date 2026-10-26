@@ -144,9 +144,12 @@ def valid_core(core, provider, expected, document):
         isinstance(value, dict)
         and value.get("ready") is True
         and value.get("provider") == provider
-        and value.get("model") == (
+        and value.get("model")
+        == (
             root["deployment"]
-            if provider == "azure_openai" and scope == "one_text_chat" and root is not None
+            if provider == "azure_openai"
+            and scope == "one_text_chat"
+            and root is not None
             else model
         )
         and value.get("location") == location
@@ -356,22 +359,8 @@ def collect(provider, expected, step_exit, job):
     # A matching execution can fail optional modalities while its core text proof succeeds.
     if len(cores) == 1 and valid_core(cores[0], provider, expected, document):
         result.update(core_ready=True, core=cores[0], reason="core_ready")
-    if provider == "vertex":
-        verdicts = [
-            value for value in values if value.get("check") == "managed_vertex_runtime"
-        ]
-        if len(verdicts) == 1:
-            result["capability_classifications"] = {
-                p["probe"]: p.get("classification", "unverified")
-                for p in verdicts[0].get("probes", [])
-                if isinstance(p, dict) and isinstance(p.get("probe"), str)
-            }
-            result["capabilities"] = {
-                p["probe"]: p.get("ok") is True
-                for p in verdicts[0].get("probes", [])
-                if isinstance(p, dict) and isinstance(p.get("probe"), str)
-            }
-    else:
+    result.update(_capability_proof().execution_diagnostics(provider, values))
+    if provider == "azure_openai":
         terminals = [
             v.get("azure_pwm_runtime_probe_result")
             for v in values
@@ -465,16 +454,9 @@ def evaluate(envelopes, expected):
                 )
             )
         )
-        diagnostics[provider] = {
-            "ready": accepted[provider],
-            "reason": value.get("reason", "unverified")
-            if valid
-            else "missing_or_misbound",
-            "capabilities": value.get("capabilities", {}) if valid else {},
-            "classifications": value.get("capability_classifications", {})
-            if valid
-            else {},
-        }
+        diagnostics[provider] = _capability_proof().readiness_diagnostics(
+            value, provider=provider, valid=valid, ready=accepted[provider]
+        )
     selected = "azure_openai" if accepted["azure_openai"] else None
     return {
         "schema": "managed_provider_readiness.v1",

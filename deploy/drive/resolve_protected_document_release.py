@@ -350,6 +350,25 @@ def assert_manual_rollback(
 
 
 def _rollback_command(args, parser) -> bool:
+    if args.rebind_backend_report:
+        if not args.rollback_report or args.service or args.revision:
+            parser.error("Backend rebinding requires only the existing rollback report")
+        try:
+            run_path(str(ROOT / "deploy/drive/rebind_protected_document_backend.py"))[
+                "rebind_backend"
+            ](
+                args.rollback_report,
+                args.rebind_backend_report,
+                project=args.project,
+                ancestor=args.required_ancestor,
+                cloud=_cloud,
+                revision_source=_revision_source,
+                reader_supported=reader_supported,
+            )
+        except Exception:
+            parser.exit(1, "Hosted document backend rebinding was not proved\n")
+        print("Hosted document backend rollback binding verified")
+        return True
     if not args.manual_rollback and not args.rollback_report:
         return False
     try:
@@ -409,6 +428,7 @@ def main() -> int:
     rollback = parser.add_mutually_exclusive_group()
     rollback.add_argument("--rollback-report", type=Path)
     rollback.add_argument("--manual-rollback", action="store_true")
+    parser.add_argument("--rebind-backend-report", type=Path)
     parser.add_argument("--service", choices=SERVICES)
     parser.add_argument("--revision", default="")
     args = parser.parse_args()

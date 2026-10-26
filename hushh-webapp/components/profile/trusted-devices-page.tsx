@@ -31,6 +31,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { deriveSyncDisplay } from "@/lib/trusted-device/sync-display";
 import { cn } from "@/lib/utils";
+import { TrustedDeviceProofFields } from "./trusted-device-proof-fields";
 import { UNLINK_WARNING, type TrustedDevicesModel } from "./use-trusted-devices-model";
 
 /** Trusted devices is a recursive Profile-pane detail, not a standalone page. */
@@ -69,6 +70,7 @@ export default function TrustedDevicesPage({
               <Loader2 className="size-4 animate-spin" /> Loading devices…
             </div>
           ) : null}
+          {model.verificationUnfinished ? <p role="status" className="text-sm text-muted-foreground">Phone verification is unfinished. Choose a device to start a new check.</p> : null}
           {visibleError ? (
             <p
               className={cn(
@@ -76,9 +78,10 @@ export default function TrustedDevicesPage({
                 panePresentation && typographyStyles.status,
               )}
             >
-              {visibleError} <button type="button" disabled={revoking} onClick={() => void model.refresh()}>Refresh</button>
+              {visibleError} {model.cancellableVerification ? <button type="button" disabled={revoking} onClick={() => void model.cancel()}>Cancel unfinished verification</button> : null} <button type="button" disabled={revoking} onClick={() => void model.refresh()}>Refresh</button>
             </p>
           ) : null}
+          {!visibleError && pendingPodRevocations.length > 0 ? <Button type="button" variant="outline" disabled={revoking || model.refreshing} onClick={() => void model.refresh()}>Refresh</Button> : null}
           {pendingPodRevocations.length > 0 ? <p role="status" className="text-sm text-muted-foreground">Device access is removed from your account. Pod access revocation is still pending; reconnect to your pod and try again.</p> : null}
           {puppyNotice ? (
             <p className="text-sm text-muted-foreground">{puppyNotice}</p>
@@ -161,16 +164,17 @@ export default function TrustedDevicesPage({
               {UNLINK_WARNING}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <TrustedDeviceProofFields model={model} />
           <AlertDialogFooter>
             <AlertDialogCancel disabled={revoking}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={revoking || model.uncertain || pendingRevocation === null}
+              disabled={revoking || model.uncertain || pendingRevocation === null || !model.proof.view?.codeSent}
               onClick={(event) => {
                 event.preventDefault();
                 void model.confirm();
               }}
             >
-              {revoking ? "Unlinking…" : "Unlink device"}
+              {revoking ? "Checking…" : "Unlink device"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

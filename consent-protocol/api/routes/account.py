@@ -52,6 +52,8 @@ from api.routes.account_cloud_cleanup import AccountCloudCleanupRequest, account
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
 from api.routes.account_lost_vault import LostVaultDeleteRequest
 from api.routes.account_lost_vault import router as lost_vault_router
+from api.routes.account_phone_recovery import DeviceActionConfirmRequest
+from api.routes.account_phone_recovery import router as phone_recovery_router
 from api.routes.account_registration import router as registration_router
 from api.utils.firebase_admin import get_firebase_auth_app
 from api.utils.firebase_auth import (
@@ -122,6 +124,7 @@ router = APIRouter(prefix="/api/account", tags=["Account"])
 # Terms and Privacy acceptance lives in its own module, mounted under this prefix.
 router.include_router(legal_acceptance_router)
 router.include_router(lost_vault_router)
+router.include_router(phone_recovery_router)
 router.include_router(registration_router)
 
 
@@ -819,7 +822,9 @@ async def list_trusted_devices(firebase_uid: str = Depends(require_firebase_auth
     # Recovery remains available after rollout is disabled or membership is
     # removed. The authenticated user can only list their own device records.
     devices = await run_in_threadpool(TrustedDeviceService().list_devices, user_id=firebase_uid)
-    return {"devices": devices}
+    from hushh_mcp.services.device_action_service import pending_for_owner
+
+    return {"devices": devices, "pending_revocations": await pending_for_owner(firebase_uid)}
 
 
 class PodBindingIssueRequest(BaseModel):
@@ -1333,96 +1338,52 @@ async def create_trusted_device_challenge(
 @router.delete("/trusted-devices/{device_id}")
 async def revoke_trusted_device(
     device_id: str,
+    payload: Any = Body(default=None),
     firebase_uid: str = Depends(require_firebase_auth),
+    authorization: str | None = Header(None),
 ):
-    # Revocation is a recovery operation, not an enrollment operation. Keep it
-    # available even when the feature flag or rollout allowlist is withdrawn.
-    devices = TrustedDeviceService()
-    revoked = await run_in_threadpool(
-        devices.revoke_device,
-        user_id=firebase_uid,
-        device_id=device_id,
-    )
-    # An interrupted cross-plane revoke may safely retry for this same owner.
-    existing = (
-        None
-        if revoked
-        else await run_in_threadpool(
-            devices.device_status,
-            user_id=firebase_uid,
-            device_id=device_id,
-        )
-    )
-    if not revoked and (not existing or existing.get("status") != "revoked"):
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "TRUSTED_DEVICE_NOT_FOUND",
-                "message": "The trusted device was not found or was already revoked.",
-            },
-        )
+    from api.routes.account_phone_recovery import require_recovery_signin
+    from hushh_mcp.services import device_action_service
+    from hushh_mcp.services.phone_recovery_state import refuse
 
-    # Device owner capabilities use a device-specific agent id. Persisting a
-    # newer REVOKED row makes DB-backed token validation fail across instances.
-    from hushh_mcp.consent.token import revoke_token
-    from hushh_mcp.services.consent_db import ConsentDBService
-
-    consent_service = ConsentDBService()
-    agent_id = f"device:{device_id}"
-    active_tokens = await consent_service.get_active_internal_tokens(
-        firebase_uid, agent_id=agent_id, scope="vault.owner"
-    )
-    for token_row in active_tokens:
-        token_id = str(token_row.get("token_id") or "")
-        if token_id:
-            revoke_token(token_id)
-            await consent_service.insert_internal_event(
-                user_id=firebase_uid,
-                agent_id=agent_id,
-                scope="vault.owner",
-                action="REVOKED",
-                token_id=token_id,
-                metadata={"reason": "trusted_device_revoked"},
-            )
-
-    # Puppy inference is a separate device-scoped capability, not vault-owner
-    # authority. Revoke its current visible grant too; relay admission also checks
-    # the active-device row so a ledger outage cannot keep a revoked device live.
     try:
-        from hushh_mcp.constants import ConsentScope
+        payload = DeviceActionConfirmRequest.model_validate(payload)
+    except ValueError:
+        # Never reflect a rejected OTP/JWT through FastAPI validation details.
+        raise refuse("DEVICE_ACTION_PROOF_REQUIRED", 403)
+    await require_recovery_signin(authorization, firebase_uid)
+    return await device_action_service.confirm(
+        firebase_uid,
+        device_id,
+        str(payload.operation_id),
+        phone_id_token=payload.phone_id_token,
+        test_code=payload.test_code,
+        revoke=_revoke_trusted_device,
+    )
 
-        puppy_scope = ConsentScope.CAP_PUPPY_INFERENCE.value
-        puppy_tokens = await consent_service.get_active_tokens(firebase_uid, agent_id=agent_id)
-        for token_row in puppy_tokens:
-            if str(token_row.get("scope") or "") != puppy_scope:
-                continue
-            token_id = str(token_row.get("token_id") or "")
-            if not token_id:
-                continue
-            revoke_token(token_id)
-            await consent_service.insert_event(
-                user_id=firebase_uid,
-                agent_id=agent_id,
-                scope=puppy_scope,
-                action="REVOKED",
-                token_id=token_id,
-                scope_description="Puppy inference through the owner's BYOC pod",
-                metadata={"reason": "trusted_device_revoked"},
-            )
-    except Exception:  # noqa: BLE001 - device revocation and active-row checks remain authoritative
-        logger.warning("trusted_device.puppy_grant_revoke_failed")
-    # Fresh statement after device revocation commits: a preceding issuer may
-    # have completed while the revoke waited for its device lock.
-    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
-    pod = await PersonalAgentRegistryRepo().get(firebase_uid)
-    metadata = (pod or {}).get("backend_metadata") or {}
-    binding = (metadata.get("bindings") or {}).get(device_id) or {}
-    return {
-        "success": True,
-        "device_id": device_id,
-        "podBindingVersion": int(binding.get("version") or 0),
-    }
+async def _revoke_trusted_device(device_id: str, firebase_uid: str):
+    from api.routes.account_device_revocation import revoke
+
+    return await revoke(
+        device_id,
+        firebase_uid,
+        devices=TrustedDeviceService(),
+        run=run_in_threadpool,
+        logger=logger,
+    )
+
+
+async def _settle_trusted_device_revocation(device_id: str, firebase_uid: str):
+    from api.routes.account_device_revocation import settle
+
+    return await settle(
+        device_id,
+        firebase_uid,
+        devices=TrustedDeviceService(),
+        run=run_in_threadpool,
+        logger=logger,
+    )
 
 
 class IdentityRefreshRequest(BaseModel):
@@ -1647,6 +1608,7 @@ class DeleteAccountRequest(BaseModel):
         description="Delete only the investor persona, only the RIA persona, or the full account.",
     )
     cleanup: AccountCloudCleanupRequest | None = None
+    continuation_id: UUID | None = None
 
 
 class EmailAliasVerificationStartRequest(BaseModel):
@@ -2081,7 +2043,9 @@ async def confirm_uat_test_phone_verification(
     }
 
 
-def _recent_federated_claims(authorization: str | None, expected_uid: str) -> dict[str, Any]:
+def _recent_federated_claims(
+    authorization: str | None, expected_uid: str, *, require_recent: bool = True
+) -> dict[str, Any]:
     """Require a fresh Google/Apple reauthentication of the current Firebase actor."""
     token = str(authorization or "").removeprefix("Bearer ").strip()
     if (
@@ -2130,8 +2094,8 @@ def _recent_federated_claims(authorization: str | None, expected_uid: str) -> di
         or provider not in _LOST_VAULT_PROVIDER_IDS
         or isinstance(auth_time, bool)
         or not isinstance(auth_time, (int, float))
-        or auth_time < now - _LOST_VAULT_REAUTH_MAX_AGE_SECONDS
-        or auth_time > now + _LOST_VAULT_REAUTH_FUTURE_SKEW_SECONDS
+        or (require_recent and auth_time < now - _LOST_VAULT_REAUTH_MAX_AGE_SECONDS)
+        or (require_recent and auth_time > now + _LOST_VAULT_REAUTH_FUTURE_SKEW_SECONDS)
     ):
         raise HTTPException(status_code=401, detail={"code": "ACCOUNT_DELETE_REAUTH_REQUIRED"})
     return cast(dict[str, Any], claims)
@@ -2256,6 +2220,10 @@ async def delete_lost_vault_account(
         await _verify_lost_vault_phone_proof(payload.phone_id_token, phone)
     elif payload.method != "provider" or payload.phone_id_token:
         raise HTTPException(status_code=403, detail={"code": "ACCOUNT_DELETE_METHOD_UNAVAILABLE"})
+    if payload.continuation_id:
+        from hushh_mcp.services.phone_recovery_continuation import require_ready
+
+        await require_ready(firebase_uid, str(payload.continuation_id), action="delete")
     return await _perform_account_deletion(firebase_uid, target="both")
 
 
@@ -2263,9 +2231,16 @@ async def delete_lost_vault_account(
 async def delete_account(
     payload: DeleteAccountRequest | None = Body(default=None),
     token_data: dict = Depends(require_vault_owner_token),
+    authorization: str | None = Header(None),
 ):
     """Delete an account or persona after vault unlock (VAULT_OWNER authority)."""
     user_id = token_data["user_id"]
+    if payload and payload.continuation_id:
+        from api.routes.account_phone_recovery import require_recovery_signin
+        from hushh_mcp.services.phone_recovery_continuation import require_ready
+
+        await require_recovery_signin(authorization, user_id)
+        await require_ready(user_id, str(payload.continuation_id), action="delete")
     target = payload.target if payload else "both"
     if payload and payload.cleanup:
         if target != "both":
