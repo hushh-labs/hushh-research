@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentSettingsPanel } from "@/components/profile/agent-settings-panel";
 import { NO_UPDATE } from "@/lib/feed/use-agent-deployment-follow";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { AZURE_SIGN_IN_CHANNEL } from "@/lib/one/azure-sign-in";
 
 const mocks = vi.hoisted(() => ({
@@ -114,6 +115,8 @@ async function approveFromPane() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  publishValidatedAuthSessionOwner(null);
+  publishValidatedAuthSessionOwner("owner");
   popup = fakePopup();
   vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
   microsoftWindow = new BroadcastChannel(AZURE_SIGN_IN_CHANNEL);
@@ -136,6 +139,7 @@ afterEach(() => {
   microsoftWindow.close();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  publishValidatedAuthSessionOwner(null);
 });
 
 describe("an Azure update approved from the profile pane", () => {

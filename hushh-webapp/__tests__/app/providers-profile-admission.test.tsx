@@ -44,6 +44,7 @@ const unrelated: Array<[string, string[]]> = [
   ["@/components/agent/agent-dock", ["AgentDockProvider"]],
   ["@/components/app-ui/ambient-chrome-mask", ["AmbientChromeController"]],
   ["@/components/ui/sonner", ["Toaster"]],
+  ["@/components/app-ui/native-feedback-toaster", ["NativeFeedbackToaster"]],
   ["@/components/status-bar-manager", ["StatusBarManager"]],
   ["@/components/keyboard-inset-manager", ["KeyboardInsetManager"]],
   ["@/components/profile/world-model-provider", ["WorldModelProvider"]],

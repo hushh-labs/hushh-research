@@ -2,6 +2,7 @@ import { validNativePayoutPath, validNativeAgentSettingsPath, type NativePayoutP
 export { validNativePayoutPath, validNativeAgentSettingsPath } from "./native-profile-paths";
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import type { NativeControlAppearance } from "./native-control-appearance";
+import type { NativeFeedbackPort } from "./native-feedback";
 import { PROFILE_PREPARATION_SCENES, type ProfilePreparationDescription } from "./native-profile-preparation";
 import type { NativeProfileNameScenePort } from "./native-profile-name-scene";
 import type { NativePasswordScenePort } from "./native-profile-password-scene";
@@ -103,6 +104,8 @@ export type NativeDrawerReadmission = NativeDrawerIdentity & {
   updateSequence: number; privacyGeneration: number; interactionGeneration: number;
 };
 export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort>, Partial<Omit<NativePaymentsScenePort, "addListener">> {
+  applyFeedback?: NativeFeedbackPort["applyFeedback"];
+  retireFeedback?: NativeFeedbackPort["retireFeedback"];
   /** Private, one-shot pasteboard delivery after the authored Copy choice. */
   copyProfileReferralLink?(options: NativeDrawerChoice & { link: string }): Promise<{ copied: boolean }>;
   applyProfileMemoryScene?: NativeMemoryScenePort["applyProfileMemoryScene"];
@@ -117,7 +120,7 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort>, 
   confirmProfileRuntimeAction?: NativeRuntimeScenePort["confirmProfileRuntimeAction"];
   settleProfileRuntimeAction?: NativeRuntimeScenePort["settleProfileRuntimeAction"];
   retireProfileRuntimeScene?: NativeRuntimeScenePort["retireProfileRuntimeScene"];
-  getCapabilities(): Promise<NativeDrawerIsolation & { profilePaymentsPages?: boolean; profilePaymentsScene?: boolean; profileHostingPages?: boolean; profileSoftwareUpdatePages?: boolean; profileReferralPages?: boolean; profilePreparation?: boolean; closeSettlements?: boolean;
+  getCapabilities(): Promise<NativeDrawerIsolation & { privateFeedback?: boolean; profilePaymentsPages?: boolean; profilePaymentsScene?: boolean; profileHostingPages?: boolean; profileSoftwareUpdatePages?: boolean; profileReferralPages?: boolean; profilePreparation?: boolean; closeSettlements?: boolean;
     contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; terminalReadmission?: boolean; presentationCompletion?: boolean; profileMenuRows?: boolean; profileContentHandoff?: boolean; profileNavigationStack?: boolean; compatibleBackRefreshes?: boolean; profileSettingsPages?: boolean; profileVoiceSettings?: boolean; profileTrustedDevices?: boolean; profileAccountActions?: boolean; profileLegalReader?: boolean; agentProfileMenu?: boolean; profileNameScene?: boolean; profileStyleScene?: boolean; profileSupportScene?: boolean; profilePhoneScene?: boolean; profilePortrait?: boolean; profilePricingScene?: boolean; profilePayoutPages?: boolean; profileMemoryPages?: boolean; profileSharedMemoryPages?: boolean; profileSecretMemoryPages?: boolean; profileMemoryScene?: boolean; profileWorldModelPages?: boolean; profileWorldModelPublicProfiles?: boolean; profileFinancePreferences?: boolean; profileVaultMethods?: boolean; profilePasswordScene?: boolean; profileRuntimeScene?: boolean; profileConnectorScene?: boolean; profileConnectorPages?: boolean; routeWorkspaces?: readonly "referrals"[] }>;
   applyProfileWorldModelScene?: NativeWorldModelScenePort["applyProfileWorldModelScene"];
   confirmProfileWorldModelAction?: NativeWorldModelScenePort["confirmProfileWorldModelAction"];
@@ -148,7 +151,7 @@ export interface HushhNativeDrawersPlugin extends Partial<NativeWorkspacePort>, 
   confirmProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["confirmProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["confirmProfileStyleAction"]>;
   settleProfileStyleAction?(options: Parameters<NativeProfileStyleScenePort["settleProfileStyleAction"]>[0]): ReturnType<NativeProfileStyleScenePort["settleProfileStyleAction"]>;
   retireProfileStyleScene?(options: Parameters<NativeProfileStyleScenePort["retireProfileStyleScene"]>[0]): ReturnType<NativeProfileStyleScenePort["retireProfileStyleScene"]>;
-  addListener: NativePaymentsScenePort["addListener"] & NativeMemoryScenePort["addListener"] & NativeConnectorScenePort["addListener"] & NativeRuntimeScenePort["addListener"] & NativeWorldModelScenePort["addListener"] & NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
+  addListener: NativeFeedbackPort["addListener"] & NativePaymentsScenePort["addListener"] & NativeMemoryScenePort["addListener"] & NativeConnectorScenePort["addListener"] & NativeRuntimeScenePort["addListener"] & NativeWorldModelScenePort["addListener"] & NativeProfilePricingScenePort["addListener"] & NativePasswordScenePort["addListener"] & NativeProfileNameScenePort["addListener"] & NativeProfileStyleScenePort["addListener"] & NativeSupportScenePort["addListener"] & NativePhoneScenePort["addListener"] & {
     (eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "workspaceChoice", listener: (event: NativeWorkspaceChoice) => void): Promise<PluginListenerHandle>;
     (eventName: "workspaceEdit", listener: (event: NativeWorkspaceEdit) => void): Promise<PluginListenerHandle>;

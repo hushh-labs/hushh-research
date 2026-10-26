@@ -111,6 +111,7 @@ import {
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
 import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
+import { NativeFeedbackToaster } from "@/components/app-ui/native-feedback-toaster";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
 import { AgentAppNotifiers } from "@/components/agent/agent-app-notifiers";
@@ -883,6 +884,7 @@ export function Providers({ children }: ProvidersProps) {
             </RenderPerfProfiler>
           </Suspense>
         </AuthProvider>
+        <NativeFeedbackToaster />
         <Toaster
           position="top-center"
           closeButton

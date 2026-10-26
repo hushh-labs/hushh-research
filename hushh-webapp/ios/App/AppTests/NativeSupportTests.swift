@@ -15,6 +15,64 @@ private final class ZeroSafeAreaView: UIView {
 }
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor func testNativeFeedbackReplacementRetainsItsBoundedHostAndOutsideTouches() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let parent = UIViewController()
+        parent.view.backgroundColor = .systemBackground
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil; previous?.makeKeyAndVisible() }
+        let underlying = UIButton(frame: CGRect(x: 24, y: 400, width: 120, height: 44))
+        parent.view.addSubview(underlying)
+        func state(_ sequence: Int) -> NativeFeedbackProjection {
+            NativeFeedbackProjection(documentId: "public-document", ownerEpoch: "public-owner", ownerGeneration: 1,
+                revision: 1, family: "profile", privacyGeneration: 0, feedbackId: "public-notice-\(sequence)",
+                feedbackRevision: 1, feedbackSequence: sequence, destinationId: nil, supportDestinationId: nil,
+                formScene: nil, formRevision: nil, message: "Public result \(sequence)", tone: "success", duration: 3600, dismissible: true)
+        }
+        let feedback = NativeFeedbackPresentation()
+        XCTAssertTrue(feedback.apply(state(1), to: parent))
+        let host = try XCTUnwrap(parent.children.first)
+        XCTAssertTrue(feedback.apply(state(2), to: parent))
+        XCTAssertEqual(parent.children.count, 1)
+        XCTAssertTrue(parent.children.first === host)
+        XCTAssertTrue(host.view.superview === parent.view)
+        parent.view.layoutIfNeeded()
+        XCTAssertGreaterThan(host.view.bounds.height, 0)
+        XCTAssertLessThan(host.view.bounds.height, 150)
+        XCTAssertTrue(parent.view.hitTest(CGPoint(x: 40, y: 420), with: nil) === underlying)
+        XCTAssertFalse(parent.view.accessibilityViewIsModal)
+        feedback.clear()
+        XCTAssertTrue(parent.children.isEmpty)
+        XCTAssertTrue(parent.view.hitTest(CGPoint(x: 40, y: 420), with: nil) === underlying)
+    }
+    func testNativeFeedbackRejectsReorderedUpdatesAndRetiredLoadingResults() throws {
+        func state(_ revision: Int, message: String = "Public result", sequence: Int = 1) throws -> NativeFeedbackProjection {
+            let json: [String: Any] = ["documentId": "public-document", "ownerEpoch": "public-owner", "ownerGeneration": 1,
+                "revision": 1, "family": "profile", "privacyGeneration": 0, "feedbackId": "public-notification-\(sequence)",
+                "feedbackRevision": revision, "feedbackSequence": sequence, "destinationId": "preferences-visit", "supportDestinationId": NSNull(), "formScene": NSNull(), "formRevision": NSNull(),
+                "message": message, "tone": "success", "duration": 3600, "dismissible": true]
+            return try JSONDecoder().decode(NativeFeedbackProjection.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        var fence = NativeFeedbackFence()
+        XCTAssertTrue(fence.apply(try state(1)))
+        XCTAssertTrue(fence.apply(try state(2)))
+        XCTAssertFalse(fence.apply(try state(1)))
+        XCTAssertFalse(fence.apply(try state(3, message: String(repeating: "x", count: 2049))))
+        XCTAssertFalse(fence.retire(id: "public-notification-1", sequence: 1, revision: 1))
+        _ = fence.retire(id: "public-notification-1", sequence: 1, revision: 2)
+        XCTAssertFalse(fence.apply(try state(3)))
+        var retiredBeforeAdmission = NativeFeedbackFence()
+        _ = retiredBeforeAdmission.retire(id: "public-notification-1", sequence: 1, revision: 1)
+        XCTAssertFalse(retiredBeforeAdmission.apply(try state(1)))
+        var expired = NativeFeedbackFence()
+        XCTAssertTrue(expired.apply(try state(1)))
+        XCTAssertTrue(expired.retire(id: "public-notification-1", sequence: 1, revision: 1, terminal: false))
+        XCTAssertTrue(expired.apply(try state(2)), "An old expiry must not reject an already requested newer result")
+        for sequence in 2...1030 { XCTAssertTrue(expired.apply(try state(1, sequence: sequence))) }
+    }
     func testDeletionProofFencesOwnerSessionExpiryAndCancelledExchange() {
         let fence = DeletionPhoneProofFence(userID: "owner", attemptID: "attempt", now: 100)
         XCTAssertFalse(fence.codeSent(userID: "other", sameSession: true, now: 101))

@@ -16,6 +16,33 @@ another navigation stack, WebView, session, or information store.
 The newest entry below is current; older dated candidates are historical
 evidence, not admission or release claims for the latest implementation.
 
+### Owned native feedback candidate — 2026-10-26
+
+Main `e0d97943b5` is integrated at `e07963b63b`; its seven operations paths and
+the preceding 48 Wallet/receipt paths preserve main exactly. PR #8474 remains
+draft. Exact-head CI passed native builds and the core/targeted jobs; two full
+suite failures exposed missing authenticated-owner setup and stale payout-model
+assertions. The corrected nearest suites pass 50 tests without changing runtime
+authorization, shared financial owners, deadlines or release policy.
+
+Native Profile transient feedback now uses an additive, private NativeDrawers
+capability. Morphy still owns the Sonner promise and its single notification ID;
+the qualified native renderer owns one bounded banner inside the active drawer
+or exact editor sheet. It never becomes a window-level/modal overlay or an
+operation owner. Loading and settlement retain their renderer and host. Pending
+compatible admission coalesces the latest result; destination, form, owner and
+privacy changes retire it. Ordered identities reject stale expiry and dismissal.
+Private text remains memory-only; privacy retirement cancels timers and scrubs it.
+
+Profile's authored plain-text feedback uses this shared path. Rich messages and
+callback-authored outcomes are not automatically flattened into native metadata;
+their existing feature presentation remains explicit. Menus, confirmations and
+forms retain their existing complete owned presenters and dismissal contracts.
+Web, Android and unsupported wrappers keep Sonner. Ordinary custom-native
+Release/TestFlight admission remains **off**. The candidate's physical banner,
+touch, visual, accessibility and Release performance acceptance is not established
+by bridge tests or compilation; record the installed candidate's results below.
+
 ### Root-worktree Profile completion candidate — 2026-10-25
 
 The root worktree supersedes the retired ADK checkout as the active source.

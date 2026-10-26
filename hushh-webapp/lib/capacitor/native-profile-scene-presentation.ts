@@ -1,4 +1,5 @@
 import type { PluginListenerHandle } from "@capacitor/core";
+import { retainNativeFeedbackForm, refreshNativeFeedback } from "./native-feedback";
 import { nativeDrawerAcknowledged as acknowledged, reconcileNativeDrawerIsolation,
   retainNativeDrawerIsolation, sameNativeDrawer, subscribeNativeDrawerIsolation,
   type HushhNativeDrawersPlugin } from "./native-drawers";
@@ -39,6 +40,8 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
   private listening = false;
   private ready = false;
   private withdrawal: Promise<boolean> | null = null;
+  private appliedUpdate = 0;
+  private releaseFeedbackForm: (() => void) | null = null;
   constructor(readonly identity: NativeProfileSceneIdentity,
     private readonly port: NativeProfileScenePort<P, E, A>,
     private readonly fence: NativeProfileSceneFence<P, E, A>,
@@ -57,6 +60,9 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
       if (!await this.installListener(this.port.choices(event => { void this.choose(event); }))) return false;
       if (!await this.installListener(subscribeNativeDrawerIsolation(this.port.source), true)) return false;
       this.ready = true;
+      this.releaseFeedbackForm = retainNativeFeedbackForm({ identity: this.identity, scene: this.identity.scene,
+        destinationId: this.identity.destinationId, current: () => !this.disposed && this.ownerIsCurrent(),
+        ready: () => !!this.current && this.appliedUpdate === this.current.state.updateSequence });
       return true;
     } catch { await this.fail(); return false; }
   }
@@ -102,7 +108,11 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
         if (!receipt || !sameNativeDrawer(receipt, state) || receipt.scene !== state.scene || receipt.destinationId !== state.destinationId ||
             receipt.phase !== "active" || receipt.updateSequence !== state.updateSequence ||
             receipt.privacyGeneration !== state.privacyGeneration || !this.ownerIsCurrent()) { await this.fail(); return; }
-        if (this.current?.state.updateSequence === state.updateSequence) this.onPhase("active");
+        if (this.current?.state.updateSequence === state.updateSequence) {
+          this.appliedUpdate = state.updateSequence;
+          this.onPhase("active");
+          refreshNativeFeedback();
+        }
       } catch { await this.fail(); return; }
     }
   }
@@ -150,6 +160,7 @@ export class NativeProfileScenePresentation<P extends NativeProfileSceneState,
   retire(): Promise<boolean> { return this.withdrawal ??= this.withdraw(); }
   private async withdraw(): Promise<boolean> {
     this.disposed = true;
+    this.releaseFeedbackForm?.(); this.releaseFeedbackForm = null;
     this.ready = false;
     this.fence.retire();
     this.pending = null;

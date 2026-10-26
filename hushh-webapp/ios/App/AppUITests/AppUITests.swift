@@ -5119,6 +5119,14 @@ final class AppUITests: XCTestCase {
                     // synthetic overlay or another copy of the Profile scene.
                     for expected in [original == "1" ? "0" : "1", original] {
                         haptics.tap()
+                        if ProcessInfo.processInfo.environment["HUSHH_EXPECT_NATIVE_FEEDBACK"] == "true" {
+                            let feedback = app.descendants(matching: .any).matching(identifier: "native-feedback-banner").firstMatch
+                            XCTAssertTrue(feedback.waitForExistence(timeout: 3), "PROFILE_NATIVE_FEEDBACK_NOT_VISIBLE")
+                            XCTAssertTrue(haptics.isHittable && nativeAccountBack.isHittable && close.isHittable,
+                                "PROFILE_NATIVE_FEEDBACK_BLOCKED_TOUCH")
+                            XCTAssertFalse(app.otherElements["Notifications alt+T"].isHittable,
+                                "PROFILE_NATIVE_FEEDBACK_HAS_WEB_DUPLICATE")
+                        }
                         let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                             haptics.exists && haptics.isHittable && haptics.value as? String == expected &&
                                 nativeAccountBack.exists && nativeAccountBack.isHittable && close.exists && close.isHittable

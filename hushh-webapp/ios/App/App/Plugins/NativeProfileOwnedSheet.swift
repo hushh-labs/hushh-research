@@ -5,6 +5,7 @@ import UIKit
 @MainActor protocol NativeProfileOwnedForm: AnyObject {
     var coversPresentation: Bool { get }
     var presentationSettled: Bool { get }
+    var feedbackPresenter: UIViewController? { get }
     func refreshPrivacy()
     var identity: NativeDrawerIdentity { get }
     var sceneName: String { get }
@@ -41,6 +42,7 @@ final class NativeProfileOwnedSheet: NSObject, UIAdaptivePresentationControllerD
               !host.isBeingPresented, !host.isBeingDismissed else { return false }
         return true
     }
+    var feedbackPresenter: UIViewController? { presentationSettled ? host : nil }
     var coversPresentation: Bool {
         host?.presentingViewController != nil || presenting || retiring || hasPending()
     }

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C4A7B90100000000000000A2 /* NativeFeedbackPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A7B90100000000000000A1; };
 		5E5510AC0000000000000002 /* GoogleConnectorAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */; };
 		AC0011223344556677889901 /* CountryPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0011223344556677889902 /* CountryPickerTests.swift */; };
 		139101184C4F226D678D2C5B /* AppUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */; };
@@ -115,6 +116,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		C4A7B90100000000000000A1 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NativeFeedbackPresentation.swift; path = Plugins/NativeFeedbackPresentation.swift; sourceTree = "<group>"; };
 		5E5510AC0000000000000001 /* GoogleConnectorAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GoogleConnectorAuthPlugin.swift; path = Plugins/GoogleConnectorAuthPlugin.swift; sourceTree = "<group>"; };
 		AC0011223344556677889902 /* CountryPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryPickerTests.swift; sourceTree = "<group>"; };
 		0E424BC311E720A549078D16 /* NativeTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeTestSupport.swift; sourceTree = "<group>"; };
@@ -345,6 +347,7 @@
 				5E5510A10000000000000007 /* HushhNativeChromePresenter.swift */,
 				5E5510A10000000000000009 /* HushhNativeDockPlugin.swift */,
 				5E5510C10000000000000001 /* NativeDrawerState.swift */,
+				C4A7B90100000000000000A1 /* NativeFeedbackPresentation.swift */,
 				5E5510C10000000000000009 /* NativeProfileNameScene.swift */,
 				5E5510C100000000000000D0 /* NativeProfileWorldModelScene.swift */,
 				5E5510C100000000000000D2 /* NativeProfileRuntimeScene.swift */,
@@ -608,6 +611,7 @@
 				5E5510A1000000000000000C /* NativePresentationContainer.swift in Sources */,
 				5E5510B10000000000000002 /* NativeHistoryQualification.swift in Sources */,
 				5E5510C10000000000000002 /* NativeDrawerState.swift in Sources */,
+				C4A7B90100000000000000A2 /* NativeFeedbackPresentation.swift in Sources */,
 				5E5510C1000000000000000A /* NativeProfileNameScene.swift in Sources */,
 				5E5510C100000000000000D1 /* NativeProfileWorldModelScene.swift in Sources */,
 				5E5510C100000000000000D3 /* NativeProfileRuntimeScene.swift in Sources */,

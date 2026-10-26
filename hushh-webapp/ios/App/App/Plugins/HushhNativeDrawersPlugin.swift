@@ -48,6 +48,8 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     let jsName = "HushhNativeDrawers"
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "applyFeedback", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "retireFeedback", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "applyProfilePaymentsScene", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmProfilePaymentsAction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "settleProfilePaymentsAction", returnType: CAPPluginReturnPromise),
@@ -108,6 +110,11 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     private var controllers = [String: NativeDrawerPresentationController]()
     private var retiringControllers = [ObjectIdentifier: NativeDrawerPresentationController]()
     private var form: NativeProfileOwnedForm?
+    @MainActor private lazy var feedback: NativeFeedbackPresentation = {
+        let presenter = NativeFeedbackPresentation()
+        presenter.ended = { [weak self] event in self?.notifyListeners("feedbackEnded", data: event, retainUntilConsumed: false) }
+        return presenter
+    }()
     private var nameScene: NativeProfileNameScene? {
         get { form as? NativeProfileNameScene }
         set { form = newValue }
@@ -197,6 +204,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
+                "privateFeedback": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell && UIDevice.current.userInterfaceIdiom == .phone,
                 "historyActions": self?.supported == true,
                 "profileMenuRows": self?.supported == true,
                 "profilePortrait": self?.supported == true,
@@ -260,6 +268,57 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         return form == nil
     }
+    @objc func applyFeedback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.supported, NativeDrawerQualificationPolicy.coherentShell,
+                  UIDevice.current.userInterfaceIdiom == .phone,
+                  let options = call.options as? [String: Any], Set(options.keys) == NativeFeedbackProjection.keys,
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
+                  bytes.count <= 12000, let state = try? JSONDecoder().decode(NativeFeedbackProjection.self, from: bytes), state.valid else {
+                call.reject("NATIVE_FEEDBACK_INVALID"); return
+            }
+            let shield = HushhSessionPrivacyShield.shared
+            let privacy = shield.snapshot()
+            guard privacy.appIsActive, !privacy.shielded, privacy.generation == state.privacyGeneration,
+                  shield.acceptsDocument(state.documentId), self.sessionFence.contains(state.identity),
+                  self.leases[state.family]?.identity == state.identity,
+                  let controller = self.controllers[state.family], state.belongs(to: controller.model.projection),
+                  self.retiringControllers.isEmpty, self.retiringForms.isEmpty else {
+                call.resolve(["applied": false]); return
+            }
+            let parent: UIViewController?
+            if let form = self.form {
+                parent = form.identity.documentId == state.documentId && form.identity.ownerEpoch == state.ownerEpoch &&
+                    form.identity.ownerGeneration == state.ownerGeneration && form.identity.revision == state.formRevision &&
+                    form.sceneName == state.formScene ? form.feedbackPresenter : nil
+            } else {
+                parent = state.formScene == nil && controller.presentationLayoutSettled &&
+                    controller.model.interactionEnabled ? controller.host : nil
+            }
+            guard let parent, parent.view.window === self.bridge?.viewController?.view.window,
+                  parent.presentedViewController == nil else { call.resolve(["applied": false]); return }
+            call.resolve(["applied": self.feedback.apply(state, to: parent)])
+        }
+    }
+    @objc func retireFeedback(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let options = call.options as? [String: Any],
+                  Set(options.keys) == NativeFeedbackProjection.keys.subtracting(["message", "tone", "duration", "dismissible"]),
+                  JSONSerialization.isValidJSONObject(options), let bytes = try? JSONSerialization.data(withJSONObject: options),
+                  bytes.count <= 12000,
+                  let identity = try? JSONDecoder().decode(NativeDrawerIdentity.self, from: bytes), identity.valid,
+                  let id = options["feedbackId"] as? String, NativeDrawerIdentity.identifier(id) else {
+                call.reject("NATIVE_FEEDBACK_INVALID"); return
+            }
+            // IDs are opaque and owner-bound. Cleanup never authorizes an action.
+            guard self.sessionFence.contains(identity) else { call.resolve(["retired": false]); return }
+            guard let sequence = options["feedbackSequence"] as? Int, let revision = options["feedbackRevision"] as? Int,
+                  sequence > 0, revision >= 0, sequence <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
+                  revision <= HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { call.reject("NATIVE_FEEDBACK_INVALID"); return }
+            self.feedback.retire(id: id, sequence: sequence, revision: revision, context: options)
+            call.resolve(["retired": true])
+        }
+    }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.supported, let parent = self.bridge?.viewController, let container = self.container else {
@@ -313,6 +372,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.leases[next.family] = lease
             if let previous = self.controllers[next.family] {
+                self.feedback.retainOnly(next)
                 if next.family == "profile", (previous.model.projection.profileDestinationId != next.profileDestinationId ||
                     previous.model.projection.profileSupportDestinationId != next.profileSupportDestinationId),
                    self.form != nil { self.retireProfileForm() }
@@ -553,6 +613,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
          "privacyGeneration": max(0, lease.privacyGeneration), "phase": "retired"]
     }
     @MainActor private func detach(_ family: String, completion: @escaping () -> Void = {}) {
+        feedback.retireFamily(family)
         guard let controller = controllers.removeValue(forKey: family) else {
             afterOwnedFormRetirement(family, completion: completion); return
         }
@@ -578,6 +639,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         else { completion() }
     }
     @MainActor private func retireAll() {
+        feedback.clear()
         retireWorkspacePresentation()
         retireProfileForm()
         for family in Array(controllers.keys) {
@@ -1566,6 +1628,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     @MainActor private func retireProfileForm(completion: @escaping () -> Void = {}) {
+        feedback.retireFamily("profile")
         guard let scene = form else {
             let retiring = Array(retiringForms.values)
             guard !retiring.isEmpty else { completion(); return }

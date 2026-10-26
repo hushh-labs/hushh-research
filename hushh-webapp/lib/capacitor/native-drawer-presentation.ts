@@ -1,6 +1,7 @@
 import type { PluginListenerHandle } from "@capacitor/core";
 import { nativeLegalActionIds } from "./native-profile-legal";
 import { acknowledgeNativeProfilePreparation } from "./native-profile-preparation";
+import { receiveNativeFeedbackEnd, retainNativeFeedbackOwner, refreshNativeFeedback } from "./native-feedback";
 import {
   NativeDrawerChoiceFence, sameNativeDrawer, validNativeDrawerProjection,
   subscribeNativeDrawerIsolation, reconcileNativeDrawerIsolation, retainNativeDrawerIsolation,
@@ -59,6 +60,8 @@ export class NativeDrawerPresentation {
   private seenChoice = 0;
   private withdrawal: Promise<boolean> | null = null;
   private phase: NativeDrawerPresentationPhase = "preparing";
+  private releaseFeedback: (() => void) | null = null;
+  private feedbackHandle: PluginListenerHandle | null = null;
 
   constructor(
     readonly identity: NativeDrawerIdentity,
@@ -114,6 +117,16 @@ export class NativeDrawerPresentation {
       const isolation = await acknowledged(pendingIsolation);
       if (this.disposed) { removeLateIsolation(isolation); return false; }
       this.isolationHandle = isolation;
+      if (capability.privateFeedback === true && this.plugin.applyFeedback && this.plugin.retireFeedback) {
+        const feedback = await this.plugin.addListener("feedbackEnded", receiveNativeFeedbackEnd);
+        if (this.disposed) { await feedback.remove(); return false; }
+        this.feedbackHandle = feedback;
+        this.releaseFeedback = retainNativeFeedbackOwner({ plugin: this.plugin,
+          current: () => !this.disposed && this.ownerIsCurrent(),
+          ready: () => this.phase === "active" && !!this.current && this.applied === this.current.state.updateSequence &&
+            (!this.completionRequired || this.settledUpdate === this.current.state.updateSequence),
+          state: () => this.current?.state ?? null });
+      }
       return true;
     } catch {
       if (!this.disposed) this.quarantine();
@@ -191,6 +204,7 @@ export class NativeDrawerPresentation {
     if (!state || this.disposed || !this.ownerIsCurrent() || this.applied !== state.updateSequence ||
         this.presentedUpdate >= state.updateSequence || this.completionRequired && this.settledUpdate !== state.updateSequence) return;
     this.presentedUpdate = state.updateSequence;
+    refreshNativeFeedback();
     this.onApplied?.(state);
   }
 
@@ -366,6 +380,9 @@ export class NativeDrawerPresentation {
   }
   private async withdraw(): Promise<boolean> {
     this.disposed = true;
+    this.releaseFeedback?.(); this.releaseFeedback = null;
+    if (this.feedbackHandle) void this.feedbackHandle.remove().catch(() => undefined);
+    this.feedbackHandle = null;
     this.fence.retire();
     this.destinations.clear();
     this.pending = null;

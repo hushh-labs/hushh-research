@@ -1,6 +1,8 @@
 "use client";
 
-import { toast } from "sonner";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
+
+
 import type { NativeDrawerRow, NativeDrawerSection, NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import type { NativeDrawerActions } from "@/lib/capacitor/native-drawer-presentation";
 import { VOICE_ENGINE_DOMAINS } from "@/lib/agent/voice-engine-domains";
@@ -31,7 +33,7 @@ export function useNativeVoiceProfile({ enabled, userId, vaultOwnerToken, getIdT
     for (const value of [true, false]) action(`${id}-${value ? "on" : "off"}`, async () => {
       if (!allowed || selected === value) return;
       const applied = await change(value);
-      if (applied === false && current()) toast.error("Couldn’t save this preference. Please try again.");
+      if (applied === false && current()) morphyToast.error("Couldn’t save this preference. Please try again.");
     });
     return { id, label, ...(detail ? { detail } : {}), enabled: allowed && !pending, pending, toggle: true,
       options: [true, false].map(value => ({ id: `${id}-${value ? "on" : "off"}`, label: value ? "On" : "Off", selected: selected === value })) };
@@ -69,10 +71,10 @@ export function useNativeVoiceProfile({ enabled, userId, vaultOwnerToken, getIdT
   if (location.defaults) {
     const value = location.defaults;
     action("voice-sos-open", async () => {
-      if (value.sosDefaultAction !== "open" && !await location.setSos("open") && current()) toast.error("Couldn’t save this preference.");
+      if (value.sosDefaultAction !== "open" && !await location.setSos("open") && current()) morphyToast.error("Couldn’t save this preference.");
     });
     action("voice-sos-trigger", async () => {
-      if (value.sosDefaultAction !== "trigger" && !await location.setSos("trigger") && current()) toast.error("Couldn’t save this preference.");
+      if (value.sosDefaultAction !== "trigger" && !await location.setSos("trigger") && current()) morphyToast.error("Couldn’t save this preference.");
     });
     sections.push({ id: "voice-location", title: "Location", rows: [
       binary("voice-auto-approve", "Auto-approve requests", value.autoApproveRequests, location.setAutoApprove,
