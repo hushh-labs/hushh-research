@@ -622,7 +622,7 @@ for (const width of [320, 390, 1440]) {
     const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { height: 844, shell: true }); await mount(page);
     await page.getByRole("tab", { name: "Shared with me", exact: true }).click();
     const received = page.getByRole("region", { name: "Received card history", exact: true });
-    const receivedTile = received.getByRole("button", { name: "View Everyday •••• 4242 from Example Sender", exact: true });
+    const receivedTile = received.getByRole("button", { name: "View VISA •••• 4242 from Example Sender", exact: true });
     await receivedTile.click();
     const receivedDetail = page.getByRole("dialog", { name: "Example Sender", exact: true });
     await expect(receivedDetail.getByText(/15 minutes/)).toBeVisible();
@@ -771,14 +771,25 @@ for (const width of [320, 390, 1440]) {
   });
 }
 
-for (const width of [320, 820, 1440]) {
-  test(`received cards use the collection geometry and preserve history at ${width}px`, async ({ page }) => {
-    const errors = await open(page, width, "light", { cards: 3, sharingHistory: true }, { shell: true }); await mount(page);
+for (const width of [320, 390, 820, 1440]) for (const theme of ["light", "dark"] as const) {
+  test(`received cards use the collection geometry and preserve history at ${width}px (${theme})`, async ({ page }, testInfo) => {
+    const errors = await open(page, width, theme, { cards: 3, sharingHistory: true }, { shell: true }); await mount(page);
     await page.getByRole("tab", { name: "Shared with me", exact: true }).click();
     const history = page.getByRole("region", { name: "Received card history" });
     await expect(history).toBeVisible();
     await expect(history.getByTestId("wallet-received-card-preview").first()).toBeVisible();
+    const face = history.getByTestId("wallet-card-face").first();
+    await expect(face).toHaveAttribute("data-revealed", "false");
+    await expect(face.getByRole("img", { name: "Visa", exact: true })).toBeVisible();
+    await expect(face.locator('[data-slot="wallet-card-number"]')).toHaveText(/4242/);
+    await expect(face.locator('[data-slot="wallet-card-expiry"]')).toContainText("••/••");
+    const bounds = (await face.boundingBox())!;
+    expect(bounds.width / bounds.height).toBeCloseTo(ISO_RATIO, 1);
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(await face.locator('[data-slot="wallet-card-number"], [data-slot="wallet-card-holder"], [data-slot="wallet-card-expiry"]').evaluateAll(elements => elements.every(element => element.scrollWidth <= element.clientWidth + 1))).toBe(true);
     await expect(history).toContainText("From");
+    await page.screenshot({ path: testInfo.outputPath(`wallet-received-${width}-${theme}.png`), fullPage: true });
     const tile = history.getByRole("button", { name: /^View / }).first();
     await tile.click();
     const dialog = page.getByRole("dialog");

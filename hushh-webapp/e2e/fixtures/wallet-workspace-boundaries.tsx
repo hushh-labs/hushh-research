@@ -296,7 +296,7 @@ export const ApiService = {
       record(`history-loaded:${received ? "received" : "outgoing"}`);
     }
     const history: CardSharingHistory = {
-      items: hasSharingHistory ? [{ ...sharedCardHistory, id: received ? "fixture-received-grant" : sharedCardHistory.id, senderName: received ? "Example Sender" : sharedCardHistory.senderName, status: !received && sharedCardRevoked ? "revoked" : "active", revokedAt: !received && sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }] : [],
+      items: hasSharingHistory ? [{ ...sharedCardHistory, id: received ? "fixture-received-grant" : sharedCardHistory.id, displayLabel: received ? "VISA •••• 4242" : sharedCardHistory.displayLabel, senderName: received ? "Example Sender" : sharedCardHistory.senderName, status: !received && sharedCardRevoked ? "revoked" : "active", revokedAt: !received && sharedCardRevoked ? "2026-10-12T10:02:00Z" : null }] : [],
       recipientCount: hasSharingHistory ? 1 : 0,
       hasMore: false, nextCursor: null, serverNow: "2026-10-12T10:02:00Z",
     };

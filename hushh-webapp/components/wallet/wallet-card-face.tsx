@@ -35,6 +35,8 @@ export interface WalletCardFaceProps {
   artworkPending?: boolean;
   /** Unsaved form preview; missing fields use labels rather than zero dates. */
   placeholder?: boolean;
+  /** Received history supplies only a network and last four, never full details. */
+  protectedDetails?: boolean;
   /** Decrypted owner-only display projection, never a chat/index summary. */
   cardholderName?: string;
   /** Retained for callers; all payment-card surfaces share one finish. */
@@ -78,15 +80,16 @@ function FaceNumber({ groups, label, className }: { groups: string[]; label: str
   </span>;
 }
 
-export function WalletCardFace({ summary, artwork, artworkPending = false, placeholder = false, cardholderName, revealed, children, className }: WalletCardFaceProps) {
+export function WalletCardFace({ summary, artwork, artworkPending = false, placeholder = false, protectedDetails = false, cardholderName, revealed: requestedReveal, children, className }: WalletCardFaceProps) {
+  const revealed = protectedDetails ? null : requestedReveal;
   const [imageShape, setImageShape] = useState<{ digest: string; image: string; ratio: number; failed: boolean } | null>(null);
   const network = cardNetworkLabel(summary.brand);
   const title = summary.nickname?.trim();
   const groups = revealed
     ? formatCardNumber(summary.brand, revealed.pan).split(" ")
     : maskedCardNumberGroups(summary.brand, summary.last4);
-  const expiry = placeholder && (!summary.expiryMonth || !summary.expiryYear) ? "MM/YY" : formatCardExpiry(summary.expiryMonth, summary.expiryYear);
-  const holder = revealed?.cardholderName || cardholderName || (placeholder ? "YOUR NAME" : undefined);
+  const expiry = protectedDetails ? "••/••" : placeholder && (!summary.expiryMonth || !summary.expiryYear) ? "MM/YY" : formatCardExpiry(summary.expiryMonth, summary.expiryYear);
+  const holder = protectedDetails ? "•••• ••••" : revealed?.cardholderName || cardholderName || (placeholder ? "YOUR NAME" : undefined);
   const accessibleLast4 = /^\d{4}$/.test(summary.last4) ? summary.last4 : "hidden";
   const numberLabel = revealed ? `Card number ${formatCardNumber(summary.brand, revealed.pan)}` : `${network} ending ${accessibleLast4}`;
   const printedDetails = <span data-slot="wallet-card-embedded-details" className={styles.artworkDetails}>
@@ -163,7 +166,7 @@ export function WalletCardFace({ summary, artwork, artworkPending = false, place
               <FaceField slot="wallet-card-region" caption="Issued in" value={summary.issuingRegion || "Not saved"} />
             )}
             <FaceField slot="wallet-card-expiry" caption="Expires" value={expiry} align="end" />
-            {holder && summary.issuingRegion ? (
+            {!protectedDetails && holder && summary.issuingRegion ? (
               <FaceField slot="wallet-card-region" caption="Region" value={summary.issuingRegion} align="end" />
             ) : null}
           </span>
