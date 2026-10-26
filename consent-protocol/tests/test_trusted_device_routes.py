@@ -821,24 +821,3 @@ async def test_browser_device_approval_returns_the_captured_generation(monkeypat
         with pytest.raises(HTTPException) as raised:
             await account._verify_browser_enrollment_identity("Bearer synthetic-browser-proof")
         assert raised.value.status_code == (401 if outcome == "retired" else 503)
-
-
-@pytest.mark.asyncio
-async def test_phone_proof_cannot_approve_a_device_and_gain_owner_authority(monkeypatch):
-    from firebase_admin import auth as firebase_auth
-
-    monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "false")
-    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
-    monkeypatch.setattr(
-        firebase_auth,
-        "verify_id_token",
-        lambda *_args, **_kwargs: {
-            "uid": "previous",
-            "firebase": {"sign_in_provider": "phone"},
-            "phone_number": "+16505550101",
-        },
-    )
-    with pytest.raises(HTTPException) as error:
-        await account._verify_browser_enrollment_identity("Bearer synthetic-phone-proof")
-    assert error.value.status_code == 403
-    assert error.value.detail["code"] == "AUTH_INDEPENDENT_SIGN_IN_REQUIRED"

@@ -3636,6 +3636,19 @@ function ProfilePageContent({
     updateProfileView({ panel: "account", detail: null }, "replace");
   };
 
+  const accountPhoneProps = {
+    ownerKey: phoneVisit.id, isCurrent: phoneVisitIsCurrent,
+    mode: phoneNumber ? "replace" as const : "link" as const, currentPhoneNumber: phoneNumber,
+    startVerification: phoneNumber ? startPhoneReplacement : startPhoneVerification,
+    confirmVerification: phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification,
+    confirmTransfer: confirmPhoneTransfer,
+    recoverPreviousAccount: () => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` }),
+    deletePreviousAccount: () => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` }),
+    onCompleted: handleAccountPhoneCompleted, onBackStepChange: bindPhoneBackStep, onCancel: popProfileStack,
+  };
+
+
+
   const accountContent = (
     <div
       className={cn(
@@ -4277,22 +4290,7 @@ function ProfilePageContent({
         ) : (
           <>
             {presentation === "native-page" ? <div ref={setNativePhoneHost} /> : <PhoneVerificationFlow
-              ownerKey={phoneVisit.id}
-              isCurrent={phoneVisitIsCurrent}
-              mode={phoneNumber ? "replace" : "link"}
-              currentPhoneNumber={phoneNumber}
-              startVerification={
-                phoneNumber ? startPhoneReplacement : startPhoneVerification
-              }
-              confirmVerification={
-                phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification
-              }
-              confirmTransfer={confirmPhoneTransfer}
-              recoverPreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
-              deletePreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
-              onCompleted={handleAccountPhoneCompleted}
-              onBackStepChange={bindPhoneBackStep}
-              onCancel={popProfileStack}
+              {...accountPhoneProps}
               confirmLabel="Save phone number"
               className={cn(
                 "gap-5",
@@ -5141,14 +5139,7 @@ function ProfilePageContent({
     detailOverlay={<>{nativeAccountException === "photo" ? <ProfileAvatarEditor openOnMount optionsOnMount
       onPresentationClose={() => setNativeAccountException(null)} /> : null}{vaultOverlays}</>}
     phone={{ active: activePanel === "account" && activeDetail === "phone" && !showVaultUnlock && nativeMenuOpen && !phoneLookupPending,
-      editor: options => <NativePhoneVerificationFlow {...options} ownerKey={phoneVisit.id} isCurrent={phoneVisitIsCurrent}
-        webHost={nativePhoneHost} mode={phoneNumber ? "replace" : "link"} currentPhoneNumber={phoneNumber}
-        startVerification={phoneNumber ? startPhoneReplacement : startPhoneVerification}
-        confirmVerification={phoneNumber ? confirmPhoneReplacement : confirmPhoneVerification}
-        confirmTransfer={confirmPhoneTransfer}
-        recoverPreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
-        deletePreviousAccount={() => signOut({ redirectTo: `${ROUTES.LOGIN}?redirect=${encodeURIComponent(ROUTES.PROFILE)}` })}
-        onCompleted={handleAccountPhoneCompleted} onBackStepChange={bindPhoneBackStep} onCancel={popProfileStack}
+      editor: options => <NativePhoneVerificationFlow {...options} {...accountPhoneProps} webHost={nativePhoneHost}
         confirmLabel="Save phone number" helperText={phoneNumber ? "Enter the new phone number." : "Enter your phone number."}
         className={cn("gap-5", isPanePresentation && accountStyles.phoneDetail)} /> }}
     legal={{ active: activePanel === "legal" && (!activeDetail || legalParent !== null) && !showVaultUnlock, ...nativeLegal,

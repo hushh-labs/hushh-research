@@ -1,3 +1,4 @@
+import { requestPhoneTransfer } from "./account-phone-api";
 import { readPersonalAgentStatus, readCloudRemovalAvailability, readHostingInspection } from "./personal-agent-hosting";
 import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
 /**
@@ -2455,19 +2456,7 @@ export class ApiService {
     return payload as unknown as AccountPhoneClaimResponse;
   }
 
-  static async phoneTransferRequest<T>(path: string, idToken: string, body?: Record<string, unknown>): Promise<T> {
-    const response = await apiFetch(`/api/account/phone/transfer/${path}`, {
-      method: body ? "POST" : "GET",
-      headers: { Authorization: `Bearer ${idToken}` },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const { ApiError } = await import("./api-client");
-      throw new ApiError(payload?.detail?.message ?? "Phone transfer is temporarily unavailable. Please retry.", response.status, payload);
-    }
-    return payload as T;
-  }
+  static phoneTransferRequest = <T>(path: string, idToken: string, body?: Record<string, unknown>): Promise<T> => requestPhoneTransfer<T>(apiFetch, path, idToken, body);
 
   static async startUatPhoneTestVerification(
     phoneNumber: string,

@@ -1573,12 +1573,9 @@ async def issue_vault_owner_token(request: Request):
             raise HTTPException(
                 status_code=401, detail="Missing Authorization header with Firebase ID token"
             )
-        # Verify request body
-        body = await request.json()
-        user_id = body.get("userId")
+        from api.utils.vault_owner_request import read_owner_request
 
-        if not user_id:
-            raise HTTPException(status_code=400, detail="userId is required")
+        body, user_id = await read_owner_request(request)
 
         firebase_uid = await run_in_threadpool(
             verify_firebase_bearer, auth_header, require_independent_signin=True

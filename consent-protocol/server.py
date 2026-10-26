@@ -1566,11 +1566,6 @@ async def startup_account_deletion_cleanup_worker() -> None:
         )
 
         _track_startup_background_task(start_account_deletion_cleanup_loop())
-        from hushh_mcp.services.phone_transfer_service import (
-            recovery_loop as phone_transfer_recovery_loop,
-        )
-
-        _track_startup_background_task(asyncio.create_task(phone_transfer_recovery_loop()))
         logger.info("startup.account_deletion_cleanup_worker_registered interval_s=60")
     except Exception as exc:
         # The tombstone verifier and DB triggers remain authoritative even if

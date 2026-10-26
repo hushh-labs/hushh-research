@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import re
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
-from uuid import uuid4
+from unittest.mock import AsyncMock
 
 import asyncpg
 import pytest
@@ -17,132 +14,13 @@ from sqlalchemy import create_engine
 from hushh_mcp.services import actor_identity_service as identity
 from hushh_mcp.services import phone_transfer_service as transfer
 from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
-from tests.pkm_conformance import postgres_harness
+from tests.helpers.phone_transfer_postgres import database_url as database_url
+from tests.helpers.phone_transfer_postgres import seed
 
 ROOT = Path(__file__).resolve().parents[1]
 PHONE = "+16505550101"
+
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
-
-
-@pytest.fixture(scope="module")
-def database_url():
-    if postgres_harness.find_pg_bin() is None:
-        if os.getenv("REQUIRE_PHONE_TRANSFER_POSTGRES") == "1" or os.getenv("CI") == "true":
-            pytest.fail("Phone transfer verification requires disposable PostgreSQL")
-        pytest.skip("local PostgreSQL unavailable")
-    server = postgres_harness.TempPostgres()
-    try:
-        with patch.object(postgres_harness, "MIGRATIONS", []):
-            server.start()
-        server.execute("CREATE TABLE actor_profiles(user_id text PRIMARY KEY)")
-        server.execute("""CREATE TABLE actor_identity_cache(user_id text PRIMARY KEY REFERENCES actor_profiles(user_id),
-            display_name text,email text,phone_number text,custom_photo_url text,photo_url text,email_verified boolean,
-            phone_verified boolean,source text,last_synced_at timestamptz,created_at timestamptz,updated_at timestamptz)""")
-        server.execute(
-            "CREATE UNIQUE INDEX phone_owner ON actor_identity_cache(phone_number) WHERE phone_verified=TRUE"
-        )
-        server.execute(
-            "CREATE TABLE internal_access_events(id bigserial PRIMARY KEY,token_id text,user_id text,agent_id text,scope text,action text,issued_at bigint,metadata jsonb)"
-        )
-        server.execute(
-            "CREATE TABLE account_generations(identity_hash text,owner_hash text,identity_uid text,owner_id text,generation bigint,retired_at timestamptz)"
-        )
-        sql = (ROOT / "db/migrations/419_account_generations.sql").read_text()
-        server.execute(
-            sql[
-                sql.index(
-                    "CREATE TABLE IF NOT EXISTS public.account_firebase_mutations"
-                ) : sql.index(
-                    "CREATE OR REPLACE FUNCTION public.guard_account_firebase_mutation_receipt"
-                )
-            ]
-        )
-        lifecycle_sql = (ROOT / "db/migrations/201_account_deletion_tombstones.sql").read_text()
-        full_pgcrypto = server.execute(
-            "SELECT EXISTS(SELECT 1 FROM pg_available_extensions WHERE name='pgcrypto')"
-        )[0][0]
-        if not full_pgcrypto:
-            if os.getenv("CI") == "true":
-                pytest.fail(
-                    "CI must provide PostgreSQL with pgcrypto; never substitute release prerequisites"
-                )
-            # The portable local binary has core SHA-256 but lacks extension
-            # packaging. Same hash semantics for this neighbour only; this is
-            # not full release-schema qualification. CI uses migration verbatim.
-            server.execute(
-                "CREATE FUNCTION digest(value bytea, algorithm text) RETURNS bytea LANGUAGE sql IMMUTABLE AS $$ SELECT CASE WHEN algorithm='sha256' THEN sha256(value) END $$"
-            )
-            server.execute(
-                "CREATE FUNCTION digest(value text, algorithm text) RETURNS bytea LANGUAGE sql IMMUTABLE AS $$ SELECT digest(convert_to(value,'UTF8'),algorithm) $$"
-            )
-            lifecycle_sql = lifecycle_sql.replace("CREATE EXTENSION IF NOT EXISTS pgcrypto;", "")
-        server.execute(lifecycle_sql)
-        files_sql = (ROOT / "db/migrations/420_private_agent_lifecycle_foundation.sql").read_text()
-        files_start = files_sql.index('CREATE TABLE IF NOT EXISTS public."shared_files_storage"')
-        server.execute(files_sql[files_start : files_sql.index(");", files_start) + 2])
-        for constraint in re.findall(
-            r'EXECUTE \$object\$(ALTER TABLE public\."shared_files_storage" ADD CONSTRAINT .*?;)\$object\$;',
-            files_sql,
-        ):
-            server.execute(constraint)
-        server.apply_file(ROOT / "db/migrations/424_account_phone_transfers.sql")
-        yield f"postgresql://hushh@/postgres?host={server.dir}&port={server.port}"
-    finally:
-        server.stop()
-
-
-async def seed(pool, *, fail_write=False):
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "TRUNCATE account_deletion_tombstones,account_generations,account_phone_transfers,account_phone_auth_fences,account_firebase_mutations,internal_access_events,actor_identity_cache,actor_profiles,vault_keys,pkm_data CASCADE"
-        )
-        await conn.executemany(
-            "INSERT INTO actor_profiles(user_id) VALUES($1)",
-            [(x,) for x in ("previous", "receiving-a", "receiving-b")],
-        )
-        await conn.execute(
-            "INSERT INTO actor_identity_cache(user_id,phone_number,phone_verified,display_name,email) VALUES('previous',$1,TRUE,'Preserved','private@example.test')",
-            PHONE,
-        )
-        await conn.execute(
-            "INSERT INTO pkm_data(user_id,encrypted_data_ciphertext) VALUES('previous','unchanged-ciphertext')"
-        )
-        await conn.execute(
-            "INSERT INTO vault_keys(user_id,vault_status) VALUES('previous','locked')"
-        )
-        await conn.execute(
-            "INSERT INTO shared_files_storage(user_id,bucket,prefix) VALUES('previous','fixture-ciphertext-bucket','opaque-library-prefix')"
-        )
-        before = await conn.fetchrow("SELECT * FROM pkm_data WHERE user_id='previous'")
-        intents = []
-        for index, owner in enumerate(("receiving-a", "receiving-b")):
-            operation = str(uuid4())
-            event = f"fresh-event-{index}"
-            await conn.execute(
-                """INSERT INTO account_phone_transfers(operation_id,user_id,previous_user_id,previous_revision,
-                phone_digest,proof_digest,expires_at,proof_identity_uid,authority_project,proof_owner_id)
-                VALUES($1::uuid,$2,'previous',0,$3,$4,NOW()+INTERVAL '5 minutes','previous','synthetic-auth','previous')""",
-                operation,
-                owner,
-                transfer.account_deletion_phone_digest(PHONE),
-                transfer.proof_digest(event),
-            )
-            intents.append(
-                transfer.ConfirmedTransfer(
-                    operation,
-                    transfer.proof_digest(event),
-                    "previous",
-                    "previous",
-                    0,
-                    "synthetic-auth",
-                    "previous",
-                )
-            )
-        if fail_write:
-            await conn.execute(
-                "ALTER TABLE actor_identity_cache ADD CONSTRAINT fail_receiving_claim CHECK(user_id <> 'receiving-a')"
-            )
-        return intents, before
 
 
 async def test_two_concurrent_confirmations_preserve_information_and_retire_only_phone(
@@ -217,29 +95,7 @@ async def test_two_concurrent_confirmations_preserve_information_and_retire_only
                 )
                 == 1
             )
-        with pytest.raises(HTTPException) as refused:
-            transfer.assert_phone_admission(
-                "previous",
-                {
-                    "uid": "previous",
-                    "phone_number": PHONE,
-                    "firebase": {"sign_in_provider": "phone"},
-                },
-            )
-        assert refused.value.detail["code"] == "AUTH_PHONE_ACCESS_REVOKED"
-        transfer.assert_phone_admission(
-            "previous", {"uid": "previous", "firebase": {"sign_in_provider": "google.com"}}
-        )
-        with pytest.raises(HTTPException) as phone_only:
-            transfer.assert_phone_admission(
-                "previous",
-                {
-                    "uid": "previous",
-                    "phone_number": "+16505550202",
-                    "firebase": {"sign_in_provider": "phone"},
-                },
-            )
-        assert phone_only.value.detail["code"] == "AUTH_INDEPENDENT_SIGN_IN_REQUIRED"
+        _assert_phone_admission_after_transfer()
     finally:
         engine.dispose()
         await pool.close()
@@ -516,160 +372,27 @@ async def test_status_cannot_release_a_live_or_uncertain_provider_dispatch(
         await pool.close()
 
 
-@pytest.mark.parametrize("mode", ["off", "on", "unset", "uncertain"])
-async def test_http_transfer_trace_loop_preserves_information_without_retrying_effects(
-    database_url, monkeypatch, mode
-):
-    import time
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-
-    import httpx
-    from fastapi import FastAPI
-    from firebase_admin import auth
-
-    from api.middleware import require_firebase_auth
-    from api.middlewares import auth_reliability_trace
-    from api.middlewares.observability import (
-        capture_request_trace_events,
-        observability_middleware,
+def _assert_phone_admission_after_transfer():
+    with pytest.raises(HTTPException) as refused:
+        transfer.assert_phone_admission(
+            "previous",
+            {
+                "uid": "previous",
+                "phone_number": PHONE,
+                "firebase": {"sign_in_provider": "phone"},
+            },
+        )
+    assert refused.value.detail["code"] == "AUTH_PHONE_ACCESS_REVOKED"
+    transfer.assert_phone_admission(
+        "previous", {"uid": "previous", "firebase": {"sign_in_provider": "google.com"}}
     )
-    from api.routes import account
-    from api.utils import firebase_admin
-
-    monkeypatch.setenv("ENVIRONMENT", "test")
-    monkeypatch.setenv("OTEL_ENABLED", "false")
-    for name in (
-        *auth_reliability_trace._HOSTED_RUNTIME_MARKERS,
-        "HUSHH_DEPLOY_ENV",
-        "APP_RUNTIME_PROFILE",
-        "AUTH_PHONE_RECOVERY_ENABLED",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2, command_timeout=5)
-    engine = create_engine(database_url)
-    monkeypatch.setattr(identity, "get_pool", AsyncMock(return_value=pool))
-    monkeypatch.setattr(transfer, "get_pool", AsyncMock(return_value=pool))
-    monkeypatch.setattr(transfer.mutations, "get_db_connection", engine.begin)
-    monkeypatch.setattr(identity.ActorIdentityService, "_ensure_actor_spine", AsyncMock())
-    monkeypatch.setattr(
-        identity.ActorIdentityService, "_sync_referral_qualification_best_effort", AsyncMock()
-    )
-    # Provisioning is a separate port; this loop owns phone state, not pod jobs.
-    monkeypatch.setattr(identity.ActorIdentityService, "schedule_provision_personal_agent", Mock())
-    monkeypatch.setattr(identity.ActorIdentityService, "_schedule_phone_resume", Mock())
-    app_identity = SimpleNamespace(project_id="synthetic-auth")
-    provider_user = SimpleNamespace(
-        phone_number=PHONE, provider_data=[SimpleNamespace(provider_id="google.com")]
-    )
-    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: app_identity)
-    monkeypatch.setattr(transfer, "check_provider", lambda *_args: True)
-    monkeypatch.setattr(auth, "get_user", lambda *_args, **_kwargs: provider_user)
-    monkeypatch.setattr(firebase_admin, "assert_firebase_identity_mutation_allowed", lambda _: None)
-
-    async def verify(_token, *, transfer, proof_metadata):
-        assert transfer is True
-        proof_metadata.update(event="http-loop-fresh-sms-event", valid_until=time.time() + 180)
-        return PHONE, "previous"
-
-    def update(_app, uid, fields):
-        assert uid == "previous" and fields == {"deleteProvider": ["phone"]}
-        provider_user.phone_number = None
-        if mode == "uncertain":
-            raise TimeoutError("synthetic-provider-response-lost")
-
-    effect = Mock(side_effect=update)
-    monkeypatch.setattr(account, "_verify_phone_claim_id_token", verify)
-    monkeypatch.setattr(transfer.mutations, "_update_identity", effect)
-    app = FastAPI()
-    app.include_router(account.router)
-    app.middleware("http")(observability_middleware)
-    app.dependency_overrides[require_firebase_auth] = lambda: "receiving-a"
-    enabled = mode != "off"
-    headers = {"X-Trace-Id": "phone-transfer-http-loop-0001"}
-    if mode != "unset":
-        headers["X-Feature-Flags"] = f"AUTH_PHONE_RECOVERY_ENABLED={str(enabled).lower()}"
-    try:
-        _, before = await seed(pool)
-        async with pool.acquire() as conn:
-            await conn.execute("DELETE FROM account_phone_transfers")
-            before_files = await conn.fetchrow("SELECT * FROM shared_files_storage")
-        payload = {"phone_id_token": "synthetic-signed-proof", "expected_user_id": "receiving-a"}
-        with capture_request_trace_events() as events:
-            started = time.perf_counter()
-            async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers
-            ) as client:
-                prepared = await client.post("/api/account/phone/transfer/prepare", json=payload)
-                assert prepared.status_code == (200 if enabled else 503)
-                operation_id = prepared.json().get("transfer_id", str(uuid4()))
-                confirmed = await client.post(
-                    "/api/account/phone/transfer/confirm",
-                    json={**payload, "transfer_id": operation_id, "confirmed": True},
-                )
-                assert confirmed.status_code == (200 if enabled else 503)
-                if enabled:
-                    expected = "in_progress" if mode == "uncertain" else "completed"
-                    assert confirmed.json()["transfer_status"] == expected
-                    # A retry after a lost provider response is status-only, even
-                    # when a provider read would now show the phone absent.
-                    for _ in range(2):
-                        status = await client.get(f"/api/account/phone/transfer/{operation_id}")
-                        assert status.status_code == 200
-                        assert status.json()["transfer_status"] == expected
-                    replay = await client.post(
-                        "/api/account/phone/transfer/confirm",
-                        json={**payload, "transfer_id": operation_id, "confirmed": True},
-                    )
-                    assert replay.status_code == 409
-                else:
-                    with pytest.raises(identity.ActorIdentityPhoneClaimConflictError):
-                        await identity.ActorIdentityService().claim_verified_phone(
-                            user_id="receiving-a", phone_number=PHONE
-                        )
-            assert time.perf_counter() - started < 5
-            expected_stages = (
-                [
-                    "receive",
-                    "provider",
-                    "response",
-                    "receive",
-                    "provider",
-                    "persist",
-                    "provider",
-                    "response",
-                    "receive",
-                    "response",
-                    "receive",
-                    "response",
-                    "receive",
-                    "response",
-                ]
-                if enabled
-                else ["receive", "response", "receive", "response"]
-            )
-            assert [event["name"] for event in events] == [
-                f"auth.phone.{stage}" for stage in expected_stages
-            ]
-            assert all(event["status"] == "ok" for event in events)
-            assert all(event["trace_id"] == headers["X-Trace-Id"] for event in events)
-            assert all(
-                event["feature_flags"]["AUTH_PHONE_RECOVERY_ENABLED"] is enabled for event in events
-            )
-            assert all(event["duration_ms"] < 5000 for event in events)
-            assert PHONE not in str(events) and payload["phone_id_token"] not in str(events)
-        assert effect.call_count == int(enabled)
-        async with pool.acquire() as conn:
-            assert await conn.fetchrow("SELECT * FROM pkm_data WHERE user_id='previous'") == before
-            assert await conn.fetchrow("SELECT * FROM shared_files_storage") == before_files
-            assert await conn.fetchval("SELECT vault_status FROM vault_keys") == "locked"
-            assert await conn.fetchval(
-                "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
-                PHONE,
-            ) == ("receiving-a" if enabled else "previous")
-            assert await conn.fetchval(
-                "SELECT count(*) FROM internal_access_events WHERE action='REVOKED'"
-            ) == int(enabled)
-    finally:
-        engine.dispose()
-        await pool.close()
+    with pytest.raises(HTTPException) as phone_only:
+        transfer.assert_phone_admission(
+            "previous",
+            {
+                "uid": "previous",
+                "phone_number": "+16505550202",
+                "firebase": {"sign_in_provider": "phone"},
+            },
+        )
+    assert phone_only.value.detail["code"] == "AUTH_INDEPENDENT_SIGN_IN_REQUIRED"

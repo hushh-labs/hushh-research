@@ -75,10 +75,12 @@ from hushh_mcp.services.account_generation_service import (
     AccountPrincipal,
 )
 from hushh_mcp.services.account_service import (
-    ACCOUNT_DELETION_FAILED_CODE,
-    ACCOUNT_DELETION_PAUSED_CODE,
-    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
-    PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE as PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+)
+from hushh_mcp.services.account_service import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE as PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+)
+from hushh_mcp.services.account_service import (
     AccountService,
 )
 from hushh_mcp.services.actor_identity_service import (
@@ -1691,112 +1693,16 @@ def _raise_alias_error(exc: ActorIdentityAliasError) -> None:
 async def _verify_phone_claim_id_token(
     raw_token: str, *, transfer: bool = False, proof_metadata: dict | None = None
 ) -> tuple[str, str | None]:
-    normalized_token = str(raw_token or "").strip()
-    if not normalized_token:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "PHONE_ID_TOKEN_REQUIRED",
-                "message": "A phone verification token is required.",
-            },
-        )
+    from api.utils.phone_claim_proof import verify_phone_claim_id_token
 
-    try:
-        from firebase_admin import auth as firebase_auth
-
-        firebase_app = get_firebase_auth_app()
-        decoded = await run_in_threadpool(
-            lambda: firebase_auth.verify_id_token(
-                normalized_token,
-                app=firebase_app,
-                check_revoked=True,
-            )
-        )
-    except (asyncio.TimeoutError, ConnectionError) as exc:
-        logger.warning("phone.transfer.proof_provider_unavailable")
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "PHONE_PROOF_SERVICE_UNAVAILABLE",
-                "message": "Phone verification is temporarily unavailable. Please retry.",
-            },
-        ) from exc
-    except Exception as exc:
-        from firebase_admin import exceptions as firebase_errors
-        from requests.exceptions import RequestException
-
-        if isinstance(
-            exc,
-            (
-                firebase_auth.CertificateFetchError,
-                firebase_errors.UnavailableError,
-                firebase_errors.InternalError,
-                firebase_errors.DeadlineExceededError,
-                RequestException,
-            ),
-        ):
-            logger.warning("phone.transfer.proof_provider_unavailable")
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": "PHONE_PROOF_SERVICE_UNAVAILABLE",
-                    "message": "Phone verification is temporarily unavailable. Please retry.",
-                },
-            ) from exc
-        logger.info("Phone claim token verification failed: %s", type(exc).__name__)
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "INVALID_PHONE_ID_TOKEN",
-                "message": "The phone verification token is invalid or expired.",
-            },
-        ) from exc
-
-    claims: dict[str, Any] = dict(decoded or {})
-    if refuse_foreign_review_mint(claims):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "INVALID_PHONE_ID_TOKEN",
-                "message": "The phone verification token is invalid or expired.",
-            },
-        )
-    firebase_claims = claims.get("firebase")
-    sign_in_provider = (
-        str(firebase_claims.get("sign_in_provider") or "").strip()
-        if isinstance(firebase_claims, dict)
-        else ""
+    return await verify_phone_claim_id_token(
+        raw_token,
+        app_factory=get_firebase_auth_app,
+        run_in_threadpool=run_in_threadpool,
+        refuse_foreign_review_mint=refuse_foreign_review_mint,
+        transfer=transfer,
+        proof_metadata=proof_metadata,
     )
-    if sign_in_provider != "phone":
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "PHONE_ID_TOKEN_PROVIDER_MISMATCH",
-                "message": "The phone verification token must come from Firebase phone auth.",
-            },
-        )
-
-    phone_number = str(claims.get("phone_number") or "").strip()
-    if not phone_number:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "PHONE_ID_TOKEN_MISSING_PHONE_NUMBER",
-                "message": "The phone verification token does not contain a phone number.",
-            },
-        )
-
-    phone_session_uid = str(claims.get("uid") or claims.get("sub") or "").strip() or None
-    if transfer:
-        from hushh_mcp.services.phone_transfer_service import require_fresh_sms_claims
-
-        require_fresh_sms_claims(claims, phone_number)
-        if proof_metadata is not None:
-            # Authentication-event identity survives token refresh; a rotated JWT
-            # must not turn one SMS proof into a second transferable claim.
-            proof_metadata["event"] = f"{phone_session_uid}:{phone_number}:{claims['auth_time']}"
-            proof_metadata["valid_until"] = claims["auth_time"] + 300
-    return phone_number, phone_session_uid
 
 
 @router.post("/phone/transfer/prepare")
@@ -2007,12 +1913,9 @@ async def claim_account_phone(
     """Persist a Firebase phone-auth session as the app-level verified phone claim."""
     _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
-    from hushh_mcp.services.phone_transfer_service import refuse
+    from hushh_mcp.services.phone_transfer_service import assert_claim_available, refuse
 
-    if not await ActorIdentityService().can_claim_test_phone(
-        user_id=firebase_uid, phone_number=phone_number
-    ):
-        raise refuse("PHONE_TRANSFER_CONFIRMATION_REQUIRED")
+    await assert_claim_available(firebase_uid, phone_number)
     protected_identity = firebase_uid
     if re.fullmatch(r"acct_[0-9a-f]{32}", firebase_uid):
         try:
@@ -2421,51 +2324,14 @@ async def _perform_account_deletion(user_id: str, *, target: str):
         )
 
     if not result["success"]:
-        if result.get(
-            "error_code"
-        ) == "PHONE_TRANSFER_IN_PROGRESS" or "PHONE_TRANSFER_IN_PROGRESS" in str(
-            result.get("error", "")
-        ):
-            return JSONResponse(
-                status_code=409,
-                content={
-                    "code": ACCOUNT_DELETION_FAILED_CODE,
-                    "detail": "Phone transfer is still in progress. Check its progress, then retry account deletion.",
-                },
-                headers={"Cache-Control": "private, no-store"},
-            )
-        if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
-                    "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
-                    **_cleanup_provider_detail(result.get("cleanup_provider")),
-                },
-            )
-        if result.get("error_code") == ACCOUNT_DELETION_PAUSED_CODE:
-            # A deploy's release fence refused the erasure; it rolled back and
-            # will succeed once the release ends.
-            logger.warning("account.delete_paused user=%s reason=release_fence", user_id)
-            return JSONResponse(
-                status_code=503,
-                content={"detail": "Account deletion paused", "code": ACCOUNT_DELETION_PAUSED_CODE},
-            )
-        pending_files = _files_erasure_pending_response(result.get("error_code"))
-        if pending_files is not None:
-            # Preserve the exact safe refusal. Unverified uploads require
-            # reconciliation; only a settled bounded batch invites continuation.
-            return pending_files
-        # SECURITY: do not reflect the internal error string in the HTTP response.
-        # The service-layer error may include persona names, DB state, or persona IDs.
-        logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))
-        # The erasure transaction raised and was rolled back, so the account is
-        # normally still intact. The machine code lets clients keep the session
-        # after confirming that through the tombstone-aware status route,
-        # instead of treating a definite failure like a lost response.
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Account deletion failed", "code": ACCOUNT_DELETION_FAILED_CODE},
+        from api.utils.account_deletion_response import failure_response
+
+        return failure_response(
+            user_id,
+            result,
+            logger=logger,
+            cleanup_provider_detail=_cleanup_provider_detail,
+            files_pending=_files_erasure_pending_response,
         )
 
     if result.get("account_deleted") is True:
