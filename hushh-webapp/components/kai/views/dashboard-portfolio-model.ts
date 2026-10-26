@@ -330,8 +330,7 @@ function toPosition(raw: Holding, index: number): DashboardPosition | null {
 }
 
 export function buildDashboardPortfolioModel(portfolioData: PortfolioData): DashboardPortfolioModel {
-  const rawHoldings = (portfolioData.holdings || []) as Holding[];
-  const positions = groupHoldingPositions(rawHoldings)
+  const positions = groupHoldingPositions(portfolioData.holdings || [])
     .map((holding, index) => toPosition(holding, index))
     .filter((row): row is DashboardPosition => Boolean(row))
     .sort((a, b) => b.marketValue - a.marketValue);

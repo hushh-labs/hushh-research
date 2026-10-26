@@ -411,55 +411,6 @@ describe("PkmWriteCoordinator", () => {
       });
     });
 
-    it("passes authoritative merge decisions through merged domain writes", async () => {
-      stubNoUpgradeNeeded();
-      stubWriteContext({
-        baseFullBlob: {
-          financial: {
-            portfolio: { holdings: [{ symbol: "OLD" }] },
-          },
-        },
-      });
-      pkmStoreMergedDomainWithPreparedBlobMock.mockResolvedValue({
-        success: true,
-        conflict: false,
-        dataVersion: 2,
-        fullBlob: {
-          financial: {
-            portfolio: { holdings: [{ symbol: "NEW" }] },
-          },
-        },
-      });
-
-      await PkmWriteCoordinator.saveMergedDomain({
-        ...BASE_PARAMS,
-        domain: "financial",
-        // financial.* is reserved: under enforce only a catalogued Finance writer
-        // may change it, so this case uses one (the test label is uncatalogued).
-        confirmation: { ...BASE_PARAMS.confirmation, source: "kai_manage_portfolio_save" },
-        build: () => ({
-          domainData: {
-            portfolio: { holdings: [{ symbol: "NEW" }] },
-          },
-          summary: { item_count: 1 },
-          mergeDecision: {
-            merge_mode: "replace_domain",
-            target_domain: "financial",
-          },
-        }),
-      });
-
-      expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          domain: "financial",
-          mergeDecision: {
-            merge_mode: "replace_domain",
-            target_domain: "financial",
-          },
-        }),
-      );
-    });
-
     it("records an explicitly confirmed merged-domain deletion as delete", async () => {
       pkmGetMetadataMock.mockResolvedValue({ upgradableDomains: [] });
       pkmGetDomainManifestMock.mockResolvedValue({
@@ -524,13 +475,14 @@ describe("PkmWriteCoordinator", () => {
         confirmation: { ...BASE_PARAMS.confirmation, source: "kai_dashboard_portfolio_save" },
         build: context => ({ domainData: applyStatementHoldingsEdit(context.currentDomainData,
           { ...before, holdings: before.holdings!.slice(1) }, before, null, "2026-10-26T00:00:00Z"),
-          mergeDecision: { merge_mode: "replace_domain" }, summary: {},
+          mergeDecision: { merge_mode: "replace_domain", target_domain: "financial" }, summary: {},
         }),
       });
       expect(result.success).toBe(true);
       expect(pkmStoreMergedDomainWithPreparedBlobMock).toHaveBeenCalledTimes(2);
       const request = pkmStoreMergedDomainWithPreparedBlobMock.mock.calls[1]![0];
-      expect(request.mergeDecision.merge_mode).toBe("replace_domain");
+      expect(request.domain).toBe("financial");
+      expect(request.mergeDecision).toEqual({ merge_mode: "replace_domain", target_domain: "financial" });
       expect(request.domainData.profile).toEqual({ revision: 2 });
       expect(request.domainData.portfolio.holdings.map((entry: { entry_id: string }) => entry.entry_id)).toEqual(["two"]);
     });
