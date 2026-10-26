@@ -1,13 +1,14 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ state: vi.fn(), recipients: vi.fn(), receipts: vi.fn(), revoke: vi.fn(), observe: vi.fn(), disconnect: vi.fn() }));
-vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { state: mocks.state, revoke: mocks.revoke, recipients: mocks.recipients }, CardAccessUnavailableError: class extends Error {} }));
+const mocks = vi.hoisted(() => ({ state: vi.fn(), recipients: vi.fn(), receipts: vi.fn(), revoke: vi.fn(), share: vi.fn(), encrypt: vi.fn(), observe: vi.fn(), disconnect: vi.fn() }));
+vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { state: mocks.state, revoke: mocks.revoke, recipients: mocks.recipients, share: mocks.share }, CardAccessUnavailableError: class extends Error {} }));
 vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { listCardShareReceipts: mocks.receipts } }));
+vi.mock("@/lib/services/wallet-card-share-service", async original => ({ ...await original<typeof import("@/lib/services/wallet-card-share-service")>(), prepareTemporaryCardShares: mocks.encrypt }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { success: vi.fn(), error: vi.fn() } }));
-vi.mock("@/components/profile/profile-pane-icons", () => ({ ProfilePaneAccountIcon: () => <span data-testid="person-icon" />, ProfilePaneInviteIcon: () => <span />, ProfilePaneSecurityIcon: () => <span /> }));
+vi.mock("@/components/profile/profile-pane-icons", () => ({ ProfilePaneAccountIcon: () => <span data-testid="person-icon" />, ProfilePaneInviteIcon: () => <span />, ProfilePaneSecurityIcon: () => <span />, ProfilePaneCardIcon: () => <span /> }));
 vi.mock("@/components/profile/settings-ui", () => ({
  SettingsPresentationProvider: ({ children }: any) => children,
- SettingsDetailPanel: ({ open, children }: any) => open ? <div>{children}</div> : null,
+ SettingsDetailPanel: ({ open, children, footer }: any) => open ? <div>{children}{footer}</div> : null,
  SettingsGroup: ({ title, children }: any) => <section aria-label={title}>{children}</section>,
  SettingsRow: ({ title, description, icon: Icon, trailing, onClick }: any) => <div><button onClick={onClick}>{Icon ? <Icon /> : null}{title}</button>{description}{trailing}</div>,
 }));
@@ -26,6 +27,42 @@ beforeEach(() => {
  mocks.receipts.mockResolvedValue([]);
 });
 afterEach(() => vi.unstubAllGlobals());
+it("opens the existing picker during a slow access check and sends only after it succeeds", async () => {
+ let finish!: (value: unknown) => void;
+ mocks.state.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ mocks.encrypt.mockResolvedValue({ p0: "synthetic-encrypted-card" });
+ mocks.share.mockResolvedValue({ grants: [] });
+ render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} compact />);
+ const trigger = screen.getByRole("button", { name: "Share card", exact: true });
+ expect(trigger).toBeEnabled();
+ fireEvent.click(trigger);
+ expect(screen.getByText("Checking card sharing…")).toBeVisible();
+ fireEvent.click(await screen.findByRole("checkbox", { name: "Share with Test connection" }));
+ const send = screen.getByRole("button", { name: "Share with 1", exact: true });
+ expect(send).toBeDisabled();
+ expect(mocks.share).not.toHaveBeenCalled();
+ await act(async () => finish({ eligible: true, grants: [], nextCursor: null }));
+ expect(send).toBeEnabled();
+ fireEvent.click(screen.getByRole("button", { name: "1 hour", exact: true }));
+ fireEvent.click(send);
+ await waitFor(() => expect(mocks.share).toHaveBeenCalledOnce());
+ expect(mocks.encrypt).toHaveBeenCalledWith(expect.objectContaining({ userId: "owner" }), "card", ["p0"]);
+ expect(mocks.share).toHaveBeenCalledWith(expect.objectContaining({ userId: "owner" }), "card", ["p0"], 60, expect.any(String), { p0: "synthetic-encrypted-card" });
+});
+it("keeps connection discovery reachable after an access error and retries before allowing send", async () => {
+ mocks.state.mockRejectedValueOnce(new Error("unavailable"));
+ mocks.recipients.mockResolvedValue({ items: [{ personRef: "p0", displayName: "Test connection", trusted: false }], hasMore: false });
+ render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} compact />);
+ fireEvent.click(screen.getByRole("button", { name: "Share card", exact: true }));
+ await screen.findByText("Could not check card sharing.");
+ fireEvent.click(await screen.findByRole("checkbox", { name: "Share with Test connection" }));
+ expect(screen.getByRole("button", { name: "Share with 1", exact: true })).toBeDisabled();
+ mocks.state.mockResolvedValueOnce({ eligible: true, grants: [], nextCursor: null });
+ fireEvent.click(screen.getByRole("button", { name: "Retry sharing", exact: true }));
+ await waitFor(() => expect(screen.getByRole("button", { name: "Share with 1", exact: true })).toBeEnabled());
+ expect(mocks.share).not.toHaveBeenCalled();
+});
 it("limits recipients across searches while allowing deselection", async () => {
  const people = Array.from({ length: 21 }, (_, i) => ({ personRef: `p${i}`, displayName: `Connection ${i}`, trusted: false }));
  mocks.recipients.mockResolvedValue({ items: people.slice(0, 20), hasMore: true });
@@ -136,4 +173,20 @@ it("preserves loaded history when access is revoked", async () => {
  expect(screen.queryByText("Access revoked")).toBeNull();
  expect(screen.getByText("Person 2")).toBeInTheDocument();
  expect(mocks.state).toHaveBeenCalledTimes(2);
+});
+
+it("keeps compact revocation retryable after failure and closes only after confirmation succeeds", async () => {
+ mocks.state.mockResolvedValue({ eligible: true, grants: [{ ...grant("1"), status: "active" }], nextCursor: null });
+ mocks.revoke.mockRejectedValueOnce(new Error("offline"));
+ render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} compact />);
+ fireEvent.click(await screen.findByRole("button", { name: /Manage access/ }));
+ fireEvent.click(await screen.findByRole("button", { name: "Revoke", exact: true }));
+ expect(mocks.revoke).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
+ await waitFor(() => expect(mocks.revoke).toHaveBeenCalledTimes(1));
+ expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+ mocks.revoke.mockResolvedValueOnce({ revoked: true });
+ fireEvent.click(screen.getByRole("button", { name: "Revoke access", exact: true }));
+ await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+ expect(mocks.revoke).toHaveBeenLastCalledWith(context, "1");
 });

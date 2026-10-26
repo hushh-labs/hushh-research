@@ -1,13 +1,14 @@
 import { Suspense } from "react";
 
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
-import { RouteSuspenseFallback } from "@/components/system/route-suspense-fallback";
+import { WalletCollectionSkeleton } from "@/components/wallet/wallet-collection-skeleton";
+import { AppPageShell, AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 
 export default function OneWalletPage() {
   // WalletWorkspace reads search and page from the URL, which needs a Suspense
   // boundary for static rendering (same shape as the Consent Center page).
   return (
-    <Suspense fallback={<RouteSuspenseFallback label="Loading cards…" />}>
+    <Suspense fallback={<AppPageShell width="standard" headerContentSpacing="compact" fitContent><AppPageContentRegion><div className="mx-auto w-full max-w-[1080px]"><WalletCollectionSkeleton owned /></div></AppPageContentRegion></AppPageShell>}>
       <WalletWorkspace />
     </Suspense>
   );

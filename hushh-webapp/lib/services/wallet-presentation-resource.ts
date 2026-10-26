@@ -10,7 +10,7 @@ import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events"
 type Context = { userId: string; vaultKey: string; vaultOwnerToken: string };
 type Scope = { ownerId: string; authGeneration: number; epoch: number; source: string; revision: number };
 export type WalletPresentationSnapshot = Scope & { rows: WalletCardPresentation[]; artworkExpiresAt: number; pendingArtworkIds?: string[] };
-type Load = { scope: Scope; promise: Promise<WalletPresentationSnapshot>; listeners: Set<(refs: readonly WalletArtworkRejection[]) => void>; rejected: WalletArtworkRejection[] };
+type Load = { scope: Scope; promise: Promise<WalletPresentationSnapshot>; listeners: Set<(refs: readonly WalletArtworkRejection[]) => void>; rejected: WalletArtworkRejection[]; progress: Set<(snapshot: WalletPresentationSnapshot) => void>; preview?: WalletPresentationSnapshot };
 const inflight = new Map<string, Load>();
 let revision = 0, subscribed = false;
 const PREFIX = "wallet_presentations_";
@@ -19,6 +19,12 @@ const same = (a: Scope, b: Scope | null) => Boolean(b && a.ownerId === b.ownerId
 function scope(userId: string): Scope | null {
   const owner = snapshotValidatedAuthSessionOwner();
   return owner?.userId === userId ? { ownerId: userId, authGeneration: owner.generation, epoch: snapshotVaultSessionEpoch(), source: currentPkmSourceEpoch(userId, ["wallet"]), revision } : null;
+}
+function project(rows: WalletCardPresentation[]): WalletCardPresentation[] {
+  return rows.map(row => {
+    const { cardId, nickname, brand, last4, expiryMonth, expiryYear, issuingRegion, createdAt } = row.summary;
+    return { summary: { cardId, nickname, brand, last4, expiryMonth, expiryYear, issuingRegion, createdAt }, cardholderName: row.cardholderName, artwork: row.artwork };
+  });
 }
 function subscribe() {
   if (subscribed || typeof window === "undefined") return;
@@ -40,10 +46,10 @@ export class WalletPresentationResource {
     if (!saved || !same(saved, scope(userId))) return null;
     if (saved.artworkExpiresAt > Date.now()) return saved;
     // Timers may be throttled in a background tab. Never revive expired pixels.
-    return { ...saved, pendingArtworkIds: saved.rows.filter(row => row.artwork?.source === "catalog").map(row => row.summary.cardId), rows: saved.rows.map(row => row.artwork?.source === "catalog" ? { ...row, artwork: { source: "neutral", version: 1 } } : row) };
+    return { ...saved, pendingArtworkIds: [], rows: saved.rows.map(row => row.artwork?.source === "catalog" ? { ...row, artwork: { source: "neutral", version: 1 } } : row) };
   }
 
-  static load(context: Context, options?: { force?: boolean; onArtworkRejected?: (refs: readonly WalletArtworkRejection[]) => void }): Promise<WalletPresentationSnapshot> {
+  static load(context: Context, options?: { force?: boolean; onArtworkRejected?: (refs: readonly WalletArtworkRejection[]) => void; onCardsLoaded?: (snapshot: WalletPresentationSnapshot) => void }): Promise<WalletPresentationSnapshot> {
     subscribe();
     const initial = scope(context.userId);
     if (!initial) return Promise.reject(new Error("Wallet changed."));
@@ -55,14 +61,24 @@ export class WalletPresentationResource {
     const pending = inflight.get(context.userId);
     if (pending && same(pending.scope, initial)) {
       if (options?.onArtworkRejected) { pending.listeners.add(options.onArtworkRejected); if (pending.rejected.length) options.onArtworkRejected(pending.rejected); }
+      if (options?.onCardsLoaded) { pending.progress.add(options.onCardsLoaded); if (pending.preview) options.onCardsLoaded(pending.preview); }
       return pending.promise;
     }
     const listeners = new Set<(refs: readonly WalletArtworkRejection[]) => void>();
     if (options?.onArtworkRejected) listeners.add(options.onArtworkRejected);
     const rejected: WalletArtworkRejection[] = [];
+    const progress = new Set<(snapshot: WalletPresentationSnapshot) => void>();
+    if (options?.onCardsLoaded) progress.add(options.onCardsLoaded);
+    let preview: WalletPresentationSnapshot | undefined;
     const artworkExpiresAt = Date.now() + 60_000;
     const current = () => same(initial, scope(context.userId));
-    const promise = WalletService.listCardPresentations(context, { recoverArtwork: true, failOnArtworkUnavailable: Boolean(saved), onArtworkRejected: refs => {
+    const promise = WalletService.listCardPresentations(context, { recoverArtwork: true, failOnArtworkUnavailable: Boolean(saved), onCardsLoaded: rows => {
+      if (saved || !current()) return;
+      preview = { ...initial, rows: project(rows), artworkExpiresAt: Date.now() + 30_000, pendingArtworkIds: rows.filter(row => row.summary.brand !== "other" && row.artwork?.source !== "photo").map(row => row.summary.cardId) };
+      const load = inflight.get(context.userId);
+      if (load && same(load.scope, initial)) load.preview = preview;
+      progress.forEach(listener => listener(preview!));
+    }, onArtworkRejected: refs => {
       if (!current()) return;
       rejected.push(...refs);
       const previous = this.peek(context.userId);
@@ -70,17 +86,13 @@ export class WalletPresentationResource {
       listeners.forEach(listener => listener(refs));
     } }).then(rows => {
       if (!current()) throw new Error("Wallet changed.");
-      const projected = rows.map(row => {
-        const { cardId, nickname, brand, last4, expiryMonth, expiryYear, issuingRegion, createdAt } = row.summary;
-        return { summary: { cardId, nickname, brand, last4, expiryMonth, expiryYear, issuingRegion, createdAt }, cardholderName: row.cardholderName, artwork: row.artwork };
-      });
-      const snapshot: WalletPresentationSnapshot = { ...initial, rows: projected, artworkExpiresAt };
+      const snapshot: WalletPresentationSnapshot = { ...initial, rows: project(rows), artworkExpiresAt };
       cache().set(CACHE_KEYS.WALLET_PRESENTATIONS(context.userId), snapshot, 60_000);
       const currentSnapshot = this.peek(context.userId);
       if (!currentSnapshot) throw new Error("Wallet changed.");
       return currentSnapshot;
     }).finally(() => { if (inflight.get(context.userId)?.promise === promise) inflight.delete(context.userId); });
-    inflight.set(context.userId, { scope: initial, promise, listeners, rejected });
+    inflight.set(context.userId, { scope: initial, promise, listeners, rejected, progress, preview });
     return promise;
   }
 }

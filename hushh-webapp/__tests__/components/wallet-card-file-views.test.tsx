@@ -37,15 +37,22 @@ async function selectRecipient() {
   fireEvent.click(await screen.findByRole("checkbox", { name: "Share with Bob" }));
 }
 describe("temporary card access", () => {
-  it("blocks sharing during an outage and recovers after a successful retry", async () => {
+  it("opens the picker during an outage, blocks delivery, and recovers after retry", async () => {
     mocks.state.mockRejectedValueOnce(new CardAccessUnavailableError());
     render(<WalletSavedCardSharing card={summary} getContext={getContext} disabled={false} />);
     await screen.findByText("Card sharing is temporarily unavailable.");
-    expect(screen.getByRole("button", { name: /Share card/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Share card/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Share with Bob" }));
+    const send = screen.getByRole("button", { name: "Share with 1", exact: true });
+    expect(send).toBeDisabled();
+    fireEvent.click(send);
     expect(mocks.prepare).not.toHaveBeenCalled();
     expect(mocks.share).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: /Retry/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /Share card/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Retry sharing", exact: true }));
+    await waitFor(() => expect(send).toBeEnabled());
+    fireEvent.click(send);
+    await waitFor(() => expect(mocks.success).toHaveBeenCalledWith("Card shared."));
+    expect(mocks.share).toHaveBeenCalledOnce();
   });
   it("reports a service outage without presenting it as an uncertain delivery", async () => {
     mocks.share.mockRejectedValueOnce(new CardAccessUnavailableError());
@@ -53,7 +60,12 @@ describe("temporary card access", () => {
     fireEvent.click(screen.getByRole("button", { name: "Share with 1", exact: true }));
     await waitFor(() => expect(mocks.error).toHaveBeenCalledWith("Card sharing is temporarily unavailable. Try again later."));
     expect(mocks.success).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /Share card/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Share card/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Share with Bob" }));
+    const send = screen.getByRole("button", { name: "Share with 1", exact: true });
+    expect(send).toBeDisabled();
+    fireEvent.click(send);
+    expect(mocks.share).toHaveBeenCalledOnce();
   });
   it("refreshes an existing card without a verification prompt and preserves the request ID on retry", async () => {
     mocks.share.mockRejectedValueOnce(new Error("Response lost"));
