@@ -18,18 +18,12 @@ from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionInProgressError,
     AccountDeletionLifecycleService,
 )
+from tests.helpers.workos_identity import active_firebase_account as active_firebase_account
 
 
 @pytest.fixture(autouse=True)
-def _active_account(monkeypatch):
-    firebase_auth_module._clear_revocation_cache_for_tests()
-    monkeypatch.setattr(
-        AccountDeletionLifecycleService,
-        "is_tombstoned",
-        lambda _uid: False,
-    )
+def _active_account(active_firebase_account):
     yield
-    firebase_auth_module._clear_revocation_cache_for_tests()
 
 
 def test_verify_firebase_bearer_preserves_global_revocation_check(monkeypatch):

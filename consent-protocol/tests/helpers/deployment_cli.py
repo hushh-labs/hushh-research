@@ -440,3 +440,29 @@ def backend_rollback_authority_fixture(
         )
 
     return calls, execute
+
+
+def manifest_index() -> tuple[str, str, str]:
+    child = "sha256:" + "c" * 64
+    manifest = json.dumps(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": "sha256:" + "b" * 64,
+                    "size": 10,
+                    "platform": {"os": "unknown", "architecture": "unknown"},
+                    "annotations": {"vnd.docker.reference.type": "attestation-manifest"},
+                },
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": child,
+                    "size": 10,
+                    "platform": {"os": "linux", "architecture": "amd64"},
+                },
+            ],
+        }
+    )
+    return manifest, "sha256:" + hashlib.sha256(manifest.encode()).hexdigest(), child
