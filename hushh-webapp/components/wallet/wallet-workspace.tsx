@@ -54,7 +54,7 @@ import { SettingsDetailPanel } from "@/components/profile/settings-ui";
 import { WalletSharingHistory } from "./wallet-sharing-history";
 import { WalletCollectionSkeleton } from "./wallet-collection-skeleton";
 import workspaceStyles from "./wallet-workspace.module.css";
-import { presentationState, mergeSavedCard, rejectPresentationArtwork } from "@/lib/wallet/wallet-presentation-state";
+import { presentationState, mergeSavedCard, removeCardPresentation, rejectPresentationArtwork } from "@/lib/wallet/wallet-presentation-state";
 import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
   AlertDialog,
@@ -83,7 +83,6 @@ import browserStyles from "@/components/wallet/wallet-card-browser.module.css";
 import presentationStyles from "@/components/wallet/wallet-connect-presentation.module.css";
 import { WalletSharing } from "@/components/wallet/wallet-sharing";
 import { useAuth } from "@/hooks/use-auth";
-import { prefersReducedMotion } from "@/lib/morphy-ux/gsap";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
@@ -297,7 +296,8 @@ export function WalletWorkspace() {
   const [formRevision, setFormRevision] = useState(0);
   const [artworkRetryRevision, setArtworkRetryRevision] = useState(0);
   const consumedArtworkRetryRevision = useRef(0);
-  const [removingCardId, setRemovingCardId] = useState<string | null>(null);
+  const removalRef = useRef<{ cardId: string; visit: typeof profileVisit; toastId?: string | number } | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<typeof removalRef.current>(null);
   useEffect(() => {
     let cancelled = false;
     introductionWriteRef.current = null;
@@ -361,14 +361,21 @@ export function WalletWorkspace() {
   const ownedSnapshot = !authBlocked && vaultKey && cardSnapshot?.ownerId === renderedOwnerId && cardSnapshot.epoch === vaultEpoch ? cardSnapshot : null;
   const cardSnapshotRef = useRef(cardSnapshot);
   cardSnapshotRef.current = cardSnapshot;
-  const cards = useMemo(() => ownedSnapshot?.cards ?? [], [ownedSnapshot]);
+  const busyCardId = pendingRemoval?.visit === profileVisit ? pendingRemoval.cardId : null;
+  const cards = useMemo(() => (ownedSnapshot?.cards ?? []).filter(card => card.cardId !== busyCardId), [ownedSnapshot, busyCardId]);
   const cardholderNames = ownedSnapshot?.cardholderNames ?? {};
   const artworks = ownedSnapshot?.artworks ?? {};
-  const [busyCardId, setBusyCardId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<{
     card: WalletCardSummary;
     context: NonNullable<ReturnType<typeof vaultContext>>;
   } | null>(null);
+  useEffect(() => {
+    removalRef.current = null; setPendingRemoval(null);
+    return () => {
+      if (removalRef.current?.toastId !== undefined) morphyToast.dismiss(removalRef.current.toastId);
+      removalRef.current = null;
+    };
+  }, [profileVisit]);
   const [unlockOpen, setUnlockOpen] = useState(false);
   // A chat offer ("Add Amex Gold to Wallet") hands over the nickname in memory
   // (lib/pkm/reserved-offer.ts); the owner enters the card here, as always.
@@ -381,7 +388,6 @@ export function WalletWorkspace() {
       tabHistory.current = [];
       setSelectedDeckCardId(null);
       setWalletAccessOpen(false);
-      setRemovingCardId(null);
       activeTabCursor.current = "cards";
       setTab("cards");
       setFiling(null);
@@ -604,7 +610,7 @@ export function WalletWorkspace() {
   vaultContextRef.current = vaultContext;
   useEffect(() => {
     setRemoveTarget(null);
-  }, [renderedOwnerId, vaultKey]);
+  }, [renderedOwnerId, vaultKey, vaultEpoch, authBlocked]);
 
   const refresh = useCallback(
     async (options?: { quiet?: boolean }) => {
@@ -888,7 +894,7 @@ export function WalletWorkspace() {
 
   const requestRemove = (card: WalletCardSummary) => {
     const context = vaultContextRef.current();
-    if (context && !busyCardId) setRemoveTarget({ card, context });
+    if (context && !busyCardId && !removalRef.current) setRemoveTarget({ card, context });
   };
   const selectCard = (cardId: string) => {
     // Clearing a search also unfocuses the old card; focus the chosen result last.
@@ -899,8 +905,9 @@ export function WalletWorkspace() {
     if (!isAgentWalletCard(cardId)) dispatch({ type: "focus", cardId });
   };
 
-  const removeCard = async (cardId: string, context: NonNullable<ReturnType<typeof vaultContext>>) => {
-    setBusyCardId(cardId);
+  const removeCard = async (cardId: string, context: NonNullable<ReturnType<typeof vaultContext>>, operation: NonNullable<typeof pendingRemoval>) => {
+    const isCurrent = () => removalRef.current === operation && profileVisitRef.current === operation.visit &&
+      isVaultSessionEpochCurrent(operation.visit.epoch) && vaultContextRef.current()?.vaultOwnerToken === context.vaultOwnerToken;
     try {
       try {
         await WalletService.deleteCard({
@@ -909,50 +916,43 @@ export function WalletWorkspace() {
           surface: "web",
           source: "one_wallet_remove",
         });
-        if (activeOwnerIdRef.current === context.userId) {
+        if (isCurrent()) {
           trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "success" });
         }
       } catch (error) {
-        if (activeOwnerIdRef.current === context.userId) {
+        if (isCurrent()) {
           trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "error" });
         }
         throw error;
       }
-      if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-      if (activeTab === "cards") {
-        setRemovingCardId(cardId);
-        if (!prefersReducedMotion()) await new Promise((resolve) => setTimeout(resolve, 220));
-        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
-        // Return to the overview after removal. A neighboring card must be
-        // explicitly opened before loading its number or sharing context.
-        setSelectedDeckCardId(null);
-      }
+      if (!isCurrent()) return;
       cardReadRevision.current += 1;
-      setCardSnapshot((previous) => {
-        if (previous?.ownerId !== context.userId) return previous;
-        const names = { ...previous.cardholderNames };
-        delete names[cardId];
-        return { ...previous, cards: previous.cards.filter((card) => card.cardId !== cardId), cardholderNames: names, pendingArtworkIds: new Set([...previous.pendingArtworkIds].filter(id => id !== cardId)) };
-      });
-      dispatch({ type: "unfocus" });
-      await refresh({ quiet: true });
-      setRemovingCardId(null);
+      setCardSnapshot(previous => removeCardPresentation(previous, context.userId, operation.visit.epoch, cardId));
+      // The write is confirmed; refreshing artwork must not prolong removal.
+      void refresh({ quiet: true });
     } finally {
-      setBusyCardId(null);
+      if (isCurrent()) { removalRef.current = null; setPendingRemoval(null); }
     }
   };
 
   const confirmRemove = () => {
     const target = removeTarget;
     setRemoveTarget(null);
-    if (!target) return;
+    if (!target || removalRef.current) return;
     const current = vaultContextRef.current();
     if (!current || current.userId !== target.context.userId || current.vaultKey !== target.context.vaultKey) return;
-    void morphyToast.promise(removeCard(target.card.cardId, current), {
+    const operation: NonNullable<typeof pendingRemoval> = { cardId: target.card.cardId, visit: profileVisitRef.current };
+    removalRef.current = operation; setPendingRemoval(operation);
+    cardReadRevision.current += 1;
+    cardActionScopeRef.current.revision += 1;
+    setSelectedDeckCardId(null); dispatch({ type: "unfocus" });
+    const handle = morphyToast.promise(removeCard(target.card.cardId, current, operation), {
+      isCurrent: () => activeOwnerIdRef.current === current.userId && profileVisitRef.current === operation.visit && isVaultSessionEpochCurrent(operation.visit.epoch) && vaultContextRef.current()?.vaultOwnerToken === current.vaultOwnerToken,
       loading: "Removing card…",
       success: "Card removed.",
       error: "The card could not be removed.",
-    });
+    })?.valueOf(); // Sonner boxes promise handles; dismissal needs the primitive ID.
+    if (typeof handle === "string" || typeof handle === "number") operation.toastId = handle;
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -1229,7 +1229,7 @@ export function WalletWorkspace() {
               details={cardDetails}
               active={activeTab === "cards"}
               onRemove={requestRemove}
-              busyCardId={removingCardId}
+              busyCardId={busyCardId}
               disabled={Boolean(busyCardId)}
             />
           ) : null}
