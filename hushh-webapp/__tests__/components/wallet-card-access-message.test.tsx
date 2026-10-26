@@ -15,10 +15,55 @@ vi.mock("@/lib/services/auth-service", () => ({ AuthService: { reauthenticateIde
 vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { view: mocks.view, verify: mocks.verify } }));
 vi.mock("@/components/profile/settings-ui", () => ({ SettingsDetailPanel: ({ open, children }: any) => open ? <div>{children}</div> : null, SettingsPresentationProvider: ({ children }: any) => children }));
 import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-message";
+import { WalletAccessCardDetails } from "@/components/wallet/wallet-access-card-details";
 const pending = { status: "verification_required", senderName: "Sender", expiresAt: "2030-01-01T00:15:00Z", serverNow: "2030-01-01T00:00:00Z" };
 const active = { ...pending, status: "active", card: { brand: "visa", last4: "1234", expiryMonth: 6, expiryYear: 2030, issuingRegion: "IN" } };
 beforeEach(() => { vi.resetAllMocks(); mocks.native = false; mocks.vaultKey = null; mocks.token.mockResolvedValue("token"); mocks.view.mockResolvedValue(pending); mocks.verify.mockResolvedValue(active); });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+it("keeps an authorized reveal stable when polling reorders identical summary fields", async () => {
+  mocks.vaultKey = "unlocked";
+  const data = { ...active, status: "active" as const, encryptedCard: "ciphertext", senderUserId: "sender" };
+  mocks.openCard.mockResolvedValueOnce({ pan: "4111111111111234", cardholderName: "Test", ...active.card });
+  const rendered = render(<WalletAccessCardDetails grantId="grant" data={data} />);
+  await waitFor(() => expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true"));
+  // A needless second decryption would leave the owner watching another loader.
+  mocks.openCard.mockImplementation(() => new Promise(() => {}));
+  rendered.rerender(<WalletAccessCardDetails grantId="grant" data={{ ...data, card: {
+    issuingRegion: "IN", expiryYear: 2030, expiryMonth: 6, last4: "1234", brand: "visa",
+  } }} />);
+  expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true");
+  expect(screen.queryByText("Opening encrypted card…")).toBeNull();
+  expect(mocks.openCard).toHaveBeenCalledOnce();
+});
+it("masks the old reveal immediately when the encrypted share actually changes", async () => {
+  mocks.vaultKey = "unlocked";
+  const data = { ...active, status: "active" as const, encryptedCard: "ciphertext", senderUserId: "sender" };
+  mocks.openCard.mockResolvedValueOnce({ pan: "4111111111111234", cardholderName: "Test", ...active.card });
+  const rendered = render(<WalletAccessCardDetails grantId="grant" data={data} />);
+  await waitFor(() => expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true"));
+  let finish!: (value: unknown) => void;
+  mocks.openCard.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  rendered.rerender(<WalletAccessCardDetails grantId="grant" data={{ ...data, encryptedCard: "replacement-ciphertext" }} />);
+  expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
+  await waitFor(() => expect(mocks.openCard).toHaveBeenCalledTimes(2));
+  await act(async () => finish({ pan: "4111111111111234", cardholderName: "Test", ...active.card }));
+  expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true");
+});
+it("still removes the revealed card when the next access poll reports revocation", async () => {
+  const timers = vi.spyOn(window, "setInterval");
+  mocks.vaultKey = "unlocked";
+  mocks.view.mockResolvedValue({ ...active, encryptedCard: "ciphertext", senderUserId: "sender" });
+  mocks.openCard.mockResolvedValue({ pan: "4111111111111234", cardholderName: "Test", ...active.card });
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  await waitFor(() => expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true"));
+  const poll = timers.mock.calls.find(([, delay]) => delay === 2000)?.[0] as () => void;
+  expect(poll).toBeTypeOf("function");
+  mocks.view.mockResolvedValue({ ...pending, status: "revoked" });
+  await act(async () => poll());
+  expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+  expect(screen.getByText("This access has ended.")).toBeVisible();
+});
 it("reveals the decrypted number only while the authorized recipient wallet is unlocked", async () => {
   mocks.vaultKey = "unlocked";
   mocks.view.mockResolvedValue({ ...active, encryptedCard: "ciphertext", senderUserId: "sender" });

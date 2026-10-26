@@ -54,6 +54,10 @@ import/review, statement editing, Save/Cancel/Delete/Restore, and read-only
 brokerage restrictions retain their current handlers and vault admission.
 The holding drawer uses a flat definition list and the existing public price-history
 read. Opening it performs no holding mutation; entry controls retain the draft/save flow.
+At 1024px and wider, the holding sheet is centered with a 1120px maximum width:
+value and price history sit left, facts and individual entries sit right. A single
+scroll area retains the existing footer and dismissal owner. Mobile stays stacked
+with the same text sizes; cash and CUSIP positions leave no empty chart column.
 
 Holdings browse as one derived position per compatible security, source, account,
 currency and position side. The position retains its original entries; edits and
@@ -89,8 +93,17 @@ the same sheet, including while a debate continues. Close/Escape/Back dismiss
 the shared sheet before route navigation; the inactive pane releases its Back layer.
 
 A stock row opens the existing shared detail sheet/dialog. The header shows
-its symbol and company/sector/list description, then USD quote/change/time,
-observed daily price chart, Company facts, and Summary. Facts retain market
+its symbol and company/sector/list description, then USD quote/change/time.
+The sheet also shows an observed daily price chart, Company facts, and Summary.
+It reads the selected symbol through the existing public `/api/market/quotes`
+service. This read uses the shared provider cache and closed-market policy; it
+requires no vault authority and never requests the full stock list. Late results
+are aborted/ignored on dismissal, selection change or inactive pane. A successful
+list refresh also updates an open detail instead of leaving a copied row frozen.
+An unavailable quote has its own Retry action; known prices stay visible during
+recovery. Provider quote time, unknown time, cached and delayed observations remain
+distinct. History observations are never promoted into a spot quote.
+Facts retain market
 cap, P/E (TTM), P/B, debt/equity, list free cash flow, financial period, retrieval
 time and source. Missing facts say `Unavailable`. `Analyze {symbol}` closes
 details and enters the existing preview; starting a debate retains confirmation

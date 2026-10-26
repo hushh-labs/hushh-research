@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 const native = vi.hoisted(() => ({
+  enabled: true,
   addListener: vi.fn(),
   getCommandCapturePermission: vi.fn(),
   requestCommandCapturePermission: vi.fn(),
@@ -12,16 +13,89 @@ const native = vi.hoisted(() => ({
   cancelCommandCapture: vi.fn().mockResolvedValue({ cancelled: true }),
 }));
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => true },
+  Capacitor: { isNativePlatform: () => native.enabled },
 }));
 vi.mock("@/lib/capacitor/one-voice-invocation", () => ({
   NativeOneVoiceInvocation: native,
 }));
 import { CommandCapture } from "@/lib/voice/command-capture";
 
+it.each(["granted", "denied", "prompt"])("reports the actual %s result of a native permission prompt", async (state) => {
+  native.getCommandCapturePermission.mockResolvedValueOnce({ state: "prompt" });
+  native.requestCommandCapturePermission.mockResolvedValueOnce({ state });
+  const capture = new CommandCapture();
+  await expect(capture.start("permission", vi.fn())).rejects.toThrow(
+    state === "granted" ? "Microphone permission updated" : "Allow microphone access in device settings.",
+  );
+  expect(native.startCommandCapture).not.toHaveBeenCalled();
+});
+
+it("discards a permission grant after cancellation without cancelling a newer recording", async () => {
+  let grant!: (value: { state: string }) => void;
+  native.getCommandCapturePermission.mockResolvedValueOnce({ state: "prompt" }).mockResolvedValueOnce({ state: "granted" });
+  native.requestCommandCapturePermission.mockReturnValueOnce(new Promise(resolve => { grant = resolve; }));
+  native.startCommandCapture.mockResolvedValueOnce({ sessionId: "B" });
+  const capture = new CommandCapture();
+  const pending = capture.start("A", vi.fn());
+  const rejected = expect(pending).rejects.toThrow("cancelled");
+  await Promise.resolve();
+  await capture.cancel();
+  await capture.start("B", vi.fn());
+  grant({ state: "granted" });
+  await rejected;
+  expect(native.cancelCommandCapture.mock.calls.every(([input]) => input.sessionId === "A")).toBe(true);
+  await capture.cancel();
+});
+
 afterEach(() => {
+  native.enabled = true;
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+
+it.each(["starting", "recording"])("cancels an ended web microphone while %s and releases its resources", async (phase) => {
+  native.enabled = false;
+  const stop = vi.fn();
+  const track = Object.assign(new EventTarget(), { readyState: "live", stop });
+  const stream = { getTracks: () => [track], getAudioTracks: () => [track] };
+  let currentStream = stream;
+  let loaded!: () => void;
+  const moduleLoaded = phase === "starting" ? new Promise<void>(resolve => { loaded = resolve; }) : Promise.resolve();
+  const audio = {
+    audioWorklet: { addModule: vi.fn(() => moduleLoaded) },
+    createMediaStreamSource: () => ({ connect: vi.fn() }),
+    createGain: () => ({ gain: { value: 1 } }),
+    resume: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), destination: {},
+  };
+  vi.stubGlobal("navigator", { permissions: { query: async () => ({ state: "granted" }) }, mediaDevices: { getUserMedia: async () => currentStream } });
+  vi.stubGlobal("AudioContext", vi.fn(function () { return audio; }));
+  vi.stubGlobal("AudioWorkletNode", vi.fn(function () { return { port: {}, connect: () => ({ connect: vi.fn() }), disconnect: vi.fn() }; }));
+  const capture = new CommandCapture();
+  const onEnded = vi.fn();
+  const pending = capture.start("web", vi.fn(), undefined, onEnded);
+  const settled = phase === "starting" ? expect(pending).rejects.toThrow("cancelled") : pending;
+  await vi.waitFor(() => expect(audio.audioWorklet.addModule).toHaveBeenCalledOnce());
+  if (phase === "recording") await pending;
+  track.dispatchEvent(new Event("ended"));
+  if (phase === "starting") loaded();
+  await settled;
+  expect(onEnded).toHaveBeenCalledOnce();
+  expect(stop).toHaveBeenCalledOnce();
+  expect(audio.close).toHaveBeenCalledOnce();
+  await expect(capture.finish()).rejects.toThrow("No recording is active");
+  track.dispatchEvent(new Event("ended"));
+  expect(onEnded).toHaveBeenCalledOnce();
+  const retryTrack = Object.assign(new EventTarget(), { readyState: "live", stop: vi.fn() });
+  currentStream = { getTracks: () => [retryTrack], getAudioTracks: () => [retryTrack] };
+  // Older owners without a terminal callback retain their timeout recovery.
+  await capture.start("retry", vi.fn());
+  track.dispatchEvent(new Event("ended"));
+  retryTrack.dispatchEvent(new Event("ended"));
+  await expect(capture.start("another", vi.fn())).rejects.toThrow("already in use");
+  expect(onEnded).toHaveBeenCalledOnce();
+  await capture.cancel();
+  expect(retryTrack.stop).toHaveBeenCalledOnce();
 });
 
 it("cancelled permission lookup cannot open a stale system prompt", async () => {

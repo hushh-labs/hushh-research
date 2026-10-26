@@ -7,7 +7,7 @@ export type MountMessages = (
   delayInbox?: boolean,
   inbox?: boolean,
   command?: string,
-  options?: { modal?: boolean; preview?: boolean; overflowInbox?: boolean },
+  options?: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; origin?: string },
 ) => Promise<string[]>;
 
 export function registerMessagesPresentationCases({ mount, touchMessageActions, expectSharedDockFrame }: {

@@ -30,6 +30,7 @@ import type {
 } from "@/lib/services/api-service";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatCompactNumber } from "@/lib/kai/market-value-format";
+import type { StockQuoteLoader } from "@/lib/services/public-stock-quote";
 
 
 
@@ -79,6 +80,7 @@ export function RiaPicksList({
   onAnalyze,
   onSelectedSymbolChange,
   loadHistory,
+  loadQuote,
   toolbarActions,
   news = [],
 }: {
@@ -91,6 +93,7 @@ export function RiaPicksList({
   onAnalyze?: (symbol: string) => void;
   onSelectedSymbolChange?: (symbol: string | null) => void;
   loadHistory?: StockHistoryLoader;
+  loadQuote?: StockQuoteLoader;
   toolbarActions?: ReactNode;
   news?: KaiHomeNewsItem[];
 }) {
@@ -100,9 +103,11 @@ export function RiaPicksList({
     ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
     : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
   const defaultPageSize = pageSizeOptions[0] ?? 6;
-  const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(
+  const [selectedSeed, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(
     null,
   );
+  const selectedRow = selectedSeed ? rows.find(row =>
+    (row.quote_symbol || row.symbol) === (selectedSeed.quote_symbol || selectedSeed.symbol)) || selectedSeed : null;
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
@@ -458,7 +463,7 @@ export function RiaPicksList({
           onAnalyze(symbol);
         }}>Analyze {selectedRow.symbol}</Button> : undefined}
       >
-        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} news={news} /> : null}
+        {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} loadQuote={loadQuote} news={news} /> : null}
       </KaiControlSurface>
     </div>
   );

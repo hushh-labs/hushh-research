@@ -41062,6 +41062,154 @@
     },
     {
       "aliases": [
+        "Retry quote",
+        "retry quote",
+        "reload stock price"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "market.stock.quote.retry",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Retries the public quote for the currently opened stock after its quote read failed. Retains the previous observed quote and never derives a spot quote from daily history.",
+      "execution": {
+        "binding_ref": "semantic_action:analysis_stock_quote_retry",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "control",
+          "status": "wired",
+          "target": "analysis_stock_quote_retry"
+        }
+      },
+      "goal_id": "goal.market.stock.quote.retry",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry quote",
+      "navigation": {
+        "fallback": "analysis_stock_quote_retry",
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "stock",
+        "quote",
+        "retry",
+        "price"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Go Back",
         "go back",
         "back"
@@ -49681,7 +49829,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "7ed3fe6a7cf34ee22f633291411f7c608f23999be6d60eae54146e472f12be73",
+      "projection_digest": "31dc0dac668998edac0a869ebd3ca52c0a58dfcae3f9c97b3abaaf4656834304",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49700,7 +49848,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "fed9c40b9bb74ea8",
+      "source_revision": "9031503093c4ce05",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51218,7 +51366,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "fed9c40b9bb74ea8",
+    "source_revision": "9031503093c4ce05",
     "web": {
       "actions": [
         {
@@ -51261,7 +51409,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "54500667c9f574175c2967bbc25f736e62cecc7d314ba69510f4f9b7948c6e40",
+      "projection_digest": "7cfce5a7b9d82ecea61b3f1447f03d2a83262bafc75b84a7d4c2e90c034d3673",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51280,7 +51428,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "fed9c40b9bb74ea8",
+      "source_revision": "9031503093c4ce05",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52837,7 +52985,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "fed9c40b9bb74ea8",
+  "revision": "9031503093c4ce05",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -53332,6 +53480,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
         "route.kai_home"
@@ -53501,6 +53650,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.analysis_history",
         "route.back",
@@ -53528,6 +53678,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.analysis_history",
         "route.back",
@@ -53555,6 +53706,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.analysis_history",
         "route.back",
@@ -53582,6 +53734,7 @@
         "market.sectors.show_day",
         "market.sectors.show_highlights",
         "market.sectors.show_week",
+        "market.stock.quote.retry",
         "market.stocks.retry",
         "route.back",
         "route.kai_home"
@@ -54817,7 +54970,7 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:market.stocks.retry"
+      "actions:market.stock.quote.retry"
     ],
     "breaking": [],
     "changed": [
@@ -54829,7 +54982,7 @@
     ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "c19f96c7fd08b9c1",
+    "from_revision": "fed9c40b9bb74ea8",
     "migrated": [],
     "removed": []
   },
@@ -57138,18 +57291,18 @@
     "capability_graph_evolution": "25a7bb6a3284890be1fa54abad56c6266de5196f0722c2be585375fd3db9d54a",
     "capability_runtime_compiler": "c5858ad6661f786d4fd136a25fce3174cb25d95ac5279a2ac8b98fce1a8728ec",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "542230898cc411c092071915b1ad7986c766b74886d81404c9115ef8d0b16e97",
+    "kai_action_gateway": "4a36164dd7f9eab12c6b12a1a387de803e7e5181c689b22eaf6c3bfbdd99f97d",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
-    "route_orchestration_index": "ebe0ebe56dcee625d5d9113b19a770821e503e0890ac877837d6aa9d26fb8931",
+    "route_orchestration_index": "0ffc664551a4ceef26722bb9a7947bcd5549e5539b2b7e2c78694e22c347b797",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "fed9c40b9bb74ea8",
+  "source_revision": "9031503093c4ce05",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "fed9c40b9bb74ea8",
+    "current_graph_revision": "9031503093c4ce05",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -57478,7 +57631,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -57559,7 +57713,8 @@
           "ed663d3d6a6d82c5",
           "f0c409450ab444ad",
           "f2366731e915e5b5",
-          "fb9a089556077ad3"
+          "fb9a089556077ad3",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -57620,7 +57775,8 @@
           "ed663d3d6a6d82c5",
           "f0c409450ab444ad",
           "f2366731e915e5b5",
-          "fb9a089556077ad3"
+          "fb9a089556077ad3",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
@@ -58113,7 +58269,8 @@
           "f81cd566f223f92d",
           "fac4fe10478339eb",
           "fb9a089556077ad3",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
@@ -58518,7 +58675,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -58852,7 +59010,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -59184,7 +59343,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
@@ -59518,7 +59678,8 @@
           "fb7a6340d119acec",
           "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],

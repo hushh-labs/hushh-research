@@ -52,11 +52,22 @@ if not gh_executable:
 required_checks_arg, expected_approvals_arg, require_strict_arg, require_merge_queue_arg, require_conversation_resolution_arg, repo, branch, policy_key_arg = sys.argv[1:]
 policy = json.loads(Path(os.environ["POLICY_FILE"]).read_text(encoding="utf-8"))
 branch_flow = policy.get("branch_flow") or {}
-policy_key = policy_key_arg or ("pr_train" if branch == branch_flow.get("train_branch") else "main")
+prepared = branch_flow.get("prepared_branches", {}).get(branch, {})
+known_policy_key = (
+    "main" if branch == branch_flow.get("promotion_branch", "main")
+    else "pr_train" if branch == branch_flow.get("train_branch", "integration/pr-train")
+    else prepared.get("policy_key")
+)
+if not known_policy_key or (policy_key_arg and policy_key_arg != known_policy_key):
+    print(f"ERROR: branch '{branch}' has no matching authored protection policy")
+    sys.exit(1)
+policy_key = known_policy_key
 if policy_key not in policy:
     print(f"ERROR: policy key '{policy_key}' is missing from {os.environ['POLICY_FILE']}")
     sys.exit(1)
-branch_policy = policy[policy_key]
+branch_policy = dict(policy[policy_key])
+if prepared:
+    branch_policy["merge_queue_ruleset_name"] = prepared["merge_queue_ruleset_name"]
 repository_policy = policy.get("repository") or {}
 required_checks = [
     item.strip()
@@ -140,6 +151,7 @@ merge_queue_bypass = []
 merge_queue_bypass_team_names = []
 merge_queue_bypass_team_slugs = []
 expected_queue_team_members = set()
+prepared_queue_matches = 0
 for ruleset in ruleset_list:
     if ruleset.get("target") != "branch" or ruleset.get("enforcement") != "active":
         continue
@@ -156,6 +168,19 @@ for ruleset in ruleset_list:
     )
     if expected_queue_ruleset_name and detail.get("name") != expected_queue_ruleset_name:
         continue
+    if prepared:
+        # Prepared queues are deliberately exact-ref rules, not wildcard inference.
+        refs = detail.get("conditions", {}).get("ref_name", {})
+        if not (
+            detail.get("target") == "branch"
+            and detail.get("enforcement") == "active"
+            and refs.get("include") == [f"refs/heads/{branch}"]
+            and refs.get("exclude") == []
+            and any(rule.get("type") == "merge_queue" and rule.get("parameters")
+                    for rule in detail.get("rules", []))
+        ):
+            continue
+        prepared_queue_matches += 1
     for actor in detail.get("bypass_actors") or []:
         actor_name = ""
         actor_type = str(actor.get("actor_type") or "").strip()
@@ -224,6 +249,8 @@ merge_queue_bypass_team_names = sorted(set(merge_queue_bypass_team_names))
 merge_queue_bypass_team_slugs = sorted(set(merge_queue_bypass_team_slugs))
 
 errors = []
+if prepared and prepared_queue_matches != 1:
+    errors.append("prepared branch requires exactly one active, exact-ref named merge queue ruleset")
 pending_queue_bypass = []
 missing_queue_bypass = sorted(set(expected_queue_bypass) - set(merge_queue_bypass))
 if missing_queue_bypass and expected_queue_bypass_team_slug in merge_queue_bypass_team_slugs:
