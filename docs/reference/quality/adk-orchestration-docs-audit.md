@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 13:15 UTC
+## Current decision — 26 October 2026, 14:14 UTC
 
 **The earlier application correction is accepted on Dev and UAT. The newly
 authorized production Shared recovery is local and still requires release
@@ -56,9 +56,11 @@ changes Shared/unplaced presentation only; it never moves a private or pending
 owner. An explicit owner-bound Shared choice rechecks placement under the
 provisioning lock. Nearest checks pass (233 backend, 148 frontend); the old
 selection negative control detects pending-setup cancellation. Checkpoints
-`6d5f26efbf` and `201cd60998` preserve the implementation. Main `4e41f043cd`
-is integrated normally, retaining its reset-phone admission correction alongside
-Shared recovery. Combined onboarding checks pass 143 cases and the required
+`6d5f26efbf` and `201cd60998` preserve the implementation. Main `d57906ef2b`
+is integrated normally, retaining phone recovery, WorkOS audit-receipt preservation,
+Finance and full consent-review behavior alongside Shared recovery. Combined
+frontend checks pass 314 cases, the affected backend checks pass 154 cases, and
+14 disposable PostgreSQL cases preserve phone/WorkOS authority. The required
 Back behavior pack passes 501 cases. Original backend/database results are
 retained; two import-timeout retries passed without changing their limits.
 The local integration wrapper's cleanup error was reconciled, not relabelled

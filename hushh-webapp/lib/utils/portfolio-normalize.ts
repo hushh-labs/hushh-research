@@ -195,7 +195,7 @@ export function consolidateHoldingsBySymbol(holdings: AnyObj[] | undefined): Any
  * - financial domain object ({ portfolio, analytics, ... })
  * - canonical portfolio object ({ account_info, holdings, ... })
  */
-export function normalizeStoredPortfolio(raw: AnyObj): AnyObj {
+export function normalizeStoredPortfolio(raw: AnyObj, options: { preserveEntries?: boolean } = {}): AnyObj {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
 
   const domainRoot = raw as AnyObj;
@@ -227,7 +227,9 @@ export function normalizeStoredPortfolio(raw: AnyObj): AnyObj {
       ? { ...(canonical.account_summary as AnyObj) }
       : undefined;
 
-  const holdings = consolidateHoldingsBySymbol(canonical.holdings as AnyObj[]);
+  const holdings = options.preserveEntries
+    ? normalizeHoldings(canonical.holdings as AnyObj[])
+    : consolidateHoldingsBySymbol(canonical.holdings as AnyObj[]);
   const totalValue =
     parseMaybeNumber(canonical.total_value) ??
     parseMaybeNumber(accountSummary?.ending_value) ??

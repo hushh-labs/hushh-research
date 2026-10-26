@@ -153,12 +153,12 @@ function makeUser(uid = "native-account-owner"): User {
   } as unknown as User;
 }
 
-function NativePhoneProbe() {
+function NativePhoneProbe({ transport }: { transport?: "sms" } = {}) {
   const { phoneNumber, startPhoneVerification, confirmPhoneVerification, startPhoneReplacement, confirmPhoneReplacement } = useAuth();
   const [status, setStatus] = useState("idle");
   const start = async (replace: boolean) => {
     try {
-      const result = await (replace ? startPhoneReplacement : startPhoneVerification)("+12025550101");
+      const result = await (replace ? startPhoneReplacement : startPhoneVerification)("+12025550101", transport ? { transport } : undefined);
       setStatus(result.autoVerified ? "verified" : "code ready");
     } catch (error) { setStatus((error as Error).message); }
   };

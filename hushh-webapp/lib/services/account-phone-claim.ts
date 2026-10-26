@@ -1,5 +1,5 @@
 import { ApiService, type AccountIdentity } from "./api-service";
-import { ApiError } from "./api-client";
+import { ApiError, apiErrorCode } from "./api-client";
 
 type TransferProof = { token: string; transferId?: string; submitted?: boolean };
 export async function claimPhoneForOwner(idToken: string, phoneIdToken: string, ownerId: string, isCurrent: () => boolean): Promise<AccountIdentity | null> {
@@ -27,8 +27,10 @@ export async function transferPhoneForOwner(idToken: string, proof: TransferProo
         result = await ApiService.phoneTransferRequest("confirm", idToken,
           { phone_id_token: proof.token, expected_user_id: ownerId, transfer_id: proof.transferId, confirmed: true });
       }
-    } catch {
+    } catch (error) {
       assertCurrent();
+      if (error instanceof ApiError && error.status === 403 &&
+          apiErrorCode(error) === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE") throw error;
       // Once dispatched, a lost response is an unknown outcome. Only status
       // readback may unlock another attempt; never blindly replay confirmation.
       throw new ApiError("Finishing phone transfer. Check progress again.", 503, { code: "PHONE_TRANSFER_IN_PROGRESS" });

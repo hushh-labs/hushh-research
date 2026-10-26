@@ -1,7 +1,8 @@
--- Roll back the application first. Retain security fences and unresolved remote
--- receipts: dropping them could restore a retired phone's access.
+-- Roll back the application first. Retain security fences and unresolved receipts:
+-- neither provider uncertainty nor a pending security notice permits erasure.
 DO $$ BEGIN
- IF EXISTS(SELECT 1 FROM public.account_phone_transfers WHERE state <> 'completed') THEN
+ IF EXISTS(SELECT 1 FROM public.account_phone_transfers
+           WHERE state <> 'completed' OR notice_status <> 'settled') THEN
   RAISE EXCEPTION 'phone transfer reconciliation required before rollback';
  END IF;
 END $$;

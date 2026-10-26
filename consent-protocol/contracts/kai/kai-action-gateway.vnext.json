@@ -53,6 +53,7 @@
     "hushh-webapp/components/kai/kai-portfolio-detail-page.voice-action-contract.json",
     "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
     "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
+    "hushh-webapp/components/kai/views/kai-stocks-view.voice-action-contract.json",
     "hushh-webapp/components/onboarding/setup/one-setup-hub.voice-action-contract.json",
     "hushh-webapp/components/ria/ria-client-account-detail.voice-action-contract.json",
     "hushh-webapp/components/ria/ria-client-request-detail.voice-action-contract.json",
@@ -1510,6 +1511,38 @@
           "active_personas": [
             "investor"
           ]
+        }
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_stocks",
+      "surface_title": "Kai Stocks",
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/views/kai-stocks-view.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "kai",
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ],
+          "routes": [
+            "/one/kai?tab=analysis"
+          ],
+          "screens": [
+            "kai_analysis"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": []
         }
       },
       "search": {},
@@ -23614,6 +23647,117 @@
       }
     },
     {
+      "action_id": "phone_mandate.send_real_sms",
+      "surface_id": "phone_mandate",
+      "label": "Send a real SMS code",
+      "aliases": [
+        "send a real SMS code"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "meaning": "An explicit human choice starts a fresh SMS possession proof instead of a shared test code; it does not transfer a phone or grant account access.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The occupied test-number recovery choices must be visible."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-fresh-sms"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "hushh-webapp/components/auth/phone-conflict-recovery.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /register-phone"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.phone_mandate.send_real_sms",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "phone_mandate.send_real_sms",
+            "label": "Send a real SMS code",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "phone_mandate.transfer_review",
       "surface_id": "phone_mandate",
       "label": "Use this number on this account",
@@ -33394,6 +33538,107 @@
             "type": "action",
             "action_id": "market.sectors.show_highlights",
             "label": "Show sector highlights",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "market.stocks.retry",
+      "surface_id": "kai_stocks",
+      "label": "Retry loading stocks",
+      "aliases": [
+        "retry loading stocks",
+        "retry stock list"
+      ],
+      "search_keywords": [
+        "stocks",
+        "retry",
+        "loading"
+      ],
+      "meaning": "Retries the existing shared Finance read after a Stocks loading failure, retaining any saved rows and the current source selection.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai?tab=analysis"
+        ],
+        "screens": [
+          "kai_analysis"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "kai_stocks_retry"
+      },
+      "control_ids": [
+        "kai_stocks_retry"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/docs/ui-contracts/finance.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai?tab=analysis"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.market.stocks.retry",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "market.stocks.retry",
+            "label": "Retry loading stocks",
             "failure_behavior": "stop"
           }
         ],
