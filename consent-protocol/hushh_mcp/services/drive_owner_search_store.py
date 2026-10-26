@@ -1754,6 +1754,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     if invalid_ranking
                     else "search_limit"
                     if limited
+                    else "search_incomplete"
+                    if financial and done and is_incomplete
                     else None,
                     "envelope": self._seal(
                         committed_checkpoint,

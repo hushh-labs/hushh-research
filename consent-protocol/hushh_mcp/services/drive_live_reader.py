@@ -27,6 +27,7 @@ from hushh_mcp.services.google_drive_adapter import (
     LIVE_POLICY_HASH,
     DriveReadError,
     GoogleDriveAdapter,
+    valid_metadata_name,
 )
 from hushh_mcp.services.google_drive_rest_transport import (
     PARSE_REASONS,
@@ -736,8 +737,7 @@ class DriveLiveReader:
         if (
             not isinstance(file_id, str)
             or not FILE_ID.fullmatch(file_id)
-            or not isinstance(title, str)
-            or not 1 <= len(title) <= 1024
+            or not valid_metadata_name(title)
             or mime is not None
             and (not isinstance(mime, str) or len(mime) > 200)
             or any(
@@ -842,8 +842,7 @@ class DriveLiveReader:
             if (
                 not isinstance(file_id, str)
                 or not FILE_ID.fullmatch(file_id)
-                or not isinstance(name, str)
-                or not 1 <= len(name) <= 1024
+                or not valid_metadata_name(name)
                 or file_id in seen
             ):
                 truncated = True
@@ -939,8 +938,7 @@ class DriveLiveReader:
         if (
             not isinstance(file_id, str)
             or not FILE_ID.fullmatch(file_id)
-            or not isinstance(name, str)
-            or not 1 <= len(name) <= 1024
+            or not valid_metadata_name(name)
             or match.get("mime_type") == "application/vnd.google-apps.folder"
         ):
             raise DriveReadError("provider_response_invalid")
@@ -985,8 +983,7 @@ class DriveLiveReader:
         if (
             not isinstance(file_id, str)
             or not FILE_ID.fullmatch(file_id)
-            or not isinstance(name, str)
-            or not 1 <= len(name) <= 1024
+            or not valid_metadata_name(name)
             or match.get("mime_type") not in {"application/pdf", *OCR_IMAGE_MIMES}
         ):
             raise DriveReadError("provider_response_invalid")
