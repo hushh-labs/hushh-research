@@ -21,6 +21,12 @@ final class NativeSupportTests: XCTestCase {
         let previous = scene.windows.first(where: \.isKeyWindow)
         let parent = UIViewController(), window = UIWindow(windowScene: scene)
         window.rootViewController = parent; window.makeKeyAndVisible()
+        parent.view.layoutIfNeeded()
+        let navigation = UITabBar(frame: CGRect(x: 0, y: parent.view.bounds.height - 49, width: parent.view.bounds.width, height: 49))
+        navigation.items = [UITabBarItem(title: "Public tab", image: nil, tag: 0)]
+        let dock = UIButton(frame: CGRect(x: 20, y: navigation.frame.minY - 64, width: parent.view.bounds.width - 40, height: 44))
+        dock.setTitle("Public dock", for: .normal)
+        parent.view.addSubview(navigation); parent.view.addSubview(dock)
         let shield = HushhSessionPrivacyShield()
         shield.attach(to: parent.view)
         let document = "public-owned-choice-\(UUID().uuidString)"
@@ -53,6 +59,12 @@ final class NativeSupportTests: XCTestCase {
             }, error: { _ in XCTFail("CHOICE_PREPARE_REFUSED"); active.fulfill() }))
         choice.prepare(prepare); await fulfillment(of: [active], timeout: 3)
         let controller = try XCTUnwrap(parent.presentedViewController)
+        for chrome in [navigation as UIView, dock] {
+            let point = chrome.convert(CGPoint(x: chrome.bounds.midX, y: chrome.bounds.midY), to: window)
+            let hit = window.hitTest(point, with: nil)
+            XCTAssertFalse(hit === chrome || hit?.isDescendant(of: chrome) == true,
+                "Owned popup and scrim must cover both bottom navigation and Agent Dock")
+        }
         var retirementCompleted = false, rejectedWhileAttached = false
         let detached = expectation(description: "Actual choice disappearance")
         let retire = try XCTUnwrap(CAPPluginCall(callbackId: "public-retire", methodName: "retireOwnedChoice", options: identity,
