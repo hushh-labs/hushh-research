@@ -264,8 +264,7 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
     )
 
     assert payload["stale"] is True
-    assert payload["provider_status"]["quote:AAPL"] == "failed"
-    assert payload["provider_status"]["quote:^GSPC"] == "failed"
+    assert {payload["provider_status"][f"quote:{s}"] for s in ("AAPL", "^GSPC")} == {"failed"}
     assert payload["watchlist"][0]["symbol"] == "AAPL"
     assert payload["watchlist"][0]["degraded"] is True
     assert payload["movers"]["degraded"] is True

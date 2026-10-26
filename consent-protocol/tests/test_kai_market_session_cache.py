@@ -236,7 +236,7 @@ async def test_empty_index_refresh_cannot_replace_the_saved_last_close(monkeypat
         key=INDEX_LAST_CLOSE_KEY,
         fresh_ttl_seconds=600,
         stale_ttl_seconds=1800,
-        fetcher=market_insights._fetch_index_quotes_bundle,
+        fetcher=market_insights._index_ports().fetch,
         serve_stale_while_revalidate=False,
     )
     assert value == saved and stale is True
@@ -356,15 +356,9 @@ async def test_closed_home_keeps_news_and_indices_without_sparklines(monkeypatch
         AsyncMock(return_value=([], [market_insights._default_pick_source()], "default")),
     )
     # The viewer's own quotes entry is cold; the shared index entry must still serve them.
+    quote = {"price": 100, "quoted_at": quoted_at, "market_state": "open"}
     cache.seed_entry(
-        INDEX_LAST_CLOSE_KEY,
-        {
-            "quotes": {
-                symbol: {"price": 100, "quoted_at": quoted_at, "market_state": "open"}
-                for symbol in INDEX_SYMBOLS
-            }
-        },
-        saved_at,
+        INDEX_LAST_CLOSE_KEY, {"quotes": dict.fromkeys(INDEX_SYMBOLS, quote)}, saved_at
     )
     if saved_movers:
         cache.seed_entry(

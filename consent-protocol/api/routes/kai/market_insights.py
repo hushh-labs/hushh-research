@@ -43,12 +43,7 @@ from hushh_mcp.services.renaissance_service import TIER_WEIGHTS, get_renaissance
 from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.symbol_master_service import get_symbol_master_service
 
-from ._index_last_close import (
-    INDEX_LAST_CLOSE_KEY,
-    INDEX_SYMBOLS,
-    closed_index_view,
-    fetch_index_quotes_bundle,
-)
+from . import _index_last_close as index_last_close
 from ._market_presentation import (
     market_home_response,
     recommendation_from_target,
@@ -215,8 +210,6 @@ MARKET_PRICE_SENSITIVE_PREFIXES = (
 )
 # Home also contains news/filings, so only its price submodules are cache-only.
 MARKET_PRICE_REFRESH_PREFIXES = ("quotes:", "movers:", "sectors:", "macro:", "sparklines:")
-# The shared index last close is a price entry kept for a week and replayed while closed.
-MARKET_LAST_CLOSE_PREFIXES = ("indices:",)
 # Modules that should stay relatively static and never tighten on the open.
 MARKET_LOW_VOLATILITY_PREFIXES = (
     "news:",
@@ -1125,7 +1118,7 @@ async def _get_or_refresh_public_module(
         safe_float=_safe_float,
         refresh_prefixes=MARKET_PRICE_REFRESH_PREFIXES,
         sensitive_prefixes=MARKET_PRICE_SENSITIVE_PREFIXES,
-        last_close_prefixes=MARKET_LAST_CLOSE_PREFIXES,
+        last_close_prefixes=index_last_close.LAST_CLOSE_PREFIXES,
     ).read(
         key=key,
         fresh_ttl_seconds=fresh_ttl_seconds,
@@ -1136,30 +1129,19 @@ async def _get_or_refresh_public_module(
     )
 
 
-async def _fetch_index_quotes_bundle() -> dict[str, Any]:
-    return await fetch_index_quotes_bundle(fetch_market_data_batch, _safe_float, _now_iso)
-
-
-async def _load_index_quotes(warm_source: str) -> tuple[Any, bool, int, str, bool]:
-    """Shared index quotes; a closed exchange replays the saved last close, original times intact."""
-    value, stale, age, tier, hit = await resolve_public_module(
-        "indices",
-        _get_or_refresh_public_module(
-            key=INDEX_LAST_CLOSE_KEY,
-            fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
-            fetcher=_fetch_index_quotes_bundle,
-            warm_source=warm_source,
-        ),
-        lambda status_value: {
-            "quotes": {},
-            "provider_status": {f"quote:{symbol}": status_value for symbol in INDEX_SYMBOLS},
-            "generated_at": _now_iso(),
-        },
-        _provider_status_from_exception,
-        logger,
+def _index_ports() -> index_last_close.IndexLastClose:
+    # Built per call so the cache and provider functions below stay late-bound.
+    return index_last_close.IndexLastClose(
+        read_module=_get_or_refresh_public_module,
+        fetch_batch=fetch_market_data_batch,
+        safe_float=_safe_float,
+        now_iso=_now_iso,
+        status_from_exception=_provider_status_from_exception,
+        is_open=_us_market_is_open,
+        fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
+        logger=logger,
     )
-    return (value if _us_market_is_open() else closed_index_view(value)), stale, age, tier, hit
 
 
 def _recommendation_from_counts(payload: dict[str, Any]) -> tuple[str, str]:
@@ -2171,22 +2153,10 @@ async def _refresh_public_market_modules_once() -> None:
         return
 
     # First and outside the FMP budget: the indices use a keyless provider and are the
-    # last close every viewer is served while the exchange is closed, so a slow or
-    # throttled module below must not cost the snapshot its refresh.
-    try:
-        _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
-            key=INDEX_LAST_CLOSE_KEY,
-            fresh_ttl_seconds=QUOTES_FRESH_TTL_SECONDS,
-            stale_ttl_seconds=QUOTES_STALE_TTL_SECONDS,
-            fetcher=_fetch_index_quotes_bundle,
-            warm_source="startup",
-            serve_stale_while_revalidate=False,
-        )
-        refresh_summary.append(
-            f"indices:tier={tier},hit={str(cache_hit).lower()},stale={str(stale).lower()},age={age_seconds}s"
-        )
-    except Exception as exc:
-        logger.warning("[Kai Market] background indices refresh failed: %s", type(exc).__name__)
+    # last close served while closed, so a slow or throttled module below must not cost
+    # the snapshot its refresh.
+    if summary := await _index_ports().warm():
+        refresh_summary.append(summary)
 
     if is_budget_critical():
         # Preserve remaining daily FMP quota for real user requests: skip this
@@ -2435,7 +2405,9 @@ async def _get_market_insights_payload(
 
         # Benchmark levels come from the shared index entry, never from similarly named
         # ETFs or from this viewer's own bundle, so a cold viewer entry cannot blank them.
-        symbol_set = sorted({*watchlist_symbols, *renaissance_symbols} - set(INDEX_SYMBOLS))
+        symbol_set = sorted(
+            {*watchlist_symbols, *renaissance_symbols} - set(index_last_close.INDEX_SYMBOLS)
+        )
         quotes_key = f"quotes:{','.join(symbol_set)}"
 
         async def fetch_quotes_bundle() -> dict[str, Any]:
@@ -2599,18 +2571,11 @@ async def _get_market_insights_payload(
                 ),
                 lambda status_value: ([], status_value),
             ),
-            _load_index_quotes(warm_source),
+            _index_ports().load(warm_source),
         )
-        quote_bundle = quotes_value if isinstance(quotes_value, dict) else {}
-        index_bundle = index_value if isinstance(index_value, dict) else {}
-        quote_map = {
-            **(quote_bundle.get("quotes") if isinstance(quote_bundle.get("quotes"), dict) else {}),
-            **(index_bundle.get("quotes") if isinstance(index_bundle.get("quotes"), dict) else {}),
-        }
-        for bundle in (quote_bundle, index_bundle):
-            provider_status.update(
-                {str(k): str(v) for k, v in (bundle.get("provider_status") or {}).items()}
-            )
+        quote_bundle = index_last_close.merge_quote_bundles(quotes_value, index_value)
+        quote_map = quote_bundle["quotes"]
+        provider_status.update({str(k): str(v) for k, v in quote_bundle["provider_status"].items()})
         stale = stale or quotes_stale or index_stale
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, quotes_cache_tier)
         aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, index_cache_tier)
