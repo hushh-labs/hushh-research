@@ -5,6 +5,12 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+OWNER_LIFECYCLE_ENV_MAP: dict[str, str] = {
+    "auth_db_listener_isolation_enabled": "AUTH_DB_LISTENER_ISOLATION_ENABLED",
+    "account_generation_admission_enabled": "ACCOUNT_GENERATION_ADMISSION_ENABLED",
+    "shared_experience_recovery_enabled": "SHARED_EXPERIENCE_RECOVERY_ENABLED",
+}
+
 SCOPE_COMMERCE_ENV_MAP: dict[str, str] = {
     # Consumer scope commerce policy is non-secret. SDK and webhook keys have
     # distinct direct mounts and must never appear in this configuration.

@@ -110,37 +110,43 @@ def test_listener_isolation_rollback_survives_the_deployment_writer(monkeypatch,
     "environment,candidate,value",
     [("dev", False, False), ("uat", False, True), ("production", True, True)],
 )
-def test_shared_recovery_survives_environment_local_deployment_writer(
-    monkeypatch, plg_runtime_sync, environment, candidate, value
+@pytest.mark.parametrize(
+    "key", ["shared_experience_recovery_enabled", "account_generation_admission_enabled"]
+)
+def test_environment_activation_survives_deployment_writer_and_hydration(
+    monkeypatch, plg_runtime_sync, environment, candidate, value, key
 ):
     writes, target = _write_configuration(
         monkeypatch,
         plg_runtime_sync,
         environment,
         candidate,
-        {"shared_experience_recovery_enabled": value},
+        {key: value},
     )
-    assert json.loads(writes[target])["shared_experience_recovery_enabled"] is value
+    assert json.loads(writes[target])[key] is value
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
+    runtime_settings.hydrate_runtime_environment()
+    assert os.environ[key.upper()] == str(value).lower()
 
 
-def test_shared_recovery_cannot_cross_environments(plg_runtime_sync):
+@pytest.mark.parametrize(
+    "key", ["shared_experience_recovery_enabled", "account_generation_admission_enabled"]
+)
+def test_environment_activation_cannot_cross_environments(plg_runtime_sync, key):
     retained = plg_runtime_sync._runtime_config_retention["retained_settings"]
     with pytest.raises(ValueError, match="different environment"):
         retained(
             {
                 "environment": "dev",
                 "google_cloud_project": "hushh-pda-dev",
-                "shared_experience_recovery_enabled": True,
+                key: True,
             },
             project="hushh-pda",
             environment="production",
         )
-    assert (
-        retained({}, project="hushh-pda", environment="production").get(
-            "shared_experience_recovery_enabled", False
-        )
-        is False
-    )
+    assert retained({}, project="hushh-pda", environment="production").get(key, False) is False
 
 
 @pytest.mark.parametrize(

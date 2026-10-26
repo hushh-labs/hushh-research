@@ -6,21 +6,23 @@ Use the [CI delivery map](../../reference/operations/ci.md) for the existing
 validation and deployment owners. This proposal changes their composition while
 preserving environment authority and the separate owner-pod installation flow.
 
-**Production recovery exception — 26 October 2026:** the owner authorized a
-compatible full-application recovery to the pre-pod Shared-first experience.
-Source `904fbd215c` is the last pre-pod production release, but its backend
-revision was pruned and its cleanup behavior fails today's compatibility guard.
-Do not deploy that binary or roll back schema. The bounded correction uses
-current lifecycle/readers and explicit environment-local Shared recovery,
-preserving private assignments, pending setups, keys and erasure evidence.
-Its implementation and validation are in progress; production traffic has not
-been changed by this recovery. Normal private-agent development remains enabled
-where already admitted. Production/native automatic cadence remains disabled.
-Recovery defaults off. Qualify explicit `shared_experience_recovery_enabled`
-activation in UAT's existing runtime JSON, then activate production's own setting
-through its governed deployment. Retain all other configuration, verify the
-environment/project binding and refuse a contradictory direct environment value.
-Dev keeps the flag absent or false. A code deployment alone does not activate recovery.
+**Production recovery exception — 26 October 2026:** the owner requested a
+production-only return to the pre-pod experience, leaving Dev/UAT untouched for
+that purpose. The direct image pair is not qualified: source `904fbd215c` lacks
+current account/phone-cleanup authority, its backend revision was pruned and its
+frontend lacks protected-document readers. The actual compatibility checks
+refused; no production mutation was made. Do not bypass these contracts or roll
+back schema. A compatible recovery remains separate from the normal release.
+
+[PR #8482](https://github.com/hushh-labs/hushh-research/pull/8482) preserves current
+lifecycle/readers, private assignments, pending setups and keys while adding
+explicit environment-local Shared presentation recovery. It also retains
+`account_generation_admission_enabled` through the normal runtime JSON writer
+and hydration. Both decisions default off and remain bound to their environment
+and project. Code deployment alone does not activate either. Replacement-owner
+admission additionally requires installed schema and generation-aware consumer
+drain proof. Normal Dev/UAT core acceptance remains tracked below; automatic
+production/native cadence remains disabled.
 
 Account-generation compatibility PR [#8473](https://github.com/hushh-labs/hushh-research/pull/8473)
 landed as `10022eba13` with exact-head hosted CI and landed smoke success.

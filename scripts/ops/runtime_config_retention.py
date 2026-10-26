@@ -148,18 +148,25 @@ def _retained_document_delivery(
     return {enabled_key: enabled, **values}
 
 
-def _retained_shared_experience_recovery(
+def _retained_environment_activations(
     existing: dict[str, Any], *, project: str, environment: str
 ) -> dict[str, bool]:
-    """An explicit environment-local recovery decision; never infer activation."""
-    key = "shared_experience_recovery_enabled"
-    if key not in existing:
+    """Keep explicit local policy decisions without importing another lane's grants."""
+    retained: dict[str, bool] = {}
+    for key in (
+        "shared_experience_recovery_enabled",
+        "account_generation_admission_enabled",
+    ):
+        if key not in existing:
+            continue
+        value = existing[key]
+        if isinstance(value, str) and value in {"true", "false"}:
+            value = value == "true"
+        if not isinstance(value, bool):
+            raise ValueError("Environment activation must be an explicit boolean")
+        retained[key] = value
+    if not retained:
         return {}
-    value = existing[key]
-    if isinstance(value, str) and value in {"true", "false"}:
-        value = value == "true"
-    if not isinstance(value, bool):
-        raise ValueError("Shared recovery activation must be an explicit boolean")
     projects = {
         "dev": "hushh-pda-dev",
         "uat": "hushh-pda-uat",
@@ -170,10 +177,8 @@ def _retained_shared_experience_recovery(
         or existing.get("environment") != environment
         or existing.get("google_cloud_project") != project
     ):
-        raise ValueError(
-            "Shared recovery belongs to a different environment and project"
-        )
-    return {key: value}
+        raise ValueError("Activation belongs to a different environment and project")
+    return retained
 
 
 def retained_settings(
@@ -188,7 +193,7 @@ def retained_settings(
         **_retained_document_delivery(
             existing, project=project, environment=environment
         ),
-        **_retained_shared_experience_recovery(
+        **_retained_environment_activations(
             existing, project=project, environment=environment
         ),
     }
