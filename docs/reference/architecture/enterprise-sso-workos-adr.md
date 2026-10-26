@@ -26,7 +26,9 @@ flowchart LR
 
 ## Status
 
-Baseline integration exists. The 26 October 2026 generation-bound hardening is local and unshipped: migration `426_workos_generation_memberships`, exact directory attribution, journalled provider writes and membership-bound admission. Public replacement admission remains disabled until legacy membership coverage and actual provider behavior are qualified. See the [current readiness memo](../quality/adk-orchestration-docs-audit.md).
+Baseline integration exists. The 26 October 2026 generation-bound hardening is local and unshipped: migration `426_workos_generation_memberships`, exact directory attribution, journalled provider writes and membership-bound admission. Public replacement admission remains disabled pending installed-schema, old-consumer drain and deployed acceptance. WorkOS stays on generation zero; the separate HushhTech compatibility guard remains. See the [current readiness memo](../quality/adk-orchestration-docs-audit.md).
+
+Read-only qualification on 26 October confirmed that UAT's actual WorkOS environment has no Directory Sync connections: its complete directory listing returned HTTP 200, and the same environment's webhook secret matched the retained configuration in memory. Existing SSO-created identities do not establish a Directory Sync integration. Dev has no configured WorkOS client. This permits ordinary-provider generation activation after its remaining release checks; it does not qualify Directory Sync. Unknown historical directory events remain retryable refusals rather than email-based owner discovery. Isolated `hushh-pda-uat` Firebase transport passed created/linked claim preservation, revocation timestamps and one physical mutation POST per case; both synthetic identities were removed with absence verification. No production identity was changed.
 
 ## Context
 

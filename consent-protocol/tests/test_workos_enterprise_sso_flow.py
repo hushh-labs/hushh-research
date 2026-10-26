@@ -319,19 +319,20 @@ def test_directory_attribution_uses_complete_exact_provider_identity(case):
 # ── Fakes ──
 
 
-async def test_unqualified_workos_cannot_mutate_a_generation_aware_identity(world, monkeypatch):
+async def test_generation_activation_preserves_original_workos_signin_and_offboarding(
+    world, monkeypatch
+):
     monkeypatch.setenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "true")
-    for operation in (
-        _sign_in(world),
-        world.service.handle_webhook(body=b"{}", signature=None),
-    ):
-        with pytest.raises(EnterpriseSsoError) as refused:
-            await operation
-        assert refused.value.code == "sso_generation_unavailable"
-    assert not world.firebase.users
-    assert not world.firebase.minted
-    assert not world.firebase.quarantined
-    assert not world.firebase.sessions_revoked
+    await _sign_in(world)
+    uid = sso_uid("org_01", "prof_1")
+    assert world.firebase.minted[0][0] == uid
+    assert world.firebase.minted[0][1]["hussh_workos_membership"]
+    await _webhook(world, _deleted())
+    assert world.firebase.quarantined == [uid]
+    assert world.consent.revoked == [uid]
+    with pytest.raises(EnterpriseSsoError) as refused:
+        await _sign_in(world)
+    assert refused.value.code == "sso_deprovisioned"
 
 
 # ── Start ──

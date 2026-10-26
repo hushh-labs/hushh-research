@@ -31,7 +31,6 @@ from .firebase_identity import (
     FirebaseAdminIdentity,
     FirebaseIdentityPort,
     FirebaseUserInfo,
-    require_generation_compatibility,
 )
 from .membership import MembershipPort, SqlMembershipStore, membership_hash
 from .workos_adapter import (
@@ -132,7 +131,6 @@ class EnterpriseSsoService:
         return self._consent
 
     def _require_sign_in_ready(self) -> None:
-        require_generation_compatibility()
         if not self._config.sign_in_ready:
             raise EnterpriseSsoError("sso_unavailable", 503)
 
@@ -284,7 +282,6 @@ class EnterpriseSsoService:
     # ── POST /webhooks/workos ──
 
     async def handle_webhook(self, *, body: bytes, signature: str | None) -> dict[str, Any]:
-        require_generation_compatibility()
         if not self._config.webhook_secret:
             raise EnterpriseSsoError("sso_unavailable", 503)
         if len(body) > MAX_WEBHOOK_BODY_BYTES:
