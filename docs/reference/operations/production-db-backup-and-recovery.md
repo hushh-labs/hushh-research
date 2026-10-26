@@ -214,6 +214,36 @@ Validate the recovered instance before repointing traffic, then update
 
 ---
 
+## Application recovery without a database rollback
+
+The exact candidate in `deploy/account-deletion/production-restoration.json`
+can be qualified by the existing main-owned `main-post-merge-smoke.yml` workflow
+with `production_restoration=true` and its recorded `sha`. This is a source
+validation operation: it has no production environment, cloud identity or
+production credentials, and does not run database migrations or move traffic.
+
+The separate **Production Recovery Validation Gate** records the candidate,
+controlling main revision, run/attempt and authority-record digest. It runs the
+existing build/smoke and focused cleanup/frontend contracts. The artifact is
+named `production-restoration-validation-<run>-<attempt>`; its `acceptance.json`
+member is source-validation evidence, not a dev/UAT acceptance receipt.
+
+`deploy/account-deletion/restoration_validation.py` verifies the current run,
+required steps, exact source record and immutable artifact before admitting that
+proof. A later failed or running rerun refuses clearance. Invoke it from trusted
+main tooling before checking out the application. A later recheck must preserve
+its companion modules, current governance policy and existing bounded artifact
+reader in the release-tool bundle; historical application policy is not authority.
+
+This validation does **not** enable production cutover. The existing production
+workflow still needs the reviewed no-migration compatibility path, actual
+protected-document writer quiescence, installed-schema qualification and paired
+image/rollback verification. Empty tables alone do not prove that an older
+in-flight request cannot commit. Preserve the current database and its erasure
+receipts throughout application restoration.
+
+---
+
 ## Restore Drill Cadence
 
 Weekly integrity verification:
