@@ -75,6 +75,7 @@ vi.mock("@/lib/services/auth-service", () => ({
     confirmPhoneReplacementVerification: mocks.phoneConfirm,
     isUatPhoneTestVerificationId: (id?: string) => String(id ?? "").startsWith("uat-test-phone:"),
     isLocalDevPhoneVerificationId: () => false,
+    isManualPhoneProof: (id?: string) => String(id ?? "").startsWith("native-phone-proof:"),
   },
 }));
 

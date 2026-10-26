@@ -3,7 +3,8 @@
   "surface_id": "ria_profile",
   "surface_title": "RIA Profile",
   "docs_references": [
-    "docs/reference/kai/kai-action-gateway-vnext.md"
+    "docs/reference/kai/kai-action-gateway-vnext.md",
+    "hushh-webapp/app/register-phone/page.voice-action-contract.json"
   ],
   "defaults": {
     "reachability": {

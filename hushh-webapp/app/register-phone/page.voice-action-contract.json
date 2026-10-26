@@ -8,10 +8,15 @@
   ],
   "defaults": {
     "reachability": {
-      "active_personas": ["investor", "ria"]
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
     },
     "speaker_persona": "one",
-    "guard_ids": ["auth_signed_in"]
+    "guard_ids": [
+      "auth_signed_in"
+    ]
   },
   "actions": [
     {
@@ -23,14 +28,27 @@
         "select country",
         "use this country code"
       ],
-      "search_keywords": ["country", "dial code", "phone"],
+      "search_keywords": [
+        "country",
+        "dial code",
+        "phone"
+      ],
       "reachability": {
-        "routes": ["/register-phone"],
-        "screens": ["phone_mandate", "register_phone"],
+        "routes": [
+          "/register-phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone"
+        ],
         "hidden_navigable": false,
-        "navigation_prerequisites": ["The country picker must be open."]
+        "navigation_prerequisites": [
+          "The country picker must be open."
+        ]
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -38,8 +56,12 @@
         "path": "local_handler",
         "target": "phone_mandate.select_country"
       },
-      "control_ids": ["phone-flow-country"],
-      "state_exposure": ["selected country code"],
+      "control_ids": [
+        "phone-flow-country"
+      ],
+      "state_exposure": [
+        "selected country code"
+      ],
       "docs_references": [
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
@@ -63,14 +85,27 @@
         "close country codes",
         "cancel country selection"
       ],
-      "search_keywords": ["close", "cancel", "country"],
+      "search_keywords": [
+        "close",
+        "cancel",
+        "country"
+      ],
       "reachability": {
-        "routes": ["/register-phone"],
-        "screens": ["phone_mandate", "register_phone"],
+        "routes": [
+          "/register-phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone"
+        ],
         "hidden_navigable": false,
-        "navigation_prerequisites": ["The country picker must be open."]
+        "navigation_prerequisites": [
+          "The country picker must be open."
+        ]
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -78,7 +113,9 @@
         "path": "local_handler",
         "target": "phone_mandate.close_country_picker"
       },
-      "control_ids": ["phone-flow-country"],
+      "control_ids": [
+        "phone-flow-country"
+      ],
       "state_exposure": [],
       "docs_references": [
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
@@ -94,14 +131,26 @@
         "my phone number is",
         "add my phone number"
       ],
-      "search_keywords": ["phone", "verify", "code", "sms"],
+      "search_keywords": [
+        "phone",
+        "verify",
+        "code",
+        "sms"
+      ],
       "reachability": {
-        "routes": ["/register-phone"],
-        "screens": ["phone_mandate", "register_phone"],
+        "routes": [
+          "/register-phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -109,8 +158,12 @@
         "path": "local_handler",
         "target": "phone_mandate.submit_number"
       },
-      "control_ids": ["phone-flow-number"],
-      "state_exposure": ["verification step only"],
+      "control_ids": [
+        "phone-flow-number"
+      ],
+      "state_exposure": [
+        "verification step only"
+      ],
       "docs_references": [
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
@@ -135,16 +188,29 @@
         "confirm my phone",
         "submit the verification code"
       ],
-      "search_keywords": ["code", "otp", "verify", "confirm"],
+      "search_keywords": [
+        "code",
+        "otp",
+        "verify",
+        "confirm"
+      ],
       "reachability": {
-        "routes": ["/register-phone"],
-        "screens": ["phone_mandate", "register_phone"],
+        "routes": [
+          "/register-phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
           "A verification code must already be sent."
         ]
       },
-      "guard_ids": ["auth_signed_in", "explicit_user_confirmation"],
+      "guard_ids": [
+        "auth_signed_in",
+        "explicit_user_confirmation"
+      ],
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "execution_target": {
@@ -152,8 +218,12 @@
         "path": "local_handler",
         "target": "phone_mandate.submit_code"
       },
-      "control_ids": ["phone-flow-code"],
-      "state_exposure": ["verification step"],
+      "control_ids": [
+        "phone-flow-code"
+      ],
+      "state_exposure": [
+        "verification step"
+      ],
       "docs_references": [
         "hushh-webapp/components/auth/phone-verification-flow.tsx"
       ],
@@ -167,6 +237,300 @@
           }
         ]
       }
+    },
+    {
+      "action_id": "phone_mandate.transfer_review",
+      "label": "Use this number on this account",
+      "meaning": "Review a transfer after fresh real SMS verification; no account information moves or is erased.",
+      "aliases": [
+        "use this number on this account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-review"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
+      "action_id": "phone_mandate.transfer_confirm",
+      "label": "Confirm phone transfer",
+      "meaning": "Explicit human confirmation moves only the phone link; pending work must settle before completion.",
+      "aliases": [
+        "confirm phone transfer"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-confirm"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
+      "action_id": "phone_mandate.recover",
+      "label": "Recover my previous account",
+      "meaning": "Open the existing Google or Apple sign-in to recover the previous account without exposing its identity.",
+      "aliases": [
+        "recover my previous account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-recover"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
+      "action_id": "phone_mandate.delete_previous",
+      "label": "Delete my previous account",
+      "meaning": "Open previous-account sign-in. Existing owner re-authentication and a separate destructive confirmation are still required.",
+      "aliases": [
+        "delete my previous account"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-previous"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
+      "action_id": "phone_mandate.change_number",
+      "label": "Use a different number",
+      "meaning": "Retire this phone attempt and return to number entry before a transfer has been dispatched.",
+      "aliases": [
+        "use a different number"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-change-number"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
+      "action_id": "phone_mandate.transfer_cancel",
+      "label": "Cancel phone transfer review",
+      "meaning": "Return to recovery choices before confirmation; pending transfers cannot be cancelled.",
+      "aliases": [
+        "cancel phone transfer review"
+      ],
+      "search_keywords": [
+        "phone",
+        "recovery"
+      ],
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The matching phone conflict choice or review must be visible."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-transfer-cancel"
+      ],
+      "state_exposure": [
+        "phone recovery step only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
     }
   ],
   "search": {}

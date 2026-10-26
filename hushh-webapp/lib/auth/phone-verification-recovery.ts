@@ -90,7 +90,7 @@ export function createPhoneVerificationRecovery(ports: RecoveryPorts) {
     } catch (error) {
       ports.requireOwner(uid, epoch);
       const code = apiErrorCode(error);
-      if (ports.isNative() || !getPhoneReliabilityFlags().recovery ||
+      if (!getPhoneReliabilityFlags().recovery ||
           !(error instanceof ApiError) || error.status !== 409 ||
           (code !== "PHONE_ALREADY_VERIFIED" && code !== "PHONE_VERIFICATION_CHANGED")) throw error;
       // A fresh isolated web proof goes through the ordinary backend claim policy.

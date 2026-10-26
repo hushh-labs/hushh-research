@@ -19,7 +19,9 @@ from hushh_mcp.runtime_settings import get_firebase_credential_settings
 logger = logging.getLogger(__name__)
 
 SupportMessageKind = Literal["bug_report", "support_request", "developer_reachout"]
-AccountNoticeKind = Literal["welcome", "passkey_added", "passkey_removed", "passphrase_changed"]
+AccountNoticeKind = Literal[
+    "welcome", "passkey_added", "passkey_removed", "passphrase_changed", "phone_link_changed"
+]
 SupportDeliveryMode = Literal["live", "test"]
 
 _GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
@@ -338,6 +340,10 @@ class SupportEmailService:
                 "Passkey removed from One",
                 "A passkey was removed from your One vault unlock methods.",
             ),
+            "phone_link_changed": (
+                "Phone link changed on One",
+                "A phone link on your One account changed. Your files and vault information were preserved. Review your account security and trusted devices if this was unexpected.",
+            ),
             "passphrase_changed": (
                 "One vault password updated",
                 "Your One vault password unlock was updated.",
@@ -399,3 +405,46 @@ def get_support_email_service() -> SupportEmailService:
     if _support_email_service is None:
         _support_email_service = SupportEmailService()
     return _support_email_service
+
+
+async def send_verified_account_notice(
+    user_id: str,
+    kind: AccountNoticeKind,
+    *,
+    app_factory=None,
+    sender_factory=None,
+    identity_lookup=None,
+) -> bool:
+    """Existing verified-email gate; never use an unverified or caller supplied recipient.
+
+    False includes uncertain mail delivery. Callers must not blindly replay a send.
+    """
+    from firebase_admin import auth as firebase_auth
+    from starlette.concurrency import run_in_threadpool
+
+    from api.utils.firebase_admin import get_firebase_auth_app
+    from hushh_mcp.services.one_owner_admission import firebase_uid_for_owner_read
+
+    try:
+        app = (app_factory or get_firebase_auth_app)()
+        if app is None:
+            raise RuntimeError("account lookup unavailable")
+        uid = await run_in_threadpool(identity_lookup or firebase_uid_for_owner_read, user_id)
+        account = await run_in_threadpool(firebase_auth.get_user, uid, app=app)
+        if not getattr(account, "email_verified", False) or not getattr(account, "email", None):
+            logger.warning(
+                "account_security_email.skipped reason=verified_email_required kind=%s", kind
+            )
+            return True
+        await run_in_threadpool(
+            (sender_factory or get_support_email_service)().send_account_notice,
+            kind=kind,
+            to_email=str(account.email),
+        )
+        logger.info("account_security_email.accepted kind=%s", kind)
+        return True
+    except Exception as exc:
+        logger.error(
+            "account_security_email.failed kind=%s error_type=%s", kind, type(exc).__name__
+        )
+        return False

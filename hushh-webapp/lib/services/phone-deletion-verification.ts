@@ -23,6 +23,34 @@ export type PhoneDeletionConfirmation = PhoneDeletionContext & {
 };
 type NormalizeError = (error: unknown) => Error;
 const PHONE_CLAIM_APP_NAME = "hushh-phone-claim";
+const MANUAL_PROOF_PREFIX = "native-phone-proof:";
+let manualAttempt: (PhoneDeletionContext & { dispose: () => void; token?: string }) | null = null;
+
+/** Reuse the native isolated proof owner; no global Firebase link callbacks. */
+export async function startManualPhoneProof(phoneNumber: string, expectedUserId: string, signal?: AbortSignal): Promise<{ autoVerified: false; verificationId: string }> {
+  const previous = manualAttempt;
+  if (previous) {
+    manualAttempt = null; previous.dispose();
+    await HushhAuth.cancelPhoneVerificationProof({ attemptId: previous.attemptId });
+  }
+  if (signal?.aborted) throw new Error("session_changed");
+  const attemptId = crypto.randomUUID();
+  const cancel = () => {
+    if (manualAttempt?.attemptId === attemptId) manualAttempt = null;
+    signal?.removeEventListener("abort", cancel);
+    void HushhAuth.cancelPhoneVerificationProof({ attemptId }).catch(() => undefined);
+  };
+  manualAttempt = { expectedUserId, attemptId, dispose: () => signal?.removeEventListener("abort", cancel) };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    const result = await HushhAuth.startPhoneVerificationProof({ expectedUserId, attemptId, phoneNumber });
+    if (manualAttempt?.attemptId !== attemptId || signal?.aborted || result.attemptId !== attemptId || result.verificationId !== attemptId)
+      throw new Error("session_changed");
+    return { autoVerified: false, verificationId: `${MANUAL_PROOF_PREFIX}${attemptId}` };
+  } catch (error) { cancel(); throw error; }
+}
+
+export function isManualPhoneProof(id?: string | null): boolean { return Boolean(id?.startsWith(MANUAL_PROOF_PREFIX)); }
 
 /** Send a one-time phone proof without adding, replacing, or unlinking a phone. */
 export async function startDeletionPhoneProof(
@@ -99,7 +127,17 @@ export async function mintPhoneClaimIdToken(
   }
 
   if (Capacitor.isNativePlatform()) {
-    throw new Error("Phone claim token minting is only supported on web.");
+    const current = manualAttempt;
+    if (!current || params.verificationId !== `${MANUAL_PROOF_PREFIX}${current.attemptId}`)
+      throw Object.assign(new Error("Request a new verification code."), { code: "phone-verification-required" });
+    if (current.token) return current.token;
+    try {
+      const result = await HushhAuth.confirmPhoneVerificationProof({ expectedUserId: current.expectedUserId, attemptId: current.attemptId, verificationCode });
+      if (manualAttempt !== current || result.attemptId !== current.attemptId || !result.phoneIdToken)
+        throw new Error("session_changed");
+      current.token = result.phoneIdToken;
+      return result.phoneIdToken;
+    } catch (error) { throw normalizeError(error); }
   }
 
   const verificationId = String(params.verificationId ?? "").trim();
