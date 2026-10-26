@@ -10,6 +10,7 @@ from .agent_feedback import router as agent_feedback_router
 from .agent_prompt import router as agent_prompt_router
 from .answer_requests import router as answer_requests_router
 from .answer_work_drain import router as answer_work_drain_router
+from .area_discovery import router as area_discovery_router
 from .business_suggestions import router as business_suggestions_router
 from .byoc_azure import router as byoc_azure_router
 from .calendar import router as calendar_router
@@ -89,6 +90,7 @@ router.include_router(advisors_router)
 router.include_router(agent_chat_router)
 router.include_router(agent_prompt_router)
 router.include_router(connections_router)
+router.include_router(area_discovery_router)
 router.include_router(messages_router)
 router.include_router(wallet_card_access_router)
 router.include_router(calendar_router)
