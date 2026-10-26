@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { expect, it, vi } from "vitest";
+import { beforeAll, expect, it, vi } from "vitest";
 
 // Execute the real public Providers shell and Profile pane. Background bridges
 // and unrelated chrome have no role in this session-admission regression.
@@ -81,8 +81,13 @@ vi.doMock("@/lib/capacitor/native-navigation", async (original) => ({
   useNativeNavigationBlocked: () => {}, nativeShellOverlayBlocked: () => false,
 }));
 
+// Compile the real shell during bounded fixture setup; the test budget covers admission.
+let Providers: typeof import("@/app/providers")["Providers"];
+beforeAll(async () => {
+  ({ Providers } = await import("@/app/providers"));
+});
+
 it("@feature_account_deletion @trace_loop keeps a retained Account URL sealed throughout recovery and resumes only on active admission", async () => {
-  const { Providers } = await import("@/app/providers");
   window.history.replaceState(null, "", "/?" + query);
   vi.spyOn(window, "requestAnimationFrame").mockImplementation(callback => { callback(0); return 1; });
   const view = render(<Providers><div>Route content</div></Providers>);
