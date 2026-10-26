@@ -1,4 +1,9 @@
 export interface Holding {
+  entry_id?: string;
+  position_id?: string;
+  currency?: string;
+  iso_currency_code?: string;
+  price_unavailable?: boolean;
   symbol: string;
   symbol_cusip?: string;
   identifier_type?: "ticker" | "cusip" | "derived";
