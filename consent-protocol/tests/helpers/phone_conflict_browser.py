@@ -68,7 +68,7 @@ async def _schema(pool):
             "370_one_marketing_preferences.sql",
             "418_account_provider_cleanup_staging.sql",
             "423_account_shared_provider_authority.sql",
-            "430_phone_recovery_actions.sql",
+            "431_phone_recovery_actions.sql",
         ):
             await conn.execute((ROOT / "db/migrations" / name).read_text())
 

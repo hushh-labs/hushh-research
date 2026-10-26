@@ -1501,3 +1501,5 @@ tests/test_phone_transfer_authority.py
 tests/test_phone_recovery_actions.py
 tests/test_phone_reader_probe.py
 tests/scripts/test_managed_provider_receipt.py
+tests/routes/test_area_discovery.py
+tests/services/test_area_discovery_postgres.py

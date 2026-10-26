@@ -832,9 +832,9 @@ reader. Release artifacts retain the plan, exact image probe, selected revision
 and these aggregate checks without phone numbers, OTPs or owner identifiers.
 
 
-## Phone recovery action admission (428)
+## Phone recovery action admission (431)
 
-Migration `430_phone_recovery_actions.sql` adds bounded, non-authorizing recovery
+Migration `431_phone_recovery_actions.sql` adds bounded, non-authorizing recovery
 continuations and own-device action receipts. Producers use the existing
 `AUTH_PHONE_RECOVERY_ENABLED` flag. Turning it off retains status/readback and
 completed cleanup; it does not erase pending work. Shared codes never grant
@@ -842,7 +842,7 @@ cross-owner transfer, deletion or device authority. Account erasure cascades the
 new metadata. Unknown device dispatches retain their consumed proof event and
 cannot be automatically submitted again.
 
-Production rollback qualification now requires both migrations 425 and 428 in
+Production rollback qualification now requires both migrations 425 and 431 in
 its immutable source. A 425-only image exposes the former unguarded device DELETE
 contract and is not an eligible fallback. The packaged reader probe also calls
 the actual legacy DELETE entry with no proof and requires rejection before the
