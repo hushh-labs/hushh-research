@@ -57,6 +57,12 @@ coalesce while a history request is running; owner/session changes and privacy
 hiding still abort it. Readiness errors remain distinct from an empty collection.
 The protected recipient viewer loads on demand and survives the verification
 popup's temporary visibility change, while vault/session changes retire it.
+Received payment previews reuse the payment-card face with history's network and
+last four. Cardholder and expiry remain masked until the existing protected view
+authorizes them; the gallery performs no reveal or decryption. Equivalent access
+polls, including reordered JSON metadata, preserve an open authorized reveal.
+Changed ciphertext or metadata invalidates it; polling for revocation, expiry and
+the existing privacy/owner/vault boundaries remain unchanged.
 
 Local diagnosis: the backend returned `503 WALLET_CARD_ACCESS_DISABLED` with
 all three required tables installed; its two Wallet feature flags were unset.

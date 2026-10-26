@@ -236,6 +236,10 @@
       "file": "app/api/kai/[...path]/route.ts"
     },
     {
+      "template": "/api/market/quotes",
+      "file": "app/api/market/quotes/route.ts"
+    },
+    {
       "template": "/api/marketplace/{path*}",
       "file": "app/api/marketplace/[...path]/route.ts"
     },
@@ -10998,5 +11002,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b99bc261dbee0e10c9043639ac2f7515a7d3f0d18a6ea40f7e7736db7c576583"
+  "content_sha256": "dc499b9d2b99b8b63ae895f6aede8736c97012bf192f0e0d96532e2a87287a8b"
 }

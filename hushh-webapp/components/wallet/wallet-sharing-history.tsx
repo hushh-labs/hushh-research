@@ -13,6 +13,8 @@ import { CardAccessUnavailableError, WalletCardAccessService, type CardSharingHi
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
 import { WalletSavedCardSharing } from "./wallet-saved-card-sharing";
 import { WalletCollectionSkeleton } from "./wallet-collection-skeleton";
+import { WalletCardFace } from "./wallet-card-face";
+import { isCardNetworkId } from "@/lib/wallet/card-validation";
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -25,6 +27,17 @@ type State = { context: CardShareContext; page: CardSharingHistory; direction: s
 const date = (value: string) => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
 function SharedCardPreview({ item }: { item: CardSharingHistoryItem }) {
+  if (item.cardType === "payment") {
+    // History exposes the sender-approved network label and last four only.
+    const network = item.displayLabel.match(/^([A-Z][A-Z0-9_-]{0,39}) •••• \d{4}$/)?.[1]?.toLowerCase();
+    return <div data-testid="wallet-received-card-preview" data-status={item.status}>
+      <WalletCardFace protectedDetails summary={{
+        cardId: item.id, nickname: "Shared card", brand: isCardNetworkId(network) ? network : "other",
+        last4: /^\d{4}$/.test(item.last4 ?? "") ? item.last4! : "",
+        expiryMonth: 0, expiryYear: 0, issuingRegion: "", createdAt: item.createdAt,
+      }} />
+    </div>;
+  }
   return <div className={styles.receivedFace} data-testid="wallet-received-card-preview" data-status={item.status}>
     <span className={styles.receivedFaceTop}><span>{item.cardType === "profile" ? "Profile card" : "Shared card"}</span><CreditCard aria-hidden="true" className="size-6" /></span>
     <strong>{item.displayLabel}</strong><small>Details protected</small>

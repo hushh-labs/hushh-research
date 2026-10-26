@@ -1,5 +1,12 @@
 # Dev Fast Lane — the safe rule for agentic shipping
 
+> **Staged branch preparation:** CI now recognizes `dev` and `uat` for strict
+> destination freshness and merge-queue validation. Existing branch routing and
+> manual deploy source rules remain active. Current Main is preserved; there is
+> no production-baseline rollback. See [branch preparation](./branch-governance.md#dev--uat-branch-preparation)
+> for the activation boundary and remaining promotion work.
+
+
 > `main` is the signoff lane (UAT → production). The dev environment is the agentic
 > proving ground and never routes through `main`. This page is the canonical contract
 > for how those two lanes stay fast AND correct at the same time.

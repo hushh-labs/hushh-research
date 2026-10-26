@@ -1426,7 +1426,7 @@ jobs:
 
   main-freshness-gate:
     name: "Base Freshness Gate"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -1463,7 +1463,7 @@ jobs:
         env:
           MAIN_SYNC_REMOTE: origin
           MAIN_SYNC_BRANCH: ${{ github.base_ref }}
-          # bounded for PRs into main, block for integration/pr-train (2026-10-15).
+          # Main keeps bounded freshness; train, dev and uat require their base tip.
           #
           # block failed every PR that was even one commit behind main. main
           # lands 24-57 merges a day against a ~25 min green run, and this job
@@ -1525,7 +1525,7 @@ jobs:
   # `intentional-revert` label plus a `Merge-Regression-Ack:` line.
   merge-fidelity-gate:
     name: "Merge Fidelity Gate (advisory)"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     continue-on-error: true
@@ -1690,7 +1690,7 @@ jobs:
               fail=1
             fi
             # The freshness job runs only for these bases; elsewhere its skip is legitimate.
-            if { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ]; } && [ "$MAIN_FRESHNESS" != "success" ]; then
+            if { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ] || [ "$BASE_REF" = "dev" ] || [ "$BASE_REF" = "uat" ]; } && [ "$MAIN_FRESHNESS" != "success" ]; then
               echo "A pull request into ${BASE_REF} requires a successful Base Freshness Gate."
               fail=1
             fi

@@ -81,6 +81,21 @@ export function registerFinanceScreenChecks(
           const line = el.querySelector("path.recharts-area-curve")!.getBoundingClientRect();
           return line.width >= el.clientWidth - 85;
         })).toBe(true);
+        const facts = holding.locator('dl[aria-label="Holding details"]');
+        const sheetBox = (await holding.boundingBox())!;
+        const chartBox = (await holdingChart.boundingBox())!;
+        const factsBox = (await facts.boundingBox())!;
+        const closeBox = (await holding.getByRole("button", { name: "Close", exact: true }).boundingBox())!;
+        expect(Math.min(closeBox.width, closeBox.height)).toBeGreaterThanOrEqual(44);
+        if (width >= 1024) {
+          expect(sheetBox.width).toBeLessThanOrEqual(1120);
+          expect(Math.abs(sheetBox.x - (width - sheetBox.width) / 2)).toBeLessThanOrEqual(2);
+          expect(chartBox.x + chartBox.width).toBeLessThanOrEqual(factsBox.x);
+          expect(chartBox.width).toBeGreaterThan(400);
+        } else {
+          expect(factsBox.y).toBeGreaterThanOrEqual(chartBox.y + chartBox.height);
+        }
+        expect(await facts.locator("dd").first().evaluate(el => getComputedStyle(el).fontSize)).toBe("14px");
         await holding.screenshot({ path: test.info().outputPath(`holding-${width}-${theme}.png`) });
         await holding.getByRole("button", { name: "Edit Holding" }).click();
         await expect(page.getByTestId("action-result")).toHaveText("Edit sample");
@@ -156,5 +171,36 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
         await page.screenshot({ path: test.info().outputPath(`grouped-holding-${width}-${theme}.png`) });
       });
     }
+  }
+}
+
+export function registerStockQuoteRecoveryChecks(mount: (page: Page, width?: number) => Promise<void>): void {
+  for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
+    test(`Stock quote recovery keeps history and facts available at ${width}px ${theme}`, async ({ page }) => {
+      await mount(page, width);
+      await page.evaluate(mode => {
+        document.documentElement.classList.toggle("dark", mode === "dark");
+        document.body.dataset.quoteMode = "unavailable";
+      }, theme);
+      expect(await page.evaluate(() => document.body.dataset.quoteReads)).toBeUndefined();
+      const stocks = page.getByTestId("market-iphone-fixture");
+      await stocks.getByRole("searchbox", { name: "Search stocks" }).fill("Berkshire");
+      await stocks.getByTestId("market-pick-row").click();
+      const detail = page.getByRole("dialog", { name: "Berkshire Hathaway Inc. Class B", exact: true });
+      const quote = detail.getByRole("region", { name: "Stock quote", exact: true });
+      await expect(quote.getByText("Unavailable", { exact: true })).toBeVisible();
+      const retry = quote.getByRole("button", { name: "Retry quote", exact: true });
+      await expect(retry).toBeVisible();
+      await expect(detail.getByRole("region", { name: "Price history", exact: true }).locator("path.recharts-area-curve")).toHaveAttribute("d", /^M/);
+      await expect(detail.getByRole("region", { name: "Company facts", exact: true })).toBeVisible();
+      expect(await page.evaluate(() => document.body.dataset.quoteReads)).toBe("1");
+      await page.evaluate(() => { delete document.body.dataset.quoteMode; });
+      await retry.click();
+      await expect(quote.getByText("$456.78", { exact: true })).toBeVisible();
+      await expect(quote.getByText(/Cached quote/)).toBeVisible();
+      expect(await page.evaluate(() => document.body.dataset.quoteReads)).toBe("2");
+      expect(await detail.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await detail.screenshot({ path: test.info().outputPath(`stock-quote-recovered-${width}-${theme}.png`) });
+    });
   }
 }

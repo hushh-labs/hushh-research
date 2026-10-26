@@ -57,6 +57,19 @@ flowchart TB
 
 ---
 
+## Public market quotes
+
+`GET /api/market/quotes?symbols=ADBE` reuses the shared public quote provider
+and L1/L2 cache, without owner, holdings or vault context. Web reaches it through
+the fixed Next.js proxy at the same path; native uses the existing ApiService
+backend transport. The proxy forwards neither owner authorization nor cookies.
+The quote row retains `price`, legacy `change_percent`, `company_name`, and
+`source`, and adds nullable `change_pct` and provider `quoted_at`, plus
+`is_stale`, `is_delayed`, and `market_state`. Retrieval time never becomes
+quote time. Empty provider refreshes retain eligible cached prices; a cold
+closed-market request returns 503 without calling providers. Daily historical
+observations remain a separate contract.
+
 ## Request-specific revocation
 
 `POST /api/consent/revoke` preserves the optional `requestId` from the web client

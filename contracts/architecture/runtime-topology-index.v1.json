@@ -3835,6 +3835,7 @@
           "market.sectors.show_day",
           "market.sectors.show_highlights",
           "market.sectors.show_week",
+          "market.stock.quote.retry",
           "market.stocks.retry",
           "route.back",
           "route.kai_home"
@@ -7144,21 +7145,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "542230898cc411c092071915b1ad7986c766b74886d81404c9115ef8d0b16e97",
+    "action_gateway": "4a36164dd7f9eab12c6b12a1a387de803e7e5181c689b22eaf6c3bfbdd99f97d",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
     "data_plane": "c96b4884194857b02bce677ce3e89535047e64a9823e681b9f95e06c129071f5",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "5424c3c186d5d6c98110a41df88174b01ed168641207c745cce3e21140061ce4",
+    "route_index": "fbf3863df24ef86e57cb84ae133bb23f8d1d18d79199f78008a3291a26d93b4f",
     "route_layout": "7e7db6eedfdd9911c21e5e1de0d56e2f8cc373453a445b324be11cd613260c51",
-    "surface_map": "c82a6e939caa6d26f8182d8367ac898828b6c5ec677dc7aef9aaf82237be516b",
+    "surface_map": "0c60b07b72e8b6ad02e78201722e35066d9054677ee7739ee790c97dee246b5c",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 306,
+    "actions": 307,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
