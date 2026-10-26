@@ -119,9 +119,10 @@ try {
   await page.getByLabel("End date", { exact: true }).fill("2026-10-25");
   await page.locator("#document-activity-accepted").check();
   assert.equal(await page.locator("#document-activity-accepted").isChecked(), true);
-  const creation = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/sharing/delivery-requests"));
-  await page.getByRole("button", { name: "Send request", exact: true }).click();
-  const created = await creation;
+  const [created] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/sharing/delivery-requests")),
+    page.getByRole("button", { name: "Send request", exact: true }).click(),
+  ]);
   assert.equal(created.status(), 202);
   assert.equal(created.request().headers().authorization, "Bearer recipient");
   assert.equal(created.request().headers()["x-hushh-consent"], "recipient");
@@ -147,10 +148,11 @@ try {
   assert.equal(await copyPermission.isChecked(), false);
   assert.equal(await control("document-hosting-prepare").isEnabled(), false);
   await copyPermission.check();
-  const preparation = page.waitForResponse(response => response.request().method() === "POST" &&
-    new URL(response.url()).pathname.endsWith("/delivery/approve") && response.request().postDataJSON()?.phase === "prepare");
-  await control("document-hosting-prepare").click();
-  const prepared = await preparation;
+  const [prepared] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === "POST" &&
+      new URL(response.url()).pathname.endsWith("/delivery/approve") && response.request().postDataJSON()?.phase === "prepare"),
+    control("document-hosting-prepare").click(),
+  ]);
   assert.equal(prepared.status(), 200);
   assert.equal(prepared.request().postDataJSON().copyAccepted, true);
   assert.equal(prepared.request().postDataJSON().accessExpiresAt, expectedDeadline);
@@ -173,31 +175,32 @@ try {
   await page.getByRole("region", { name: "Protected documents", exact: true }).waitFor({ timeout: 15000 });
   const reported = kind => page.waitForResponse(response => response.request().method() === "POST" &&
     new URL(response.url()).pathname.endsWith("/delivery/activity") && response.request().postDataJSON()?.kind === kind);
-  const renderedEvent = reported("preview_rendered");
-  await control("document-hosting-preview").click();
+  const [renderedEvent] = await Promise.all([
+    reported("preview_rendered"), control("document-hosting-preview").click(),
+  ]);
+  assert.equal(renderedEvent.status(), 200);
   const canvas = page.getByLabel("Document preview, page 1", { exact: true });
   await canvas.waitFor();
   await page.waitForFunction(() => { const node = document.querySelector('canvas[aria-label="Document preview, page 1"]'); return node && node.width > 0 && node.height > 0; });
   assert.ok(await canvas.evaluate(node => node.getContext("2d").getImageData(0, 0, node.width, node.height).data.some((value, index) => index % 4 !== 3 && value < 240)));
-  assert.equal((await renderedEvent).status(), 200);
   record("local_preview_rendered");
   await control("document-hosting-close-preview").click();
-  const originalPromise = page.waitForEvent("download");
-  const originalHandoff = reported("handoff_reported");
-  await control("document-hosting-download-original").click();
-  const original = await originalPromise;
+  const [original, originalHandoff] = await Promise.all([
+    page.waitForEvent("download"), reported("handoff_reported"),
+    control("document-hosting-download-original").click(),
+  ]);
   const originalBytes = await fs.readFile(await original.path());
   assert.equal(original.suggestedFilename(), "Private statement.pdf");
   assert.equal(crypto.createHash("sha256").update(originalBytes).digest("hex"), sourceHash);
-  assert.equal((await originalHandoff).status(), 200);
-  const markedPromise = page.waitForEvent("download");
-  const markedHandoff = reported("handoff_reported");
-  await control("document-hosting-download-copy").click();
-  const marked = await markedPromise;
+  assert.equal(originalHandoff.status(), 200);
+  const [marked, markedHandoff] = await Promise.all([
+    page.waitForEvent("download"), reported("handoff_reported"),
+    control("document-hosting-download-copy").click(),
+  ]);
   const markedBytes = await fs.readFile(await marked.path());
   assert.ok(markedBytes.subarray(0, 5).equals(Buffer.from("%PDF-")));
   assert.notEqual(crypto.createHash("sha256").update(markedBytes).digest("hex"), sourceHash);
-  assert.equal((await markedHandoff).status(), 200);
+  assert.equal(markedHandoff.status(), 200);
   const watermarkText = await page.evaluate(async bytes => {
     const { loadHostedPdf } = await import("/lib/consent/document-hosting-pdf.ts");
     const pdf = await loadHostedPdf(new Uint8Array(bytes), new AbortController().signal);
@@ -232,20 +235,24 @@ try {
   await page.getByText("Recovery requested. The owner must authorize repairing this copy. Nothing was charged.", { exact: true }).waitFor();
   await switchActor("owner");
   await control("document-hosting-repair").waitFor();
-  const amendment = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/delivery/recovery-amendment"));
-  await control("document-hosting-repair").click();
-  await page.getByRole("alertdialog", { name: "Repair recipient access?" }).getByRole("button", { name: "Repair access", exact: true }).click();
-  const repaired = await amendment;
+  const [repaired] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/delivery/recovery-amendment")),
+    (async () => {
+      await control("document-hosting-repair").click();
+      await page.getByRole("alertdialog", { name: "Repair recipient access?" }).getByRole("button", { name: "Repair access", exact: true }).click();
+    })(),
+  ]);
   assert.equal(repaired.status(), 200);
   await repaired.finished();
   assert.equal((await repaired.json()).recoveryRequested, false);
   await control("document-hosting-repair").waitFor({ state: "hidden" });
   await switchActor("recipient");
-  const recoveredDownload = page.waitForEvent("download");
-  const recoveredHandoff = reported("handoff_reported");
-  await control("document-hosting-download-original").click();
-  assert.equal(crypto.createHash("sha256").update(await fs.readFile(await (await recoveredDownload).path())).digest("hex"), sourceHash);
-  assert.equal((await recoveredHandoff).status(), 200);
+  const [recoveredDownload, recoveredHandoff] = await Promise.all([
+    page.waitForEvent("download"), reported("handoff_reported"),
+    control("document-hosting-download-original").click(),
+  ]);
+  assert.equal(crypto.createHash("sha256").update(await fs.readFile(await recoveredDownload.path())).digest("hex"), sourceHash);
+  assert.equal(recoveredHandoff.status(), 200);
   assert.equal(directGoogleReads, 3); assert.equal(oneUploads, 3);
   record("paid_key_recovery_verified");
   await switchActor("owner");
