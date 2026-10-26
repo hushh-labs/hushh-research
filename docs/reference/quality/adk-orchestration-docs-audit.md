@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 04:25 UTC
+## Current decision — 26 October 2026, 05:05 UTC
 
 **The application correction is accepted on Dev and UAT. Both clouds pass the new
 Browser image's component and encrypted-recovery checks. Installed-owner Browser
@@ -41,7 +41,7 @@ or new Browser installation is claimed.
 | Encrypted recovery | GCP predecessor `26bab163…061809` and Azure predecessor `6e57f251…eeac423` preserve identity, six records, consent, revocation and 245,763 exact file bytes on the new image | Installed active-work drain and recovery |
 | Installed owners | Azure Dev 30 update and Puppy/Gemma 12B response passed. GCP's original approved Dev 30/Files update now verifies image `6e57f251…eeac423` through its existing operation | Browser task reconciliation, active-work acceptance and current-image Files organization |
 | Fixed-term sharing | Temporary 97/1711 sandbox admission verified. Original 54/1711 secret and runtime restored through successful governed rollout, with both owner readbacks | Account 97 has zero funded balance and no funding lots; no purchase/funding was attempted. Request/access/revocation acceptance remains open |
-| Account generations | Isolated real-mail two-cycle proof preserves Firebase UID and refuses retired sessions | Public admission remains off; WorkOS offboarding needs immutable membership and captured-generation authority |
+| Account generations | Isolated real-mail two-cycle proof preserves Firebase UID and refuses retired sessions | Public admission remains off; local WorkOS membership/journal hardening has focused and PostgreSQL evidence, while legacy coverage and actual provider qualification remain open |
 | Cleanup | Browser qualification compute, temporary inference role, copied images and both recovery fixtures removed with provider absence receipts | Disposable Cloudflare site awaits connector reconnection for deletion; synthetic state only, with serving expiry |
 
 The stranded GCP update completed through its original approval and operation,
@@ -50,6 +50,21 @@ reconciliation. Its completed queue and IAM work was not repeated; the lease was
 not manually cleared. A prior attempt refused a changed runtime epoch before
 reservation or dispatch. All repair/observation jobs were removed after terminal
 provider results. This settles that image/Files update, not Browser activation.
+
+The next local candidate also closes the WorkOS email-based callback gap:
+verified exchange captures immutable directory attribution, delayed work retains its
+original generation, and provider writes use the existing dispatch/settlement journal.
+Held membership/profile tokens cannot reopen an offboarded work session. SSO-only
+organizations retain a bounded empty-directory path. Migration 426 is forward-only;
+these changes are not deployed or permission to activate public re-registration.
+The [SSO reference](../architecture/enterprise-sso-workos-adr.md) records legacy
+coverage and provider qualification still required.
+
+A separate local CI correction checks a parallel frontend build once before
+lifecycle migration. Known terminal failure blocks the release without rolling back
+healthy services; pending builds retain the final immutable-image join. Its executable
+negative control reproduces unnecessary rollback flags in all three former classifiers.
+This improvement is verified locally and has not run on the hosted deployment path.
 
 The frontend heap correction is verified on the real build host: Cloud Build
 `bc9973e1-e96a-44e0-88cc-9ab76c0528f9` passed TypeScript and 188 prerendered pages
@@ -101,10 +116,11 @@ pre-upload source comparison; its focused regression refuses changed image input
 while preserving metadata-only reuse. A successful application rollout does not
 establish that a private pod received its new executable.
 
-A new read-only GCP observation confirms the original service UID, old image,
+Before the repair, a read-only GCP observation confirmed the original service UID, old image,
 generation 21, Ready state and 100% old-revision traffic without the approved
-attempt nonce. The temporary observer exited and was deleted. This does not prove
-where the original generic exception occurred or authorize replay of its held operation.
+attempt nonce. The temporary observer exited and was deleted. That historical observation did not
+prove where the original exception occurred or authorize replay; the later conditional
+repair and actual installed-image acknowledgement are recorded above.
 
 Audit logs identified missing read/act-as access on the existing cleanup identity.
 The scoped repair and separate Scheduler/log-read permissions allowed activation:
