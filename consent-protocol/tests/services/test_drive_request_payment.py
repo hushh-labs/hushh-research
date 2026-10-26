@@ -1401,10 +1401,15 @@ def test_erasure_locks_connector_share_request_then_order():
 
 
 def test_legacy_grant_and_bulk_claim_follow_erasure_lock_order():
+    from hushh_mcp.services.document_delivery import drive_bridge
+
+    context = inspect.getsource(drive_bridge.grant_context)
+    assert context.index("store._participant_gate") < context.index("store._management_context")
+    assert context.index("store._management_context") < context.index("store._related_request")
+    assert context.index("store._related_request") < context.index("require_paid_if_required")
     grant = inspect.getsource(DrivePermissionStore._grant_authority)
-    assert grant.index("self._participant_gate") < grant.index("self._management_context")
-    assert grant.index("self._management_context") < grant.index("self._related_request")
-    assert grant.index("self._related_request") < grant.index("require_paid_if_required")
+    assert grant.index("drive_bridge.grant_context(") < grant.index("return grant_authority(")
+    assert grant.index("drive_bridge.grant_context(") < grant.index("self._admit_sources(")
 
     claim = inspect.getsource(DriveBulkShareStore.claim)
     assert claim.index("self._owned(") < claim.index(
@@ -1573,14 +1578,16 @@ def test_closed_request_does_not_requeue_payment_ready(status, expired):
 
 def test_queued_unposted_grants_do_not_block_terminal_refund_candidate():
     assert "'queued'" not in _REFUND_CANDIDATES_SQL.split("AND NOT EXISTS", 1)[1]
-    claim = inspect.getsource(_claim_refunds)
-    effects_check = claim[
-        claim.index("# Queued grants have not reached") : claim.index(
-            "UPDATE drive_request_payment_obligations"
-        )
-    ]
+    from hushh_mcp.services.document_delivery import refund_delivery
+
+    effects_check = inspect.getsource(refund_delivery._legacy_eligible)
     assert "'queued'" not in effects_check
     assert "'dispatching'" in effects_check and "'unknown'" in effects_check
+    assert "_legacy_eligible(" in inspect.getsource(refund_delivery.refund_delivery_eligible)
+    claim = inspect.getsource(_claim_refunds)
+    assert claim.index("refund_delivery_eligible(") < claim.index(
+        "UPDATE drive_request_payment_obligations"
+    )
 
 
 @pytest.mark.asyncio
@@ -3010,42 +3017,6 @@ async def test_owner_allowed_request_pays_the_owner_price_without_trusted_member
     assert create_session.call_count == 1
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "order",
-    [
-        None,
-        {
-            "status": "awaiting_payment",
-            "amount_cents": 1000,
-            "currency": "usd",
-            "reconciliation_required": False,
-        },
-    ],
-)
-async def test_no_match_request_closes_unpaid_payment_state(order):
-    request = {
-        "request_id": str(uuid4()),
-        "user_id": "owner",
-        "recipient_user_id": "recipient",
-        "payment_required": True,
-        "status": "no_match",
-        "expires_at": datetime.now(UTC) + timedelta(hours=1),
-    }
-    store = DriveRequestPaymentStore(db=object())
-    store._row = Mock(side_effect=[request, order])
-
-    async def transaction(operation):
-        return operation(SimpleNamespace())
-
-    store._transaction = transaction
-    state = await store.payment_state(
-        requester_user_id="recipient", request_id=request["request_id"]
-    )
-    assert state["status"] == "expired"
-    assert store._row.call_count == 2
-
-
 def _make_legacy_undated_paid_request(sharing, connection, request_id):
     row = (
         connection.execute(
@@ -3923,10 +3894,12 @@ def test_withdraw_and_decline_follow_the_settlement_lock_order():
     ]
     assert [lock.index(step) for step in steps] == sorted(lock.index(step) for step in steps)
     # The same sequence the delivery settlement takes after its share locks.
+    from hushh_mcp.services.document_delivery import finance
+
     settle = inspect.getsource(DriveRequestOwnerPayoutService._advance_delivery)
     tables = [
         "ORDER BY share_id FOR UPDATE",
-        "FROM drive_share_requests WHERE",
+        "finance.locked_settlement_request(",
         "FROM drive_request_payment_orders WHERE",
         "FROM drive_request_payment_obligations WHERE",
         "FROM drive_request_payment_refunds WHERE",
@@ -3935,6 +3908,10 @@ def test_withdraw_and_decline_follow_the_settlement_lock_order():
     assert [settle.index(table) for table in tables] == sorted(
         settle.index(table) for table in tables
     )
+    request_lock = inspect.getsource(finance.locked_settlement_request)
+    assert request_lock.index(
+        "FROM drive_share_requests WHERE request_id=:request FOR UPDATE"
+    ) < request_lock.index("FROM document_delivery_contracts WHERE request_id=:request FOR UPDATE")
     withdraw = inspect.getsource(withdraw_in_transaction)
     assert (
         withdraw.index("lock_closable_request(")

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 
 from api.middleware import require_firebase_auth_read_only
+from hushh_mcp.services.document_delivery.contracts import CheckoutAcceptance, DeliveryError
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.pkm_answer_payment_service import (
@@ -74,12 +75,19 @@ async def create_drive_request_checkout(
     request_id: UUID,
     response: Response,
     requester_user_id: str = Depends(require_firebase_auth_read_only),
+    body: CheckoutAcceptance | None = Body(default=None),
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return await _service().checkout(
-            requester_user_id=requester_user_id, request_id=str(request_id)
+            requester_user_id=requester_user_id,
+            request_id=str(request_id),
+            **({"accepted_contract": body.wire()} if body is not None else {}),
         )
+    except DeliveryError as error:
+        raise HTTPException(
+            error.status, {"code": error.code}, headers={"Cache-Control": "private, no-store"}
+        ) from None
     except Exception as error:
         raise _http(error) from None
 

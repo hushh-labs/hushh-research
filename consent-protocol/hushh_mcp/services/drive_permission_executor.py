@@ -9,6 +9,7 @@ from functools import partial
 from firebase_admin import auth as firebase_auth
 
 from api.utils.firebase_admin import get_firebase_auth_app
+from hushh_mcp.services.document_delivery import drive_bridge
 from hushh_mcp.services.drive_permission_store import (
     RECONCILED_CREATE_PROVENANCE,
     DrivePermissionStore,
@@ -230,9 +231,7 @@ class DrivePermissionExecutor:
                     job, before=list(before.permissions), issuer=issuer
                 )
                 dispatched = True
-                created = await self.adapter.create_reader(
-                    **args, verified_email=plan["recipient"]["email"]
-                )
+                created = await drive_bridge.create_reader(self.adapter, args, plan)
                 provider_succeeded = True
                 # A receipt is recorded even after owner disconnect. No raw
                 # result returns to the browser or enters persistent tool history.
@@ -331,7 +330,11 @@ class DrivePermissionExecutor:
         if (
             hint
             and present is not None
-            and attributable_reader(present, email=plan["recipient"]["email"], expiration_time=None)
+            and attributable_reader(
+                present,
+                email=plan["recipient"]["email"],
+                expiration_time=plan.get("expiration_time"),
+            )
         ):
             # A complete absence check preceded the POST, and Google's answer can
             # follow a real share. The exact requested grant is One's to manage.
@@ -340,11 +343,7 @@ class DrivePermissionExecutor:
                 state="succeeded",
                 evidence={
                     "reconciled": list(snapshot.permissions),
-                    "created": {
-                        "permission_id": present["id"],
-                        "email": present["emailAddress"],
-                        "expiration_time": present.get("expirationTime"),
-                    },
+                    "created": drive_bridge.created_reader_receipt(present),
                     "managed": True,
                     "provenance": RECONCILED_CREATE_PROVENANCE,
                 },

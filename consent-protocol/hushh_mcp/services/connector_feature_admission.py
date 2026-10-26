@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 FEATURES = {
+    "protected_document_delivery": "PROTECTED_DOCUMENT_DELIVERY_ENABLED",
     "connections_panel_v2": "CONNECTIONS_PANEL_V2",
     "google_drive_connection": "GOOGLE_DRIVE_CONNECTION",
     "google_drive_live": "GOOGLE_DRIVE_LIVE",
@@ -46,6 +47,7 @@ OWNER_AVAILABLE = frozenset(
 # because the same backend image is deployed there.
 PRODUCTION_STAGED_DRIVE = frozenset(
     {
+        "protected_document_delivery",
         "connections_panel_v2",
         "google_drive_live",
         "drive_document_indexing",
@@ -80,6 +82,15 @@ def _production_owner_admitted(user_id: str) -> bool:
 
 
 def connector_feature_enabled(feature: str, user_id: str) -> bool:
+    if feature == "protected_document_delivery":
+        return bool(
+            user_id
+            and user_id.strip() == user_id
+            and len(user_id) <= 128
+            and os.getenv("ENVIRONMENT", "").strip().lower()
+            in {"uat", "production", "test", "local", "development"}
+            and os.getenv("PROTECTED_DOCUMENT_DELIVERY_ENABLED", "").strip().lower() == "true"
+        )
     if (
         feature == "curated_mcp_connectors"
         and os.getenv("ENVIRONMENT", "").strip().lower() == "production"

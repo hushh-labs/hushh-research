@@ -1,22 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
-import {
-  snapshotVaultSessionEpoch,
-  isVaultSessionEpochCurrent,
-} from "@/lib/vault/session-epoch";
-import { AuthService } from "@/lib/services/auth-service";
-import {
-  DriveSharingError,
-  DriveSharingService,
-  validDocumentRequestPeriod,
-  validDocumentRequestTerms,
-} from "@/lib/services/drive-sharing-service";
-import { DriveRequestRequesterService } from "@/lib/services/drive-request-requester-service";
+import { DocumentHostingService, type HostingReadiness } from "@/lib/services/document-hosting-service";
+import { useHostedDocumentSession } from "./use-hosted-document-session";
+import { validDocumentRequestPeriod } from "@/lib/services/drive-sharing-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
@@ -24,301 +13,24 @@ import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { MobileDocumentDateRange } from "@/components/consent/mobile-document-date-range";
+import { MobileDocumentDateRange } from "./mobile-document-date-range";
 import { IllustratedRequestContent, IllustratedRequestForm, IllustratedRequestBody, IllustratedRequestActions } from "@/components/app-ui/illustrated-request-dialog";
-import {
-  DocumentRequestQuoteNotice,
-  useDocumentRequestQuote,
-} from "@/components/consent/document-request-quote";
-import { IDENTITY_REQUIRED, fileRequestError } from "@/components/consent/file-request-errors";
-import { PacketRow } from "@/components/consent/packets/packet-rows";
-import { dayRangeLabel } from "@/components/consent/packets/packet-copy";
-import type { DriveRequestQuote } from "@/lib/services/drive-request-pricing-service";
-import {
-  Dialog,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { DocumentRequestQuoteNotice, useDocumentRequestQuote } from "./document-request-quote";
+import { PacketRow } from "./packets/packet-rows";
+import { dayRangeLabel } from "./packets/packet-copy";
+import { Dialog, DialogTrigger } from "@/components/ui/dialog";
+import { validFileRequest } from "./file-request-contract";
+import { useFileRequest } from "./use-file-request";
+import { useRecipientIdentityPreview, RecipientIdentityNotice } from "./recipient-identity-preview";
 
-export type FileRequestTerms = {
-  purpose: string;
-  periodStart: string | null;
-  periodEnd: string | null;
-  accessDays?: number;
-  requesterActorType?: "person" | "ria";
-  reason?: string;
-};
+// Public compatibility facade: retain existing import and test-mock paths.
+export { FILE_REQUEST_HELPER, validFileRequest, fileRequestLabel } from "./file-request-contract";
+export type { FileRequestTerms } from "./file-request-contract";
+export { useFileRequest } from "./use-file-request";
+export { useRecipientIdentityPreview, RecipientIdentityNotice } from "./recipient-identity-preview";
+export type { RecipientIdentityPreview } from "./recipient-identity-preview";
 
-export const FILE_REQUEST_HELPER =
-  "You get original Drive links for the files they share with you.";
-
-export function validFileRequest(terms: FileRequestTerms): boolean {
-  if (terms.accessDays !== undefined &&
-    (!Number.isSafeInteger(terms.accessDays) || terms.accessDays < 1 || terms.accessDays > 90)) return false;
-  if (terms.requesterActorType !== undefined &&
-    terms.requesterActorType !== "person" && terms.requesterActorType !== "ria") return false;
-  if (terms.reason !== undefined && (terms.reason.length > 500 ||
-    (terms.requesterActorType === "ria" && !terms.reason.trim()))) return false;
-  return validDocumentRequestTerms(
-    terms.purpose,
-    terms.periodStart || null,
-    terms.periodEnd || null,
-  );
-}
-
-export type RecipientIdentityPreview = {
-  state: "idle" | "loading" | "ready" | "missing" | "unavailable";
-  email: string | null;
-  refresh: () => void;
-};
-
-/**
- * The Google account a new request's files would go to, checked by the server
- * the way sending checks it, never from client providerData. A failed check
- * only hides the line: sending verifies the account again.
- */
-export function useRecipientIdentityPreview({
-  active,
-  userId,
-  getToken,
-}: {
-  active: boolean;
-  userId: string;
-  getToken: () => string | null;
-}): RecipientIdentityPreview {
-  const [result, setResult] = useState<Omit<RecipientIdentityPreview, "refresh">>({
-    state: "idle",
-    email: null,
-  });
-  const [reload, setReload] = useState(0);
-  const refresh = useCallback(() => setReload((current) => current + 1), []);
-
-  useEffect(() => {
-    const token = active ? getToken() : null;
-    if (!token) {
-      setResult({ state: "idle", email: null });
-      return;
-    }
-    const epoch = snapshotVaultSessionEpoch();
-    let cancelled = false;
-    const current = () =>
-      !cancelled && isVaultSessionEpochCurrent(epoch) && getToken() === token;
-    const guard = () => {
-      if (!current()) throw new DriveSharingError("session_changed");
-    };
-    setResult((previous) => ({ state: "loading", email: previous.email }));
-    void Promise.resolve()
-      .then(() => AuthService.documentRequestIdentityToken(userId, current))
-      .then((firebaseToken) => {
-        guard();
-        return DriveRequestRequesterService.recipientIdentity(token, firebaseToken, guard);
-      })
-      .then((identity) => {
-        if (current()) setResult({ state: "ready", email: identity.email });
-      })
-      .catch((cause) => {
-        if (!current()) return;
-        const code =
-          cause instanceof DriveSharingError
-            ? cause.code
-            : cause instanceof Error
-              ? cause.message
-              : "";
-        setResult({ state: IDENTITY_REQUIRED.has(code) ? "missing" : "unavailable", email: null });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [active, userId, getToken, reload]);
-
-  return { ...result, refresh };
-}
-
-/** "Files will be shared with a@gmail.com", or what to add before sending. */
-export function RecipientIdentityNotice({ preview }: { preview: RecipientIdentityPreview }) {
-  if (preview.state === "ready" && preview.email)
-    return (
-      <HelperText className="[overflow-wrap:anywhere]">
-        Files will be shared with {preview.email}
-      </HelperText>
-    );
-  if (preview.state === "missing")
-    return <HelperText role="status">Add a Google account to receive the files.</HelperText>;
-  return null;
-}
-
-/**
- * Sends one exact-file request. The requester proves the Google account already
- * linked to their One sign-in; nothing here connects their Drive. An unchanged
- * retry reuses its key, so the server never records it twice.
- */
-export function useFileRequest({
-  userId,
-  personRef,
-  getToken,
-  initial,
-  onQuoteChanged,
-  identityMissing = false,
-  onIdentityLinked,
-  canRequest = true,
-}: {
-  userId: string;
-  personRef: string;
-  getToken: () => string | null;
-  initial?: { terms: FileRequestTerms; clientRequestId: string };
-  onQuoteChanged?: () => void;
-  /** The preview found no linked Google account: sending links one first. */
-  identityMissing?: boolean;
-  /** A Google account was linked while sending; the preview reads it again. */
-  onIdentityLinked?: () => void;
-  canRequest?: boolean;
-}) {
-  const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [needsGoogleAfterSend, setNeedsGoogle] = useState(false);
-  const [linked, setLinked] = useState(false);
-  const needsGoogle = needsGoogleAfterSend || (identityMissing && !linked);
-  const alive = useRef(false);
-  const eligibility = useRef(canRequest);
-  eligibility.current = canRequest;
-  const serial = useRef(0);
-  const inFlight = useRef(false);
-  const attempt = useRef<{ fingerprint: string; id: string; quoteVersion: number | null } | null>(
-    initial
-      ? {
-          fingerprint: fingerprintOf(personRef, initial.terms),
-          id: initial.clientRequestId,
-          quoteVersion: null,
-        }
-      : null,
-  );
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-      // This is a monotonic operation fence, not a captured DOM reference.
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      serial.current++;
-      inFlight.current = false;
-    };
-  }, []);
-  const send = async (terms: FileRequestTerms, quote: DriveRequestQuote | null): Promise<string | null> => {
-    if (!eligibility.current || inFlight.current || !validFileRequest(terms) || !quote || !alive.current) return null;
-    const token = getToken();
-    if (!token) return null;
-    const epoch = snapshotVaultSessionEpoch();
-    const operation = ++serial.current;
-    const current = () =>
-      alive.current &&
-      serial.current === operation &&
-      isVaultSessionEpochCurrent(epoch) &&
-      getToken() === token;
-    const guard = Object.assign(() => {
-      if (!current()) throw new DriveSharingError("session_changed");
-    }, { canDispatch: () => eligibility.current });
-    const clean = normalize(terms);
-    const fingerprint = fingerprintOf(personRef, clean);
-    if (attempt.current?.fingerprint !== fingerprint ||
-        (attempt.current.quoteVersion !== null && attempt.current.quoteVersion !== quote.version)) {
-      attempt.current = { fingerprint, id: crypto.randomUUID(), quoteVersion: quote.version };
-    } else {
-      attempt.current.quoteVersion = quote.version;
-    }
-    const clientRequestId = attempt.current.id;
-    const linkGoogle = needsGoogle;
-    inFlight.current = true;
-    setError(null);
-    setPhase("verifying");
-    try {
-      const firebaseToken = await (linkGoogle
-        ? AuthService.linkGoogleIdentity(userId, current)
-        : AuthService.documentRequestIdentityToken(userId, current));
-      guard();
-      if (!eligibility.current) {
-        setError("Your connection needs to be confirmed before sending. Your details are kept.");
-        return null;
-      }
-      if (linkGoogle) {
-        setNeedsGoogle(false);
-        setLinked(true);
-        onIdentityLinked?.();
-      }
-      setPhase("sending");
-      const result = await DriveSharingService.create(
-        token,
-        firebaseToken,
-        { ownerPersonRef: personRef, clientRequestId, expectedQuoteVersion: quote.version,
-          ...(clean.accessDays === undefined ? {} : { accessDays: clean.accessDays }),
-          ...(clean.requesterActorType === undefined ? {} : { requesterActorType: clean.requesterActorType }),
-          ...(clean.reason === undefined ? {} : { reason: clean.reason }),
-          purpose: {
-            purpose: clean.purpose, periodStart: clean.periodStart, periodEnd: clean.periodEnd,
-          } },
-        guard,
-      );
-      guard();
-      setNeedsGoogle(false);
-      attempt.current = null;
-      CacheSyncService.onConsentMutated(userId);
-      window.dispatchEvent(
-        new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
-          detail: { reconcile: true },
-        }),
-      );
-      return result.requestId;
-    } catch (cause) {
-      if (!current()) return null;
-      const code =
-        cause instanceof DriveSharingError
-          ? cause.code
-          : cause instanceof Error
-            ? cause.message
-            : "request_failed";
-      if (IDENTITY_REQUIRED.has(code)) setNeedsGoogle(true);
-      setError(fileRequestError(code));
-      if (code === "price_changed") onQuoteChanged?.();
-      return null;
-    } finally {
-      if (serial.current === operation) {
-        inFlight.current = false;
-        if (alive.current) setPhase("idle");
-      }
-    }
-  };
-  /** Drops any in-flight result; the server may still have accepted the POST. */
-  const reset = () => {
-    serial.current++;
-    inFlight.current = false;
-    setPhase("idle");
-    setError(null);
-  };
-  return { phase, error, needsGoogle, send, reset };
-}
-
-function normalize(terms: FileRequestTerms): FileRequestTerms {
-  return {
-    purpose: terms.purpose.trim(),
-    periodStart: terms.periodStart || null,
-    periodEnd: terms.periodEnd || null,
-    ...(terms.accessDays === undefined ? {} : { accessDays: terms.accessDays }),
-    ...(terms.requesterActorType === undefined ? {} : { requesterActorType: terms.requesterActorType }),
-    ...(terms.reason === undefined ? {} : { reason: terms.reason.trim() }),
-  };
-}
-
-function fingerprintOf(personRef: string, terms: FileRequestTerms): string {
-  const clean = normalize(terms);
-  return JSON.stringify({ personRef, ...clean });
-}
-
-export function fileRequestLabel(
-  phase: "idle" | "verifying" | "sending",
-  needsGoogle: boolean,
-): string {
-  if (phase !== "idle") return "Sending…";
-  return needsGoogle ? "Add Google account" : "Request files";
-}
-
-/** Asks a connection for files; the requester gets original links for the files shared. */
+/** Asks a connection for exact files through the selected, separately approved delivery method. */
 export function RequestFilesButton({
   userId,
   personRef,
@@ -327,6 +39,7 @@ export function RequestFilesButton({
   agentPackagesEnabled = false,
   renderTrigger,
   canRequest = true,
+  driveAllowed = canRequest,
   availabilityNotice,
   initialOpen = false,
   showTrigger = true,
@@ -339,6 +52,7 @@ export function RequestFilesButton({
   agentPackagesEnabled?: boolean;
   renderTrigger?: (label: string) => ReactNode;
   canRequest?: boolean;
+  driveAllowed?: boolean;
   availabilityNotice?: ReactNode;
   initialOpen?: boolean;
   showTrigger?: boolean;
@@ -351,11 +65,27 @@ export function RequestFilesButton({
   const [accessDays, setAccessDays] = useState(30);
   const [requesterActorType, setRequesterActorType] = useState<"person" | "ria">("person");
   const [reason, setReason] = useState("");
+  const [receiveThrough, setReceiveThrough] = useState<"drive" | "one" | "both">("drive");
+  const [activityAccepted, setActivityAccepted] = useState(false);
+  const [hosting, setHosting] = useState<HostingReadiness | null>(null);
+  const hostingSession = useHostedDocumentSession();
+  useEffect(() => {
+    if (!open || !hostingSession) return;
+    const controller = new AbortController();
+    void DocumentHostingService.readiness(hostingSession, controller.signal).then(value => {
+      if (hostingSession.isCurrent() && !controller.signal.aborted) {
+        setHosting(value.enabled ? value : null);
+        if (value.enabled && !driveAllowed) setReceiveThrough(current => current === "drive" ? "one" : current);
+      }
+    }).catch(() => { if (!controller.signal.aborted) setHosting(null); });
+    return () => controller.abort();
+  }, [open, hostingSession, driveAllowed]);
   const [created, setCreated] = useState<{ requestId: string; purpose: string; start: string; end: string } | null>(null);
-  const quote = useDocumentRequestQuote({ active: open && !created && canRequest, ownerPersonRef: personRef, getToken });
-  const identity = useRecipientIdentityPreview({ active: open && !created && canRequest, userId, getToken });
+  const allowedForMode = canRequest && (receiveThrough === "drive" ? driveAllowed : Boolean(hosting));
+  const quote = useDocumentRequestQuote({ active: receiveThrough === "drive" && open && !created && canRequest && driveAllowed, ownerPersonRef: personRef, getToken });
+  const identity = useRecipientIdentityPreview({ active: receiveThrough !== "one" && open && !created && allowedForMode, userId, getToken });
   const request = useFileRequest({
-    canRequest,
+    canRequest: allowedForMode,
     userId,
     personRef,
     getToken,
@@ -364,6 +94,7 @@ export function RequestFilesButton({
     onIdentityLinked: identity.refresh,
   });
   const terms = { purpose, periodStart: start || null, periodEnd: end || null,
+    ...(receiveThrough === "drive" ? {} : { receiveThrough, activityAccepted, activityDisclosureVersion: hosting?.activityDisclosureVersion, accessDays }),
     ...(agentPackagesEnabled ? { accessDays, requesterActorType, reason } : {}) };
   const valid = validFileRequest(terms);
   const busy = request.phase !== "idle";
@@ -383,6 +114,7 @@ export function RequestFilesButton({
     setAccessDays(30);
     setRequesterActorType("person");
     setReason("");
+    setReceiveThrough("drive"); setActivityAccepted(false);
   };
   return (
     <>
@@ -466,7 +198,21 @@ export function RequestFilesButton({
               }}
             >
               <IllustratedRequestBody>
-              {availabilityNotice}
+              {!canRequest || (receiveThrough === "drive" && !driveAllowed) ? availabilityNotice : null}
+              {hosting ? <div className="space-y-3">
+                <Label htmlFor="document-receive-through" data-consent-role="form-label">Receive through</Label>
+                <select id="document-receive-through" data-voice-control-id="document-hosting-receive-through" data-consent-input="true" value={receiveThrough}
+                  onChange={event => { setReceiveThrough(event.target.value as "drive" | "one" | "both"); setActivityAccepted(false); }} disabled={busy}
+                  className="min-h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="drive" disabled={!driveAllowed}>Google Drive</option><option value="one">Secure One link</option><option value="both">Both</option>
+                </select>
+                {receiveThrough !== "drive" ? <>
+                  <HelperText>Read PDF copies inside One and choose Download when you want to save them. Your request does not authorize access to the owner's files.</HelperText>
+                  <label className="flex min-h-11 items-start gap-3 text-sm"><input type="checkbox" checked={activityAccepted} disabled={busy} onChange={event => setActivityAccepted(event.target.checked)} className="mt-1" />
+                    <span>I accept that the owner can see access activity and approximate network country when available. Activity is retained for up to 90 days; downloaded copies cannot be recalled.</span>
+                  </label>
+                </> : null}
+              </div> : null}
               <div className="space-y-2">
                 <Label htmlFor="document-request-purpose" data-consent-role="form-label">
                   Which files do you need?
@@ -556,17 +302,17 @@ export function RequestFilesButton({
                   {request.error}
                 </HelperText>
               ) : null}
-              <RecipientIdentityNotice preview={identity} />
-              <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
-                error={quote.error} onRetry={quote.refresh} personName={personName} />
+              {receiveThrough !== "one" ? <RecipientIdentityNotice preview={identity} /> : null}
+              {receiveThrough === "drive" ? <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
+                error={quote.error} onRetry={quote.refresh} personName={personName} /> : <HelperText>The owner chooses the exact files, final price and access deadline. You review the approved terms before paying.</HelperText>}
               </IllustratedRequestBody>
               <IllustratedRequestActions>
               <FlowActionGroup
                 primary={
-                  <Button data-consent-role="primary-action" type="submit" size="prominent" disabled={!canRequest || !valid || !quote.quote || busy}>
+                  <Button data-consent-role="primary-action" type="submit" size="prominent" disabled={!allowedForMode || !valid || (receiveThrough === "drive" && !quote.quote) || busy}>
                     {request.phase !== "idle"
                       ? "Sending…"
-                      : request.needsGoogle
+                      : receiveThrough !== "one" && request.needsGoogle
                         ? "Add Google account"
                         : "Send request"}
                   </Button>

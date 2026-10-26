@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.document_delivery import drive_bridge
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError, SharingApproval
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
@@ -73,26 +74,19 @@ class DrivePermissionStore(DriveSharingStore):
             self._selection_policy(connection, user_id, feature="google_drive_connection")
 
     def _grant_authority(self, connection, initial):
-        self._participant_gate(connection, initial["user_id"], str(initial["request_id"]))
-        # Account erasure and legacy settlement take the management context
-        # before request/payment locks. Keep grants in that same order.
-        context = self._management_context(connection, initial["user_id"], initial["request_id"])
-        request = self._related_request(connection, initial["user_id"], str(initial["request_id"]))
-        from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+        request, plan, hosted_contract = drive_bridge.grant_context(
+            self, connection, initial, GRANT_AUTHORITY_WINDOW_SECONDS
+        )
+        if hosted_contract:
+            from hushh_mcp.services.document_delivery.contracts import DeliveryError
+            from hushh_mcp.services.document_delivery.drive_bridge import grant_authority
 
-        DriveRequestPaymentStore.require_paid_if_required(connection, request)
-        now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
-        if (
-            context["private_request_erased_at"] is not None
-            or request["access_stop_requested_at"] is not None
-            or request["status"] not in {"approved", "partial"}
-            or request["approval_invalidated_at"] is not None
-            or request["revision"] != initial["review_revision"]
-            or request["expires_at"] <= now
-            or (now - initial["created_at"]).total_seconds() > GRANT_AUTHORITY_WINDOW_SECONDS
-        ):
-            raise DriveSharingError("approval_superseded")
-        plan = self._plan(initial)
+            try:
+                return grant_authority(
+                    self, connection, request=request, initial=initial, plan=plan
+                )
+            except DeliveryError:
+                raise DriveSharingError("approval_superseded") from None
         approval = SharingApproval.model_validate(plan["approval"])
         self._admit_sources(
             connection,
@@ -520,10 +514,7 @@ class DrivePermissionStore(DriveSharingStore):
         await self._transaction(operation)
 
     def _finish_batch(self, connection, job, *, safe_error_code=None):
-        context = self._management_context(connection, job["user_id"], job["request_id"])
-        if context["private_request_erased_at"] is not None:
-            # The owner's receipt remains manageable. No erased request,
-            # recipient link or private notification may be reconstructed.
+        if drive_bridge.finish_hosted_or_erased(self, connection, job):
             return
         if job["kind"] == "revoke":
             # Revocation outcomes are independent of the original sharing

@@ -7,7 +7,24 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+
+
+def cloudrun_revision(*, name: str, service: str, sha: str, intake: str | None = None) -> dict:
+    """Synthetic immutable revision with explicit service and optional intake policy."""
+    revision = {
+        "metadata": {
+            "name": name,
+            "labels": {"serving.knative.dev/service": service, "deploy-sha": sha},
+        },
+        "spec": {"containers": [{"image": "image@sha256:" + "a" * 64}]},
+    }
+    if intake is not None:
+        revision["spec"]["containers"][0]["env"] = [
+            {"name": "PROTECTED_DOCUMENT_DELIVERY_ENABLED", "value": intake}
+        ]
+    return revision
 
 
 def copy_candidate_tools(root, destination_root):
@@ -131,6 +148,7 @@ printf '%s' "$code"
 
 DRIVE_PRODUCTION_TOOLS = (
     "resolve_prod_release_mode.py",
+    "resolve_protected_document_release.py",
     "verify_prod_prerequisites.py",
     "verify_hashcoin_config.sh",
     "setup_native_callback_log_exclusion.sh",
@@ -157,6 +175,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/verify-prod-places-readiness.py",
         "scripts/ci/cloudrun-retention.py",
         "scripts/ci/process_group.py",
+        "scripts/ci/cloudrun-rollback.sh",
         "scripts/ci/runtime_capacity_inventory.py",
         "scripts/ci/account-deletion-fence-decision.py",
         "scripts/ci/verify-cloud-scheduler-attempt.py",
@@ -271,3 +290,136 @@ def uat_build_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def probe_worker_payment_bindings(
+    block,
+    mocked,
+    *,
+    enabled: bool,
+    missing: str = "",
+    previous_bound: bool = False,
+    hosted: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 - fixed repo shell block with a mocked gcloud
+        [
+            "bash",
+            "-c",
+            mocked
+            + 'hosted_maintenance="${HOSTED_MAINTENANCE:-false}"\n'
+            + block
+            + '\nprintf "%s" "$payment_secret_bindings"\n',
+        ],
+        env={
+            **os.environ,
+            "DRIVE_REQUEST_PAYMENTS_PROD_ENABLED": "true" if enabled else "false",
+            "MISSING_SECRET": missing,
+            "PREVIOUS_REVISION": "consent-protocol-drive-worker-prev" if previous_bound else "",
+            "PREVIOUS_STRIPE_BOUND": "true" if previous_bound else "false",
+            "HOSTED_MAINTENANCE": "true" if hosted else "false",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def assert_backend_source_rollback(
+    root: Path, directory: Path, *, service: str, current: bool, sha_valid: bool, allowed: bool
+) -> None:
+    commands = directory / "commands"
+    sha = "a" * 40 if sha_valid else "unverified"
+    (directory / "gcloud").write_text(
+        "#!/usr/bin/env python3\nimport os,sys\n"
+        "a=sys.argv[1:]\n"
+        "with open(os.environ['CALLS'],'a') as f: f.write(' '.join(a)+'\\n')\n"
+        "if a[:3]==['run','revisions','describe']: print(os.environ['SOURCE_SHA'])\n"
+        "elif a[:3]!=['run','services','update-traffic']: raise SystemExit(99)\n"
+    )
+    (directory / "git").write_text(
+        "#!/usr/bin/env python3\nimport json,os,sys\n"
+        "assert sys.argv[1]=='show'\n"
+        "if os.environ['CURRENT']!='true': raise SystemExit(1)\n"
+        "print(json.dumps({'version':1} if sys.argv[2].endswith('account-deletion-authority.json') "
+        "else {'ordered_migrations':['423_account_shared_provider_authority.sql']}))\n"
+    )
+    for binary in ("gcloud", "git"):
+        (directory / binary).chmod(0o700)
+    environment = {
+        **os.environ,
+        "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+        "CALLS": str(commands),
+        "SOURCE_SHA": sha,
+        "CURRENT": str(current).lower(),
+        "GCP_PROJECT_ID": "synthetic-project",
+    }
+    environment.pop("BASH_ENV", None)
+    result = subprocess.run(  # noqa: S603 - authored script and synthetic cloud/git ports
+        ["bash", str(root / "scripts/ci/cloudrun-rollback.sh"), service, "us-central1", "prior"],
+        cwd=root,
+        env=environment,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    assert (result.returncode == 0) is allowed, result.stderr
+    calls = commands.read_text().splitlines()
+    assert any("update-traffic" in call for call in calls) is allowed
+    if service == "consent-protocol":
+        assert calls[0].startswith("run revisions describe prior ")
+        assert "--project=synthetic-project" in calls[0]
+
+
+def backend_rollback_authority_fixture(
+    root: Path, directory: Path, denied: str | None
+) -> tuple[Path, Callable[[Path], subprocess.CompletedProcess[str]]]:
+    tools = directory / "bin"
+    tools.mkdir()
+    calls = directory / "calls"
+    sha = "a" * 40
+    programs = {
+        "python3": (
+            '#!/bin/sh\ncase "$1" in\n'
+            " */resolve_protected_document_release.py) guard=reader;;\n"
+            " */activate_release.py) guard=provider; "
+            '[ "$2" = --qualify-source ] && [ "$3" = "$SOURCE_SHA" ] || exit 98;;\n'
+            " *) exit 99;;\nesac\n"
+            'printf "%s\\n" "$guard" >> "$CALLS"\n'
+            '[ "$guard" != "$DENIED" ] || exit 47\n'
+        ),
+        "gcloud": (
+            '#!/bin/sh\ncase "$1:$2:$3" in\n'
+            ' run:revisions:describe) printf "%s\\n" "$SOURCE_SHA";;\n'
+            ' run:services:update-traffic) printf "traffic\\n" >> "$CALLS";;\n'
+            " *) exit 99;;\nesac\n"
+        ),
+    }
+    for name, program in programs.items():
+        path = tools / name
+        path.write_text(program)
+        path.chmod(0o700)
+    environment = {
+        **os.environ,
+        "PATH": str(tools) + os.pathsep + os.environ["PATH"],
+        "PROTOCOL_PYTHON": str(tools / "python3"),
+        "GCP_PROJECT_ID": "hushh-pda",
+        "HUSHH_DOCUMENT_READER_ENVIRONMENT": "production",
+        "HUSHH_DOCUMENT_READER_GUARD_REPORT": "synthetic-reader-report",
+        "HUSHH_DOCUMENT_MANUAL_ROLLBACK_GUARD": "false",
+        "CALLS": str(calls),
+        "SOURCE_SHA": sha,
+        "DENIED": denied or "",
+    }
+    environment.pop("BASH_ENV", None)
+
+    def execute(script):
+        return subprocess.run(  # noqa: S603 -- Real shell and fixed synthetic authority ports; no provider calls.
+            ["bash", str(script), "consent-protocol", "us-central1", "consent-protocol-prior"],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+    return calls, execute

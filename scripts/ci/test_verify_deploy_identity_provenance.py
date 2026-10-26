@@ -161,6 +161,28 @@ def test_a_matching_provider_and_policy_pass() -> None:
     assert report["live_checked"]
 
 
+def test_existing_production_release_workloads_have_recorded_authority() -> None:
+    """Regression: the live release account failed admission on its existing gates.
+
+    These independently observed bindings serve SQL migration, backup posture,
+    optional backup creation, and cleanup Scheduler activation/log evidence.
+    They must be declared by the one grant record, not exempted by the detector.
+    The privilege-creep negative control below still rejects any undeclared role.
+    """
+    policy = _live_policy()
+    member = f"serviceAccount:{REAL['DEPLOY_SERVICE_ACCOUNT_EMAIL']}"
+    for role in (
+        "roles/cloudsql.client",
+        "roles/cloudsql.viewer",
+        "roles/logging.viewer",
+        "projects/hushh-pda/roles/accountDeletionSchedulerOperator",
+        "projects/hushh-pda/roles/predeployBackupOperator",
+    ):
+        policy["bindings"].append({"role": role, "members": [member]})
+    report = _verify_with(_live_provider(), policy)
+    assert report["ok"], report["failures"]
+
+
 def test_a_console_edited_condition_is_caught() -> None:
     """The console is the way this actually drifts: edited live, never in the record."""
     provider = _live_provider()
@@ -238,6 +260,7 @@ def main() -> int:
         test_a_deploy_role_that_can_grant_authority_is_caught,
         test_a_mapping_without_the_bound_attribute_is_caught,
         test_a_matching_provider_and_policy_pass,
+        test_existing_production_release_workloads_have_recorded_authority,
         test_a_console_edited_condition_is_caught,
         test_a_swapped_issuer_is_caught,
         test_privilege_creep_on_the_deploy_account_is_caught,
