@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: "Exact main SHA or recorded recovery SHA (blank = current main)"
+        description: "Must match dispatch SHA; recorded recovery SHA only with production_restoration"
         required: false
         type: string
       production_restoration:
@@ -49,6 +49,19 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
           persist-credentials: false
+
+      - name: Verify smoke source identity
+        if: ${{ !inputs.production_restoration }}
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" == "$GITHUB_SHA" && "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || {
+            echo "Refusing smoke: dispatch/check identity differs from the tested checkout. Retry the original run for an older main SHA." >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
       - name: Admit exact validation source
         id: source

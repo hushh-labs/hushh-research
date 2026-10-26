@@ -189,8 +189,23 @@ def main() -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--scope", required=True)
+    parser.add_argument("--image-source", required=True)
+    parser.add_argument("--drive-mode", required=True)
+    parser.add_argument("--cadence-origin", default="")
+    parser.add_argument("--phone-rollback-sha", default="")
+    parser.add_argument("--enable-email-kyc", required=True)
     args = parser.parse_args()
     try:
+        authority.qualify_deployment(
+            args.sha,
+            scope=args.scope,
+            image_source=args.image_source,
+            drive_mode=args.drive_mode,
+            cadence_origin=args.cadence_origin,
+            phone_rollback_sha=args.phone_rollback_sha,
+            enable_email_kyc=args.enable_email_kyc,
+        )
         result = verify(args.run_id, args.sha)
     except Exception:
         parser.exit(1, "Exact recovery validation could not be proved\n")

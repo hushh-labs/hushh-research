@@ -400,3 +400,73 @@ def _tamper_document_fence(writer, module):
         cursor.execute(
             f"ALTER TABLE document_delivery_contracts ENABLE ALWAYS TRIGGER {module.TRIGGER}"
         )
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        None,
+        "scope",
+        "image_source",
+        "drive_mode",
+        "cadence_origin",
+        "phone_rollback_sha",
+        "enable_email_kyc",
+    ],
+)
+def test_restoration_admission_is_paired_manual_and_capability_preserving(monkeypatch, changed):
+    import runpy
+
+    module = runpy.run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))
+    function = module["qualify_deployment"]
+    record = {"sourceSha": "a" * 40}
+    monkeypatch.setitem(function.__globals__, "qualify_source", lambda sha: record)
+    arguments = dict(
+        scope="all",
+        image_source="build-from-source",
+        drive_mode="disable",
+        cadence_origin="",
+        phone_rollback_sha="",
+        enable_email_kyc="false",
+    )
+    if changed:
+        arguments[changed] = "not-admitted"
+        with pytest.raises(module["Refused"]):
+            function("a" * 40, **arguments)
+    else:
+        assert function("a" * 40, **arguments) is record
+
+
+@pytest.mark.parametrize(
+    "requested,checkout,passes", [("a", "a", True), ("b", "a", False), ("a", "b", False)]
+)
+def test_normal_smoke_identity_executes_checkout_binding(tmp_path, requested, checkout, passes):
+    import os
+    import subprocess
+
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/main-post-merge-smoke.yml").read_text())
+    step = next(
+        s
+        for s in workflow["jobs"]["smoke-gate"]["steps"]
+        if s.get("name") == "Verify smoke source identity"
+    )
+    assert step["if"] == "${{ !inputs.production_restoration }}"
+    git = tmp_path / "git"
+    git.write_text('#!/bin/sh\n[ "$1" != rev-parse ] || printf "%s\\n" "$CHECKOUT_SHA"\n')
+    git.chmod(0o755)
+    result = subprocess.run(  # noqa: S603 -- authored step, hermetic Git transport.
+        ["bash", "-eu", "-c", step["run"]],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "REQUESTED_SHA": requested * 40,
+            "GITHUB_SHA": "a" * 40,
+            "CHECKOUT_SHA": checkout * 40,
+        },
+    )
+    assert (result.returncode == 0) is passes, result.stderr

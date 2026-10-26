@@ -16,6 +16,11 @@ on:
         description: "Exact green main SHA to deploy"
         required: true
         type: string
+      restoration_validation_run:
+        description: "One-time recorded production restoration: exact hosted recovery validation run; leave blank for normal releases"
+        required: false
+        default: ""
+        type: string
       scope:
         description: "Auto-detect changed services, or force backend/frontend/all"
         required: true
@@ -136,7 +141,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Require reconciled maintenance mutations under deployment lock
         env:
@@ -154,12 +160,37 @@ jobs:
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
 
       - name: Validate deployment SHA against main
+        if: inputs.restoration_validation_run == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
           REQUIRED_CHECK_NAME: "Main Post-Merge Smoke Gate"
-        run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ github.event.inputs.sha }}"
+          REQUESTED_SHA: ${{ inputs.sha }}
+        run: bash scripts/ci/require-deploy-sha-on-main.sh "$REQUESTED_SHA"
+
+      - name: Admit recorded production restoration
+        id: restoration-admission
+        if: inputs.restoration_validation_run != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RECOVERY_RUN: ${{ inputs.restoration_validation_run }}
+          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+          IMAGE_SOURCE: ${{ inputs.backend_image_source }}
+          DRIVE_MODE: ${{ inputs.drive_live_mode }}
+          CADENCE_ORIGIN: ${{ inputs.cadence_origin }}
+          PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+          EMAIL_KYC: ${{ inputs.enable_one_email_kyc }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_TRIGGERING_ACTOR"
+          python3 deploy/account-deletion/restoration_validation.py \
+            --sha "$REQUESTED_SHA" --run-id "$RECOVERY_RUN" --scope "$REQUESTED_SCOPE" \
+            --image-source "$IMAGE_SOURCE" --drive-mode "$DRIVE_MODE" \
+            --cadence-origin "$CADENCE_ORIGIN" --phone-rollback-sha "$PHONE_ROLLBACK_SHA" \
+            --enable-email-kyc "$EMAIL_KYC" --output /tmp/prod-restoration-validation.json
 
       - name: Preserve current release tooling
         shell: bash
@@ -167,11 +198,13 @@ jobs:
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/tag-last-known-good.sh "${RUNNER_TEMP}/release-tools/"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/api/routes/document_delivery.py \
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
+          cp config/ci-governance.json "${RUNNER_TEMP}/release-tools/ci-governance.json"
           cp scripts/ci/resolve-deploy-scope.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
@@ -245,6 +278,10 @@ jobs:
           cp deploy/account-deletion/{install,remove}_release_fence.sql \
             deploy/account-deletion/activate_release.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql \
+            deploy/account-deletion/compatibility_restoration.py \
+            deploy/account-deletion/restoration_validation.py \
+            deploy/account-deletion/document_restoration_fence.py \
+            deploy/account-deletion/production-restoration.json \
             "${RUNNER_TEMP}/release-tools/account-deletion/"
           cp config/runtime-capacity.json \
             "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
@@ -306,6 +343,9 @@ jobs:
             scripts/ci/account-deletion-fence-decision.py
           mkdir -p deploy/account-deletion
           cp "${RUNNER_TEMP}/release-tools/account-deletion/"* deploy/account-deletion/
+          cp "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/release_acceptance_provenance.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/ci-governance.json" config/ci-governance.json
           cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
             config/runtime-capacity.json
 
@@ -427,6 +467,7 @@ jobs:
 
       - name: Require exact-SHA UAT acceptance
         id: predecessor-acceptance
+        if: inputs.restoration_validation_run == ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -2254,6 +2295,7 @@ jobs:
           path: |
             /tmp/phone-rollback/
             /tmp/prod-predecessor-acceptance.json
+            /tmp/prod-restoration-validation.json
             /tmp/prod-runtime-secret-sync.json
             /tmp/prod-frontend-runtime-secret-sync.json
             /tmp/prod-runtime-parity.json
@@ -2360,6 +2402,12 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: credential.helper
+          GIT_CONFIG_VALUE_0: ""
+          GIT_CONFIG_KEY_1: credential.https://github.com.helper
+          GIT_CONFIG_VALUE_1: "!gh auth git-credential"
           ENVIRONMENT: production
           SHA: ${{ github.event.inputs.sha }}
           BACKEND_REVISION: ${{ steps.final-state.outputs.backend_serving }}
@@ -2375,7 +2423,7 @@ jobs:
             echo "[tag-last-known-good] Release status is '$STATUS', not 'healthy' — not tagging."
             exit 0
           fi
-          bash scripts/ci/tag-last-known-good.sh
+          bash "${RUNNER_TEMP}/release-tools/tag-last-known-good.sh"
 
       - name: Retire unused production tags after a healthy release
         if: always()

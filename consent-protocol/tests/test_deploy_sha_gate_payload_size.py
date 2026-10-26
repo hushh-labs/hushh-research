@@ -1,230 +1,31 @@
-"""The deploy-SHA gate must survive a large check-runs response.
+"""Execute the real release gate against hermetic GitHub responses.
 
-`scripts/ci/require-deploy-sha-on-main.sh` is the single correctness gate in front
-of every release lane — dev, uat, production, and both iOS lanes all call it. On
-2026-08-07 it refused a dev deploy (run 31145632745) for a reason that had nothing
-to do with the deploy: it passed the GitHub check-runs JSON to `python3` as one
-argv string, and Linux caps a single argument at MAX_ARG_STRLEN (32 * PAGE_SIZE =
-128 KiB on a 4 KiB-page host). The response is every check run on the commit, up to
-100 per page, each carrying the full `app` object — roughly 4 KiB apiece, so a
-commit with ~30 checks sits inside 10% of the ceiling and one that crosses it kills
-the interpreter with "Argument list too long" (exit 126) *before* a single check is
-read. A gate that dies on payload size is not stricter than one that reads the
-payload; it is differently broken, and it fails identically for a green commit and
-a red one.
-
-These tests execute the real script with `git` and `curl` stubbed, because the
-defect lives in how the process is spawned. A test that asserted on the script's
-text would have passed against the broken version — the text and the behaviour were
-wrong together, which is the failure mode this repo has already paid for.
+Protect both large-payload transport and trusted producer/current-attempt
+boundaries. No test talks to GitHub or deploys a service.
 """
 
 from __future__ import annotations
 
-import copy
 import json
-import os
-import resource
-import subprocess
 from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-GATE = REPO_ROOT / "scripts/ci/require-deploy-sha-on-main.sh"
-
-TARGET_SHA = "b6e1e98b814e160663196efbbb0acfb6e9d9a562"
-BRANCH = "claude/hushh-infrastructure-analysis-7o991c"
-ACCEPTED = "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate"
+from tests.helpers.deploy_gate import (
+    ACCEPTED,
+    GATE,
+    MAX_ARG_STRLEN,
+    PRODUCERS,
+    REPO_ROOT,
+    _branch_receipt,
+    _check_run,
+    _payload_over_the_arg_limit,
+    _run_gate,
+    _run_gate_against_github,
+)
 
 # The kernel limit this gate has to clear, computed rather than hardcoded so the
 # test stays true on hosts with a page size other than 4 KiB.
-MAX_ARG_STRLEN = 32 * resource.getpagesize()
-
-
-def _check_run(name: str, conclusion: str, index: int) -> dict:
-    """One check run shaped like the API's, including the `app` block that dominates size."""
-    return {
-        "id": 92762597000 + index,
-        "name": name,
-        "node_id": f"CR_kwDOQkAAOM8AAAAVmS{index}",
-        "head_sha": TARGET_SHA,
-        "external_id": f"f7c1a2b3-{index:04d}-4c5d-9e0f-1a2b3c4d5e6f",
-        "url": f"https://api.github.com/repos/o/r/check-runs/{index}",
-        "html_url": f"https://github.com/o/r/runs/{index}",
-        "details_url": f"https://github.com/o/r/actions/runs/31145032368/job/{index}",
-        "status": "completed",
-        "conclusion": conclusion,
-        "started_at": "2026-08-07T03:40:55Z",
-        "completed_at": "2026-08-07T03:43:51Z",
-        "output": {
-            "title": None,
-            "summary": None,
-            "text": None,
-            "annotations_count": 0,
-            "annotations_url": f"https://api.github.com/repos/o/r/check-runs/{index}/annotations",
-        },
-        "check_suite": {"id": 84515114279 + index},
-        "app": {
-            "id": 15368,
-            "slug": "github-actions",
-            "name": "GitHub Actions",
-            "description": "Automate your workflow from idea to production",
-            "external_url": "https://help.github.com/en/actions",
-            "html_url": "https://github.com/apps/github-actions",
-            "permissions": {
-                key: "write"
-                for key in (
-                    "actions",
-                    "administration",
-                    "checks",
-                    "contents",
-                    "deployments",
-                    "discussions",
-                    "issues",
-                    "merge_queue",
-                    "metadata",
-                    "packages",
-                    "pages",
-                    "pull_requests",
-                    "repository_hooks",
-                    "security_events",
-                    "statuses",
-                    "vulnerability_alerts",
-                )
-            },
-            "events": [
-                "check_run",
-                "check_suite",
-                "create",
-                "delete",
-                "deployment",
-                "issues",
-                "merge_group",
-                "pull_request",
-                "push",
-                "release",
-                "status",
-                "workflow_dispatch",
-                "workflow_run",
-            ],
-        },
-        "pull_requests": [
-            {
-                "url": "https://api.github.com/repos/o/r/pulls/4675",
-                "id": 2914857000,
-                "number": 4675,
-                "head": {"ref": BRANCH, "sha": TARGET_SHA},
-                "base": {"ref": "main", "sha": "62365c405e8ad97de7944cb129fe51e64c6d0439"},
-            }
-        ],
-    }
-
-
-def _payload_over_the_arg_limit() -> dict:
-    """A check-runs response whose JSON exceeds what a single argv string can hold."""
-    names = [
-        "CI Status Gate",
-        "Preflight Gate",
-        "Scope Resolution",
-        "Protocol (Python)",
-        "Web Core (Next.js)",
-        "Web Targeted Contracts",
-        "MCP Package",
-        "Integration",
-        "Governance",
-        "Path filters",
-        "Secret Scan",
-        "Upstream Sync",
-        "PR Base Policy",
-        "DCO",
-        "Base Freshness Gate",
-    ]
-    runs: list[dict] = []
-    # A branch with an open PR carries two runs per commit: the push run (green)
-    # and the pull_request run (red on DCO for an unsigned branch). That doubling
-    # is what put run 31145632745 over the ceiling.
-    for index, name in enumerate(names):
-        runs.append(_check_run(name, "success", index))
-    for offset, name in enumerate(names):
-        red = name in ("CI Status Gate", "Preflight Gate", "DCO")
-        runs.append(_check_run(name, "failure" if red else "skipped", len(names) + offset))
-
-    while len(json.dumps({"total_count": len(runs), "check_runs": runs})) <= MAX_ARG_STRLEN:
-        grown = copy.deepcopy(runs[0])
-        grown["id"] += len(runs)
-        runs.append(grown)
-
-    return {"total_count": len(runs), "check_runs": runs}
-
-
-def _run_gate(
-    tmp_path: Path,
-    payload: dict,
-    *,
-    reachable: bool = True,
-    accepted: str = ACCEPTED,
-    workflow_runs: list[dict] | None = None,
-    provenance_failure: bool = False,
-):
-    """Execute the real gate with `git` and `curl` stubbed onto PATH.
-
-    `python3` is deliberately NOT stubbed — the defect was in how python3 was
-    spawned, so the real interpreter has to be the one that runs.
-    """
-    payload_file = tmp_path / "payload.json"
-    payload_file.write_text(json.dumps(payload), encoding="utf-8")
-
-    provenance_file = tmp_path / "provenance.json"
-    provenance_file.write_text(json.dumps({"workflow_runs": workflow_runs or []}), encoding="utf-8")
-    stub_dir = tmp_path / "stub"
-    stub_dir.mkdir()
-
-    merge_base_exit = 0 if reachable else 1
-    (stub_dir / "git").write_text(
-        "#!/usr/bin/env bash\n"
-        'for arg in "$@"; do\n'
-        '  if [ "$arg" = "--is-ancestor" ]; then exit %d; fi\n'
-        "done\n"
-        "exit 0\n" % merge_base_exit,
-        encoding="utf-8",
-    )
-    (stub_dir / "curl").write_text(
-        "#!/usr/bin/env bash\n"
-        'out=""; prev=""\n'
-        'for arg in "$@"; do [ "$prev" = "-o" ] && out="$arg"; prev="$arg"; done\n'
-        'case "$*" in\n'
-        "  *actions/workflows/ci.yml/runs*)\n"
-        '    [ "$PROVENANCE_FAILURE" = "0" ] || exit 22\n'
-        '    cp "$PROVENANCE_FIXTURE" "$out" ;;\n'
-        '  *) cp "$FIXTURE" "$out" ;;\n'
-        "esac\n",
-        encoding="utf-8",
-    )
-    for stub in ("git", "curl"):
-        (stub_dir / stub).chmod(0o755)
-
-    env = dict(os.environ)
-    env.update(
-        {
-            "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
-            "FIXTURE": str(payload_file),
-            "REQUIRED_BRANCH": BRANCH,
-            "REQUIRE_CI_SUCCESS": "1",
-            "REQUIRED_CHECK_NAME": accepted,
-            "PROVENANCE_FIXTURE": str(provenance_file),
-            "PROVENANCE_FAILURE": "1" if provenance_failure else "0",
-            "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
-            "GITHUB_TOKEN": "stub-token",
-        }
-    )
-    return subprocess.run(  # noqa: S603 - fixed argv, no shell=True, hermetic stub PATH
-        ["bash", str(GATE), TARGET_SHA],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(REPO_ROOT),
-    )
 
 
 def test_the_fixture_actually_exceeds_the_single_argument_limit() -> None:
@@ -293,58 +94,6 @@ def test_payload_never_reaches_argv() -> None:
     assert "$PAYLOAD" not in spawn.replace("$PAYLOAD_DIR", "")
 
 
-_GITHUB_CURL = r"""#!/usr/bin/env python3
-# Serves check runs the way GitHub does: newest first, per_page/page windows,
-# and an exact-match check_name filter.
-import json, os, sys, urllib.parse
-args, out, params, url, i = sys.argv[1:], None, {}, "", 0
-while i < len(args):
-    if args[i] == "-o":
-        out = args[i + 1]; i += 2; continue
-    if args[i] == "--data-urlencode":
-        key, _, value = args[i + 1].partition("="); params[key] = value; i += 2; continue
-    if args[i] == "-H":
-        i += 2; continue
-    if args[i].startswith("https://"):
-        url = args[i]
-    i += 1
-params.update(dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query)))
-runs = json.loads(open(os.environ["CHECK_RUNS"]).read())
-if "check_name" in params:
-    runs = [run for run in runs if run["name"] == params["check_name"]]
-per_page, page = int(params.get("per_page", 30)), int(params.get("page", 1))
-with open(out, "w") as stream:
-    json.dump({"total_count": len(runs), "check_runs": runs[(page - 1) * per_page : page * per_page]}, stream)
-"""
-
-
-def _run_gate_against_github(tmp_path: Path, check_runs: list[dict], accepted: str):
-    """Execute the real gate against a curl stub that answers like GitHub's API."""
-    runs_file = tmp_path / "check-runs.json"
-    runs_file.write_text(json.dumps(check_runs), encoding="utf-8")
-    stub_dir = tmp_path / "github-stub"
-    stub_dir.mkdir()
-    (stub_dir / "git").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    (stub_dir / "curl").write_text(_GITHUB_CURL, encoding="utf-8")
-    for stub in ("git", "curl"):
-        (stub_dir / stub).chmod(0o755)
-    env = dict(os.environ)
-    env.update(
-        {
-            "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
-            "CHECK_RUNS": str(runs_file),
-            "REQUIRED_BRANCH": "main",
-            "REQUIRE_CI_SUCCESS": "1",
-            "REQUIRED_CHECK_NAME": accepted,
-            "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
-            "GITHUB_TOKEN": "stub-token",
-        }
-    )
-    return subprocess.run(  # noqa: S603 - fixed argv, no shell=True, hermetic stub PATH
-        ["bash", str(GATE), TARGET_SHA], capture_output=True, text=True, env=env, cwd=str(REPO_ROOT)
-    )
-
-
 @pytest.mark.parametrize(("conclusion", "passes"), [("success", True), ("failure", False)])
 def test_gate_finds_the_smoke_gate_behind_more_than_a_page_of_newer_checks(
     tmp_path: Path, conclusion: str, passes: bool
@@ -367,19 +116,6 @@ def test_gate_finds_the_smoke_gate_behind_more_than_a_page_of_newer_checks(
     else:
         assert result.returncode != 0
         assert "is successful" in result.stderr
-
-
-def _branch_receipt() -> tuple[dict, dict]:
-    check = _check_run("Branch Validation Gate", "success", 1)
-    workflow = {
-        "head_sha": TARGET_SHA,
-        "check_suite_id": check["check_suite"]["id"],
-        "path": ".github/workflows/ci.yml",
-        "event": "workflow_dispatch",
-        "status": "completed",
-        "conclusion": "success",
-    }
-    return check, workflow
 
 
 def test_branch_verdict_is_not_an_ordinary_release_check(tmp_path: Path) -> None:
@@ -418,10 +154,21 @@ def test_dev_explicitly_accepts_authenticated_full_branch_verdict(tmp_path: Path
         "missing-run",
         "lookup-failed",
         "unreachable-sha",
+        "wrong-job",
+        "wrong-check-url",
+        "missing-job",
+        "incomplete-jobs",
+        "stale-attempt-job",
+        "reread-race",
+        "newer-failed-run",
+        "incomplete-runs",
     ],
 )
-def test_branch_verdict_requires_exact_workflow_provenance(tmp_path: Path, mutation: str) -> None:
-    check, workflow = _branch_receipt()
+@pytest.mark.parametrize("verdict", list(PRODUCERS))
+def test_release_verdict_requires_exact_workflow_provenance(
+    tmp_path: Path, mutation: str, verdict: str
+) -> None:
+    check, workflow = _branch_receipt(verdict)
     if mutation == "wrong-app":
         check["app"]["id"] = 42
     elif mutation == "wrong-slug":
@@ -435,7 +182,7 @@ def test_branch_verdict_requires_exact_workflow_provenance(tmp_path: Path, mutat
     elif mutation == "wrong-workflow":
         workflow["path"] = ".github/workflows/another.yml"
     elif mutation == "wrong-event":
-        workflow["event"] = "pull_request"
+        workflow["event"] = "unexpected_event"
     elif mutation == "wrong-run-sha":
         workflow["head_sha"] = "0" * 40
     elif mutation == "wrong-suite":
@@ -444,11 +191,29 @@ def test_branch_verdict_requires_exact_workflow_provenance(tmp_path: Path, mutat
         workflow["conclusion"] = "failure"
     elif mutation == "unfinished-run":
         workflow["status"] = "in_progress"
+    elif mutation == "wrong-job":
+        workflow["jobs"][0]["name"] = "Not the gate"
+    elif mutation == "wrong-check-url":
+        workflow["jobs"][0]["check_run_url"] += "1"
+    elif mutation == "missing-job":
+        workflow["jobs"] = []
+    elif mutation == "incomplete-jobs":
+        workflow["job_count"] = 101
+    elif mutation == "stale-attempt-job":
+        workflow["jobs"][0]["conclusion"] = "failure"
+        workflow["run_attempt"] = 2
+    elif mutation == "incomplete-runs":
+        workflow["inventory_count"] = 101
+    elif mutation == "reread-race":
+        workflow["reread"] = {**workflow, "run_attempt": 2, "status": "in_progress"}
+    workflows = [] if mutation == "missing-run" else [workflow]
+    if mutation == "newer-failed-run":
+        workflows.append({**workflow, "id": workflow["id"] + 1, "conclusion": "failure"})
     result = _run_gate(
         tmp_path,
         {"check_runs": [check]},
         accepted=ACCEPTED + ",Branch Validation Gate",
-        workflow_runs=[] if mutation == "missing-run" else [workflow],
+        workflow_runs=workflows,
         provenance_failure=mutation == "lookup-failed",
         reachable=mutation != "unreachable-sha",
     )
@@ -471,3 +236,96 @@ def test_only_dev_workflow_accepts_branch_validation_gate() -> None:
     assert consumers == ["deploy-dev.yml"]
     policy = json.loads((REPO_ROOT / "config/ci-governance.json").read_text())
     assert "Branch Validation Gate" not in json.dumps(policy)
+
+
+@pytest.mark.parametrize("verdict", list(PRODUCERS))
+def test_each_canonical_producer_can_authorize_its_exact_check(tmp_path, verdict):
+    check, workflow = _branch_receipt(verdict)
+    result = _run_gate(
+        tmp_path, {"check_runs": [check]}, accepted=verdict, workflow_runs=[workflow]
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("guarded", [True, False])
+@pytest.mark.parametrize("head_branch", ["main", "untrusted-feature"])
+def test_manual_smoke_recovery_requires_source_identity_proof(tmp_path, guarded, head_branch):
+    check, workflow = _branch_receipt("Main Post-Merge Smoke Gate")
+    workflow.update(event="workflow_dispatch", head_branch=head_branch)
+    if not guarded:
+        workflow["jobs"][0]["steps"] = []
+    result = _run_gate(
+        tmp_path, {"check_runs": [check]}, accepted=check["name"], workflow_runs=[workflow]
+    )
+    assert (result.returncode == 0) is (guarded and head_branch == "main"), result.stderr
+
+
+def test_merge_queue_can_publish_ci_status_gate(tmp_path):
+    check, workflow = _branch_receipt("CI Status Gate")
+    workflow.update(path=".github/workflows/queue-validation.yml", event="merge_group")
+    result = _run_gate(
+        tmp_path, {"check_runs": [check]}, accepted=check["name"], workflow_runs=[workflow]
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("state", ["failure", "in_progress"])
+def test_newer_smoke_recovery_invalidates_older_successful_push(tmp_path, state):
+    check, push = _branch_receipt("Main Post-Merge Smoke Gate")
+    recovery = {
+        **push,
+        "id": push["id"] + 1,
+        "event": "workflow_dispatch",
+        "status": "in_progress" if state == "in_progress" else "completed",
+        "conclusion": None if state == "in_progress" else "failure",
+    }
+    result = _run_gate(
+        tmp_path, {"check_runs": [check]}, accepted=check["name"], workflow_runs=[push, recovery]
+    )
+    assert result.returncode != 0, result.stdout
+
+
+@pytest.mark.parametrize("kind", ["recovery", "unknown", "missing", "wrong-identity"])
+def test_separate_restoration_does_not_replace_normal_smoke(tmp_path, kind):
+    import copy
+
+    check, push = _branch_receipt("Main Post-Merge Smoke Gate")
+    recovery = copy.deepcopy(push)
+    recovery.update(id=push["id"] + 1, event="workflow_dispatch", conclusion="failure")
+    job = recovery["jobs"][0]
+    job.update(
+        name="Production Recovery Validation Gate",
+        run_id=recovery["id"],
+        head_sha=recovery["head_sha"],
+        conclusion="failure",
+    )
+    if kind == "unknown":
+        job["name"] = "Unrecognized gate"
+    elif kind == "missing":
+        recovery["jobs"] = []
+    elif kind == "wrong-identity":
+        job["run_id"] = push["id"]
+    result = _run_gate(
+        tmp_path, {"check_runs": [check]}, accepted=check["name"], workflow_runs=[push, recovery]
+    )
+    assert (result.returncode == 0) is (kind == "recovery"), result.stderr
+
+
+@pytest.mark.parametrize("state", ["failure", "in_progress", "missing-time"])
+def test_later_attempt_of_older_run_refuses_stale_green(tmp_path, state):
+    check, green = _branch_receipt("Main Post-Merge Smoke Gate")
+    older = {
+        **green,
+        "id": green["id"] - 1,
+        "run_attempt": 2,
+        "run_started_at": "2026-10-26T11:00:00Z",
+        "updated_at": "2026-10-26T11:01:00Z",
+        "status": "in_progress" if state == "in_progress" else "completed",
+        "conclusion": None if state == "in_progress" else "failure",
+    }
+    if state == "missing-time":
+        older.pop("run_started_at")
+    result = _run_gate(
+        tmp_path, {"check_runs": [check]}, accepted=check["name"], workflow_runs=[older, green]
+    )
+    assert result.returncode != 0, result.stdout
