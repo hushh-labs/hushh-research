@@ -156,7 +156,12 @@ When exact-image Browser qualification has passed for an already published dev i
 pin accepted by [the reuse verifier](../../../scripts/deploy/reuse-pod-release.py)
 records its image, original source revision, original workflow run and
 archived-release SHA-256. Create that reviewed pin only for the qualification
-change; the existing build recipe owns its location. Dispatch the existing
+change; the existing build recipe owns its location. The normal Dev workflow
+compares the pinned source with the candidate's complete `consent-protocol` and
+`contracts` trees and `.gcloudignore` before upload. Any difference refuses reuse, including
+conservative differences outside executable modules. Remove the pin to build
+the changed image; do not relabel old bytes with the new source revision.
+Direct Cloud Build reuse is not a supported release entrypoint. Dispatch the existing
 main-owned workflow with `build_pod_image=true`; the candidate-owned build recipe
 validates the archive and executable manifest, then publishes the new descriptor
 without rebuilding the pod. `sourceRevision` retains the image's original source;
@@ -170,7 +175,10 @@ approval and installed readback. UAT/production do not inherit this dev flag.
 A reused publication is archived under that image source and the new publisher
 run, so a later reviewed pin can resolve it without changing image provenance.
 A mismatch aborts publication. Remove the reuse pin before the next pod
-image build. This path neither proves compatibility nor approves installation.
+image build. Also retire the active Browser qualification pins and reset
+`supportedUpgradeDigests` until the new image's own qualification and predecessor
+recovery pass. Keep historical receipt files; their evidence still describes the
+older image. This path neither proves compatibility nor approves installation.
 
 An empty `supportedUpgradeDigests` list offers no installation path for existing
 pods. Add a predecessor only after proving its migration, encrypted recovery and
