@@ -215,6 +215,8 @@ follow_imports = "skip"
 [[tool.mypy.overrides]]
 module = [
     "hushh_mcp.services.one_location_agent_service",
+    # Preserve the admitted principal type across the authentication boundary.
+    "hushh_mcp.services.account_generation_service",
     # Preserve the durable delivery receipt type at the Location service boundary.
     "hushh_mcp.services.system_push_delivery",
     # Preserve the public URL helper's return types at the service boundary.
