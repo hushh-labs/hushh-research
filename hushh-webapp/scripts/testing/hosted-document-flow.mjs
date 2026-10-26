@@ -55,6 +55,10 @@ try {
   browser = await ({ chromium, webkit }[config.engine]).launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 390, height: 820 } });
   page = await context.newPage();
+  const switchActor = async actor => {
+    await page.getByRole("button", { name: `Use ${actor} session`, exact: true }).click();
+    await page.waitForFunction(expected => document.querySelector('[data-testid="document-fixture"]')?.getAttribute("data-actor") === expected, actor);
+  };
   page.on("pageerror", error => errors.push(error.message));
   page.on("response", async response => {
     if (response.status() < 400) return;
@@ -135,7 +139,8 @@ try {
   record("encrypted_package_staged", { directGoogleReads, oneUploads });
   assert.equal(directGoogleReads, 3); assert.equal(oneUploads, 3);
   await page.getByRole("button", { name: "Approve these prepared copies and final terms" }).click();
-  await page.getByRole("button", { name: "Use recipient session" }).click();
+  await page.getByText("Ready for your acceptance", { exact: true }).waitFor();
+  await switchActor("recipient");
   await page.getByRole("checkbox", { name: /I accept this approved document version/ }).check();
   await page.getByRole("button", { name: "Accept and pay $25.00" }).click();
   await page.waitForURL(`${origin}/one/documents/open?ref=${requestId}`);
@@ -188,20 +193,28 @@ try {
   // eslint-disable-next-line no-restricted-syntax -- Test-only runtime policy boundary.
   const paused = await fetch(`${config.backend}/__document_fixture/pause-intake`, { method: "POST" });
   assert.equal(paused.status, 200); assert.equal((await paused.json()).enabled, false);
+  const retiredSession = await page.evaluateHandle(async () =>
+    (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).fixtureSession("recipient").isCurrent);
   await page.evaluate(async () => (await import("/e2e/fixtures/hosted-document-boundaries.tsx")).loseFixtureRecipientKey());
-  await page.getByRole("button", { name: "Use owner session" }).click();
-  await page.getByRole("button", { name: "Use recipient session" }).click();
+  await switchActor("owner");
+  await switchActor("recipient");
+  assert.equal(await retiredSession.evaluate(isCurrent => isCurrent()), false, "Restoring an actor must not revive its retired session");
+  await retiredSession.dispose();
   await page.getByRole("button", { name: "Request key recovery", exact: true }).waitFor();
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Request key recovery", exact: true }).click();
   await page.getByText("Recovery requested. The owner must authorize repairing this copy. Nothing was charged.", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Use owner session" }).click();
+  await switchActor("owner");
   await page.getByRole("button", { name: "Repair recipient access", exact: true }).waitFor();
   page.once("dialog", dialog => dialog.accept());
   const amendment = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/delivery/recovery-amendment"));
   await page.getByRole("button", { name: "Repair recipient access", exact: true }).click();
-  assert.equal((await amendment).status(), 200);
-  await page.getByRole("button", { name: "Use recipient session" }).click();
+  const repaired = await amendment;
+  assert.equal(repaired.status(), 200);
+  await repaired.finished();
+  assert.equal((await repaired.json()).recoveryRequested, false);
+  await page.getByRole("button", { name: "Repair recipient access", exact: true }).waitFor({ state: "hidden" });
+  await switchActor("recipient");
   const recoveredDownload = page.waitForEvent("download");
   const recoveredHandoff = reported("handoff_reported");
   await page.getByRole("button", { name: "Download original", exact: true }).click();
@@ -209,12 +222,12 @@ try {
   assert.equal((await recoveredHandoff).status(), 200);
   assert.equal(directGoogleReads, 3); assert.equal(oneUploads, 3);
   record("paid_key_recovery_verified");
-  await page.getByRole("button", { name: "Use owner session" }).click();
+  await switchActor("owner");
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "Stop One access", exact: true }).click();
   await page.getByText("Access revoked", { exact: true }).waitFor();
   record("revoke_committed");
-  await page.getByRole("button", { name: "Use recipient session" }).click();
+  await switchActor("recipient");
   assert.equal(await page.getByRole("button", { name: "Download original", exact: true }).count(), 0);
   assert.deepEqual(errors, []);
   const elapsedMs = Math.round(performance.now() - start);
