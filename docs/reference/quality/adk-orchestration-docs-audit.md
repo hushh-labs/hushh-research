@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 09:25 UTC
+## Current decision — 26 October 2026, 10:39 UTC
 
 **The application correction is accepted on Dev and UAT. Both clouds pass the new
 Browser image's component and encrypted-recovery checks. Installed-owner Browser
@@ -27,24 +27,36 @@ acceptance and safe account-generation rollout remain open.**
 `7d5546e471` after the local core, exact hosted CI and landed smoke. Its Dev
 [release](https://github.com/hushh-labs/hushh-research/actions/runs/40258969686)
 and UAT [release](https://github.com/hushh-labs/hushh-research/actions/runs/40263257564)
-passed. Peer phone-transfer changes from main are preserved; Dev now serves
-`c0bf05df4f` on both environments. The later UAT
+passed. Peer phone-transfer changes from main are preserved. The latest readback at
+10:15 UTC confirms Dev and UAT both serve `c2a5638606` at 100% traffic. The later UAT
 [release](https://github.com/hushh-labs/hushh-research/actions/runs/40264162428)
-passed; actual serving revisions and digests were read back. No production change
-or new Browser installation is claimed.
+passed; actual serving revisions and digests were read back. This workstream has not changed production traffic or installed a new Browser image.
 
-The next checkpoint is [PR #8473](https://github.com/hushh-labs/hushh-research/pull/8473).
-Its combined `82aef94b9a` local core passed in 64m16s, and exact hosted
-[CI](https://github.com/hushh-labs/hushh-research/actions/runs/40294784031)
-passed. Integration now completes in 5m40s after correcting the preferred Ubuntu
-mirror; the prior attempt exhausted its 20-minute budget. Both browser engines
-and all security/lifecycle gates remain enabled.
+[PR #8473](https://github.com/hushh-labs/hushh-research/pull/8473) landed as
+`10022eba13` after exact-head [CI](https://github.com/hushh-labs/hushh-research/actions/runs/40300867574)
+and [landed smoke](https://github.com/hushh-labs/hushh-research/actions/runs/40304858619)
+passed. Its original combined local core passed in 64m16s; the reviewed migration
+merge retained main's financial 426 and moved the never-deployed WorkOS SQL to
+427 without changing either SQL body. Integration completed in 5m40s after the
+Ubuntu mirror correction, preserving both browser engines and all real gates.
+This generation-aware application is not yet deployed by this workstream.
 
-A concurrent main release introduced financial migration 426 during validation.
-The unshipped WorkOS migration moves to 427; main's financial SQL and the WorkOS
-SQL bodies remain byte-identical. The normal merge preserves both implementations.
-Combined replay and generation tests, regenerated contracts and a new exact-head
-hosted result are required before Admin landing. This candidate is not deployed.
+**New P0: compatible full-application production recovery.** The owner authorized
+restoring the pre-pod Shared-first experience. Last pre-pod source `904fbd215c`
+cannot be restored unchanged: its backend revision was pruned and its provider
+cleanup is incompatible with today's authority. Production currently serves
+`7d5546e471`; its latest frontend/backend releases were dispatched under Ankit's
+account. No production mutation has been made for this recovery.
+
+The local correction retains current schema, cleanup journals, tombstones,
+placement and issued-document readers. Default-off, environment-bound recovery
+changes Shared/unplaced presentation only; it never moves a private or pending
+owner. An explicit owner-bound Shared choice rechecks placement under the
+provisioning lock. Nearest checks pass (233 backend, 149 frontend); the old
+selection negative control detects pending-setup cancellation. Checkpoints
+`6d5f26efbf` and `201cd60998` preserve the implementation. Fresh main `bee8c8acdc`
+is integrated normally; final generated contracts, frozen validation and the
+Dev → UAT → production recovery chain remain required.
 
 Read-only provider evidence now confirms no Directory Sync connections in the
 WorkOS environment whose webhook secret matches UAT. The local continuation removes
@@ -58,7 +70,7 @@ acceptance. Production Firebase identities were not mutated.
 
 | Boundary | Verified outcome | Remaining acceptance |
 |---|---|---|
-| Application | Dev backend `00252-cfk` / frontend `00216-vl7`; UAT backend `02591-zod` / frontend `02172-s4l`; both source `c0bf05df4f`, 100% traffic | Next combined lifecycle candidate retains its own acceptance |
+| Application | Dev backend `00254-ddp` / frontend `00218-xdx`; UAT backend `02597-yed` / frontend `02180-rk2`; both source `c2a5638606`, 100% traffic | Next combined lifecycle candidate retains its own acceptance |
 | Browser image | Genuine source `7d5546e471`, digest `09d4ce51…d5deea`; controlled native execution passes on Cloud Run and Container Apps | Publish qualified compatibility metadata and install through exact owner approval |
 | Browser component | Both clouds pass research, responsive control, zero model observations during manual login, encrypted remember/restore, logout, Forget, one reviewed save and joined Stop | Actual owner HTTP takeover, reconnect and signed-in journeys; GitHub and broader sites remain unqualified |
 | Encrypted recovery | GCP predecessor `26bab163…061809` and Azure predecessor `6e57f251…eeac423` preserve identity, six records, consent, revocation and 245,763 exact file bytes on the new image | Installed active-work drain and recovery |
