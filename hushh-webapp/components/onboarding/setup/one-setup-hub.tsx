@@ -176,7 +176,15 @@ export function OneSetupHub() {
       return;
     }
     let active = true;
-    setPhoneState({ userId: ownerId, phone: "loading" });
+    const cached = AccountIdentityService.peekCachedIdentity(ownerId);
+    const knownPhone = cached && !cached.isStale &&
+      typeof cached.data.phone_verified === "boolean";
+    setPhoneState({
+      userId: ownerId,
+      phone: knownPhone
+        ? AccountIdentityService.hasVerifiedPhone(cached.data) ? "complete" : "required"
+        : "loading",
+    });
     void resolvePhoneVerification()
       .then((verified) => {
         if (!active) return;
