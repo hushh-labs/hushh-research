@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 26 October 2026, 05:05 UTC
+## Current decision — 26 October 2026, 06:25 UTC
 
 **The application correction is accepted on Dev and UAT. Both clouds pass the new
 Browser image's component and encrypted-recovery checks. Installed-owner Browser
@@ -32,6 +32,26 @@ passed. Peer phone-transfer changes from main are preserved; Dev now serves
 [release](https://github.com/hushh-labs/hushh-research/actions/runs/40264162428)
 passed; actual serving revisions and digests were read back. No production change
 or new Browser installation is claimed.
+
+The next checkpoint is [PR #8473](https://github.com/hushh-labs/hushh-research/pull/8473).
+Its local core passed in 21m49s; the latest Wallet/Gmail main changes were preserved
+through a normal merge and affected verification. Hosted protocol, database,
+governance and security checks passed. Integration's account-deletion cases passed
+in 2m28s, then Ubuntu dependency downloads from the preferred Azure mirror consumed
+over 15 minutes and exhausted the 20-minute job budget before document-browser
+tests began. The local continuation applies the existing Web/UAT mirror correction
+to that installer, without dropping either browser engine or changing test gates.
+This candidate has not been merged or deployed.
+
+Read-only provider evidence now confirms no Directory Sync connections in the
+WorkOS environment whose webhook secret matches UAT. The local continuation removes
+the blanket WorkOS generation-activation refusal, retaining original-generation
+capture, replacement-SSO refusal and the separate HushhTech guard. Real isolated
+Firebase transport passed created/linked cases with one mutation POST each and
+verified test-identity cleanup. Directory Sync is not configured or qualified;
+historical unknown events still refuse safely. Public generation activation still
+requires installed migrations, drained old consumers and deployed normal-provider
+acceptance. Production Firebase identities were not mutated.
 
 | Boundary | Verified outcome | Remaining acceptance |
 |---|---|---|
