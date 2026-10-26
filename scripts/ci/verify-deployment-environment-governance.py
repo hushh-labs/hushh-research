@@ -31,6 +31,7 @@ PRODUCTION_MANUAL_DISPATCH_USERS = [
     # Mirrored here deliberately, which is what this constant exists to force: a
     # production-dispatch grant is stated twice or not at all.
     "msainani",
+    "RGlodAkshat",
     "ankitkumarsingh1702",
     "DamriaNeelesh",
     "imsharukhan",
