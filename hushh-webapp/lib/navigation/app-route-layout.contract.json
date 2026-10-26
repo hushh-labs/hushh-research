@@ -7543,7 +7543,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.people.person_profile",
-      "purpose": "Review a person, request information, browse permitted document packets, and manage existing access.",
+      "purpose": "Review a person, view financial documents, request information, and manage existing access.",
       "screen": "one_person_profile",
       "entryCue": "",
       "proactivity": "ambient",
@@ -7553,8 +7553,7 @@
         "people.profile.review_information_request",
         "people.profile.cancel_connection_request",
         "people.profile.remove_connection",
-        "people.profile.manage_consent",
-        "people.profile.browse_packets"
+        "people.profile.manage_consent"
       ],
       "requiredInputs": [],
       "recoveries": {

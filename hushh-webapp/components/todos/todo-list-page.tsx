@@ -53,7 +53,6 @@ import {
   type TodoItem,
 } from "@/lib/services/todo-list-pkm-service";
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
-import { TodoAgentSuggestions } from "./todo-agent-suggestions";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -446,6 +445,12 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             <Button variant="none" effect="fade" size="compact" onClick={() => { calendar.refresh(); upcoming.refresh(); }}>Retry</Button>
           </div>
         ) : null}
+        {writeReady && liveTasks.sourceError ? (
+          <div className="flex items-center gap-2" role="status">
+            <HelperText as="p">Some connected tasks couldn’t load.</HelperText>
+            <Button variant="none" effect="fade" size="compact" aria-label="Retry connected tasks" disabled={liveTasks.sourceLoading} onClick={() => void liveTasks.refreshSources()}>Retry</Button>
+          </div>
+        ) : null}
         {writeReady && !itemsLoading && totalToday > 0 ? (
           <div className="mt-5 flex items-center gap-4" aria-live="polite">
             <CaptionText data-profile-role="description" className="shrink-0 tabular-nums !text-[color:var(--app-secondary-label)]">
@@ -471,11 +476,6 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
 
       <AppPageContentRegion className="space-y-6 pb-6">
         {writeReady ? <TodoSourceFilter value={sourceFilter} onChange={setSourceFilter} /> : null}
-        {writeReady && userId && vaultKey && vaultOwnerToken ? <TodoAgentSuggestions
-          userId={userId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken}
-          onContinueMail={() => void liveTasks.continueMail?.()} evidence={liveTasks.evidence} coverage={liveTasks.coverage} loading={Boolean(itemsLoading || liveTasks.sourceLoading)}
-          onSaved={() => void loadItems()} onRefresh={() => { void loadItems(); void liveTasks.refreshSources(); void agentFeed.retry(); void retryKyc(); calendar.refresh(); upcoming.refresh(); }}
-        /> : null}
         {!writeReady ? (
           <SurfaceCard>
             <div className="flex items-center gap-3 px-4 py-5">

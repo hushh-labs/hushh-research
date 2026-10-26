@@ -415,15 +415,43 @@ Frozen legacy financial periods in the current year also receive a separate
 `financial-records-v1` owner preview through the same bounded queue. Its encrypted
 preparation records the frozen version it accompanies and a fresh discovery
 revision; the old originals remain pageable while replacement work is pending.
-Completion saves owner results without freezing another sale version. Historical
-manifests, purchase membership, sale counts and prices, listings and explicit
-public-summary consent remain unchanged. Earlier years are not automatically
-requeried. A legacy result does not count as current preset coverage until the
-new preview's own provider search completes.
+Completion saves owner results independently of the older sale. A narrow
+exception recovers an unavailable, empty financial sale when a newer complete
+current-template search contains eligible originals. The existing period worker
+admits already saved results without a UI visit or another provider read. It
+requires the current owner and connection generation, a valid head lease, a
+search begun after the period closed, complete query provenance, at most 120
+discovery matches, and no request referencing the packet in any state. Every
+selected original must retain affirmative sharing capability and a source
+version; denied or unknown capability never becomes permission to share.
+
+The same freeze writer verifies the old empty manifest's digest, appends the next
+immutable version containing only eligible originals, and advances the head
+atomically. It preserves the old version and listing byte for byte. For example,
+51 discovery matches with four eligible originals produce a new sale count of
+four, while the public discovery count remains 51. Nonempty versions and all
+referenced packets are refused. Existing request bindings, prices, listings and
+the owner's independent summary visibility choice are never transferred or
+rewritten. The new version has no enabled listing until the existing listing
+authority permits it; approval, payment and delivery gates still apply.
+
+Migration 429 adds `sale_finalization_revision` to the existing packet head. It
+records one finalization evaluation per discovery revision, including an
+all-denied or unknown result that creates no new version, so unchanged evidence
+does not spin the queue. A later explicit or scheduled discovery revision can
+be evaluated independently. The receipt is owner/generation-fenced workflow
+metadata, follows packet erasure and retention, and stores no source details.
+Rollback removes only this additive receipt after the application is rolled
+back; appended versions, listings and request history remain intact. Earlier
+years are not automatically requeried. A legacy result does not count as current
+preset coverage until the new preview's own provider search completes.
 Before that preparation starts, owner preview reads label retained legacy links
 as stale, with an unknown current match count and no completed preset scan;
-reading or paging those links does not initiate preparation. Public frozen sale
-counts continue to describe the immutable sale version.
+reading or paging those links does not initiate preparation. Public discovery
+counts can advance independently; `saleDocumentCount` continues to describe the
+exact immutable sale version. Scalar summaries default ON under one owner
+visibility preference and preserve recorded OFF choices; see
+[the owning contract](../../../docs/reference/one/drive-public-financial-summary.md).
 
 Tags live only in encrypted owner period-search metadata and bounded build
 progress. They grant no listing, consent, payment or sharing authority and never
@@ -431,6 +459,11 @@ alter discovery proof or immutable purchase manifests. Code rollback retains the
 additive queue columns and saved results; disable period preparation and let
 owned leases drain before reverting the runtime. Synthetic loop timings prove
 the fixture execution, not real Google Drive latency or personal-account recall.
+After empty-sale recovery appends version two or later, retain the compatible
+web parser during a backend rollback. Older web bundles accept only version one
+and cannot render the repaired catalog; an old full-stack image is therefore
+not a safe rollback target after that first append. Immutable versions must not
+be deleted or relabeled to force compatibility.
 
 Private connections listings remain current authority for new purchase effects
 after the owner's exact-version Allow. Checkout, pending permission dispatch and

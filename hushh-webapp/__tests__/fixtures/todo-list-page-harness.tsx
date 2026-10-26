@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   retryFeed: vi.fn(),
   pendingKyc: null as { count: number; workflowId: string } | null,
   extraReads: [] as CapabilityRead[],
+  sourceError: false,
+  retrySources: vi.fn(),
   events: [
     {
       id: "calendar-event-1",
@@ -23,7 +25,7 @@ const mocks = vi.hoisted(() => ({
 
 export { mocks };
 
-vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.extraReads, loading: false, error: false, refresh: vi.fn() }) }));
+vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.extraReads, loading: false, error: mocks.sourceError, refresh: mocks.retrySources }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
   useFeedActionables: ({ enabled }: { enabled: boolean }) => ({
     actionables: enabled ? mocks.actionables : [],

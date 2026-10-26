@@ -18,19 +18,19 @@ export type DriveCollectionStatus = {
 };
 type PacketBase = {
   packetId: string; version: number; listingRevision: number; title: string; description: string;
-  coverageSummary: string; documentCount: number; freshness: "current" | "stale" | "paused";
+  coverageSummary: string; freshness: "current" | "stale" | "paused";
   priceCents: number;
   listingEnabled: boolean; canRequest: boolean; canList: boolean;
   /** Owner view only: what is inside. A buyer view never carries it. */
   contents?: DrivePacketContents;
 };
 export type LegacyDrivePacket = PacketBase & {
-  kind?: undefined; state: "ready" | "incomplete" | "unable_to_verify"; gaps: string[];
+  kind?: undefined; documentCount: number; state: "ready" | "incomplete" | "unable_to_verify"; gaps: string[];
   verifiedAt: string | null; assessmentScore: number; importance: number; suggestedPriceCents: number;
 };
 export type DrivePacketCategory = "financial" | "bank" | "brokerage" | "insurance";
 export type DiscoveryDrivePacket = PacketBase & {
-  kind: "provider_discovery"; category: DrivePacketCategory; periodStart: string; periodEnd: string; timezone: string;
+  kind: "provider_discovery"; documentCount: number | null; saleDocumentCount?: number | null; category: DrivePacketCategory; periodStart: string; periodEnd: string; timezone: string;
   state: "building" | "ready" | "empty" | "unable_to_verify";
   requestId: string | null; purchaseState: "none" | "pending" | "paid" | "delivered";
   /** Own-account search progress; never sale readiness or buyer information. */
@@ -196,7 +196,8 @@ function discoveryPacket(item: RecordValue, view: "owner" | "buyer"): DiscoveryD
     kind: "provider_discovery", category: category as DrivePacketCategory, state: state as DiscoveryDrivePacket["state"],
     packetId: id(item.packetId), version: count(item.version), listingRevision: count(item.listingRevision),
     title: label(item.title, 250), description: label(item.description, 2000), coverageSummary: label(item.coverageSummary, 2000),
-    periodStart: span.start, periodEnd: span.end, timezone, priceCents: 500, documentCount: count(item.documentCount),
+    periodStart: span.start, periodEnd: span.end, timezone, priceCents: 500, documentCount: item.documentCount === null ? null : count(item.documentCount),
+    ...(item.saleDocumentCount === undefined ? {} : { saleDocumentCount: item.saleDocumentCount === null ? null : count(item.saleDocumentCount) }),
     freshness: item.freshness as DrivePacket["freshness"], listingEnabled: flag(item.listingEnabled),
     canList: flag(item.canList), canRequest: flag(item.canRequest), requestId: item.requestId === null ? null : id(item.requestId),
     purchaseState: purchaseState as DiscoveryDrivePacket["purchaseState"],
@@ -204,10 +205,11 @@ function discoveryPacket(item: RecordValue, view: "owner" | "buyer"): DiscoveryD
     ...(view === "owner" && item.preview !== undefined ? { preview: parsePacketPreview(item.preview) } : {}),
     ...(view === "owner" && item.publicSummary !== undefined ? { publicSummary: parsePacketPublicSummary(item.publicSummary) } : {}),
   };
-  if (result.version > 1 || result.state === "ready" && result.version !== 1 || result.state === "building" && result.version !== 0 ||
+  const saleCount = result.saleDocumentCount === undefined ? result.documentCount : result.saleDocumentCount;
+  if ((result.state === "ready" || result.state === "empty") && result.version < 1 || result.state === "building" && result.version !== 0 ||
       result.state !== "ready" && result.listingEnabled ||
-      (result.canList || result.canRequest) && (result.state !== "ready" || result.freshness !== "current" || !result.documentCount) ||
-      result.state === "empty" && result.documentCount !== 0 ||
+      (result.canList || result.canRequest) && (result.state !== "ready" || result.freshness !== "current" || !saleCount) ||
+      result.state === "empty" && saleCount !== 0 ||
       (result.purchaseState === "none") !== (result.requestId === null)) throw new DrivePacketError("invalid_response");
   return result;
 }
@@ -242,7 +244,7 @@ export class DrivePacketService {
     if (!token) throw new DrivePacketError("vault_locked");
     guard();
     const response = await ApiService.apiFetch(`${ROOT}${path}`, {
-      method: body === undefined ? "GET" : "POST", cache: "no-store",
+      method: body === undefined ? "GET" : "POST", cache: "no-store", timeoutMs: 8_000,
       headers: { ...(firebaseToken ? { Authorization: `Bearer ${firebaseToken}`, "X-Hushh-Consent": token } : ApiService.getAuthHeaders(token)), "Content-Type": "application/json" },
       isEffectCurrent: () => { guard(); return true; },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),

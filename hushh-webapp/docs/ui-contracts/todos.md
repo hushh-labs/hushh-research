@@ -22,8 +22,9 @@ flowchart LR
 Messages, Finance, Wallet, Location, Advisor, Mail, Calendar, Memory and Consent
 use existing owner-authorized services. Empty, disconnected, failed and partial
 reads remain distinct. Nothing manufactures a task merely to populate a source.
-Published queue work appears without AI permission; optional model suggestions
-remain opt-in, bounded and reviewed before Add task.
+Published queue work appears without AI permission. The full page keeps the list
+and source filter; the profile preview offers optional model suggestions, bounded
+and reviewed before Add task.
 
 Rows show title, schedule, source, verified source context and separate owner
 notes. A scheduled Calendar demo appears even when no RSVP is pending; its
@@ -64,7 +65,7 @@ old generations. Generic alerts open `/one/todos` and expire after 15 minutes.
 OS permission, transport reachability and the deployed scheduler affect delivery.
 
 Mail scans 25 threads per bounded request, automatically continuing while this
-view is mounted. `Task sources` reports checked threads and complete, scanning,
+view is mounted. `Task sources` in the profile preview reports checked threads and complete, scanning,
 more-to-scan or retry states. A failed page retries without advancing over unread
 threads. Refresh begins a new scan; cursors are sealed, owner/account/grant-bound
 and expire after two hours. There is no fixed 50-thread total or recent-only
@@ -73,7 +74,8 @@ meeting mentions. Invitation tasks show the organizer; inferred mentions say
 Review meeting and require checking their details. Exact iCalendar UID and
 occurrence matching merge a meeting already shown from Calendar. Equal titles
 alone never merge tasks. Failed meeting reads retain reply results and report
-their separate unavailable state; reply-scan completion does not imply exhaustive
+their separate unavailable state; the full page gives failed connected reads a
+compact Retry control. Reply-scan completion does not imply exhaustive
 meeting extraction. Messages coverage reports unread metadata; an aggregate
 count alone does not fabricate a completable obligation for each person.
 

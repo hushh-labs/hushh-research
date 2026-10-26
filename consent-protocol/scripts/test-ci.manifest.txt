@@ -1425,6 +1425,7 @@ tests/services/test_drive_period_packet_previews_postgres.py
 tests/services/test_drive_financial_packet_recovery_postgres.py
 tests/services/test_drive_financial_packet_large_recovery_postgres.py
 tests/services/test_drive_financial_search_reason_postgres.py
+tests/services/test_drive_empty_sale_finalization_postgres.py
 tests/services/test_drive_financial_packet_rollout_postgres.py
 tests/services/test_drive_period_packet_loop_postgres.py
 tests/services/test_drive_period_packet_titles_postgres.py
@@ -1491,7 +1492,9 @@ tests/test_todo_wallet_inventory_postgres.py
 tests/test_world_model_research_context.py
 tests/test_pwm_runtime_probe.py
 
+tests/services/test_drive_packet_public_summary.py
 tests/services/test_drive_packet_public_summary_postgres.py
+tests/services/test_drive_packet_public_preferences_postgres.py
 tests/test_drive_packet_public_summary_routes.py
 
 tests/test_consumer_consent_replay_postgres.py

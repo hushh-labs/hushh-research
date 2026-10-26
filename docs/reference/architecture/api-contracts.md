@@ -2417,7 +2417,7 @@ suppressed after 15 minutes; device acceptance does not prove OS presentation.
 `POST /api/internal/system-push/drain` wakes the durable worker at scale zero.
 It accepts only Google OIDC with the exact environment audience and dedicated
 `system-push-drain` service account, and returns private/no-store counts. Release
-gate is owned by the deployment operator: apply migration 428, deploy the
+gate is owned by the deployment operator: apply migration 430, deploy the
 compatible backend/frontend, configure a minute HTTP POST wake-up, and verify an
 authenticated drain plus an end-to-end reminder before enabling this release.
 The operator must use these pinned identities; application code does not provision
@@ -4313,6 +4313,29 @@ The fiscal rule is title date, created time, then modified time in the owner's
 zone. Kept files have no fiscal folder. See [implementation and local release
 registration](../one/drive-four-group-index.md#slice-3-storage-worker-and-owner-api).
 
+### Financial packet scalar summary visibility
+
+Scalar financial summaries default ON under the explicit product policy
+`drive-financial-summary-default-v1`. One owner switch covers every prepared and
+future financial period. A saved OFF survives reconnect and freezing; background
+preparation remains an independent choice. These metadata routes return
+`private, no-store` and use the existing connector catch-all proxy on web/native.
+
+| Method / path | Authority | Contract |
+| --- | --- | --- |
+| `GET /api/connectors/google_drive/sharing/financial-summary-preference` | Current Vault Owner | `{enabled:boolean,revision:number,disclosure:"drive-financial-summary-default-v1"}`. Unconfigured defaults to ON/revision zero. Reads no files and starts no preparation; available after source access loss. |
+| `PUT /api/connectors/google_drive/sharing/financial-summary-preference` | Current Vault Owner | Strict `{enabled:boolean,expectedRevision:number,disclosure:"drive-financial-summary-default-v1"}`. Atomically changes the owner flag; stale revision returns `409 listing_changed`. OFF remains available after revoke/pause; ON requires verified live Drive. |
+| `GET /api/one/people/{person_ref}/financial-packets` | Current Firebase identity | Up to 25 scalar summaries and `nextCursor`. Current active public profile, source generation, feature admission and owner visibility are required; no accepted relationship is needed to see these scalars. |
+
+The public allowlist contains opaque packet/version, controlled title/category,
+period/timezone, discovery count/basis/completeness/update time, nullable exact
+`saleDocumentCount`, bounded price/currency and availability/action. It excludes
+filenames, Drive identifiers/links and contents. Source permission, accepted
+connection, exact-version owner approval and purchase/delivery checks still
+govern private access. The old per-period publication endpoint is a compatibility
+facade and cannot widen a saved owner OFF through its legacy disclosure. See the
+[owning visibility contract](../one/drive-public-financial-summary.md).
+
 ### Owner Drive searches
 
 `/api/connectors/google_drive/searches` requires a current Vault Owner and private/no-store responses.
@@ -4515,7 +4538,10 @@ window is not a claim about statement reporting coverage.
 and adds a discriminated `kind: "provider_discovery"` item with `category`,
 `periodStart`, `periodEnd`, `timezone`, server lifecycle state, fixed `priceCents:500`,
 and recipient-bound `requestId`/`purchaseState`. Unfrozen heads have version zero;
-frozen heads have version one. Owner-only contents contain bounded original links.
+initial frozen heads have version one. A newer complete search may append a new
+immutable version only for an empty unavailable financial sale with no request
+references; earlier versions and listing permissions remain unchanged. Owner-only
+contents contain bounded original links.
 Visitors receive only summaries admitted by the owner's explicit listing audience,
 including separately authorized public summaries. Private filenames and links are
 never included in an unpurchased public summary. A connection remains required to request purchase.

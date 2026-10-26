@@ -25,6 +25,8 @@ def apply_drive_fixture_migration(connection: Connection, filename: str) -> None
         apply_drive_fixture_migration(connection, "417_drive_packet_public_summary.sql")
         apply_drive_fixture_migration(connection, "422_financial_packet_discovery_capacity.sql")
         apply_drive_fixture_migration(connection, "426_financial_search_incomplete_reason.sql")
+        apply_drive_fixture_migration(connection, "428_financial_summary_owner_preference.sql")
+        apply_drive_fixture_migration(connection, "429_drive_empty_sale_finalization.sql")
 
 
 def apply_bulk_search_fixture_migrations(connection: Connection) -> None:

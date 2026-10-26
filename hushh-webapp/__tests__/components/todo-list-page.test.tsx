@@ -33,6 +33,8 @@ describe("TodoListPage row actions", () => {
     mocks.feedLoading = false;
     mocks.pendingKyc = null;
     mocks.extraReads = [];
+    mocks.sourceError = false;
+    mocks.retrySources.mockReset().mockResolvedValue(undefined);
     mocks.retryFeed.mockReset().mockResolvedValue(undefined);
     mocks.events = [
       {
@@ -62,6 +64,16 @@ describe("TodoListPage row actions", () => {
     render(<TodoListPage />);
     expect(await screen.findByRole("heading", { name: "No pending tasks" })).toBeVisible();
     expect(screen.getByText("New tasks will appear here.")).toBeVisible();
+  });
+
+  it("keeps a connected-source failure visible and retryable without the suggestion panel", async () => {
+    mocks.events = [];
+    mocks.sourceError = true;
+    render(<TodoListPage />);
+    expect(await screen.findByText("Some connected tasks couldn’t load.")).toBeVisible();
+    expect(screen.queryByText("No tasks yet")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry connected tasks" }));
+    expect(mocks.retrySources).toHaveBeenCalledTimes(1);
   });
 
   it("never presents an empty success when saved items fail to load", async () => {

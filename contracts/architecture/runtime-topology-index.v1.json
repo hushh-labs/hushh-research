@@ -1030,7 +1030,7 @@
       "id": "drive_continuous_document_evidence",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only owner-published scalar summaries; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing."
+      "primary_access_path": "Explicit owner background and processing consent permits resumable Changes API discovery, original-document extraction/OCR, semantic facts and canonical packet preparation. Separately admitted period packets use owner-scoped provider metadata discovery and encrypted query provenance; they do not enable continuous collection or imply content assessment. Owner-authenticated routes manage preparation and listing. A separate vault-owner scalar receipt read permits public-summary withdrawal even when OAuth or background processing is off. Authenticated public-profile viewers, including non-connections, receive only scalar financial summaries allowed by the default-ON owner visibility preference; private purchase routes retain current connection and approval checks. Worker writes use generation, source-version and lease fences. Financial preparations use a versioned predefined query and independently organize saved candidates with the unchanged local bounded-head classifier, without enabling whole-Drive indexing. Migration 429 adds only the head sale_finalization_revision scalar: the existing owner/generation-fenced packet worker may attempt an empty-sale finalization once per saved discovery revision, preserving prior immutable versions and request pins."
     },
     {
       "data_class": "personal_encrypted",
@@ -1061,7 +1061,7 @@
       "id": "drive_live_preparation_preferences",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Vault Owner turns background live Drive preparation on or off separately from the live OAuth grant. The suggestion worker checks the current consent and generation before each read and publication."
+      "primary_access_path": "Vault Owner independently controls background live Drive preparation and owner-level scalar financial summary visibility. Workers check background authority before reads; authenticated public-profile discovery checks the current financial_summary_enabled choice under the owner graph lock. The scalar policy defaults ON and preserves explicit OFF across reconnect and new periods."
     },
     {
       "data_class": "personal_encrypted",
@@ -6442,8 +6442,6 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "people.profile.browse_financial_summaries",
-          "people.profile.browse_packets",
           "people.profile.cancel_connection_request",
           "people.profile.connect",
           "people.profile.manage_consent",
@@ -7145,21 +7143,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "4a36164dd7f9eab12c6b12a1a387de803e7e5181c689b22eaf6c3bfbdd99f97d",
+    "action_gateway": "03ff24dcd76746d032a6bdc2dc09b8d01d185ba60a3219c78f77a72ff6c31941",
     "agent_registry": "e2d9ba43754846828728b1187ac2eac8b3fcdcf12af12523f26f04d556bf5824",
     "cache_manifest": "ba5ccda8ef76d67e41ad8922705b3fe4cb5ef3eda0a4fbc95c57bbb160822200",
-    "data_plane": "c96b4884194857b02bce677ce3e89535047e64a9823e681b9f95e06c129071f5",
+    "data_plane": "fadc64408ecd89ec1caa36428ded528518954555dab72f7a326c3e14719ecb21",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "fbf3863df24ef86e57cb84ae133bb23f8d1d18d79199f78008a3291a26d93b4f",
-    "route_layout": "7e7db6eedfdd9911c21e5e1de0d56e2f8cc373453a445b324be11cd613260c51",
-    "surface_map": "0c60b07b72e8b6ad02e78201722e35066d9054677ee7739ee790c97dee246b5c",
+    "route_index": "a541730d78cd1a8d374ea9ec50c19746dcdf0ba3c5477fecdc2c0746284c714d",
+    "route_layout": "ec6a8d00814731acff03f6cb1b294ed7b4c66a7e4fa59adedd1da8f0aeb92146",
+    "surface_map": "a567d0620080289a26b1449139c5c4954b67415b98027ac46e14e45dfd9b1e18",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 307,
+    "actions": 305,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
