@@ -1454,8 +1454,8 @@ function UnlockedDocumentReview({
       className={cn("consent-presentation-surface min-w-0 space-y-4 break-words", DOCUMENT_FLOW_TEXT_SCALE)}
       data-testid="document-share-review"
     >
-      {/* The one status node: fixed position, never keyed, so focus survives. */}
-      <div
+      {/* Hosted delivery owns its status and next action in its panel. */}
+      {!snapshot?.status.hostedDelivery ? <div
         ref={statusTarget}
         tabIndex={-1}
         role="status"
@@ -1476,7 +1476,7 @@ function UnlockedDocumentReview({
             {statusHint}
           </HelperText>
         ) : null}
-      </div>
+      </div> : null}
       {/* Only the owner acts on setup; the requester's status line just says it waits. */}
       {setup && !ownerDecision && snapshot?.status.direction === "incoming" ? (
         <div className="space-y-2">

@@ -9,7 +9,13 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import Field
 
 from api.middleware import require_firebase_auth_read_only
-from api.routes.drive_sharing import CreateRequest, PrivateSharingRoute, _owner_target, _recipient
+from api.routes.drive_sharing import (
+    CreateRequest,
+    PrivateSharingRoute,
+    _error,
+    _owner_target,
+    _recipient,
+)
 from api.routes.drive_sharing_owner import ContentOwner, Owner, _content_owner, _owner
 from hushh_mcp.services.document_delivery.contracts import (
     Activity,
@@ -24,6 +30,8 @@ from hushh_mcp.services.document_delivery.contracts import (
 )
 from hushh_mcp.services.document_delivery.service import DocumentDeliveryService
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
+from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 _logger = drive_logger(__name__)
 _TRANSITIONS = {
@@ -123,6 +131,8 @@ async def _call(method, *, owner, **kwargs):
             error.status,
             {"code": error.code, "message": "The document delivery could not be completed."},
         ) from None
+    except (DriveReadError, DriveOAuthError) as error:
+        raise _error(error) from None
 
 
 @router.get("/delivery-readiness")
@@ -160,6 +170,8 @@ async def create(
             )
     except DeliveryError as error:
         raise HTTPException(error.status, {"code": error.code}) from None
+    except (DriveReadError, DriveOAuthError) as error:
+        raise _error(error) from None
 
 
 @router.get("/requests/{request_id}/delivery/terms")
