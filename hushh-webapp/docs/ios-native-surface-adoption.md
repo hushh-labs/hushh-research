@@ -18,9 +18,9 @@ evidence, not admission or release claims for the latest implementation.
 
 ### Owned native feedback candidate — 2026-10-26
 
-Main `e0d97943b5` is integrated at `e07963b63b`; its seven operations paths and
-the preceding 48 Wallet/receipt paths preserve main exactly. PR #8474 remains
-draft. Exact-head CI passed native builds and the core/targeted jobs; two full
+Main `c2a5638606` is integrated at `82265c0cf1`; its 22 Drive recovery,
+schema and documentation paths preserve main exactly. The preceding seven
+operations and 48 Wallet/receipt paths remain preserved. PR #8474 remains draft. Exact-head CI passed native builds and the core/targeted jobs; two full
 suite failures exposed missing authenticated-owner setup and stale payout-model
 assertions. The corrected nearest suites pass 50 tests without changing runtime
 authorization, shared financial owners, deadlines or release policy.
@@ -39,8 +39,15 @@ retained hosting during banner replacement, bounded geometry/outside touch
 delivery, reordered expiry, and cancellation before first admission. The initial
 batch exposed retirement losing its tombstone when the first apply initialized
 the owner; capturing that owner at retirement corrects the reproduced failure.
-These native fixtures do not qualify the combined product's visual/keyboard/resume
-journey. The feedback suite now has its own bounded module, and scene-capability
+Combined native/web Release `4f5d31cee0` (runtime `408a2982b2`) also passes
+the real Profile App haptics feedback path: two changes restore the original
+preference; the banner appears without an interactive Sonner duplicate, and
+Back/Close remain available. Provider editing opens and cancels without changes.
+Ten background/resume cycles and Control Center return preserve touch response.
+The instrumented performance attempt failed at XCTest accessibility snapshots,
+so it produced no accepted performance result. These checks do not establish
+visual, keyboard or accessibility acceptance. The feedback suite now has its own
+bounded module, and scene-capability
 admission retains its existing public facade. Architecture fitness reports no
 new or worsened findings; the original ratchet was preserved.
 
