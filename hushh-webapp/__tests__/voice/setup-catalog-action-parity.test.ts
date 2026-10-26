@@ -66,11 +66,12 @@ describe("setup catalog voice parity", () => {
       path: "route",
       target: "/one/setup/connections",
     });
-    const compatibilityAction = hubContract.actions.find(
+    const connectionsAction = hubContract.actions.find(
       (action) => action.action_id === "setup.open_connections",
     );
-    expect(compatibilityAction?.reachability.hidden_navigable).toBe(true);
-    expect(compatibilityAction?.control_ids).toEqual([]);
+    expect(connectionsAction?.reachability.hidden_navigable).toBe(true);
+    // Shared recovery exposes the existing action after hosting is confirmed.
+    expect(connectionsAction?.control_ids).toEqual(["one_setup_tile_connections"]);
     for (const capability of ONE_SETUP_CAPABILITIES) {
       const action = actions.get(capability.setupActionId);
       expect(action, capability.id).toBeDefined();

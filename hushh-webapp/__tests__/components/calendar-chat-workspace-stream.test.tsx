@@ -44,6 +44,7 @@ vi.mock("@/lib/agent/chat-onboarding/use-chat-onboarding", async importOriginal 
 });
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: { saveMergedDomain: vi.fn() } }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({ PreVaultUserStateService: {
+  getCachedBootstrapState: vi.fn(() => null),
   syncOneChatOnboarding: vi.fn(async () => ({})),
 } }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => fixture.gmail }));

@@ -140,6 +140,7 @@ describe("Setup saved AI choice", () => {
     state.selectShared.mockResolvedValue({});
     render(<SetupHostingStep ownerId="owner" returnTo={null} sharedRecovery cloudComplete={false}
       runtimeChoiceComplete={false} cloudSetupRunning={false} cloudSetupStageLabel="" />);
+    expect(screen.queryByText("Choose your AI")).toBeNull();
     expect(state.selectShared).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Continue with Hussh" }));
     if (mode === "pending") {
