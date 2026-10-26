@@ -49,7 +49,7 @@ def _source(sha: str, path: str) -> bytes:
 
 
 def qualify_consumers(fallback: str, primary: str) -> dict:
-    """Require identical 428 consumers; retain only the reviewed 425/427 exception.
+    """Require identical 431 consumers; retain only the reviewed 425/427 exception.
 
     The exception pins whole files, including the changed functions. It never
     ignores arbitrary SSO additions or excludes an authority-bearing module.

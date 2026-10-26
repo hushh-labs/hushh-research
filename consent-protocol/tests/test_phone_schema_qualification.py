@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 from zipfile import ZipFile
 
 import pytest
-import yaml
 
 from tests.test_phone_bootstrap import _artifact_case
 from tests.test_phone_bootstrap import bootstrap_case as shared_bootstrap_case
@@ -78,11 +77,17 @@ def schema_case(bootstrap_case):
 
 
 def _canonical_checks():
+    contract = json.loads(
+        (ROOT / "consent-protocol/db/contracts/prod_core_schema.json").read_text()
+    )
     guard = {
         "status": "ok",
         "violations": [],
         "policy": {"skip_db_check": False, "release_environment": "production"},
-        "migrations": {"selected_lane_head": 428, "expected_contract_version": 428},
+        "migrations": {
+            "selected_lane_head": contract["expected_schema_head"],
+            "expected_contract_version": contract["expected_migration_version"],
+        },
     }
     return {
         "guard": guard,
@@ -223,7 +228,8 @@ def test_continuation_never_replaces_original_absence_with_todays_empty_count(sc
 
 
 @pytest.mark.parametrize(
-    "changed", ["lock", "observe", "ledger-policy", "backup", "migration", "new-issuer"]
+    "changed",
+    ["lock", "observe", "ledger-policy", "backup", "migration", "new-issuer", "schema-floor"],
 )
 def test_installed_schema_requires_canonical_migration_and_continuous_producer_boundary(
     schema_case, changed
@@ -239,6 +245,11 @@ def test_installed_schema_requires_canonical_migration_and_continuous_producer_b
         state.checks["backup"]["status"] = "failed"
     elif changed == "migration":
         state.checks["manifest"]["migrations"]["files"][0]["sha256"] = "0" * 64
+    elif changed == "schema-floor":
+        state.checks["guard"]["migrations"] = {
+            "selected_lane_head": 428,
+            "expected_contract_version": 428,
+        }
     else:
         state.inventory["revisions"]["consent-protocol-unowned"] = {"uid": "new"}
     with pytest.raises(ValueError):
@@ -448,47 +459,19 @@ def test_schema_origin_requires_published_exact_attempt_and_no_started_runtime(
         module.load("42", 2)
 
 
-def test_cold_schema_intent_precedes_every_schema_mutation_and_keeps_drive_activation_off():
-    steps = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())["jobs"][
-        "deploy"
-    ]["steps"]
-    names = [step["name"] for step in steps]
-    by_name = {step["name"]: step for step in steps}
-    intent = names.index("Publish initial cold schema intent")
-    for name in (
-        "Optional predeploy logical backup run",
-        "Install fail-closed account deletion release fence",
-        "Apply production DB migrations behind account deletion fence",
-    ):
-        assert intent < names.index(name)
-        assert "steps.cold-schema-intent.outcome == 'success'" in by_name[name]["if"]
-    run = by_name["Apply production DB migrations behind account deletion fence"]["run"]
-    assert run.count("--migration-mode observe") == 2
-    assert (
-        run.index("--migration-mode observe")
-        < run.index("--migration-mode replay")
-        < run.rindex("--migration-mode observe")
-    )
-    assert 'if [[ "$PHONE_DEPLOY_PHASE" != cold ]] &&' in run
-    assert (
-        by_name["Publish initial cold schema intent"]["with"]["name"]
-        == "prod-phone-schema-intent-${{ github.run_id }}-${{ github.run_attempt }}"
-    )
-    assert (
-        "steps.cold-schema-installed.outcome == 'success'"
-        in by_name["Record initial cold health-tag lease"]["if"]
-    )
-
-
+@pytest.mark.parametrize("changed", ["adapter", "schema-contract"])
 def test_continuation_binding_covers_replay_adapter_not_only_immutable_sql(
-    schema_case, monkeypatch, tmp_path
+    schema_case, monkeypatch, tmp_path, changed
 ):
     directory = tmp_path / "consent-protocol/db"
     directory.mkdir(parents=True)
     (directory / "release_migration_manifest.json").write_text('{"ordered_migrations": []}')
     adapter = directory / "firebase_mutation_replay.py"
     adapter.write_text("original replay guard")
+    contract = directory / "contracts/prod_core_schema.json"
+    contract.parent.mkdir()
+    contract.write_text("{}")
     monkeypatch.setattr(schema_case.schema, "ROOT", tmp_path)
     before = schema_case.schema.canonical_binding()
-    adapter.write_text("altered replay guard")
+    (adapter if changed == "adapter" else contract).write_text("altered contract")
     assert schema_case.schema.canonical_binding() != before

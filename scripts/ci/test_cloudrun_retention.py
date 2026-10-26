@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from retention_publication_cases import EarlyCheckpointCases, ExistingPublicationCases, LegacyPublicationCases
 
 from test_release_artifact_receipts import (
     ReplayedProductionReleaseArtifactTest as ReplayedProductionReleaseArtifactTest,
@@ -429,7 +430,7 @@ class RetentionSafetyTest(unittest.TestCase):
         )
 
 
-class MaintenanceAuthorityTest(unittest.TestCase):
+class MaintenanceAuthorityTest(EarlyCheckpointCases, ExistingPublicationCases, LegacyPublicationCases, unittest.TestCase):
     def production_cleanup_failure(self):
         run = {
             **self.trusted_source(123, "deploy-production.yml"),
@@ -1999,7 +2000,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     return_value=subprocess.CompletedProcess([], 0, archive, b""),
                 ),
             ):
-                with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "unresolved"):
+                with self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "unresolved" if attempt == 1 else "cleanup invocation is missing"):
                     MAINTENANCE.assert_no_pending_mutations(
                         "org/repo", pathlib.Path(temporary), "uat"
                     )
@@ -2029,83 +2030,6 @@ class MaintenanceAuthorityTest(unittest.TestCase):
             run = {**self.trusted_source(123, "capacity-maintenance.yml"), "event": event, "conclusion": "failure"}
             with self.subTest(event=event), mock.patch.object(MAINTENANCE, "api", return_value=jobs):
                 self.assertIs(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "production", artifact), trusted)
-
-    def test_publication_guard_accepts_newer_checkpoint_but_rejects_missing_upload(
-        self,
-    ):
-        run = self.trusted_source(123, "capacity-maintenance.yml")
-
-        def inventory(saved):
-            return {
-                "total_count": 1,
-                "jobs": [
-                    {
-                        "name": "UAT bounded revision cleanup",
-                        "status": "completed",
-                        "steps": [
-                            {
-                                "name": "Prepare or finish eligible uat revision cleanup",
-                                "conclusion": "failure",
-                            },
-                            {
-                                "name": "Save uat cleanup checkpoint",
-                                "conclusion": saved,
-                            },
-                        ],
-                    }
-                ],
-            }
-
-        for saved in ("success", "failure"):
-            with (
-                self.subTest(saved=saved),
-                mock.patch.object(
-                    MAINTENANCE,
-                    "api",
-                    side_effect=[{"workflow_runs": [run]}, inventory(saved)],
-                ),
-                mock.patch.object(
-                    MAINTENANCE, "trusted_checkpoint_run", return_value=True
-                ),
-            ):
-                if saved == "success":
-                    MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
-                else:
-                    with self.assertRaises(MAINTENANCE.retention.UnsafeState):
-                        MAINTENANCE.assert_checkpoint_publication("org/repo", "uat")
-
-    def test_production_guard_skips_uat_scoped_ticks_without_fetching_jobs(self):
-        # The clock sends about 13 UAT-only ticks a day. Walking each one (a jobs
-        # call at about 0.5 s) pushed production's guard past its 90 s budget
-        # after a week without a production cleanup.
-        def tick(run_id, title):
-            return {**self.trusted_source(run_id, "capacity-maintenance.yml"),
-                    "event": "repository_dispatch", "display_title": title}
-
-        checkpoint = tick(999, "Capacity Maintenance tick (production)")
-        saved = {"total_count": 1, "jobs": [{"name": "Production bounded revision cleanup", "status": "completed", "steps": [
-            {"name": "Prepare or finish eligible production revision cleanup", "conclusion": "success"},
-            {"name": "Save production cleanup checkpoint", "conclusion": "success"}]}]}
-        skipped = {"total_count": 1, "jobs": [{"name": "Production bounded revision cleanup", "status": "completed",
-                                               "conclusion": "skipped", "steps": []}]}
-        for title, expected_job_calls in (("Capacity Maintenance tick (uat)", 1), ("Capacity Maintenance tick", 151)):
-            runs = [tick(1000 + n, title) for n in range(150)] + [checkpoint]
-            job_calls = []
-
-            def api(_repository, endpoint, runs=runs, job_calls=job_calls):
-                if endpoint.startswith("workflows/capacity-maintenance.yml/runs"):
-                    return {"workflow_runs": runs}
-                job_calls.append(endpoint)
-                return saved if endpoint.startswith("runs/999/") else skipped
-            with (
-                self.subTest(title=title),
-                mock.patch.object(MAINTENANCE.production_phone_lease, "assert_reconciled"),
-                mock.patch.object(MAINTENANCE, "api", side_effect=api),
-                mock.patch.object(MAINTENANCE, "trusted_checkpoint_run", return_value=True),
-            ):
-                MAINTENANCE.assert_checkpoint_publication("org/repo", "production")
-                # The negative control (an unscoped tick) is still walked run by run.
-                self.assertEqual(len(job_calls), expected_job_calls)
 
     def test_maintenance_is_hourly_and_independent_of_deployments(self):
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
@@ -2770,7 +2694,7 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     MAINTENANCE.find_release("org/repo", "123", pathlib.Path("unused"))
                 download.assert_not_called()
 
-    def test_noop_or_superseded_release_never_runs_cleanup_or_replaces_drain_state(
+    def test_noop_or_superseded_release_never_runs_cleanup(
         self,
     ):
         for release in (None, (123, {"status": "healthy"})):
@@ -2803,15 +2727,20 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                     ),
                     mock.patch.object(MAINTENANCE, "assert_checkpoint_publication"),
                     mock.patch.object(MAINTENANCE, "restore_state") as restore,
+                    mock.patch.object(MAINTENANCE, "latest_deploy_observation", return_value=123),
                     mock.patch.object(MAINTENANCE, "run_retention") as run,
                     contextlib.redirect_stdout(io.StringIO()),
                 ):
                     self.assertEqual(MAINTENANCE.main(), 0)
                     restore.assert_called_once()
                     run.assert_not_called()
-                    self.assertEqual(list(state_dir.iterdir()), [])
+                    if release is None:
+                        self.assertEqual(list(state_dir.iterdir()), [])
+                    else:
+                        checkpoint = json.loads((state_dir / "completed.json").read_text())
+                        self.assertEqual(checkpoint["pass_status"], "in_progress")
                     self.assertEqual(
-                        output.read_text(), "cleanup_outcome=no_live_source\n"
+                        output.read_text(), ("checkpoint_ready=true\n" if release else "") + "cleanup_outcome=no_live_source\n"
                     )
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):

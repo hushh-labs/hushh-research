@@ -41,9 +41,7 @@ class Ports(Protocol):
 
 def inspect_database(connection, installed: bool | None) -> dict:
     """Only catalog metadata and EXISTS booleans enter this bounded read port."""
-    connection.set_session(
-        isolation_level="REPEATABLE READ", readonly=True, autocommit=False
-    )
+    connection.set_session(isolation_level="REPEATABLE READ", readonly=True, autocommit=False)
     with connection.cursor() as cursor:
         cursor.execute("SET LOCAL statement_timeout='5000ms'")
         cursor.execute("SET LOCAL lock_timeout='3000ms'")
@@ -56,17 +54,13 @@ def inspect_database(connection, installed: bool | None) -> dict:
         for table in TABLES:
             cursor.execute("SELECT to_regclass(%s) IS NOT NULL", ("public." + table,))
             present = cursor.fetchone()[0]
-            if type(present) is not bool or (
-                installed is not None and present is not installed
-            ):
+            if type(present) is not bool or (installed is not None and present is not installed):
                 raise ValueError("phone_schema_relation_boundary_unqualified")
             if present:
                 cursor.execute(f"SELECT EXISTS(SELECT 1 FROM public.{table})")
                 if cursor.fetchone()[0] is not False:
                     raise ValueError("phone_schema_authority_not_empty")
-        cursor.execute(
-            "SELECT to_regclass('public.account_firebase_mutations') IS NOT NULL"
-        )
+        cursor.execute("SELECT to_regclass('public.account_firebase_mutations') IS NOT NULL")
         if cursor.fetchone()[0] is not True:
             raise ValueError("phone_schema_mutation_relation_missing")
         cursor.execute(
@@ -150,6 +144,7 @@ def canonical_binding() -> str:
     )
     files = [
         "db/release_migration_manifest.json",
+        "db/contracts/prod_core_schema.json",
         *(
             str(path.relative_to(ROOT / "consent-protocol"))
             for path in sorted((ROOT / "consent-protocol/db").glob("*.py"))
@@ -158,9 +153,7 @@ def canonical_binding() -> str:
     ]
     return fingerprint(
         {
-            name: hashlib.sha256(
-                (ROOT / "consent-protocol" / name).read_bytes()
-            ).hexdigest()
+            name: hashlib.sha256((ROOT / "consent-protocol" / name).read_bytes()).hexdigest()
             for name in files
         }
     )
@@ -219,9 +212,7 @@ def preflight(prepared: dict, *, ports: Ports) -> dict:
     return result
 
 
-def continue_preflight(
-    prepared: dict, original: dict, reference: dict, *, ports: Ports
-) -> dict:
+def continue_preflight(prepared: dict, original: dict, reference: dict, *, ports: Ports) -> dict:
     _validate_preflight(original, prepared)
     owner, before = _owner(ports), ports.snapshot()
     submissions = _submissions(ports, before)
@@ -254,6 +245,9 @@ def _stable(snapshot: dict) -> dict:
 
 
 def _checks(checks: dict, prepared: dict, origin: dict) -> dict:
+    contract = json.loads(
+        (ROOT / "consent-protocol/db/contracts/prod_core_schema.json").read_text()
+    )
     guard, backup, manifest = (checks[key] for key in ("guard", "backup", "manifest"))
     observe = checks["observe"]
     now = datetime.now(timezone.utc)
@@ -270,8 +264,9 @@ def _checks(checks: dict, prepared: dict, origin: dict) -> dict:
         or guard.get("violations") != []
         or guard.get("policy", {}).get("skip_db_check") is not False
         or guard["policy"].get("release_environment") != "production"
-        or guard.get("migrations", {}).get("selected_lane_head") != 428
-        or guard["migrations"].get("expected_contract_version") != 428
+        or guard.get("migrations", {}).get("selected_lane_head") != contract["expected_schema_head"]
+        or guard["migrations"].get("expected_contract_version")
+        != contract["expected_migration_version"]
         or backup.get("status") != "ok"
         or backup.get("project_id") != PROJECT
         or backup.get("instance") != "hushh-vault-db"
@@ -299,9 +294,7 @@ def _checks(checks: dict, prepared: dict, origin: dict) -> dict:
 
 
 def _continuity(before: dict, after: dict, checkpoint: dict | None) -> None:
-    if before["jobs"] != after["jobs"] or set(before["services"]) != set(
-        after["services"]
-    ):
+    if before["jobs"] != after["jobs"] or set(before["services"]) != set(after["services"]):
         raise ValueError("phone_schema_issuer_inventory_changed")
     additions = set(after["revisions"]) - set(before["revisions"])
     for name, revision in before["revisions"].items():
@@ -427,9 +420,7 @@ def main() -> int:
                 for name in ("guard", "backup", "manifest", "observe")
             }
             checkpoint = (
-                json.loads(Path(args.checkpoint).read_text())
-                if args.phase == "final"
-                else None
+                json.loads(Path(args.checkpoint).read_text()) if args.phase == "final" else None
             )
             result = installed(
                 prepared,

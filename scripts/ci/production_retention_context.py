@@ -112,14 +112,14 @@ def services(owner, args) -> dict:
     return result
 
 
-def find_source(owner, args, repository):
+def find_source(owner, args, repository, *, require_live=None):
     anchors = []
     with tempfile.TemporaryDirectory() as temporary:
         found = owner.find_release(
             repository,
             args.release_run_id,
             Path(temporary),
-            require_live=not args.verify_source_only,
+            require_live=not args.verify_source_only if require_live is None else require_live,
             environment=args.environment,
             on_phone_rollback=anchors.append,
             **(

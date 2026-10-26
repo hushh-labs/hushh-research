@@ -27,6 +27,29 @@ def _bash() -> str:
     return bash
 
 
+def test_bounded_reader_keeps_raw_job_logs_in_its_pipe_and_rejects_other_paths(
+    tmp_path, monkeypatch
+):
+    module, *_ = _acceptance_fixture()
+    executable = tmp_path / "gh"
+    executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if '--allow-escape-sequences' not in sys.argv: sys.exit(1)\n"
+        "sys.stdout.buffer.write(b'\\x1b[31mfixed synthetic log\\x1b[0m\\n')\n"
+    )
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ["PATH"])
+    with pytest.raises(module.Refused, match="GitHub lookup failed"):
+        module.bounded_github_read("jobs/42/logs", 5)
+    assert module.bounded_github_read("jobs/42/logs", 5, allow_escape_sequences=True) == (
+        b"\x1b[31mfixed synthetic log\x1b[0m\n"
+    )
+    for path in ("jobs/0/logs", "jobs/42/logs?redirect=1", "artifacts/42/zip"):
+        with pytest.raises(module.Refused, match="exact job log"):
+            module.bounded_github_read(path, 5, allow_escape_sequences=True)
+
+
 def test_predecessor_requires_exact_application_sha_and_pinned_dev_chain():
     module, client, _, responses, pins = _acceptance_fixture()
     assert client.accept(pins["uat"], "uat", SHA, "backend") == {

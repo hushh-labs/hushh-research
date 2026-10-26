@@ -1594,80 +1594,11 @@ SCOPED_TICK_TITLES = {
 def assert_checkpoint_publication(repository: str, environment: str) -> None:
     if environment == "production":
         production_phone_lease.assert_reconciled(repository, api=api, governed=governed_dispatch, timestamp=_github_timestamp, deadline=_LOOKUP_DEADLINE.get())
-    name = (
-        "UAT" if environment == "uat" else "Production"
-    ) + " bounded revision cleanup"
-    other_scope = SCOPED_TICK_TITLES["production" if environment == "uat" else "uat"]
-    legacy = (
-        "UAT revision maintenance (no drain wait)"
-        if environment == "uat"
-        else "Production revision maintenance (no drain wait)"
-    )
-    for page in range(1, 11):
-        result = api(
-            repository,
-            f"workflows/capacity-maintenance.yml/runs?branch=main&per_page=100&page={page}",
-        )
-        runs = result.get("workflow_runs")
-        if not isinstance(runs, list):
-            raise retention.UnsafeState("maintenance history is invalid")
-        for run in sorted(runs, key=lambda item: item["id"], reverse=True):
-            if (
-                run.get("path") != ".github/workflows/capacity-maintenance.yml"
-                or run.get("head_branch") != "main"
-                or (run.get("repository") or {}).get("full_name") != repository
-                or (run.get("head_repository") or {}).get("full_name") != repository
-            ):
-                continue
-            if run.get("event") == "repository_dispatch" and run.get("display_title") == other_scope:
-                continue
-            inventory = api(
-                repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100"
-            )
-            jobs = inventory.get("jobs")
-            if not isinstance(jobs, list) or inventory.get("total_count") != len(jobs):
-                raise retention.UnsafeState("maintenance job inventory is incomplete")
-            for job in jobs:
-                if job.get("name") == legacy:
-                    return  # The pre-policy historical boundary has no new intents.
-                if job.get("name") != name:
-                    continue
-                if (
-                    str(run.get("id")) == os.environ.get("GITHUB_RUN_ID")
-                    and job.get("status") != "completed"
-                ):
-                    continue
-                if job.get("status") != "completed":
-                    if job.get("status") in {"queued", "waiting", "pending"}:
-                        continue
-                    raise retention.UnsafeState(
-                        "An earlier environment maintenance job is still active"
-                    )
-                steps = {step.get("name"): step for step in job.get("steps", [])}
-                attempt = steps.get(
-                    f"Prepare or finish eligible {environment} revision cleanup", {}
-                )
-                if attempt.get("conclusion") in {None, "skipped"}:
-                    continue
-                saved = steps.get(f"Save {environment} cleanup checkpoint", {}).get(
-                    "conclusion"
-                )
-                if saved == "success":
-                    if not trusted_checkpoint_run(repository, run, environment):
-                        raise retention.UnsafeState(
-                            "maintenance checkpoint source is untrusted"
-                        )
-                    return
-                if saved == "skipped" and attempt.get("conclusion") == "success":
-                    continue  # A successful no-op never started a mutation checkpoint.
-                raise retention.UnsafeState(
-                    "Maintenance exited without publishing its checkpoint; operator reconciliation required"
-                )
-        if len(runs) < 100:
-            return
-    raise retention.UnsafeState(
-        "maintenance checkpoint history exceeds bounded inventory"
-    )
+    publication = importlib.import_module("retention_publication")
+    try:
+        publication.assert_published(sys.modules[__name__], repository, environment)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        raise retention.UnsafeState("Maintenance publication proof is unavailable or invalid") from error
 
 
 def assert_no_pending_mutations(repository, directory, environment):
@@ -1771,7 +1702,9 @@ def maintenance_pass() -> int:
             with Path(output).open("a") as stream:
                 stream.write("cleanup_ready=false\n")
         return 0
-    found = production_retention_context.find_source(sys.modules[__name__], args, repository)
+    found = production_retention_context.find_source(
+        sys.modules[__name__], args, repository, require_live=False
+    )
     if args.verify_source_only:
         ready = found is not None
         output = os.environ.get("GITHUB_OUTPUT")
@@ -1785,6 +1718,9 @@ def maintenance_pass() -> int:
         return 0
     run_id, release = found
     args.pending_context = release.get("_maintenance_pending_retirement")
+    observation, service_settings, pending = importlib.import_module("retention_publication").begin(
+        sys.modules[__name__], args, repository, run_id
+    )
     if not live_release_matches(release, environment=args.environment):
         print(
             f"Release {run_id} no longer matches live traffic; skipping stale maintenance."
@@ -1795,13 +1731,6 @@ def maintenance_pass() -> int:
     (args.state_dir / "README.txt").write_text(
         f"{args.environment} drain evidence; never deployment authority.\n"
     )
-    observation = (
-        latest_deploy_observation(repository, args.environment) if args.apply else None
-    )
-    service_settings = production_retention_context.services(sys.modules[__name__], args)
-    pending = list(service_settings)
-    if args.apply:
-        checkpoint(args, run_id, observation, pending, "in_progress")
     for service in list(pending):
         if not args.apply:
             break

@@ -292,10 +292,18 @@ class GitHub:
         return [pins[attempt] for attempt in sorted(pins, reverse=True)]
 
 
-def bounded_github_read(path: str, timeout: float) -> bytes:
+def bounded_github_read(
+    path: str, timeout: float, *, allow_escape_sequences: bool = False
+) -> bytes:
     """Bound both buffered bytes and lifetime; always reap the owned gh child."""
+    arguments = ["gh", "api"]
+    if allow_escape_sequences:
+        require(bool(re.fullmatch(r"jobs/[1-9][0-9]*/logs", path)), "Raw escapes require an exact job log")
+        # Bytes stay in the bounded pipe; the log owner validates/sanitizes them.
+        arguments.append("--allow-escape-sequences")
+    arguments.append(f"repos/{REPOSITORY}/actions/{path}")
     with subprocess.Popen(
-        ["gh", "api", f"repos/{REPOSITORY}/actions/{path}"],
+        arguments,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     ) as process:

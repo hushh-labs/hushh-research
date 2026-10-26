@@ -20,6 +20,7 @@ DRIVE_PRODUCTION_TOOLS = (
 
 CI_PRODUCTION_TOOLS = (
     "uat-retention-maintenance.py",
+    "retention_publication.py",
     "production_phone_receipt.py",
     "production_phone_lease.py",
     "production_phone_lease_receipts.py",

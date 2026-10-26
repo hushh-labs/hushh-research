@@ -7,6 +7,7 @@ import importlib
 from datetime import datetime
 
 import pytest
+import yaml
 
 from tests.test_phone_rollback_release import FALLBACK, IMAGE, PRIMARY, ROOT, _revision
 
@@ -257,4 +258,36 @@ def test_acknowledged_phone_build_must_join_the_retained_issuer(submission, monk
     assert (
         module._submissions(ports, {"revisions": {"retained": receipt}})["qualification"]
         == "passed"
+    )
+
+
+def test_cold_schema_intent_precedes_every_schema_mutation_and_keeps_drive_activation_off():
+    steps = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())["jobs"][
+        "deploy"
+    ]["steps"]
+    names = [step["name"] for step in steps]
+    by_name = {step["name"]: step for step in steps}
+    intent = names.index("Publish initial cold schema intent")
+    for name in (
+        "Optional predeploy logical backup run",
+        "Install fail-closed account deletion release fence",
+        "Apply production DB migrations behind account deletion fence",
+    ):
+        assert intent < names.index(name)
+        assert "steps.cold-schema-intent.outcome == 'success'" in by_name[name]["if"]
+    run = by_name["Apply production DB migrations behind account deletion fence"]["run"]
+    assert run.count("--migration-mode observe") == 2
+    assert (
+        run.index("--migration-mode observe")
+        < run.index("--migration-mode replay")
+        < run.rindex("--migration-mode observe")
+    )
+    assert 'if [[ "$PHONE_DEPLOY_PHASE" != cold ]] &&' in run
+    assert (
+        by_name["Publish initial cold schema intent"]["with"]["name"]
+        == "prod-phone-schema-intent-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
+    assert (
+        "steps.cold-schema-installed.outcome == 'success'"
+        in by_name["Record initial cold health-tag lease"]["if"]
     )
