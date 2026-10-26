@@ -172,6 +172,7 @@ import {
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
   popProfilePaneLocation,
+  changeProfilePaneConnector,
   profileLegalParentForPresentation,
   profilePanelParentForPresentation,
   pushProfilePaneLocation,
@@ -1250,7 +1251,13 @@ function ProfilePageContent({
   const nativeWorldModel = useNativeWorldModel({ active: nativeWorldModelActive, owner: nativeDetailOwner, model: worldModel,
     onAccount: () => updateProfileView({ panel: "account", detail: null }, "push"),
     onMemory: () => updateProfileView({ panel: "my-data", detail: null }, "push") });
-  const changeRetainedConnector = useCallback((id: string | null) => updateProfileView({ panel: "connectors", detail: id ? `connector:${id}` : null }, "push"), [updateProfileView]);
+  const changeRetainedConnector = useCallback((id: string | null) => {
+    if (isPanePresentation) {
+      changeProfilePaneConnector(pathname, searchParams, id);
+      return;
+    }
+    updateProfileView({ panel: "connectors", detail: id ? `connector:${id}` : null }, id && !activeDetail ? "push" : "replace");
+  }, [isPanePresentation, pathname, searchParams, activeDetail, updateProfileView]);
   useBackLayer(pathname, nativeWorldModelActive && nativeWorldModel.nested ? 3 : 0, nativeWorldModel.back,
     isPanePresentation ? { profile_pane: "1" } : undefined);
   const nativeMemory = useNativeMemory({

@@ -17,6 +17,7 @@ import {
   getProfilePaneHistoryDepth,
   legacyProfileRouteRedirectHref,
   popProfilePaneLocation,
+  changeProfilePaneConnector,
   profileLegalLocation,
   profileLegalParentForPresentation,
   profilePanelParentForPresentation,
@@ -202,6 +203,28 @@ describe("Profile pane navigation state", () => {
     expect(
       buildProfileRoute({ panel: "connectors", detail: "connector:gmail" }),
     ).toBe("/one/profile/connectors?connector=gmail");
+  });
+
+  it("unwinds repeated retained connector visits before returning to Profile", async () => {
+    window.history.replaceState(null, "", "/one");
+    openProfilePane("/one", window.location.search);
+    pushProfilePaneLocation("/one", window.location.search, { panel: "connectors", detail: null });
+    const query = () => new URLSearchParams(window.location.search);
+    const waitForBack = () => new Promise<void>(resolve => window.addEventListener("popstate", () => resolve(), { once: true }));
+    for (const id of ["gmail", "instagram", "google_drive"]) {
+      changeProfilePaneConnector("/one", query(), id);
+      expect(resolveProfilePaneUrlState(query()).location.detail).toBe(`connector:${id}`);
+      const returned = waitForBack();
+      changeProfilePaneConnector("/one", query(), null);
+      await returned;
+      expect(resolveProfilePaneUrlState(query()).location).toEqual({ panel: "connectors", detail: null });
+      expect(getProfilePaneHistoryDepth()).toBe(2);
+    }
+    const returned = waitForBack();
+    popProfilePaneLocation("/one", query());
+    await returned;
+    expect(resolveProfilePaneUrlState(query()).location).toEqual({ panel: null, detail: null });
+    expect(getProfilePaneHistoryDepth()).toBe(1);
   });
 
   it.each(["instagram", "linkedin"])("returns from %s link entry to Connectors on Back", (id) => {

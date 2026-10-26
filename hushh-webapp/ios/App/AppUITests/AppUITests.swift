@@ -4627,6 +4627,12 @@ final class AppUITests: XCTestCase {
                 app.navigationBars["Profile"].exists && !(nativeAccountBack.exists && nativeAccountBack.isHittable)
             return close.exists && close.isHittable && menu.exists && menu.isHittable && rootNavigation
         }
+        func printProfileReturnState(_ stage: String) {
+            // Closed public destination names only; never dump a private AX tree.
+            let known = ["Profile", "Connectors", "Google Drive", "Trusted documents"]
+            let destination = known.firstIndex(where: { app.navigationBars[$0].exists }) ?? known.count
+            print("PROFILE_RETURN_STATE stage=\(stage) destination=\(destination) back=\(nativeAccountBack.exists && nativeAccountBack.isHittable) enabled=\(nativeAccountBack.exists && nativeAccountBack.isEnabled) root=\(rootIsAdmitted())")
+        }
         func scrollProfileReading(upwards: Bool) {
             // AX may report a scroll container's content extent. Keep the
             // entire physical gesture inside its visible reading viewport.
@@ -4672,12 +4678,14 @@ final class AppUITests: XCTestCase {
             if rootIsAdmitted() { break }
             guard waitForAdmittedControl(back) else { break }
             let sourceBar = app.navigationBars.firstMatch.identifier
+            printProfileReturnState("before_back")
             back.tap()
             let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 rootIsAdmitted() || back.exists && back.isHittable &&
                     app.navigationBars.firstMatch.identifier != sourceBar
             }, object: app)
             guard XCTWaiter.wait(for: [returned], timeout: 10) == .completed else {
+                printProfileReturnState("unsettled_back")
                 XCTFail("PROFILE_BATCH_RESUMED_PARENT_NOT_RESTORED"); return
             }
         }
@@ -4867,7 +4875,10 @@ final class AppUITests: XCTestCase {
                 catalogBack.tap()
                 guard filter(""), waitForAdmittedControl(nativeAccountBack) else { XCTFail("PROFILE_NATIVE_CONNECTOR_CATALOG_RETURN_FAILED"); return }
                 nativeAccountBack.tap()
-                guard revealRosterRow(destination), waitForAdmittedControl(close) else { XCTFail("PROFILE_NATIVE_CONNECTORS_PROFILE_RETURN_FAILED"); return }
+                guard revealRosterRow(destination), waitForAdmittedControl(close) else {
+                    printProfileReturnState("connector_return")
+                    XCTFail("PROFILE_NATIVE_CONNECTORS_PROFILE_RETURN_FAILED"); return
+                }
                 print("PROFILE_NATIVE_DESTINATION family=connectors warm=true single_host=true")
                 print("PROFILE_NATIVE_CONNECTORS catalog=true providers=true link_editor=true custom_editor=true trust=true returned=true mutated=false")
                 continue
