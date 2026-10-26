@@ -446,6 +446,7 @@ async def test_closed_pick_rows_keep_prices_for_a_viewer_whose_own_entry_is_cold
     ]
     saved_at, cache, tripwires, _news = _closed_home_environment(monkeypatch, picks)
     quote = {"price": 100, "change_percent": 1.5, "fetched_at": "2026-07-14T19:58:00Z"}
+    quote["quoted_at"] = "2026-07-14T19:57:00Z"
     shared = {"quotes": dict.fromkeys(("AAPL", "ADBE"), quote)}
     cache.seed_entry(picks_key(["AAPL", "ADBE"]), shared, saved_at)
     # The viewer also holds TSLA, outside the pick list, and its own quotes entry is cold.
@@ -453,7 +454,7 @@ async def test_closed_pick_rows_keep_prices_for_a_viewer_whose_own_entry_is_cold
 
     rows = {row["symbol"]: row for row in payload["renaissance_list"]}
     assert [rows[symbol]["price"] for symbol in ("ADBE", "AAPL")] == [100, 100]
-    assert rows["ADBE"]["as_of"] == quote["fetched_at"] and not rows["ADBE"]["degraded"]
+    assert rows["ADBE"]["as_of"] == quote["quoted_at"] and not rows["ADBE"]["degraded"]
     assert payload["provider_status"]["quote:TSLA"] == "failed"
     for tripwire in tripwires:
         tripwire.assert_not_awaited()
